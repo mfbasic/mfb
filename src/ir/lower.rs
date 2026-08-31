@@ -1,6 +1,6 @@
 use super::*;
 
-use super::fallible::{operator_can_raise, Fallibility};
+use super::fallible::{is_total_literal_negation, operator_can_raise, Fallibility};
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
@@ -1348,8 +1348,8 @@ fn lower_inline_trap(
     // inline `TRAP` still traps a *call* — a scrutinee that is only an operator
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
-        && matches!(&root, IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. }
-            if operator_can_raise(op, type_));
+        && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && trap_hoist_kind(&root, context.fallible) == Some(true);
     let check_root = match &root {
         IrValue::Call { target, .. } => {
             hoists.is_empty() || context.fallible.call_is_fallible(target)
@@ -1832,6 +1832,16 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
 fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
     match value {
         IrValue::Call { target, .. } => Some(fallible.call_is_fallible(target)),
+        // The spelling of a negative literal, which cannot raise — see
+        // `fallible::is_total_literal_negation` for why, and why `Byte` is not
+        // exempt.
+        IrValue::Unary {
+            op, type_, operand, ..
+        } if matches!(operand.as_ref(), IrValue::Const { .. })
+            && is_total_literal_negation(op, type_) =>
+        {
+            None
+        }
         // A raising operator is always checked: unlike a call there is no
         // declaration to prove it total, and `operator_can_raise` is already the
         // conservative side of that question.

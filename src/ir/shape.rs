@@ -1638,10 +1638,22 @@ impl<'a> Walker<'a> {
         conditional: bool,
         offender: &mut Option<String>,
     ) {
-        if offender.is_none()
-            && conditional
-            && super::fallible::operator_can_raise(operator, &self.type_of(expression, locals))
-        {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        // The same exemption `lower::trap_hoist_kind` applies: a unary `-` over a
+        // numeric literal is the spelling of a negative literal and cannot raise,
+        // so `t AND -1 > 0` must not be reported. Kept in step with the lift by
+        // reading the one predicate both sides share.
+        if let HirExpression::Unary { operand, .. } = expression {
+            if matches!(operand.as_ref(), HirExpression::Number(_))
+                && super::fallible::is_total_literal_negation(operator, &type_)
+            {
+                return;
+            }
+        }
+        if super::fallible::operator_can_raise(operator, &type_) {
             *offender = Some(operator.to_string());
         }
     }

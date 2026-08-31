@@ -5,9 +5,16 @@ Effort: large (a codegen capability, not a lowering tweak)
 Severity: MEDIUM (miscompile class; narrower shape than bug-457)
 Class: Miscompile (error handling silently defeated; no diagnostic)
 
-Status: Open
-Regression Test: — (must pin `LET d = two(1 / z, 2) TRAP(e) … END TRAP` catching
-the division's `7-705-0002`; today it escapes the handler entirely)
+Status: FIXED (see the STATUS block at the bottom)
+Regression Test: `tests/rt_inline_trap_raising_operator.rs` (18 cases). **12
+measured RED** against this tree before the fix — division by zero, integer
+multiply overflow, `MOD` by zero, `Float` overflow, unary-negation overflow, an
+operator inside a fallible call, `RECOVER` skipping the rest, left-to-right
+order, first-failure-wins, an `Assign` target, an error-ignoring handler, and the
+short-circuit rejection — and **5 controls** green throughout (a successful
+operator, a preceding call failure, a bare-operator scrutinee still rejected,
+bug-457's nested-call shape, and an operator outside any trap still propagating).
+The 18th pins the negative-literal carve-out (§ below).
 
 An inline `TRAP` covers every fallible **call** in the trapped expression
 (bug-457, fixed in `daa6c8d35`). It does **not** cover an *operator* in that same
@@ -158,3 +165,113 @@ References: `src/ir/lower.rs:lower_inline_trap` (bug-457's desugar);
 (`emit_error_register_return`, where the capture is consumed);
 `src/docs/spec/language/08_error-model.md` §8.4, §8.8;
 `bugs/completed/bug-457-inline-trap-misses-nested-fallible-call.md`.
+
+## STATUS: FIXED
+
+Reproduced first, exactly as documented: `two(1 / z, 2) TRAP(e)` let `7-705-0002`
+past the handler and exited 255 on macOS aarch64. The mechanism was confirmed by
+dumping the `-ir`, not inferred: the division survived as a plain `binary` node
+inside the `callResult`'s args, so it was lowered with no capture active and
+`emit_error_register_return` took its `error_exit_destination()` branch.
+
+Five more operator shapes were measured escaping the same way before touching
+anything — integer `*` overflow (`7-705-0010`), `MOD` by zero, `Float` `*`
+overflow to infinity (`7-705-0015`), unary `-` of `i64::MIN`, and a division
+inside a *fallible* call's argument — so this was never only about `/`.
+
+**The fix takes shape 2 of the two this doc sketched**, not shape 1. The doc
+argued a region-scoped capture "needs the region boundary to survive from
+`ir::lower` into codegen, which is new IR surface", and that lifting operators
+"reuses bug-457's whole desugar" but has "no `BinaryResult` node today". The
+second is the smaller change once you see that codegen *already* has the region
+primitive: `raw_result_capture` is a redirect around an arbitrary stretch of
+lowering, and `lower_inline_conversion_raw` / `lower_inline_builtin_raw` merely
+happen to scope it to one built-in. So no per-operator "raw lowering" was needed,
+and no `BinaryResult`:
+
+* **`IrValue::Checked { type_, value }`** — "evaluate `value` with its
+  domain-error exits captured, yielding `Result OF type_`". One node covers every
+  raising operator rather than one `*Result` node per operator kind, and it
+  extends to any future non-call raise site for free.
+* **`lower_inline_trap` lifts a raising operator exactly as bug-457 lifts a
+  call**, in the same evaluation order, into the same shared
+  `$trap_failed`/`$trap_err` chain — `Bind $trap_resN = Checked(a / b)` +
+  `If ResultIsOk`. The handler stays emitted once.
+* **`lower_checked_value`** runs the inner lowering under `raw_result_capture`,
+  tags the fall-through `Ok`, and materializes the `Result`.
+
+Three things the sketch did not anticipate:
+
+* **`Checked` has to be the observation boundary for a `Float`.** plan-17 moved
+  `+`/`-`/`*`/`/`'s finiteness check off the operator and onto whatever first
+  consumes the value. Lifting the operator moved it under a `ResultValue`, which
+  is not an arithmetic node, so *nothing* observed it: the first version returned
+  `d=2.00` for a `1.0e308 * 1.0e308` that had previously raised — a new silent
+  miscompile introduced by the fix, caught by the probe rather than by reading.
+  `lower_checked_value` calls `observe_float` inside the capture.
+* **A `Checked` must not wrap a call.** A callee's error return does not pass
+  through `emit_error_register_return` in this frame, so it would auto-propagate
+  past the very handler the wrapper exists to feed. The desugar lifts calls out
+  first (so the shape cannot arise from source) and
+  `ir::verify::check_checked_has_no_call` rejects it on the decoded-package path.
+* **A negative literal is not a computed negation.** `Unary(-, Const n)` is the
+  parser's spelling for `-1`, and it was the *only* thing that appeared in all 8
+  `.ir` golden diffs the first version produced — every one of them a whole
+  `Result` materialization to check a negation that provably succeeds.
+  `fallible::is_total_literal_negation` exempts it (excluding `Byte`, whose
+  negation raises `ErrUnderflow` for any non-zero operand; the `i64::MIN`
+  spelling is safe because lowering folds `-9223372036854775808` to a single
+  `Const`, measured by dumping its `-ir`). With the carve-out the change is
+  **byte-identical over the whole committed corpus** — `artifact-gate all`: 1299
+  tests, 1456 builds, 1786 goldens, **0 diffs** — so no golden was regenerated
+  and every shift the first version caused is accounted for.
+
+**The oracle is deliberately coarse.** `fallible::operator_can_raise` answers
+from the operator spelling (`+ - * / DIV MOD ^`, unary `-`) and the node's own
+result type (`Byte`/`Integer`/`Fixed`/`Money`/`Float`), not arm-by-arm against
+`codegen::engine::operators`. Money's dispatcher, Byte's underflow and Fixed's
+`MOD` divisor check are already three separate paths there; a recogniser kept in
+lockstep with a growing census is what silently loses an arm. Over-approximating
+costs one always-`Ok` check inside a trapped expression, under-approximating is
+the miscompile.
+
+**A second bug fell out.** `two(1 / z, inner(-1))` reported `inner`'s
+`9-000-0001`, not the division's `7-705-0002`: bug-457's lift moved the fallible
+call ahead of an operator that preceded it in source order, so left-to-right
+evaluation (`mfb spec language error-model` §8.1) was violated. Lifting the
+operator too restores it; pinned by
+`the_first_failure_in_evaluation_order_wins`.
+
+**Deliberately NOT changed: what may *be* a scrutinee.** `LET d = 1 / z TRAP(e)`
+is still `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` — a compile error, not a silent
+escape, so it is outside this bug's class. This fix widens what an inline `TRAP`
+*covers*, not what it may be attached to; making a bare operator a legal
+scrutinee is a language-surface change that would also make `LET x = 1 + 2 TRAP`
+legal, and the existing `REQUIRES_FALLIBLE` fixtures protect that boundary.
+Pinned by `a_bare_operator_scrutinee_is_still_rejected`.
+
+**The short-circuit corner is closed the way bug-457 closed it.** A raising
+operator in an `AND`/`OR` right operand cannot be lifted — hoisting evaluates it
+unconditionally — so `ir::shape` reports `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`
+rather than letting it escape. The rule *name* keeps bug-457's `_CALL` suffix on
+purpose (renaming a shipped rule breaks every filter keyed on it); only the
+message widened.
+
+**On the bug-467 ordering.** This doc asked for bug-467 (SIGPIPE) to be fixed
+first, on the grounds that a trap-region design would appear to fail on socket
+writes when it had not. That ordering guards a *shape-1* design whose correctness
+claim is "every op in the region routes here"; the shape-2 fix that landed makes
+no such claim — it covers exactly the operator nodes it lifts, and a signal
+raised inside a syscall is visibly outside that set. bug-467 remains open and
+unaffected; nothing here makes it harder, and its repro is not a valid
+counter-example to this fix.
+
+### Verification
+
+* `tests/rt_inline_trap_raising_operator.rs` — 18/18 (12 measured RED first).
+* `tests/rt_inline_trap_nested_call.rs` — 20/20, bug-457's suite unchanged.
+* `artifact-gate all` — 1299 tests, 1456 builds, 1786 goldens, 0 diffs.
+* The `.mfp` round trip, by hand: a `kind: "package"` project whose exported
+  `safeDiv` carries a `Checked` node builds, and an executable importing it
+  prints `ok=5` / `div0=-1` — so value tag 22 encodes, decodes, passes
+  `verify_package`, and lowers on the consumer side.

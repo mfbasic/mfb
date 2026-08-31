@@ -425,6 +425,74 @@ fn a_handler_that_ignores_the_error_still_recovers() {
     assert_eq!(run(&exe), "d=8\n");
 }
 
+/// Build the project with `--ir` and return the emitted IR JSON.
+fn build_ir(root: &Path, source: &str) -> String {
+    fs::create_dir_all(root.join("src")).expect("src dir");
+    fs::write(
+        root.join("project.json"),
+        "{\"name\":\"bug471\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\
+         \"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\
+         \"entry\":\"main\",\"targets\":[\"native\"]}\n",
+    )
+    .expect("write manifest");
+    fs::write(root.join("src/main.mfb"), format!("{PRELUDE}{source}")).expect("write source");
+    let out = mfb()
+        .arg("build")
+        .arg(root)
+        .arg("--ir")
+        .output()
+        .expect("run mfb build --ir");
+    assert!(
+        out.status.success(),
+        "build --ir failed:\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    fs::read_to_string(root.join("bug471.ir")).expect("read emitted IR")
+}
+
+/// The one exemption in `fallible::is_total_literal_negation`, pinned where a
+/// reader will look for it: `f(-1)` is a *negative literal*, not a computed
+/// negation, so it is left in place, while `f(-b)` over a binding is lifted into
+/// a `checked` bind. Removing the exemption would wrap every negative literal in
+/// a whole `Result` materialization for a negation that provably succeeds; the
+/// wrong version of it would drop a real `ErrOverflow`.
+#[test]
+fn a_negative_literal_is_not_lifted_but_a_computed_negation_is() {
+    let literal = build_ir(
+        &unique_root("irlit"),
+        concat!(
+            "FUNC main() AS Integer\n",
+            "  LET d = two(-1, 2) TRAP(e)\n",
+            "    RECOVER -1\n",
+            "  END TRAP\n",
+            "  RETURN d\n",
+            "END FUNC\n",
+        ),
+    );
+    assert!(
+        !literal.contains("\"kind\": \"checked\""),
+        "a negative literal must not be lifted into a checked bind:\n{literal}"
+    );
+
+    let computed = build_ir(
+        &unique_root("ircomputed"),
+        concat!(
+            "FUNC main() AS Integer\n",
+            "  MUT b AS Integer = 5\n",
+            "  LET d = two(-b, 2) TRAP(e)\n",
+            "    RECOVER -1\n",
+            "  END TRAP\n",
+            "  RETURN d\n",
+            "END FUNC\n",
+        ),
+    );
+    assert!(
+        computed.contains("\"kind\": \"checked\""),
+        "a negation over a binding must be lifted into a checked bind:\n{computed}"
+    );
+}
+
 /// A raising operator in a **short-circuited** operand cannot be lifted —
 /// hoisting would evaluate it unconditionally — so it is reported rather than
 /// left to escape the handler silently, exactly as bug-457 reports a fallible

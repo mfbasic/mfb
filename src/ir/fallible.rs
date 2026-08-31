@@ -165,6 +165,38 @@ pub(super) fn operator_can_raise(op: &str, result_type: &ParameterType) -> bool 
         )
 }
 
+/// The one exemption to [`operator_can_raise`]: a unary `-` whose operand is a
+/// numeric **literal** is the spelling of a negative literal, not a computed
+/// negation, and cannot raise. Callers apply it only once they have established
+/// that the operand is a constant.
+///
+/// The parser produces `Unary(-, Const n)` for every negative numeric literal
+/// (unary `-` binds at the unary tier — `mfb spec language operators`), so this
+/// is by far the commonest operator inside a trapped expression: `f(-1) TRAP(e)`
+/// would otherwise pay a whole `Checked` + `Result` materialization to check a
+/// negation that provably succeeds.
+///
+/// Why it provably succeeds, per the codegen arm
+/// (`builder_numeric.rs:lower_numeric_unary_negation`):
+///
+/// * `Integer`/`Fixed`/`Money` negate through `emit_min_i64_negation_check`,
+///   which raises `ErrOverflow` only on exactly `i64::MIN`. `n` here is the
+///   *non-negative* half of a negative literal, and the one spelling that would
+///   produce `i64::MIN` — `-9223372036854775808` — never reaches this shape:
+///   lowering folds it to a single `Const "-9223372036854775808"` (measured by
+///   dumping its `-ir`, since `9223372036854775808` has no positive `Integer`
+///   representation to hold).
+/// * `Float` negation flips the sign bit and emits no check at all.
+/// * `Byte` is **excluded** rather than reasoned about: its negation raises
+///   `ErrUnderflow` for any non-zero operand. A negative literal types as
+///   `Integer` and is rejected against a `Byte` parameter
+///   (`TYPE_CALL_ARGUMENT_MISMATCH`), so the shape is unreachable from source —
+///   but "unreachable" is a weaker guarantee than "cannot raise", and this is
+///   the side of the line where being wrong is a miscompile.
+pub(super) fn is_total_literal_negation(op: &str, result_type: &ParameterType) -> bool {
+    op == "-" && !matches!(result_type, ParameterType::Byte)
+}
+
 /// Whether a block can let an error escape to the caller.
 fn block_escapes(body: &[HirStatement], verdicts: &Fallibility) -> bool {
     body.iter()

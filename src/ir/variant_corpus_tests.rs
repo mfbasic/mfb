@@ -120,6 +120,19 @@ fn every_value() -> Vec<IrValue> {
         IrValue::ResultError {
             value: Box::new(IrValue::Local("r".to_string())),
         },
+        // bug-471. The wrapped value is call-free on purpose: that is the shape
+        // the inline-TRAP desugar builds and the only one `ir::verify` accepts
+        // (`check_checked_has_no_call`).
+        IrValue::Checked {
+            type_: crate::types::ParameterType::parse("Integer"),
+            value: Box::new(IrValue::Binary {
+                op: "/".to_string(),
+                left: Box::new(IrValue::Local("a".to_string())),
+                right: Box::new(IrValue::Global("g".to_string())),
+                loc: loc(),
+                type_: crate::types::ParameterType::parse("Integer"),
+            }),
+        },
         IrValue::WithUpdate {
             type_: crate::types::ParameterType::parse("Point"),
             target: Box::new(IrValue::Local("p".to_string())),
