@@ -444,7 +444,7 @@ phase is where accumulated cross-letter breakage surfaces — budget for it.
 Acceptance: `cargo test --no-fail-fast` green (4234/0 across 81 targets); `test-accept.sh`
 green with no drop in the `N ran` count (1307); fmt clean; **this letter** archived, with
 plan-98-F's remaining phase left open behind two recorded prerequisites.
-Commit: —
+Commit: 442e3c120
 
 ## Validation Plan
 
