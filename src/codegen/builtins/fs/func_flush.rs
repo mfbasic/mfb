@@ -53,6 +53,7 @@ const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writi
 IMPORT fs
 
 SUB main()
+  fs::writeText("report.txt", "first line\nsecond line\n")
   LET header AS String = "id,name\n"
   LET body AS String = "1,alice\n"
   RES out = fs::openFile("report.txt", "write")

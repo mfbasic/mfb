@@ -16,7 +16,7 @@ exists.
 
 Trailing `/` separators are trimmed before the final component is located, so
 `"target/output/"` and `"target/output"` both yield `"target"`. Trimming stops
-once a single character remains, so it never consumes the whole string. After
+once a single character remains, so it never takes the whole string. After
 trimming, the remaining bytes are scanned backward for the last `/` separator;
 the separator that joins the directory to the final component is dropped, so the
 result carries no trailing separator unless it is the root itself.
@@ -28,9 +28,7 @@ found is at position `0` — the only separator is a leading `/` — or `path` i
 The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
 names are preserved unchanged and any embedded bytes are treated literally. When
 the result is `"."` or `"/"` a shared string constant is returned; otherwise a
-new `String` holding the directory bytes is allocated. The function reads no
-external state and has no side effects other than allocating the returned
-`String`."#;
+new `String` holding the directory part is built. The function reads no external state and has no side effects."#;
 const EX: &str = r#"A directory and a file name yield the directory:
 
 ```

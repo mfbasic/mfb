@@ -60,8 +60,7 @@ directory's entries.
 be absolute or relative to the current working directory and may contain Unicode
 characters, including emoji, when the host filesystem accepts those names. The
 string must not be empty and must not contain an embedded NUL byte, because the
-host call requires a NUL-terminated path; an internal NUL-terminated copy of the
-path is allocated for the call. Apart from opening and closing the directory,
+host call cannot carry one. Apart from opening and closing the directory,
 the call only reads the filesystem and has no side effects."#;
 const EX: &str = r#"Print every entry in a directory in sorted order:
 
@@ -71,7 +70,8 @@ IMPORT io
 IMPORT collections
 
 SUB main()
-  LET names AS List OF String = fs::listDirectory("target")
+  fs::createDirectories("scratch")
+  LET names AS List OF String = fs::listDirectory("scratch")
   FOR i = 0 TO len(names) - 1
     io::print(collections::get(names, i))
   NEXT
@@ -85,8 +85,8 @@ IMPORT fs
 IMPORT io
 
 SUB main()
-  fs::createDirectory("target/empty")
-  LET names AS List OF String = fs::listDirectory("target/empty")
+  fs::createDirectories("scratch/empty")
+  LET names AS List OF String = fs::listDirectory("scratch/empty")
   io::print(toString(len(names)))
 END SUB
 ```"#;

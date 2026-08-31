@@ -14,7 +14,7 @@ const DESC: &str = r#"`encoding::sleb128Decode` reads one signed [LEB128](https:
 sequence from `data` and returns the `Integer` it represents. It is the inverse
 of `encoding::sleb128Encode`.
 
-Bytes are consumed least-significant group first. The low seven bits of each
+Bytes are read least-significant group first. The low seven bits of each
 byte contribute the next 7-bit group; the high bit (`0x80`) is the continuation
 flag. Decoding accumulates groups — shifting each successive group left by seven
 more bits — and stops at the first byte whose high bit is clear (byte value

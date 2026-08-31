@@ -22,7 +22,7 @@ empty list decodes to the empty string.
 `utf8Decode` is a **parameter overload** selected by the argument's element type:
 a `List OF Byte` is decoded directly, while a `List OF Integer` is first checked
 element by element — each unit must lie in `0..255` — then decoded. The overload
-is resolved during monomorphization, so the selection is a compile-time decision,
+is settled once the argument type is known, so the selection is a compile-time decision,
 not a runtime dispatch.
 
 It is the inverse of `encoding::utf8Encode`: decoding the bytes (or integers)

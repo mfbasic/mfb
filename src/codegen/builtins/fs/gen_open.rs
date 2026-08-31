@@ -45,7 +45,7 @@ pub(crate) fn open_flag_set(family: PlatformFamily, no_follow: bool) -> OpenFlag
         // `O_NOFOLLOW` (0x100). O_NOFOLLOW guards only the terminal component;
         // O_NOFOLLOW_ANY (Darwin, macOS 11+) fails with ELOOP if a symlink is
         // encountered at *any* path component, closing the intermediate-symlink
-        // gap in one open() with no component walk (bug-260 / OS-04). The base
+        // gap in one open() with no component walk. The base
         // read/write/rw/append flags are unchanged.
         (PlatformFamily::MacOS, true) => OpenFlagSet {
             read: "536870912",
@@ -305,7 +305,7 @@ pub(crate) fn lower_fs_open_helper(
         abi::move_register(abi::return_register(), &c_path),
         abi::move_register(abi::c_arg(1), &flag_val),
         // Create newly-opened files owner-only (0o600 = 384), not world-readable
-        // 0o666; matches createTempFile/atomicWrite (audit-2 OS-01 / bug-184).
+        // 0o666; matches createTempFile/atomicWrite.
         abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
@@ -371,7 +371,7 @@ pub(crate) fn lower_fs_open_helper(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&file_alloc_ok),
         // The File-record alloc failed after `open` succeeded: close the fd before
-        // reporting OOM so the error path does not leak the OS fd (bug-63). `fd` is
+        // reporting OOM so the error path does not leak the OS fd. `fd` is
         // a spilled vreg, so it survives the failed `arena_alloc` and this close.
         abi::move_register(abi::return_register(), &fd),
     ]);
@@ -405,7 +405,7 @@ pub(crate) fn lower_fs_open_helper(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
-        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        // Transparent read buffer: empty cache at the fd's position.
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),
@@ -447,7 +447,7 @@ pub(crate) fn lower_fs_open_helper(
     Ok((instructions, relocations, stack_size))
 }
 
-/// `fs::openWithin(root, relPath[, mode])` (bug-259 / OS-03): open `relPath`
+/// `fs::openWithin(root, relPath[, mode])`: open `relPath`
 /// resolved beneath the trusted directory `root`, refusing any escape. The
 /// containment is enforced at open time, closing the check-then-open TOCTOU that
 /// an `isWithin`+`open` pair leaves: `root` is canonicalized once (`realpath`,

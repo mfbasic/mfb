@@ -46,7 +46,7 @@ than treated as complete, and an interrupted (`EINTR`) write is retried from the
 same cursor before any byte has moved. An empty `String` produces an empty
 (truncated) file.
 
-The new file is created with mode `384` (octal `0600`), owner read/write only,
+The new file gets permissions `0600` — readable and writable only by the user running the program,
 before the process umask is applied — not the world-readable `0666`. The file is
 created and truncated only after `path` has been validated, and the final path
 component is followed when it is a symlink, so writing through a symlink writes

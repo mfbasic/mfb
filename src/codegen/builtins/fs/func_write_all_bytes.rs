@@ -66,7 +66,7 @@ SUB main()
   RES f = fs::openFile("target/output.bin", "write")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeAllBytes(f, bytes)
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -76,6 +76,8 @@ Copy the bytes of one open file into another:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.bin", "first line\nsecond line\n")
+  fs::writeText("copy.bin", "first line\nsecond line\n")
   RES src = fs::openFile("data.bin")
   RES dst = fs::openFile("copy.bin", "write")
   LET bytes AS List OF Byte = fs::readAllBytes(src)

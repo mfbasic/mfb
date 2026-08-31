@@ -50,11 +50,7 @@ each directory's actual mode is `0755` with the umask bits cleared.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Internally a
-NUL-terminated copy of `path` is allocated for the host calls, and the `/`
-separators in that copy are temporarily overwritten with NUL bytes to create each
-prefix and restored afterward, so `path` must be non-empty and must not contain an
-embedded NUL byte.
+characters when the host filesystem accepts those names. Each prefix is created in turn, so `path` must be non-empty and must not contain an embedded NUL byte.
 
 When the host refuses to create a prefix or the final component for any reason
 other than `EEXIST`, the operation stops at that point and the failure `errno` is

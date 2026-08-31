@@ -41,7 +41,7 @@ pub(crate) fn lower_fs_write_all_helper(
         abi::branch_ne(&closed),
     ];
     let mut relocations = Vec::new();
-    // Reconcile the read buffer (plan-14-C) before writing: on a read+write handle
+    // Reconcile the read buffer before writing: on a read+write handle
     // a write after fs::readLine must land at the true fd position, not the block
     // read-ahead. A no-op when nothing was read-buffered.
     emit_reconcile_read_buffer(
@@ -171,7 +171,7 @@ pub(crate) fn lower_fs_read_all_helper(
         abi::branch_ne(&closed),
     ];
     let mut relocations = Vec::new();
-    // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
+    // Reconcile the read buffer: a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
     emit_reconcile_read_buffer(
         &mut EmitCtx {
@@ -343,7 +343,7 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
         abi::branch_ne(&closed),
     ];
     let mut relocations = Vec::new();
-    // Reconcile the read buffer (plan-14-C) before writing (see fs::writeAll).
+    // Reconcile the read buffer before writing (see fs::writeAll).
     emit_reconcile_read_buffer(
         &mut EmitCtx {
             symbol,
@@ -484,7 +484,7 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
         abi::branch_ne(&closed),
     ];
     let mut relocations = Vec::new();
-    // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
+    // Reconcile the read buffer: a whole-file read after fs::readLine
     // must see the true fd position, not the block read-ahead.
     emit_reconcile_read_buffer(
         &mut EmitCtx {
@@ -689,7 +689,7 @@ pub(crate) fn lower_fs_eof_helper(
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
-        // Buffer-aware (plan-14-C): unconsumed bytes in the read buffer
+        // Buffer-aware: unconsumed bytes in the read buffer
         // (READ_POS < READ_FILL) mean not-EOF, whatever the raw fd position. When
         // the buffer is fully consumed the fd sits at the logical position, so the
         // fd-vs-size check below is exact.
@@ -920,7 +920,7 @@ pub(crate) fn lower_fs_read_line_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<FsBodyParts, String> {
-    // Transparent block read buffer (plan-14-C): serve lines from the per-`File`
+    // Transparent block read buffer: serve lines from the per-`File`
     // read block (`READ_PTR[READ_POS..READ_FILL]`) and refill with one `read()` when
     // it is exhausted, accumulating a line that spans blocks into a growing arena
     // buffer. O(N) per file vs the old seek-to-EOF/read-whole-remaining O(N²). The

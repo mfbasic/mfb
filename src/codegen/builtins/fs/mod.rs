@@ -123,9 +123,7 @@ Handle functions work through the opaque `File` resource type. `fs::open`,
 `fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` return a `File`;
 `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
 `fs::writeAllBytes`, and `fs::eof` act on one. Portable open modes are
-`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A
-`File` is an owned, non-copyable handle closed automatically by lexical drop when
-its binding leaves scope; call `fs::close` only to release it earlier. Using a
+`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. Using a
 `File` after it is closed fails.
 
 Each `File` handle can independently opt in to output buffering. It is off by
@@ -147,8 +145,7 @@ uses when called without one. `fs::listDirectory` returns entry names only,
 excluding `.` and `..`, sorted in ascending byte-wise order for deterministic
 results. The existence predicates `fs::exists`, `fs::fileExists`, and
 `fs::directoryExists` return a `Boolean` and report a missing or unreadable path
-as `FALSE` rather than raising; only an internal allocation failure can raise
-from them."#;
+as `FALSE` rather than raising; only an internal running out of memory can raise from them."#;
 
 /// Register the `fs` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -161,7 +158,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: FILE_TYPE,
         export: true,
-        description: "An opaque, owned handle to an open file, released automatically \
+        description: "An opaque handle to an open file, released automatically \
                       when it leaves scope.",
         close_function: CLOSE,
         sendable: true,

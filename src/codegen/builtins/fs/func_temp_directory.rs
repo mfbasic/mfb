@@ -72,7 +72,7 @@ IMPORT fs
 
 SUB main()
   RES f = fs::createTempFile()
-  ' f is created under fs::tempDirectory() and closed by lexical drop
+  ' f is created under fs::tempDirectory() and closes itself
 END SUB
 ```"#;
 

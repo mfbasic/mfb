@@ -30,7 +30,7 @@ its contents. It returns `TRUE` when the position is at or beyond the last byte
 and `FALSE` while one or more bytes remain to be read. `file` must be an open
 `File` resource, such as one returned by `fs::openFile` or `fs::open`.
 
-The test is buffer-aware (plan-14-C): if the transparent per-handle read buffer
+The test is buffer-aware: if the transparent per-handle read buffer
 still holds unconsumed bytes (its read cursor is before its fill mark), `fs::eof`
 returns `FALSE` immediately without querying the host. Otherwise it asks the host
 for the file's current position and total length and compares them — the position
@@ -56,11 +56,12 @@ IMPORT fs
 IMPORT io
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
   END WHILE
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```"#;
 

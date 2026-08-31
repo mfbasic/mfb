@@ -44,9 +44,8 @@ byte, and is case sensitive; any other value is rejected before the file is
 touched.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
-owner-only `0600` permission bits (subject to the process umask), not
-world-readable `0666`, matching `fs::createTempFile` and the atomic writers
-(audit-2 OS-01 / bug-184).
+user-only `0600` permission bits (subject to the process umask), not
+world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
 The final path component is followed when it is a symlink, so opening through a
 symlink opens its target. To refuse a symlinked final component, use
@@ -58,18 +57,17 @@ characters when the host filesystem accepts those names. The string must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is closed by lexical drop when the binding that holds it
-leaves scope, or explicitly with `fs::close`. The function reads or writes no
+The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the descriptor and wraps it in the `File`
-resource. If the `File` record cannot be allocated after the descriptor is
-opened, the descriptor is closed before the error is reported, so a failed open
-never leaks a host fd (bug-63)."#;
+resource. If the `File` record cannot be built after the file is opened, the file is closed before the error is reported, so a failed open
+never leaks a host fd."#;
 const EX: &str = r#"Open a file for reading and close it explicitly:
 
 ```
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f AS fs::File = fs::open("data.txt", "read")
   fs::close(f)
 END SUB

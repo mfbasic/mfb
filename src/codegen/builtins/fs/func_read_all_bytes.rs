@@ -37,7 +37,7 @@ returned by `fs::openFile` or `fs::open` — opened in a mode that permits readi
 
 The amount to read is measured up front: the function seeks to record the current
 position, seeks to the end to find the file's length, seeks back to the start
-position, allocates a `List OF Byte` of exactly that length, and reads the
+position, builds a `List OF Byte` of exactly that length, and reads the
 remainder into it in one or more host reads until the collection is full. No
 newline translation, decoding, or UTF-8 validation is performed, so the returned
 list holds the file's remaining bytes exactly as stored on disk, making it suitable
@@ -60,9 +60,10 @@ const EX: &str = r#"Read all remaining bytes from an open file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.bin", "first line\nsecond line\n")
   RES f = fs::openFile("data.bin")
   LET bytes AS List OF Byte = fs::readAllBytes(f)
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -72,6 +73,7 @@ Skip the first line, then read the remaining bytes of the file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.bin", "first line\nsecond line\n")
   RES f = fs::openFile("data.bin")
   LET header AS String = fs::readLine(f)
   LET body AS List OF Byte = fs::readAllBytes(f)

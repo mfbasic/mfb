@@ -106,7 +106,7 @@ pub(crate) fn lower_fs_atomic_write_helper(
     let index = vregs.next();
     let byte = vregs.next();
     // Holds the rename errno across the temp-file unlink call (which itself sets
-    // errno) so the rename failure is still mapped to the right Result (bug-63).
+    // errno) so the rename failure is still mapped to the right Result.
     let saved_errno = vregs.next();
     let mut instructions = vec![
         abi::move_register(&path, abi::return_register()),
@@ -334,7 +334,7 @@ pub(crate) fn lower_fs_atomic_write_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&rename_ok),
         // rename failed: the temp file still exists on disk — unlink it before
-        // mapping the errno (bug-63). The mkstemps-failure path (no temp) enters at
+        // mapping the errno. The mkstemps-failure path (no temp) enters at
         // `rename_error` instead and skips the unlink.
         abi::branch(&rename_failed),
         abi::label(&rename_ok),
@@ -600,7 +600,7 @@ pub(crate) fn lower_fs_write_path_helper(
         abi::move_register(abi::return_register(), &c_path),
         abi::move_immediate(abi::c_arg(1), "Integer", mode_flags),
         // Owner-only create mode (0o600 = 384), not world-readable 0o666
-        // (audit-2 OS-01 / bug-184).
+        //.
         abi::move_immediate(abi::c_arg(2), "Integer", "384"),
     ]);
     platform.emit_open_file(
@@ -1108,7 +1108,7 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&file_alloc_ok),
         // The File-record alloc failed after `open` succeeded: close the fd before
-        // reporting OOM so the error path does not leak the OS fd (bug-63). `fd` is
+        // reporting OOM so the error path does not leak the OS fd. `fd` is
         // a spilled vreg, surviving the failed alloc and this close.
         abi::move_register(abi::return_register(), &fd),
     ]);
@@ -1136,7 +1136,7 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
-        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        // Transparent read buffer: empty cache at the fd's position.
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_POS),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_READ_FILL),

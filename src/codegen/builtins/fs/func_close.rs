@@ -63,6 +63,7 @@ const EX: &str = r#"Open a file and release its handle explicitly:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   RES f = fs::openFile("data.txt")
   LET line AS String = fs::readLine(f)
   fs::close(f)

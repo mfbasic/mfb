@@ -58,8 +58,7 @@ Unicode characters when the host filesystem accepts those names. It must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
 
-The returned `File` is positioned at the start of the empty file and is owned by
-the caller. It is closed by lexical drop when the binding that holds it leaves
+The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of scope leaves
 scope, or explicitly with `fs::close`. The file itself is not deleted on close;
 removing it is the caller's responsibility, for example with `fs::deleteFile`."#;
 const EX: &str = r#"Create a temporary file in the host temporary directory and write to it:
@@ -70,7 +69,7 @@ IMPORT fs
 SUB main()
   RES f = fs::createTempFile()
   fs::writeAll(f, "data")
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 
@@ -82,7 +81,7 @@ IMPORT fs
 SUB main()
   RES g = fs::createTempFile("target")
   fs::writeAll(g, "data")
-  ' g is closed by lexical drop when this scope ends
+  ' g closes itself when this scope ends
 END SUB
 ```"#;
 

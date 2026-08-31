@@ -46,7 +46,7 @@ produces an empty (truncated) file. Bytes are written exactly as held in the
 list, with no encoding, decoding, or newline translation, so the function is
 suitable for binary data as well as text.
 
-The new file is created with mode `384` (octal `0600`), owner read/write only,
+The new file gets permissions `0600` — readable and writable only by the user running the program,
 before the process umask is applied — not the world-readable `0666`. The file is
 created and truncated only after `path` has been validated, and the final path
 component is followed when it is a symlink, so writing through a symlink writes
@@ -80,6 +80,7 @@ Replace a file's contents with bytes read from another file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytes("copy.bin", bytes)
 END SUB

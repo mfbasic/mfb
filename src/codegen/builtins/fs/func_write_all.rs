@@ -64,7 +64,7 @@ IMPORT fs
 SUB main()
   RES f = fs::openFile("target/output.txt", "write")
   fs::writeAll(f, "Hello")
-  ' f is closed by lexical drop when this scope ends
+  ' f closes itself when this scope ends
 END SUB
 ```
 

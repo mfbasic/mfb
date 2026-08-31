@@ -37,7 +37,7 @@ performed beyond the UTF-8 validity check, so the returned `String` holds the
 file's bytes exactly as stored on disk, interpreted as UTF-8.
 
 Internally the function opens the file read-only, seeks to the end and back to
-determine the length, allocates the result `String`, reads the bytes in a loop,
+determine the length, builds the result `String`, reads the bytes in a loop,
 and closes the descriptor. The file is always closed before the function returns,
 on both the success and the post-open failure paths. The byte length of the
 returned `String` equals the byte length of the file at the moment it is read, so
@@ -59,6 +59,7 @@ const EX: &str = r#"Read a text file into a `String`:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.txt", "first line\nsecond line\n")
   LET value AS String = fs::readText("data.txt")
 END SUB
 ```

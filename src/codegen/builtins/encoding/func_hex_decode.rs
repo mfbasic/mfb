@@ -13,8 +13,7 @@ const INTRO: &str = r#"Decode a hexadecimal `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::hexDecode` parses `text` as base-16 and returns the bytes it encodes.
 Every two hexadecimal characters produce one byte: the first character is the
 high nibble and the second is the low nibble, so the byte value is
-`high * 16 + low`. Characters are consumed in order with no separators, prefix,
-or padding recognized.
+`high * 16 + low`. Characters are read in order with no separators, prefix, or padding recognized.
 
 Both cases are accepted for the letter digits: `0`–`9`, `a`–`f`, and `A`–`F` are
 valid, and lowercase and uppercase may be mixed freely within the same string.

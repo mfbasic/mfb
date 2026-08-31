@@ -31,7 +31,7 @@ trusted directory `root`, and returns an opaque `File` resource. Its purpose is
 to open a caller-controlled name inside an intended directory with a host-enforced
 guarantee that the result cannot escape that directory — closing the
 time-of-check/time-of-use race that an `fs::isWithin(root, path)` check followed
-by a separate `fs::open(path)` leaves open (bug-259 / OS-03).
+by a separate `fs::open(path)` leaves open.
 
 Containment is enforced at open time. `root` is canonicalized once with `realpath`
 (resolving the trusted root's own symbolic links); `relPath` is rejected if it is
@@ -48,8 +48,7 @@ or traverses a symbolic link at any component. `relPath` is always interpreted
 relative to `root`, never to the process working directory.
 
 The `mode` argument is optional: when it is omitted the file is opened for
-reading, exactly as if `"read"` had been supplied. The implicit `"read"` is
-appended before lowering, matching `fs::openFile`.
+reading, exactly as if `"read"` had been supplied.
 
 `mode` selects how the file is opened. The portable mode names are `"read"` or
 `"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`.
@@ -63,23 +62,23 @@ byte, and is case sensitive; any other value is rejected before the file is
 touched.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
-owner-only `0600` permission bits (subject to the process umask), not
-world-readable `0666`, matching `fs::createTempFile` and the atomic writers
-(audit-2 OS-01 / bug-184).
+user-only `0600` permission bits (subject to the process umask), not
+world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
 `root` and `relPath` are interpreted as UTF-8 bytes and passed to the host
 filesystem. `root` must resolve to an existing directory (it is canonicalized
 with `realpath`), and neither string may be empty or contain an embedded NUL
-byte. The returned `File` is closed by lexical drop when the binding that holds
-it leaves scope, or explicitly with `fs::close`."#;
+byte. The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`."#;
 const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for reading:
 
 ```
 IMPORT fs
 
 SUB main()
+  fs::createDirectories("srv/data")
+  fs::writeText("srv/data/alice.txt", "hi")
   LET userName AS String = "alice.txt"
-  RES f AS fs::File = fs::openWithin("/srv/data", userName)
+  RES f AS fs::File = fs::openWithin("srv/data", userName)
   fs::close(f)
 END SUB
 ```
@@ -105,7 +104,8 @@ Write beneath the root; a symlinked component makes the open fail:
 IMPORT fs
 
 SUB main()
-  RES w AS fs::File = fs::openWithin("/srv/data", "reports/today.txt", "write")
+  fs::createDirectories("srv/data/reports")
+  RES w AS fs::File = fs::openWithin("srv/data", "reports/today.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
 END SUB

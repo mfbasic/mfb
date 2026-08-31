@@ -43,7 +43,7 @@ reports `TRUE`, and a symlink whose target is missing or non-regular reports
 
 A failed `stat` — for example a missing path or an unreadable parent directory —
 is reported as `FALSE` rather than raised as an error. The only failure the call
-itself raises is an allocation failure while preparing the NUL-terminated copy of
+itself raises is running out of memory while preparing the path of
 `path`.
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be

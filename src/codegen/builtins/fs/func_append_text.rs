@@ -50,8 +50,7 @@ an interrupted (`EINTR`) write is retried from the same cursor before any byte h
 moved. An empty `String` leaves the file's length unchanged, creating it as an
 empty file if it did not exist.
 
-When the file is created it is given mode `384` (octal `0600`), owner read/write
-only, before the process umask is applied — not the world-readable `0666`. An
+When the file is created it gets permissions `0600` — readable and writable only by the user running the program, before the process umask is applied — not the world-readable `0666`. An
 existing file keeps its current mode. The file is created and opened only after
 `path` has been validated, and the final path component is followed when it is a
 symlink, so appending through a symlink appends to the target file.
@@ -83,6 +82,7 @@ IMPORT fs
 IMPORT io
 
 SUB main()
+  fs::writeText("notes.txt", "first line\nsecond line\n")
   fs::appendText("notes.txt", "first\n")
   fs::appendText("notes.txt", "second\n")
   LET text AS String = fs::readText("notes.txt")

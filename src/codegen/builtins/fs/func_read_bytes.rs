@@ -55,6 +55,7 @@ const EX: &str = r#"Read a binary file into a byte list:
 IMPORT fs
 
 SUB main()
+  fs::writeText("data.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("data.bin")
 END SUB
 ```
@@ -66,6 +67,7 @@ IMPORT fs
 IMPORT io
 
 SUB main()
+  fs::writeText("image.png", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("image.png")
   io::print("size: " & toString(len(bytes)))
 END SUB

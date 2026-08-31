@@ -88,6 +88,7 @@ Atomically replace a file's contents with bytes read from another file:
 IMPORT fs
 
 SUB main()
+  fs::writeText("source.bin", "first line\nsecond line\n")
   LET bytes AS List OF Byte = fs::readBytes("source.bin")
   fs::writeBytesAtomic("copy.bin", bytes)
 END SUB
