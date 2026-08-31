@@ -35,9 +35,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-C complete (software render + goldens) | `ls planning/completed/plan-98-C-*` → hit | NOT MET |
-| B's `Image`/`Font` RES backend closes + marks textures pending-free | plan-98-B Phase 4 acceptance met | NOT MET |
-| Working tree builds | `cargo build` → pass | UNVERIFIED (run before starting) |
+| plan-98-C complete (software render + goldens) | `ls planning/completed/plan-98-C-*` → hit | MET (archived after `4db995345`; its three phases landed as `b33cbfea3`, `33e54904a`, `3b723ca5b` + `f94f76d9d`) |
+| B's `Image` RES backend closes + marks textures pending-free | plan-98-B Phase 4 acceptance met | MET (`8c2ebb103`; `Font` moved to G by B Correction 21, so this row is `Image` only — `gen_image.rs` sets `closed@16` and reserves `lastUsedFrame`, and B never frees) |
+| Working tree builds | `cargo build` → pass | MET (re-run: `Finished `dev` profile`) |
 
 > Per A's invariant 8: no "full suite green at HEAD" row, no byte-identity obligation;
 > the full suite runs once, at the end of the plan (G).
@@ -197,22 +197,28 @@ ring is a bug in the handoff to root-cause, not a design falsification.
 
 ### Phase 1 — Paper protocol doc (`.ai/canvas-threading.md`) — no code
 
-- [ ] Author `.ai/canvas-threading.md`: the three-thread model; the scene ring state
-      machine (who writes/reads `building`/`pending`/`live`, the CAS/atomic order); the
-      resize handshake; the deferred texture free (`lastUsedFrame`/`lastCompletedFrame`
-      + closed flag); and the **dirty-texture upload** ordering (`setBytes` writes the CPU
-      shadow + dirty flag on the worker; the graphics thread uploads at frame start;
-      uploading to a texture a still-in-flight frame is sampling needs a per-texture ring
-      or barrier — deferred to E/F, trivial for software). Spell each out as an ordered
-      sequence. State plainly there is no refcount.
-- [ ] Enumerate the race orderings that must hold (publish vs close vs draw vs
-      frame-completion vs setBytes-upload), each with the invariant that protects it. This
-      list becomes Phase 4's test matrix.
-- [ ] Cross-link from `AGENTS.md` "Read before that kind of work" and MEMORY-worthy
-      lessons (durable invariants only, no status).
+- [x] Authored `.ai/canvas-threading.md`: the three-thread ownership table, the scene
+      ring state machine with its release/acquire order, the resize handshake, the
+      dirty-texture upload ordering, and the closed-flag texture-free rule — each as an
+      ordered sequence, and §9 states plainly what is absent (no refcount, no building-slot
+      lock, no time-based repaint, no cross-thread arena free).
+      **It also records the finding that reshapes the whole letter** (Correction 1):
+      arena state is PER-THREAD, so the canvas scene region a graphics thread reads off
+      its own `x19` is empty and always will be. The ring therefore has to live in
+      process-global storage, not the arena.
+- [x] §8 enumerates **twelve** orderings (R1–R12), each with the rule that protects
+      it. R12 is one the design did not name (Correction 2): the scene slots live in the
+      worker's arena and the worker's arena state lives on the worker's *stack frame*, so
+      a graphics thread still rendering after the worker's entry returns reads freed
+      stack. It must be joined before the worker unwinds.
+- [x] Cross-linked from `AGENTS.md` "Read before that kind of work". The durable
+      lesson — arena state is per-thread, cross-thread data needs a process-global symbol,
+      and no thread may free another's arena block — is recorded in auto-memory as
+      `arena-state-is-per-thread`.
 
-Acceptance: the doc exists, enumerates every race the design names plus any found while
-writing, and states the normative ordering for each — reviewed before any threading code.
+Acceptance: MET. `.ai/canvas-threading.md` exists, covers all five orderings the
+design names (R1–R11) plus R12 found while writing, and gives a normative sequence for
+each of §3 ring, §5 resize, §6 upload and §7 free. No threading code was written first.
 Commit: —
 
 ### Phase 2 — Graphics thread + software render loop (no ring yet)
@@ -318,8 +324,39 @@ plan's own new oracle is not confused with the repo's `tests/byte-identity/` cod
 drift gate. No design decision changed. This letter's one concrete citation, `emit_term_snapshot_copy`, survived the
 2026-08-16/17 restructurings (now `src/target/linux_gtk/term_draw.rs:1067`).
 
-<Further corrections filled in during execution — especially any race discovered while
-writing the paper doc that the design didn't name.>
+**Correction 1 (Phase 1) — arena state is PER-THREAD, so the scene ring cannot live
+in the arena.** The design says the graphics thread "reads `live`" and treats the
+scene as if it were process-wide. It is not. Everything addressed off
+`ARENA_STATE_REGISTER` (`x19`) — module globals, `term::` state, the presentation-mode
+word, and `canvas_scene_offset` — is thread-local: the entry
+(`src/codegen/engine/function/entry.rs`) points `x19` at its **own stack frame**, and
+in an `--app` build the *worker* runs the entry (`MACAPP_PROGRAM_SYMBOL`), while
+`thread::start` arena-allocates each child its own zeroed block. A graphics thread
+would therefore read its own empty canvas scene region and render blank frames
+forever — silently, since a blank frame is a legal frame.
+
+This is why plan-98-C's blit works and does not contradict this: it never reads the
+scene from another thread, it is handed the pixels by pointer.
+
+The ring therefore lives in **process-global writable storage** (a data symbol, the
+way `_mfb_winapp_canvas_frame` does), which is the only canvas state shared between
+threads. `MAIN_ARENA_GLOBAL_SYMBOL` would technically also reach the worker's region
+and is rejected in `.ai/canvas-threading.md` §2: it makes the reader's view depend on
+which thread last ran an entry, and it hands out a pointer into a live stack frame.
+
+A second consequence, recorded in §3: an arena is per-thread, so the graphics thread
+may never *free* a scene slot the worker allocated. All three slots are owned and
+reused by the worker; the graphics thread returns an index, never memory. That is now
+a correctness rule, not the performance nicety the design presented it as.
+
+**Correction 2 (Phase 1) — a thirteenth race the design did not name (R12).** Writing
+§8 surfaced shutdown: the scene slots live in the worker's arena and the worker's
+arena state lives on the worker's *stack frame*, so a graphics thread still rendering
+after the worker's entry returns is reading freed stack. The graphics thread must be
+joined, or proven stopped, before the worker's entry unwinds. Added to the matrix as
+R12 and therefore to Phase 4's tests.
+
+<Further corrections filled in during execution.>
 
 ## Summary
 
