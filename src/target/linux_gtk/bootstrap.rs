@@ -574,6 +574,15 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
     asm.call_external("g_object_ref_sink");
     asm.store_state(abi::c_return(0), ST_CANVAS_AREA);
+    // plan-98-C Phase 3: install the paint callback once, with the area. A drawing
+    // area with no draw func renders nothing at all, so this has to happen here
+    // rather than at first present — the area is built on entering canvas mode and
+    // may be redrawn (resize, expose) before any frame arrives.
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.local_address(abi::c_arg(1), CANVAS_DRAW_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
+    asm.call_external("gtk_drawing_area_set_draw_func");
     asm.push(abi::label(&canvas_have_area));
     // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
     asm.load_state(abi::c_arg(0), ST_WINDOW);
@@ -1247,6 +1256,223 @@ pub(super) fn emit_append_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
     asm.finish(APPEND_IDLE_SYMBOL, "Boolean")
+}
+
+/// plan-98-C Phase 3 (worker side): `_mfb_gtkapp_canvas_blit`.
+///
+/// `x0` = the frame's first pixel, `x1` = width, `x2` = height. Packs the frame into
+/// a `malloc` block — width at +0, height at +8, pixels from +16 — and hands
+/// ownership to the GTK main loop with `g_idle_add`.
+///
+/// **Why the dimensions travel inside the block.** One pointer then carries a whole
+/// frame, so the handoff needs no lock: the worker builds a block nobody else can
+/// see, and every read *and* write of `ST_CANVAS_PIXELS` happens on the main loop.
+/// Publishing width separately would let a frame be drawn with the previous frame's
+/// dimensions — and reading four bytes past a buffer is a crash, not a glitch.
+/// Same shape as the io transcript's `APPEND_IDLE` chunk, for the same reason.
+///
+/// **Why the copy swizzles.** Cairo's `RGB24` is a native-endian 32-bit word with
+/// the top byte unused, so on a little-endian host its memory order is B, G, R, X
+/// while the rasteriser produces R, G, B, A. The reorder rides along on a copy that
+/// has to happen anyway (the caller's block belongs to the next frame the moment
+/// this returns), so it costs no extra pass.
+pub(super) fn emit_canvas_blit_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_BLIT_SYMBOL);
+    let loop_top = format!("{CANVAS_BLIT_SYMBOL}_loop");
+    let loop_done = format!("{CANVAS_BLIT_SYMBOL}_done");
+    let no_memory = format!("{CANVAS_BLIT_SYMBOL}_no_memory");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(64));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::mfb_arg(0))); // pixels
+    asm.push(abi::move_register(abi::LOCAL[1], abi::mfb_arg(1))); // width
+    asm.push(abi::move_register(abi::LOCAL[2], abi::mfb_arg(2))); // height
+
+    // bytes = width * height * 4; block = malloc(bytes + 16)
+    asm.push(abi::multiply_registers(
+        abi::LOCAL[3],
+        abi::LOCAL[1],
+        abi::LOCAL[2],
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "4"));
+    asm.push(abi::multiply_registers(
+        abi::LOCAL[3],
+        abi::LOCAL[3],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::LOCAL[3], 16));
+    asm.call_external("malloc");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&no_memory));
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0))); // block
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::LOCAL[4], 0)); // width
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::LOCAL[4], 8)); // height
+
+    // Swizzle-copy: dst[i+0]=src[i+2] (B), dst[i+1]=src[i+1] (G),
+    //               dst[i+2]=src[i+0] (R), dst[i+3]=255 (X, unused by RGB24).
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0")); // byte cursor
+    asm.push(abi::label(&loop_top));
+    asm.push(abi::compare_registers(abi::SCRATCH[1], abi::LOCAL[3]));
+    asm.push(abi::branch_ge(&loop_done));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::LOCAL[0],
+        abi::SCRATCH[1],
+    )); // &src[i]
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::LOCAL[4],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::add_immediate(abi::SCRATCH[3], abi::SCRATCH[3], 16)); // &dst[i]
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 2)); // B
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 0));
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 1)); // G
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 1));
+    asm.push(abi::load_u8(abi::SCRATCH[4], abi::SCRATCH[2], 0)); // R
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 2));
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "255"));
+    asm.push(abi::store_u8(abi::SCRATCH[4], abi::SCRATCH[3], 3));
+    asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 4));
+    asm.push(abi::branch(&loop_top));
+    asm.push(abi::label(&loop_done));
+
+    // g_idle_add(CANVAS_COMMIT, block) — the main loop takes ownership from here.
+    asm.local_address(abi::c_arg(0), CANVAS_COMMIT_SYMBOL);
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[4]));
+    asm.call_external("g_idle_add");
+
+    // Out of memory drops the frame rather than failing the call. A renderer that
+    // killed the program because one frame could not be shown would be worse than
+    // one that skips it, and the next frame re-renders the same scene.
+    asm.push(abi::label(&no_memory));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::load_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::add_stack(64));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_BLIT_SYMBOL, "Nothing")
+}
+
+/// plan-98-C Phase 3 (GTK main loop): `_mfb_gtkapp_canvas_commit`, the `g_idle_add`
+/// callback that takes ownership of a blitted frame.
+///
+/// Frees the previous block, publishes the new one, and queues a redraw. Both the
+/// free and the store happen here, on the main loop, which is the whole reason
+/// `ST_CANVAS_PIXELS` needs no lock — the draw callback that reads it runs on this
+/// same loop and cannot interleave.
+pub(super) fn emit_canvas_commit_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_COMMIT_SYMBOL);
+    let no_previous = format!("{CANVAS_COMMIT_SYMBOL}_no_previous");
+    let no_area = format!("{CANVAS_COMMIT_SYMBOL}_no_area");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // new block
+
+    asm.load_state(abi::c_arg(0), ST_CANVAS_PIXELS);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&no_previous));
+    asm.call_external("free");
+    asm.push(abi::label(&no_previous));
+    asm.store_state(abi::LOCAL[1], ST_CANVAS_PIXELS);
+
+    asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&no_area));
+    asm.call_external("gtk_widget_queue_draw");
+    asm.push(abi::label(&no_area));
+
+    asm.push(abi::move_immediate(abi::c_return(0), "Boolean", FALSE)); // G_SOURCE_REMOVE
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_COMMIT_SYMBOL, "Boolean")
+}
+
+/// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.
+///
+/// `x0` = the area, `x1` = the `cairo_t`, `x2`/`x3` = the area's width and height,
+/// `x4` = user data. Paints the committed frame at its own dimensions, which is why
+/// the block carries them: the area's size and the frame's can disagree for one
+/// redraw after a resize, and drawing `w * h` bytes from a smaller block would read
+/// past its end.
+///
+/// No committed frame is not an error — the area is realized before the first
+/// `present` — so an unpainted area is simply left to GTK's own background.
+pub(super) fn emit_canvas_draw_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_DRAW_SYMBOL);
+    let done = format!("{CANVAS_DRAW_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(48));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // cairo_t
+
+    asm.load_state(abi::LOCAL[1], ST_CANVAS_PIXELS);
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+
+    // surface = cairo_image_surface_create_for_data(block+16, CAIRO_FORMAT_RGB24,
+    //                                               w, h, w*4)
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::LOCAL[1], 16));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "1")); // CAIRO_FORMAT_RGB24
+    asm.push(abi::load_u64(abi::c_arg(2), abi::LOCAL[1], 0)); // width
+    asm.push(abi::load_u64(abi::c_arg(3), abi::LOCAL[1], 8)); // height
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[1], 0));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "4"));
+    asm.push(abi::multiply_registers(
+        abi::c_arg(4),
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    )); // stride
+    asm.call_external("cairo_image_surface_create_for_data");
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_return(0)));
+
+    // cairo_set_source_surface(cr, surface, 0.0, 0.0); cairo_paint(cr)
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d("d0", abi::SCRATCH[0]));
+    asm.push(abi::signed_convert_to_float_d("d1", abi::SCRATCH[0]));
+    asm.call_external("cairo_set_source_surface");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("cairo_paint");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
+    asm.call_external("cairo_surface_destroy");
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(48));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_DRAW_SYMBOL, "Nothing")
 }
 
 // --- term:: TUI surface (plan-01-term.md §6.3) -----------------------------

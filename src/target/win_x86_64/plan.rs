@@ -121,6 +121,14 @@ impl NativePlanPlatform for Platform {
             import("CallWindowProcW", USER32, "_main"),
             import("RegisterClassExW", USER32, "_main"),
             import("CreateWindowExW", USER32, "_main"),
+            // plan-98-C Phase 3: the canvas frame blit. The worker allocates and
+            // swizzles the frame into a process-heap block and posts it; WM_PAINT
+            // draws it with SetDIBitsToDevice and the message arm frees the block it
+            // replaces.
+            import("GetProcessHeap", KERNEL32, "_main"),
+            import("HeapAlloc", KERNEL32, "_main"),
+            import("HeapFree", KERNEL32, "_main"),
+            import("SetDIBitsToDevice", GDI32, "_main"),
             import("GetMessageW", USER32, "_main"),
             import("TranslateMessage", USER32, "_main"),
             import("DispatchMessageW", USER32, "_main"),

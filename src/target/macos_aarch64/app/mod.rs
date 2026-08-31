@@ -1170,6 +1170,124 @@ mod release_tests {
 mod canvas_reconcile_tests {
     use super::*;
 
+    /// plan-98-C Phase 3: the blit checks for a delegate before allocating.
+    ///
+    /// Headless there is no delegate and no run loop, so `waitUntilDone:YES` would
+    /// deadlock. Checking first also means a headless run — which is every golden
+    /// test — builds no CoreGraphics objects at all rather than building an image it
+    /// immediately has to release.
+    #[test]
+    fn canvas_blit_checks_for_a_delegate_before_building_an_image() {
+        let func = emit_canvas_blit_helper();
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == SEL_DELEGATE.0 || *name == "_CGColorSpaceCreateDeviceRGB")
+            .collect();
+        let delegate = order
+            .iter()
+            .position(|name| *name == SEL_DELEGATE.0)
+            .expect("the blit must check for an app delegate");
+        let colour_space = order
+            .iter()
+            .position(|name| *name == "_CGColorSpaceCreateDeviceRGB")
+            .expect("the blit must create a colour space for its bitmap context");
+        assert!(
+            delegate < colour_space,
+            "the delegate check must precede any CoreGraphics allocation; got {order:?}"
+        );
+    }
+
+    /// Every CoreGraphics object the blit creates is released.
+    ///
+    /// A leak here is one colour space, one context and one image *per frame* — at
+    /// sixty frames a second the process would grow without bound. The image in
+    /// particular can only be released because the perform waited: with
+    /// `waitUntilDone:NO` the main thread might not have consumed it yet.
+    #[test]
+    fn canvas_blit_releases_every_core_graphics_object() {
+        let func = emit_canvas_blit_helper();
+        for (create, release) in [
+            ("_CGColorSpaceCreateDeviceRGB", "_CGColorSpaceRelease"),
+            ("_CGBitmapContextCreate", "_CGContextRelease"),
+            ("_CGBitmapContextCreateImage", "_CGImageRelease"),
+        ] {
+            let created = func
+                .relocations
+                .iter()
+                .filter(|r| r.to.as_str() == create)
+                .count();
+            let released = func
+                .relocations
+                .iter()
+                .filter(|r| r.to.as_str() == release)
+                .count();
+            assert_eq!(
+                created, released,
+                "{create} is called {created} time(s) but {release} {released} — \
+                 every frame would leak the difference"
+            );
+        }
+    }
+
+    /// The main-thread apply sets the image as the canvas layer's contents.
+    ///
+    /// Both lookups must be guarded: the program may have left canvas mode between
+    /// the render and the perform, and `setContents:` on a nil layer would be a
+    /// silent no-op that looks like a rasteriser bug.
+    #[test]
+    fn canvas_blit_apply_sets_the_layer_contents() {
+        let func = emit_canvas_blit_apply_helper();
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| {
+                *name == SEL_LONG_LONG_VALUE.0
+                    || *name == CANVAS_VIEW_ASSOC_KEY
+                    || *name == SEL_LAYER.0
+                    || *name == SEL_SET_CONTENTS.0
+            })
+            // An address load is an adrp/add pair, so each symbol appears twice in a
+            // row. Collapse runs — the question here is the order, not the count.
+            .fold(Vec::new(), |mut seen: Vec<&str>, name| {
+                if seen.last() != Some(&name) {
+                    seen.push(name);
+                }
+                seen
+            });
+        assert_eq!(
+            order,
+            vec![
+                SEL_LONG_LONG_VALUE.0,
+                CANVAS_VIEW_ASSOC_KEY,
+                SEL_LAYER.0,
+                SEL_SET_CONTENTS.0,
+            ],
+            "unbox the image, find the canvas view, take its layer, then set the \
+             contents; got {order:?}"
+        );
+    }
+
+    /// The `mfbBlit:` method is installed on the delegate alongside `mfbReconcile:`.
+    ///
+    /// Without it `performSelectorOnMainThread:` raises an unrecognized-selector
+    /// exception on the first present rather than drawing anything.
+    #[test]
+    fn delegate_gets_the_blit_selector() {
+        let func = emit_main_bootstrap(PresentationMode::None);
+        let names: Vec<&str> = func.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(
+            names.contains(&SEL_MFB_BLIT.0),
+            "the delegate must install mfbBlit: or the first present raises"
+        );
+        assert!(
+            names.contains(&CANVAS_BLIT_APPLY_SYMBOL),
+            "the mfbBlit: IMP must be referenced by class_addMethod"
+        );
+    }
+
     /// Count the sends of a given selector in a body: `load_selector` lays down an
     /// `adrp`/`add` page pair per send, contributing exactly one `DataAddrHi`
     /// relocation to that selector's C-string.

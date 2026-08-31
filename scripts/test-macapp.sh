@@ -468,6 +468,88 @@ else
   fi
 fi
 
+# Case 3f (plan-98-C Phase 3, GUI): the rendered frame actually reaches the window.
+#
+# This case MUST be GUI *and* must capture the screen: every other check in this
+# plan can be satisfied by a renderer whose output never leaves memory. The
+# headless MFB_CANVAS_DUMP path proves the rasteriser; only a screenshot proves
+# the blit — the CGImage, the main-thread marshal, and the layer contents.
+#
+# The program draws two flat colour bars with no antialiased edge between them and
+# then blocks, so the check is a coordinate lookup rather than an image diff: a
+# capture is scaled by the display's backing factor and composited with the
+# window's own chrome, neither of which the software golden knows about. Solid
+# regions survive both.
+#
+# Requires Screen Recording permission (System Settings > Privacy & Security), the
+# same requirement snap-macos.py documents. Without it macOS silently returns
+# wallpaper, so the script fails loudly rather than passing on a blank image.
+proj="$work/canvasblit"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "canvasblit", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET size AS Size = canvas::getSize()
+  LET w AS Float = toFloat(size.width)
+  LET h AS Float = toFloat(size.height)
+  LET left AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET right AS DrawItem = Rectangle[x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(canvas::rgb(0, 0, 255))]
+  canvas::present([left, right])
+  io::print("BLIT_PRESENTED")
+  io::flush()
+  WHILE TRUE
+  END WHILE
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: canvas blit screenshot GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasblit"
+else
+  shot="$work/canvasblit.png"
+  if ! python3 "$ROOT/scripts/snap-macos.py" \
+       "$(bundle "$proj" canvasblit)" "${shot%.png}" >/dev/null 2>&1; then
+    fail "canvas blit screenshot (grant Screen Recording permission)"
+  else
+    verdict=$(python3 - "$shot" <<'PY'
+import sys
+
+from PIL import Image
+
+image = Image.open(sys.argv[1]).convert("RGB")
+w, h = image.size
+# Sample well inside each half, and below any title bar, so neither window chrome
+# nor the seam between the bars can be mistaken for the fill.
+left = image.getpixel((w // 4, h * 3 // 4))
+right = image.getpixel((w * 3 // 4, h * 3 // 4))
+
+
+def near(got, want, slack=24):
+    return all(abs(a - b) <= slack for a, b in zip(got, want))
+
+
+if near(left, (255, 0, 0)) and near(right, (0, 0, 255)):
+    print("ok")
+else:
+    print(f"left={left} right={right}")
+PY
+)
+    if [ "$verdict" = "ok" ]; then
+      pass "the rendered frame is blitted to the canvas layer (red|blue captured)"
+    else
+      fail "captured window is not the presented frame: $verdict"
+    fi
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than

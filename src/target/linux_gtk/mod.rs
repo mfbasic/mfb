@@ -75,6 +75,16 @@ const RECONCILE_IDLE_SYMBOL: &str = "_mfb_gtkapp_reconcile_idle";
 /// when it enters canvas mode, and both arms must be able to create one. Also gives
 /// the canvas teardown something to restore the window's child *to*.
 const RECONCILE_BUILD_SYMBOL: &str = "_mfb_gtkapp_reconcile_build";
+/// plan-98-C Phase 3: the worker-side frame blit. Packs the rendered frame into a
+/// `malloc` block (swizzling RGBA to the BGRX byte order Cairo's `RGB24` wants on
+/// a little-endian host) and hands ownership to the main loop via `g_idle_add`.
+const CANVAS_BLIT_SYMBOL: &str = "_mfb_gtkapp_canvas_blit";
+/// The `g_idle_add` callback that takes ownership of a blitted frame: frees the
+/// previous block, publishes the new one, and queues a redraw. Runs on the GTK main
+/// loop, which is what makes `ST_CANVAS_PIXELS` single-threaded.
+const CANVAS_COMMIT_SYMBOL: &str = "_mfb_gtkapp_canvas_commit";
+/// The `GtkDrawingAreaDrawFunc` that paints the committed frame.
+const CANVAS_DRAW_SYMBOL: &str = "_mfb_gtkapp_canvas_draw";
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
@@ -181,7 +191,17 @@ const ST_CANVAS_AREA: usize = ST_HELD + 8;
 /// Non-zero only while in canvas mode; cleared on exit, which is what makes
 /// "released after exit" observable.
 const ST_CANVAS_SURFACE: usize = ST_CANVAS_AREA + 8;
-const STATE_SIZE: usize = ST_CANVAS_SURFACE + 8;
+/// plan-98-C Phase 3: the committed frame, as one `malloc` block holding its own
+/// width at +0, height at +8 and BGRX pixels from +16.
+///
+/// Width and height travel *inside* the block rather than in their own state slots
+/// so that one pointer carries a whole frame. That is what makes the handoff
+/// race-free without a lock: the worker builds a block nobody else can see, hands
+/// the pointer to `g_idle_add`, and every read *and* write of this slot happens on
+/// the GTK main loop. A separate width slot would have to be published separately,
+/// and a frame could then be drawn with the previous frame's dimensions.
+const ST_CANVAS_PIXELS: usize = ST_CANVAS_SURFACE + 8;
+const STATE_SIZE: usize = ST_CANVAS_PIXELS + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -524,8 +544,31 @@ pub(crate) fn emit_app_program_entry(
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_build_helper()?);
         functions.push(emit_reconcile_idle_helper()?);
+        // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and
+        // the drawing area's paint callback.
+        functions.push(emit_canvas_blit_helper()?);
+        functions.push(emit_canvas_commit_helper()?);
+        functions.push(emit_canvas_draw_helper()?);
     }
     Ok(functions)
+}
+
+/// plan-98-C Phase 3: the worker-side `canvas::blitSurface` seam.
+///
+/// The caller has already staged the frame pointer, width and height in the MFB
+/// argument registers, which is what [`bootstrap::emit_canvas_blit_helper`] expects,
+/// so this is a plain call. Unlike the mode reconcile it does *not* go straight to
+/// `g_idle_add`: the frame has to be copied out of the caller's block before the
+/// worker returns, and only the blit helper can do that.
+pub(crate) fn emit_canvas_blit_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let mut asm = Asm::new(from_symbol);
+    asm.call_internal(CANVAS_BLIT_SYMBOL);
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// The x86-64 flavor of [`emit_app_program_entry`]: the ELF-entry trampoline is
@@ -561,6 +604,11 @@ pub(crate) fn emit_app_program_entry_x86(
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_build_helper()?);
         functions.push(emit_reconcile_idle_helper()?);
+        // plan-98-C Phase 3: the frame blit's worker side, its main-loop commit, and
+        // the drawing area's paint callback.
+        functions.push(emit_canvas_blit_helper()?);
+        functions.push(emit_canvas_commit_helper()?);
+        functions.push(emit_canvas_draw_helper()?);
     }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -829,6 +877,15 @@ pub(crate) fn app_mode_imports(
         // symbols plan-98-F imports, and naming either here would fail to bind on
         // the other display server.
         (GTK, "gtk_native_get_surface"),
+        // plan-98-C Phase 3: the CPU-buffer blit. Cairo rather than a `GdkTexture`
+        // because the surface plan-98-A built is a `GtkDrawingArea`, whose draw
+        // callback hands out a `cairo_t` — displaying a texture through it would
+        // mean downloading the texture back to CPU memory it just came from.
+        (GTK, "gtk_drawing_area_set_draw_func"),
+        (GTK, "gtk_widget_queue_draw"),
+        (CAIRO, "cairo_image_surface_create_for_data"),
+        (CAIRO, "cairo_set_source_surface"),
+        (CAIRO, "cairo_surface_destroy"),
         (GOBJECT, "g_object_ref_sink"),
         (CAIRO, "cairo_set_source_rgb"),
         (CAIRO, "cairo_paint"),
@@ -1307,6 +1364,112 @@ mod canvas_reconcile_tests {
         assert!(
             externals(&func, "g_object_ref_sink") >= 1,
             "the canvas area must be ref_sunk or set_child would destroy it on exit"
+        );
+    }
+
+    /// The drawing area must get its paint callback when it is created.
+    ///
+    /// A `GtkDrawingArea` with no draw func renders nothing at all, and the area is
+    /// built on entering canvas mode — before any frame exists — so installing the
+    /// callback at first present would leave the first exposes blank.
+    #[test]
+    fn canvas_area_gets_its_draw_func_when_created() {
+        let func = bootstrap::emit_reconcile_idle_helper().expect("reconcile idle");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| {
+                *name == "gtk_drawing_area_new" || *name == "gtk_drawing_area_set_draw_func"
+            })
+            .collect();
+        let created = order
+            .iter()
+            .position(|name| *name == "gtk_drawing_area_new")
+            .expect("the Canvas arm must create the drawing area");
+        let installed = order
+            .iter()
+            .position(|name| *name == "gtk_drawing_area_set_draw_func")
+            .expect("the drawing area must be given a draw func or it paints nothing");
+        assert!(
+            created < installed,
+            "the draw func must be installed on the area just created; got {order:?}"
+        );
+    }
+
+    /// The blit copies the frame before handing it over.
+    ///
+    /// The caller's block belongs to the next frame the moment `canvas::blitSurface`
+    /// returns, so a pointer handed to the main loop without a copy would be drawn
+    /// after it had been overwritten. `malloc` before `g_idle_add` is what proves the
+    /// copy happens on the worker's side of the handoff.
+    #[test]
+    fn blit_copies_the_frame_before_scheduling_it() {
+        let func = bootstrap::emit_canvas_blit_helper().expect("canvas blit");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| *name == "malloc" || *name == "g_idle_add")
+            .collect();
+        assert_eq!(
+            order,
+            vec!["malloc", "g_idle_add"],
+            "the frame must be copied into its own block before the main loop is \
+             given the pointer; got {order:?}"
+        );
+    }
+
+    /// Ownership of a frame block passes to the main loop, and only the main loop
+    /// frees it.
+    ///
+    /// This is what makes `ST_CANVAS_PIXELS` safe without a lock. If the *worker*
+    /// freed the previous block, it would race the draw callback reading it.
+    #[test]
+    fn only_the_commit_callback_frees_a_frame() {
+        let blit = bootstrap::emit_canvas_blit_helper().expect("canvas blit");
+        assert_eq!(
+            externals(&blit, "free"),
+            0,
+            "the worker must not free a frame block — the main loop owns it once \
+             g_idle_add has the pointer"
+        );
+        let commit = bootstrap::emit_canvas_commit_helper().expect("canvas commit");
+        assert_eq!(
+            externals(&commit, "free"),
+            1,
+            "the commit callback must free exactly the block it replaces"
+        );
+        assert_eq!(
+            externals(&commit, "gtk_widget_queue_draw"),
+            1,
+            "committing a frame must queue the redraw that paints it"
+        );
+    }
+
+    /// The draw callback paints through a Cairo image surface and destroys it.
+    ///
+    /// Leaking one `cairo_surface_t` per expose would be unbounded — a window
+    /// redraws on every resize step and every occlusion change.
+    #[test]
+    fn canvas_draw_paints_and_releases_its_surface() {
+        let func = bootstrap::emit_canvas_draw_helper().expect("canvas draw");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|name| name.starts_with("cairo_"))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                "cairo_image_surface_create_for_data",
+                "cairo_set_source_surface",
+                "cairo_paint",
+                "cairo_surface_destroy",
+            ],
+            "the draw func must create, source, paint and then destroy its surface; \
+             got {order:?}"
         );
     }
 

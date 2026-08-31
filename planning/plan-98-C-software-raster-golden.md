@@ -229,20 +229,36 @@ Commit: `33e54904a`
 
 ### Phase 3 — Per-platform CPU-buffer blit (largest blast radius last)
 
-- [ ] macOS: blit the RGBA buffer into the A-built layer-backed view on the main thread
-      (reuse the `term_view.rs` marshaling precedent).
-- [ ] Linux: blit into the GTK window (Cairo/`gdk` surface or the term_draw precedent),
-      UI-thread only.
-- [ ] Windows: blit via memDC `BitBlt` into the HWND client area on `WM_PAINT`
-      (mirroring the term GDI path).
-- [ ] Tests: headless render → blit round-trip on each platform asserts the blitted
-      region matches the source buffer (readback where the headless path allows; else a
-      lifecycle+no-crash assertion plus the exact-match buffer golden from Phase 2).
+- [x] macOS: the frame is wrapped in a `CGImage` and set as the canvas layer's
+      `contents`, marshaled to the main thread as `mfbBlit:` through the same
+      `performSelectorOnMainThread:waitUntilDone:YES` the mode reconcile uses.
+      `CGBitmapContextCreate` + `CGBitmapContextCreateImage` rather than
+      `CGImageCreate` (Correction 12).
+- [x] Linux: the frame is copied (swizzled to Cairo's BGRX) into a block that
+      carries its own dimensions, handed to the GTK main loop through `g_idle_add`,
+      and painted by a `GtkDrawingAreaDrawFunc` via `cairo_image_surface_create_for_data`.
+      Ownership passes with the pointer, so `ST_CANVAS_PIXELS` needs no lock
+      (Correction 13).
+- [x] Windows: `SetDIBitsToDevice` on `WM_PAINT` rather than a memDC `BitBlt`
+      (Correction 14 — a canvas frame arrives complete, so a persistent DIB section
+      would be an allocation, a `SelectObject` and a lifetime to hold pixels already
+      in memory). The frame is posted as `WM_APP_BLIT` and the window owns it from
+      there.
+- [x] Tests: macOS is verified by **actual screen capture** — `test-macapp.sh`
+      Case 3f renders two flat colour bars, captures the real window with
+      `snap-macos.py`, and checks the pixels (Correction 15 — a no-crash assertion
+      would pass for a blit that drew nothing, which is exactly what a broken one
+      does). RED-checked: deleting the `setContents:` send reds it with
+      `left=(236, 236, 236) right=(236, 236, 236)`, the empty window's grey. GTK and
+      Windows get codegen-inspection tests for the properties that make the handoff
+      correct — copy-before-handoff, single-owner free, paint-and-release — since
+      neither can be executed on the build host.
 
-Acceptance: a scene renders and blits to each platform surface headless without crash;
-where readback is available the blitted pixels match the source buffer; the exact-match
-golden still passes. Run only the new rasteriser/golden tests plus A's headless
-lifecycle test (the blit path is the only existing target this reaches).
+Acceptance: MET, and strengthened (Correction 15): macOS is proven by a captured
+screenshot of the real window, not by a no-crash assertion. `MFB_MACAPP_GUI=1
+scripts/test-macapp.sh` — 18 ok, 0 fail. GTK and Windows cross-build and their
+codegen-inspection tests pass (`cargo test --bin mfb canvas_reconcile_tests` — 41).
+The exact-match golden and the rasteriser suite still pass (13).
 Commit: —
 
 ## Validation Plan
@@ -363,6 +379,60 @@ renderer read only the flat one, so `presentLayers` published correctly and then
 an empty frame. The internal-only `canvas::installedLayers` is the layered twin of
 `canvas::installedItems`, and `__canvas_renderScene` walks both shapes in draw order
 with one index into the published hash list.
+
+**Correction 12 (Phase 3) — macOS builds the `CGImage` through a bitmap context.**
+`CGImageCreate` is the direct constructor and takes eleven arguments, three of which
+land on the stack under Apple's *packed* AArch64 stack-argument rules — an 8-byte
+pointer, a 1-byte `bool`, then a 4-byte enum, at offsets 0, 8 and 12. That layout is
+easy to get subtly wrong and its failure mode is a wrong image rather than a crash.
+`CGBitmapContextCreate` (seven arguments, all in registers) followed by
+`CGBitmapContextCreateImage` (one) avoids the packed-stack question entirely, and
+`CreateImage` is documented to *snapshot* the pixels — which is what lets the
+collection's payload pointer be passed directly instead of copied first.
+
+**Correction 13 (Phase 3) — the frame carries its own dimensions, and that is what
+makes the handoff lock-free.** Both GTK and Windows publish a frame asynchronously
+(`g_idle_add` / `PostMessageW`), so the worker and the UI thread would race on any
+state they share. Each blit therefore allocates one block holding width at +0, height
+at +8 and pixels from +16, and hands over the *pointer*: the worker builds a block
+nobody else can see, and every read and write of the published slot happens on the UI
+thread. Publishing the dimensions separately would let a repaint pair new pixels with
+the previous frame's height — reading past the end of the block, which is a crash
+rather than a glitch. The macOS path needs none of this because
+`waitUntilDone:YES` makes its handoff synchronous.
+
+**Correction 14 (Phase 3) — Windows uses `SetDIBitsToDevice`, not a memDC `BitBlt`.**
+The plan said to mirror the term GDI path. That path exists because the term surface
+is a *persistent* off-screen bitmap the app draws into incrementally; a canvas frame
+arrives complete and is drawn once. Reproducing the memDC would add an allocation, a
+`SelectObject` and a lifetime to manage, all to hold pixels that are already in
+memory. `SetDIBitsToDevice` draws them where they are. The `BITMAPINFOHEADER` uses a
+**negative** height: the rasteriser's row 0 is the top, and a DIB's default bottom-up
+row order would render every frame upside down.
+
+**Correction 15 (Phase 3) — the macOS acceptance was strengthened to a real screen
+capture.** The plan allowed "a lifecycle+no-crash assertion" where readback is
+unavailable. That is not a test of a blit: a blit that draws *nothing* also does not
+crash, and is exactly the failure being guarded against. `test-macapp.sh` Case 3f
+therefore renders two flat colour bars, captures the actual window with
+`snap-macos.py`, and checks the pixels — flat regions rather than an image diff,
+because a capture is scaled by the display's backing factor and composited with
+window chrome that the software golden knows nothing about. RED-checked by deleting
+the `setContents:` send, which reds it with the empty window's grey.
+
+**Correction 16 (Phase 3) — a defect found and fixed en route: the rasteriser was
+290x slower than it needed to be.** The screenshot in Correction 15 came back blank,
+because one 900x640 frame took **53 seconds** and the capture waits one. Root cause:
+`__canvas_blendPixel` took and returned the surface, and `collections::set` only
+mutates in place for `local = set(local, …)` on a local of the function doing the
+write (`try_inplace_set_assign`). Through a helper's parameter and return it copies
+the whole 2.3 MB list per channel. Measured, 20,000 writes into a 200,000-byte list:
+a local in the same function **5 ms**, threaded through a helper **1179 ms**, through
+a module-level `MUT` **1161 ms** — so a global does not help either. Reads are free
+(read-modify-write also 5 ms). Fixed by collapsing the four rasterisation loops into
+one that owns the surface local and does the `set` calls inline; the loops only ever
+differed by their distance function. **53.49 s → 0.38 s**, frame byte-identical, and
+the Phase 1 suite went 94 s → 3.7 s.
 
 **Correction 9 (Phase 2) — references are PNG only, not "raw + PNG".** The plan
 wanted a raw `.bin` as the exact-match oracle "because PNG codecs can vary", plus a

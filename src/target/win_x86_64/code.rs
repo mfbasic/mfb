@@ -3288,6 +3288,18 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_canvas_blit(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-C Phase 3: copy the frame out of the caller's block and post it to
+        // the window, which paints it from WM_PAINT with SetDIBitsToDevice.
+        app::emit_canvas_blit_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
         app::app_mode_data_objects(project_name)
     }

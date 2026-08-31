@@ -532,6 +532,19 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Some(Ok(()))
     }
 
+    fn emit_canvas_blit(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-C Phase 3: copy the frame out of the caller's block and hand it to
+        // the GTK main loop, which paints it through the drawing area's draw func.
+        self.arch.app().require_gtk();
+        gtk::emit_canvas_blit_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn emit_app_io_write(
         &self,
         symbol: &str,
