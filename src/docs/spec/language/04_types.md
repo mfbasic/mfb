@@ -123,6 +123,8 @@ List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed sepa
 
 `WITH value { field := expr, ... }` creates a copy of a record with the named fields replaced. The original value is unchanged.
 
+`WITH` is the only way to update a record field. There is no field-assignment statement: `value.field = expr` in statement position is rejected with `MFB_PARSE_RECORD_FIELD_ASSIGNMENT`. Because `=` spells both assignment and equality, such a statement would otherwise parse as an equality comparison whose Boolean result is discarded, silently losing the write. The one exception is a `RES` binding's `STATE` payload — `resource.state = value` and `resource.state.field = value` — described in §15. A comparison in expression position, such as `IF value.field = expr THEN`, is unaffected. [[src/rules/table.rs:RULES]]
+
 A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules/table.rs:642]]
 
 ```basic
