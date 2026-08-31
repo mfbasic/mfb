@@ -10,7 +10,8 @@ Regression Test: — (the gate IS the regression test; see "What a fix must prod
 
 ## A user decision constrains this bug — read it first
 
-`planning/plan-108-A`'s Rejected-alternatives section records, as an **explicit
+`planning/completed/plan-108-A-census-standard-pilot.md`'s
+Rejected-alternatives section records, as an **explicit
 user decision**, that plan-108 does not build this gate:
 
 > A permanent example-running test harness (`tests/man_examples.rs`). Rejected by
@@ -181,7 +182,8 @@ References: `src/cli/man.rs` (man rendering);
 `src/codegen/builtins/<pkg>/func_*.rs` (the `example` prose fields);
 `tests/cli_canvas_man_examples_compile.rs` (the in-tree precedent);
 `scripts/man-run-examples.sh` (plan-108 branch — the mechanism to reuse);
-`planning/plan-108-A` Rejected alternatives (the user decision quoted above);
+`planning/completed/plan-108-A-census-standard-pilot.md` Rejected alternatives
+(the user decision quoted above);
 `bugs/bug-466-unknown-field-type-escapes-to-codegen.md` and `bug-473` (the two
 unlocated-diagnostic classes the examples exposed); `.ai/testing-gates.md`
 (documents the other two no-gate content classes).
