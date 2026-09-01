@@ -1186,6 +1186,68 @@ mod release_tests {
             .count()
     }
 
+    /// Every callee-saved register the canvas reconcile helper writes is one it saves.
+    ///
+    /// It is a hand-written frame, so nothing computes its save list for it — and the
+    /// set grew when the canvas layer gained a background colour, which needs two values
+    /// alive across a `load_selector` (that helper writes `x0` and then *calls*
+    /// `sel_registerName`, so an argument register cannot hold either one).
+    ///
+    /// Writing a `LOCAL` without saving it does not crash here. It crashes in the
+    /// CALLER, later, with this function nowhere in the trace — which is exactly how the
+    /// first version of that background colour presented: `EXC_ARM_DA_ALIGN` inside
+    /// `CFRetain`, four frames deep in CoreFoundation.
+    #[test]
+    fn the_canvas_reconcile_helper_saves_every_callee_saved_register_it_writes() {
+        use crate::arch::ops::CodeOp;
+        use std::collections::BTreeSet;
+        let func = bootstrap::emit_reconcile_canvas_helper(true);
+        let local = |name: Option<String>| -> Option<&'static str> {
+            let name = name?;
+            abi::LOCAL.iter().find(|l| **l == name.as_str()).copied()
+        };
+        let written: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op != CodeOp::StrU64)
+            .filter_map(|ins| local(ins.get("dst")))
+            .collect();
+        // Only stack traffic counts. A `str` of a LOCAL into a *global* is this helper
+        // publishing a value, not preserving its caller's register — counting those was
+        // enough to make an earlier version of this test pass with the saves deleted.
+        let on_stack =
+            |ins: &CodeInstruction| ins.get("base").as_deref() == Some(abi::stack_pointer());
+        let saved: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op == CodeOp::StrU64 && on_stack(ins))
+            .filter_map(|ins| local(ins.get("src")))
+            .collect();
+        let restored: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op == CodeOp::LdrU64 && on_stack(ins))
+            .filter_map(|ins| local(ins.get("dst")))
+            .collect();
+        assert!(
+            !written.is_empty(),
+            "the helper writes no LOCAL at all — this test has stopped reaching it"
+        );
+        for register in &written {
+            assert!(
+                saved.contains(register),
+                "the canvas reconcile helper writes the callee-saved {register} without \
+                 saving it — the damage lands in its CALLER, with this function nowhere \
+                 in the trace"
+            );
+            assert!(
+                restored.contains(register),
+                "the canvas reconcile helper saves the callee-saved {register} but never \
+                 restores it"
+            );
+        }
+    }
+
     /// bug-53: the transcript append helper allocates an owned `NSAttributedString`
     /// (`alloc` + `initWithString:attributes:`, retain count 1). `appendAttributedString:`
     /// copies it, so the helper must `-release` it or it leaks on every write.
