@@ -436,6 +436,15 @@ const CANVAS_VIEW_ASSOC_KEY: &str = "_mfb_macapp_canvas_view_key";
 const SEL_SET_WANTS_LAYER: (&str, &str) = ("_mfb_macapp_sel_setWantsLayer", "setWantsLayer:");
 /// `layer` — reads the backing layer back, proving `setWantsLayer:` took effect.
 const SEL_LAYER: (&str, &str) = ("_mfb_macapp_sel_layer", "layer");
+/// `setBackgroundColor:` — what the canvas layer shows where its contents do not.
+///
+/// A layer-backed `NSView` with no background is transparent, so before the first
+/// frame lands — and anywhere a frame does not cover — the *window* shows through.
+/// The software surface is opaque black (`canvas::newSurface`) and both GPU backends
+/// now clear to opaque black, so the layer under them is the last place the canvas
+/// could be some other colour.
+const SEL_SET_BACKGROUND_COLOR: (&str, &str) =
+    ("_mfb_macapp_sel_setBackgroundColor", "setBackgroundColor:");
 // plan-98-A Phase 4: canvas keyboard input. The canvas surface is a synthesized
 // `MFBCanvasView : NSView` rather than a bare `NSView`, purely so it can override
 // `keyDown:` and `acceptsFirstResponder` — the same two overrides `TermView` adds
@@ -1120,6 +1129,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         // plan-98-A Phase 3: the `Canvas` arm's layer-backing sends.
         SEL_SET_WANTS_LAYER,
         SEL_LAYER,
+        SEL_SET_BACKGROUND_COLOR,
         // plan-98-A Phase 4: the synthesized canvas view's class name.
         STR_CANVASVIEW_CLASS,
         // plan-98-C Phase 3: the frame blit's marshal and its main-thread apply.

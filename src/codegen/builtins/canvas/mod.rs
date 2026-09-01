@@ -38,6 +38,7 @@ mod func_blit_surface;
 mod func_create_image;
 mod func_destroy_font;
 mod func_destroy_image;
+mod func_did_resize;
 mod func_fill;
 mod func_fill_stroke;
 mod func_font_ref;
@@ -797,6 +798,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_destroy_font::register(&mut pkg);
     func_font_ref::register(&mut pkg);
     func_get_size::register(&mut pkg);
+    func_did_resize::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);

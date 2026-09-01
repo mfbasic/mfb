@@ -326,6 +326,35 @@ Three environment variables, all off by default and none on the production path:
   1 MiB), so a test can force eviction with a scene small enough to also check pixel by
   pixel. Resolved once and cached, so the ordinary path is a compare against a global
   rather than a `getenv` per glyph.
+### The surface is opaque black on every backend, at four layers
+
+An unpainted canvas pixel is opaque black, and that takes agreement in four places
+because each could independently be transparent:
+
+* the software surface — `canvas::newSurface` fills opaque black;
+* the Vulkan render pass — its clear value is opaque black;
+* the Metal render pass — `setClearColor:` is set **explicitly**, not left to
+  `MTLRenderPassAttachmentDescriptor`'s documented default, so the three backends agree
+  by construction rather than by three defaults happening to match;
+* the macOS canvas `CALayer` — its `backgroundColor` is an opaque black `CGColor`, built
+  once when the view is made layer-backed. This one is what a program sees *before* the
+  first frame, and anywhere a frame does not reach: a layer-backed `NSView` is
+  transparent by default, so without it the canvas is the window showing through and no
+  amount of clearing above would fix it.
+
+### `canvas::didResize` is a counter pair, not a flag
+
+The platform's resize path bumps `GRAPHICS_OFFSET_RESIZES` — but only when the size
+actually **changed**, because AppKit re-publishes the size it already has and the
+headless scripted resize does too. `canvas::didResize` compares it against
+`GRAPHICS_OFFSET_RESIZES_SEEN`, which the worker owns, and records the new value when it
+answers TRUE.
+
+Two words with one writer each, so no lock: the main thread only ever writes the
+counter, the worker only ever writes the acknowledgement. A single read-and-clear flag
+would need one, because a resize landing between a reader's load and its store would be
+lost — on the one path whose entire job is to report edges.
+
 * `MFB_CANVAS_DAMAGE` — repaint only what changed: keep the previous frame's pixels,
   clear the union of the changed items' bounds, and redraw only the items that meet it.
   Off by default. It changes no pixels — that is what `tests/rt_canvas_damage.rs`

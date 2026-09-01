@@ -120,6 +120,7 @@
   { "library": "CoreGraphics", "symbol": "_CGBitmapContextCreateImage", "requiredBy": "_main" },
   { "library": "CoreGraphics", "symbol": "_CGContextRelease", "requiredBy": "_main" },
   { "library": "CoreGraphics", "symbol": "_CGImageRelease", "requiredBy": "_main" },
+  { "library": "CoreGraphics", "symbol": "_CGColorCreateGenericRGB", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_init", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize", "requiredBy": "_main" },

@@ -1371,6 +1371,27 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // [layer setBackgroundColor:CGColorCreateGenericRGB(0, 0, 0, 1)] — opaque black.
+    //
+    // A layer-backed view is transparent by default, so until the first frame lands
+    // the canvas is whatever the window is, and the three backends' own clears could
+    // not fix that: the layer is *under* them. The software surface fills opaque black
+    // (`canvas::newSurface`), Vulkan's clear value is opaque black, and Metal's
+    // `setClearColor:` is now explicit — this is the fourth surface in that list.
+    //
+    // The colour is created once at build and never released, exactly like the view's
+    // own `alloc` reference: it lives as long as the layer does.
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // layer
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 1);
+    asm.call_external("_CGColorCreateGenericRGB", LIB_COREGRAPHICS);
+    asm.load_selector(SEL_SET_BACKGROUND_COLOR.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::c_arg(0)));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);

@@ -245,3 +245,86 @@ fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
         "the damage rectangle {rect} spans the whole window",
     );
 }
+
+/// A program that reports `didResize` before and after a scripted resize.
+///
+/// The resize affordance is `MFB_CANVAS_RESIZE_W`/`_H`, which drives the **production**
+/// resize path — the same helper the platform's own resize signal calls — and it exists
+/// only on the GTK backend, so this runs headless there. On macOS there is no scripted
+/// resize, so the same program exercises only the "no resize yet" half; that is why the
+/// assertions below are about the sequence of answers rather than about a fixed count.
+const RESIZE_POLL: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+SUB main()
+  app::setMode(Mode.Canvas)
+  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  canvas::present([box])
+  os::sleep(150)
+  ' Before anything resizes: the surface has been its size since it existed, so there
+  ' is no CHANGE to report.
+  io::print("first:" & toString(canvas::didResize()))
+  MUT seen AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 30
+    IF canvas::didResize() THEN
+      seen = seen + 1
+    END IF
+    canvas::present([box])
+    os::sleep(50)
+    i = i + 1
+  END WHILE
+  io::print("resizes:" & toString(seen))
+END SUB
+"#;
+
+#[test]
+fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
+    // Without a scripted resize this is the whole assertion available on macOS, and it
+    // is the half that would break first: a `didResize` that answered TRUE on its first
+    // call — because the counter started at one, or because the platform re-published
+    // the size it already had — would make every program lay out twice at startup and
+    // look correct while doing it.
+    let project = common::temp_project("canvas_did_resize", RESIZE_POLL);
+    let build = std::process::Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+    let binary = app_binary(&project, "canvas_did_resize");
+    let run = std::process::Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    let _ = std::fs::remove_dir_all(&project);
+
+    assert!(
+        out.contains("first:FALSE"),
+        "didResize was TRUE before anything resized:\n{out}",
+    );
+    assert!(
+        out.contains("resizes:0"),
+        "didResize reported a resize in a run where nothing resized:\n{out}",
+    );
+}

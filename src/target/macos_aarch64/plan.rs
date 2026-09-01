@@ -133,6 +133,10 @@ impl plan::NativePlanPlatform for Platform {
             ("CoreGraphics", "_CGBitmapContextCreateImage"),
             ("CoreGraphics", "_CGContextRelease"),
             ("CoreGraphics", "_CGImageRelease"),
+            // The canvas layer's opaque-black background, built once at view
+            // construction so the surface is never the window showing through —
+            // before the first frame or anywhere a frame does not reach.
+            ("CoreGraphics", "_CGColorCreateGenericRGB"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),

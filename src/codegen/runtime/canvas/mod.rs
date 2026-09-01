@@ -220,7 +220,17 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER: usize = 616;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY: usize = 624;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED: usize = 632;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 640;
+/// How many times the platform has published a **different** surface size.
+///
+/// A counter, not a flag, and that is what makes `canvas::didResize` lock-free. Only
+/// the main thread writes this and only the worker writes `…_RESIZES_SEEN`, so the two
+/// never race for the same word — where a single read-and-clear flag would lose a
+/// resize that landed between a reader's load and its store, on a path whose whole
+/// purpose is to report edges.
+pub(crate) const GRAPHICS_OFFSET_RESIZES: usize = 640;
+/// The value `canvas::didResize` last reported. The worker owns this word.
+pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 656;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -980,8 +990,16 @@ fn emit_graphics_spawn(
             relocations,
         );
         instructions.push(abi::move_register(abi::c_arg(3), &scratch.arena));
-        instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
-        instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28));
+        // `outgoing_stack_arg_store`, **not** a raw `[sp+0x20]` store. This seam is
+        // emitted into an allocated function, and `finalize_frame` shifts every
+        // sp-relative access in the body by the frame it builds — so a hand-written
+        // `[sp+0x20]` does not stay at `rsp+0x20`, and `CreateThread` reads whatever
+        // is really there for `dwCreationFlags` and `lpThreadId`. The second of those
+        // is an OUT pointer, so a garbage value is not a wrong flag, it is a wild
+        // write. The sentinel base is the only spelling the finalizer accounts for:
+        // it both places the store correctly and grows the outgoing area to fit it.
+        instructions.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // dwCreationFlags
+        instructions.push(abi::outgoing_stack_arg_store(abi::ZERO, 1)); // lpThreadId
         instructions.push(abi::branch_link("CreateThread"));
         relocations.push(external_branch(symbol, "CreateThread", platform_imports)?);
         // Keep the handle: shutdown waits on it, and losing it would leave the join
@@ -1289,9 +1307,80 @@ pub(crate) fn emit_publish_surface_size(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let unchanged = format!("{symbol}_resize_same");
     state_base(symbol, base, instructions, relocations);
+    // Count the resize only when the size actually changed. Every platform re-publishes
+    // on events that are not resizes — AppKit sends `setFrameSize:` with the size it
+    // already has, and the headless scripted resize does the same — and
+    // `canvas::didResize` promises the program a *change*, not an event.
+    //
+    // The compare reads the old values before the stores overwrite them, and uses the
+    // scratch the caller already gave us rather than a fifth register: this runs in a
+    // platform resize callback, where the register budget is whatever the caller had.
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
+    instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
+    instructions.push(abi::branch_ne(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
+    instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
+    instructions.push(abi::branch_eq(&unchanged));
+    instructions.push(abi::label(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_RESIZES));
+    instructions.push(abi::add_immediate(SCRATCH_RESIZE, SCRATCH_RESIZE, 1));
+    instructions.push(abi::store_u64(
+        SCRATCH_RESIZE,
+        base,
+        GRAPHICS_OFFSET_RESIZES,
+    ));
+    instructions.push(abi::label(&unchanged));
     instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
+}
+
+/// The one scratch register `emit_publish_surface_size` needs for its compare.
+///
+/// Named here rather than taken as a parameter because every caller is a hand-written
+/// platform resize callback that already spells its own registers, and adding a fifth
+/// argument to all of them to pass a register they all have spare is churn. `SCRATCH[5]`
+/// is above the four each caller stages its own values in.
+const SCRATCH_RESIZE: &str = abi::SCRATCH[5];
+
+/// `canvas::didResize()` — has the surface changed size since this was last asked?
+///
+/// Read-and-acknowledge: the worker compares the platform's resize counter against the
+/// value it last reported and, if they differ, records the new one and answers TRUE. So
+/// the answer is TRUE exactly once per resize however many resizes happened in between,
+/// and no lock is involved — the two words have one writer each.
+pub(crate) fn emit_did_resize(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let same = format!("{symbol}_resize_seen");
+    let done = format!("{symbol}_resize_done");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES,
+    ));
+    instructions.push(abi::load_u64(
+        &scratch.arena,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES_SEEN,
+    ));
+    instructions.push(abi::compare_registers(&scratch.scratch, &scratch.arena));
+    instructions.push(abi::branch_eq(&same));
+    instructions.push(abi::store_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES_SEEN,
+    ));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+    instructions.push(abi::branch(&done));
+    instructions.push(abi::label(&same));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    instructions.push(abi::label(&done));
 }
 
 /// `canvas::setGpuMode(on)` — record whether a GPU renderer was asked for.

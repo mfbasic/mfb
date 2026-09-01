@@ -139,6 +139,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.fontRegistered",
     "canvas.fontBlobUnchecked",
     "canvas.getSize",
+    "canvas.didResize",
     "canvas.getBytes",
     "canvas.setBytes",
     "fs.exists",

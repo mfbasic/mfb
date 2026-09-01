@@ -594,6 +594,16 @@ const MTL_STORAGE_MODE_SHARED: &str = "0";
 /// exactly `(0, 0, 0, 1)` — so the two backends start from the same pixels without
 /// this having to name the colour twice.
 const MTL_LOAD_ACTION_CLEAR: &str = "2";
+/// `setClearColor:` — the colour `MTLLoadActionClear` clears the attachment to.
+///
+/// Set explicitly rather than left to the default. `MTLRenderPassAttachmentDescriptor`
+/// is documented to default to opaque black, but the canvas surface is composited into
+/// a window through a `CALayer`, so "what the default is" decides whether an unpainted
+/// pixel is black or the window showing through — and the software path is unambiguous
+/// about it (`canvas::newSurface` fills opaque black). Naming it here makes the three
+/// backends agree by construction instead of by three defaults happening to match.
+pub(super) const SEL_SET_CLEAR_COLOR: (&str, &str) =
+    ("_mfb_macapp_sel_setClearColor", "setClearColor:");
 const MTL_STORE_ACTION_STORE: &str = "1";
 /// `MTLPrimitiveTypeTriangleStrip` — four vertices, two triangles, no index buffer.
 ///
@@ -873,6 +883,20 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+
+    // [attachment setClearColor:MTLClearColorMake(0, 0, 0, 1)] — opaque black, the
+    // colour `canvas::newSurface` fills and the colour the Vulkan clear value carries.
+    // `MTLClearColor` is four C doubles, so on AArch64 they arrive in d0..d3 rather
+    // than in the integer bank; the receiver and selector still go in x0/x1.
+    asm.load_selector(SEL_SET_CLEAR_COLOR.0);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for register in ["d0", "d1", "d2"] {
+        asm.push(abi::signed_convert_to_float_d(register, abi::SCRATCH[0]));
+    }
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::signed_convert_to_float_d("d3", abi::SCRATCH[0]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // buffer = [queue commandBuffer]; encoder = [buffer renderCommandEncoder…]
     asm.local_address(abi::LOCAL[7], GRAPHICS_STATE_SYMBOL);
@@ -1825,6 +1849,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_SET_TEXTURE,
         SEL_SET_LOAD_ACTION,
         SEL_SET_STORE_ACTION,
+        SEL_SET_CLEAR_COLOR,
         SEL_COMMAND_BUFFER,
         SEL_RENDER_COMMAND_ENCODER,
         SEL_SET_RENDER_PIPELINE_STATE,

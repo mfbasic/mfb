@@ -103,6 +103,7 @@ TTF
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT io
 IMPORT os
 SUB main()
   app::setMode(Mode.Canvas)
@@ -122,12 +123,27 @@ SUB main()
   LET tri AS DrawItem = Polygon[points := [Point[x := 620.0, y := 200.0], Point[x := 740.0, y := 200.0], Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
   LET arrow AS DrawItem = Polygon[points := [Point[x := 60.0, y := 400.0], Point[x := 160.0, y := 400.0], Point[x := 160.0, y := 360.0], Point[x := 230.0, y := 430.0], Point[x := 160.0, y := 500.0], Point[x := 160.0, y := 460.0], Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
   LET label AS DrawItem = Text[x := 300.0, y := 560.0, text := "AAAA", font := canvas::fontRef(face), size := 90.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
-  canvas::present([box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label])
-  ' Stay alive for the resize case below. Without this the worker returns from main
-  ' the moment its frame lands and the finish helper _exits the process, so the
-  ' scripted resize on the main thread loses the race every time. Measured before the
-  ' sleep was added: the dump stayed 900x640 and only one stats line was written.
-  os::sleep(3000)
+  LET scene AS List OF DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label]
+  canvas::present(scene)
+  ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
+  ' here because this is the only harness with a scripted resize -- the macOS side can
+  ' only ever check the "not yet" half (`tests/rt_canvas_damage.rs`).
+  io::print("didResize-before:" & toString(canvas::didResize()))
+  MUT edges AS Integer = 0
+  MUT polls AS Integer = 0
+  WHILE polls < 40
+    IF canvas::didResize() THEN
+      edges = edges + 1
+    END IF
+    os::sleep(50)
+    polls = polls + 1
+  END WHILE
+  io::print("didResize-edges:" & toString(edges))
+  ' The poll loop above already keeps the program alive for the scripted resize --
+  ' without something here the worker returns from main the moment its frame lands and
+  ' the finish helper _exits the process, so the resize on the main thread loses the
+  ' race every time. Measured before a sleep was added: the dump stayed 900x640 and
+  ' only one stats line was written.
 END SUB
 MFB
 
@@ -181,7 +197,7 @@ ssh -p "$PORT" "$host" "
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remote/gpu.txt \
     MFB_CANVAS_DUMP=$remote/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_RESIZE_W=$RESIZE_W MFB_CANVAS_RESIZE_H=$RESIZE_H \
-    MFB_CANVAS_DUMP=$remote/sw2.rgba timeout 180 \$bin >/dev/null 2>&1
+    MFB_CANVAS_DUMP=$remote/sw2.rgba timeout 180 \$bin >$remote/sw2.out 2>&1
   $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_RESIZE_W=$RESIZE_W \
     MFB_CANVAS_RESIZE_H=$RESIZE_H MFB_CANVAS_STATS=$remote/gpu2.txt \
     MFB_CANVAS_DUMP=$remote/gpu2.rgba timeout 180 \$bin >/dev/null 2>&1
@@ -199,6 +215,7 @@ scp -P "$PORT" "$host:$remote/sw.rgba" "$work/sw.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu.rgba" "$work/gpu.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu.txt" "$work/gpu.txt" >/dev/null
 scp -P "$PORT" "$host:$remote/sw2.rgba" "$work/sw2.rgba" >/dev/null
+scp -P "$PORT" "$host:$remote/sw2.out" "$work/sw2.out" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu2.rgba" "$work/gpu2.rgba" >/dev/null
 scp -P "$PORT" "$host:$remote/gpu2.txt" "$work/gpu2.txt" >/dev/null
 scp -P "$PORT" "$host:$remote/dmg.rgba" "$work/dmg.rgba" >/dev/null
@@ -332,6 +349,30 @@ case "$verdict" in
   ok*) pass "the resized Vulkan render matches the software oracle ($verdict)" ;;
   *)   fail "the resized Vulkan render disagrees with the software oracle: $verdict" ;;
 esac
+
+# plan-98-G: `canvas::didResize` reports a size change exactly once.
+#
+# This box is the only place the TRUE half can be checked at all — `MFB_CANVAS_RESIZE_W`
+# drives the production resize path and macOS has no equivalent affordance, so
+# `tests/rt_canvas_damage.rs` can only assert the "not yet" half. Both halves matter:
+# a `didResize` stuck FALSE never tells a program to lay out again, and one stuck TRUE
+# makes it lay out every frame while looking correct.
+if [ ! -s "$work/sw2.out" ]; then
+  fail "the resized run captured no output"
+else
+  before="$(grep -o 'didResize-before:[A-Z]*' "$work/sw2.out" | head -1 | cut -d: -f2)"
+  edges="$(grep -o 'didResize-edges:[0-9]*' "$work/sw2.out" | head -1 | cut -d: -f2)"
+  if [ "$before" = "FALSE" ]; then
+    pass "didResize is FALSE before anything resizes"
+  else
+    fail "didResize answered '$before' before any resize — a program would lay out twice at startup"
+  fi
+  if [ "${edges:-0}" = "1" ]; then
+    pass "didResize reported the resize exactly once (edges=$edges)"
+  else
+    fail "didResize reported $edges edges for one resize — it must be TRUE once and then FALSE"
+  fi
+fi
 
 # plan-98-G Phase 3: the damage union's empty case. The scene did not change and the
 # surface did not change size, so the wake the resize produced owes no pixels — and the

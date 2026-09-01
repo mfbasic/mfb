@@ -50,6 +50,7 @@
   { "library": "CoreGraphics", "symbol": "_CGBitmapContextCreateImage" },
   { "library": "CoreGraphics", "symbol": "_CGContextRelease" },
   { "library": "CoreGraphics", "symbol": "_CGImageRelease" },
+  { "library": "CoreGraphics", "symbol": "_CGColorCreateGenericRGB" },
   { "library": "libSystem", "symbol": "_pthread_create" },
   { "library": "libSystem", "symbol": "_pthread_attr_init" },
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize" },
