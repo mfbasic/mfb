@@ -293,6 +293,25 @@ Commit: —
       handle **after** the copy, print a marker, and loop the open/scope-exit 200
       times. Model it on `tests/rt-behavior/resources/res-rebind-alias-runtime/`,
       whose comments explain why the post-copy *use* is the assertion.
+- [ ] **Added task (inherited from plan-114-C Correction C5).** letter C could not
+      write the close-site-count assertions its Phase 3 asked for: no `CodeBuilder`
+      is constructible in a test (`grep -rn "CodeBuilder {" src/codegen/ | grep -i
+      test` → nothing), and the existing count harness
+      (`tests/rt_native_resource_scope_drop.rs`) compiles MFBASIC source, which the
+      then-standing ban made impossible for this shape. **This letter lifts that
+      ban, so they become expressible — write them here.** Three properties, all
+      double-close or leak bugs if wrong:
+      (a) a floated record-carried handle closes **exactly once**, at the record
+          binding's scope, and **not** at the resource's own scope;
+      (b) a **returned** float-target record emits **zero** closes in the callee
+          (the caller adopts and closes);
+      (c) `RES g = h.handle` adds **no** close site.
+      The 200-iteration loop in the fixture above covers (a) and (c) behaviourally
+      — a missed drain exhausts fds, a double close raises `7-703-0004`. (b) needs
+      its own fixture returning a `Holder` from a `FUNC` and closing in the caller.
+      letter C pinned all three at their decision points
+      (`is_resource_owning_container`, `record_res_field_types`,
+      `value_aliases_live_resource`); this is the end-to-end half.
 - [ ] New fixtures for the three rejections that must survive:
       `record-res-field-map-key-invalid` (record with a `RES` field as a `Map` key →
       `TYPE_REQUIRES_COMPARABLE`), `record-res-field-compare-invalid` (`=` on two

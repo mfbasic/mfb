@@ -322,29 +322,53 @@ Commit: ca90a1927
 
 ### Phase 3 — Codegen: owned-list on a record binding, drain, return transfer, alias (largest blast radius)
 
-- [ ] Generalize `owner_collections` → the float-target set is already built
+- [x] Generalize `owner_collections` → the float-target set is already built
       generically (`function_lowering.rs:879`); confirm and rename it to
       `owner_containers` so the next reader is not misled. Update
       `builder_control.rs:626` and `:1770` and `builder/mod.rs:271` accordingly.
-- [ ] Make `setup_owned_list` and the exit drain work for a record binding, per
-      Phase 1's finding.
-- [ ] Route the `RETURN` transfer: returning a float-target record deactivates its
+      Confirmed generic (it is a plain filter over `ResOwner::Float(name)`), and
+      renamed across all 7 sites. Its doc comment said "Collection binding
+      names"; it now says container, and states *why* a record needs no new
+      runtime structure.
+- [x] Make `setup_owned_list` and the exit drain work for a record binding, per
+      Phase 1's finding. The drain needed nothing (C1). `setup_owned_list` needed
+      exactly the one call Phase 1 named: `collection_resource_drop` now derives
+      the drop from a record's `RES` fields. See Corrections **C3** for the
+      multi-`RES`-field decision.
+- [x] Route the `RETURN` transfer: returning a float-target record deactivates its
       owned-list instead of draining it, mirroring `deactivate_owned_list` for a
-      returned `List OF RES` (`src/codegen/engine/exits/builder_exits.rs`).
-- [ ] Alias case: confirm `RES g = t.handle` registers no cleanup; extend
+      returned `List OF RES` (`src/codegen/engine/exits/builder_exits.rs`). It was
+      keyed on `is_res_marked_resource_collection`, which is `false` for a record —
+      so a returned record **drained**, closing the handle the caller then adopts.
+      Now keyed on `is_resource_owning_container`.
+- [x] Alias case: confirm `RES g = t.handle` registers no cleanup; extend
       `value_aliases_live_resource` for a resource-typed record `MemberAccess` if
       Phase 1/§4.2 shows it does not already, keeping the resource-typed-bind gate.
-- [ ] Tests (codegen unit tests over a hand-built NIR module — the source ban is
+      It did **not** already — there was no `MemberAccess` arm. Added. The
+      resource-typed gate is preserved and is what keeps it from widening: the
+      only caller ANDs this with `resource_cleanup_symbol(type_).is_some() ||
+      resource_union_cleanup(type_).is_some()` (`builder_control.rs:697-699`).
+- [x] Tests (codegen unit tests over a hand-built NIR module — the source ban is
       still up): count close/reclaim sites in the emitted body, as
       `tests/native_resource_scope_drop.rs` does, asserting
       (a) a floated record-carried handle emits exactly **one** close at the record
       binding's scope and **none** at the resource's own scope;
       (b) a returned float-target record emits **zero** closes in the callee;
       (c) `RES g = t.handle` adds no close site.
+      **Landed as decision-point tests, with the emitted-instruction counts moved
+      to letter D — see Corrections C5 for the measurement behind that** (no
+      `CodeBuilder` is constructible in a test, and the existing count harness
+      needs source the ban forbids). Six tests: five `record_container_tests`
+      covering (a)'s drop derivation and (b)'s transfer predicate — including a
+      plain record, a collection, and a nested record that must **not** count —
+      and `a_record_field_read_aliases_a_live_resource` for (c). letter D carries
+      an explicit added task for the end-to-end half.
 
 Acceptance: the three close-site counts hold; `cargo test --no-fail-fast` green;
 `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
-Commit: —
+The three properties are pinned at their decision points (C5); `cargo test` and
+the gate are re-run for the letter as a whole below.
+Commit: 3f222e111
 
 ## Validation Plan
 
@@ -457,6 +481,83 @@ empty for the `#[cfg(test)]` callers. The alternative ("key the gate purely on
 gate's *purpose* at that point is to distinguish "unsupportable ordering" from
 "already rejected elsewhere for a missing marker", and only the type table can
 tell those apart.
+
+**C3 (Phase 3) — the multi-`RES`-field question C1 raised, decided: refuse, do
+not guess.**
+C1 flagged that `OwnedListDrop` is a *single* drop per owned-list
+(`Concrete(symbol)` or `Union{..}`) because a collection has one uniform element
+type, while a record may declare several `RES` fields of different resource
+types. The decision, per C1's instruction not to let that reach codegen
+undecided:
+
+**A record whose `RES` fields have differing resource types is an explicit
+error**, naming both fields and both types. It is not compiled, and it is not
+guessed at — picking either field's close op would close one handle with the
+other's operation, which is a silent wrong-close.
+
+Why not option (a) from C1 (one owned-list per `<binding>.<field>`): the
+owned-list is keyed by binding name, and the key comes from
+`ResOwner::Float(String)`, which carries a binding name and nothing else.
+Naming a field would mean a new `ResOwner` shape and therefore a new `.ir` tag
+encoding (`src/ir/binary.rs:916-931`) — explicitly excluded by this letter's
+non-goals ("No new `ResOwner` variant and no `.ir` format change"). Option (b),
+a per-node drop symbol, is a runtime-structure change, excluded by the same
+list.
+
+The single-resource-type case — which is every shape letters D and E actually
+enable, and every shape their fixtures use — is fully supported. If a
+heterogeneous record is ever wanted, it is its own plan: it needs the `ResOwner`
+change, and it should carry a front-end diagnostic rather than surfacing as a
+codegen error.
+
+**C4 (Phase 3) — the `RETURN` transfer, the alias arm, and `setup_owned_list`
+were three separate double-close bugs, not one generalization.**
+§2 predicted Phase 3 would be "a name/type generalization of existing code, not
+new machinery". That is true of the *owned-list itself* (C1 confirmed it reads
+nothing about representation) but false of the three decisions **around** it,
+each of which was keyed on a collection-shaped test that silently answers
+"no" for a record:
+
+| Site | Keyed on | What a record got | Consequence |
+|---|---|---|---|
+| `setup_owned_list` → `collection_resource_drop` | `typed_list_element_type` / `typed_map_type_parts` | `Err("is not a collection")` | no owned-list at all |
+| `RETURN` transfer (`builder_exits.rs:391`) | `is_res_marked_resource_collection` | `false` → **drain** | closes the handle the caller then adopts → double close |
+| `RES g = h.handle` (`builder_control.rs:697`) | `value_aliases_live_resource`, no `MemberAccess` arm | registers a cleanup | releases the record's handle at the reading scope's exit → double close |
+
+Two of the three are double closes with no diagnostic, which is exactly the
+failure class §3 said the correctness risk concentrated in. They are listed here
+because "generalize the owned-list" would have found none of them — the
+owned-list was already fine; its three *callers* were not.
+
+**C5 (Phase 3) — the codegen close-site-count tests are written at the decision
+points, and the emitted-instruction counts move to letter D.**
+The plan asks for tests counting close/reclaim sites in an emitted body over a
+hand-built `NirModule`. Two facts make that the wrong instrument *in this
+letter*, and both were measured rather than assumed:
+
+1. **No `CodeBuilder` is constructible in a test.**
+   `grep -rn "CodeBuilder {" src/codegen/ | grep -i test` returns nothing, and
+   there is no `for_tests`/`test_builder` constructor. Emitting a body needs a
+   target, a plan, and a populated builder; standing that up is a substantial new
+   harness.
+2. **The source ban is still up**, so the existing close-count harness
+   (`tests/rt_native_resource_scope_drop.rs`, which compiles MFBASIC and counts
+   call sites in the `.ncode`) cannot express the shape at all — it needs
+   `TYPE Holder { handle AS RES fs::File }` to parse, which is letter D.
+
+What landed instead: every one of the three assertions is pinned **at the point
+codegen decides it**, which is strictly more localized than a count over emitted
+text — `is_resource_owning_container` for the return transfer,
+`record_res_field_types` for the drop derivation, `value_aliases_live_resource`
+for the alias. A regression in any of them fails a named test rather than
+shifting a number.
+
+The emitted-count assertions are **not dropped**: letter D's Phase 3 already
+owns `tests/rt-behavior/resources/record-res-field-rt/`, where the ban is lifted
+and the same three properties are expressible as a source fixture plus the
+200-iteration fd-exhaustion loop — a stronger check than a static count, and the
+runtime proof this letter is explicitly not able to give. An added task has been
+written into letter D so it cannot be lost.
 
 <!-- Further corrections filled in during execution. -->
 
