@@ -6,9 +6,9 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct the bold flag `Attribute`."#;
+const INTRO: &str = r#"Construct the bold flag `astrings::Attribute`."#;
 
-const DESC: &str = r#"`bold` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Bold`. Pass it to
+const DESC: &str = r#"`bold` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Bold`. Pass it to
 `astrings::addAttribute` to mark a scalar range bold. A flag attribute carries no value — a scalar is
 bold when any covering span carries the bold flag."#;
 

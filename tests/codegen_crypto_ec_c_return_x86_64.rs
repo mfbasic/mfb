@@ -26,10 +26,10 @@ const SOURCE: &str = "\
 IMPORT crypto\n\
 IMPORT strings\n\
 SUB main()\n\
-  LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)\n\
+  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)\n\
   LET msg AS List OF Byte = strings::toBytes(\"x\")\n\
-  LET sig AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)\n\
-  LET ok AS Boolean = crypto::verify(Certificate.P256, kp.publicKey, msg, sig)\n\
+  LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)\n\
+  LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)\n\
 END SUB\n";
 
 #[test]

@@ -8,9 +8,9 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct a font-size `Attribute`."#;
+const INTRO: &str = r#"Construct a font-size `astrings::Attribute`."#;
 
-const DESC: &str = r#"`fontSize` returns an `Attribute` wrapping the `AttrNumber` with `kind` `AttrTypeNumber.FontSize` and
+const DESC: &str = r#"`fontSize` returns an `astrings::Attribute` wrapping the `astrings::AttrNumber` with `kind` `astrings::AttrTypeNumber.FontSize` and
 `value` `size`. Pass it to `astrings::addAttribute` to set the font size (e.g. in points) over a
 scalar range. Font size is an Integer-valued attribute: overlapping font-size spans resolve by
 higher-start-wins at read time."#;

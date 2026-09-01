@@ -10,8 +10,8 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Set the rounding mode used by Money arithmetic on the calling thread"#;
 const DESC: &str = r#"`money::setRounding` selects how `Money` arithmetic settles the exact half case.
-`mode` is one of the two `Rounding` enum members: `Rounding.Commercial` (round
-half **away from zero**, the default) or `Rounding.Banker` (round half to
+`mode` is one of the two `money::Rounding` enum members: `money::Rounding.Commercial` (round
+half **away from zero**, the default) or `money::Rounding.Banker` (round half to
 **even**, which removes the small upward bias of always rounding ties away). The
 call returns nothing.
 
@@ -31,8 +31,8 @@ dividing a `Money` by a scalar, scaling a `Money` by a `Float` or `Fixed`, and t
 change how `toString(Money)` renders a value (presentation rounding is a fixed
 half-away-from-zero rule, deliberately independent of the mode).
 
-The `Rounding` enum is referenced bare, like every other builtin type: write
-`Rounding.Banker`, not `money::Rounding.Banker`."#;
+The `money::Rounding` enum is referenced bare, like every other builtin type: write
+`money::Rounding.Banker`, not `money::Rounding.Banker`."#;
 const EX: &str = r#"Accumulate under banker's rounding, then restore the default:
 
 ```
@@ -40,9 +40,9 @@ IMPORT money
 IMPORT io
 
 SUB main
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
-  money::setRounding(Rounding.Commercial)
+  money::setRounding(money::Rounding.Commercial)
   io::print(toString(money::round(0.125m, 2)))
 END SUB
 ```"#;
@@ -59,7 +59,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![Parameter {
                 name: "mode",
                 desc: "The mode to install for `Money` arithmetic on the calling thread: \
-                       `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected \
+                       `money::Rounding.Commercial` or `money::Rounding.Banker`. Any other type is rejected \
                        at compile time.",
                 aliases: &[],
                 ty: ParameterType::named("Rounding"),

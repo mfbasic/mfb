@@ -18,7 +18,7 @@ point (equal `seconds` and equal `nanos`) are not "after" each other, so
 `isAfter` returns `FALSE` for equal instants — the relation is strict, not
 "after or equal". Because both arguments are points on the same Unix-epoch,
 leap-second-free UTC timeline, the ordering is absolute and independent of any
-time zone; resolve a `DateTime` to an `Instant` with `datetime::resolve` before
+time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with `datetime::resolve` before
 comparing.
 
 `isAfter` is pure: the same two instants always yield the same `Boolean`, it
@@ -34,8 +34,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(2_000)
-  LET b AS Instant = datetime::instant(1_000)
+  LET a AS datetime::Instant = datetime::instant(2_000)
+  LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::isAfter(a, b)))
 END SUB
 ```
@@ -47,8 +47,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(1_000)
-  LET b AS Instant = datetime::instant(1_000)
+  LET a AS datetime::Instant = datetime::instant(1_000)
+  LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::isAfter(a, b)))
 END SUB
 ```
@@ -60,8 +60,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET past AS Instant = datetime::instant(0)
-  LET nowInstant AS Instant = datetime::now()
+  LET past AS datetime::Instant = datetime::instant(0)
+  LET nowInstant AS datetime::Instant = datetime::now()
   IF datetime::isAfter(nowInstant, past) THEN io::print("now is later")
 END SUB
 ```"#;

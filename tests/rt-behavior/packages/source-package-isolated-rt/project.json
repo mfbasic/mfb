@@ -1,0 +1,17 @@
+{
+  "name": "source_package_isolated_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-480 Defect A: an `EXPORT ISOLATED FUNC` thread entry in a SOURCE-DIRECTORY dependency must be startable with `thread::start`, exactly as one in an installed `.mfp` is.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "source_pkg_worker",
+      "version": "=0.1.0",
+      "source": "file:packages/source_pkg_worker"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

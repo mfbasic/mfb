@@ -233,6 +233,14 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         };
+        // bug-480 Phase 4b: inside a built-in package's injected companion the
+        // DECLARED identity of a value type is package-qualified (`net.PingStatus`),
+        // the same way a RESOURCE has been addressed since plan-97. The companion
+        // still writes it bare, because the package's own members are local to it
+        // and the governing rule says a local name carries no prefix; the prefix
+        // is supplied here. User source is untouched -- a project's own
+        // `TYPE Account` stays `Account`.
+        let name = self.qualify_own_builtin_type(name);
         let template_params = if matches!(kind, TypeDeclKind::Enum) {
             Vec::new()
         } else {
@@ -364,6 +372,12 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {
         let line = self.peek().line;
         let name = self.parse_qualified_name("Union member type must be a type name.")?;
+        // A union variant NAMES another declared type, so it is normalized like any
+        // other type reference: a qualified spelling maps to the declared id, and
+        // inside a built-in companion a bare sibling (`JsonBool` within `json`)
+        // picks up its package (bug-480 Phase 4b). `parse_qualified_name` does not
+        // normalize on its own -- it also serves function and constant references.
+        let name = self.normalize_qualified_builtin_type(name);
         self.consume_statement_end("Expected end of statement after union member type.");
         Some(UnionVariant { name, line })
     }
@@ -537,17 +551,44 @@ impl<'a> FileParser<'a> {
             return false;
         }
         index += 1;
+        let Some(TokenKind::Identifier(target_package)) =
+            self.tokens.get(index).map(|token| &token.kind)
+        else {
+            return false;
+        };
+        index += 1;
         if !matches!(
             self.tokens.get(index).map(|token| &token.kind),
-            Some(TokenKind::Identifier(_))
+            Some(TokenKind::DoubleColon)
         ) {
             return false;
         }
-        index += 1;
-        matches!(
-            self.tokens.get(index).map(|token| &token.kind),
-            Some(TokenKind::DoubleColon)
-        )
+        // bug-480: `FUNC name AS pkg::X` is ambiguous. It is a func ALIAS when
+        // `pkg::X` names a function, and an ordinary PARAMETERLESS function whose
+        // RETURN TYPE is qualified when it names a type — the two spellings are
+        // identical up to this point, and committing to the alias reading turned
+        // `FUNC bad AS term::TermColor` into an alias declaration, leaving its body
+        // as top-level garbage (two MFB_PARSE_UNEXPECTED_STATEMENT errors and no
+        // function at all).
+        //
+        // The spec settles which reading wins: a function alias exists ONLY as a
+        // transparent re-export of a native `LINK` function, and the resolver
+        // requires the target to resolve to a LINK signature
+        // (13_modules-and-packages.md §"function alias", 17_native-libraries.md).
+        // A built-in TYPE is therefore never a valid alias target, so recognizing
+        // one here decides the parse with no lookahead into the body.
+        //
+        // Latent until now only because nothing in the tree had written a
+        // qualified return type on a parameterless FUNC; the parenthesized form
+        // (`FUNC name() AS pkg::X`) never matched this pattern and always parsed.
+        let Some(TokenKind::Identifier(target_member)) =
+            self.tokens.get(index + 1).map(|token| &token.kind)
+        else {
+            return true;
+        };
+        let qualified = format!("{target_package}.{target_member}");
+        !crate::codegen::builtins::is_qualified_builtin_resource(&qualified)
+            && crate::codegen::builtins::qualified_builtin_type(&qualified).is_none()
     }
 
     pub(super) fn parse_top_level_resource(&mut self) -> Option<ResourceDecl> {

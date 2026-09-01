@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/syntax/packages/package-unknown-member-invalid
+uses package_import_as - [Unsigned]
+  12 | ' rejects only a name the package positively does not export.
+  13 | FUNC main AS Integer
+  14 |   LET missing = worker::noSuchMember(1)
+     | ^
+tests/syntax/packages/package-unknown-member-invalid/src/main.mfb:14 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Package `package_import_as` does not export `noSuchMember`.
+  13 | FUNC main AS Integer
+  14 |   LET missing = worker::noSuchMember(1)
+  15 |   LET wrongType AS worker::NoSuchType = worker::noSuchMember(2)
+     | ^
+tests/syntax/packages/package-unknown-member-invalid/src/main.mfb:15 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Package `package_import_as` does not export `NoSuchType`.
+  13 | FUNC main AS Integer
+  14 |   LET missing = worker::noSuchMember(1)
+  15 |   LET wrongType AS worker::NoSuchType = worker::noSuchMember(2)
+     | ^
+tests/syntax/packages/package-unknown-member-invalid/src/main.mfb:15 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Package `package_import_as` does not export `noSuchMember`.
+[exit 1]

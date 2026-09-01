@@ -121,9 +121,9 @@ IMPORT canvas
 IMPORT os
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET box AS DrawItem = Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET dot AS DrawItem = Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, dot])
@@ -139,10 +139,10 @@ IMPORT canvas
 IMPORT os
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET box AS DrawItem = Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
-  LET dot AS DrawItem = Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
-  LET moved AS DrawItem = Circle[x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET moved AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, moved])

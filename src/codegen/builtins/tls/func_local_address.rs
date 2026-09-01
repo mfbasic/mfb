@@ -36,7 +36,7 @@ value independent of the handle, so it stays valid after the handle is
 closed.
 
 **A file that uses the returned address must `IMPORT net` as well as `tls`.**
-Imports are not transitive and packages cannot re-export types, so `Address` is
+Imports are not transitive and packages cannot re-export types, so `net::Address` is
 nameable only where `net` is imported.
 
 **One platform difference, on the listener form only.** On Linux and Windows the

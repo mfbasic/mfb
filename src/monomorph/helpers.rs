@@ -422,7 +422,14 @@ pub(super) fn collect_imported_overloads(
         }
     }
     for (binding, package) in &bindings {
-        let package_file = project_dir.join("packages").join(format!("{package}.mfp"));
+        // bug-480: the shared resolver, so a source-directory dependency's
+        // overload set is collected from the `.mfp` this build compiled into
+        // `build/packages/` exactly as an installed one is.
+        let Some(package_file) =
+            crate::manifest::package::resolved_package_file(project_dir, package)
+        else {
+            continue;
+        };
         let Ok(exports) = crate::binary_repr::read_package_exports(&package_file) else {
             continue;
         };

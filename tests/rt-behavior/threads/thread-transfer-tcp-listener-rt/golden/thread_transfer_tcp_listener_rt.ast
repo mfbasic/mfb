@@ -23,7 +23,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tcp.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 19 },
-      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "net.Address", "value": { "kind": "call", "callee": "tcp.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 20 },
       { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES tcp.Listener TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "xfer_listener_worker.serveOnTransferredListener" }, { "kind": "string", "value": "seed" }] }, "line": 21 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "server" }] }, "line": 22 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tcp.connect", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, { "kind": "number", "value": "10000" }] }, "line": 23 },

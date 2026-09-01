@@ -11,7 +11,7 @@ const DESC: &str = r#"`vector::cross` returns a vector orthogonal to all of its 
 *generalized* cross product, which in an N-dimensional space takes `N - 1`
 operands, so the arity of this call is fixed by the dimension of the vector type:
 one operand in 2D, two in 3D, three in 4D. Passing the wrong number of operands
-for the dimension — a single `Float3`, or two `Float4` values — is a compile-time
+for the dimension — a single `vector::Float3`, or two `vector::Float4` values — is a compile-time
 error, not a runtime one.
 
 In 2D the unary form returns the *left perpendicular* `(-v.y, v.x)`, which is `v`

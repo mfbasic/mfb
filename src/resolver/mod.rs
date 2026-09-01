@@ -8,11 +8,12 @@ use crate::hir::{
     HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchPattern, HirProject,
     HirStatement, HirTopLevelBinding, HirTypeDecl, HirTypeField,
 };
+use crate::manifest::package::{resolved_package_file, source_dependency, SourceDependency};
 use crate::rules;
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
@@ -286,6 +287,14 @@ struct Resolver<'a> {
     /// keyed by name. Members are resolved as `alias::func` qualified names
     /// (plan-link-update.md §5b).
     link_functions: HashMap<String, HashMap<String, LinkFnSig>>,
+    /// Every name an imported non-builtin package exports, keyed by PACKAGE name
+    /// (not by import binding — several bindings may name one package).
+    ///
+    /// Present only for a package whose interface was read successfully, which is
+    /// what makes the membership test safe to reject on: a package that could not
+    /// be read has already been reported, and an absent entry means "no positive
+    /// knowledge", never "exports nothing" (bug-480).
+    package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
     /// Whether this project is `kind: "package"`. Gates the reserved `IMPORT self`
     /// specifier: only a package has an exported interface to import, so
@@ -356,6 +365,7 @@ impl<'a> Resolver<'a> {
                 .map(|name| crate::types::ParameterType::declared(name))
                 .collect(),
             link_functions: HashMap::new(),
+            package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
             // Non-panicking kind read: `manifest::project_kind` asserts a
             // validated `kind`, but `Resolver::new` also runs from paths with an

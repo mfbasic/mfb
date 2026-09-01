@@ -15,7 +15,7 @@ reproducible bit for bit across targets. The result is always non-negative, and
 is zero exactly when every component of `v` is zero.
 
 The return type is the vector type's **element** type, not the vector type: a
-`Float4` measures to a `Float`, a `Fixed2` to a `Fixed`, an `Integer3` to an
+`vector::Float4` measures to a `Float`, a `vector::Fixed2` to a `Fixed`, a `vector::Integer3` to an
 `Integer`. The zero vector is an entirely ordinary argument here — `length` has no
 degenerate input to reject and never raises `ErrInvalidArgument`, in contrast to
 `vector::normalize`, which needs a direction and refuses the zero vector.
@@ -36,7 +36,7 @@ The rounding rule for the `Integer` overloads is half away from zero, matching
 occur, so the rule is unambiguous in practice: the result rounds up exactly when
 the remainder above the floor exceeds the floor itself. An `Integer` length is
 therefore the nearest integer to the true magnitude, not a truncation —
-`length(Integer2[3, 4])` is exactly `5`, and `length(Integer2[1, 1])` is `1`.
+`length(vector::Integer2[3, 4])` is exactly `5`, and `length(vector::Integer2[1, 1])` is `1`.
 
 `vector::length` is generic over the nine built-in vector record types. The
 overload is selected at compile time from the exact record type of the single

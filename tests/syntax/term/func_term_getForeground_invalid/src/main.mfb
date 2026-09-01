@@ -1,7 +1,7 @@
 IMPORT term
 
-FUNC bad AS TermColor
-  LET c AS TermColor = term::getForeground(1)
+FUNC bad AS term::TermColor
+  LET c AS term::TermColor = term::getForeground(1)
   RETURN c
 END FUNC
 

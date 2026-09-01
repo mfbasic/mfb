@@ -669,11 +669,17 @@ impl<'a> Walker<'a> {
         let mut ambiguous: HashSet<ParameterType> = HashSet::new();
         for package in crate::codegen::registry::registry().packages() {
             for record in package.records() {
-                // `named`, not `declared`: a registry record's name is a bare
-                // `&'static str` nominal the descriptor already built this way
-                // (`ParameterType::named(net::ADDRESS_TYPE)`), so this is a
-                // constructor call, not a grammar entry.
-                let type_ = ParameterType::named(record.name);
+                // bug-480 Phase 4b: a builtin record's DECLARED identity is
+                // package-qualified (`net.Address`), so that is the type a value
+                // of it now carries and the key this map must use. Keyed bare, the
+                // lookup missed and bug-466's gate silently stopped firing --
+                // `tcp::localAddress(s).port` became readable without
+                // `IMPORT net`.
+                //
+                // `named`, not `declared`: this is a constructor call from a
+                // `&'static str`, not a grammar entry.
+                let type_ =
+                    ParameterType::named(&format!("{}.{}", package.import_name(), record.name));
                 if shadowed.contains(&type_) {
                     continue;
                 }
@@ -743,13 +749,15 @@ impl<'a> Walker<'a> {
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
                         for export in &type_exports {
@@ -802,13 +810,15 @@ impl<'a> Walker<'a> {
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {
                         for export in &exports {
@@ -4057,7 +4067,7 @@ mod tests {
         // TYPE_UNKNOWN_ENUM_MEMBER); the checker still typed the matched
         // `crypto::hash` overload by its declared return type, so the binding
         // does not cascade.
-        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
+        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
         assert_eq!(shape_codes(src), Vec::<String>::new());
     }
 

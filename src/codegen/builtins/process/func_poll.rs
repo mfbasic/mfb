@@ -66,8 +66,8 @@ IMPORT io
 
 FUNC main AS Integer
   RES sh = process::shell("echo oops 1>&2")
-  IF process::poll(sh, 500, Stream.StdErr) THEN
-    io::print(process::receive(sh, Stream.StdErr))
+  IF process::poll(sh, 500, process::Stream.StdErr) THEN
+    io::print(process::receive(sh, process::Stream.StdErr))
   END IF
   RETURN 0
 END FUNC

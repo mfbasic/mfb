@@ -15,7 +15,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Hash-generic PBKDF2 (RFC 2898) over the hash-generic HMAC of the selected `Hash`.
+r#"' Hash-generic PBKDF2 (RFC 2898) over the hash-generic HMAC of the selected `crypto::Hash`.
 FUNC __crypto_pbkdf2(algo AS Hash, password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte
   IF iterations < 1 OR length < 1 THEN
     FAIL error(77050002, "pbkdf2 iterations/length out of range")

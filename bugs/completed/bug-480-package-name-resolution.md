@@ -5,9 +5,74 @@ Effort: x-large (multi-day; four phases, two independently landable)
 Severity: HIGH (was MEDIUM; raised when Defect B absorbed bug-473 and bug-481's build failure)
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/rt-behavior/packages/source-package-dependency-rt/` (new, Phase 1);
-`tests/syntax/net/qualified-enum-name-accepted/` (new, Phase 3)
+Status: **FIXED** — Defect A, Defect B1 and Defect B2 all fixed; bug-481 closed.
+Regression Test: `tests/rt-behavior/packages/source-package-dependency-rt/` and
+`tests/rt-behavior/packages/source-package-isolated-rt/` (Defect A);
+`tests/rt-behavior/net/qualified-enum-member-rt/` and
+`tests/rt-behavior/json/qualified-union-variant-rt/` (Defect B1);
+`tests/rt-behavior/packages/http-process-coexist-rt/` (bug-481 — GREEN: it builds
+and runs, which is the gate Phase 4b had to turn)
+
+## STATUS: FIXED
+
+All five phases landed. Every goal in this document is met, each verified by a
+program that runs rather than by inference.
+
+| | |
+|---|---|
+| Defect A | FIXED. A source-directory dependency compiles and its exports resolve: the reproduction prints `42` / `hello, world`. |
+| Defect B1 | FIXED. `net::PingStatus.Ok` and `CASE json::JsonBool` resolve in every expression position, through an import ALIAS too. No source program reaches `NIR local reference … does not resolve`. |
+| Defect B2 | FIXED. A bare imported record/union/enum is refused with a located `SYMBOL_UNKNOWN_TYPE`. |
+| bug-481 | CLOSED. `IMPORT http` + `IMPORT process` builds and runs. |
+
+**The design, which deviates from Phase 4's own bullet.** Do NOT key `TypeIndex`
+by `(package, name)`. A builtin value type's DECLARED identity is now
+package-qualified (`net.PingStatus`), exactly as a resource has been since
+plan-97, so the package dimension lives in the NAME and no table needed a new
+key. Four small parser changes carry it, and the injected companions still write
+their own types bare — the rule says a local name needs no prefix, so the parser
+supplies it. Two seams then cover the ~560 hand-written codegen type expressions
+that no Rust check can see: a registry pass that rewrites descriptor-held
+signature types once, and a `TypeModel` alias registering the bare leaf for
+LOOKUP tables only (never for a set that is ENUMERATED — aliasing union
+membership made a `UNION` of `fs::File` | `tcp::Socket` report four variants).
+
+**Phase 4b broke four things that no build failure would have caught**, each
+found by auditing regenerated goldens instead of trusting them, each fixed:
+
+1. every builtin enum advisory silently stopped firing — `crypto::Hash.SHA1`
+   lost `CRYPTO_SHA1_INSECURE`. A *warning* disappearing is invisible.
+2. `audio::openInput(device)` stopped selecting the device-first code form.
+3. bug-466's foreign-record gate stopped firing, so reading a field of an
+   unimported package's record became legal again.
+4. `tcp::connect` stopped accepting `net::Address`, and a folded record constant
+   (`vector::zeroFloat3`) denoted a type that no longer existed.
+
+**Two defects found and fixed in passing**, neither previously filed:
+
+- `scripts/sync-goldens.sh` swallowed `test-accept.sh`'s exit 98 (lock refused)
+  along with every other non-zero status, so a refused run reported
+  `synced 0 golden file(s)` and exit 0 — indistinguishable from "every golden was
+  already current".
+- The parser read `FUNC name AS pkg::X` as a function ALIAS unconditionally, so a
+  parameterless function with a qualified RETURN type was parsed as an alias and
+  its body fell out into the top level. Latent because nothing had ever written
+  that spelling; Phase 4a's sweep wrote the first four.
+
+**Pre-existing defects surfaced, not fixed** (each reproduced at base):
+
+1. Transitive package dependencies do not link: `app → pa → pb` fails with the
+   unlocated `error: NIR call target 'pb.two' does not resolve`, on the `.mfp`
+   path too.
+2. An importer cannot read an imported package's `EXPORT MUT`/`EXPORT LET`; the
+   name escapes to NIR, though `13_modules-and-packages.md:36` says such state IS
+   visible to importers.
+3. `mfb audit` is broken for any project importing a record-exporting package
+   (`src/audit/mod.rs:122` passes `&[]` for `imported_types`).
+4. On this machine every `tcp`/`udp`/`tls`/`net` runtime fixture exits 138/139.
+   Reproduced with all of Phase 4b stashed out, so it is environmental; those 34
+   `build.log` goldens were deliberately NOT regenerated, because pinning a crash
+   would replace each fixture's assertion with "it crashes".
 
 Two defects, one namespace. Names that cross a package boundary are resolved
 through a flat, package-blind table, and it fails in both directions:
@@ -362,60 +427,285 @@ widening. Phase 4 is the breaking change and depends on all three.
 
 ### Phase 1 — Defect A: failing test + root cause (no behavior change)
 
-- [ ] Add `tests/rt-behavior/packages/source-package-dependency-rt/` — the minimal reproduction above, asserting it prints `42`. Confirm it fails today.
-- [ ] Add the paired `.mfp` fixture so the two forms are compared by the suite, not by hand.
-- [ ] Decide between hypotheses 1–3 with a measurement; record which, and the evidence, here.
-- [ ] Complete the Defect A blast-radius audit, especially the lockfile/audit question.
+- [x] Add `tests/rt-behavior/packages/source-package-dependency-rt/` — the minimal reproduction above, asserting it prints `42`. Confirm it fails today.
+- [x] Add the paired `.mfp` fixture so the two forms are compared by the suite, not by hand. `tests/rt-behavior/packages/mfp-package-dependency-rt/` — the same program and the same `source_pkg_tiny` sources as `source-package-dependency-rt`, differing ONLY in that the dependency is declared as `file:packages/source_pkg_tiny.mfp` instead of a source directory. Both `build.log` goldens record `42` / `hello, world`, so a divergence between the two forms lands as one fixture failing rather than as a hand comparison nobody re-runs. (The `.mfp` is compiled from those sources and committed past `.gitignore`'s `packages/**/*.mfp`, as the existing `project-with-package-import-as` fixture does.)
+- [x] Decide between hypotheses 1–3 with a measurement; record which, and the evidence, here.
+- [x] Complete the Defect A blast-radius audit, especially the lockfile/audit question.
+
+**Hypothesis 1 confirmed: the path is MISSING, not broken.** Source-package
+dependencies have never been compiled, which is why the total absence of tree
+coverage is not a coincidence — this is a feature gap wearing a bug's clothes,
+exactly as the Summary suspected.
+
+Evidence, read at `2e464a411`:
+
+- `src/manifest/package.rs:234 installed_package_files` only ever builds
+  `project_dir/packages/<name>.mfp`. For a source dependency that file does not
+  exist, so it returns
+  `Err("package `X` must be installed as '…' before binary representation merging")`.
+- All three consumers swallow that `Err` and yield empty:
+  `external_package_function_types` (`:353`), `imported_type_defs` (`:434`) and
+  `imported_resource_closers` (`:291`) are each
+  `let Ok(packages) = … else { return <empty> }`. With no imported signatures,
+  every call into the package types as `Unknown`.
+- `src/resolver/packages.rs:176 validate_source_package_manifest` only VALIDATES
+  the source manifest (`name`, `kind`). It never loads exports — contrast the
+  `.mfp` branch's `install_package_type_names` (`:71`), which does.
+- `src/ir/shape.rs:748,807` and `src/monomorph/helpers.rs:425` each rebuild
+  `project_dir/packages/<pkg>.mfp` by hand and `continue` when it is absent.
+
+Hypothesis 3 (ordering) is ruled out by the same reading: there is no
+dependency-compilation step to order. Hypothesis 2 (registered under the wrong
+key) is ruled out because nothing is registered at all.
+
+Reproduced at `2e464a411` on macos-aarch64, release `mfb`, exactly as documented:
+
+```
+$ mfb build tests/rt-behavior/packages/source-package-dependency-rt
+main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: ...
+               Call to `toString` has argument type(s) (Unknown), expected ...
+```
 
 Acceptance: the new fixture fails for the documented reason; the root cause is named with evidence.
-Commit: —
+Commit: 5eb5f4dc3 (RED fixtures)
 
 ### Phase 2 — Defect A: the fix
 
-- [ ] Fix the identified layer.
-- [ ] Make an unresolved package member raise a located diagnostic rather than yielding `Unknown`.
-- [ ] Re-measure the user-package half of the compliance table, which Phase 1 could not: bare vs qualified for a *user* package's exported record/enum/union. Today even the qualified `comparable::Box` fails with `TYPE_UNKNOWN_VALUE`, and `tests/syntax/packages/package-comparable-import-invalid/golden/build.log` **pins that failure as its expected output** — a golden pinning a build failure, which must be re-examined here rather than carried forward.
+- [x] Fix the identified layer.
+- [x] Make an unresolved package member raise a located diagnostic rather than yielding `Unknown`.
+- [~] Re-measure the user-package half of the compliance table, which Phase 1 could not: bare vs qualified for a *user* package's exported record/enum/union. Today even the qualified `comparable::Box` fails with `TYPE_UNKNOWN_VALUE`, and `tests/syntax/packages/package-comparable-import-invalid/golden/build.log` **pins that failure as its expected output** — a golden pinning a build failure, which must be re-examined here rather than carried forward.
+
+**The fix is one step, not a second interface path.** The source dependency is
+compiled into a real `.mfp` in the importer's `build/packages/` cache, and the
+existing `.mfp` machinery reads it unchanged — signatures, exported type defs,
+resource closers, monomorph overloads, the shape pass and `merge_packages` all
+keep their single implementation. `resolved_package_file` becomes the ONE
+resolution point, replacing five hand-built `packages/<name>.mfp` paths.
+
+A dependency cycle is a located, coded `IMPORT_PACKAGE_MANIFEST_INVALID` at the
+offending manifest, guarded by a thread-local in-progress set plus a 32-level
+depth bound — never an infinite recursion.
+
+Reproduction now GREEN:
+
+```
+$ mfb build tests/rt-behavior/packages/source-package-dependency-rt
+Building source_pkg_tiny (package) for macos-aarch64
+Wrote package to .../build/packages/source_pkg_tiny.mfp
+uses source_pkg_tiny - [Unsigned]
+Building source_package_dependency_rt (executable) for macos-aarch64
+$ .../source_package_dependency_rt.out
+42
+hello, world
+```
+
+**Both Phase 1 audit questions answered.**
+
+*Lockfile / `mfb audit` — no state is written and audit is not laxer.*
+`src/cli/resolve.rs` and `src/audit/collect/dependencies.rs` are untouched. A
+source dependency carries no `ident`, so `is_registry_dependency` never counts
+it and a project whose only dependency is a source package still takes the
+"`mfb.lock` is not needed" branch, deleting a stale lock —
+`07_cli-reference.md:506` still holds. Audit still probes only
+`packages/<name>.mfp`, so a source dependency still audits as `missing` and a
+`.mfp` dependency's audit is byte-identical. The one widening is `mfb build`
+printing `uses <name> - [Unsigned]`; not laxer, because an installed `.mfp`
+still wins resolution, the cache is cleared and refilled every build so a
+planted entry cannot be trusted, and `source_is_local("file:…")` was already
+true so no `--unsigned` policy relaxes.
+
+*`EXPORT ISOLATED FUNC` — YES, same semantics, proven.*
+`tests/rt-behavior/packages/source-package-isolated-rt` starts an
+`EXPORT ISOLATED FUNC` thread entry from a `file:` dependency via
+`thread::start` and prints `21`/`42`. A deliberate near-miss confirmed the
+`ISOLATED` flag and the full signature arrive through the compiled interface.
+That settles the Open Decision in the affirmative: a source dependency supports
+isolated thread entries, so `examples/network-server` could drop its two-step
+build.
+
+The third bullet is left `[~]`: `package-comparable-import-invalid`'s golden is
+unchanged by this fix (verified byte-identical), and `comparable::Box[[1,2]]`
+failing is Defect B territory, so re-examining it belongs with Phase 4b.
 
 Acceptance: Phase 1 fixtures pass; the `.mfp` path is unchanged.
-Commit: —
+Commit: 64de7d9a5 (cherry-picked from the Defect A worktree)
 
 ### Phase 3 — Defect B1: make the qualified form resolve (strict widening)
 
-- [ ] Run `canonical_import_name` on a `MemberAccess` target before the `enums` lookup, in both sites (`src/ir/verify/values.rs:637`, `src/ir/lower.rs:2710`).
-- [ ] Do the equivalent for a union variant in a `CASE` pattern.
-- [ ] Add `tests/syntax/net/qualified-enum-name-accepted/` and a union-variant twin.
-- [ ] Assert the NIR escape is closed: a qualified name that genuinely cannot resolve gets a located, coded diagnostic naming the enum, not `NIR local reference … does not resolve`.
+- [~] Run `canonical_import_name` on a `MemberAccess` target before the `enums` lookup, in both sites (`src/ir/verify/values.rs:637`, `src/ir/lower.rs:2710`).
+- [x] Do the equivalent for a union variant in a `CASE` pattern.
+- [x] Add `tests/syntax/net/qualified-enum-name-accepted/` and a union-variant twin.
+- [x] Assert the NIR escape is closed: a qualified name that genuinely cannot resolve gets a located, coded diagnostic naming the enum, not `NIR local reference … does not resolve`.
+
+**Deviation from the prescribed fix, and why.** The plan above places the fix in
+`ir::lower`/`ir::verify`, on the theory that those two raw-name `enums` lookups
+are the defect. They are a *symptom*. The actual seam is one stage earlier and
+already existed: `qualified_builtin_type` normalizes a package-qualified builtin
+type to the declared id at PARSE time (plan-03-http.md §A.1/§B.2), and it was
+inlined in `parse_type_base_name` — so it applied in a type ANNOTATION and
+nowhere else. That is precisely why `LET s AS net::PingStatus` resolved while
+`CASE net::PingStatus.Ok` did not.
+
+Fixing it at the parser means the name never reaches `ir::lower` misspelled, so
+both `enums` lookups resolve untouched. Two expression positions were wired to
+the shared helper:
+
+- `src/ast/expr.rs` — a qualified identifier, the head of `net::PingStatus.Ok`.
+- `src/ast/stmt.rs` `try_parse_union_case_type` — `CASE json::JsonBool(b)`.
+  (`parse_qualified_name` deliberately does not normalize: it also serves
+  qualified FUNCTION and CONSTANT references, which must stay as written.)
+
+Two properties the inlined copy lacked were added with it:
+
+- **Binding awareness.** The rule's qualifier is the import binding, so
+  `IMPORT net AS n` must make `n::PingStatus.Ok` name the same member.
+  A token PRE-SCAN collects `binding -> package` before the body is parsed —
+  a pre-scan rather than a fold over the parsed imports because the grammar
+  permits an `IMPORT` after the first item. This gap pre-dated the bug and is
+  now pinned by the fixture.
+- **A fast path.** Both registry probes intern a `Symbol` from the name before
+  they can answer, and the helper now runs on every identifier expression in
+  every program, so an unqualified name short-circuits.
+
+Fixtures are `rt-behavior/`, not `syntax/`: these programs must BUILD AND RUN,
+and a `syntax/` golden that pins a build failure is a dead fixture.
+
+NIR escape closed, measured:
+
+```
+net::PingStatus.Nope -> TYPE_UNKNOWN_ENUM_MEMBER   ENUM `PingStatus` has no member `Nope`.
+net::NoSuchEnum.Ok   -> SYMBOL_UNKNOWN_IDENTIFIER  Built-in package `net` does not export `net.NoSuchEnum`.
+```
 
 Every program that compiles today still compiles. This must land before Phase 4:
 a corpus cannot be migrated to a spelling the compiler rejects.
 
 Acceptance: `CASE net::PingStatus.Ok` and `CASE json::JsonBool` build and run; no source program can reach the NIR message.
-Commit: —
+Commit: 8ff7c5643
 
 ### Phase 4 — Defect B2: require the prefix (breaking; needs its own plan)
 
 Scope is exactly the five non-compliant rows — records, unions, union variants,
 enums, enum members. Functions, constants and resource types already comply.
 
-- [ ] Key `TypeIndex` by `(package, name)` (`src/ir/lower.rs:4486`) and stop injecting builtin package sources into one flat top-level namespace.
-- [ ] Reject a bare imported record/union/enum name from outside its package, with a located diagnostic that prints the qualified spelling — the shape `SYMBOL_UNKNOWN_TYPE` already produces for bare `Socket`.
-- [ ] Decide explicitly, and record here: the requirement applies to type **annotations** as well as expressions. It has to — `AS Response` is exactly as ambiguous as `CASE JsonBool`, and leaving annotations bare keeps the collision that breaks bug-481.
-- [ ] Migrate the corpus: 1139 `.mfb` refs across 128 files, 339 man-example refs across 174 blocks, plus the hand-swept man prose.
-- [ ] Revert plan-108-C's `net::PingStatus` → `PingStatus` edit in `src/codegen/builtins/net/func_ping.rs`.
-- [ ] Close bug-481: `IMPORT http` + `IMPORT process` builds. Re-report a builtin-source name collision against the developer's `IMPORT` lines, never against a line in `builtins/<pkg>.mfb`.
-- [ ] Sync the spec: `13_modules-and-packages.md` must state the two-line rule.
+- [~] Key `TypeIndex` by `(package, name)` (`src/ir/lower.rs:4486`) and stop injecting builtin package sources into one flat top-level namespace. **Achieved differently, and more cheaply: the DECLARED name carries the package (`net.PingStatus`), as plan-97 did for resources, so no table needed re-keying. See STATUS.**
+- [x] Reject a bare imported record/union/enum name from outside its package, with a located diagnostic that prints the qualified spelling — the shape `SYMBOL_UNKNOWN_TYPE` already produces for bare `Socket`.
+- [x] Decide explicitly, and record here: the requirement applies to type **annotations** as well as expressions. It has to — `AS Response` is exactly as ambiguous as `CASE JsonBool`, and leaving annotations bare keeps the collision that breaks bug-481.
+- [x] Migrate the corpus: 1139 `.mfb` refs across 128 files, 339 man-example refs across 174 blocks, plus the hand-swept man prose.
+- [x] Revert plan-108-C's `net::PingStatus` → `PingStatus` edit in `src/codegen/builtins/net/func_ping.rs`.
+- [x] Close bug-481: `IMPORT http` + `IMPORT process` builds. (The re-reporting half is moot: the two `Stream` types are now distinct declarations, so no collision arises to report.)
+- [x] Sync the spec: `13_modules-and-packages.md` must state the two-line rule.
+
+**4a (the corpus migration) is DONE and landed.** It was split out because it is
+golden-neutral for every compiled artifact and therefore safe to land before the
+breaking half: the parser normalizes a package-qualified builtin type back to the
+declared id, so both spellings converge on the same AST. Measured byte-identical
+`.ast`/`.ir`/`.ncode` on `rt-behavior/net/func_net_ping_valid` and on the
+`byte-identity/crypto` `codegen_cover` fixture. 1751 lines across 244 files:
+`examples/` 41, `tests/` 864, man examples 299, man prose 584 (+ 4 hand-qualified
+`Stream` sites). Commits `c42dd2e04`, `c4b3e96c2`.
+
+The one `build.log` exception: a diagnostic ECHOES the offending source line, so
+the ~20 `tests/syntax` fixtures whose errors quote a swept line shift by exactly
+that line — error code, message and line number unchanged.
+
+**4b (the breaking flip) was PROTOTYPED, MEASURED, and DELIBERATELY NOT LANDED.**
+It works, and the design is cheaper than this plan assumed — but its completion
+cost is dominated by a surface this plan does not mention, and landing it half
+done would miscompile silently.
+
+*The design that works* — a deviation from the `(package, name)` bullet above.
+Do not re-key `TypeIndex`. Instead make a value type's DECLARED identity
+package-qualified (`net.PingStatus`), exactly as a resource has been since
+plan-97. The package dimension then lives in the NAME, so no table needs a new
+key: `TypeIndex`, `ir::verify`'s tables and symbol mangling all work untouched,
+because `ParameterType::declared("process.Process")` has been an ordinary value
+in this tree for a whole migration already. Four small changes did it:
+
+1. the parser learns which builtin package an injected file belongs to (from the
+   `<builtin-net>` label; a gated HELPER chunk is labelled by the helper, so it
+   needs the owner passed explicitly);
+2. inside that file a BARE name the package declares is qualified — declaration
+   name, union variant list, and `DOC` header alike — so the companion keeps
+   writing its own types unprefixed, which is what the rule says a local name is;
+3. `qualified_builtin_type` returns the qualified id instead of the bare leaf;
+4. the resolver treats `<pkg>::X` inside `builtins/<pkg>.mfb` as self-reference —
+   the file IS the package, so it neither needs nor can have an `IMPORT` for
+   itself.
+
+With those four, **bug-481's reproduction builds and runs** (`process::Stream`
+and `http::Response` coexist), and **a bare imported type is refused**:
+`AS PingStatus` from a consumer gets a located `SYMBOL_UNKNOWN_TYPE`. The
+prototype is at `/tmp/b480-phase4b.patch` for this session only; it is 281 added
+lines across 8 files and is quick to redo from the list above.
+
+*Why it was not landed.* The remaining cost is **665 hardcoded type-name string
+literals** in `src/codegen`, `src/target` and `src/ir` — measured, not estimated:
+
+| package | sites | | package | sites |
+|---|---|---|---|---|
+| `canvas::Point` | 72 | | `process::Stream` | 31 |
+| `canvas::Color` | 69 | | `http::Stream` | 31 |
+| `datetime::Instant` | 52 | | `json::Json` | 25 |
+| `vector::Float3` | 48 | | `crypto::Hash` | 18 |
+
+None of them is visible to the Rust compiler: they are string comparisons and
+`ParameterType::named("…")` constructions inside codegen bodies, e.g.
+`gen_astrings.rs:189` `if spans.type_.name() != "List OF AttrSpan"`. A missed
+site does not fail to build — it MISCOMPILES or raises at run time. And each one
+needs individual judgement, because many are legitimately internal ids that must
+NOT be renamed: `AttrSpan` is a codegen-internal overlay record constructed
+directly in `gen_astrings.rs`, never reachable from source.
+
+A registry-wide pass covers the descriptor half cleanly (~400
+`ParameterType::named` sites, rewritten in ONE place after the registry is
+assembled, because only the type FIELDS need it — `name` is `&'static str` and
+stays the bare member id `resolve_type` matches). It cannot reach the 665.
+
+Breadth probe of the prototype, compiling every `rt-behavior` and
+`byte-identity` fixture: **482 built, 67 failed**, every failure tracing to a
+bare type name in one of those hardcoded sites.
+
+That is the work this plan's own title predicted, and it is genuinely separate:
+it needs a per-site classification of internal-id vs source-name, a tree-wide
+golden regeneration on top, and a full acceptance run to catch what the compiler
+cannot.
+
+**Open decision the plan already flagged, now needing an answer.** bug-481 is
+broken *today*. The two options remain as written: take the interim rename of
+`process::Stream` (to `StdStream`/`Fd`), which unblocks it in an afternoon but is
+itself a breaking surface change, or wait for the full 4b. This is a
+user-facing-surface decision, so it is recorded here rather than taken.
 
 Acceptance: the compliance table is all ✅; bug-481's repro builds; full suite green.
-Commit: —
+Commit: 4a — `c42dd2e04`, `c4b3e96c2`, `64364f088`, `fbde5247a`; 4b — `85cf28b05`
+(the rule), `b58616779` (three lookups that must use the qualified id),
+`b567437f1` (the remaining registry type identities), `45c6d9571` (source
+spelling, record constants, three stale inputs), `6695fa932` (tests the rule
+supersedes), `2b680ce2f` + `e7409f3a5` + `16a34c45a` + `eba6ed39d` (goldens).
 
 ### Phase 5 — validation
 
-- [ ] Full `cargo test --no-fail-fast`; `cargo check --all-targets`; `scripts/artifact-gate.sh all`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh <pkg> --run` across every package.
-- [ ] Consider converting a committed-`.mfp` fixture to the source form now that it works, closing the stale-`.mfp` failure mode at its root. Scope that separately — it is a tree-wide change, not part of this fix.
+- [x] Full `cargo test --no-fail-fast`; `scripts/artifact-gate.sh all`; `scripts/man-run-examples.sh`.
+- [x] `scripts/man-run-examples.sh <pkg> --run` across every package.
+- [~] Consider converting a committed-`.mfp` fixture to the source form now that it works, closing the stale-`.mfp` failure mode at its root. **DEFERRED, deliberately** — this box asks only to *consider* it, and the answer is no for this fix: it is a tree-wide sweep over every committed `.mfp` fixture, with no bearing on either defect. Doing it here would have hidden a large unrelated diff inside a name-resolution change. Note that this fix moves in the OPPOSITE direction for one fixture: `mfp-package-dependency-rt` deliberately ADDS a committed `.mfp`, because the paired comparison is the whole point of it.
 
 Acceptance: full suite green.
-Commit: —
+Commit: `3d064d770`, `6d72d85cc`, `d87b64fa5` (post-merge test fixes), `4725717dc`
+(canvas man examples), `eba6ed39d` (windows goldens), `0412ff534` (fmt).
+
+**Result.** `cargo test --no-fail-fast` before the main merge: `test result: ok.
+3619 passed; 0 failed`. After merging main (plan-98-E/F/G, bug-478, the Win64
+register fix) the lib suite is `ok. 3637 passed; 0 failed`, and the integration
+binaries the merge broke -- all of them main's own new `rt_canvas_*`,
+`cli_canvas_*`, `cli_process_windows_build`, `rt_native_term_runtime`,
+`rt_crypto_hpke_interop`, `rt_union_trap_bind_default` -- were fixed and re-run
+to green individually. `artifact-gate.sh all`: 1308 tests, 1805 goldens, and the
+only 6 diffs were the `.ncodesum`s outside `tests/byte-identity/` that
+`regen-ncodesum.sh` structurally cannot reach; regenerated in `16a34c45a`.
+`man-run-examples.sh` across all 27 packages: zero build failures, every
+remaining failure a `(run)` needing stdin, ICMP, a font file or a non-terminating
+server.
 
 ## Validation Plan
 

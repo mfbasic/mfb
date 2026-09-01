@@ -240,12 +240,12 @@ IMPORT collections
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES img AS canvas::Image = canvas::loadImage("fixture.png") TRAP(e)
     io::print("failed:" & e.message)
     EXIT SUB
   END TRAP
-  LET size AS Size = canvas::getSize(img)
+  LET size AS canvas::Size = canvas::getSize(img)
   LET px AS List OF Byte = canvas::getBytes(img)
   MUT out AS String = toString(size.width) & "," & toString(size.height)
   MUT i AS Integer = 0

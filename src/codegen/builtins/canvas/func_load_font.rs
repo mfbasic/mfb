@@ -17,7 +17,7 @@ const INTRO: &str = r#"Load a TrueType font file and hold it as a `Font` resourc
 
 const DESC: &str = r#"`loadFont` reads the file at `path` and returns a `Font` — an owned resource, bound
 with `RES`, released when it leaves scope or when `canvas::destroyFont` is called.
-A `Text` item names it through a `FontRef` from `canvas::fontRef`, never directly, so
+A `canvas::Text` item names it through a `canvas::FontRef` from `canvas::fontRef`, never directly, so
 the scene has no opinion about the font's lifetime.
 
 **The file is kept whole, not decoded.** A TrueType file *is* the glyph database —
@@ -40,9 +40,9 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
-  LET label AS DrawItem = Text[x := 20.0, y := 60.0, text := "hello", font := canvas::fontRef(face), size := 32.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 20.0, y := 60.0, text := "hello", font := canvas::fontRef(face), size := 32.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 ```"#;

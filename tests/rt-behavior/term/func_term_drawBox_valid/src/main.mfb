@@ -7,10 +7,10 @@ IMPORT term
 FUNC main AS Integer
   term::on()
   term::setForeground(0, 255, 0)
-  term::drawBox(LineStyle.Light, 2, 1, 12, 5)         ' cols 2..12, rows 1..5
-  term::drawBox(LineStyle.HeavyDash, 30, 8, 20, 2)    ' reversed points; dashed edges, heavy corners
-  term::drawBox(LineStyle.Double, 40, 0, 46, 4)
-  term::drawBox(LineStyle.Light, 60, 20, 200, 40)     ' partly off-grid: draws the visible part
+  term::drawBox(term::LineStyle.Light, 2, 1, 12, 5)         ' cols 2..12, rows 1..5
+  term::drawBox(term::LineStyle.HeavyDash, 30, 8, 20, 2)    ' reversed points; dashed edges, heavy corners
+  term::drawBox(term::LineStyle.Double, 40, 0, 46, 4)
+  term::drawBox(term::LineStyle.Light, 60, 20, 200, 40)     ' partly off-grid: draws the visible part
   term::sync()
   term::off()
   RETURN 0

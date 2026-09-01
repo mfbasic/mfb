@@ -21,11 +21,11 @@ use super::gen_image::{emit_closed_guard, IMAGE_HEIGHT, IMAGE_WIDTH};
 const INTRO: &str = r#"The pixel dimensions of an image, or of the canvas surface."#;
 
 const DESC: &str = r#"`getSize(image)` returns the `width` and `height` an image was created with, so a
-program can lay a `Picture` out proportionally without tracking the numbers itself.
+program can lay a `canvas::Picture` out proportionally without tracking the numbers itself.
 
 `getSize()` with no argument returns the **canvas surface** size instead — the
 drawing area a scene is presented into, in the same pixel coordinates every
-`DrawItem` uses. That is what a program centres on.
+`canvas::DrawItem` uses. That is what a program centres on.
 
 It reads the runtime's own record — no backend round trip — so it costs a load.
 
@@ -38,11 +38,11 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
-  LET size AS Size = canvas::getSize(img)
-  LET tile AS DrawItem = Picture[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height), image := canvas::imageRef(img), paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET size AS canvas::Size = canvas::getSize(img)
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height), image := canvas::imageRef(img), paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([tile])
 END SUB
 ```"#;

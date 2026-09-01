@@ -22,7 +22,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "r", "type": "Response", "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "url" }] }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "http.Response", "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "url" }] }] }, "line": 12 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "status" }, "line": 13 }
       ]
     },

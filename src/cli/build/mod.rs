@@ -189,6 +189,15 @@ pub(crate) struct BuildOptions {
     /// output flags may be given in one invocation; each artifact is written
     /// from a single shared front-end pass.
     pub(crate) outputs: Vec<BuildOutput>,
+    /// Where a `kind: "package"` build writes its `.mfp`. `None` means beside
+    /// the sources (`<project_dir>/<name>.mfp`), which is what `mfb build` on a
+    /// package project does.
+    ///
+    /// Set only when the compiler is building a dependency declared by SOURCE
+    /// DIRECTORY on an importer's behalf (bug-480): the compiled interface is an
+    /// intermediate of the IMPORTER's build and belongs in its
+    /// `build/packages/` cache, never in the dependency's source tree.
+    pub(crate) package_output_dir: Option<PathBuf>,
     pub(crate) target: target::BuildTarget,
     pub(crate) sign_owner: Option<String>,
     pub(crate) app_mode: bool,
@@ -278,6 +287,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
+
+    // bug-480 Defect A: a dependency declared by SOURCE DIRECTORY has no
+    // installed `.mfp`, so compile it into this build's package cache first.
+    // Everything downstream — the verification report just below, the resolver,
+    // the shape pass, monomorph's overload table, the signature/type/closer
+    // readers and `merge_packages` — then resolves it through the one artifact
+    // format they already understand.
+    build_source_dependencies(options, &manifest)?;
 
     // audit-1 PKG-01: verify every declared dependency's signature against a
     // project-pinned trust anchor before it is decoded, merged, or lowered, and
@@ -705,11 +722,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // flavors written in one build survive each other.
             if test_output_dir.is_none() {
                 let build_dir = output_dir.join(crate::os::BUILD_DIR);
-                if let Err(err) = std::fs::remove_dir_all(&build_dir) {
-                    if err.kind() != std::io::ErrorKind::NotFound {
-                        eprintln!("error: failed to clear '{}': {err}", build_dir.display());
-                        return Err(());
-                    }
+                if let Err(err) = clear_build_dir(&build_dir) {
+                    eprintln!("error: failed to clear '{}': {err}", build_dir.display());
+                    return Err(());
                 }
             }
             // plan-46-C §4.4: hash-verify every `vendor` library this build resolves
@@ -919,7 +934,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             let package_path = {
                 let _span = crate::trace::span("codegen+link");
                 target::write_package(
-                    &options.location,
+                    // bug-480: a source-directory dependency's `.mfp` is an
+                    // intermediate of the IMPORTER's build, so it is written
+                    // into that build's package cache instead of beside these
+                    // sources.
+                    options
+                        .package_output_dir
+                        .as_deref()
+                        .unwrap_or(&options.location),
                     &ir,
                     &metadata,
                     &packages,
@@ -1106,12 +1128,14 @@ mod options;
 mod packages;
 mod resources;
 mod signing;
+mod source_packages;
 mod test_mode;
 
 use native_libs::*;
 use packages::*;
 use resources::*;
 use signing::*;
+use source_packages::*;
 use test_mode::*;
 
 pub(crate) use options::{parse_build_options, parse_test_options};
@@ -3905,6 +3929,158 @@ mod tests {
             parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
         // The build succeeds; the point is that the external-signature filter ran.
         build_project(&options).expect("build with an installed dependency succeeds");
+    }
+
+    /// Write a `kind: "package"` project at `dir` exporting `answer()`.
+    fn write_source_package(dir: &Path, name: &str) {
+        std::fs::create_dir_all(dir.join("src")).expect("package src dir");
+        std::fs::write(
+            dir.join("project.json"),
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"{name}\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"package\",\n",
+                    "  \"description\": \"A source-directory dependency.\",\n",
+                    "  \"targets\": [\"native\"],\n",
+                    "  \"sources\": [{{ \"root\": \"src\", \"role\": \"lib\", \"include\": [\"**/*.mfb\"] }}]\n",
+                    "}}\n"
+                ),
+                name = name
+            ),
+        )
+        .expect("package manifest");
+        std::fs::write(
+            dir.join("src").join("lib.mfb"),
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .expect("package source");
+    }
+
+    /// bug-480 Defect A: a dependency declared by SOURCE DIRECTORY is compiled
+    /// into `build/packages/<name>.mfp` and its exported signatures resolve, so
+    /// the call types as `Integer` instead of `Unknown`.
+    #[test]
+    fn build_project_compiles_a_source_directory_dependency() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\nIMPORT tiny\n\nSUB main()\n  io::print(toString(tiny::answer()))\nEND SUB\n",
+        )
+        .unwrap();
+        write_source_package(&dir.path().join("packages").join("tiny"), "tiny");
+
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("source-directory dependency builds");
+
+        // The compiled interface lands in the cache, never beside the sources.
+        let cache = crate::manifest::package::source_package_cache_dir(dir.path());
+        assert!(
+            cache.join("tiny.mfp").is_file(),
+            "the dependency's .mfp belongs in build/packages/"
+        );
+        assert!(
+            !dir.path()
+                .join("packages")
+                .join("tiny")
+                .join("tiny.mfp")
+                .exists(),
+            "nothing is written into the dependency's source tree"
+        );
+        // The executable-branch build-dir clear must not take the cache with it:
+        // its paths are what `write_executable` was handed.
+        assert!(
+            dir.path()
+                .join(crate::os::BUILD_DIR)
+                .join("app.out")
+                .exists()
+                || dir.path().join(crate::os::BUILD_DIR).exists()
+        );
+    }
+
+    /// A source dependency that depends on itself must be a located, coded
+    /// diagnostic — not an infinite recursion.
+    #[test]
+    fn build_project_rejects_a_source_dependency_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let package_dir = dir.path().join("packages").join("tiny");
+        write_source_package(&package_dir, "tiny");
+        // Point the package at ITSELF, by absolute path, so the two entries are
+        // the same directory rather than two copies of one.
+        let absolute = std::fs::canonicalize(&package_dir).expect("canonical package dir");
+        std::fs::write(
+            package_dir.join("project.json"),
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"tiny\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"package\",\n",
+                    "  \"description\": \"A source package that depends on itself.\",\n",
+                    "  \"targets\": [\"native\"],\n",
+                    "  \"packages\": [{{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"local://{}\" }}],\n",
+                    "  \"sources\": [{{ \"root\": \"src\", \"role\": \"lib\", \"include\": [\"**/*.mfb\"] }}]\n",
+                    "}}\n"
+                ),
+                absolute.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"tiny\", \"version\": \"=0.1.0\", \"source\": \"file:packages/tiny\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\nIMPORT tiny\n\nSUB main()\n  io::print(toString(tiny::answer()))\nEND SUB\n",
+        )
+        .unwrap();
+
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(
+            build_project(&options).is_err(),
+            "a dependency cycle must fail the build"
+        );
+        // The emitted identity is defined and non-sentinel.
+        assert_eq!(
+            crate::rules::code_and_name("IMPORT_PACKAGE_MANIFEST_INVALID"),
+            ("2-201-0005", "IMPORT_PACKAGE_MANIFEST_INVALID")
+        );
     }
 
     /// A cross-target `mfb test` build cannot run the produced binary on the host,

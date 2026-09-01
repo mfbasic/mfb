@@ -51,6 +51,13 @@ package **Tampered** and fails the build:
 dependencies only; a remote unsigned dependency requires the `--unsigned`
 opt-in. [[src/cli/build/packages.rs:classify_installed_package]]
 
+A **source-package** dependency is classified too, against the `.mfp` the build
+just compiled from its sources into `build/packages/`. It is Unsigned by
+construction and its source is local, so it is always permitted; the classifier
+resolves an installed `packages/<name>.mfp` first, so nothing a source
+dependency contributes can relax the chain a compiled dependency is held to.
+[[src/manifest/package.rs:resolved_package_file]]
+
 ### Payload / sections
 
 * `MFPC` magic and `bcMajor == 2` (the structured-Binary-Representation clean break; `1` is rejected as predating the format).

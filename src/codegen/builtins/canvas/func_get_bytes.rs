@@ -36,7 +36,7 @@ IMPORT collections
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(10), toByte(20), toByte(30), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   LET current AS List OF Byte = canvas::getBytes(img)

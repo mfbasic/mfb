@@ -18,7 +18,7 @@ Extract-then-Expand construction over the hash selected by `type` — a
 `crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_512`, or
 `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The
 result is returned as a raw `List OF Byte` of exactly `length` bytes. This one call
-is the package's single HKDF surface. (`Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
+is the package's single HKDF surface. (`crypto::Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
 advisory; prefer `SHA2_256` unless a peer requires HKDF-SHA1.)
 
 HKDF first *extracts* a fixed-length pseudorandom key from `ikm` and `salt` (one
@@ -45,8 +45,8 @@ binary, not text — stringify it with `encoding::hexEncode` or
 here layered over HMAC of the selected hash. The derivation is computed
 in-process by a portable MFBASIC software core over the `bits` package — no platform
 cryptographic library is called — so the output is **byte-identical on macOS, Linux,
-and Windows** (and across aarch64/x86-64). The core is hash-generic over the `Hash`
-enum, so a future `Hash` variant is supported without new code."#;
+and Windows** (and across aarch64/x86-64). The core is hash-generic over the `crypto::Hash`
+enum, so a future `crypto::Hash` variant is supported without new code."#;
 const EX: &str = r#"Derive a 32-byte key from input keying material:
 
 ```
@@ -59,7 +59,7 @@ SUB main()
   LET ikm AS List OF Byte = strings::toBytes("shared secret")
   LET salt AS List OF Byte = crypto::randomBytes(16)
   LET info AS List OF Byte = strings::toBytes("app v1 encryption")
-  LET key AS List OF Byte = crypto::hkdf(Hash.SHA2_256, ikm, salt, info, 32)
+  LET key AS List OF Byte = crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, 32)
   io::print(encoding::hexEncode(key))
 END SUB
 ```"#;

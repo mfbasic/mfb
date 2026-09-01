@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Project an absolute `Instant` into UTC to produce a civil `DateTime`."#;
+const INTRO: &str =
+    r#"Project an absolute `datetime::Instant` into UTC to produce a civil `datetime::DateTime`."#;
 const DESC: &str = r#"`datetime::toUtc` projects the absolute instant `at` into the UTC zone, yielding
 the calendar date and wall-clock time that an observer reading UTC sees at that
 moment. It is exactly shorthand for `datetime::inZone(at, datetime::utc())`: the
@@ -13,9 +14,9 @@ civil year/month/day (proleptic Gregorian calendar) and an
 hour/minute/second-of-day, with no offset adjustment.
 
 
-The returned `DateTime` carries four things: the civil date, the civil time, the
+The returned `datetime::DateTime` carries four things: the civil date, the civil time, the
 UTC zone, and a resolved offset of zero. Because the zero offset is pinned onto
-the result, the `DateTime` round-trips back to the original instant via
+the result, the `datetime::DateTime` round-trips back to the original instant via
 `datetime::resolve` with no further zone lookup. The instant's sub-second
 `nanos` field is preserved verbatim into the time's `nanos` field; only the
 `seconds` field participates in the date and time computation, so an instant
@@ -32,7 +33,7 @@ const EX: &str = r#"Project the current instant into UTC:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET dt AS datetime::DateTime = datetime::toUtc(datetime::now())
 END SUB
 ```
 
@@ -42,9 +43,9 @@ Round-trip an instant through UTC and back:
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::now()
-  LET dt AS DateTime = datetime::toUtc(at)
-  LET back AS Instant = datetime::resolve(dt)
+  LET at AS datetime::Instant = datetime::now()
+  LET dt AS datetime::DateTime = datetime::toUtc(at)
+  LET back AS datetime::Instant = datetime::resolve(dt)
 END SUB
 ```"#;
 

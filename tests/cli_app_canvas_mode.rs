@@ -1,4 +1,4 @@
-//! `Mode.Canvas` presentation-mode plumbing (plan-98-A).
+//! `app::Mode.Canvas` presentation-mode plumbing (plan-98-A).
 //!
 //! `Canvas` is the third `Mode` enum variant (`Console` = 0, `None` = 1,
 //! `Canvas` = 2). Variant declaration order fixes the discriminants and those are
@@ -23,16 +23,16 @@ use std::process::Command;
 /// with a partial write.
 const CANVAS_ROUNDTRIP_SOURCE: &str = "IMPORT app\n\
      FUNC main() AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() <> Mode.Canvas THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() <> app::Mode.Canvas THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.None)\n\
-    \x20 IF app::getMode() <> Mode.None THEN\n\
+    \x20 app::setMode(app::Mode.None)\n\
+    \x20 IF app::getMode() <> app::Mode.None THEN\n\
     \x20   RETURN 2\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() <> Mode.Canvas THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() <> app::Mode.Canvas THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
     \x20 RETURN 0\n\
@@ -42,15 +42,15 @@ const CANVAS_ROUNDTRIP_SOURCE: &str = "IMPORT app\n\
 /// of them alias and this returns non-zero.
 const CANVAS_DISTINCT_SOURCE: &str = "IMPORT app\n\
      FUNC main() AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() = Mode.Console THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() = app::Mode.Console THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
-    \x20 IF app::getMode() = Mode.None THEN\n\
+    \x20 IF app::getMode() = app::Mode.None THEN\n\
     \x20   RETURN 2\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.Console)\n\
-    \x20 IF app::getMode() <> Mode.Console THEN\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 IF app::getMode() <> app::Mode.Console THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
     \x20 RETURN 0\n\
@@ -73,13 +73,13 @@ fn build_app(name: &str, source: &str, extra: &[&str]) -> (PathBuf, bool, String
     (project, output.status.success(), combined)
 }
 
-/// Every `--app` target must accept `Mode.Canvas` at compile time: the variant is
+/// Every `--app` target must accept `app::Mode.Canvas` at compile time: the variant is
 /// registry data with no per-backend surface of its own, so a backend that
 /// rejected it would be rejecting the whole `Mode` enum.
 #[test]
 fn canvas_mode_compiles_for_the_host_app_target() {
     let (project, ok, log) = build_app("app_canvas_build", CANVAS_ROUNDTRIP_SOURCE, &[]);
-    assert!(ok, "a Mode.Canvas app build should succeed:\n{log}");
+    assert!(ok, "an app::Mode.Canvas app build should succeed:\n{log}");
     let _ = fs::remove_dir_all(&project);
 }
 
@@ -124,7 +124,7 @@ fn run_headless_with_stdin(exe: &Path, stdin: &str) -> (i32, String) {
 #[test]
 fn macos_canvas_mode_round_trips_through_the_presentation_slot() {
     let (project, ok, log) = build_app("app_canvas_rt", CANVAS_ROUNDTRIP_SOURCE, &[]);
-    assert!(ok, "a Mode.Canvas app build should succeed:\n{log}");
+    assert!(ok, "an app::Mode.Canvas app build should succeed:\n{log}");
     let exe = project.join("build/app_canvas_rt.app/Contents/MacOS/app_canvas_rt");
     assert!(
         exe.is_file(),
@@ -145,7 +145,7 @@ fn macos_canvas_mode_round_trips_through_the_presentation_slot() {
 #[test]
 fn macos_canvas_is_distinct_from_console_and_none() {
     let (project, ok, log) = build_app("app_canvas_distinct", CANVAS_DISTINCT_SOURCE, &[]);
-    assert!(ok, "a Mode.Canvas app build should succeed:\n{log}");
+    assert!(ok, "an app::Mode.Canvas app build should succeed:\n{log}");
     let exe = project.join("build/app_canvas_distinct.app/Contents/MacOS/app_canvas_distinct");
     assert!(
         exe.is_file(),
@@ -172,7 +172,7 @@ fn linux_app_target_accepts_canvas_mode() {
     );
     assert!(
         ok,
-        "a Mode.Canvas app build for linux-aarch64 should succeed:\n{log}"
+        "an app::Mode.Canvas app build for linux-aarch64 should succeed:\n{log}"
     );
     let _ = fs::remove_dir_all(&project);
 }
@@ -195,12 +195,12 @@ const TERM_TRAPS_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT term\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 term::moveTo(1, 1) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 60\n\
     \x20   END IF\n\
-    \x20   app::setMode(Mode.Console)\n\
+    \x20   app::setMode(app::Mode.Console)\n\
     \x20   term::moveTo(1, 1) TRAP(err2)\n\
     \x20     RETURN 61\n\
     \x20   END TRAP\n\
@@ -234,7 +234,7 @@ const IO_READ_GATE_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET line AS String = io::readLine() TRAP(err)\n\
     \x20   IF err.code = errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 50\n\
@@ -244,7 +244,7 @@ const IO_READ_GATE_SOURCE: &str = "IMPORT app\n\
     \x20 IF line <> \"canvas-input\" THEN\n\
     \x20   RETURN 52\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.None)\n\
+    \x20 app::setMode(app::Mode.None)\n\
     \x20 LET second AS String = io::readLine() TRAP(err2)\n\
     \x20   IF err2.code = errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 0\n\
@@ -275,7 +275,7 @@ fn macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none() {
 const IO_READ_CONSOLE_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Console)\n\
+    \x20 app::setMode(app::Mode.Console)\n\
     \x20 LET line AS String = io::readLine() TRAP(err)\n\
     \x20   RETURN 50\n\
     \x20 END TRAP\n\
@@ -303,7 +303,7 @@ fn macos_console_reads_are_unchanged_by_the_relaxation() {
 const IO_WRITE_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 io::print(\"CANVAS_LINE\")\n\
     \x20 io::write(\"CANVAS_NONL\")\n\
     \x20 RETURN 0\n\
@@ -339,7 +339,7 @@ fn macos_io_writes_degrade_to_stdout_in_canvas() {
 //    window via System Events.
 // ---------------------------------------------------------------------------
 
-/// Reads four bytes in `Mode.Canvas` and reports the first mismatch by position, so
+/// Reads four bytes in `app::Mode.Canvas` and reports the first mismatch by position, so
 /// a reordering fails differently from a wrong value. Then asserts the fifth read
 /// hits EOF, which the runtime reports as `ErrEndOfFile` exactly as it does for a
 /// console program whose stdin closed.
@@ -348,7 +348,7 @@ const CANVAS_READ_ORDER_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET a AS Byte = io::readByte()\n\
     \x20 IF a <> 65 THEN\n\
     \x20   RETURN 10\n\

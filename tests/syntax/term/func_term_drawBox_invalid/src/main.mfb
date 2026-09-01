@@ -1,9 +1,9 @@
 IMPORT term
 
 FUNC main AS Integer
-  term::drawBox(LineStyle.Light, 0, 0, 0)
+  term::drawBox(term::LineStyle.Light, 0, 0, 0)
   term::drawBox(0, 0, 0, 0, 0)
-  term::drawBox(LineStyle.Light, "a", 0, 0, 0)
-  term::drawBox(LineStyle.Light, 0, 0, 0, 0, 0)
+  term::drawBox(term::LineStyle.Light, "a", 0, 0, 0)
+  term::drawBox(term::LineStyle.Light, 0, 0, 0, 0, 0)
   RETURN 0
 END FUNC

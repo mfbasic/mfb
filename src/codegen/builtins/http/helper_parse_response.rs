@@ -10,7 +10,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' bug-303: `raw` is BYTES. The head/body split is a byte-offset operation
 ' (CRLFCRLF is a byte sequence, and a header value may legally carry non-ASCII),
-' and the body stays bytes all the way into `Response.body`, which is already
+' and the body stays bytes all the way into `http::Response.body`, which is already
 ' `List OF Byte`. Only the head is decoded to text, and headers are ASCII by
 ' RFC 9110. Previously the whole response was decoded per 64 KiB receive and then
 ' re-encoded, which both corrupted multibyte bodies and did the work twice.

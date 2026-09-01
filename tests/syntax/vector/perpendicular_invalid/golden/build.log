@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/vector/perpendicular_invalid
    6 |   LET a AS vector::Float3 = vector::perpendicular(vector::Float3[1.0,2.0,3.0])
      | ^
 tests/syntax/vector/perpendicular_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `vector.perpendicular` has argument type(s) (Float3), expected a 2D vector (Float2, Fixed2, Integer2).
+               Call to `vector.perpendicular` has argument type(s) (vector.Float3), expected a 2D vector (Float2, Fixed2, Integer2).
    4 | 
    5 | FUNC main AS Integer
    6 |   LET a AS vector::Float3 = vector::perpendicular(vector::Float3[1.0,2.0,3.0])

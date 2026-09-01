@@ -15,7 +15,7 @@ FUNC boldMap(a AS AttributedString) AS String
     MUT mark AS String = "-"
     FOR EACH at IN astrings::getAttributes(a, i)
       MATCH at
-        CASE AttrFlag(f)
+        CASE astrings::AttrFlag(f)
           mark = "B"
         CASE ELSE
       END MATCH

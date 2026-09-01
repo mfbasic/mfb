@@ -20,7 +20,7 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "u", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "u", "type": "net.Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "label" }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  scheme=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "scheme" } }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  username=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "username" } }] }, "line": 10 },

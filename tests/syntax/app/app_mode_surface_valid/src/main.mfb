@@ -5,10 +5,10 @@ IMPORT io
 ' `app::getMode()` returns the `Mode` enum; `app::setMode(Mode)` returns Nothing;
 ' the `Mode` enum has exactly the variants `Console` and `None`.
 SUB main()
-  LET start AS Mode = app::getMode()
-  app::setMode(Mode.None)
-  app::setMode(Mode.Console)
-  LET back AS Mode = app::getMode()
-  io::print(toString(start = Mode.Console))
-  io::print(toString(back = Mode.None))
+  LET start AS app::Mode = app::getMode()
+  app::setMode(app::Mode.None)
+  app::setMode(app::Mode.Console)
+  LET back AS app::Mode = app::getMode()
+  io::print(toString(start = app::Mode.Console))
+  io::print(toString(back = app::Mode.None))
 END SUB

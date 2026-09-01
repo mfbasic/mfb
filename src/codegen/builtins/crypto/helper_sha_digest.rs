@@ -15,7 +15,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Hash-generic digest dispatch: route a `Hash` selector to its SHA `_bytes` core.
+r#"' Hash-generic digest dispatch: route a `crypto::Hash` selector to its SHA `_bytes` core.
 FUNC __crypto_shaDigest(algo AS Hash, data AS List OF Byte) AS List OF Byte
   IF algo = Hash.SHA1 THEN
     RETURN __crypto_sha1_bytes(data)

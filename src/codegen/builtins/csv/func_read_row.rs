@@ -13,8 +13,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Read the next record from a streaming CSV reader."#;
 
 const DESC: &str = r#"`csv::readRow` parses exactly one record starting at `reader`'s cursor and returns
-a `CsvRow` with three fields: `fields` (the record's cells, a `List OF String`),
-`reader` (a new `CsvReader` advanced past the record, to pass to the next
+a `csv::CsvRow` with three fields: `fields` (the record's cells, a `List OF String`),
+`reader` (a new `csv::CsvReader` advanced past the record, to pass to the next
 `csv::readRow`), and `done` (`TRUE` when the reader was already at end of input,
 in which case `fields` is empty). Reading is purely functional — the input
 `reader` is not modified; each call returns the advanced reader to thread into the
@@ -36,7 +36,7 @@ IMPORT io
 
 SUB main()
   MUT count AS Integer = 0
-  MUT row AS CsvRow = csv::readRow(csv::parseStream("1,a\n2,b\n3,c"))
+  MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("1,a\n2,b\n3,c"))
   WHILE row.done = FALSE
     count = count + 1
     row = csv::readRow(row.reader)

@@ -48,6 +48,33 @@ io::print(toString(s.radius))
 
 Rules:
 
+- **Where a name is defined decides whether it needs a prefix.** A name defined
+  **locally** — in the current project or, inside a package, by that package —
+  needs no prefix. A name reached through an `IMPORT` **requires** one. This holds
+  for every kind of name alike: variables and constants, functions, records,
+  unions, union variants, enums, enum members, and resource types.
+
+  ```basic
+  IMPORT net
+  LET u AS net::Url = net::toUrl("http://example.com/")   ' imported: prefix required
+  MATCH r.status
+    CASE net::PingStatus.Ok                               ' the ENUM is prefixed...
+      io::print(toString(r.rttMs))                        ' ...the MEMBER is not
+  END MATCH
+  ```
+
+  Three consequences the two lines leave implicit:
+
+  - The prefix is the import **binding**, not the package name. `IMPORT net AS n`
+    makes it `n::PingStatus.Ok`.
+  - It governs the **head of a path**, not its members. `u.host` needs no prefix
+    on `host`, and `net::PingStatus.Ok` prefixes the enum, not `Ok`.
+  - Inside a package, its own members are local, so they are written bare.
+    `IMPORT self` stays optional.
+
+  A bare imported type is refused with `SYMBOL_UNKNOWN_TYPE`; two packages may
+  therefore export the same leaf name without colliding (`http::Stream` and
+  `process::Stream` are different types).
 - A package-qualified name has exactly two parts: `package::identifier`.
 - Nested package qualifiers are illegal: `a::b::c` is a compile error.
 - Record fields use `value.field`. Methods and object-style access do not exist.
@@ -144,6 +171,17 @@ packages`. The on-disk byte encoding of identity/version/entry into the `.mfp`
 may import a source package or an `.mfp` package; imported `.mfp` packages must
 carry a compatible package-format version, compatible public API metadata, and a
 language version the compiler supports.
+
+A **source package** is a dependency named by directory rather than by compiled
+artifact — `"source": "file:<project-relative-dir>"`, `"source":
+"local:///absolute/dir"`, or no `source` at all, which means
+`packages/<name>/`. The build compiles it before resolving any import against
+it, so both dependency forms present the identical exported interface to the
+importer: the same signatures, exported types, resource types, isolated thread
+entries and overload sets.[[src/cli/build/source_packages.rs:build_source_dependencies]]
+An installed `packages/<name>.mfp` always wins over the sources beside it. A
+package may not be part of its own dependency
+graph.[[src/manifest/package.rs:resolved_package_file]]
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 

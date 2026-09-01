@@ -45,10 +45,10 @@ FUNC main() AS Integer
 
   ' Builtin union: json::parse is the common fallible union-returning call.
   LET d AS json::Json = json::parse("[1,2]") TRAP(e)
-    RECOVER JsonNull[NOTHING]
+    RECOVER json::JsonNull[NOTHING]
   END TRAP
   LET fallback AS json::Json = json::parse("{oops") TRAP(e)
-    RECOVER JsonNull[NOTHING]
+    RECOVER json::JsonNull[NOTHING]
   END TRAP
   io::print(json::stringify(d))
   io::print(json::stringify(fallback))

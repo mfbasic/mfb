@@ -5,7 +5,7 @@ IMPORT money
 ' money::round settles under the current mode; the tie 0.125 -> 0.13 (Commercial)
 ' vs 0.12 (Banker) proves the mode is consulted. decimals 0 and 5 boundaries.
 FUNC modeName(m AS money::Rounding) AS String
-  IF m = Rounding.Banker THEN
+  IF m = money::Rounding.Banker THEN
     RETURN "Banker"
   END IF
   RETURN "Commercial"
@@ -18,7 +18,7 @@ FUNC main() AS Integer
   io::print(toString(money::round(-0.125m, 2)))    ' -0.13
   io::print(toString(money::round(1.23456m, 5), p5)) ' identity at 5
 
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Banker)
   io::print(modeName(money::getRounding()))       ' Banker
   io::print(toString(money::round(0.125m, 2)))     ' 0.12
   io::print(toString(money::round(0.135m, 2)))     ' 0.14

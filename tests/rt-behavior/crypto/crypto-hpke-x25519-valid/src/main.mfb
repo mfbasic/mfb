@@ -50,7 +50,7 @@ FUNC code(err AS Error) AS String
   RETURN "other=" & toString(err.code)
 END FUNC
 
-FUNC tryOpen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
+FUNC tryOpen(c AS crypto::AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
   LET pt AS List OF Byte = crypto::decrypt(c, seed, box, aad)
   RETURN encoding::hexEncode(pt)
   TRAP(err)
@@ -58,7 +58,7 @@ FUNC tryOpen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, a
   END TRAP
 END FUNC
 
-FUNC tryOpenLen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
+FUNC tryOpenLen(c AS crypto::AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS String
   LET pt AS List OF Byte = crypto::decrypt(c, seed, box, aad)
   RETURN toString(len(pt))
   TRAP(err)
@@ -66,7 +66,7 @@ FUNC tryOpenLen(c AS AsymmetricCipher, seed AS List OF Byte, box AS List OF Byte
   END TRAP
 END FUNC
 
-FUNC trySeal(c AS AsymmetricCipher, pub AS List OF Byte, data AS List OF Byte) AS String
+FUNC trySeal(c AS crypto::AsymmetricCipher, pub AS List OF Byte, data AS List OF Byte) AS String
   LET box AS List OF Byte = crypto::encrypt(c, pub, data)
   RETURN toString(len(box))
   TRAP(err)
@@ -79,8 +79,8 @@ SUB main()
   LET pub AS List OF Byte = encoding::hexDecode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
   LET aad AS List OF Byte = encoding::utf8Encode("Count-0")
   LET none AS List OF Byte = []
-  LET aes AS AsymmetricCipher = AsymmetricCipher.Ed25519_AES256GCM
-  LET chacha AS AsymmetricCipher = AsymmetricCipher.Ed25519_CHACHA20POLY1305
+  LET aes AS crypto::AsymmetricCipher = crypto::AsymmetricCipher.Ed25519_AES256GCM
+  LET chacha AS crypto::AsymmetricCipher = crypto::AsymmetricCipher.Ed25519_CHACHA20POLY1305
   LET indAes AS List OF Byte = encoding::hexDecode("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f890940fdcf0e3016ad953a04877686c920")
   LET indChacha AS List OF Byte = encoding::hexDecode("d3e826a9e5c1e642b44f628eb2052cd8d020dd6cc50c54b65b4f9b5a142bb969b6141cbb64368c2082203d4441a4ddadeb6e4dca7512b5dad514181132cd0b13fe8745f9a41e36950df89d6a29")
   LET indAesNoAad AS List OF Byte = encoding::hexDecode("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f89e167bb633f73c8793d87b63ab692eab8")
@@ -108,7 +108,7 @@ SUB main()
   io::print("tamper-enc=" & tryOpen(aes, seed, flipBit(boxAes, 3), aad))
   io::print("tamper-body=" & tryOpen(aes, seed, flipBit(boxAes, 40), aad))
   io::print("tamper-tag=" & tryOpen(aes, seed, flipBit(boxAes, len(boxAes) - 1), aad))
-  LET other AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  LET other AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
   io::print("wrong-recipient=" & tryOpen(aes, other.privateKey, boxAes, aad))
   io::print("cross-suite=" & tryOpen(chacha, seed, boxAes, aad))
   io::print("short-47=" & tryOpen(aes, seed, collections::mid(boxEmpty, 0, 47), none))

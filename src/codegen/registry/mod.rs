@@ -592,7 +592,7 @@ impl RegistryRecord {
             out.push_str("\n  ");
             out.push_str(prop.name);
             out.push_str(" AS ");
-            out.push_str(&prop.ty.name());
+            out.push_str(&source_spelling(&prop.ty));
         }
         out.push_str("\nEND TYPE");
         out
@@ -1518,10 +1518,15 @@ impl Registry {
                 }
                 let label = format!("<builtin-{}>", helper.name);
                 let doc = format!("builtins/{}.mfb", helper.name);
-                let file = crate::ast::parse_source_internal(
+                // The chunk is labelled by the HELPER, but it is the OWNING
+                // package's source, so the package is handed over explicitly --
+                // the label alone would leave its declarations unqualified
+                // (bug-480 Phase 4b).
+                let file = crate::ast::parse_source_builtin(
                     std::path::Path::new(&label),
                     &doc,
                     &format!("{}\n", body.trim_end()),
+                    package.import_name(),
                 )?;
                 synthetic_files.push(file);
             }
@@ -1604,26 +1609,140 @@ impl Registry {
             _ => None,
         };
         let head = head_owned.as_deref();
+        // bug-480 Phase 4b: a builtin value type is named `crypto.Sealed` now, while
+        // a registry row still carries the bare member id it declares. Accept both --
+        // callers hand this whatever the type system holds, which is the qualified
+        // form, and matching only the bare id made every such probe answer `false`.
+        let matches = |package: &RegistryPackage, row: &str| {
+            row == name
+                || name
+                    .strip_prefix(package.import_name())
+                    .and_then(|rest| rest.strip_prefix('.'))
+                    .is_some_and(|leaf| leaf == row)
+        };
         self.packages().iter().any(|package| {
-            package.records().iter().any(|record| record.name == name)
-                || package.unions().iter().any(|union| union.name == name)
-                || package.enums().iter().any(|r#enum| r#enum.name == name)
+            package
+                .records()
+                .iter()
+                .any(|record| matches(package, record.name))
+                || package.unions().iter().any(|union| matches(package, union.name))
+                || package
+                    .enums()
+                    .iter()
+                    .any(|r#enum| matches(package, r#enum.name))
                 // `datetime`'s value records/enums live in its injected companion source.
-                || package.source_types().contains(&name)
+                || package
+                    .source_types()
+                    .iter()
+                    .any(|source| matches(package, source))
                 || head.is_some_and(|head| package.source_types().contains(&head))
         })
     }
 
-    /// A `package.Type` reference (`"csv.CsvReader"`) resolved to its bare member type
+    /// Rewrite every descriptor-held TYPE REFERENCE from its bare leaf spelling to
+    /// the package-qualified identity a value type now carries (bug-480 Phase 4b).
+    ///
+    /// The descriptors are written bare — `ParameterType::named(KEYPAIR_TYPE)`,
+    /// where `KEYPAIR_TYPE` is `"KeyPair"` — because within `crypto` that IS the
+    /// name, and the governing rule says a package's own members need no prefix.
+    /// Once the declared identity is `crypto.KeyPair`, a signature still saying
+    /// `KeyPair` denotes nothing: observed as `native record type 'KeyPair' does
+    /// not resolve` out of codegen, and as `MATCH on open type Attribute` where a
+    /// bare-typed scrutinee met qualified `CASE` arms.
+    ///
+    /// Done as one pass here rather than at ~400 construction sites because only
+    /// the type FIELDS need rewriting — `name` is `&'static str` and stays the
+    /// bare member id that `resolve_type` matches after splitting the qualifier.
+    /// One choke point also means one place where the owner rule is stated:
+    ///
+    ///   1. the package that declares the leaf, when it is this package's own —
+    ///      so `http`'s `Stream` is `http.Stream` and `process`'s is
+    ///      `process.Stream`, which is the whole of bug-481;
+    ///   2. otherwise the single package that declares it, for a genuine
+    ///      cross-package reference (`http::Response` naming `net::Url`);
+    ///   3. otherwise unchanged — a primitive, a generic parameter, or an
+    ///      ambiguous leaf no package can claim.
+    fn qualify_value_type_references(&mut self) {
+        // leaf -> the packages declaring it. Built before any rewrite so a
+        // cross-package reference resolves against the whole registry.
+        let mut owners: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for package in &self.packages {
+            let pkg = package.import_name.to_string();
+            let mut add = |leaf: &str| {
+                owners
+                    .entry(leaf.to_string())
+                    .or_default()
+                    .push(pkg.clone());
+            };
+            for record in &package.records {
+                add(record.name);
+            }
+            for union in &package.unions {
+                add(union.name);
+            }
+            for r#enum in &package.enums {
+                add(r#enum.name);
+            }
+            for source_type in &package.source_types {
+                add(source_type);
+            }
+        }
+
+        let packages = std::mem::take(&mut self.packages);
+        self.packages = packages
+            .into_iter()
+            .map(|mut package| {
+                let pkg = package.import_name;
+                let map = |ty: &ParameterType| qualify_type_leaves(ty, pkg, &owners);
+                // Record FIELD types are deliberately NOT rewritten. A record is
+                // rendered back into injectable source by `get_mfb` and re-parsed,
+                // and source spells a qualifier `::` -- a `.` there is field
+                // access, so emitting the dot form makes the companion
+                // unparseable. The parser qualifies those bare field types itself
+                // when it reads the companion, which is the same answer by the
+                // shorter route. Only types that never round-trip through source
+                // -- the signatures below, which type-check call sites directly --
+                // need rewriting here.
+                for function in &mut package.functions {
+                    for imp in &mut function.implementations {
+                        for param in &mut imp.params {
+                            param.ty = map(&param.ty);
+                        }
+                        imp.return_type = map(&imp.return_type);
+                    }
+                }
+                package
+            })
+            .collect();
+    }
+
+    /// A `package.Type` reference (`"csv.CsvReader"`) resolved to the DECLARED type
     /// id when the migrated package declares it, else `None`.
+    ///
+    /// bug-480 Phase 4b changed what "the declared id" means. It used to be the
+    /// bare member name (`net.Url` -> `Url`), because every builtin value type was
+    /// declared bare in one flat top-level namespace. That namespace is why
+    /// `http::Stream` (a union) and `process::Stream` (an enum) could not coexist
+    /// (bug-481), and why a bare `Response` resolved from a consumer that should
+    /// have had to write `http::Response`. A value type is now addressed
+    /// `net.Url`, exactly as a RESOURCE has been since plan-97 — so this returns
+    /// the qualified spelling unchanged, and the two `Stream`s are two names.
     pub(crate) fn qualified_builtin_type(&self, qualified: &str) -> Option<String> {
+        // Match the resolved kind rather than discarding it: the member id it
+        // carries is what the qualified spelling must be built from, and reading it
+        // keeps the resolution honest (a row whose `name` disagreed with the
+        // qualifier would otherwise pass silently).
         if let Some(resolved) = self.resolve_type(qualified) {
-            return Some(match resolved {
-                ResolvedType::Record(record) => record.name.to_string(),
-                ResolvedType::Union(union) => union.name.to_string(),
-                ResolvedType::Enum(r#enum) => r#enum.name.to_string(),
-                ResolvedType::Resource(resource) => resource.name.to_string(),
-            });
+            let member = match resolved {
+                ResolvedType::Record(record) => record.name,
+                ResolvedType::Union(union) => union.name,
+                ResolvedType::Enum(r#enum) => r#enum.name,
+                ResolvedType::Resource(resource) => resource.name,
+            };
+            let (package, leaf) = qualified.split_once('.')?;
+            debug_assert_eq!(leaf, member, "registry row name disagrees with lookup");
+            return Some(format!("{package}.{member}"));
         }
         // A source-declared value type (`datetime.Instant`) authored only in the
         // package's injected companion, not modeled as a record/union/enum.
@@ -1632,7 +1751,7 @@ impl Registry {
             .iter()
             .find(|p| p.import_name == pkg_name)
             .filter(|p| p.source_types().contains(&type_name))
-            .map(|_| type_name.to_string())
+            .map(|_| qualified.to_string())
     }
 }
 
@@ -1652,6 +1771,97 @@ pub(crate) fn registry() -> &'static Registry {
 /// single-implementation function and a two-implementation overload); `csv` is the
 /// first real package migrated off `target::shared::registry` — it registers itself
 /// from its own module, `crate::codegen::builtins::csv`.
+/// Render `ty` the way SOURCE spells it.
+///
+/// The type system's qualifier is a dot (`net.Address`), matching the parser's
+/// internal normalization. MFBASIC source spells it `net::Address` -- a dot there
+/// is FIELD ACCESS, so emitting the internal form into injectable source makes the
+/// companion unparseable (`<builtin-udp>:10 Field name must be an identifier`).
+///
+/// Only the qualifier is rewritten; container spellings (`List OF`, `Map OF … TO`)
+/// and their nesting are already source-shaped.
+fn source_spelling(ty: &ParameterType) -> String {
+    let rendered = ty.name().into_owned();
+    let mut out = rendered.clone();
+    for package in registry().packages() {
+        let dotted = format!("{}.", package.import_name());
+        if out.contains(&dotted) {
+            out = out.replace(&dotted, &format!("{}::", package.import_name()));
+        }
+    }
+    out
+}
+
+/// Map every NOMINAL leaf of `ty` from its bare spelling to the package-qualified
+/// identity, per the owner rule in
+/// [`Registry::qualify_value_type_references`]. Container shapes
+/// (`List OF`, `Map OF … TO …`, `Result OF`, a user generic's arguments) are
+/// descended into, so `List OF Json` becomes `List OF json.Json`.
+///
+/// An already-qualified leaf is left alone: resources have carried their package
+/// since plan-97, and a descriptor that spells one out is already correct.
+fn qualify_type_leaves(
+    ty: &ParameterType,
+    package: &str,
+    owners: &std::collections::HashMap<String, Vec<String>>,
+) -> ParameterType {
+    let qualify_leaf = |leaf: &str| -> Option<String> {
+        if leaf.contains('.') {
+            return None; // already qualified (a resource id, or a spelled-out reference)
+        }
+        let declaring = owners.get(leaf)?;
+        if declaring.iter().any(|owner| owner == package) {
+            return Some(format!("{package}.{leaf}"));
+        }
+        match declaring.as_slice() {
+            [only] => Some(format!("{only}.{leaf}")),
+            _ => None, // ambiguous across packages and not ours: leave it alone
+        }
+    };
+    match ty {
+        ParameterType::Named(sym) => match qualify_leaf(sym.resolve()) {
+            Some(qualified) => ParameterType::named(&qualified),
+            None => ty.clone(),
+        },
+        ParameterType::UserOf(head, args) => {
+            let args = args
+                .iter()
+                .map(|arg| qualify_type_leaves(arg, package, owners))
+                .collect::<Vec<_>>();
+            match qualify_leaf(head.resolve()) {
+                Some(qualified) => ParameterType::user_of(&qualified, args),
+                None => ParameterType::user_of(head.resolve(), args),
+            }
+        }
+        ParameterType::ListOf(inner) => {
+            ParameterType::list_of(qualify_type_leaves(inner, package, owners))
+        }
+        ParameterType::SetOf(inner) => {
+            ParameterType::set_of(qualify_type_leaves(inner, package, owners))
+        }
+        ParameterType::MapOf(key, value) => ParameterType::map_of(
+            qualify_type_leaves(key, package, owners),
+            qualify_type_leaves(value, package, owners),
+        ),
+        ParameterType::ResultOf(inner) => {
+            ParameterType::result_of(qualify_type_leaves(inner, package, owners))
+        }
+        // A resource's STATE clause and a `RES` wrapper both hold a nominal that has
+        // to be qualified too: `http::startRead` returns `Stream STATE PendingState`,
+        // and leaving the state bare made the initializer disagree with the binding
+        // (`declares STATE http.PendingState but its initializer carries STATE
+        // PendingState`).
+        ParameterType::Stateful { base, state } => ParameterType::Stateful {
+            base: Box::new(qualify_type_leaves(base, package, owners)),
+            state: Box::new(qualify_type_leaves(state, package, owners)),
+        },
+        ParameterType::Res(inner) => {
+            ParameterType::Res(Box::new(qualify_type_leaves(inner, package, owners)))
+        }
+        other => other.clone(),
+    }
+}
+
 fn build() -> Registry {
     let mut r = Registry::new();
     crate::codegen::builtins::app::register(&mut r);
@@ -1684,6 +1894,7 @@ fn build() -> Registry {
     crate::codegen::builtins::http::register(&mut r);
     crate::codegen::builtins::thread::register(&mut r);
     crate::codegen::builtins::vector::register(&mut r);
+    r.qualify_value_type_references();
     r
 }
 
@@ -1802,7 +2013,25 @@ pub(crate) fn constant_type_name(qualified: &str) -> Option<ParameterType> {
     // applied to it — callers stay typed instead of each classifying the
     // spelling themselves. Storing a `ParameterType` in the descriptor directly
     // is a const-context change, not this plan's.
-    find_constant(qualified).map(|constant| ParameterType::declared(constant.type_name))
+    find_constant(qualified).map(|constant| {
+        // bug-480 Phase 4b: `type_name` is a `&'static str` descriptor literal and
+        // stays the bare member id, but a constant's TYPE has to be the qualified
+        // identity or a folded record constant (`vector::zeroFloat3`) denotes a
+        // type that no longer exists. Qualify with the constant's own package,
+        // which is the head of `qualified`.
+        let declared = ParameterType::declared(constant.type_name);
+        match qualified.split_once('.') {
+            Some((package, _)) if !constant.type_name.contains('.') => {
+                let candidate = format!("{package}.{}", constant.type_name);
+                if registry().is_builtin_type(&candidate) {
+                    ParameterType::declared(&candidate)
+                } else {
+                    declared
+                }
+            }
+            _ => declared,
+        }
+    })
 }
 
 /// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
@@ -1878,11 +2107,21 @@ pub(crate) fn general_override_target(
     // `parse`<->`name` round trip — the old form compared the same two
     // spellings.
     let spelled = arg_type.name();
+    // bug-480 Phase 4b: the argument now arrives package-qualified (`vector.Float2`),
+    // while the descriptor row still spells the bare member id it declares
+    // (`Float2`) -- `arg_type` is a `&'static str` and stays one. Compare against
+    // the owning package's qualified spelling as well, so `toString(vector::abs(v))`
+    // still finds `__vector_float2ToString` instead of falling through to the
+    // general builtin and reporting the vector type as un-stringable.
+    let overrides_arg_type = |package: &RegistryPackage, o: &RegistryOverride| {
+        o.arg_type == spelled
+            || format!("{}.{}", package.import_name(), o.arg_type) == spelled.as_ref()
+    };
     registry().packages().iter().find_map(|package| {
         package
             .overrides()
             .iter()
-            .find(|o| o.builtin == builtin && o.arg_type == spelled)
+            .find(|o| o.builtin == builtin && overrides_arg_type(package, o))
             .map(|o| o.helper)
     })
 }

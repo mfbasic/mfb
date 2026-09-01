@@ -7,7 +7,7 @@ IMPORT net
 IMPORT io
 
 FUNC drive(u AS net::Url) AS Integer
-  RES s AS http::Stream STATE PendingState = http::startRead(u)
+  RES s AS http::Stream STATE http::PendingState = http::startRead(u)
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
       http::pump(s)

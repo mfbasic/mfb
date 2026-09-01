@@ -15,7 +15,7 @@ const INTRO: &str = r#"Draw a horizontal box-drawing line across a row of the su
 
 const DESC: &str = r#"`term::drawHLine` stamps a horizontal run of a box-drawing glyph into the retained
 surface: on row `row`, it fills every column from `colA` to `colB` with the
-horizontal form of the chosen `LineStyle`. The glyph is drawn with the colours and
+horizontal form of the chosen `term::LineStyle`. The glyph is drawn with the colours and
 attributes currently in effect (`term::setForeground`/`setBackground`/`setBold`/
 `setUnderline`), exactly as `io::write` stamps text, and — like every drawing call
 on this surface — it updates the surface only and appears on the next
@@ -30,10 +30,10 @@ edge becomes `columns-1`. If `row` is outside `0 .. rows-1`, or the clamped span
 covers no on-grid cell, the call draws nothing rather than clamping the line onto
 an edge. No error is raised for an out-of-range request.
 
-The `line` argument is a `LineStyle` enum value selecting the weight and pattern:
-`LineStyle.Light` (`─`), `LineStyle.Heavy` (`━`), `LineStyle.LightDash` (`┄`),
-`LineStyle.HeavyDash` (`┅`), `LineStyle.LightDot` (`┈`), `LineStyle.HeavyDot`
-(`┉`), and `LineStyle.Double` (`═`). `term::drawVLine` draws the matching vertical
+The `line` argument is a `term::LineStyle` enum value selecting the weight and pattern:
+`term::LineStyle.Light` (`─`), `term::LineStyle.Heavy` (`━`), `term::LineStyle.LightDash` (`┄`),
+`term::LineStyle.HeavyDash` (`┅`), `term::LineStyle.LightDot` (`┈`), `term::LineStyle.HeavyDot`
+(`┉`), and `term::LineStyle.Double` (`═`). `term::drawVLine` draws the matching vertical
 forms.
 
 Drawing a line does not move the cursor and does not change the current
@@ -51,8 +51,8 @@ IMPORT term
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
-  term::drawHLine(LineStyle.Heavy, 0, 0, size.columns - 1)
+  LET size AS term::TermSize = term::terminalSize()
+  term::drawHLine(term::LineStyle.Heavy, 0, 0, size.columns - 1)
   term::sync()
   term::off()
 END SUB
@@ -65,10 +65,10 @@ IMPORT term
 
 SUB main()
   term::on()
-  term::drawHLine(LineStyle.Light, 0, 0, 20)
-  term::drawHLine(LineStyle.Light, 10, 0, 20)
-  term::drawVLine(LineStyle.Light, 0, 0, 10)
-  term::drawVLine(LineStyle.Light, 20, 0, 10)
+  term::drawHLine(term::LineStyle.Light, 0, 0, 20)
+  term::drawHLine(term::LineStyle.Light, 10, 0, 20)
+  term::drawVLine(term::LineStyle.Light, 0, 0, 10)
+  term::drawVLine(term::LineStyle.Light, 20, 0, 10)
   term::sync()
   term::off()
 END SUB

@@ -5,9 +5,9 @@ IMPORT libsnd
 IMPORT os
 
 SUB main()
-  LET devices AS List OF AudioDevice = audio::devices()
-  LET outDevices AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canOutput)
-  LET inDevices AS List OF AudioDevice = collections::filter(devices, LAMBDA(d AS AudioDevice) -> d.canInput)
+  LET devices AS List OF audio::AudioDevice = audio::devices()
+  LET outDevices AS List OF audio::AudioDevice = collections::filter(devices, LAMBDA(d AS audio::AudioDevice) -> d.canOutput)
+  LET inDevices AS List OF audio::AudioDevice = collections::filter(devices, LAMBDA(d AS audio::AudioDevice) -> d.canInput)
 
   ' No output devices available.
   IF len(outDevices) = 0 THEN
@@ -16,7 +16,7 @@ SUB main()
   END IF
   
   ' Pick the output device
-  MUT seloutDevices AS AudioDevice = collections::get(outDevices, 0)
+  MUT seloutDevices AS audio::AudioDevice = collections::get(outDevices, 0)
   IF len(outDevices) > 1 THEN
     io::print("Select the output device: ")
     MUT idx = 0

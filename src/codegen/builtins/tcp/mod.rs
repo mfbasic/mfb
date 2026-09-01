@@ -125,7 +125,7 @@ be handed straight to `tcp::connect`, and `tcp::localAddress` /
 
 **A file that reads those addresses' fields must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and a package cannot re-export another's types (see
-`mfb spec language modules-and-packages`), so `Address` is only nameable in a
+`mfb spec language modules-and-packages`), so `net::Address` is only nameable in a
 file that imports the package declaring it. Passing the whole value on still
 works without it — `tcp::connect(bound)` compiles — but `bound.host` and
 `bound.port` are refused there. Only the address-valued members are affected:

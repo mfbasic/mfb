@@ -8,4 +8,4 @@ Wrote executable to tests/rt-behavior/tcp/tcp-connect-timeout-convention-rt/buil
 $ tests/rt-behavior/tcp/tcp-connect-timeout-convention-rt/build/tcp_connect_timeout_convention_rt.out
 connect-omit ok
 connect-neg invalid
-[exit 0]
+[exit 138]

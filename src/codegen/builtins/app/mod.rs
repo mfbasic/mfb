@@ -41,7 +41,7 @@ a plain console build is a compile-time error, because the package controls an a
 window's presentation surface, which a console binary does not have. Enable app
 mode with the `-app` build flag or `"mode": "app"` in `project.json`.
 
-The mode is one of the `Mode` enum members: `Console` — the terminal-in-a-window
+The mode is one of the `app::Mode` enum members: `Console` — the terminal-in-a-window
 surface (a transcript view, optionally a full-screen `term::` grid), the default —
 `None` — windowless, where no surface is presented and `io::print` degrades to
 standard output — or `Canvas` — a 2D graphics surface drawn by the `canvas`
@@ -54,13 +54,13 @@ and bring a window up deliberately, while a program that never touches the mode
 keeps the terminal-in-a-window behavior unchanged.
 
 `app::getMode` and `app::setMode` raise no errors from the mode machinery itself:
-the argument to `setMode` is a `Mode` the type checker has already constrained, and
+the argument to `setMode` is an `app::Mode` the type checker has already constrained, and
 reading the current mode cannot fail. The mode model is designed to grow: a new
-presentation surface is a new `Mode` variant entered through `app::setMode`, with
+presentation surface is a new `app::Mode` variant entered through `app::setMode`, with
 no change to this surface — which is exactly how `Canvas` was added.
 
-The `Mode` enum is referenced bare, like every other builtin type: write
-`Mode.None`, not `app::Mode.None`."#;
+The `app::Mode` enum is referenced bare, like every other builtin type: write
+`app::Mode.None`, not `app::Mode.None`."#;
 
 /// Register the `app` package on the clean-room registry.
 ///
@@ -145,7 +145,7 @@ mod tests {
         assert!(registry().is_builtin_type("Mode"));
         assert_eq!(
             registry().qualified_builtin_type("app.Mode"),
-            Some("Mode".to_string())
+            Some("app.Mode".to_string())
         );
     }
 
@@ -158,7 +158,7 @@ mod tests {
             registry::call_return_type_typed(GET_MODE)
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Mode")
+            Some("app.Mode")
         );
         assert_eq!(
             registry::call_return_type_typed(SET_MODE)
@@ -186,7 +186,7 @@ mod tests {
         // `setMode` takes a single `Mode`; `getMode` takes no arguments.
         assert_eq!(
             registry::argument_types(SET_MODE),
-            Some(vec!["Mode".to_string()])
+            Some(vec!["app.Mode".to_string()])
         );
         assert_eq!(registry::argument_types(GET_MODE), Some(vec![]));
     }

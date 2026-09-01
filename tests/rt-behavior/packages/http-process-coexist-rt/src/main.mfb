@@ -1,0 +1,32 @@
+' bug-481, closed by bug-480 Phase 4. `http::Stream` is a union of transports and
+' `process::Stream` is an enum of a child's output channels. They are different
+' types in different packages that happen to share a leaf name, and before the
+' package-keyed type namespace landed, importing both raised
+' `SYMBOL_DUPLICATE_TOP_LEVEL` against a line in `builtins/http.mfb` -- a file the
+' developer never wrote.
+'
+' Both names are USED here, qualified, so the fixture proves the two coexist as
+' distinct types rather than merely that the duplicate check was silenced.
+IMPORT http
+IMPORT process
+IMPORT io
+
+FUNC channelName(s AS process::Stream) AS String
+  MATCH s
+    CASE process::Stream.StdOut
+      RETURN "stdout"
+    CASE process::Stream.StdErr
+      RETURN "stderr"
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  io::print(channelName(process::Stream.StdOut))
+  io::print(channelName(process::Stream.StdErr))
+  ' The `http` half of the collision: `http::Response` is a record this package
+  ' owns, and reaching it at all requires the `http` builtin source to have been
+  ' injected alongside `process` without the two colliding.
+  LET r AS http::Response = http::responseDefault()
+  io::print("status=" & toString(r.status))
+  RETURN 0
+END FUNC

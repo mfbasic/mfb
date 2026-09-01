@@ -25,7 +25,7 @@ released font measures and draws as empty rather than faulting.
 Closing twice is the defined no-op, and using a closed font afterwards raises the
 universal `ErrResourceClosed` — the same contract every resource has.
 
-Unlike the rest of `canvas`, `destroyFont` does **not** require `Mode.Canvas`: a
+Unlike the rest of `canvas`, `destroyFont` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to release what it allocated, and
 closing a handle touches no surface."#;
 
@@ -34,7 +34,7 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
   canvas::destroyFont(face)
 END SUB

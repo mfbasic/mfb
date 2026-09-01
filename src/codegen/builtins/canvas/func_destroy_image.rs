@@ -24,7 +24,7 @@ the scene intact — the runtime simply stops drawing that item.
 Closing twice is the defined no-op, and using a closed image afterwards raises the
 universal `ErrResourceClosed` — the same contract every resource has.
 
-Unlike the rest of `canvas`, `destroyImage` does **not** require `Mode.Canvas`: a
+Unlike the rest of `canvas`, `destroyImage` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to close the images it made, and
 closing a handle touches no surface."#;
 
@@ -33,7 +33,7 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   canvas::destroyImage(img)

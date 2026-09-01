@@ -2146,7 +2146,7 @@ mod lower_tests {
              FUNC compute() AS Integer\n\
                LET a AS Float = math::sqrt(2.0)\n\
                LET b AS Integer = bits::sl(1, 3)\n\
-               LET t AS Instant = datetime::now()\n\
+               LET t AS datetime::Instant = datetime::now()\n\
                RETURN b\n\
              END FUNC\n\
              SUB main\n  io::print(\"x\")\nEND SUB\n",
@@ -2482,7 +2482,7 @@ mod lower_tests {
             "IMPORT json\n\
              IMPORT csv\n\
              FUNC run() AS String\n\
-               LET j AS Json = json::parse(\"1\")\n\
+               LET j AS json::Json = json::parse(\"1\")\n\
                LET s AS String = json::stringify(j)\n\
                LET g AS List OF List OF String = csv::parse(\"a,b\")\n\
                RETURN s\n\
@@ -2491,7 +2491,9 @@ mod lower_tests {
         );
         assert!(matches!(
             bind_value(&function(&ir, "run").body, "j"),
-            Some(IrValue::Call { type_, .. }) if type_.name() == "Json"
+            // bug-480 Phase 4b: a builtin value type is addressed by its
+            // package-qualified identity now.
+            Some(IrValue::Call { type_, .. }) if type_.name() == "json.Json"
         ));
     }
 
@@ -2506,17 +2508,17 @@ mod lower_tests {
         // helpers; those `builtins/` occurrences must not count.
         let src = "\
 IMPORT crypto
-FUNC pick(h AS Hash) AS Integer
+FUNC pick(h AS crypto::Hash) AS Integer
   MATCH h
-    CASE Hash.SHA1
+    CASE crypto::Hash.SHA1
       RETURN 1
     CASE ELSE
       RETURN 0
   END MATCH
 END FUNC
 FUNC main AS Integer
-  LET d AS List OF Byte = crypto::hash(Hash.SHA1, \"legacy\")
-  RETURN len(d) + pick(Hash.SHA2_256)
+  LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA1, \"legacy\")
+  RETURN len(d) + pick(crypto::Hash.SHA2_256)
 END FUNC
 ";
         let rules = crate::testutil::check_src(src);
@@ -2536,9 +2538,9 @@ END FUNC
         let src = "\
 IMPORT crypto
 FUNC main AS Integer
-  LET d AS List OF Byte = crypto::hash(Hash.SHA2_256, \"data\")
-  MATCH Hash.SHA2_512
-    CASE Hash.SHA2_512
+  LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, \"data\")
+  MATCH crypto::Hash.SHA2_512
+    CASE crypto::Hash.SHA2_512
       RETURN len(d)
     CASE ELSE
       RETURN 0
@@ -2559,7 +2561,7 @@ END FUNC
         let ir = lower_src(
             "IMPORT crypto\n\
              FUNC run() AS List OF Byte\n\
-               RETURN crypto::hash(Hash.SHA2_256, \"data\")\n\
+               RETURN crypto::hash(crypto::Hash.SHA2_256, \"data\")\n\
              END FUNC\n\
              SUB main\nEND SUB\n",
         );
@@ -2579,7 +2581,7 @@ END FUNC
         let src = "IMPORT net\n\
              IMPORT http\n\
              FUNC run() AS Integer\n\
-               LET u AS Url = net::toUrl(\"http://x\")\n\
+               LET u AS net::Url = net::toUrl(\"http://x\")\n\
                LET r AS http::Response = http::read(u)\n\
                RETURN 0\n\
              END FUNC\n\
@@ -2624,7 +2626,7 @@ END FUNC
         // datetime::time(hour, minute) pads the optional second/nanos with 0.
         let ir = lower_src(
             "IMPORT datetime\n\
-             FUNC run() AS Time\n  RETURN datetime::time(10, 30)\nEND FUNC\n\
+             FUNC run() AS datetime::Time\n  RETURN datetime::time(10, 30)\nEND FUNC\n\
              SUB main\nEND SUB\n",
         );
         let padded = function(&ir, "run").body.iter().any(|op| match op {
@@ -2660,7 +2662,7 @@ END FUNC
         // optional `aad` with an empty byte list (ListLiteral, not a scalar Const).
         let src = "IMPORT crypto\n\
              FUNC run(key AS List OF Byte, nonce AS List OF Byte, pt AS List OF Byte) AS crypto::Sealed\n\
-               RETURN crypto::seal(SymmetricCipher.AES256GCM, key, nonce, pt)\n\
+               RETURN crypto::seal(crypto::SymmetricCipher.AES256GCM, key, nonce, pt)\n\
              END FUNC\n\
              SUB main\nEND SUB\n";
         let ir = try_lower_src(src).expect("crypto AEAD program should lower");
@@ -2751,7 +2753,7 @@ END FUNC
         // datetime constructors are arity-aware and pad optional arguments.
         let ir = lower_src(
             "IMPORT datetime\n\
-             FUNC run() AS Instant\n  RETURN datetime::instant(0)\nEND FUNC\n\
+             FUNC run() AS datetime::Instant\n  RETURN datetime::instant(0)\nEND FUNC\n\
              SUB main\nEND SUB\n",
         );
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
@@ -3299,8 +3301,8 @@ END FUNC
         let src = "IMPORT net\n\
              IMPORT collections\n\
              FUNC run() AS String\n\
-               LET addrs AS List OF Address = net::lookup(\"example.com\")\n\
-               LET a AS Address = collections::get(addrs, 0)\n\
+               LET addrs AS List OF net::Address = net::lookup(\"example.com\")\n\
+               LET a AS net::Address = collections::get(addrs, 0)\n\
                RETURN a.host\n\
              END FUNC\n\
              SUB main\nEND SUB\n";
@@ -4902,7 +4904,7 @@ IMPORT regex
 IMPORT datetime
 FUNC main AS Integer
   LET m AS Boolean = regex::match("abc", "a.c")
-  LET dt AS DateTime = datetime::parse("2024-01-02")
+  LET dt AS datetime::DateTime = datetime::parse("2024-01-02")
   RETURN 0
 END FUNC
 "#,
@@ -5442,11 +5444,11 @@ IMPORT crypto
 IMPORT net
 IMPORT encoding
 FUNC main AS Integer
-  LET v AS Json = json::parse("{}")
+  LET v AS json::Json = json::parse("{}")
   LET s AS String = json::stringify(v)
   LET rows AS List OF List OF String = csv::parse("a,b")
   LET back AS String = csv::stringify(rows)
-  LET digest AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  LET digest AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
   LET hexed AS String = encoding::hexEncode(digest)
   LET u AS net::Url = net::toUrl("http://example.com/")
   RETURN 0
@@ -5776,7 +5778,7 @@ FUNC main AS Integer
   LET js = json::stringify(v)
   LET rows = csv::parse("a,b")
   LET back = csv::stringify(rows)
-  LET dig = crypto::hash(Hash.SHA2_256, "abc")
+  LET dig = crypto::hash(crypto::Hash.SHA2_256, "abc")
   LET hexed = encoding::hexEncode(dig)
   LET u = net::toUrl("http://x/")
   LET m = regex::match("abc", "a.c")
@@ -5800,8 +5802,8 @@ IMPORT datetime
 IMPORT crypto
 FUNC main AS Integer
   LET matched AS Boolean = regex::match("abc", "a.c")
-  LET dt AS DateTime = datetime::parse("2024-01-02")
-  LET key AS List OF Byte = crypto::hash(Hash.SHA2_256, "k")
+  LET dt AS datetime::DateTime = datetime::parse("2024-01-02")
+  LET key AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "k")
   RETURN 0
 END FUNC
 "#,
@@ -6236,7 +6238,7 @@ END FUNC
             r#"
 IMPORT term
 FUNC main AS Integer
-  LET c AS TermColor = term::getForeground()
+  LET c AS term::TermColor = term::getForeground()
   LET red = c.r
   LET green = c.g
   RETURN 0

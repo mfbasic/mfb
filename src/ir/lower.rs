@@ -3371,8 +3371,18 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
     // plan-106-A: the record's declared field types are cloned from the descriptor
     // rather than rendered and re-parsed. The record TYPE is a nominal, so it is
     // built with `named` (a record constant never names a generic).
+    // bug-480 Phase 4b: `constant_type_name` returns the QUALIFIED identity
+    // (`vector.Float3`) now, so prefixing the package again produced
+    // `vector.vector.Float3`, resolved to nothing, and dropped the record constant
+    // through to the scalar-fold path -- which panicked on a constant that has no
+    // single literal value.
+    let qualified_type = if type_name.name().contains('.') {
+        type_name.name().into_owned()
+    } else {
+        format!("{package}.{type_name}")
+    };
     let field_types: Vec<ParameterType> =
-        match registry::registry().resolve_type(&format!("{package}.{type_name}"))? {
+        match registry::registry().resolve_type(&qualified_type)? {
             registry::ResolvedType::Record(record) => {
                 record.props.iter().map(|prop| prop.ty.clone()).collect()
             }

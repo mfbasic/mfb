@@ -5,8 +5,41 @@ Effort: small as a rename; the real fix is bug-480 Phase 4 (package-scoped type 
 Severity: HIGH
 Class: Correctness (language / package namespace)
 
-Status: Open
-Regression Test: `tests/syntax/packages/http-process-coexist/` (new)
+Status: **FIXED** by bug-480 Phase 4b (`47dc677e5`)
+Regression Test: `tests/rt-behavior/packages/http-process-coexist-rt/`
+
+## STATUS: FIXED
+
+Fixed exactly as this document's own "Do not take the rename" section required:
+by bug-480 Phase 4b, not by renaming `process::Stream`. A builtin value type's
+DECLARED identity is now package-qualified, so the two packages declare
+`http.Stream` and `process.Stream` — different names — and the collision that
+made the pair unbuildable cannot form.
+
+Verified by running the Failing Reproduction below verbatim on macos-aarch64
+against `target/release/mfb` at `47dc677e5`:
+
+```
+$ mfb build /tmp/b481check
+Building b481check (executable) for macos-aarch64
+Wrote executable to /tmp/b481check/build/b481check.out
+$ /tmp/b481check/build/b481check.out
+hello
+[exit 0]
+```
+
+The `SYMBOL_DUPLICATE_TOP_LEVEL` on `builtins/http.mfb:93` is gone; the program
+builds and runs.
+
+**The regression test is not where this document predicted.** It is a
+`rt-behavior` fixture, not `tests/syntax/packages/http-process-coexist/` — the
+syntax bucket pins a compiler diagnostic, and the assertion worth keeping here is
+that the program *builds and runs*, which only a runtime fixture makes.
+
+**`Stream` is still an ambiguous LEAF**, and that is by design rather than an
+oversight: the prose sweep reports it as AMBIGUOUS in five files because two
+packages own the name. That is now a documentation question (which spelling a man
+page shows), not a build failure — the compiler distinguishes them by package.
 
 Importing both `http` and `process` into the same project is impossible. No use
 of either package is required — the two `IMPORT` lines alone are fatal:

@@ -53,7 +53,7 @@ FUNC closedRefuses() AS Integer
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   closeIt(img)
-  LET dead AS Size = canvas::getSize(img) TRAP(err)
+  LET dead AS canvas::Size = canvas::getSize(img) TRAP(err)
     IF err.code = errorCode::ErrResourceClosed THEN
       RETURN 0
     END IF
@@ -76,12 +76,12 @@ FUNC setBytesRejectsWrongLength() AS Integer
 END FUNC
 
 FUNC main AS Integer
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
 
   LET px AS List OF Byte = [toByte(10), toByte(20), toByte(30), toByte(40), toByte(50), toByte(60), toByte(70), toByte(80)]
   RES img AS canvas::Image = canvas::createImage(2, 1, px)
 
-  LET size AS Size = canvas::getSize(img)
+  LET size AS canvas::Size = canvas::getSize(img)
   IF size.width <> 2 THEN
     RETURN 1
   END IF
@@ -100,7 +100,7 @@ FUNC main AS Integer
     RETURN 5
   END IF
 
-  LET handle AS ImageRef = canvas::imageRef(img)
+  LET handle AS canvas::ImageRef = canvas::imageRef(img)
   IF handle.id = 0 THEN
     RETURN 6
   END IF
@@ -116,7 +116,7 @@ FUNC main AS Integer
   END IF
 
   ' The scene carries the handle, not the image.
-  LET tile AS DrawItem = Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := handle, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := handle, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([tile])
 
   LET r1 AS Integer = badCreate()

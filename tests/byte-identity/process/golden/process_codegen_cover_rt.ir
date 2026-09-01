@@ -12,7 +12,7 @@
     "kind": "enum",
     "line": 1,
     "visibility": "export",
-    "name": "Stream",
+    "name": "process.Stream",
     "members": [
     { "name": "StdOut" },
     { "name": "StdErr" }
@@ -22,7 +22,7 @@
     "kind": "enum",
     "line": 6,
     "visibility": "export",
-    "name": "Signal",
+    "name": "process.Signal",
     "members": [
     { "name": "None" },
     { "name": "Kill" },
@@ -52,18 +52,18 @@
     { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "process.sendBytes", "args": [{ "kind": "local", "name": "p" }, { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "67" }] }] }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
     { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "process.close", "args": [{ "kind": "local", "name": "p" }] } },
     { "op": "bind", "line": 28, "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "process.poll", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "readyErr", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "process.poll", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "Integer", "value": "100" }, { "kind": "memberAccess", "type": "Stream", "target": { "kind": "local", "name": "Stream" }, "member": "StdErr" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "readyErr", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "process.poll", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "Integer", "value": "100" }, { "kind": "memberAccess", "type": "process.Stream", "target": { "kind": "local", "name": "process.Stream" }, "member": "StdErr" }] } },
     { "op": "bind", "line": 30, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }] } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "lineErr", "type": "String", "value": { "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }, { "kind": "memberAccess", "type": "Stream", "target": { "kind": "local", "name": "Stream" }, "member": "StdErr" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "lineErr", "type": "String", "value": { "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }, { "kind": "memberAccess", "type": "process.Stream", "target": { "kind": "local", "name": "process.Stream" }, "member": "StdErr" }] } },
     { "op": "bind", "line": 32, "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "process.receiveBytes", "args": [{ "kind": "local", "name": "p" }] } },
-    { "op": "bind", "line": 33, "mutable": false, "name": "rawErr", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "process.receiveBytes", "args": [{ "kind": "local", "name": "p" }, { "kind": "memberAccess", "type": "Stream", "target": { "kind": "local", "name": "Stream" }, "member": "StdErr" }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "rawErr", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "process.receiveBytes", "args": [{ "kind": "local", "name": "p" }, { "kind": "memberAccess", "type": "process.Stream", "target": { "kind": "local", "name": "process.Stream" }, "member": "StdErr" }] } },
     { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } },
     { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "raw" }] }] }] } },
-    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "process.signal", "args": [{ "kind": "local", "name": "q" }, { "kind": "memberAccess", "type": "Signal", "target": { "kind": "local", "name": "Signal" }, "member": "Terminate" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "process.signal", "args": [{ "kind": "local", "name": "q" }, { "kind": "memberAccess", "type": "process.Signal", "target": { "kind": "local", "name": "process.Signal" }, "member": "Terminate" }] } },
     {
       "op": "if",
       "line": 39,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Signal", "target": "process.didSignal", "args": [{ "kind": "local", "name": "q" }] }, "right": { "kind": "memberAccess", "type": "Signal", "target": { "kind": "local", "name": "Signal" }, "member": "Kill" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "process.Signal", "target": "process.didSignal", "args": [{ "kind": "local", "name": "q" }] }, "right": { "kind": "memberAccess", "type": "process.Signal", "target": { "kind": "local", "name": "process.Signal" }, "member": "Kill" } },
       "then": [
       { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "killed" }] } }
       ],

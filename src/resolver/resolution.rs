@@ -1440,6 +1440,21 @@ impl Resolver<'_> {
         imports: &HashMap<String, String>,
     ) {
         let root = name.split('.').next().unwrap_or(name);
+        // bug-480 Phase 4b: a built-in package's injected companion refers to its
+        // OWN package-qualified types (`http.Response` inside `builtins/http.mfb`).
+        // That is a self-reference, not an import — the file IS the package — so it
+        // neither needs nor can have an `IMPORT http` line. Same rule `IMPORT self`
+        // encodes for a source package; without it every companion that names one
+        // of its own value types reports SYMBOL_UNKNOWN_IMPORT against a file the
+        // developer never wrote.
+        if file
+            .path
+            .strip_prefix("builtins/")
+            .and_then(|rest| rest.strip_suffix(".mfb"))
+            == Some(root)
+        {
+            return;
+        }
         // A LINK alias is a package-local namespace, not an import: resolve its
         // members against the block's native functions (plan-link-update.md §5b).
         if let Some(link) = self.link_functions.get(root) {
@@ -1483,7 +1498,39 @@ impl Resolver<'_> {
                     line,
                 );
             }
+            return;
         }
+
+        // bug-480: the same gate for an imported USER package. Without it a
+        // `pkg::member` naming nothing the package exports typed as `Unknown` and
+        // was reported hundreds of lines away as `TYPE_CALL_ARGUMENT_MISMATCH ...
+        // argument type(s) (Unknown)` against whatever consumed it, naming
+        // neither the package nor the member.
+        //
+        // Only a package whose interface was READ contributes an entry, so an
+        // unreadable or not-yet-installed dependency still resolves silently here
+        // and is reported by the import gate that saw the real reason. `IMPORT
+        // self` never records one either: a package's own members are ordinary
+        // top-level declarations, resolved by the bare-name path.
+        let Some(exports) = self.package_exports.get(package) else {
+            return;
+        };
+        let Some((_, member)) = name.split_once('.') else {
+            return;
+        };
+        // The rule governs the HEAD of a path, not field selection: `pkg::rec.field`
+        // resolves `rec` against the package and leaves `.field` to the type
+        // checker.
+        let head = member.split('.').next().unwrap_or(member);
+        if exports.contains(member) || exports.contains(head) {
+            return;
+        }
+        self.report(
+            "SYMBOL_UNKNOWN_IDENTIFIER",
+            &format!("Package `{package}` does not export `{head}`."),
+            file,
+            line,
+        );
     }
 }
 
@@ -1559,7 +1606,7 @@ mod tests {
         }
         assert!(
             !resolve_source_fails(
-                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(Certificate.P256)\nEND SUB\n"
+                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(crypto::Certificate.P256)\nEND SUB\n"
             ),
             "crypto::generate(Certificate) must resolve as the unified generator"
         );
@@ -1593,9 +1640,9 @@ mod tests {
             );
         }
         for ok in [
-            "crypto::hash(Hash.SHA2_256, crypto::randomBytes(4))",
-            "crypto::sign(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
-            "crypto::verify(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
+            "crypto::hash(crypto::Hash.SHA2_256, crypto::randomBytes(4))",
+            "crypto::sign(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
+            "crypto::verify(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
         ] {
             assert!(
                 !resolve_source_fails(&format!(

@@ -40,7 +40,7 @@ tests/syntax/udp/func_udp_send_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNK
   15 |   LET badPayload = udp::send(sock, dest, 42)
      | ^
 tests/syntax/udp/func_udp_send_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `udp.send` has argument type(s) (udp.Socket, List OF Address, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
+               Call to `udp.send` has argument type(s) (udp.Socket, List OF net.Address, Integer), expected Socket, Address, List OF Byte or Socket, Address, String.
   13 |   LET wrongType = udp::send(1, 2, 3)
   14 |   LET tooMany = udp::send(1, 2, 3, 4)
   15 |   LET badPayload = udp::send(sock, dest, 42)
@@ -52,7 +52,7 @@ tests/syntax/udp/func_udp_send_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNK
   19 |   LET wrongSocket = udp::send(stream, dest, "x")
      | ^
 tests/syntax/udp/func_udp_send_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `udp.send` has argument type(s) (tcp.Socket, List OF Address, String), expected Socket, Address, List OF Byte or Socket, Address, String.
+               Call to `udp.send` has argument type(s) (tcp.Socket, List OF net.Address, String), expected Socket, Address, List OF Byte or Socket, Address, String.
   17 |   ' A tcp stream socket is not a datagram socket.
   18 |   RES stream = tcp::connect("127.0.0.1", 9931)
   19 |   LET wrongSocket = udp::send(stream, dest, "x")

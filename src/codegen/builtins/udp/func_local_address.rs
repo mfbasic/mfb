@@ -23,7 +23,7 @@ The socket stays open — you still close it — and the result is an ordinary `
 independent of the socket.
 
 **A file that uses the returned address must `IMPORT net` as well as `udp`.**
-Imports are not transitive and packages cannot re-export types, so `Address` is
+Imports are not transitive and packages cannot re-export types, so `net::Address` is
 nameable only where `net` is imported."#;
 
 const EX: &str = r#"Tell a peer where to reply:

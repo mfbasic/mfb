@@ -9,7 +9,7 @@ const INTRO: &str = r#"Return a copy of a response with one header name set to a
 const DESC: &str = r#"`http::withHeader` returns a new `http::Response` that is a copy of `resp` with
 `name` mapped to `value` in its `headers` map. Every other field — `status`,
 `reason`, `httpVersion`, `body`, `ok` — is carried over unchanged. `resp` itself
-is not modified; `Response` is a plain copyable value record, so this is sugar
+is not modified; `http::Response` is a plain copyable value record, so this is sugar
 over `WITH resp { headers := ... }` and calls chain naturally.
 
 The header map is an ordinary `Map OF String TO String`, and the name is used as

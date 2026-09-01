@@ -18,12 +18,12 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Commercial" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Banker" }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "mode", "type": "Rounding", "value": { "kind": "call", "callee": "money.getRounding", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Commercial" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Banker" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "mode", "type": "money.Rounding", "value": { "kind": "call", "callee": "money.getRounding", "arguments": [] }, "line": 11 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "mode" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Banker" } },
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "mode" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Banker" } },
         "line": 12,
         "then": [
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "banker" }] }, "line": 13 }

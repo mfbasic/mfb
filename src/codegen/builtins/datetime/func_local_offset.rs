@@ -222,7 +222,7 @@ different hosts.
 Only the seconds value matters; there is no sub-second component. `localOffset`
 is the low-level intrinsic that backs `datetime::offsetAt` for local zones and
 `datetime::toLocal`; most code should prefer those higher-level functions, which
-operate on `Instant` and `Zone` values rather than a raw epoch-seconds `Integer`.
+operate on `datetime::Instant` and `datetime::Zone` values rather than a raw epoch-seconds `Integer`.
 
 `localOffset` is **not pure**: it reads the host's time-zone configuration, so
 its result depends on host state. It has no side effects and reads no other

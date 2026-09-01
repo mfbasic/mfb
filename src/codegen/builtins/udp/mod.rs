@@ -81,7 +81,7 @@ pub(crate) const SOCKET_TYPE_ID: &str = "udp.Socket";
 
 /// `net::Address` as this package refers to it — the shared record, not a copy.
 pub(crate) fn address() -> ParameterType {
-    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE)
+    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
 }
 
 pub(crate) fn socket() -> ParameterType {
@@ -147,7 +147,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "from",
-                ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE),
+                ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
                 description: "The address the datagram was sent from. Reply by passing it straight back to `udp::send`.",
             },
             RecordProp {
@@ -193,7 +193,7 @@ mod tests {
     fn udp_socket_is_qualified_and_distinct_from_net() {
         assert_eq!(
             registry().qualified_builtin_type(super::SOCKET_TYPE_ID),
-            Some(super::SOCKET_TYPE.to_string())
+            Some(super::SOCKET_TYPE_ID.to_string())
         );
         // Routes to udp's own close op, not net's — otherwise a udp socket would
         // be dropped through the wrong package's operation.

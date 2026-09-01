@@ -117,7 +117,7 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 fn scene(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT collections\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
+         app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
     )
 }
 
@@ -132,7 +132,7 @@ fn rectangle_fills_its_exact_span() {
     let (frame, _) = render(
         "canvas_rect",
         &scene(
-            "  LET box AS DrawItem = Rectangle[x := 10.0, y := 20.0, w := 100.0, h := 50.0, \
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 20.0, w := 100.0, h := 50.0, \
              paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  canvas::present([box])\n",
         ),
     );
@@ -180,7 +180,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
     let (frame, _) = render(
         "canvas_arc_end_cap",
         &scene(
-            "  LET smile AS DrawItem = Arc[x := 450.0, y := 335.0, radius := 90.0, \
+            "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
              startAngle := 0.0, endAngle := 3.14159, \
              paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
              canvas::present([smile])\n",
@@ -223,7 +223,7 @@ fn circle_is_round_and_antialiased() {
     let (frame, _) = render(
         "canvas_circle",
         &scene(
-            "  LET disc AS DrawItem = Circle[x := 300.0, y := 200.0, radius := 80.0, \
+            "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
              paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  canvas::present([disc])\n",
         ),
     );
@@ -270,7 +270,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
     let (frame, _) = render(
         "canvas_arc",
         &scene(
-            "  LET a AS DrawItem = Arc[x := 300.0, y := 210.0, radius := 50.0, \
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
              paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
         ),
@@ -309,9 +309,9 @@ fn translucent_fill_blends_in_linear_space() {
     let (frame, _) = render(
         "canvas_blend",
         &scene(
-            "  LET under AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 200.0, h := 200.0, \
+            "  LET under AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 200.0, h := 200.0, \
              paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
-             LET over AS DrawItem = Rectangle[x := 50.0, y := 50.0, w := 100.0, h := 100.0, \
+             LET over AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 100.0, h := 100.0, \
              paint := canvas::fill(canvas::rgba(255, 255, 255, 128))]\n  \
              canvas::present([under, over])\n",
         ),
@@ -346,11 +346,11 @@ fn polygon_fills_its_interior() {
     let (frame, _) = render(
         "canvas_polygon",
         &scene(
-            "  MUT pts AS List OF Point = []\n  \
-             pts = collections::append(pts, Point[x := 100.0, y := 100.0])\n  \
-             pts = collections::append(pts, Point[x := 300.0, y := 100.0])\n  \
-             pts = collections::append(pts, Point[x := 200.0, y := 300.0])\n  \
-             LET tri AS DrawItem = Polygon[points := pts, \
+            "  MUT pts AS List OF canvas::Point = []\n  \
+             pts = collections::append(pts, canvas::Point[x := 100.0, y := 100.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := 300.0, y := 100.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := 200.0, y := 300.0])\n  \
+             LET tri AS canvas::DrawItem = canvas::Polygon[points := pts, \
              paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  canvas::present([tri])\n",
         ),
     );
@@ -384,7 +384,7 @@ fn rounded_rect_corners_are_cut() {
     let (frame, _) = render(
         "canvas_rounded",
         &scene(
-            "  LET box AS DrawItem = RoundedRect[x := 100.0, y := 100.0, w := 200.0, h := 150.0, \
+            "  LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 100.0, w := 200.0, h := 150.0, \
              cornerRadius := 40.0, paint := canvas::fill(canvas::rgb(0, 200, 200))]\n  \
              canvas::present([box])\n",
         ),
@@ -419,9 +419,9 @@ fn rounded_rect_corners_are_cut() {
 #[test]
 fn rendering_is_byte_reproducible() {
     let source = scene(
-        "  LET disc AS DrawItem = Circle[x := 300.0, y := 200.0, radius := 80.0, \
+        "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  \
-         LET a AS DrawItem = Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
+         LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
          endAngle := 3.14159, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
          canvas::present([disc, a])\n",
     );
@@ -451,15 +451,15 @@ fn cache_hit_skips_geometry_generation() {
     let (_, stats) = render(
         "canvas_geo_cache",
         &(scene(
-            "  LET a AS DrawItem = __tri(10.0)\n  LET b AS DrawItem = __tri(100.0)\n  \
-             LET c AS DrawItem = __tri(200.0)\n  canvas::present([a, b, c])\n  \
+            "  LET a AS canvas::DrawItem = __tri(10.0)\n  LET b AS canvas::DrawItem = __tri(100.0)\n  \
+             LET c AS canvas::DrawItem = __tri(200.0)\n  canvas::present([a, b, c])\n  \
              canvas::present([a, b, __tri(300.0)])\n  canvas::present([a, b, c])\n",
-        ) + "\nFUNC __tri(x AS Float) AS DrawItem\n  \
-             MUT pts AS List OF Point = []\n  \
-             pts = collections::append(pts, Point[x := x, y := 20.0])\n  \
-             pts = collections::append(pts, Point[x := x + 60.0, y := 20.0])\n  \
-             pts = collections::append(pts, Point[x := x + 30.0, y := 90.0])\n  \
-             RETURN Polygon[points := pts, paint := canvas::fill(canvas::rgb(200, 30, 30))]\n\
+        ) + "\nFUNC __tri(x AS Float) AS canvas::DrawItem\n  \
+             MUT pts AS List OF canvas::Point = []\n  \
+             pts = collections::append(pts, canvas::Point[x := x, y := 20.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := x + 60.0, y := 20.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := x + 30.0, y := 90.0])\n  \
+             RETURN canvas::Polygon[points := pts, paint := canvas::fill(canvas::rgb(200, 30, 30))]\n\
              END FUNC\n"),
     );
 

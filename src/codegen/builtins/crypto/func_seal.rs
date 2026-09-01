@@ -81,7 +81,7 @@ const DESC: &str = r#"`crypto::seal(cipher, key, nonce, data)` encrypts and auth
 the authenticated cipher (AEAD) selected by `cipher`, and returns a `crypto::Sealed`
 record holding the `ciphertext` (identical in length to `data`) and a 16-byte
 authentication `tag`. It is the unified front door for the two symmetric AEAD
-ciphers behind one `SymmetricCipher`-selected call, later verified and decrypted by
+ciphers behind one `crypto::SymmetricCipher`-selected call, later verified and decrypted by
 `crypto::open(cipher, …)`.
 
 **Ciphers.** `cipher` is a `crypto::SymmetricCipher`:
@@ -131,8 +131,8 @@ IMPORT strings
 SUB main()
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
-  LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
-  LET clear AS List OF Byte = crypto::open(SymmetricCipher.AES256GCM, secret, nonce, box)
+  LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
+  LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, secret, nonce, box)
 END SUB
 ```
 
@@ -147,7 +147,7 @@ SUB main()
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
   LET header AS List OF Byte = strings::toBytes("v1;msg-42")
-  LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, secret, nonce, plaintext, header)
+  LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, plaintext, header)
 END SUB
 ```"#;
 

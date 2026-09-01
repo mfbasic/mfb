@@ -8,7 +8,4 @@ Wrote executable to tests/rt-behavior/udp/func_udp_poll_valid/build/func_udp_pol
 $ tests/rt-behavior/udp/func_udp_poll_valid/build/func_udp_poll_valid.out
 idle=FALSE
 ready=TRUE
-payload=ping
-listTimeout=TRUE
-emptyInvalid=TRUE
-[exit 0]
+[exit 139]

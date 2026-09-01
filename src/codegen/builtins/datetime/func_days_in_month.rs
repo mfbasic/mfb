@@ -23,7 +23,7 @@ any value that is not `2`, `4`, `6`, `9`, or `11` yields `31`, so out-of-range
 month numbers do not raise an error but return `31` by falling through to the
 default case.
 
-The function reads no time zone, `Instant`, or current clock value and has no
+The function reads no time zone, `datetime::Instant`, or current clock value and has no
 side effects."#;
 const EX: &str = r#"Length of common and leap-year February:
 

@@ -111,7 +111,7 @@ const INTRO: &str = r#"The raw monotonic-clock reading as a whole nanosecond cou
 const DESC: &str = r#"`datetime::monotonicNanos` reads the host's monotonic clock and returns the
 elapsed time, in whole nanoseconds, from an arbitrary fixed origin chosen by the
 operating system. It is the low-level OS-seam intrinsic that backs
-`datetime::monotonic`: where `monotonic` packages the reading into a `Duration`,
+`datetime::monotonic`: where `monotonic` packages the reading into a `datetime::Duration`,
 `monotonicNanos` returns the same value as a single raw `Integer` count of
 nanoseconds.
 
@@ -131,7 +131,7 @@ point in time.
 The reading is a single nanoseconds-since-origin count taken from the host.
 Prefer `datetime::monotonic` in ordinary code; reach
 for `monotonicNanos` only when you want the bare integer count without
-constructing a `Duration`.
+constructing a `datetime::Duration`.
 
 `monotonicNanos` is **not pure**: two calls may return different values, and the
 values depend on host clock state. It takes no arguments, reads clock state only,

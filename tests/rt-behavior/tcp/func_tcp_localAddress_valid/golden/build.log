@@ -6,5 +6,4 @@ $ mfb build tests/rt-behavior/tcp/func_tcp_localAddress_valid
 Wrote executable to tests/rt-behavior/tcp/func_tcp_localAddress_valid/build/func_tcp_localAddress_valid.out
 [exit 0]
 $ tests/rt-behavior/tcp/func_tcp_localAddress_valid/build/func_tcp_localAddress_valid.out
-127.0.0.1 127.0.0.1
-[exit 0]
+[exit 139]

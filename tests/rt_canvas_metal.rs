@@ -43,13 +43,13 @@ const RECTANGLES: &str = r#"IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET red AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
-  LET grey AS DrawItem = Rectangle[x := 100.0, y := 10.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
-  LET half AS DrawItem = Rectangle[x := 120.0, y := 30.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgba(0, 0, 255, 128))]
-  LET faint AS DrawItem = Rectangle[x := 200.0, y := 10.0, w := 80.0, h := 40.0, paint := canvas::fill(canvas::rgba(255, 255, 255, 40))]
-  LET wide AS DrawItem = Rectangle[x := 300.0, y := 100.0, w := 500.0, h := 300.0, paint := canvas::fill(canvas::rgb(17, 200, 90))]
-  LET over AS DrawItem = Rectangle[x := 400.0, y := 150.0, w := 200.0, h := 100.0, paint := canvas::fill(canvas::rgba(255, 200, 0, 200))]
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET grey AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 10.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+  LET half AS canvas::DrawItem = canvas::Rectangle[x := 120.0, y := 30.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgba(0, 0, 255, 128))]
+  LET faint AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 10.0, w := 80.0, h := 40.0, paint := canvas::fill(canvas::rgba(255, 255, 255, 40))]
+  LET wide AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 100.0, w := 500.0, h := 300.0, paint := canvas::fill(canvas::rgb(17, 200, 90))]
+  LET over AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 150.0, w := 200.0, h := 100.0, paint := canvas::fill(canvas::rgba(255, 200, 0, 200))]
   canvas::present([red, grey, half, faint, wide, over])
 END SUB
 "#;
@@ -65,19 +65,19 @@ const PRIMITIVES: &str = r#"IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
 
-  LET yellow AS Color = canvas::rgb(255, 255, 0)
-  LET green AS Color = canvas::rgb(0, 160, 0)
+  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
 
-  LET face AS DrawItem = Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
-  LET eyeL AS DrawItem = Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET eyeR AS DrawItem = Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS DrawItem = Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
-  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
-  LET rounded AS DrawItem = RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
-  LET line AS DrawItem = Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
-  LET tri AS DrawItem = Polygon[points := [Point[x := 600.0, y := 40.0], Point[x := 700.0, y := 40.0], Point[x := 650.0, y := 130.0]], paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
+  LET face AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
+  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
 
   canvas::present([box, rounded, line, tri, face, eyeL, eyeR, smile])
 END SUB
@@ -96,16 +96,16 @@ IMPORT collections
 IMPORT math
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  MUT points AS List OF Point = []
+  app::setMode(app::Mode.Canvas)
+  MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
   WHILE i < 300
     LET a AS Float = toFloat(i) * 6.283185307179586 / 300.0
-    points = collections::append(points, Point[x := 450.0 + 200.0 * math::cos(a), y := 320.0 + 200.0 * math::sin(a)])
+    points = collections::append(points, canvas::Point[x := 450.0 + 200.0 * math::cos(a), y := 320.0 + 200.0 * math::sin(a)])
     i = i + 1
   END WHILE
-  LET ring AS DrawItem = Polygon[points := points, paint := canvas::fill(canvas::rgb(0, 200, 255))]
-  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(canvas::rgb(0, 200, 255))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]
   canvas::present([box, ring])
 END SUB
 "#;

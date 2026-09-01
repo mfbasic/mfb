@@ -25,11 +25,11 @@ FUNC main() AS Integer
   term::setUnderline(FALSE)
 
   ' Colour getters (TermColor: three Byte fields r, g, b).
-  LET fg AS TermColor = term::getForeground()
+  LET fg AS term::TermColor = term::getForeground()
   io::print(toString(fg.r))
   io::print(toString(fg.g))
   io::print(toString(fg.b))
-  LET bg AS TermColor = term::getBackground()
+  LET bg AS term::TermColor = term::getBackground()
   io::print(toString(bg.r))
   io::print(toString(bg.g))
   io::print(toString(bg.b))
@@ -41,7 +41,7 @@ FUNC main() AS Integer
   io::print(toString(under))
 
   ' Surface size (TermSize: two Integer fields columns, rows).
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   io::print(toString(size.columns))
   io::print(toString(size.rows))
 

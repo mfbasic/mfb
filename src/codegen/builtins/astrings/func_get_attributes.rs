@@ -14,7 +14,7 @@ const INTRO: &str = r#"The resolved attributes active at a scalar index."#;
 
 const DESC: &str = r#"`getAttributes` returns the attributes in effect at scalar `index`: for each enum member with any
 covering span, the covering span with the **highest start** wins (ties break to the later insertion).
-The result carries at most one `Attribute` per member — flags are present when any covering span
+The result carries at most one `astrings::Attribute` per member — flags are present when any covering span
 carries them; font/font-size take the winning span's value. Attributes are never merged on write, so
 this read-time resolution is where overlaps are decided.
 
@@ -33,7 +33,7 @@ SUB main()
   MUT b AS AttributedString = astrings::addAttribute(a, 0, 4, astrings::bold())
   FOR EACH attr IN astrings::getAttributes(b, 2)
     MATCH attr
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         io::print("flag")
       CASE ELSE
     END MATCH

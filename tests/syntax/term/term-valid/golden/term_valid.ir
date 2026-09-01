@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 8,
     "visibility": "export",
-    "name": "TermColor",
+    "name": "term.TermColor",
     "fields": [
     { "visibility": null, "line": 9, "name": "r", "type": "Byte" },
     { "visibility": null, "line": 10, "name": "g", "type": "Byte" },
@@ -23,7 +23,7 @@
     "kind": "type",
     "line": 20,
     "visibility": "export",
-    "name": "TermSize",
+    "name": "term.TermSize",
     "fields": [
     { "visibility": null, "line": 21, "name": "columns", "type": "Integer" },
     { "visibility": null, "line": 22, "name": "rows", "type": "Integer" }
@@ -33,7 +33,7 @@
     "kind": "enum",
     "line": 25,
     "visibility": "export",
-    "name": "LineStyle",
+    "name": "term.LineStyle",
     "members": [
     { "name": "Light" },
     { "name": "Heavy" },
@@ -48,7 +48,7 @@
     "kind": "enum",
     "line": 35,
     "visibility": "export",
-    "name": "FillStyle",
+    "name": "term.FillStyle",
     "members": [
     { "name": "Filled" },
     { "name": "Light" },
@@ -67,9 +67,9 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "TermColor",
+    "returns": "term.TermColor",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "type": "TermColor", "target": "term.getForeground", "args": [] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "c", "type": "term.TermColor", "value": { "kind": "call", "type": "term.TermColor", "target": "term.getForeground", "args": [] } },
     { "op": "return", "line": 8, "value": { "kind": "local", "name": "c" } }
     ]
   },
@@ -80,9 +80,9 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "TermColor",
+    "returns": "term.TermColor",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "type": "TermColor", "target": "term.getBackground", "args": [] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "c", "type": "term.TermColor", "value": { "kind": "call", "type": "term.TermColor", "target": "term.getBackground", "args": [] } },
     { "op": "return", "line": 13, "value": { "kind": "local", "name": "c" } }
     ]
   },
@@ -131,8 +131,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 29, "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
-    { "op": "bind", "line": 30, "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "a", "type": "term.TermSize", "value": { "kind": "call", "type": "term.TermSize", "target": "term.terminalSize", "args": [] } },
+    { "op": "bind", "line": 30, "mutable": true, "name": "b", "type": "term.TermSize", "value": { "kind": "call", "type": "term.TermSize", "target": "term.terminalSize", "args": [] } },
     { "op": "assign", "line": 31, "name": "b", "value": { "kind": "local", "name": "a" } },
     { "op": "return", "line": 32, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "columns" } } }
     ]
