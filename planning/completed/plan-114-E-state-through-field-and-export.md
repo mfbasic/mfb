@@ -371,9 +371,14 @@ Commit: —
       Gate: `1322 tests, 1484 build(s), 1819 golden(s) checked, 0 diff(s)`,
       `GATE_EXIT=0` — up from 1311/1809 at letter B, i.e. the eleven fixtures
       letters D and E added, with **no pre-existing golden moved**.
+      Accept: `acceptance tests passed (1343 test(s) ran)`, `ACCEPT_EXIT=0`,
+      0 mismatches (`grep -cE '^mismatch:|unexpected actual|missing golden'`).
 - [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
       — `cargo fmt --all -- --check` exits 0 in both workspaces.
-- [ ] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
+- [x] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
+      A, B and C were archived as each landed; D and E move in this commit
+      (`git mv`), so `ls planning/plan-114*` finds nothing and
+      `ls planning/completed/plan-114*` lists all five.
 
 Acceptance: full gate and acceptance harness green; every doc listed above updated;
 all five sub-plans archived.
