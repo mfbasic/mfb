@@ -1722,8 +1722,21 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         // GetEnvironmentVariableW over a UTF-8 name in ARG[0]; leaves a UTF-8
-        // NUL-terminated value C-string pointer in the return register (0 = unset),
-        // matching the POSIX getenv contract the shared helper consumes. Frame
+        // NUL-terminated value C-string pointer in **`c_return(0)`** (0 = unset),
+        // matching the POSIX getenv contract the shared helper consumes — and
+        // `getenv`'s `char*` is a C result, so `c_return(0)` is what "the return
+        // register" means for that contract.
+        //
+        // It used to answer in `return_register()`, which is the *aligned MFB* bank and
+        // on Win64 is `rcx`, not `rax`. Both consumers (`os::getEnvOr` in
+        // `builtins/os/gen_env.rs` and `os::hasEnv`) read `c_return(0)` — correctly, and
+        // with a plan-85 comment saying so — so on Windows they read whatever
+        // `WideCharToMultiByte` left in `rax`, which is a **byte count**. For
+        // `MFB_CANVAS_SYNC=1` that count is 2 ("1" plus the NUL), and the caller then
+        // walked a C string from address 2. That is bug-479: every Windows canvas
+        // program died in `canvas::present`, because `__canvas_ensureGraphics` is the
+        // first thing on that path to read an environment variable that is actually set.
+        // Frame
         // (after subtract_stack(0x60)): [0x00..0x20) shadow, [0x20]/[0x28] marshal
         // 5th/6th stack args, [0x40] saved UTF-8 name, [0x48] wide name buf, [0x50]
         // wide value buf, [0x58] UTF-8 value buf. Env values cap at 32767 wchars, so
@@ -1789,10 +1802,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
+            abi::load_u64(abi::c_return(0), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
             abi::branch(&done),
             abi::label(&not_found),
-            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::move_immediate(abi::c_return(0), "Integer", "0"),
             abi::label(&done),
             abi::add_stack(0x60),
         ]);

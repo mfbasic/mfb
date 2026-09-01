@@ -1,4 +1,4 @@
-# bug-479: Windows `Mode.Canvas` faults on the graphics thread — a UTF-8 marshal dereferences a pointer of `2`
+# bug-479: Windows `Mode.Canvas` — the WORKER faults inside `canvas::present`, reading a String whose payload pointer is `2`
 
 Last updated: 2026-08-31
 Effort: large — Windows-only, needs the box and a minidump
@@ -70,7 +70,73 @@ pointer is 2.** The nearest caller frame is an arena allocation of 32 bytes
 * **Not bug-478.** That is fixed and verified; app mode, `fs` and the worker are green
   (`scripts/test-winapp.sh`).
 
+## Corrected: it is the WORKER that faults, not the graphics thread
+
+A debugger changed the picture. `cdb` is on box 2230 after all —
+`C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe`; the earlier
+"not found" was a quoting mistake, and `scripts/` now has `dbg.bat`-style usage
+recorded below. With it:
+
+```
+(131c.15e8): Access violation - code c0000005 (!!! second chance !!!)
+rax=0000000000000002 rbx=0000000000000002 rcx=00000000001d0020
+rdx=000000000001ffff rsi=000000000337fdb8 rdi=0000000000000000
+rip=00000001405caad1 rsp=000000000337e280 rbp=0000000000000000
+ r8=000000000337d2c0  r9=00000000001b0024 r10=0000000000000002
+r15=000000000337ef00
+```
+
+**`r15` is the arena-state register on x86-64** (`arch/x86_64/regmodel.rs`), and here it
+holds a *stack* address — which is what the arena state looks like on the **worker**,
+whose state is carved in its entry frame. The graphics thread's arena is a heap block.
+So the faulting thread is the worker.
+
+Statement-level bisect with prints confirms it: a program that prints either side of
+each statement gets as far as
+
+```
+A: mode set
+B: list built
+[rc=-1073741819]
+```
+
+so it dies **inside `canvas::present`**, and `C: presented` never runs.
+
+It also needs the graphics thread to have run: with the trampoline stubbed to return
+immediately, the program *hangs* in `syncFrame` instead of crashing. So the sequence is
+graphics-thread-does-something → worker wakes → worker faults.
+
+The faulting instruction, from the same binary under `objdump`:
+
+```
+1405caa6c: movl  $0x8, %eax
+1405caa71: callq <seam>
+1405caa76: movq  0x58(%rsp), %rcx      ; success arm: answer into rcx
+1405caa83: movabsq $0x0, %rcx          ; failure arm: 0 into rcx
+1405caa8d: addq  $0x60, %rsp           ; the seam's own epilogue
+1405caa94: movq  %rax, %r10            ; the CALLER reads rax
+...
+1405caad1: movzbq (%r10), %r11         ; <- FAULT, r10 = 2
+```
+
+An inline seam with a `0x60` frame puts its answer in **`rcx`** — which is
+`return_register()` on Win64 — and the surrounding code reads **`rax`**, which is
+`c_return(0)`. That is the plan-85 `%retC`-vs-aligned-bank split again, on the *read*
+side, and it would be the sixth instance of the class bug-478 catalogued. What lands in
+`r10` is then whatever the last C call left in `rax` — here `2` — and the byte-scan that
+follows is an MFB `String` length walk over it.
+
+**Not yet identified: which seam, and which reader.** The two must be matched before
+this is fixed rather than guessed at; the naming is the whole difficulty, because on
+AArch64 the two registers coincide and every candidate looks correct there.
+
 ## Ruled out since filing
+
+* **The child arena block's size.** `emit_graphics_spawn` sizes it
+  `ENTRY_GLOBALS_OFFSET + arena_global_slots * 8`, the same shape `thread::start` uses
+  after bug-369. Instrumented on Windows: the entry and the canvas spawn both report
+  `arena_global_slots=44`, so the block is not short and the graphics thread's globals
+  do not run off the end of it.
 
 * **The graphics trampoline's frame.** `emit_graphics_trampoline` is hand-built, so it
   gets none of the shadow space `finalize_frame` reserves for allocated functions
@@ -118,6 +184,18 @@ administrator and the loader now has a Vulkan driver registered (see below), so 
 step, where a dump only gives an image offset.
 
 ## Reproduction
+
+Under a debugger, which is the fastest route and needs no dump:
+
+```
+cdb.exe -g -G -c "sxe av; g; r; kb 12; u @rip-20 L14; q" <name>.exe
+```
+
+with `MFB_WINAPP_HEADLESS=1` and `MFB_CANVAS_SYNC=1` set. The x64 build is at
+`C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe` (there is an arm64
+one beside it — take the x64).
+
+Without one:
 
 ```
 mfb build --app --target windows-x86_64 <project>   # setMode(Mode.Canvas); present([])

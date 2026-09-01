@@ -53,12 +53,21 @@ cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT fs
 IMPORT io
+IMPORT os
 
 SUB main()
   io::print("worker reached main")
   fs::writeText("winapp.txt", "written by the worker")
   LET back AS String = fs::readText("winapp.txt")
   io::print("readback:" & back)
+  ' bug-479: reading a variable that is actually SET is the case that was broken.
+  ' `emit_env_get` answered in the aligned MFB bank while both consumers read the C
+  ' result, so what came back was `WideCharToMultiByte`'s byte count — and the caller
+  ' walked a C string from it. An unset variable happened to work, because the count
+  ' was 0 and 0 means "not found".
+  io::print("env:" & os::getEnvOr("MFB_WINAPP_PROBE", "MISSING"))
+  io::print("has:" & toString(os::hasEnv("MFB_WINAPP_PROBE")))
+  io::print("noenv:" & os::getEnvOr("MFB_WINAPP_ABSENT", "MISSING"))
 END SUB
 MFB
 
@@ -69,6 +78,7 @@ cat > "$work/runner.bat" <<'BAT'
 @echo off
 setlocal
 set MFB_WINAPP_HEADLESS=1
+set MFB_WINAPP_PROBE=probe-value
 cd /d C:\mfbwin
 winapp.exe > winapp.out 2>&1
 echo rc=%errorlevel%
@@ -94,6 +104,18 @@ esac
 case "$out" in
   *"readback:written by the worker"*) pass "a file written by the worker reads back with its contents" ;;
   *) fail "the file did not read back — CreateFileW's handle was the original defect, and it left a 0-byte file while reporting success" ;;
+esac
+case "$out" in
+  *"env:probe-value"*) pass "a SET environment variable reads back its value" ;;
+  *) fail "os::getEnvOr returned the wrong thing for a set variable — emit_env_get answering in the wrong return register is bug-479" ;;
+esac
+case "$out" in
+  *"has:TRUE"*) pass "os::hasEnv sees a set variable" ;;
+  *) fail "os::hasEnv missed a set variable" ;;
+esac
+case "$out" in
+  *"noenv:MISSING"*) pass "an unset variable falls back" ;;
+  *) fail "os::getEnvOr did not fall back for an unset variable" ;;
 esac
 
 if [ "$fails" -eq 0 ]; then
