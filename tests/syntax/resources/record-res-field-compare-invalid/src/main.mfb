@@ -1,0 +1,29 @@
+' plan-114-D: a record carrying a resource is NOT comparable.
+'
+' This needed no new code -- it is proven, not built. `is_comparable_seen`'s
+' record arm maps every field through `resource_base_type`, which strips the
+' `RES ` marker, and `is_resource_name` then answers false for the resource
+' underneath. So the record was already non-comparable the moment a `RES` field
+' became expressible.
+'
+' A fixture rather than a claim, because "it already works" is exactly the kind
+' of assertion that is true when written and false two refactors later. If
+' someone makes a resource comparable, or makes the record arm stop stripping
+' the marker, this fixture is what says so.
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  handle AS RES fs::File
+END TYPE
+
+FUNC main AS Integer
+  RES a AS fs::File = fs::openFile("target/cmp-a.txt", "w")
+  RES b AS fs::File = fs::openFile("target/cmp-b.txt", "w")
+  LET x = Holder[a]
+  LET y = Holder[b]
+  IF x = y THEN
+    io::print("unreachable")
+  END IF
+  RETURN 0
+END FUNC

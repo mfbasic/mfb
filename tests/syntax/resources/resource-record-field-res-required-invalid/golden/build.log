@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-record-field-res-required-invalid
+  14 | 
+  15 | TYPE Holder
+  16 |   count AS RES Integer
+     | ^
+tests/syntax/resources/resource-record-field-res-required-invalid/src/main.mfb:16 error[2-203-0083 TYPE_RES_REQUIRES_RESOURCE]: RES binds only resource types
+               Record `Holder` field `count` is marked `RES` but `Integer` is not a resource type; drop the `RES`.
+[exit 1]
