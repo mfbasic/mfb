@@ -236,30 +236,50 @@ Commit: (recorded in the next commit)
 The one binary artifact in this letter. Lands separately from the deletion so a
 mis-built `.mfp` is attributable.
 
-- [ ] Run `scripts/sync-package-mfp.sh` and confirm it rebuilt
+- [x] Run `scripts/sync-package-mfp.sh` and confirm it rebuilt
       `self_fanout_workers` and updated **both** committed copies
       (`tools/thread-package-sources/self_fanout_workers/self_fanout_workers.mfp`
       and `tests/rt-behavior/threads/thread-self-fanout-rt/packages/self_fanout_workers.mfp`).
       Check the blast radius of the script before running it — it rebuilds every
       buildable package fixture in the tree, not only this one, and must not be
-      run unchecked.
-- [ ] `git status` — confirm exactly the two `.mfp` copies changed. If other
+      run unchecked. **Blast radius checked first** (162 `.mfp` in tree, exactly 2
+      named `self_fanout_workers.mfp`); script reported `updated 1, unchanged 122`.
+      **Correction:** it updated only ONE of the two copies — see Corrections; the
+      `tools/` copy was rebuilt directly.
+- [x] `git status` — confirm exactly the two `.mfp` copies changed. If other
       `.mfp` files moved, stop: either they were already stale (a pre-existing
       condition to report, not to absorb) or the script did more than intended.
-- [ ] Run `tests/rt-behavior/threads/thread-self-fanout-rt/` natively and confirm
+      **Confirmed:** `git status --short | grep -cE '\.mfp'` → 1 after the script
+      (only the consumer copy), 2 after rebuilding the `tools/` copy. No unrelated
+      `.mfp` moved, so nothing pre-existing was absorbed.
+- [x] Run `tests/rt-behavior/threads/thread-self-fanout-rt/` natively and confirm
       it still prints its `a=107 b=207 parent=7`-shaped result and
       `main_counter=7`. This is the proof the conversion preserved isolation
-      semantics exactly.
-- [ ] Update the fixture's REM header in `src/main.mfb` (it describes the
+      semantics exactly. **Verified on a real run:**
+      ```
+      a=107 b=207 parent=7
+      main_counter=7
+      [exit 0]
+      ```
+      Byte-for-byte the pre-conversion numbers, and now pinned in the fixture's
+      `golden/build.log` behind its `.run` marker.
+- [x] Update the fixture's REM header in `src/main.mfb` (it describes the
       `IMPORT self` mechanism) and regenerate its `.ir`/`build.log` goldens.
-- [ ] Rename the fixture directory `thread-self-fanout-rt` →
+- [x] Rename the fixture directory `thread-self-fanout-rt` →
       `thread-package-fanout-rt` and update `project.json` `name`, or record why
-      the name is kept.
+      the name is kept. Renamed, per the plan's Open Decision recommendation;
+      `project.json` `name` and all three artifact goldens renamed to match
+      (`thread_package_fanout_rt.{ast,ir,run}`).
 
 Acceptance: the rt fixture passes with a real native run producing the same
 numbers as before the conversion. `git status` shows exactly the expected `.mfp`
 and golden changes and nothing else.
-Commit: —
+
+**Verified:** real native run prints `a=107 b=207 parent=7` / `main_counter=7`,
+identical to pre-conversion. `git status` shows only the rename, the two
+`.mfp` copies, and the fixture's own goldens.
+
+Commit: (recorded in the next commit)
 
 ### Phase 3 — Delete the compiler support
 
@@ -336,7 +356,35 @@ Commit: —
 <!-- Filled in DURING execution. Record the claim, what was actually true, the
      evidence — and whether letter C derived scope from a wrong number here. -->
 
-- (none yet)
+- **`sync-package-mfp.sh` maintains only ONE of the two `self_fanout_workers.mfp`
+  copies.** Phase 2's task says it updates "**both** committed copies". Measured:
+  it reported `updated: tests/rt-behavior/.../packages/self_fanout_workers.mfp`
+  and nothing else, leaving
+  `tools/thread-package-sources/self_fanout_workers/self_fanout_workers.mfp` at
+  its pre-edit bytes (timestamp 07:55, before the source change; `cmp` against the
+  fresh one → `differ: char 108`). The script's own header explains why: it copies
+  over "consumer `packages/<name>.mfp` and fixture `golden/<name>.mfp`" — the
+  build-artifact copy sitting next to the source in `tools/` is in neither
+  category. That copy was rebuilt directly with
+  `mfb build tools/thread-package-sources/self_fanout_workers`, after which `cmp`
+  reports the two identical. **A future letter must not assume the script keeps a
+  `tools/*.mfp` fresh** — this is exactly the silent-staleness failure mode the
+  script's header warns about (plan-58-C's SIGSEGV).
+
+- **The `IMPORT self` fixture census is 4, not 3.** Phase 3's task list and the
+  §2 disposition table name three fixtures to delete
+  (`import-self-package-valid`, `import-self-alias`, `import-self-in-executable`).
+  `ls tests/syntax/project/ | grep -i self` returns a **fourth**:
+  `import-self-alias-conflict`, whose source is `IMPORT io AS self` — it pins the
+  `SYMBOL_DUPLICATE_IMPORT` guard at `src/resolver/resolution.rs:521` that Phase 3
+  deletes. It was invisible to the plan's census because its `.mfb` has no
+  `IMPORT self` line (the anchored regex correctly did not match `IMPORT io AS
+  self`). Phase 3's acceptance count is corrected from "down by exactly 3" to
+  "down by exactly 4".
+
+- **`self` was already an ordinary identifier**, so this letter does not restore
+  it — see the Phase 1 task for the measurement. The plan's Verified-properties
+  table listed this UNVERIFIED.
 
 ## Summary
 
