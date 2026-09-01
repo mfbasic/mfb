@@ -76,6 +76,12 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
 /// Each `Paint` field's zero value must be that field's no-op — the rule that lets
 /// `canvas::fill(c)` mean "just a filled shape" without the caller naming five more
 /// fields. Checked through the constructors, since that is how a program gets one.
+///
+/// Gated to macOS with its one consumer, `macos_paint_zero_values_are_no_ops`, which
+/// runs an `.app` bundle. Without the gate this is dead code on every other host and
+/// warns there — invisible from a macOS development host, and noise on the Linux CI
+/// axis for every canvas change.
+#[cfg(target_os = "macos")]
 const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      FUNC main AS Integer\n\
