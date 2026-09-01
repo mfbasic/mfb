@@ -353,51 +353,82 @@ The replacement covers *both* entry paths, so it is strictly harder to satisfy):
 The semantic change. Lands last because it is the one that can silently
 mis-route a worker.
 
-- [ ] `src/ir/shape.rs:2112` `thread_start_entry_valid` — restructure. An
+- [x] `src/ir/shape.rs:2112` `thread_start_entry_valid` — restructure. An
       unqualified name is now valid when `self.functions` has it and the entry is
       `isolated` and `kind == Func`; drop the `Visibility::Export` condition from
       the `SELF_IMPORT` arm (a `self::` entry is now just a spelling of the bare
-      one). The qualified-import arm is unchanged.
-- [ ] `src/ir/shape.rs:2141` `report_thread_entry` — replace the message
+      one). The qualified-import arm is unchanged. Deliberately NOT filtered by
+      visibility on the bare arm either — `PRIVATE` is file-local, so ordinary
+      scoping already does that work.
+- [x] `src/ir/shape.rs:2141` `report_thread_entry` — replace the message
       "thread.start entry point must be an exported ISOLATED FUNC from an imported
       package." with one describing the new rule ("must name an `ISOLATED FUNC`").
       Same string at `src/ir/shape.rs:3908` (test expectation) and
-      `src/ir/verify/compat.rs:450`.
-- [ ] `src/ir/verify/compat.rs:433-451` — update the stale comment block; the
+      `src/ir/verify/compat.rs:450`. All three replaced with
+      "thread.start entry point must name an ISOLATED FUNC."
+- [x] `src/ir/verify/compat.rs:433-451` — update the stale comment block; the
       logic (requires an isolated `FunctionRef`) already admits the new shape.
-- [ ] `src/ir/verify/resources.rs:588-595` — delete the `imported_entry`
-      early-return so the boundary rules run for every entry. **This depends on
-      bug-482 being fixed** (prerequisite): confirm `require_thread_sendable` at
-      line 598 actually fires before and after this edit, or the change is
-      unverifiable.
-- [ ] Confirm whether `is_package` is reachable in the shape checker's context at
-      line 2112. `src/ir/shape.rs:213` has an `is_package: bool` but it is in
-      `export_in_executable_diagnostics`, a *different* pass. If the checker
-      lacks it, thread it through — **but first check whether it is needed at
-      all**: under the new rule a bare entry is valid in both project kinds, so
-      the predicate may not need `is_package`. Prefer not threading it.
-- [ ] Tests: new syntax fixture
+      Rewritten: the test is now EXACTLY the rule rather than a superset, since
+      all three spellings canonicalize to one bare `FunctionRef`.
+- [x] ~~`src/ir/verify/resources.rs:588-595` — delete the `imported_entry`
+      early-return so the boundary rules run for every entry.~~ — **moot: already
+      done.** bug-482's fix (prerequisite, landed `d5c073312`) removed that gate.
+      Verified now: `grep -n "imported_entry" src/` → **0 hits**, and the `In` rule
+      is live and ungated at `src/ir/verify/resources.rs:696`. The plan's own
+      §Summary called this "the real engineering risk"; it was discharged by the
+      prerequisite rather than by this phase.
+- [x] Confirm whether `is_package` is reachable in the shape checker's context at
+      line 2112. **Confirmed NOT needed**, as the plan's Open Decision predicted:
+      the new rule is kind-independent (a bare entry is valid in an executable and
+      a package alike), so nothing was threaded through. The executable case is
+      proved by the rt fixture below, which is an executable.
+- [x] Tests: new syntax fixture
       `tests/syntax/threads/thread-start-local-entry-valid/` — an **executable**
       with `PUBLIC ISOLATED FUNC` and a `PRIVATE ISOLATED FUNC`, both started
-      bare, building clean.
-- [ ] Tests: new syntax fixture
+      bare, building clean. Golden `[exit 0]`.
+- [x] Tests: new syntax fixture
       `tests/syntax/threads/thread-start-non-isolated-entry-invalid/` — a bare
       non-`ISOLATED` local function as entry, still rejected. This is the
       guardrail proving the rule narrowed to `ISOLATED` rather than vanishing.
-- [ ] Tests: new rt fixture
+- [x] Tests: new rt fixture
       `tests/rt-behavior/threads/thread-executable-local-entry-rt/` — an
       executable with `MUT COUNTER = 7`, two bare-started workers adding 100 and
       200, asserting `a=107 b=207 parent=7`. This is the executable-hosted mirror
-      of `thread-self-fanout-rt` and is the plan's real proof.
-- [ ] `src/docs/spec/language/16_threads.md:28` — rewrite the entry-point rule.
+      of `thread-self-fanout-rt` and is the plan's real proof. **Verified on a
+      real run.**
+- [x] `src/docs/spec/language/16_threads.md:28` — rewrite the entry-point rule.
       (The `IMPORT self` sentence stays until letter B; rewrite it again there.)
+      Also corrected two neighbouring rules the plan did not list but that the
+      change falsifies: the per-thread instance sentence said "the entry
+      function's *package*" (now "the project that *declares* the entry", and it
+      records that top-level bindings are initialized from their declarations,
+      per Phase 1's measurement), and "It must be a named *package* function"
+      (now "top-level").
+- [x] **Added task** (not in the plan): `src/ir/shape.rs` unit tests. Renamed
+      `thread_start_entry_must_be_imported_isolated_func` →
+      `thread_start_entry_must_be_an_isolated_func` (the old name asserts a rule
+      that no longer exists), and added `thread_start_accepts_a_bare_local_isolated_func`
+      and `thread_start_accepts_a_bare_private_isolated_func`. The negative test
+      alone cannot distinguish "the rule narrowed to ISOLATED" from "the rule
+      rejects every bare name" — which is the regression this phase could
+      introduce.
 
 Acceptance: the new rt fixture prints `a=107 b=207 parent=7` on a real run —
 proving an executable-declared worker gets its own fresh instance of the
 executable's globals and does not share with the parent or the sibling.
 `tests/syntax/threads/thread-start-non-isolated-entry-invalid/` still fails to
 build. All 46 rt-behavior and 34 syntax thread fixtures pass unchanged.
-Commit: —
+
+**Verified:**
+- rt fixture, real run: `a=107 b=207 parent=7` (`[exit 0]`), captured in its
+  `golden/build.log` behind an empty `.run` marker.
+- `thread-start-non-isolated-entry-invalid` → `[exit 1]`,
+  `TYPE_CALL_ARGUMENT_MISMATCH: thread.start entry point must name an ISOLATED FUNC.`
+- Three goldens drifted and all three are the plan working, not regressions —
+  see Corrections. Sendability coverage in `func_thread_start_invalid` is
+  unchanged (2 `TYPE_THREAD_NOT_SENDABLE` before and after, same lines).
+
+Commit: (recorded in the next commit)
 
 ## Validation Plan
 
@@ -455,6 +486,36 @@ Commit: —
   at 691-696 before bug-482 removed it; `resources.rs:561`
   (`check_thread_boundary_sendability`) is now 662. Cited line numbers here should
   be re-grepped, not trusted.
+
+- **Three goldens drifted in Phase 3, and all three are the plan working.** The
+  plan predicted no target would diff. Each was root-caused before regenerating:
+
+  1. `syntax/functions/lambda-mut-capture-invalid` and four lines of
+     `syntax/threads/func_thread_start_invalid` — pure message rewording
+     ("must be an exported ISOLATED FUNC from an imported package" → "must name an
+     ISOLATED FUNC"). No behavior change.
+  2. `syntax/threads/func_thread_start_invalid` line 17 — `thread::start(localWorker, "a")`
+     now reports the REAL defect instead of the provenance one: `localWorker`'s
+     first parameter is `Thread OF String TO Integer`, not `ThreadWorker OF …`,
+     so the call falls through to the ordinary signature check. Strictly better
+     diagnostic. Line 18 (`localBadMessage`) is now an accepted entry, so its two
+     provenance errors correctly disappear — and its `BadStartMessage`
+     non-sendability is still reported (2 `TYPE_THREAD_NOT_SENDABLE` before and
+     after, same lines), so the program still fails to build.
+  3. `syntax/threads/func_thread_start_self_invalid` — `self::hiddenWorker` is
+     `PUBLIC ISOLATED` and is now valid, exactly as Phase 3's task "drop the
+     `Visibility::Export` condition from the `SELF_IMPORT` arm" requires. Its
+     source comment ("invisible through self, so it is not a valid entry") was
+     corrected in the same commit; leaving it would have documented a deleted
+     rule. `self::plainWorker` (EXPORT, not ISOLATED) is still rejected, which is
+     what the fixture now pins.
+
+- **Phase 3's `resources.rs` gate task was already discharged by the bug-482
+  prerequisite**, so the plan's "real engineering risk" never materialised in
+  this letter. Marked moot in place with `grep -n "imported_entry" src/` → 0.
+
+- **`is_package` was NOT needed**, confirming the plan's Open Decision
+  recommendation. Nothing was threaded through the shape checker.
 
 - **`ISOLATED SUB` never reaches `TYPE_ISOLATED_NOT_VISIBLE` from source.** Phase
   2's acceptance said "`ISOLATED SUB` still emits `TYPE_ISOLATED_NOT_VISIBLE`".

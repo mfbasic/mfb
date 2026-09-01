@@ -5,31 +5,19 @@ uses thread_workers - [Unsigned]
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:17 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               Call to `thread.start` has argument type(s) (ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer, String), expected ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer.
   15 | 
   16 | FUNC main AS Integer
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `localStart` does not have a known type.
-  16 | FUNC main AS Integer
-  17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
-  18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
-     | ^
-tests/syntax/threads/func_thread_start_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
-  16 | FUNC main AS Integer
-  17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
-  18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
-     | ^
-tests/syntax/threads/func_thread_start_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `badSendability` does not have a known type.
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
   19 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:19 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               thread.start entry point must name an ISOLATED FUNC.
   17 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
   19 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
@@ -41,7 +29,7 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:19 error[2-203-0043 
   20 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               thread.start entry point must name an ISOLATED FUNC.
   18 |   LET badSendability AS Thread OF BadStartMessage TO Integer = thread::start(localBadMessage, "a")
   19 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   20 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
@@ -77,7 +65,7 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:22 error[2-203-0043 
   23 |   LET missing AS Thread OF String TO Integer = thread::start()
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:23 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               thread.start entry point must name an ISOLATED FUNC.
   21 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   22 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   23 |   LET missing AS Thread OF String TO Integer = thread::start()
@@ -95,7 +83,7 @@ tests/syntax/threads/func_thread_start_invalid/src/main.mfb:24 error[2-203-0059 
   24 |   LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
      | ^
 tests/syntax/threads/func_thread_start_invalid/src/main.mfb:24 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               thread.start entry point must name an ISOLATED FUNC.
   22 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   23 |   LET missing AS Thread OF String TO Integer = thread::start()
   24 |   LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")

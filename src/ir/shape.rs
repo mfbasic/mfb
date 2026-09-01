@@ -2191,15 +2191,33 @@ impl<'a> Walker<'a> {
         let Some(HirExpression::Identifier(name)) = entry else {
             return false;
         };
+        // plan-115-A: an UNQUALIFIED name is now a valid entry when this project
+        // declares it as an `ISOLATED FUNC`. This is the case the old predicate
+        // never even considered — it bailed at `split_once('.')` — and it is the
+        // whole point of the letter: `ISOLATED` is the sole marker, so an entry
+        // no longer has to be reached through an import.
+        //
+        // Deliberately NOT filtered by visibility. Phase 2 made `ISOLATED`
+        // orthogonal to visibility, and `PRIVATE` is file-local, so a `PRIVATE`
+        // entry is nameable exactly where it is nameable at all — the ordinary
+        // scoping rules already do that work, and re-checking it here would
+        // reject the file-local case this plan exists to allow. It is also
+        // kind-independent: the rule is the same in an executable and a package,
+        // which is why `is_package` is NOT threaded in (plan §Open Decisions).
         let Some((binding, member)) = name.split_once('.') else {
-            return false;
+            return self.functions.get(name).is_some_and(|function| {
+                function.isolated && function.kind == crate::ast::FunctionKind::Func
+            });
         };
         match self.context.current_imports.get(binding) {
+            // `self::w` is now just a spelling of the bare `w` — it canonicalizes
+            // to the bare name before lowering (`src/ir/lower.rs`), so the two
+            // must agree here or the same function would be a valid entry under
+            // one spelling and not the other. The `Visibility::Export` condition
+            // is therefore dropped: it would make `self::w` STRICTER than `w`.
             Some(package) if package == crate::ast::SELF_IMPORT => {
                 self.functions.get(member).is_some_and(|function| {
-                    function.visibility == Visibility::Export
-                        && function.isolated
-                        && function.kind == crate::ast::FunctionKind::Func
+                    function.isolated && function.kind == crate::ast::FunctionKind::Func
                 })
             }
             Some(package) => self
@@ -2216,7 +2234,7 @@ impl<'a> Walker<'a> {
         self.call_typed_unknown = true;
         self.emit(
             "TYPE_CALL_ARGUMENT_MISMATCH",
-            "thread.start entry point must be an exported ISOLATED FUNC from an imported package."
+            "thread.start entry point must name an ISOLATED FUNC."
                 .to_string(),
             line,
         );
@@ -3967,7 +3985,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_start_entry_must_be_imported_isolated_func() {
+    fn thread_start_entry_must_be_an_isolated_func() {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
@@ -3983,9 +4001,68 @@ mod tests {
         assert_eq!(
             details,
             [
-                "thread.start entry point must be an exported ISOLATED FUNC from an imported package.",
+                "thread.start entry point must name an ISOLATED FUNC.",
                 "Initializer for binding `t` does not have a known type.",
             ]
+        );
+    }
+
+    /// plan-115-A: the positive half of the rule above. A bare, unqualified
+    /// `ISOLATED FUNC` of the current project is a valid entry — the case
+    /// `thread_start_entry_valid` never even considered before (it bailed at
+    /// `split_once('.')`). Added because the negative test alone cannot tell
+    /// "the rule narrowed to ISOLATED" from "the rule rejects every bare name",
+    /// which is exactly the regression this phase could introduce.
+    #[test]
+    fn thread_start_accepts_a_bare_local_isolated_func() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT thread\n\
+                 ISOLATED FUNC w(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer\n  \
+                 RETURN seed\n\
+                 END FUNC\n\
+                 FUNC main AS Integer\n  \
+                 LET t = thread::start(w, 1)\n  \
+                 RETURN 0\n\
+                 END FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert!(
+            details.is_empty(),
+            "a bare local ISOLATED FUNC must be a valid entry, got {details:?}"
+        );
+    }
+
+    /// plan-115-A: visibility is irrelevant to entry validity, so the `PRIVATE`
+    /// spelling of the test above must behave identically. Pinned separately
+    /// because `PRIVATE` is the visibility bug-227 rejected and this plan lifts.
+    #[test]
+    fn thread_start_accepts_a_bare_private_isolated_func() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT thread\n\
+                 PRIVATE ISOLATED FUNC w(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer\n  \
+                 RETURN seed\n\
+                 END FUNC\n\
+                 FUNC main AS Integer\n  \
+                 LET t = thread::start(w, 1)\n  \
+                 RETURN 0\n\
+                 END FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert!(
+            details.is_empty(),
+            "a bare PRIVATE ISOLATED FUNC must be a valid entry, got {details:?}"
         );
     }
 

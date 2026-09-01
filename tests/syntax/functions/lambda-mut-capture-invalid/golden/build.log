@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/functions/lambda-mut-capture-invalid
   31 |   LET worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
      | ^
 tests/syntax/functions/lambda-mut-capture-invalid/src/main.mfb:31 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
+               thread.start entry point must name an ISOLATED FUNC.
   29 | 
   30 |   ' Sent to a thread (not a non-escaping position). Rejected.
   31 |   LET worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
