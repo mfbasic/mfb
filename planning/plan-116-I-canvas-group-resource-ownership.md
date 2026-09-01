@@ -125,23 +125,47 @@ the time of writing, so a future implementer can see what changed.
 
 - **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
   plan-114-A that is a hard compile error rather than a silent acceptance.**
-  plan-114-A adds `2-203-0137 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
-  (`planning/plan-114-A-thread-plane-resource-error.md:182`; the rule does **not** yet
-  exist on main — `grep -rn '2-203-0137' src/rules/table.rs` returns nothing). Combined
-  with `canvas::Image`'s `sendable: false`, a record carrying one is refused at any
-  thread boundary.
+  plan-114-A adds **`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`**. Combined with
+  `canvas::Image`'s `sendable: false`, a record carrying one is refused at any thread
+  boundary.
+
+  > **The code is `-0138`, not `-0137`, and main's copy of plan-114-A will tell you
+  > otherwise.** `2-203-0137` is `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`, allocated by
+  > bug-457 (`grep -n -A1 '"2-203-0137"' src/rules/table.rs` → `:736`;
+  > `git log --oneline -1 -S'TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL' -- src/rules/table.rs`
+  > → `5d02f6931`). plan-114-A was authored 2026-08-30 against a table topping out at
+  > `-0136` and its Prerequisites row still asserts *"`2-203-0137` is unused … MET
+  > (2026-08-30)"* (`plan-114-A…md:41`) — a status that bug-457 falsified afterwards.
+  > mfb-76 caught it re-running that gate and renumbered to `-0138` as its Correction
+  > C1; that renumber is in worktree-P-114 and **is not on main yet**, so every
+  > `-0137` in main's `plan-114-A…md` is stale. Do not re-derive the code from that
+  > file. Verified here 2026-08-31: the table's highest allocated `2-203` code is
+  > `-0137`, so `-0138` is the next free one.
 
   **This is a design input, not a discovery to be made during implementation.** If any
   part of this letter — or of a program using it — expects a `Picture`, a group's item
   list, or a `List OF DrawItem` containing one to be sendable, that has to be designed
   in deliberately, which means auditing `Image`'s record tail and setting `live_slots`
-  rather than flipping `sendable`. Raised by mfb-76, 2026-08-31; the rule code is
-  `-0137`, not the `-0138` first reported.
+  rather than flipping `sendable`. Raised by mfb-76, 2026-08-31.
 
-  Note this does **not** obstruct plan-116-G's design: the group table is process-global
-  storage read by the graphics thread, which is not a thread *data plane* transfer in
-  the `thread::start` sense the rule governs. Whether the type system agrees is exactly
-  what Phase 1's audit must settle.
+- **The plane rule does not reach plan-116-G's group table, and the reason is
+  specific.** Per mfb-76, `2-203-0138` fires **only** from `check_thread_sendability`
+  and the `thread.*` call checks in `src/ir/verify/resources.rs` — that is, only where a
+  `Thread`/`ThreadWorker` *type's* planes are declared, or an actual
+  `thread::start`/`send`/`transfer`/`accept` argument type is checked. It is a rule
+  about thread-boundary **types**; nothing in it inspects storage duration or which
+  thread touches a value, so process-global storage, a module-level `MUT`, and any
+  buffer the graphics thread reads are all outside its reach. plan-116-G's design
+  stands on this axis. **UNVERIFIED here** — `src/ir/verify/resources.rs` does not
+  contain the rule yet, so this cannot be checked until plan-114-A lands; re-verify it
+  in Phase 1 rather than inheriting it.
+
+- **The constraint that *does* govern the group table is the arena one, not the rule.**
+  Arena state is per-thread and a spawned thread sees its own zeroed copy, so
+  cross-thread data needs a genuine process-global symbol and no thread may free
+  another's block (`.ai/canvas-threading.md` §2–§3). That — not the plane rule — is what
+  plan-116-G's Phase 1 audit must be driven by, and plan-116-G §4.1/§4.3 is already
+  written against it.
 - **`.ai/canvas-threading.md` §7's gate already defers the OS-side free** past any
   in-flight frame. So "close on group free" composes with it: the group's close sets
   the closed flag, and the existing gate frees the backing. This letter should add
