@@ -1,14 +1,19 @@
-# bug-479: Windows `Mode.Canvas` — the graphics thread faults on its FIRST condition-variable wait
+# bug-479: Windows `Mode.Canvas` — the graphics thread ran 8 bytes out of stack alignment
 
 Last updated: 2026-08-31
 Effort: large — Windows-only, needs the box and a minidump
 Severity: HIGH
 Class: Correctness (Windows canvas runtime)
 
-Status: Open
-Regression Test: none yet. `scripts/test-winapp.sh` exists now (bug-478) and covers
-app mode, `fs` and the worker; it does **not** cover `Mode.Canvas`. Extending it is
-part of the fix — the canvas assertions belong beside the ones already there.
+Status: FIXED
+Regression Test: two.
+
+* `codegen::runtime::canvas::tests::every_x86_64_graphics_trampoline_frame_realigns_the_stack`
+  — asserts the frame is `8 (mod 16)` on x86-64 for both families. RED-checked by
+  restoring the `&& !windows`.
+* `scripts/test-winapp.sh` now builds a canvas program, presents a scene and asserts
+  the dumped frame's size and three pixels. **This is the one that would have caught
+  it**: the unit guard encodes the premise, and the premise was what was wrong.
 
 ## What happens
 
@@ -182,6 +187,65 @@ The next thing to try is a debugger rather than another minidump. The box is an
 administrator and the loader now has a Vulkan driver registered (see below), so a
 `cdb`/WinDbg session that breaks on the access violation would name the function in one
 step, where a dump only gives an image offset.
+
+## Resolution — the stack, not the arguments
+
+`emit_graphics_trampoline` skipped the x86-64 `+8` realign on Windows, on the stated
+premise that `BaseThreadInitThunk` enters a `CreateThread` start routine already
+16-aligned. **That premise is false.** The thunk reaches the start routine through an
+ordinary `call`, so it begins at `rsp % 16 == 8` exactly like `_pthread_start`, and a
+frame that is a multiple of 16 hands the skew to every call the render loop makes.
+
+Measured on box 2230, one breakpoint on `ntdll!RtlAcquireSRWLockExclusive` printing
+`@rsp`, with both threads acquiring the SAME canvas mutex:
+
+```
+worker   t=1728  rsp=0x332de68  -> % 16 == 8   correct
+graphics t=1a28  rsp=0x3b2fd30  -> % 16 == 0   skewed
+```
+
+The worker is correct because its entry pushes a register before its frame; the
+trampoline only subtracts, so the frame has to carry the odd 8 itself.
+
+Nothing noticed the skew until a Win32 callee cared. `SleepConditionVariableSRW` cares:
+ntdll builds its wait block on the **caller's** stack and tags the pointer in the low 4
+bits (`and rdx,0FFFFFFFFFFFFFFF0h` at `RtlSleepConditionVariableSRW+0x13d`). Eight bytes
+out, that mask lands mid-block, the wait-list walk below it loads a NULL `Next`, and
+`mov [rcx+10h],rax` faults with `rcx=0` — on the very first wait, with **every argument
+correct**: CV initialised and empty, lock genuinely held, timeout NULL, flags 0.
+
+Fix: `let realign = usize::from(arch == "x86_64") * 8;` — drop the `&& !windows`.
+
+### Verified
+
+```
+2230, no debugger:  rc=0, "presented"
+MFB_CANVAS_DUMP  ->  2304000 bytes = 900*640*4 exactly
+background           (0,0,0,255)      opaque black
+rectangle            (200,40,40,255)  24000 px = 200x120 exactly
+circle               (40,200,120,255) 11112 px, 31 distinct colours (antialiased)
+```
+
+The first Windows canvas frame this project has produced, and the plan-98-F Phase 3
+prerequisite is now clear.
+
+### The four fixed on the way in
+
+Real defects, all of them, and all the plan-85 return-bank family — a Win32 call answers
+in `rax` (`c_return(0)`) while the code named `return_register()`, which is `rcx` on
+Win64 and the SAME register on AArch64, so each read correctly on the Mac:
+
+1. `emit_env_get` — `os::getEnvOr` returned a **byte count** where a pointer was wanted.
+   That is the "payload pointer is `2`" this bug was filed about: `2` was the value's
+   length. `4c9e7e16a`.
+2. `_mfb_winapp_canvas_blit` read `HeapAlloc`'s block from the wrong bank. `74c034c01`.
+3. `WM_GETTEXTLENGTH` masked `rcx` while its own comment said the length arrives in `rax`.
+4. `MultiByteToWideChar` (two sites) and `GetDC`. 3 and 4 in `cce4707f9`.
+
+None of them was the fault this bug was named for. All four were shipped bugs found
+while looking for it.
+
+## Superseded — the investigation as it stood mid-way
 
 ## Current state (2026-08-31, second session) — the render works; the WAIT does not
 
