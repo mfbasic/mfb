@@ -225,12 +225,24 @@ Evaluate in the ellipse's own frame: `q = R(-angle) · (p - centre)`, using the 
 `cos`/`sin`. Then fold to the first quadrant by taking `|q|` — the ellipse is
 symmetric in both axes — and solve for the nearest point on `x²/rx² + y²/ry² = 1`.
 
-The solve is a **fixed-count Newton iteration** on the parametric angle `t`,
-minimising `‖q - (rx·cos t, ry·sin t)‖`. Seed `t` from `atan2`-free initial guess
-`t₀ = (|q|/r)` normalised — a cheap starting point that is within one quadrant — and
-iterate a fixed `N` times. `cos t` and `sin t` inside the loop come from the same
-deterministic `__canvas_cos`/`__canvas_sin` pair (`helper_shapes.rs:165,176`), which is
-`+ - * /`-only.
+The solve is a **fixed-count Newton iteration carried on the unit pair `(c, s)`**
+— never on an angle, so no trigonometric function appears anywhere in it.
+Minimise `‖q - (rx·c, ry·s)‖` subject to `c² + s² = 1`:
+
+- **Seed** from the gradient direction, exact in every quadrant after the `|q|`
+  fold: `L = sqrt((qx·rx)² + (qy·ry)²)`, `c₀ = qx·rx / L`, `s₀ = qy·ry / L`.
+  `L = 0` only at the exact centre, where the sign test below already answers
+  "inside" and the solve is skipped.
+- **Step**: compute the Newton angle correction `Δ` from the residual (a ratio of
+  dot products — `+ - * /` only), then rotate the pair by the small-angle form and
+  renormalise: `c' = c - s·Δ`, `s' = s + c·Δ`, `n = sqrt(c'² + s'²)`, `c = c'/n`,
+  `s = s'/n`. The renormalised small-angle rotation is an exact rotation by
+  `atan(Δ)` rather than `Δ` — a slightly damped Newton step whose convergence
+  Phase 1 measures directly, which is the only claim being made for it.
+
+Every operation is `+ - * /` and `sqrt`, so the oracle's reproducibility rule
+holds, and dropping the angle drops the per-iteration `__canvas_cos`/`__canvas_sin`
+evaluations an angle-based loop would have needed.
 
 The sign is `‖q‖ ≥ ‖nearest‖ ? +1 : -1` — equivalently, inside is
 `(qx/rx)² + (qy/ry)² < 1`, which is one comparison and needs no iteration.
@@ -240,9 +252,17 @@ The sign is `‖q‖ ≥ ‖nearest‖ ? +1 : -1` — equivalently, inside is
 fine numerically and fatal for the oracle: the three renderers would take different
 numbers of steps on the same pixel on different hardware.
 
-**Circle equivalence.** At `rx == ry == r` the nearest-point solve is exact in one
-step and `d = ‖q‖ - r`, which is `__canvas_geoDistance`'s circle arm exactly. Phase 3
-asserts the bytes match rather than trusting the algebra.
+**Circle equivalence — by construction, not by convergence.** A fixed-`N` Newton
+solve is never algebraically exact (for a circle the angle iteration is
+`t₁ = t₀ - tan(t₀ - θ)`, exact only from a perfect seed), and a last-bit residual
+in `d` can flip the `clamp(0.5 - d, 0, 1)` coverage quantisation on whichever edge
+pixel lands nearest a 1/255 step — so "byte-identical to `Circle`" cannot be
+promised from the solve. The SDF therefore **special-cases `rx = ry`**: an exact
+float compare guards `RETURN sqrt(qx² + qy²) - rx` — literally the circle arm of
+`__canvas_geoDistance` — before the iteration, in all three renderers. The §1
+equivalence then holds by construction, and Phase 3's test pins it. Continuity at
+`rx ≈ ry` is bounded by the solve's residual; Phase 1 measures it at
+`ry = rx·(1 ± 1/4096)` so the guard is known not to introduce a visible seam.
 
 ### 4.3 The three renderers
 
@@ -286,8 +306,15 @@ The letter's one unproven premise, settled before any renderer changes.
 - [ ] Confirm the seed guess never leaves the solve in a different basin for any of
       those cases (a fixed-count Newton that starts in the wrong quadrant does not
       converge and will not announce it).
-- [ ] If no `N ≤ 8` reaches one step, add an Open Decision with the measured figures
-      and a recommendation — do **not** stop.
+- [ ] Measure the `rx = ry` special-case seam: compare the guard arm against the
+      `N`-step solve at `ry = rx·(1 ± 1/4096)` and record the worst coverage
+      difference (§4.2 requires it under one 1/255 step).
+- [ ] If no `N ≤ 8` reaches one step at 10:1, switch the solve to the named
+      fallback — **fixed-count bisection on the folded quadrant**, seeded with the
+      quadrant's endpoints as `(c, s)` pairs and halved by midpoint-renormalise
+      (`c = (c₀+c₁)/n`, same `sqrt` form), 16 halvings — which is
+      guaranteed-convergent, branch-count-fixed, and still `+ - * / sqrt`-only.
+      Record the measured error of whichever solve ships; do **not** stop.
 
 Acceptance: `N` is written into this document with its measured worst-case error, and
 the choice is settled by that number rather than by argument.

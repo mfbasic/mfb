@@ -24,6 +24,12 @@ canvas::Group
 
 `canvas::Group` becomes the tenth `DrawItem` variant.
 
+The feature's two goals, recorded from the user (2026-09-01) so later trade-offs
+are made against them: **(1) reuse** — a sub-picture authored once and referenced
+from many scenes and positions; **(2) speed, CPU and GPU** — `present` copies one
+node instead of the sub-picture, the geometry cache holds one entry per shared
+group, and plan-116-H draws a group as one instanced draw per node.
+
 Behavioral outcome: a program calls `setGroup("panel", […])` once, then presents
 `[Group[dx := 10.0, dy := 20.0, name := "panel"]]`, and the panel renders translated by
 (10, 20). Presenting the same scene again copies only the one node, not the panel.
@@ -42,8 +48,9 @@ References:
 - `src/codegen/builtins/canvas/gen_present.rs:emit_publish` — the deep copy.
 - `src/codegen/builtins/canvas/mod.rs:935` — `every_draw_item_variant_carries_a_paint`,
   which `Group` does not satisfy. §2.
-- `src/rules/table.rs:993` — `TYPE_RESOURCE_FIELD_FORBIDDEN`, live, which is why
-  resource ownership is **not** in this letter.
+- `src/rules/table.rs:1015` — `TYPE_RESOURCE_FIELD_FORBIDDEN`, retired by plan-114
+  but still relevant: `canvas` has not yet migrated off its value handles
+  (plan-116-I), which is why resource ownership is **not** in this letter.
 
 ## Prerequisites
 
@@ -55,8 +62,9 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 If plan-116-F is not complete, this letter cannot start, full stop.
 
-**plan-114 is NOT a prerequisite of this letter** — see §2's "no resource can reach a
-group today" finding. Group *resource ownership* is plan-116-I, which does have it.
+**Neither plan-114 nor plan-116-I is a prerequisite of this letter** — see §2's "no
+resource can reach a group today" finding. Group *resource ownership* is
+plan-116-J, which is gated on plan-116-I.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before you continue and again before you stop.
@@ -76,10 +84,11 @@ group today" finding. Group *resource ownership* is plan-116-I, which does have 
 
 ### Non-goals (explicit constraints)
 
-- **No resource ownership.** `setGroup` "taking ownership of resources in the list" is
-  plan-116-I and is gated on plan-114. Today no `DrawItem` can carry a resource (§2),
-  so there is nothing to own — this is not a deferral of live behaviour, it is a
-  statement that the behaviour is currently vacuous.
+- **No resource ownership.** `setGroup` "taking ownership of resources in the list"
+  is plan-116-J, gated on plan-116-I (which puts a `RES canvas::Image`/`RES
+  canvas::Font` directly in `Picture`/`Text`). Until I lands, no `DrawItem` carries
+  a resource (§2), so there is nothing to own — not a deferral of live behaviour, a
+  statement that it is currently vacuous.
 - **No GPU group draw.** The instanced per-group draw and the two-stage offset are
   plan-116-H. This letter renders groups on the software path and both `*Renderable`
   predicates **decline any scene containing a `Group`**, so the GPU never draws one
@@ -125,20 +134,23 @@ union tags.
 
 ### No resource can reach a group today
 
-`TYPE_RESOURCE_FIELD_FORBIDDEN` (`2-203-0084`) is **live** — read `src/rules/table.rs:993`
-and compare it with the explicitly-`RETIRED` rule immediately below at `:1001`, which
-carries a `// RETIRED by plan-59-E, not emitted` comment this one does not. plan-114
-A–E are all still in `planning/`, not `planning/completed/`
-(`ls planning/plan-114-*` → 5 matches).
+`TYPE_RESOURCE_FIELD_FORBIDDEN` (`2-203-0084`) is **retired** — plan-114 A–E all
+landed 2026-09-01 (`ls planning/completed/plan-114-*` → 5 matches; the rule sits
+reserved-not-emitted at `src/rules/table.rs:1015` under a "retired by plan-114-B"
+comment). A record field CAN now hold a `RES`. What has NOT changed is `canvas`
+itself: `Picture` still names its image through the `ImageRef` value handle and
+`Text` through `FontRef` (`mod.rs:398`, `:412`) — the migration to direct `RES`
+fields is plan-116-I.
 
 So every `DrawItem` variant's fields are value types — `Picture` names an image through
 an `ImageRef` (a plain `Integer` id, `mod.rs:397`) and `Text` through a `FontRef` — and
 `mod.rs:385` states the consequence outright: *"This is what keeps the scene from
 retaining anything."*
 
-**`setGroup` therefore takes ownership of nothing, because nothing ownable can be in
-the list.** That is a measured fact about today's language, not a simplification.
-plan-116-I makes it real when plan-114 lands.
+**`setGroup` therefore takes ownership of nothing, because nothing ownable can be
+in the list.** That is a measured fact about today's `canvas` package, not a
+simplification. plan-116-I puts the resources in; plan-116-J makes the ownership
+real.
 
 ### The frame skip, and the problem groups create for it
 
@@ -159,8 +171,8 @@ counter folded into the comparison.
 |---|---|---|
 | `DrawItem` variants after plan-116-E | 9 | `mod.rs` union list |
 | Tests pinning/iterating the variant list | 3 | `mod.rs:884`, `:913`, `:935` |
-| plan-114 letters still open | 5 | `ls planning/plan-114-*` |
-| Live ban on resource record fields | yes | `src/rules/table.rs:993` (no RETIRED comment, unlike `:1001`) |
+| plan-114 letters completed | 5 | `ls planning/completed/plan-114-*` (2026-09-01) |
+| Ban on resource record fields | retired by plan-114 | `sed -n 1008,1019p src/rules/table.rs` — reserved, never emitted |
 | Process-global canvas state symbols today | 1 (`CANVAS_SCENE_SYMBOL`) | `.ai/canvas-threading.md` §3 |
 | `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
 
@@ -355,6 +367,25 @@ the offset is applied at draw time, so the same group drawn at two offsets hits 
 cache entry. That is the main performance reason to have groups at all and it should be
 asserted (`MFB_CANVAS_STATS`'s `entries=`).
 
+### 4.6 Damage: a group node must damage what it draws
+
+`__canvas_damageFor` diffs the frame against `__CANVAS_LAST_HASHES` /
+`__CANVAS_LAST_BOUNDS` — per-item hashes and per-item *geometry bounds*
+(`helper_damage.rs`; the bounds come from each item's header). A `Group` node's own
+geometry is the empty `NONE` header, whose bounds are zero — so without care, a
+`setGroup` that changes what is drawn would hash as changed (the revision is in the
+published node, §4.4) but damage a zero-area rectangle, and the partial-redraw path
+would clear and repaint **nothing** where the group actually renders. The failure
+reads as "the screen updates only on full redraws", the §3 class of bug.
+
+The rule: a resolved group node's recorded bounds are **the axis-aligned hull of
+its resolved children's bounds (recursively), offset by the node's accumulated
+`(dx, dy)`** — computed during the §4.4 resolution pass, where the walk already
+visits every child. A diamond contributes its hull once per reference, at each
+reference's offset. This keeps a `setGroup` update's damage exactly the area the
+group can touch, and a moved node (`dx`/`dy` change) damages both the old and new
+hulls the same way any moved item does — through the hash-change diff on bounds.
+
 ## Compatibility / Format Impact
 
 - **BREAKING: the `DrawItem` union gains a tenth variant.** A user's exhaustive
@@ -439,6 +470,9 @@ Commit: —
       comparison sees a `setGroup` as a change.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
+- [ ] The resolution pass records each group node's damage bounds as its resolved
+      children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
+      for group nodes.
 - [ ] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
       GPU cannot draw one until plan-116-H, and a predicate that accepted a kind its
       shader does not know is the exact failure `.ai/canvas-threading.md` §10 records
@@ -449,6 +483,11 @@ Commit: —
       group raises with the same error; a `Group` naming an absent group draws nothing
       and does **not** raise; a group drawn at two offsets produces **one** geometry
       cache entry (`MFB_CANVAS_STATS` `entries=`).
+- [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
+      `setGroup(A')` then an identical `present` yields a **partial** frame whose
+      damage rectangle covers the group's drawn area (assert via the stats
+      `damage=` field AND a repainted pixel inside the group, far from any other
+      item); changing only a node's `dx` repaints both the old and new positions.
 
 Acceptance: Phase 1's two frame-skip tests pass un-ignored; all six behavioural cases
 pass; every existing golden is byte-identical; a scene containing a `Group` is provably
@@ -552,7 +591,13 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (2026-09-01, review — pre-execution).** Refreshed against plan-114 landing
+  (all five letters archived; `2-203-0084` retired at `src/rules/table.rs:1015`) and
+  against the series renumber (RES migration = plan-116-I, ownership = plan-116-J).
+  Added §4.6: the damage diff keys on per-item geometry bounds, and a group node's
+  own bounds are empty — without the resolved-hull rule a `setGroup` would repaint
+  nothing on the partial-redraw path. Recorded the feature's two goals (reuse;
+  CPU/GPU speed) from the user, 2026-09-01.
 
 ## Summary
 
@@ -566,5 +611,5 @@ of shared state that can be referenced from more than one place, so the texture 
 frame-drain gate, and the free must stay on the worker because an arena is per-thread.
 That lifetime work is scheduled last, behind every behavioural test, because it is the
 only part of plan-116 whose failure mode is memory corruption rather than a wrong
-pixel. Untouched by this letter: the GPU backends (plan-116-H) and resource ownership
-(plan-116-I).
+pixel. Untouched by this letter: the GPU backends (plan-116-H), the `RES` migration
+(plan-116-I), and resource ownership (plan-116-J).

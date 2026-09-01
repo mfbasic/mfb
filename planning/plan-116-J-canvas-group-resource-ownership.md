@@ -1,23 +1,22 @@
-# plan-116-I: `setGroup` takes ownership of the resources in its list
+# plan-116-J: `setGroup` takes ownership of the resources in its list
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Effort: medium (1h–2h)
-Depends on: plan-116-H, **and plan-114 (A–E) complete**
+Depends on: plan-116-I (which supplies the `RES` fields; plan-114 A–E landed 2026-09-01)
 
 The feature request specifies that `canvas::setGroup` *"takes ownership of any
 resources in the list (post plan-114, a `Picture` holds a `RES Image`); the group owns
 them until it is dropped."*
 
-That behaviour is **not implementable today and this letter does not attempt it**.
-`TYPE_RESOURCE_FIELD_FORBIDDEN` (`2-203-0084`) is live — `src/rules/table.rs:993`, with
-no `RETIRED` marker, unlike the rule at `:1001` — so a record field cannot hold a
-resource, and every `DrawItem` variant names its image and font through the plain value
-handles `ImageRef` and `FontRef` (`mod.rs:385-423`). `mod.rs:385` states the
-consequence: *"This is what keeps the scene from retaining anything."*
+That behaviour is not implementable until **plan-116-I** lands: plan-114 retired the
+`RES`-record-field ban (2026-09-01; `src/rules/table.rs:1015`, reserved-not-emitted),
+but `canvas` itself still names its image and font through the plain value handles
+`ImageRef` and `FontRef` until I migrates `Picture`/`Text` to direct
+`RES canvas::Image` / `RES canvas::Font` fields and removes those handles.
 
 So in plan-116-G, `setGroup` takes ownership of nothing **because nothing ownable can
 be in the list** — a vacuous truth, not a shortcut. This letter is what makes it a real
-one, once plan-114 has made `Picture` able to hold a `RES Image`.
+one, once plan-116-I has put the resources into the items.
 
 Behavioral outcome: a program opens an image, puts it in a `Picture` inside a
 `setGroup` list, and lets its own binding go out of scope — and the image stays usable
@@ -27,10 +26,11 @@ file descriptors or leak the backing texture.
 
 References:
 
-- `planning/plan-114-D-lift-the-ban.md` — the letter that retires `2-203-0084`.
-- `planning/plan-114-B-record-res-slot-codegen.md`,
-  `planning/plan-114-C-escape-record-edges.md` — the layout and ownership routing this
-  letter's group buffer must participate in.
+- `planning/plan-116-I-canvas-res-handles.md` — the migration this letter is gated on.
+- `planning/completed/plan-114-D-lift-the-ban.md` — the letter that retired `2-203-0084`.
+- `planning/completed/plan-114-B-record-res-slot-codegen.md`,
+  `planning/completed/plan-114-C-escape-record-edges.md` — the layout and ownership
+  routing this letter's group buffer must participate in.
 - `.ai/canvas-threading.md` §7 — the closed flag and the deferred texture free, which
   this letter must compose with rather than duplicate.
 - `.ai/resources-packages.md` — the RES resource system.
@@ -43,29 +43,16 @@ See plan-116-A §Prerequisites for the three environment gates.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | NOT MET |
-| **plan-114 A–E complete and archived** | `ls planning/plan-114-*` → **no matches** | NOT MET (5 matches) |
-| The ban on resource record fields is retired | `grep -n 'TYPE_RESOURCE_FIELD_FORBIDDEN' src/rules/table.rs` shows a `RETIRED` comment | NOT MET |
-| `Picture` holds a `RES Image` | `grep -n 'RES Image\|ImageRef' src/codegen/builtins/canvas/mod.rs` | NOT MET — **and plan-114 will not change this**, see below |
+| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | MET (2026-09-01) |
+| The ban on resource record fields is retired | `sed -n 1008,1019p src/rules/table.rs` — reserved-not-emitted under a "retired by plan-114-B" comment | MET (2026-09-01) |
+| **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
 
-**Row 4 will still be NOT MET the day plan-114 lands.** plan-114 does not touch
-`canvas` anywhere: `grep -rln 'canvas' planning/plan-114-*.md` returns **no files** —
-zero mentions across all five letters — and letter D's fixtures use `fs::File`.
-Confirmed independently by mfb-76, the session executing plan-114, 2026-08-31.
-
-So when plan-114 completes, rows 2 and 3 flip to MET and **row 4 does not**. The
-`Picture`-from-`ImageRef`-to-`RES Image` migration is entirely ahead of this letter and
-belongs to nobody yet. Phase 1 and this letter's effort estimate must be written on
-that basis — see §Open Decisions, where it is no longer a conditional.
-
-**If plan-114 is not complete, this letter cannot start, full stop.** It is not scope
-this letter absorbs, not a soft preference, and there is no dual-mode design in which
-`setGroup` owns a handle today and a resource later. plan-116-G ships the group feature
-in full without it; this letter adds ownership when the language supports it.
-
-The fourth row is a separate gate from the second on purpose: retiring the *rule* makes
-`RES` fields legal, but `Picture` migrating from `ImageRef` to `RES Image` is a
-`canvas` change that plan-114 does not make. If plan-114 lands and `Picture` still holds
-an `ImageRef`, this letter's first phase is that migration — see §Open Decisions.
+**If plan-116-I is not complete, this letter cannot start, full stop.** It is not
+scope this letter absorbs, not a soft preference, and there is no dual-mode design in
+which `setGroup` owns a handle today and a resource later. plan-116-G ships the group
+feature in full without it; this letter adds ownership once the items can carry
+resources. (The migration was unowned when this letter was first written; the user
+directed it into the series as plan-116-I on 2026-09-01.)
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before you continue and again before you stop, and report the
@@ -105,10 +92,9 @@ the time of writing, so a future implementer can see what changed.
 
 | What | Value | Command |
 |---|---|---|
-| `TYPE_RESOURCE_FIELD_FORBIDDEN` live | yes | `sed -n 991,996p src/rules/table.rs` — no `RETIRED` comment, unlike `:1001` |
-| plan-114 letters open | 5 (A–E) | `ls planning/plan-114-*` |
-| plan-114 letters archived | 0 | `ls planning/completed/plan-114-*` → no matches |
-| `Picture.image` type | `ImageRef` (a record wrapping an `Integer`) | `mod.rs:647-668`, `:397-410` |
+| `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `sed -n 1008,1019p src/rules/table.rs` (2026-09-01) |
+| plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
+| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs:647-668`, `:397-410` |
 | `Text.font` type | `FontRef` | `mod.rs:609-646` |
 | Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs:730-826` |
 | `live_slots` on both | `&[]`, `sendable: false` | `mod.rs:748`, `:790` |
@@ -125,22 +111,10 @@ the time of writing, so a future implementer can see what changed.
 
 - **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
   plan-114-A that is a hard compile error rather than a silent acceptance.**
-  plan-114-A adds **`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`**. Combined with
+  plan-114-A added **`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`** — now landed
+  on main (`src/rules/table.rs:748`, verified 2026-09-01). Combined with
   `canvas::Image`'s `sendable: false`, a record carrying one is refused at any thread
   boundary.
-
-  > **The code is `-0138`, not `-0137`, and main's copy of plan-114-A will tell you
-  > otherwise.** `2-203-0137` is `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`, allocated by
-  > bug-457 (`grep -n -A1 '"2-203-0137"' src/rules/table.rs` → `:736`;
-  > `git log --oneline -1 -S'TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL' -- src/rules/table.rs`
-  > → `5d02f6931`). plan-114-A was authored 2026-08-30 against a table topping out at
-  > `-0136` and its Prerequisites row still asserts *"`2-203-0137` is unused … MET
-  > (2026-08-30)"* (`plan-114-A…md:41`) — a status that bug-457 falsified afterwards.
-  > mfb-76 caught it re-running that gate and renumbered to `-0138` as its Correction
-  > C1; that renumber is in worktree-P-114 and **is not on main yet**, so every
-  > `-0137` in main's `plan-114-A…md` is stale. Do not re-derive the code from that
-  > file. Verified here 2026-08-31: the table's highest allocated `2-203` code is
-  > `-0137`, so `-0138` is the next free one.
 
   **This is a design input, not a discovery to be made during implementation.** If any
   part of this letter — or of a program using it — expects a `Picture`, a group's item
@@ -156,9 +130,8 @@ the time of writing, so a future implementer can see what changed.
   about thread-boundary **types**; nothing in it inspects storage duration or which
   thread touches a value, so process-global storage, a module-level `MUT`, and any
   buffer the graphics thread reads are all outside its reach. plan-116-G's design
-  stands on this axis. **UNVERIFIED here** — `src/ir/verify/resources.rs` does not
-  contain the rule yet, so this cannot be checked until plan-114-A lands; re-verify it
-  in Phase 1 rather than inheriting it.
+  stands on this axis. plan-114-A has landed; **re-verify the fire-sites claim in
+  Phase 1** against `src/ir/verify/resources.rs` as merged rather than inheriting it.
 
 - **The constraint that *does* govern the group table is the arena one, not the rule.**
   Arena state is per-thread and a spawned thread sees its own zeroed copy, so
@@ -257,10 +230,10 @@ The letter opens against a world that did not exist when it was written.
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
       accordingly (`mod.rs:748`, `:790`) — *"opting an image in means auditing its
       record tail first, not just flipping the bit."*
-- [ ] Re-derive `.ai/canvas-threading.md` §7's last paragraph: post-plan-114, does a
-      `Picture` still carry a value handle, or a resource? The sentence *"presenting a
-      stale one draws nothing rather than raising"* is either still true or must be
-      rewritten. **Do not assume it survived.**
+- [ ] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
+      now carries a `RES`, and the renderer reads a closed handle as the zero id, so
+      "draws nothing rather than raising" survives in a new mechanism). Verify the
+      rewritten paragraph against the landed code rather than against this plan.
 
 Acceptance: §4 of this document is written against landed code, §2's table is current,
 and the transfer question has a recorded answer with the audit behind it.
@@ -338,22 +311,12 @@ Commit: —
 
 ## Open Decisions
 
-- **`Picture` must migrate from `ImageRef` to `RES Image`, and it is nobody's job
-  yet.** No longer conditional: plan-114 provably does not touch `canvas`
-  (`grep -rln 'canvas' planning/plan-114-*.md` → no files), so the migration will still
-  be outstanding when plan-114 completes. Two options, and this needs deciding **before**
-  this letter is scheduled rather than during it:
-  - *(recommended)* a **separate lettered plan** between plan-116-H and this one,
-    because the migration is a breaking `canvas` API change on its own terms — it
-    touches every `Picture[` site, the scene deep copy, `canvas::imageRef`, and
-    `.ai/canvas-threading.md` §7's "a `Picture` carries a value handle, so presenting a
-    stale one draws nothing rather than raising", which stops being true. Bundling that
-    into an ownership letter hides a second breaking change behind the first.
-  - as Phase 1.5 of this letter, which keeps the letter count down but makes this
-    letter x-large and puts two independent breaking changes behind one acceptance gate.
-
-  Either way **re-estimate before starting**: this letter is written as medium on the
-  assumption the migration is not in it.
+- **~~`Picture` must migrate from `ImageRef` to `RES Image`, and it is nobody's job
+  yet.~~ RESOLVED (2026-09-01):** the recommended option was taken, by user
+  direction — the migration is its own letter, **plan-116-I**, between plan-116-H
+  and this one, and this letter's prerequisites gate on it. This letter stays
+  medium, written on the assumption the migration is not in it — which is now a
+  guarantee rather than an assumption.
 - **Is a group-owned resource a "transfer"?** Genuinely open; Phase 1 answers it with
   an audit. Recommend assuming **yes** until the audit says otherwise, because the
   buffer is process-global and read by a second thread, which is the shape `sendable`

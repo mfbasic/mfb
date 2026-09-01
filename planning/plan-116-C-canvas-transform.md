@@ -1,7 +1,7 @@
 # plan-116-C: `Paint.transform` becomes real
 
-Last updated: 2026-08-31
-Effort: large (3h–1d)
+Last updated: 2026-09-01
+Effort: x-large (1d–3d) — revised 2026-09-01; see Corrections C1
 Depends on: plan-116-B
 
 The third of the three declared-but-unread `Paint` fields. `canvas::Transform` is a
@@ -50,6 +50,9 @@ twice.
 - A non-identity `Paint.transform` transforms the item's geometry on all three paths,
   with antialiasing evaluated in transformed space so a rotated edge is as smooth as
   an axis-aligned one.
+- A non-identity transform on a `Text` item transforms its glyphs too — by
+  inverse-transformed sampling of the glyph coverage bitmaps (§4.5) — so no
+  documented `Paint` field is silently dead for any variant that renders.
 - The all-zero `Transform` is the identity and produces today's exact bytes.
 - The bounds an item is rasterised over are the **transformed** bounds, so a rotated
   shape is not clipped to its untransformed box.
@@ -61,6 +64,10 @@ twice.
   the decision recorded in plan-116-B §Open Decisions, and `Bounds` cannot express
   anything else.
 - **No non-affine transforms.** A 2×3 matrix is what the type is.
+- **`Picture` is out of scope** — it has no renderer at all today (bug-484:
+  `__canvas_headerFor` gives it an empty `NONE` header and no draw path exists), so
+  there is nothing to transform. Bug-484's fix must implement `Paint.transform` for
+  pictures as part of its own design, against the semantics this letter pins.
 - **Stroke width is transformed with the geometry**, not held constant in surface
   pixels — see §4.3, and note this is a *decision*, recorded because both readings are
   defensible.
@@ -113,6 +120,11 @@ five words of plumbing plus one multiply, rather than a rewrite of every primiti
 - **No distance function needs modification** — verified by reading all five arms of
   `__canvas_geoDistance` and both shaders' `geoDistance`: each takes `p` and shape
   parameters and returns a distance. None reads a global or a pixel index.
+- **Two variants are not SDFs and need their own treatment.** A `Text` item is a
+  per-glyph coverage-bitmap blit (`helper_items.rs`, the `__CANVAS_GEO_TEXT` arm;
+  `mfb_canvas.frag:160-165`), so "transform the query point" must become "transform
+  the sample point into the bitmap" — §4.5. A `Picture` has no renderer at all
+  (bug-484) and is scoped out above.
 - **UNVERIFIED: whether the distance correction (§4.2) is exact enough for the
   oracle.** For a non-uniform scale or a shear, `|T⁻¹|` is direction-dependent, so a
   single scalar correction is an approximation. Phase 1 measures the worst-case error
@@ -183,14 +195,13 @@ record itself.
 Slot 33 holds a **`hasTransform` flag** (0 or 1) so the per-pixel gate is one compare
 rather than six. Header becomes **34** slots.
 
-**Item block** grows 128 → **160**: two new `ivec4`s, the six inverse terms in 16.16
-plus the flag and one spare.
-
-> 16.16 for the inverse is a real precision question. A transform that scales an
-> item *up* by 100× has an inverse with terms near `0.01`, which 16.16 holds to about
-> 4 significant digits. Phase 1 measures whether that is enough at the pixel level; if
-> not, the fix is to carry the inverse as a pair of 32-bit floats instead of 16.16,
-> which is a layout change only.
+**Item block** grows 128 → **160**: two new `ivec4`s carrying the six inverse terms
+**as raw IEEE-754 float32 bits** (the shaders decode with `intBitsToFloat` /
+`as_type<float>`), plus the flag and one spare. Not 16.16: a transform that scales
+an item up by 100× has inverse terms near `0.01`, which 16.16 holds to only ~4
+significant digits — a measured-precision cliff there is avoidable for free by not
+quantising at all, and float32 is exactly what the shader arithmetic uses anyway.
+The header slots are already floats, so the CPU side needs no conversion either.
 
 ### 4.2 The distance correction
 
@@ -241,6 +252,33 @@ Returning the identity for a singular transform, rather than drawing nothing, is
 choice that keeps a bug visible: an item that vanishes is indistinguishable from an
 item that was never presented, whereas an untransformed item is obviously wrong. It
 also means no renderer can produce a NaN or an infinity from a transform.
+
+### 4.5 Text under a transform
+
+A glyph's pixels come from a cached coverage bitmap, sampled today at
+`(x - glyphX, y - glyphY)` integer offsets. Under a transform the same inverse
+machinery applies, one step earlier:
+
+- The glyph's **quad** (its blit bounds) becomes the transformed hull of the
+  untransformed quad, exactly as §3's bounds rule does for shapes.
+- Per pixel, map `p` through `T⁻¹` (the same six header terms), subtract the glyph
+  origin, and sample the coverage bitmap at the **nearest** integer sample; outside
+  the bitmap, coverage is 0.
+- The sampled coverage then multiplies through the existing text blend unchanged.
+
+Nearest sampling is the deliberate choice: it is integer index arithmetic plus the
+same `+ - * /` the oracle already allows, so all three renderers agree exactly, and
+the glyph caches stay untransformed (one cache entry serves every transform — the
+same sharing argument the geometry cache makes). The cost is that a rotated glyph
+edge is nearest-sampled rather than resampled with filtering; the docs must say so
+plainly ("rotated or scaled text keeps its rendered crispness but may stair-step;
+render at the target size rather than scaling up"). Bilinear filtering is rejected
+for this letter: it changes every transformed glyph's edge bytes between renderers
+unless all three implement identical fixed-point weights, which is a letter of its
+own if ever wanted.
+
+The identity path is gated on the same `hasTransform` flag, so untransformed text —
+every existing scene — is byte-identical.
 
 ## Compatibility / Format Impact
 
@@ -301,6 +339,9 @@ Commit: —
       per pixel.
 - [ ] Transform the bounds: `__canvas_boundsHeader` takes the four transformed
       corners' axis-aligned hull when a transform is present.
+- [ ] `__canvas_drawGeometry`'s `__CANVAS_GEO_TEXT` arm: when `hasTransform`, map
+      the pixel through the inverse and nearest-sample the glyph coverage per §4.5;
+      transform the glyph run's blit bounds.
 - [ ] Tests: `tests/rt_canvas_rasteriser.rs` gains — a 45°-rotated square (assert the
       corners land where the matrix says); a 2× uniform scale (assert the radius
       doubles and the stroke doubles, per §4.3); an all-zero transform (must be
@@ -321,10 +362,14 @@ Commit: —
       rather than assume it; a rotated shape clipped to a stale quad is the failure
       mode.
 - [ ] `scripts/regen-spirv.sh`.
-- [ ] Neither `*Renderable` predicate needs to decline a transform. Confirm by test.
+- [ ] Both glyph fragment paths (MSL and GLSL) take the same §4.5 inverse-sample,
+      gated on the flag; glyph quads take the transformed hull.
+- [ ] Neither `*Renderable` predicate needs to decline a transform — including on a
+      transformed `Text`. Confirm by test.
 - [ ] Tests: a new reference image `tests/golden/canvas/transforms.png` — a rotated
-      rect, a scaled circle, a sheared polygon — rendered by the oracle in Phase 3 and
-      matched here by both GPUs within `Tolerance::GPU_DEFAULT`.
+      rect, a scaled circle, a sheared polygon, **and a rotated text label** —
+      rendered by the oracle in Phase 3 and matched here by both GPUs within
+      `Tolerance::GPU_DEFAULT`.
 
 Acceptance: on a Metal host and a Vulkan box, `transforms.png`'s scene matches the
 oracle within `Tolerance::GPU_DEFAULT`, with `MFB_CANVAS_STATS` confirming the GPU
@@ -376,17 +421,23 @@ Commit: —
   non-uniform scale. If Phase 1 shows more than one coverage step of error, the
   fallback is to carry the two singular values of `M` and correct per axis — more
   words in the block, same shape of change.
-- **16.16 for the inverse terms (§4.1).** Recommended for layout consistency with
-  every other block field, but a large upscale gives small inverse terms. Phase 1's
-  harness should report the precision at 100× scale too; escalate to 32-bit floats if
-  it costs more than one coverage step.
+- **Nearest sampling for transformed glyphs (§4.5).** Recommended and effectively
+  decided — it is the only sampling all three renderers reproduce exactly under the
+  oracle's arithmetic rules. Filtered sampling, if ever wanted, is its own letter.
 - **Stroke scales with the shape (§4.3).** Recommended and effectively decided — the
   alternative is materially more work on both GPUs. Recorded here because both
   readings are defensible and a user will ask.
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (2026-09-01, review — pre-execution).** As first written this letter was
+  silent on `Text` and `Picture`, which are not SDFs — a transformed `Text` would
+  have silently rendered untransformed, recreating for one variant the exact
+  defect the letter exists to close. §4.5 (glyph inverse-sampling) was added and
+  the effort re-estimated large → x-large. `Picture` was discovered to have no
+  renderer at all and is scoped out against bug-484. The inverse terms also moved
+  from 16.16 to raw float32 bits in the block — the precision question Phase 1 was
+  going to measure is avoidable for free.
 
 ## Summary
 

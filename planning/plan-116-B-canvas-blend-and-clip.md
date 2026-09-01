@@ -100,6 +100,20 @@ then hand the result to fixed-function blending
 (`mfb_canvas.frag:main`, `metal.rs:197`). The Metal pipeline's blend state is set
 once at `metal.rs:38` to `One`/`OneMinusSourceAlpha`.
 
+The in-shader composition rests on a stated identity: *"Stroke over fill, then the
+hardware puts that over the destination — which is what makes this one fragment
+equal to the software path's two sequential writes, since `over` is associative"*
+(`mfb_canvas.frag:170-174`). **That identity is `Normal`-only.** The software oracle
+applies the mode twice per pixel — fill into the surface, then stroke into the
+result (`helper_items.rs`, the two `__canvas_blendChannel` runs) — and
+`M(M(D, fill), stroke) = M(D, over(stroke, fill))` holds for `over` but for none of
+`Multiply`/`Screen`/`Add` wherever the stroke band covers filled pixels. §4.3's
+two-instance rule is what closes this.
+
+A glyph is fill-only (`mfb_canvas.frag:160-165` — a text item's stroke was turned
+into an outline polygon by the geometry builder), so text draws are always a single
+source and need no such treatment.
+
 ### Measured populations
 
 | What | Count | Command |
@@ -121,7 +135,19 @@ once at `metal.rs:38` to `One`/`OneMinusSourceAlpha`.
   - `Screen` — `One` / `OneMinusSrcColor`.
   This is the property the whole GPU design rests on; it is arithmetic, verified by
   expanding each equation, and Phase 3's per-mode reference images are what confirm it
-  empirically.
+  empirically. **Two bounds on that verification.** First, `Multiply`'s factor pair
+  is exact only for an **opaque destination** (the premultiplied form has a
+  `+Cs·(1-Ad)` term the factors drop): true here, because every surface pixel's
+  alpha is written 255 (`helper_items.rs`, both blend arms store `toByte(255)`; the
+  damage clear at `helper_render.rs:53` likewise), so state the assumption in the
+  code. Second, the factors blend ONE source; a stroked+filled item under a
+  non-`Normal` mode is TWO sequential sources in the oracle, so it cannot ride the
+  in-shader stroke-over-fill composition — see §"The GPU paths" and §4.3.
+- **`Paint.clip` and `Paint.blend` are vacuous for `Picture` today** — a `Picture`
+  has no renderer at all: `__canvas_headerFor` gives it an empty `NONE` header and
+  no draw path exists (bug-484). This letter changes nothing for `Picture`; when
+  bug-484 lands the picture path, its blend/clip handling is that fix's design
+  load, against the semantics this letter pins.
 - **The blend mode is a per-*pipeline* state on both APIs, not a per-draw one.** Read
   `MTLRenderPipelineDescriptor`'s colour-attachment blend fields (set at
   `metal.rs:38`) and `VkPipelineColorBlendAttachmentState` (baked into
@@ -142,7 +168,9 @@ Three pieces:
    for the fill; and a per-pixel test only where the clip cuts a partially covered
    pixel. See §4.2.
 3. **The blend.** Four equations in the software rasteriser, four pipelines on each
-   GPU backend, selected by the item's mode.
+   GPU backend, selected by the item's mode — and a non-`Normal` stroked+filled
+   item is emitted as **two instances**, so each reaches the fixed-function unit as
+   a single source (§4.3).
 
 **Where the correctness risk concentrates:** `BlendMode.Normal` regressing. Every
 existing golden renders with it, so a mistake in the "unchanged" arm is a mass
@@ -226,6 +254,14 @@ clip). The fragment stage multiplies coverage by the clip's own coverage using t
 same `rectDistance` already in both shaders — so a fractional clip edge is antialiased
 identically to a shape edge, which is what keeps the oracle and the GPUs in agreement.
 
+**Text:** a glyph run is a coverage-bitmap blit, not an SDF (`helper_items.rs`, the
+`__CANVAS_GEO_TEXT` arm), but its blit loop has the same clamped-bounds shape as the
+fill loop, so the clip folds into its bounds identically, and the boundary columns'
+coverage multiply applies to the glyph's own coverage value. On the GPU the glyph
+quad is intersected with the clip like any other quad, and the glyph fragment path
+takes the same clip-coverage multiply. **Picture:** vacuous — no renderer exists
+(bug-484, §2); nothing to do here.
+
 ### 4.3 The blend
 
 **Software.** `__canvas_blendChannel` (`helper_color.rs:60`) gains three siblings —
@@ -252,6 +288,20 @@ must not reorder across modes when the scenes' bounds overlap**. The safe rule, 
 the one to implement: batch only *adjacent runs* of the same mode. A scene that
 alternates modes issues more pipeline binds; a scene that groups them issues few. This
 preserves paint order exactly.
+
+**A non-`Normal` stroked+filled item is two instances, not one.** The oracle blends
+fill into the surface and then stroke into the result — the mode applied twice —
+while the shaders compose stroke-over-fill in-shader and blend once, an identity
+that holds only for `over` (§2). So for an item whose mode is not `Normal` and which
+both fills and strokes, the emitter writes **two adjacent item records** into
+plan-116-A's instance buffer: the first with `strokeHalf` zeroed (fill only), the
+second with the fill alpha zeroed (stroke only), in that order. The existing
+fragment shader needs no change for this — a zero `strokeHalf` skips the stroke
+arm, and a zero fill alpha premultiplies to nothing — and paint order is exactly
+the oracle's. `Normal` items, fill-only items, and stroke-only items stay one
+instance, byte-preserving today's path. Cost: one extra `ITEM_BLOCK_SIZE` record
+per non-`Normal` stroked+filled item, and the frame-item count in the
+`CANVAS_MAX_FRAME_ITEMS` predicate check counts the split records.
 
 ## Compatibility / Format Impact
 
@@ -335,6 +385,13 @@ Largest blast radius, behind Phase 3's oracle.
 - [ ] Build four pipelines per backend, differing only in blend factors; four
       graphics-state slots each.
 - [ ] Batch adjacent same-mode runs and bind per run, preserving paint order (§4.3).
+- [ ] Emit a non-`Normal` stroked+filled item as two adjacent instances (fill record
+      with `strokeHalf` zeroed, then stroke record with fill alpha zeroed), per
+      §4.3; count the split records against `CANVAS_MAX_FRAME_ITEMS`.
+- [ ] Tests: a stroked+filled `Multiply` item over a mid-grey ground, GPU vs oracle
+      within `Tolerance::GPU_DEFAULT` — the case the one-pass composition gets
+      wrong; and the same scene with `Normal`, byte-matching the pixel counts at
+      this letter's base commit.
 - [ ] Both fragment shaders multiply coverage by the clip's coverage; both vertex
       shaders intersect the quad with the clip. `scripts/regen-spirv.sh`.
 - [ ] Both `*Renderable` predicates: no change needed — every mode and every clip is
@@ -401,7 +458,14 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (2026-09-01, review — pre-execution).** As first written, Phase 4 kept the
+  shaders' in-shader stroke-over-fill composition for every mode; that composition
+  equals the oracle's two sequential blends only because `over` is associative
+  (`mfb_canvas.frag:170-174`), so `Multiply`/`Screen`/`Add` would have diverged from
+  the oracle on every stroked+filled item. Replaced with the §4.3 two-instance
+  rule. The `Multiply` factor pair's opaque-destination assumption was also made
+  explicit, and the `Picture` variant was discovered to have no renderer at all
+  (filed as bug-484) — blend and clip are vacuous for it.
 
 ## Summary
 

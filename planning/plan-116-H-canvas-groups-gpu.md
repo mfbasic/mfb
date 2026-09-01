@@ -62,7 +62,7 @@ resolved group tree; without it there is nothing for a backend to walk.
 
 - **No change to group storage, lifetime, resolution or the depth limit.** All of
   that is plan-116-G and this letter must not touch it.
-- **No resource ownership.** plan-116-I.
+- **No resource ownership.** plan-116-J (behind the plan-116-I `RES` migration).
 - **No change to the software renderer.** It is the oracle; if the GPU disagrees, the
   GPU is wrong.
 - **Glyph runs stay N draws.** plan-116-A §4.3 decided this; a group containing text
@@ -77,7 +77,13 @@ resolved group tree; without it there is nothing for a backend to walk.
 
 Every item's parameters live in a per-frame buffer of `ITEM_BLOCK_SIZE` records, and
 each item is drawn with an instanced draw indexed by instance id. `ITEM_BLOCK_SIZE` is
-**224** bytes after plan-116-F. The flat scene is one buffer; the draw walks it.
+**224** bytes after plan-116-F. Crucially for this letter, **Metal's polygon edges
+and gradient stops also live in regions of that frame buffer** (plan-116-A §4.1 as
+revised; plan-116-F §4.2), with per-item base indices in the block — so a polygon
+or gradient item rides *inside* an instanced run on both backends, and "one
+instanced draw per group node" is actually achievable. Only a `Text` item still
+breaks a run into its own glyph draws. The flat scene is one buffer; the draw
+walks it.
 
 ### What plan-116-G left in place
 
@@ -176,7 +182,9 @@ on every canvas-emitting target, and both `.spv` blobs.
 
 `__canvas_sceneOffsets` gains a sibling — `__canvas_sceneDraws` — that performs the
 same depth-first walk `__canvas_renderScene` performs, emitting one entry per
-contiguous run of non-group items at a given offset:
+contiguous run of non-group, non-text items at a given offset (a `Text` item also
+ends a run: it is its own glyph draws, issued at the current offset, per
+plan-116-A §4.3):
 
 ```
 (itemBase, itemCount, dx, dy)
@@ -200,8 +208,11 @@ draw:
 - **Vulkan** — a push constant. The item block left the push-constant range in
   plan-116-A, so the range is free; two words is trivially inside the 128-byte
   guarantee.
-- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer index,
-  the same mechanism the polygon edges and glyph bitmaps already use.
+- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer
+  index. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
+  removed was per-ITEM payloads inside one instanced draw; the offset changes only
+  between draws, which is exactly what `setBytes:` is for (and what the glyph
+  draws still use for their bitmaps).
 
 **Vertex stage:**
 
@@ -234,12 +245,13 @@ count:
   instance a group tree expands to, not the number of scene nodes — a diamond drawn
   twice costs two draws but the *buffer* is shared, so what is capped is the draw
   count and the total instance count, and both must be summed over the resolved tree.
-- Vulkan's **frame-total** caps (`VULKAN_MAX_FRAME_EDGES`, glyph samples, gradient
-  stops) must likewise sum over the resolved tree, counting a shared group **once per
-  reference** if its payload is re-uploaded per draw, or **once** if it is not. Decide
-  this explicitly in Phase 1 and make the predicate match the emitter; a predicate that
-  counts differently from the emitter is the class of bug `.ai/canvas-threading.md` §10
-  records.
+- **Both backends'** frame-total caps (`VULKAN_MAX_FRAME_EDGES` /
+  `METAL_MAX_FRAME_EDGES`, glyph samples, and the gradient-stop caps — Metal gained
+  its frame regions in plan-116-A and plan-116-F) must likewise sum over the
+  resolved tree, counting a shared group **once per reference** if its payload is
+  re-uploaded per draw, or **once** if it is not. Decide this explicitly in Phase 1
+  and make each predicate match its emitter; a predicate that counts differently
+  from the emitter is the class of bug `.ai/canvas-threading.md` §10 records.
 
 ## Compatibility / Format Impact
 
@@ -367,6 +379,15 @@ Commit: —
 - **Keeping `__canvas_sceneOffsets` alongside `__canvas_sceneDraws` (§4.1).**
   Recommended: it still feeds the geometry-cache warm-up, which is a separate job from
   the draw list.
+
+## Corrections
+
+- **C1 (2026-09-01, review — pre-execution).** Aligned with the revised plan-116-A:
+  Metal's edges (A) and gradient stops (F) live in frame-buffer regions, which is
+  what makes "one instanced draw per group node" true for groups containing
+  polygons or gradients — under the original A, every polygon would have split the
+  draw. `Text` inside a group is explicitly a run-breaker (§4.1). Ownership is
+  plan-116-J behind the plan-116-I `RES` migration.
 
 ## Summary
 
