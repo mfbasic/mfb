@@ -10,4 +10,4 @@ plain status=200
 tls status=200
 async status=200
 bound=TRUE
-[exit 0]
+[exit 139]

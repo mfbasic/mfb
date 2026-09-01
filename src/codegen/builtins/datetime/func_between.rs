@@ -3,7 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"The signed `Duration` span between two instants."#;
+const INTRO: &str = r#"The signed `datetime::Duration` span between two instants."#;
 const DESC: &str = r#"`datetime::between` returns the signed `datetime::Duration` `finish - start`: the length of
 elapsed time you would add to `start` to reach `finish`. The span is positive when
 `finish` is later than `start`, negative when `finish` is earlier, and zero when

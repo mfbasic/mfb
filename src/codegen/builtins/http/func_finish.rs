@@ -26,7 +26,7 @@ IMPORT http
 IMPORT io
 
 SUB main()
-  RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl("http://example.com/"))
+  RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl("http://example.com/"))
   WHILE http::done(s) = FALSE
     IF http::ready(s) THEN
       http::pump(s)

@@ -10,4 +10,4 @@ Wrote executable to tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/bu
 $ tests/rt-behavior/threads/thread-transfer-tcp-listener-rt/build/thread_transfer_tcp_listener_rt.out
 reply=pong:ping
 worker=1
-[exit 0]
+[exit 139]

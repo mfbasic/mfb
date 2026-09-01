@@ -50,3 +50,12 @@ examples/**/*.lock
 # scripts/snap-macos.py: auto-created venv + its default capture artifact.
 .venv-macos/
 /macos_screenshot.png
+
+# Native code-plan dumps. The regen scripts (sync-goldens.sh / regen-ncodesum.sh)
+# leave a scratch <fixture>.ncode next to every fixture; a codegen_cover one is
+# hundreds of MB (one pretty-printed JSON line per machine instruction), and a
+# blanket 'git add -A tests/' has swept them into a branch twice, blowing
+# GitHub's 100 MB hard limit on push. Only the sibling golden/ copies are real
+# fixtures; the drift sentinel that IS tracked is the 65-byte .ncodesum.
+*.ncode
+!**/golden/*.ncode

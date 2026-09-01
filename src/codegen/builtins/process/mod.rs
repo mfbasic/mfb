@@ -116,7 +116,7 @@ Streaming I/O connects to the child's three standard streams over pipes.
 `process::send` writes a `String` (appending a newline) to the child's standard
 input; `process::sendBytes` writes raw bytes with no newline. `process::receive`
 reads one newline-terminated line as a `String`; `process::receiveBytes` reads one
-available chunk of raw bytes. Both readers take an optional `process::Stream` argument
+available chunk of raw bytes. Both readers take an optional `Stream` argument
 selecting standard output (the default) or standard error, and `process::poll`
 reports whether the selected stream is readable within a timeout. A read that
 reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
@@ -259,7 +259,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Process"));
         assert_eq!(
             registry().qualified_builtin_type("process.Process"),
-            Some("process.Process".to_string())
+            Some("Process".to_string())
         );
     }
 
@@ -305,7 +305,7 @@ mod tests {
             registry::call_return_type_typed("process.didSignal")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("process.Signal")
+            Some("Signal")
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
         // the trailing-optional streaming forms, and the single-signature queries.

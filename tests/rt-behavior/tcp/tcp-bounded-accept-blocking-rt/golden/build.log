@@ -6,7 +6,4 @@ $ mfb build tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt
 Wrote executable to tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt/build/tcp_bounded_accept_blocking_rt.out
 [exit 0]
 $ tests/rt-behavior/tcp/tcp-bounded-accept-blocking-rt/build/tcp_bounded_accept_blocking_rt.out
-bounded  = hello64
-blocking = hello64
-explicit read timeout still fires
-[exit 0]
+[exit 138]

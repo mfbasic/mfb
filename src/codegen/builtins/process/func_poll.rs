@@ -42,7 +42,7 @@ as a boolean and never raises `ErrTimeout`).
 
 
 Without a `from` argument `poll` inspects the child's standard output; pass a
-`process::Stream` value to choose standard output or standard error."#;
+`Stream` value to choose standard output or standard error."#;
 const EX: &str = r#"Read a line only if one is ready within 100 ms:
 
 ```

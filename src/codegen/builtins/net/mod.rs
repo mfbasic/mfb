@@ -111,6 +111,11 @@ pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
 /// `PingResult`'s package-qualified type identity (bug-480 Phase 4b), the
 /// `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources. The bare
 /// constant stays the registry row's member id.
+///
+/// `cfg(test)`: the qualifier reaches `net::ping`'s signature through the
+/// registry's post-build `qualify_value_type_references` pass, not through a
+/// call site, so the only reader is `gen_ping`'s test asserting that pass ran.
+#[cfg(test)]
 pub(crate) const PING_RESULT_TYPE_ID: &str = "net.PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).

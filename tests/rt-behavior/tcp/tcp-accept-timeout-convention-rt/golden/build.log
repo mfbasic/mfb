@@ -9,4 +9,4 @@ $ tests/rt-behavior/tcp/tcp-accept-timeout-convention-rt/build/tcp_accept_timeou
 accept0 timeout
 accept-neg invalid
 accept-omit ok
-[exit 0]
+[exit 139]

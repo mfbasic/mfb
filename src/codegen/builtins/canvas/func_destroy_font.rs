@@ -13,7 +13,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Release a font before it leaves scope."#;
 
 const DESC: &str = r#"`destroyFont` closes the font, exactly as `fs::close` closes a file: the handle is
-released now rather than when the binding goes out of scope. Letting a `canvas::Font` leave
+released now rather than when the binding goes out of scope. Letting a `Font` leave
 scope does the same thing, so this is for the case where a font is large and the
 scope is long — a font file is measured in hundreds of kilobytes, so this is a more
 useful call than its image twin.

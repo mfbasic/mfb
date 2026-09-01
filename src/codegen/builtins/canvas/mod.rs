@@ -756,7 +756,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An opaque, owned handle to a loaded font, released \
                       automatically when it leaves scope. A scene names one through a \
-                      `FontRef`, never directly, so releasing a font whose text a \
+                      `canvas::FontRef`, never directly, so releasing a font whose text a \
                       scene still draws is safe — that text simply draws as empty.",
         close_function: DESTROY_FONT,
         // A font belongs to the drawing surface's thread, like an image; it does not

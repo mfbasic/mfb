@@ -106,13 +106,6 @@ pub(crate) const AUDIO_OUTPUT_TYPE_ID: &str = "audio.AudioOutput";
 /// The `AudioDevice` value record's type name (a plain read-only record obtained
 /// only from `audio::devices()`).
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
-
-/// The `AudioDevice` record's **package-qualified type identity** — how it flows
-/// through the type system, the same `*_TYPE` / `*_TYPE_ID` split plan-97
-/// established for resources and bug-480 Phase 4b extended to value types.
-/// `AUDIO_DEVICE_TYPE` stays the bare member id the registry row declares;
-/// this is what an ARGUMENT of that type is spelled as at a call site.
-pub(crate) const AUDIO_DEVICE_TYPE_ID: &str = "audio.AudioDevice";
 /// The `AudioEnvelope`/`AudioNote` value records the user constructs and passes to
 /// `audio::render` (rendered into the injected source by `get_mfb` so the source
 /// `render` body operates on them).
@@ -224,12 +217,8 @@ pub(crate) fn native_body(
 pub(crate) fn runtime_overload_name(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
     let first = arg_types.first().map(String::as_str);
     match qualified {
-        // Compared against the QUALIFIED id: an argument's type is spelled
-        // `audio.AudioDevice` now, so matching the bare member id silently stopped
-        // selecting the device-first code form and every
-        // `audio::openInput(device, …)` lowered to the deviceless helper.
-        "audio.openInput" if first == Some(AUDIO_DEVICE_TYPE_ID) => Some("audio.openInputDevice"),
-        "audio.openOutput" if first == Some(AUDIO_DEVICE_TYPE_ID) => Some("audio.openOutputDevice"),
+        "audio.openInput" if first == Some(AUDIO_DEVICE_TYPE) => Some("audio.openInputDevice"),
+        "audio.openOutput" if first == Some(AUDIO_DEVICE_TYPE) => Some("audio.openOutputDevice"),
         "audio.read" if arg_types.len() == 3 => Some("audio.readTimeout"),
         "audio.poll" if arg_types.len() == 2 => Some("audio.pollTimeout"),
         "audio.close" if first == Some(AUDIO_INPUT_TYPE_ID) => Some(CLOSE_INPUT),
@@ -523,7 +512,7 @@ mod tests {
         assert!(!registry().is_builtin_type("AudioInput"));
         assert_eq!(
             registry().qualified_builtin_type("audio.AudioInput"),
-            Some("audio.AudioInput".to_string())
+            Some("AudioInput".to_string())
         );
     }
 

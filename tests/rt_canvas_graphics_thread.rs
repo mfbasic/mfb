@@ -99,7 +99,8 @@ fn program(body: &str) -> String {
     )
 }
 
-const ONE_BOX: &str = "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
+const ONE_BOX: &str =
+    "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
                        h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.

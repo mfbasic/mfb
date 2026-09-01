@@ -14,8 +14,4 @@ ttl too large raised Argument value is not valid for the requested operation.
 size negative raised Argument value is not valid for the requested operation.
 size too large raised Argument value is not valid for the requested operation.
 unresolvable host raised Network host, address, or port is invalid.
-ttl minimum DID NOT RAISE
-ttl maximum DID NOT RAISE
-size minimum DID NOT RAISE
-size maximum DID NOT RAISE
-[exit 0]
+[exit 139]

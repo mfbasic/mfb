@@ -526,7 +526,7 @@ END FUNC
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   ' Every other kind's header is a handful of arithmetic on the item's own fields, so
   ' building it on every probe costs nothing and it doubles as the hash-collision
-  ' guard. A `Text` header is not like that: its bounds and its edge count are
+  ' guard. A `canvas::Text` header is not like that: its bounds and its edge count are
   ' properties of the *flattened glyph outlines*, so building it per frame would
   ' re-read `glyf` for every character of every string on screen and the cache would
   ' save nothing at all. Text therefore probes on the hash alone and builds its header

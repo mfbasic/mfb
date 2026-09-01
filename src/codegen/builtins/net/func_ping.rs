@@ -156,7 +156,7 @@ const TTL_DESC: &str = "Optional, defaulting to `64`. The outgoing hop limit, `1
 const SIZE_DESC: &str = "Optional, defaulting to `56`. The number of payload bytes to send, `0` to `8184`. `0` sends a bare echo header. The maximum is the smallest limit across the supported platforms, so it is portable. Outside that range raises `ErrInvalidArgument`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    let ret = || ParameterType::named(super::PING_RESULT_TYPE_ID);
+    let ret = || ParameterType::named(super::PING_RESULT_TYPE);
     pkg.add_function(RegistryFunction {
         name: "ping",
         intro: INTRO,
@@ -187,7 +187,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         "address",
                         "A destination record supplying the host to ping, typically from `net::lookup`. Its `port` field is ignored: ICMP has no transport port.",
                         &[],
-                        ParameterType::named(super::ADDRESS_TYPE_ID),
+                        ParameterType::named(super::ADDRESS_TYPE),
                     ),
                     super::opt("timeoutMs", TIMEOUT_DESC, ParameterType::Integer),
                     super::opt("ttl", TTL_DESC, ParameterType::Integer),

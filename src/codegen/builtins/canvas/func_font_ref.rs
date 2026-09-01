@@ -12,7 +12,7 @@ use crate::types::ParameterType;
 
 use super::gen_image::emit_closed_guard;
 
-const INTRO: &str = r#"Take a plain `canvas::FontRef` handle naming a `canvas::Font`."#;
+const INTRO: &str = r#"Take a plain `canvas::FontRef` handle naming a `Font`."#;
 
 const DESC: &str = r#"`fontRef` produces the value a `canvas::Text` item carries: the id the backend knows the
 font by, and nothing else.
