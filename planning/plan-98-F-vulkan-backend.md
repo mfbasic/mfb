@@ -284,16 +284,54 @@ register-spelling sweep the second one uncovered.
 
 ### Phase 3 — Windows (win32 surface) — new GPU path (largest blast radius last)
 
-- [ ] `VK_KHR_win32_surface` from the A-built HWND, coexisting with the GDI WNDPROC/message loop.
-- [ ] Swapchain + the same pipeline; render + resize + out-of-date; fence → retirement.
-- [ ] Tests: tolerance-match goldens on Windows (headless where `MFB_WINAPP_HEADLESS` allows a
-      Vulkan surface; else a window-station CI lane); resize worker-free; race matrix green on
-      Windows.
+- [x] ~~`VK_KHR_win32_surface` from the A-built HWND, coexisting with the GDI WNDPROC/message
+      loop.~~ — moot: Correction 1's offscreen renderer, extended to Windows. The backend
+      draws into an image and reads it back, so the frame leaves through the same
+      `canvas::blitSurface` the software path uses, and no `VkSurfaceKHR` is created on any
+      platform. Evidence: `rg -n "win32_surface|VK_KHR_surface" src/` → no hits, and the
+      Windows render is nonetheless verified pixel-for-pixel against the software oracle
+      (`worst=1 differing=0.0042%`). The HWND plan-98-A stores stays unused by this letter,
+      exactly as the `GdkSurface*` does.
+- [x] Swapchain + the same pipeline; render + resize + out-of-date; fence → retirement.
+      **The pipeline, the render, the resize and the fence-driven retirement are met** — all
+      shared with Linux, unchanged. ~~Swapchain~~ and ~~out-of-date/suboptimal~~ are moot on
+      the same evidence as the row above: both are `VkSwapchainKHR` results and there is no
+      swapchain. Resize needed real work and got it (Correction 22).
+- [x] Tests: tolerance-match goldens on Windows (headless — `MFB_WINAPP_HEADLESS` needs no
+      display for an offscreen render, so no window-station CI lane was needed); resize
+      worker-free; race matrix green on Windows.
 
 Acceptance: canvas renders via Vulkan on Windows matching the software reference within
 tolerance; resize + retirement correct; the D race matrix green on the Windows Vulkan path.
 Run only the new Vulkan tolerance-golden tests plus C's software goldens (the reference
 they are compared against).
+
+**MET** (2026-08-31), on box 2230 against Mesa lavapipe, by `scripts/test-winapp.sh`:
+
+```
+ok: the Vulkan device built on Windows                    (vulkanReady=TRUE)
+ok: the GPU path was the one that rendered                (gpuSelected=TRUE)
+ok: the Vulkan frame drew the rectangle / the circle
+ok: the Vulkan frame matches the software reference       ok worst=1 differing=0.0042%
+ok: the resize produced a second frame                    frames=2
+ok: the repaint covered the new 640x480 surface           damage=0,0,640,480
+ok: rssw / rsgpu repainted at 640x480                     1228800 bytes = 640*480*4
+ok: the resized Vulkan frame matches the resized software ok worst=1 differing=0.0059%
+```
+
+**Strengthened, not met as written.** The row asked for a tolerance match. The gate is that
+plus a `vulkanReady=TRUE`/`gpuSelected=TRUE` assertion made *before* the diff, and that
+addition is the load-bearing one: a backend that silently fell back to the software path
+would produce a **byte-identical** frame and sail through any tolerance comparison.
+Agreement is only evidence when the two frames came from different renderers. Each frame is
+also asserted to contain the scene in its own right, because two blank frames agree
+perfectly too.
+
+Linux was re-run unchanged after the shared-code edits (`scripts/test-canvas-vulkan.sh`, 12
+assertions green), and `artifact-gate all` is at 0 diffs with only the three
+`windows-x86_64` app-mode goldens regenerated — the exact blast radius of a `_main`/WndProc
+change.
+Commit: `<phase-3>`
 
 **UNBLOCKED (2026-08-31).** Both rows that held this phase are now MET, each re-checked
 by running its own command rather than reading its Status cell:
@@ -748,3 +786,64 @@ The next step there is a debugger rather than another dump: the box is an admini
 and a `cdb` session breaking on the access violation would name the function in one step,
 where a dump only gives an image offset.
 
+**Correction 21 (Phase 3) — Windows needed no surface and no swapchain either, and the
+real work was three things the phase never named.** The phase was written around
+`VK_KHR_win32_surface` and a swapchain. Correction 1 had already removed both from Linux;
+extending the same offscreen renderer to Windows removed them here, and what was actually
+required turned out to be:
+
+1. *The loader.* `dlopen`/`dlsym` do not exist on Windows. The backend now opens
+   `vulkan-1.dll` with `LoadLibraryExA` (bare name, default search, flags 0 — a system
+   library, not one of the exe-relative `vendor/` DLLs) and resolves every entry point with
+   `GetProcAddress`, which is `dlsym`'s exact shape. Deliberately NOT routed through the
+   `emit_lib_open`/`emit_lib_get_sym` platform hooks the `LINK` loader uses: those answer in
+   `return_register()` while every check in `vulkan.rs` reads `c_return(0)`, and those are
+   **different registers on Win64** — the precise class of defect bug-478/479 spent eight
+   fixes on.
+
+2. *Win64 stack arguments.* The one that actually bit. `CALL_ARGS_WIN64` is
+   `[rcx, rdx, r8, r9, rdi, rsi, …]`, so `c_arg(4)`/`c_arg(5)` realize to `rdi`/`rsi` —
+   registers Win64 passes no arguments in. Every Vulkan call taking more than four arguments
+   was handing the driver garbage. It surfaced as a fault *inside lavapipe*, at
+   `vulkan_lvp!vk_icdGetInstanceProcAddr+0x818`, `mov [r8],rax` with `r8=8`: `vkMapMemory`'s
+   sixth argument is `ppData`, and the ICD wrote the mapped pointer through it. Fixed by
+   routing all ten sites through the register model — `emit_int_arg`/`emit_addr_arg`, built
+   on the `emit_int_arg_zero` that already existed for exactly this reason. SysV covers six
+   in registers, so Linux and macOS are byte-identical (`artifact-gate all`, 0 diffs).
+
+3. *`WM_SIZE`.* **Windows had no caller of `emit_publish_surface_size` at all.** macOS
+   publishes from `setFrameSize:` and GTK from `notify::default-width`; Windows published
+   nothing, so the graphics thread never learned the window had changed size and kept
+   rendering at the startup 900x640 whatever the user dragged the frame to. That is a
+   production bug in `Mode.Canvas` on Windows, not a test gap, and it was invisible because
+   no Windows binary had ever been run by a test until bug-478.
+
+**Correction 22 (Phase 3) — the resize hook found a live instance of a hazard
+`select.rs` had recorded as latent.** Driving the new `WM_SIZE` arm on a headless box needs
+a scripted resize, the Windows twin of GTK's `emit_headless_scripted_resize`. The first
+version resized to **640x1** and dumped 2560 bytes.
+
+The cause is worth writing down. The x86-64 scratch pool is `POOL[(n - 9) % 11]` over
+`[rbx, rsi, rdi, r8, r9, r10, r11, r12, r13, rcx, rbp]`, so `SCRATCH[0]` (x9) and `LOCAL[1]`
+(x20) are **both `rbx`** — two architecture-neutral spellings that are distinct on AArch64
+collapsing onto one x86 register. The frame-counter poll loaded into `SCRATCH[0]`,
+overwriting the parsed height, and since the loop only exits once the counter is non-zero,
+the height published was the frame count: 1.
+
+`src/arch/x86_64/select.rs` documents this exact hazard above its `POOL` — "recorded here so
+it is not rediscovered as a silent Windows-only miscompile". It was rediscovered. The
+comment is now cited at the fix site, which uses `SCRATCH[7]` (`r12`, Win64 callee-saved and
+clear of `LOCAL[0..2]` = `rbp`/`rbx`/`rsi`).
+
+**Correction 23 (Phase 3) — two test-harness defects that each read as a product failure.**
+Both were in `scripts/test-winapp.sh` and both would have been filed against the compiler by
+a reader who trusted the script:
+
+* The canvas program returned from `main` immediately. The scripted resize runs on the main
+  thread and waits for the first frame before publishing, so the worker retired and the
+  process exited before the second frame was ever drawn. Reported as "no second frame after
+  the resize — WM_SIZE published nothing", which is exactly the wrong conclusion. Fixed with
+  an `os::sleep` and a comment saying why it is load-bearing.
+* An unquoted here-document ate the backslash in `C:\mfbwin\$1.raw` — `\$` is an escape
+  there — so the dump went to `C:\mfbwin$1.raw` at the drive root and every frame assertion
+  reported "no frame". The paths are now built outside the here-document.

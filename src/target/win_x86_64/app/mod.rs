@@ -184,6 +184,23 @@ const FILE_FLAG_STDOUT_FD: usize = 11; // -(-11) STD_OUTPUT_HANDLE
 const FILE_FLAG_STDERR_FD: usize = 12; // -(-12) STD_ERROR_HANDLE
 const STD_INPUT_FD: usize = 10; // -(-10) STD_INPUT_HANDLE
 const WM_DESTROY: &str = "2";
+/// `WM_SIZE`. `lParam` carries the new **client** size: width in the low word,
+/// height in the high word.
+const WM_SIZE: &str = "5";
+/// The scripted-resize environment variables, and the wide buffer their values are
+/// read into. plan-98-F Phase 3's Windows twin of the GTK backend's
+/// `emit_headless_scripted_resize`: a resize is a *window* event and headless has no
+/// window, so without this the WM_SIZE arm below could be implemented and never
+/// executed on the one box that can run it.
+const RESIZE_W_ENV_SYM: &str = "_mfb_winapp_resize_w_env";
+const RESIZE_H_ENV_SYM: &str = "_mfb_winapp_resize_h_env";
+const RESIZE_BUF_SYM: &str = "_mfb_winapp_resize_buf";
+/// Wide chars in [`RESIZE_BUF_SYM`]. A surface dimension is at most five digits.
+const RESIZE_BUF_CHARS: usize = 16;
+/// `canvas::signalRedraw` — the scripted resize asks for the repaint the WM_SIZE it
+/// simulates would have asked for. Spelled here as the GTK backend spells it; the
+/// registry owns the name.
+const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
 const WM_CHAR: &str = "258"; // 0x0102
 const VK_RETURN: &str = "13"; // '\r' (WM_CHAR wParam on Enter)
 const GWLP_WNDPROC: usize = 4; // -(-4) the SetWindowLongPtrW index for the wndproc
@@ -353,9 +370,9 @@ pub(super) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_main(spec.initial_mode),
+        emit_main(spec.initial_mode, spec.uses_canvas),
         emit_worker(),
-        emit_wndproc(),
+        emit_wndproc(spec.uses_canvas),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
         // like the wndproc it posts to — whether a program ever enters canvas mode is
         // a runtime question, not a static one.
@@ -369,7 +386,7 @@ pub(super) fn emit_app_program_entry(
 /// stack args [0x20..0x60], WNDCLASSEXW [0x60..0xB0], MSG [0xB0..0xE0],
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
-fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
+fn emit_main(initial_mode: PresentationMode, uses_canvas: bool) -> CodeFunction {
     const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
@@ -762,6 +779,85 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         abi::stack_pointer(),
         WORKERH,
     ));
+    // ---- plan-98-F Phase 3: one scripted resize, when the env says so ----
+    //
+    // The Windows twin of the GTK backend's `emit_headless_scripted_resize`, and it
+    // exists for the same reason: a resize is a *window* event, headless has no window,
+    // and box 2230 is the only machine that can run this at all. Without it the WM_SIZE
+    // arm would be implemented and never executed.
+    //
+    // It waits for a first completed frame before resizing, which is the whole point —
+    // resizing before any frame exists would build the render target once at the new
+    // size and prove nothing, where resizing after one forces the tear-down-and-rebuild
+    // the Vulkan backend has for it. `MFB_CANVAS_DUMP` overwrites, so the file left
+    // behind is the second frame and its length is `newWidth * newHeight * 4`.
+    //
+    // This runs on the main thread, which is the right one: publishing the size is the
+    // main thread's job on all three backends. It calls the same publisher WM_SIZE
+    // calls, so what runs here is the production path and not a stand-in for it.
+    //
+    // Gated on `uses_canvas`, and it has to be: this block names the graphics-state
+    // symbol, and a program that never imports `canvas` does not emit that data
+    // object — an ungated reference fails the build with "relocation target
+    // `_mfb_rt_canvas_graphics` is not a data object or defined symbol".
+    if uses_canvas {
+        emit_parse_wide_env(
+            RESIZE_W_ENV_SYM,
+            abi::LOCAL[0],
+            "hl_rw",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        emit_parse_wide_env(
+            RESIZE_H_ENV_SYM,
+            abi::LOCAL[1],
+            "hl_rh",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        // Poll until the render loop has completed a frame at the original size.
+        ins.push(abi::label("headless_resize_wait"));
+        crate::codegen::runtime::canvas::state_base(from, abi::LOCAL[2], &mut ins, &mut rel);
+        // **`SCRATCH[7]`, and not `SCRATCH[0]`.** The x86 scratch pool is
+        // `POOL[(n - 9) % 11]` over `[rbx, rsi, rdi, r8, r9, r10, r11, r12, r13, rcx, rbp]`,
+        // so `SCRATCH[0]` (x9) and `LOCAL[1]` (x20) are BOTH `rbx` — loading the frame
+        // counter into `SCRATCH[0]` overwrote the parsed height, and since the loop only
+        // exits once the counter is non-zero, the height published was the frame count.
+        // It resized to 640x1 and dumped 2560 bytes. This is exactly the latent hazard
+        // `src/arch/x86_64/select.rs` records above its POOL — two architecture-neutral
+        // spellings that are distinct on AArch64 collapsing onto one x86 register.
+        // `SCRATCH[7]` is `r12`, callee-saved under Win64 and clear of `LOCAL[0..2]`
+        // (`rbp`/`rbx`/`rsi`).
+        ins.push(abi::load_u64(
+            abi::SCRATCH[7],
+            abi::LOCAL[2],
+            crate::codegen::runtime::canvas::GRAPHICS_OFFSET_FRAMES,
+        ));
+        ins.push(abi::compare_immediate(abi::SCRATCH[7], "0"));
+        ins.push(abi::branch_ne("headless_resize_ready"));
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "20"));
+        call_external(from, "Sleep", KERNEL32, &mut ins, &mut rel);
+        ins.push(abi::branch("headless_resize_wait"));
+
+        ins.push(abi::label("headless_resize_ready"));
+        crate::codegen::runtime::canvas::emit_publish_surface_size(
+            from,
+            abi::LOCAL[2],
+            abi::LOCAL[0],
+            abi::LOCAL[1],
+            &mut ins,
+            &mut rel,
+        );
+        call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+    }
+
+    ins.push(abi::label("headless_wait_worker"));
     // WaitForSingleObject(worker, INFINITE = 0xFFFFFFFF via 0 - 1).
     ins.push(abi::load_u64(
         abi::mfb_arg(0),
@@ -891,8 +987,56 @@ fn emit_worker() -> CodeFunction {
     code_function("winapp.worker", WORKER_SYMBOL, ins, rel)
 }
 
+/// Read the decimal value of wide environment variable `name_sym` into `dst`, or 0
+/// when it is unset or does not start with a digit.
+///
+/// Emitted inline rather than as a callable symbol because it is wanted exactly twice,
+/// in one function, and a symbol would need registering with the plan. `GetEnvironment-
+/// VariableW` answers with the character count in the C result — 0 when absent — and
+/// writes UTF-16 into the shared buffer, so the digits are two bytes apart.
+fn emit_parse_wide_env(
+    name_sym: &str,
+    dst: &str,
+    tag: &str,
+    from: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    let loop_head = format!("{tag}_digit_head");
+    let done = format!("{tag}_digit_done");
+    load_addr(abi::mfb_arg(0), name_sym, from, ins, rel);
+    load_addr(abi::mfb_arg(1), RESIZE_BUF_SYM, from, ins, rel);
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        &RESIZE_BUF_CHARS.to_string(),
+    ));
+    call_external(from, "GetEnvironmentVariableW", KERNEL32, ins, rel);
+    ins.push(abi::move_immediate(dst, "Integer", "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+    ins.push(abi::branch_eq(&done)); // unset
+    load_addr(abi::SCRATCH[6], RESIZE_BUF_SYM, from, ins, rel);
+    ins.push(abi::label(&loop_head));
+    ins.push(abi::load_u16(abi::SCRATCH[7], abi::SCRATCH[6], 0));
+    ins.push(abi::compare_immediate(abi::SCRATCH[7], "48")); // '0'
+    ins.push(abi::branch_lt(&done));
+    ins.push(abi::compare_immediate(abi::SCRATCH[7], "57")); // '9'
+    ins.push(abi::branch_gt(&done));
+    ins.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "10"));
+    ins.push(abi::multiply_registers(dst, dst, abi::SCRATCH[8]));
+    ins.push(abi::subtract_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        48,
+    ));
+    ins.push(abi::add_registers(dst, dst, abi::SCRATCH[7]));
+    ins.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 2));
+    ins.push(abi::branch(&loop_head));
+    ins.push(abi::label(&done));
+}
+
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-fn emit_wndproc() -> CodeFunction {
+fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     // Frame (plan-66-J-5 added the WM_PAINT TUI present; plan-98-C Phase 3 the
     // canvas present): shadow[0..0x20], outgoing stack args [0x20..0x60] —
     // `SetDIBitsToDevice` has 8 stack args, the widest call here — saved
@@ -1100,12 +1244,79 @@ fn emit_wndproc() -> CodeFunction {
 
     ins.push(abi::label("wnd_check_destroy"));
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_DESTROY));
-    ins.push(abi::branch_ne("wnd_check_char"));
+    ins.push(abi::branch_ne("wnd_check_size"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
+
+    // ---- plan-98-F Phase 3: WM_SIZE publishes the new surface size ----
+    //
+    // Windows had no caller of `emit_publish_surface_size` at all, so the graphics
+    // thread never learned that the window had changed size: it kept rendering at the
+    // startup 900x640 whatever the user dragged the frame to. macOS publishes from
+    // `setFrameSize:` and GTK from its `notify::default-width` handler; this is the
+    // third.
+    //
+    // Gated on a live canvas surface, so in `Console`/`None` the message chains to
+    // `DefWindowProcW` exactly as before and nothing about the TUI path moves.
+    //
+    // `lParam`'s low word is the client width and its high word the client height —
+    // already the client area, so no `GetClientRect` and no frame arithmetic. Both are
+    // masked to 16 bits; `emit_publish_surface_size` itself ignores a repeat of the
+    // size it already holds, which matters because Windows sends `WM_SIZE` for moves
+    // and restores that change nothing.
+    //
+    // Arg registers are free to clobber here: every exit from this arm goes to
+    // `wnd_default`, which reloads all four from H0..H3.
+    ins.push(abi::label("wnd_check_size"));
+    // Gated on `uses_canvas` for the same reason the scripted resize in `_main` is:
+    // `emit_publish_surface_size` names the graphics-state data object, which a
+    // program that never imports `canvas` does not emit. The arm is inert anyway in
+    // that case — `CANVAS_HWND_SYM` would be 0 — so what the gate removes is a dead
+    // reference, not behaviour.
+    if uses_canvas {
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
+        ins.push(abi::branch_ne("wnd_check_char"));
+        load_addr(abi::SCRATCH[0], CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
+        ins.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        ins.push(abi::branch_eq("wnd_default")); // not in canvas mode → unchanged
+        ins.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), H3));
+        ins.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "65535"));
+        ins.push(abi::and_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+        )); // width  = LOWORD(lParam)
+        ins.push(abi::shift_right_immediate(
+            abi::SCRATCH[1],
+            abi::SCRATCH[1],
+            16,
+        ));
+        ins.push(abi::and_registers(
+            abi::SCRATCH[1],
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+        )); // height = HIWORD(lParam)
+            // A minimised window reports 0x0. Publishing that would build a zero-sized render
+            // target; skip it and keep the last real size, which is what the other two
+            // backends' `> 0` guards do.
+        ins.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
+        ins.push(abi::branch_le("wnd_default"));
+        ins.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+        ins.push(abi::branch_le("wnd_default"));
+        crate::codegen::runtime::canvas::emit_publish_surface_size(
+            from,
+            abi::SCRATCH[0],
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::branch("wnd_default"));
+    }
 
     // ---- plan-98-A Phase 4: WM_CHAR while a canvas surface is presented ----
     //
@@ -3593,6 +3804,16 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
         utf16z_data_object(HEADLESS_ENV_SYM, "MFB_WINAPP_HEADLESS"),
+        utf16z_data_object(RESIZE_W_ENV_SYM, "MFB_CANVAS_RESIZE_W"),
+        utf16z_data_object(RESIZE_H_ENV_SYM, "MFB_CANVAS_RESIZE_H"),
+        CodeDataObject {
+            symbol: RESIZE_BUF_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "UTF-16 scratch for one scripted-resize dimension".to_string(),
+            align: 2,
+            size: RESIZE_BUF_CHARS * 2,
+            value: "00".repeat(RESIZE_BUF_CHARS * 2),
+        },
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
         utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"),
         utf16z_data_object(CRLF_SYM, "\r\n"),

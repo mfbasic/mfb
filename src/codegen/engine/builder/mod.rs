@@ -997,7 +997,9 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol.contains("canvas_vulkan"))
     {
-        data_objects.extend(crate::codegen::runtime::canvas::vulkan::data_objects());
+        data_objects.extend(crate::codegen::runtime::canvas::vulkan::data_objects(
+            platform,
+        ));
     }
     // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
     // `crypto::sign`, `crypto::verify`) share one unified `_mfb_crypto_cert_*` read-only

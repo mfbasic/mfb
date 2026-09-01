@@ -144,6 +144,7 @@ cat > "$cproj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
 IMPORT io
+IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
@@ -151,6 +152,12 @@ SUB main()
   LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
   canvas::present([box, dot])
   io::print("canvas presented")
+  ' The scripted resize runs on the MAIN thread and waits for the first frame before
+  ' publishing the new size. Returning from `main` here would retire the worker, and
+  ' `_main` would fall out of WaitForSingleObject and exit the process before the
+  ' second frame was ever drawn — the resize assertions would then fail for a reason
+  ' that has nothing to do with the resize.
+  os::sleep(1500)
 END SUB
 MFB
 
@@ -206,8 +213,187 @@ else
   fail "no frame was dumped — MFB_CANVAS_DUMP produced nothing, so no frame completed"
 fi
 
+
+# ---------------------------------------------------------------------------
+# The Vulkan backend on Windows (plan-98-F Phase 3)
+#
+# Same binary, same scene, run again with MFB_CANVAS_GPU=1, and the two frames
+# compared on `Tolerance::GPU_DEFAULT` — no channel off by more than 2, no more than
+# 2% of pixels differing — which is the comparator test-canvas-vulkan.sh applies on
+# Linux.
+#
+# **`vulkanReady=TRUE` is asserted before the diff, and that assertion is the whole
+# point.** A backend that silently fell back to the software path would produce a
+# byte-IDENTICAL frame and sail through a tolerance comparison. Agreement is only
+# evidence when the two frames were produced by different renderers.
+cat > "$work/canvasgpu.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+set MFB_CANVAS_SYNC=1
+set MFB_CANVAS_GPU=1
+set MFB_CANVAS_STATS=C:\mfbwin\wincanvas.stats
+set MFB_CANVAS_DUMP=C:\mfbwin\wincanvas.gpu.raw
+cd /d C:\mfbwin
+wincanvas.exe > wincanvas.gpu.out 2>&1
+echo rc=%errorlevel%
+type wincanvas.gpu.out
+type C:\mfbwin\wincanvas.stats
+BAT
+
+ssh -p "$PORT" "$host" "del /q $remote\\wincanvas.gpu.raw $remote\\wincanvas.stats 2>nul" >/dev/null 2>&1 || true
+scp -P "$PORT" "$work/canvasgpu.bat" "$host:C:/mfbwin/canvasgpu.bat" >/dev/null
+gout="$(ssh -p "$PORT" "$host" "$remote\\canvasgpu.bat" 2>&1 || true)"
+echo "$gout" | sed 's/^/    /'
+
+case "$gout" in
+  *"vulkanReady=TRUE"*) pass "the Vulkan device built on Windows" ;;
+  *) fail "vulkanReady is not TRUE — the loader, the instance or the device did not come up, and any frame comparison below would be software-vs-software" ;;
+esac
+case "$gout" in
+  *"gpuSelected=TRUE"*) pass "the GPU path was the one that rendered" ;;
+  *) fail "gpuSelected is not TRUE — MFB_CANVAS_GPU did not take effect" ;;
+esac
+case "$gout" in
+  *"rc=0"*) pass "the Vulkan canvas program exited cleanly" ;;
+  *) fail "the Vulkan canvas program did not exit 0" ;;
+esac
+
+scp -P "$PORT" "$host:C:/mfbwin/wincanvas.gpu.raw" "$work/wincanvas.gpu.raw" >/dev/null 2>&1 || true
+if [ -f "$work/wincanvas.gpu.raw" ] && [ -f "$work/wincanvas.raw" ]; then
+  # The GPU frame must contain the scene in its own right — two blank frames agree.
+  gprobe() { od -An -tu1 -j "$1" -N 4 "$work/wincanvas.gpu.raw" | tr -s ' ' | sed 's/^ //;s/ $//'; }
+  grect="$(gprobe 540600)"; gcirc="$(gprobe 1442400)"
+  [ "$grect" = "200 40 40 255" ] && pass "the Vulkan frame drew the rectangle" \
+    || fail "the Vulkan rectangle pixel is [$grect], expected [200 40 40 255] — a frame that drew nothing would still match a blank reference"
+  [ "$gcirc" = "40 200 120 255" ] && pass "the Vulkan frame drew the circle" \
+    || fail "the Vulkan circle pixel is [$gcirc], expected [40 200 120 255]"
+
+  verdict="$(python3 - "$work/wincanvas.raw" "$work/wincanvas.gpu.raw" <<'PY'
+import sys
+a = open(sys.argv[1], "rb").read()
+b = open(sys.argv[2], "rb").read()
+if len(a) != len(b) or not a:
+    print(f"frame sizes differ ({len(a)} vs {len(b)}) — a harness bug")
+    raise SystemExit
+# Tolerance::GPU_DEFAULT, the same bound test-canvas-vulkan.sh applies on Linux.
+worst = 0
+differing = 0
+total = len(a) // 4
+for i in range(0, len(a), 4):
+    pa, pb = a[i:i + 4], b[i:i + 4]
+    if pa == pb:
+        continue
+    differing += 1
+    worst = max(worst, max(abs(x - y) for x, y in zip(pa, pb)))
+fraction = differing / total
+verdict = "ok" if worst <= 2 and fraction <= 0.02 else "BEYOND"
+print(f"{verdict} worst={worst} differing={fraction * 100:.4f}%")
+PY
+)"
+  case "$verdict" in
+    ok*) pass "the Vulkan frame matches the software reference within tolerance ($verdict)" ;;
+    *) fail "the Vulkan frame is outside Tolerance::GPU_DEFAULT — $verdict" ;;
+  esac
+else
+  fail "no Vulkan frame was dumped — the GPU path completed no frame"
+fi
+
+
+# ---------------------------------------------------------------------------
+# The resize handshake on Windows (plan-98-F Phase 3)
+#
+# Windows had NO caller of `emit_publish_surface_size`: the graphics thread never
+# learned the window had changed size and kept rendering at the startup 900x640.
+# The WM_SIZE arm publishes it now, and `MFB_CANVAS_RESIZE_W/_H` drive one scripted
+# resize through that same publisher on the headless path — a resize is a window
+# event and headless has no window, so this is the only way the arm is reachable on
+# the one box that can run it.
+#
+# The frame's LENGTH is the assertion that matters: MFB_CANVAS_DUMP overwrites, so
+# the file left behind is the second frame, and 640*480*4 can only be produced by a
+# render target that was actually rebuilt at the new size.
+resize_run() { # $1 = tag, $2 = extra env line
+  # The Windows paths are built HERE, not inside the here-document. An unquoted
+  # here-doc still honours `\$` as an escape, so `C:\mfbwin\$1.raw` written inline
+  # collapses to the literal `C:\mfbwin$1.raw` — the dump lands in a file called
+  # `mfbwin$1.raw` at the drive root and every later assertion reports "no frame".
+  stats_path="C:\\mfbwin\\$1.stats"
+  dump_path="C:\\mfbwin\\$1.raw"
+  cat > "$work/rs.bat" <<BAT
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+set MFB_CANVAS_SYNC=1
+set MFB_CANVAS_RESIZE_W=640
+set MFB_CANVAS_RESIZE_H=480
+$2
+set MFB_CANVAS_STATS=$stats_path
+set MFB_CANVAS_DUMP=$dump_path
+cd /d C:\mfbwin
+wincanvas.exe > $1.out 2>&1
+echo rc=%errorlevel%
+type $stats_path
+BAT
+  ssh -p "$PORT" "$host" "del /q $remote\\$1.raw $remote\\$1.stats 2>nul" >/dev/null 2>&1 || true
+  scp -P "$PORT" "$work/rs.bat" "$host:C:/mfbwin/rs.bat" >/dev/null
+  ssh -p "$PORT" "$host" "$remote\\rs.bat" 2>&1 || true
+}
+
+rsw="$(resize_run rssw '')"
+rsg="$(resize_run rsgpu 'set MFB_CANVAS_GPU=1')"
+echo "$rsg" | sed 's/^/    /'
+
+case "$rsg" in
+  *"frames=2"*) pass "the resize produced a second frame rather than reusing the first" ;;
+  *) fail "no second frame after the resize — WM_SIZE published nothing, or the render loop never woke" ;;
+esac
+case "$rsg" in
+  *"damage=0,0,640,480"*) pass "the repaint covered the new 640x480 surface" ;;
+  *) fail "the damage rect is not the new surface — the publisher did not take effect" ;;
+esac
+
+for tag in rssw rsgpu; do
+  scp -P "$PORT" "$host:C:/mfbwin/$tag.raw" "$work/$tag.raw" >/dev/null 2>&1 || true
+  if [ -f "$work/$tag.raw" ]; then
+    size="$(wc -c < "$work/$tag.raw" | tr -d ' ')"
+    [ "$size" = "1228800" ] && pass "$tag repainted at 640x480 (1228800 bytes)" \
+      || fail "$tag is $size bytes, expected 1228800 (640*480*4) — the render target was not rebuilt at the new size"
+  else
+    fail "$tag produced no frame after the resize"
+  fi
+done
+
+if [ -f "$work/rssw.raw" ] && [ -f "$work/rsgpu.raw" ]; then
+  verdict="$(python3 - "$work/rssw.raw" "$work/rsgpu.raw" <<'PY'
+import sys
+a = open(sys.argv[1], "rb").read()
+b = open(sys.argv[2], "rb").read()
+if len(a) != len(b) or not a:
+    print(f"frame sizes differ ({len(a)} vs {len(b)}) — a harness bug")
+    raise SystemExit
+worst = 0
+differing = 0
+total = len(a) // 4
+for i in range(0, len(a), 4):
+    pa, pb = a[i:i + 4], b[i:i + 4]
+    if pa == pb:
+        continue
+    differing += 1
+    worst = max(worst, max(abs(x - y) for x, y in zip(pa, pb)))
+fraction = differing / total
+verdict = "ok" if worst <= 2 and fraction <= 0.02 else "BEYOND"
+print(f"{verdict} worst={worst} differing={fraction * 100:.4f}%")
+PY
+)"
+  case "$verdict" in
+    ok*) pass "the resized Vulkan frame matches the resized software reference ($verdict)" ;;
+    *) fail "the resized Vulkan frame is outside Tolerance::GPU_DEFAULT — $verdict" ;;
+  esac
+fi
+
 if [ "$fails" -eq 0 ]; then
-  echo "windows app-mode and canvas runtime tests passed"
+  echo "windows app-mode, canvas and Vulkan runtime tests passed"
 else
   echo "$fails failure(s)"
   exit 1

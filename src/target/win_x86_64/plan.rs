@@ -108,6 +108,9 @@ impl NativePlanPlatform for Platform {
             import("GetEnvironmentVariableW", KERNEL32, "_main"),
             import("CreateThread", KERNEL32, "_main"),
             import("WaitForSingleObject", KERNEL32, "_main"),
+            // plan-98-F Phase 3: the headless scripted resize waits for the first
+            // frame before resizing, and polls with `Sleep`.
+            import("Sleep", KERNEL32, "_main"),
             import("ExitThread", KERNEL32, "_main"),
             import("GetStdHandle", KERNEL32, "_main"),
             import("WriteFile", KERNEL32, "_main"),
@@ -474,6 +477,17 @@ impl NativePlanPlatform for Platform {
                 import("WakeConditionVariable", KERNEL32, required_by),
                 import("WakeAllConditionVariable", KERNEL32, required_by),
                 import("SleepConditionVariableSRW", KERNEL32, required_by),
+                // plan-98-F Phase 3: the Vulkan loader arrives through
+                // `LoadLibraryExA`/`GetProcAddress`, never an import-table entry on
+                // `vulkan-1.dll` — a canvas program must still run on a Windows box
+                // with no Vulkan installed, which is the same rule the Linux side
+                // states for `dlopen`/`dlsym` (`linux_common/plan.rs`). Declared for
+                // the whole canvas-graphics set rather than only `vulkanReady`, for
+                // the reason given there: the merged table dedups, and scoping it
+                // tighter means re-deriving which member reaches the loader every
+                // time the renderer grows.
+                import("LoadLibraryExA", KERNEL32, required_by),
+                import("GetProcAddress", KERNEL32, required_by),
             ],
             call if call.starts_with("thread.") => {
                 vec![

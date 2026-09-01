@@ -68,8 +68,33 @@ use crate::target::shared::abi;
 
 /// The Vulkan loader's soname on Linux.
 pub(crate) const VULKAN_SONAME: &str = "libvulkan.so.1";
+/// The Vulkan loader's file name on Windows. Loaded by **bare name** through the
+/// default DLL search, which finds the loader the ICD installer put in `System32` —
+/// the same "must still run on a machine with no Vulkan" rule as the soname above,
+/// answered by `LoadLibraryExA` returning NULL rather than by a link-time dependency.
+pub(crate) const VULKAN_DLL: &str = "vulkan-1.dll";
 /// `RTLD_NOW`; `RTLD_LOCAL` is 0.
 const RTLD_NOW: &str = "2";
+
+/// The loader library this platform opens.
+pub(crate) fn vulkan_library_name(platform: &dyn CodegenPlatform) -> &'static str {
+    match platform.family() {
+        PlatformFamily::Windows => VULKAN_DLL,
+        _ => VULKAN_SONAME,
+    }
+}
+
+/// Does this platform have a Vulkan backend at all?
+///
+/// plan-98-F Phases 1-2 shipped Linux; Phase 3 adds Windows. macOS is deliberately
+/// absent and stays that way — it has the Metal backend (plan-98-E), and MoltenVK is
+/// a dependency plan-98-A's bar rules out.
+pub(crate) fn has_vulkan_backend(platform: &dyn CodegenPlatform) -> bool {
+    matches!(
+        platform.family(),
+        PlatformFamily::Linux | PlatformFamily::Windows
+    )
+}
 
 /// The one entry point resolved by `dlsym`. Everything else comes from it.
 const SYM_GET_INSTANCE_PROC_ADDR: &str = "vkGetInstanceProcAddr";
@@ -271,14 +296,15 @@ fn spirv_data_objects() -> Vec<CodeDataObject> {
 }
 
 /// The C strings the loader references: the soname and every symbol name.
-pub(crate) fn data_objects() -> Vec<CodeDataObject> {
+pub(crate) fn data_objects(platform: &dyn CodegenPlatform) -> Vec<CodeDataObject> {
+    let library = vulkan_library_name(platform);
     let mut objects = vec![CodeDataObject {
         symbol: soname_symbol(),
         kind: "raw".to_string(),
         layout: "C string (NUL-terminated)".to_string(),
         align: 1,
-        size: VULKAN_SONAME.len() + 1,
-        value: hex_encode_cstring(VULKAN_SONAME),
+        size: library.len() + 1,
+        value: hex_encode_cstring(library),
     }];
     for name in std::iter::once(&SYM_GET_INSTANCE_PROC_ADDR).chain(VK_PROBE_ENTRY_POINTS) {
         objects.push(CodeDataObject {
@@ -573,11 +599,10 @@ pub(crate) fn emit_vulkan_ready(
     platform: &dyn CodegenPlatform,
     platform_imports: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    if !matches!(platform.family(), PlatformFamily::Linux) {
+    if !has_vulkan_backend(platform) {
         builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
         return Ok(());
     }
-    let symbol = builder.current_symbol.clone();
     let unavailable = builder.label("vk_ready_unavailable");
     let done = builder.label("vk_ready_done");
     let build = builder.label("vk_ready_build");
@@ -641,21 +666,8 @@ pub(crate) fn emit_vulkan_ready(
     builder.emit(abi::label(&build));
 
     // handle = dlopen("libvulkan.so.1", RTLD_NOW)
-    emit_data_address(
-        &symbol,
-        abi::c_arg(0),
-        &soname_symbol(),
-        &mut builder.instructions,
-        &mut builder.relocations,
-    );
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_external_call(
-        "dlopen",
-        &symbol,
-        platform_imports,
-        &mut builder.instructions,
-        &mut builder.relocations,
-    )?;
+    //        | LoadLibraryExA("vulkan-1.dll", NULL, 0)
+    emit_open_library(builder, platform, platform_imports)?;
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_eq(&unavailable));
     builder.emit(abi::store_u64(
@@ -1380,12 +1392,8 @@ fn emit_vulkan_descriptors(
         "Integer",
         &VULKAN_BUFFER_BYTES.to_string(),
     ));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // flags
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_out,
-    ));
+    emit_int_arg(builder, platform, 4, "0"); // flags
+    emit_addr_arg(builder, platform, 5, off_out);
     emit_call_fn(builder, off_fn);
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(unavailable));
@@ -1473,7 +1481,7 @@ fn emit_vulkan_descriptors(
         off_write_set,
     ));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    emit_int_arg(builder, platform, 4, "0");
     emit_call_fn(builder, off_fn);
     Ok(())
 }
@@ -1988,12 +1996,8 @@ fn emit_vulkan_pipeline(
         abi::stack_pointer(),
         off_pipeline_info,
     ));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_out,
-    ));
+    emit_int_arg(builder, platform, 4, "0");
+    emit_addr_arg(builder, platform, 5, off_out);
     emit_call_fn(builder, off_fn);
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(unavailable));
@@ -2556,12 +2560,8 @@ fn emit_vulkan_target(
         abi::stack_pointer(),
         off_bytes,
     ));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // flags
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_out,
-    ));
+    emit_int_arg(builder, platform, 4, "0"); // flags
+    emit_addr_arg(builder, platform, 5, off_out);
     emit_call_fn(builder, off_fn);
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(unavailable));
@@ -3423,7 +3423,7 @@ struct GlyphDrawSlots {
 /// Everything the loop carries lives on the stack, not in registers. Two calls happen
 /// per glyph, and on x86-64 the scratch pool aliases the C argument bank — so a loop
 /// counter in a register is a loop counter the next call overwrites (`.ai/arch-abi.md`).
-fn emit_glyph_draws(builder: &mut CodeBuilder, at: GlyphDrawSlots) {
+fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, at: GlyphDrawSlots) {
     let head = builder.label("vk_glyph_head");
     let done = builder.label("vk_glyph_done");
     let next = builder.label("vk_glyph_next");
@@ -3848,16 +3848,8 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, at: GlyphDrawSlots) {
         SHADER_STAGE_VERTEX_AND_FRAGMENT,
     ));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(
-        abi::c_arg(4),
-        "Integer",
-        &ITEM_BLOCK_SIZE.to_string(),
-    ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        at.item,
-    ));
+    emit_int_arg(builder, platform, 4, &ITEM_BLOCK_SIZE.to_string());
+    emit_addr_arg(builder, platform, 5, at.item);
     emit_call_fn(builder, at.push_fn);
 
     builder.emit(abi::load_u64(
@@ -3868,7 +3860,7 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, at: GlyphDrawSlots) {
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4"));
     builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    emit_int_arg(builder, platform, 4, "0");
     emit_call_fn(builder, at.draw_fn);
 
     builder.emit(abi::label(&next));
@@ -3899,7 +3891,7 @@ pub(crate) fn emit_vulkan_draw_scene(
     glyph_meta: &Operand,
     glyph_coverage: &Operand,
 ) -> Result<(), String> {
-    if !matches!(platform.family(), PlatformFamily::Linux) {
+    if !has_vulkan_backend(platform) {
         return Ok(());
     }
     let done = builder.label("vk_draw_done");
@@ -4218,7 +4210,7 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::c_arg(2),
     );
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // firstSet
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "1")); // setCount
+    emit_int_arg(builder, platform, 4, "1"); // setCount
     emit_state_load(
         builder,
         off_state,
@@ -4230,11 +4222,7 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_desc_set_handle,
     ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_desc_set_handle,
-    ));
+    emit_addr_arg(builder, platform, 5, off_desc_set_handle);
     emit_int_arg_zero(builder, platform, 6); // dynamicOffsetCount
     emit_int_arg_zero(builder, platform, 7); // pDynamicOffsets
     emit_call_fn(builder, off_fn);
@@ -4421,16 +4409,8 @@ pub(crate) fn emit_vulkan_draw_scene(
         SHADER_STAGE_VERTEX_AND_FRAGMENT,
     ));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(
-        abi::c_arg(4),
-        "Integer",
-        &ITEM_BLOCK_SIZE.to_string(),
-    ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_item,
-    ));
+    emit_int_arg(builder, platform, 4, &ITEM_BLOCK_SIZE.to_string());
+    emit_addr_arg(builder, platform, 5, off_item);
     emit_call_fn(builder, off_fn);
 
     emit_dlsym(
@@ -4450,13 +4430,14 @@ pub(crate) fn emit_vulkan_draw_scene(
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // vertices
     builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // instances
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    emit_int_arg(builder, platform, 4, "0");
     emit_call_fn(builder, off_fn);
     builder.emit(abi::branch(&item_next));
 
     builder.emit(abi::label(&text_item));
     emit_glyph_draws(
         builder,
+        platform,
         GlyphDrawSlots {
             state: off_state,
             item: off_item,
@@ -4562,12 +4543,8 @@ pub(crate) fn emit_vulkan_draw_scene(
         GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
         abi::c_arg(3),
     );
-    builder.emit(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_copy,
-    ));
+    emit_int_arg(builder, platform, 4, "1");
+    emit_addr_arg(builder, platform, 5, off_copy);
     emit_call_fn(builder, off_fn);
 
     emit_dlsym(
@@ -4814,15 +4791,64 @@ fn emit_store_f32_from_integer(
 /// Routed through the register model rather than a hardcoded six, so on a target whose
 /// registers cover `n` the emitted bytes are the plain `c_arg(n)` staging.
 fn emit_int_arg_zero(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, n: usize) {
+    emit_int_arg(builder, platform, n, "0");
+}
+
+/// Stage integer immediate `value` as C argument `n`.
+///
+/// **This is not optional past argument four on Win64.** `CALL_ARGS_WIN64` is
+/// `[rcx, rdx, r8, r9, rdi, rsi, ...]`, so `c_arg(4)`/`c_arg(5)` realize to `rdi`/`rsi`
+/// — registers Win64 does not pass arguments in at all. The 5th argument onward travels
+/// on the stack above the shadow space, which is what `outgoing_stack_arg_store` writes.
+/// SysV covers six in registers, so there the emitted bytes are the plain `c_arg(n)`
+/// staging and nothing changes.
+///
+/// plan-98-F Phase 3 found this the hard way: `vkMapMemory` takes six arguments, and its
+/// `ppData` out-param arrived in `rsi`, which lavapipe never reads — so the ICD wrote the
+/// mapped pointer through whatever `ppData` happened to hold and faulted at
+/// `vulkan_lvp!vk_icdGetInstanceProcAddr+0x818`, `mov [r8],rax` with `r8=8`.
+fn emit_int_arg(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, n: usize, value: &str) {
     let register_args = platform
         .backend()
         .register_model()
         .external_int_argument_registers();
     if n < register_args {
-        builder.emit(abi::move_immediate(abi::c_arg(n), "Integer", "0"));
+        builder.emit(abi::move_immediate(abi::c_arg(n), "Integer", value));
         return;
     }
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", value));
+    builder.emit(abi::outgoing_stack_arg_store(
+        abi::SCRATCH[0],
+        n - register_args,
+    ));
+}
+
+/// Stage the address of the stack object at `offset` as C argument `n` — the
+/// `&out` / `&structure` shape every Vulkan out-parameter uses. Same register-model
+/// rule as [`emit_int_arg`].
+fn emit_addr_arg(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    n: usize,
+    offset: usize,
+) {
+    let register_args = platform
+        .backend()
+        .register_model()
+        .external_int_argument_registers();
+    if n < register_args {
+        builder.emit(abi::add_immediate(
+            abi::c_arg(n),
+            abi::stack_pointer(),
+            offset,
+        ));
+        return;
+    }
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        offset,
+    ));
     builder.emit(abi::outgoing_stack_arg_store(
         abi::SCRATCH[0],
         n - register_args,
@@ -4851,6 +4877,48 @@ fn emit_call_fn(builder: &mut CodeBuilder, off_fn: usize) {
 /// fallback — a name that is genuinely absent still returns FALSE from the probe,
 /// which is what "no Vulkan here" is supposed to mean.
 #[allow(clippy::too_many_arguments)]
+/// Open the Vulkan loader library, leaving the handle in `c_return(0)` (0 on failure).
+///
+/// POSIX takes `dlopen(name, RTLD_NOW)`. Windows takes `LoadLibraryExA(name, NULL, 0)`:
+/// a three-argument call, `hFile` reserved and required to be NULL, and flags 0 for the
+/// **default search order** — this is a system library found in `System32`, not one of
+/// the exe-relative `vendor/` DLLs that `emit_lib_open` builds an absolute path for.
+///
+/// Deliberately NOT routed through the `emit_lib_open` platform hook the `LINK` loader
+/// uses. That hook answers in `return_register()`, the aligned MFB bank, while every
+/// check and store in this backend reads `c_return(0)` — and those are *different
+/// registers on Win64* (`rcx` vs `rax`) and the same one on AArch64, which is exactly
+/// the class of defect bug-478/479 spent eight fixes on. Answering in `c_return(0)`
+/// here keeps this file's single convention.
+fn emit_open_library(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    let windows = matches!(platform.family(), PlatformFamily::Windows);
+    emit_data_address(
+        &symbol,
+        abi::c_arg(0),
+        &soname_symbol(),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    if windows {
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // hFile, reserved
+        builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // default search
+    } else {
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
+    }
+    platform.emit_external_call(
+        if windows { "LoadLibraryExA" } else { "dlopen" },
+        &symbol,
+        platform_imports,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )
+}
+
 fn emit_dlsym(
     builder: &mut CodeBuilder,
     platform: &dyn CodegenPlatform,
@@ -4873,8 +4941,15 @@ fn emit_dlsym(
         &mut builder.instructions,
         &mut builder.relocations,
     );
+    // `GetProcAddress(hModule, lpProcName)` is `dlsym`'s exact shape — two arguments in
+    // the same order, the address in the C result, NULL when the name is absent — so
+    // only the callee name changes.
     platform.emit_external_call(
-        "dlsym",
+        if matches!(platform.family(), PlatformFamily::Windows) {
+            "GetProcAddress"
+        } else {
+            "dlsym"
+        },
         &symbol,
         platform_imports,
         &mut builder.instructions,

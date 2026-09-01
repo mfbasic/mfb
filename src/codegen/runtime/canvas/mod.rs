@@ -583,7 +583,7 @@ pub(crate) fn emit_graphics_trampoline(
 }
 
 /// Load the graphics-state block's address into `dst`.
-fn state_base(
+pub(crate) fn state_base(
     from: &str,
     dst: &str,
     ins: &mut Vec<CodeInstruction>,
