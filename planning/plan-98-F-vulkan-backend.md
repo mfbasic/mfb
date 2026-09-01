@@ -728,3 +728,34 @@ driver binary onto the box, and that is an install decision for the repository's
 not something this plan should take unasked. Recorded as a Prerequisites row with its
 check command so the next reader inherits the question rather than rediscovering it.
 
+**Correction 19 (Phase 3) — the ICD blocker is cleared, and the mechanics are worth
+keeping.** Box 2230 now has Mesa 26.2.0's `lavapipe` registered
+(`vkCreateInstance=0`, one physical device), with the repository owner's approval. Three
+things cost time and are not obvious:
+
+* The Mesa Windows release is a `.7z` and the box has no 7-Zip — but Windows 10+ ships
+  `tar.exe`, which is **bsdtar/libarchive** and reads 7z. `tar -xf mesa.7z` is the whole
+  extraction step.
+* `VK_ICD_FILENAMES` and `VK_DRIVER_FILES` are **ignored** on that box. The ssh session
+  runs elevated, and the loader drops every driver-selection variable under elevation —
+  it says so, but only with `VK_LOADER_DEBUG=all`: *"Loader is running with elevated
+  permissions. Environment variable VK_DRIVER_FILES will be ignored"*. Hence a registry
+  key (`HKLM\SOFTWARE\Khronos\Vulkan\Drivers`) rather than the per-run variable the
+  Linux `--icd auto` uses.
+* `C:\mfbvk\vkprobe.ps1` asks the loader the question directly — create an instance,
+  enumerate devices — without needing a canvas program, which is what made the driver
+  verifiable while `Mode.Canvas` is still broken.
+
+**Correction 20 (Phase 3) — the remaining blocker is bug-479, and it is the only one.**
+With the ICD in place and bug-478 fixed, Phase 3's three rows are gated on exactly one
+thing: a Windows canvas program faults on the graphics thread before it renders. The bug
+is filed with a minidump parse, the faulting instruction, the caller frames, and a list
+of what has been ruled out — including two ABI fixes made along the way that are correct,
+are kept, and did **not** fix it (the graphics trampoline's missing shadow space and its
+wrong-for-Windows realign; the raw `[sp+0x20]` stores the canvas thread spawn used for
+`CreateThread`'s stack arguments, which `finalize_frame` shifts out from under them).
+
+The next step there is a debugger rather than another dump: the box is an administrator
+and a `cdb` session breaking on the access violation would name the function in one step,
+where a dump only gives an image offset.
+

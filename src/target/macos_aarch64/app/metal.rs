@@ -888,13 +888,25 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // colour `canvas::newSurface` fills and the colour the Vulkan clear value carries.
     // `MTLClearColor` is four C doubles, so on AArch64 they arrive in d0..d3 rather
     // than in the integer bank; the receiver and selector still go in x0/x1.
+    //
+    // `FP_SCRATCH[k]`, never the literal `"d0"`. The architecture guard
+    // (`shared_lowering_names_no_physical_register`) rejects a raw register spelling in
+    // an emission context, and it is right to: the neutral token is what lets the pool
+    // be realized differently per target, and a literal is invisible to every later
+    // sweep that reasons about register use.
     asm.load_selector(SEL_SET_CLEAR_COLOR.0);
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    for register in ["d0", "d1", "d2"] {
-        asm.push(abi::signed_convert_to_float_d(register, abi::SCRATCH[0]));
+    for channel in 0..3 {
+        asm.push(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[channel],
+            abi::SCRATCH[0],
+        ));
     }
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
-    asm.push(abi::signed_convert_to_float_d("d3", abi::SCRATCH[0]));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[3],
+        abi::SCRATCH[0],
+    ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
