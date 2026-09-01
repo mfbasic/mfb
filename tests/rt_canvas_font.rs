@@ -103,7 +103,7 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
   RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
     RETURN label & ": refused " & toString(e.code)
   END TRAP
-  LET r AS FontRef = canvas::fontRef(f)
+  LET r AS canvas::FontRef = canvas::fontRef(f)
   IF r.id = 0 THEN
     RETURN label & ": accepted with a zero handle"
   END IF
@@ -112,7 +112,7 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
 END FUNC
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   io::print(attempt("truetype", 0, 1, 0, 0))
   io::print(attempt("appletrue", 116, 114, 117, 101))
   io::print(attempt("otto", 79, 84, 84, 79))
@@ -179,7 +179,7 @@ IMPORT canvas
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES f AS canvas::Font = canvas::loadFont("no-such-font.ttf") TRAP(e)
     io::print("missing: " & toString(e.code))
     EXIT SUB
@@ -367,16 +367,16 @@ IMPORT canvas
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load failed " & toString(e.code))
     EXIT SUB
   END TRAP
   FOR EACH s IN ["A", "B", "AB", "X", "AXB", ""]
-    LET m AS TextMetrics = canvas::measureText(face, 100.0, s)
+    LET m AS canvas::TextMetrics = canvas::measureText(face, 100.0, s)
     io::print("[" & s & "] w=" & toString(m.width) & " h=" & toString(m.height) & " a=" & toString(m.ascent) & " d=" & toString(m.descent) & " g=" & toString(m.lineGap))
   NEXT
-  LET half AS TextMetrics = canvas::measureText(face, 50.0, "AB")
+  LET half AS canvas::TextMetrics = canvas::measureText(face, 50.0, "AB")
   io::print("[half] w=" & toString(half.width))
 END SUB
 "#;
@@ -420,12 +420,12 @@ IMPORT canvas
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     io::print("load failed")
     EXIT SUB
   END TRAP
-  LET m AS TextMetrics = canvas::measureText(face, 100.0, "A")
+  LET m AS canvas::TextMetrics = canvas::measureText(face, 100.0, "A")
   IF m.descent > 0.0 THEN
     io::print("descent is positive: " & toString(m.descent))
   ELSE
@@ -546,11 +546,11 @@ fn a_glyph_outline_renders_where_its_own_coordinates_put_it() {
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "A", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -597,11 +597,11 @@ fn a_string_advances_the_pen_between_glyphs() {
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "AA", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -630,8 +630,8 @@ fn text_in_a_font_that_was_never_loaded_draws_nothing() {
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET label AS DrawItem = Text[x := 100.0, y := 200.0, text := "A", font := FontRef[id := 12345], size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  app::setMode(app::Mode.Canvas)
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::FontRef[id := 12345], size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -655,11 +655,11 @@ const GPU_TEXT: &str = r#"IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS DrawItem = Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
   canvas::present([label])
 END SUB
 "#;
@@ -721,15 +721,15 @@ const EVICTION: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT collections
 
-FUNC scene(face AS canvas::Font, base AS Float) AS List OF DrawItem
-  LET white AS Paint = canvas::fill(canvas::rgb(255, 255, 255))
-  MUT items AS List OF DrawItem = []
+FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
+  LET white AS canvas::Paint = canvas::fill(canvas::rgb(255, 255, 255))
+  MUT items AS List OF canvas::DrawItem = []
   MUT i AS Integer = 0
   WHILE i < 300
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS DrawItem = Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
+    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -737,12 +737,12 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF DrawItem
 END FUNC
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET a AS List OF DrawItem = scene(face, 20.0)
-  LET b AS List OF DrawItem = scene(face, 80.0)
+  LET a AS List OF canvas::DrawItem = scene(face, 20.0)
+  LET b AS List OF canvas::DrawItem = scene(face, 80.0)
   canvas::present(a)
   canvas::present(b)
   ' The frame that gets dumped, and the one that is compared: scene A again, after

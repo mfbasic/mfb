@@ -95,7 +95,7 @@ fn app_binary(project: &Path, name: &str) -> PathBuf {
 fn program(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(Mode.Canvas)\n{body}END SUB\n"
+         app::setMode(app::Mode.Canvas)\n{body}END SUB\n"
     )
 }
 

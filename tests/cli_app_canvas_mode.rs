@@ -23,16 +23,16 @@ use std::process::Command;
 /// with a partial write.
 const CANVAS_ROUNDTRIP_SOURCE: &str = "IMPORT app\n\
      FUNC main() AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() <> Mode.Canvas THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() <> app::Mode.Canvas THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.None)\n\
-    \x20 IF app::getMode() <> Mode.None THEN\n\
+    \x20 app::setMode(app::Mode.None)\n\
+    \x20 IF app::getMode() <> app::Mode.None THEN\n\
     \x20   RETURN 2\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() <> Mode.Canvas THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() <> app::Mode.Canvas THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
     \x20 RETURN 0\n\
@@ -42,15 +42,15 @@ const CANVAS_ROUNDTRIP_SOURCE: &str = "IMPORT app\n\
 /// of them alias and this returns non-zero.
 const CANVAS_DISTINCT_SOURCE: &str = "IMPORT app\n\
      FUNC main() AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
-    \x20 IF app::getMode() = Mode.Console THEN\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 IF app::getMode() = app::Mode.Console THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
-    \x20 IF app::getMode() = Mode.None THEN\n\
+    \x20 IF app::getMode() = app::Mode.None THEN\n\
     \x20   RETURN 2\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.Console)\n\
-    \x20 IF app::getMode() <> Mode.Console THEN\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 IF app::getMode() <> app::Mode.Console THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
     \x20 RETURN 0\n\
@@ -195,12 +195,12 @@ const TERM_TRAPS_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT term\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 term::moveTo(1, 1) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 60\n\
     \x20   END IF\n\
-    \x20   app::setMode(Mode.Console)\n\
+    \x20   app::setMode(app::Mode.Console)\n\
     \x20   term::moveTo(1, 1) TRAP(err2)\n\
     \x20     RETURN 61\n\
     \x20   END TRAP\n\
@@ -234,7 +234,7 @@ const IO_READ_GATE_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET line AS String = io::readLine() TRAP(err)\n\
     \x20   IF err.code = errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 50\n\
@@ -244,7 +244,7 @@ const IO_READ_GATE_SOURCE: &str = "IMPORT app\n\
     \x20 IF line <> \"canvas-input\" THEN\n\
     \x20   RETURN 52\n\
     \x20 END IF\n\
-    \x20 app::setMode(Mode.None)\n\
+    \x20 app::setMode(app::Mode.None)\n\
     \x20 LET second AS String = io::readLine() TRAP(err2)\n\
     \x20   IF err2.code = errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 0\n\
@@ -275,7 +275,7 @@ fn macos_io_reads_are_permitted_in_canvas_and_still_trap_in_none() {
 const IO_READ_CONSOLE_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Console)\n\
+    \x20 app::setMode(app::Mode.Console)\n\
     \x20 LET line AS String = io::readLine() TRAP(err)\n\
     \x20   RETURN 50\n\
     \x20 END TRAP\n\
@@ -303,7 +303,7 @@ fn macos_console_reads_are_unchanged_by_the_relaxation() {
 const IO_WRITE_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 io::print(\"CANVAS_LINE\")\n\
     \x20 io::write(\"CANVAS_NONL\")\n\
     \x20 RETURN 0\n\
@@ -348,7 +348,7 @@ const CANVAS_READ_ORDER_SOURCE: &str = "IMPORT app\n\
      IMPORT io\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET a AS Byte = io::readByte()\n\
     \x20 IF a <> 65 THEN\n\
     \x20   RETURN 10\n\

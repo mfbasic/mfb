@@ -117,7 +117,7 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 fn scene(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT collections\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
+         app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
     )
 }
 
