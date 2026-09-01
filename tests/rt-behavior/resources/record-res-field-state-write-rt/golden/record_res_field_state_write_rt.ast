@@ -1,0 +1,76 @@
+{
+  "project": "record_res_field_state_write_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 19 },
+    { "module": "io", "line": 20 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cursor",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 23 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Holder",
+      "line": 26,
+      "fields": [
+      { "visibility": null, "name": "handle", "type": "RES fs.File STATE Cursor", "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "writeThroughAlias",
+      "line": 30,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 30 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "w" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "h", "type": null, "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "g", "type": "fs.File", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "handle" }, "line": 35 },
+      { "kind": "stateAssignment", "resource": "g", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "g" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "5" } }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "handle" }, "member": "state" }, "member": "pos" }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 42,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "wrote via rebind, read via record: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "writeThroughAlias", "arguments": [{ "kind": "string", "value": "target/record-res-field-state-write-rt.txt" }] }] } }] }, "line": 43 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 45 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "200" } },
+        "line": 46,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "seen", "type": null, "value": { "kind": "call", "callee": "writeThroughAlias", "arguments": [{ "kind": "string", "value": "target/record-res-field-state-write-rt-loop.txt" }] }, "line": 47 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 48 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "200 alias-write cycles completed" }] }, "line": 50 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 52 }
+      ]
+    }
+    ]
+  }
+  ]
+}

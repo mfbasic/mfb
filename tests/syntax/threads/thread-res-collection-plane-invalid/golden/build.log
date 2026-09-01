@@ -3,18 +3,18 @@ $ mfb build -ast -ir tests/syntax/threads/thread-res-collection-plane-invalid
   16 | 
   17 | FUNC viaList(t AS Thread OF List OF RES fs::File TO Integer) AS Integer
      | ^
-tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:17 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `List OF RES fs.File`.
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:17 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread message type carries resource `RES fs.File`; a resource crosses a thread only on the RES plane. Declare `RES fs.File` on the thread and move it with `thread::transfer` / `thread::accept`.
   19 | END FUNC
   20 | 
   21 | FUNC viaMap(t AS Thread OF Map OF String TO RES fs::File TO Integer) AS Integer
      | ^
-tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:21 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `Map OF String TO RES fs.File`.
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:21 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread message type carries resource `RES fs.File`; a resource crosses a thread only on the RES plane. Declare `RES fs.File` on the thread and move it with `thread::transfer` / `thread::accept`.
   23 | END FUNC
   24 | 
   25 | FUNC viaWorker(t AS ThreadWorker OF List OF RES fs::File TO Integer) AS Integer
      | ^
-tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:25 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Thread message type requires a thread-sendable type, got `List OF RES fs.File`.
+tests/syntax/threads/thread-res-collection-plane-invalid/src/main.mfb:25 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread message type carries resource `RES fs.File`; a resource crosses a thread only on the RES plane. Declare `RES fs.File` on the thread and move it with `thread::transfer` / `thread::accept`.
 [exit 1]

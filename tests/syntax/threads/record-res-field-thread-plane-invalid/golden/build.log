@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/threads/record-res-field-thread-plane-invalid
+  25 | ' The message plane: a data plane, so the resource inside `Holder` is a plane
+  26 | ' mix-up with a nameable remedy.
+  27 | FUNC viaMessage(t AS Thread OF Holder TO Integer) AS Integer
+     | ^
+tests/syntax/threads/record-res-field-thread-plane-invalid/src/main.mfb:27 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread message type carries resource `RES fs.File`; a resource crosses a thread only on the RES plane. Declare `RES fs.File` on the thread and move it with `thread::transfer` / `thread::accept`.
+  30 | 
+  31 | ' The output plane is a data plane too, and must report identically.
+  32 | FUNC viaOutput(t AS Thread OF Integer TO Holder) AS Integer
+     | ^
+tests/syntax/threads/record-res-field-thread-plane-invalid/src/main.mfb:32 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread output type carries resource `RES fs.File`; a resource crosses a thread only on the RES plane. Declare `RES fs.File` on the thread and move it with `thread::transfer` / `thread::accept`.
+[exit 1]

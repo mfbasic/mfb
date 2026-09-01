@@ -1,0 +1,49 @@
+' plan-114-E: `STATE` rides a record FIELD, and `h.handle.state` reads the same
+' payload the owning `RES` binding sees.
+'
+' THE ASSERTION IS THE VALUE 42, READ THROUGH A COPY. Write the payload through
+' the owning binding (`f.state.pos = 42`), then take a COPY of the record and
+' read `copy.handle.state.pos`. Printing 42 proves there is ONE payload behind
+' one handle pointer; printing 0 would mean the record's field re-default-
+' initialized a second `Cursor`, i.e. the field duplicated the resource instead
+' of aliasing it. That single number is the whole premise of the feature.
+'
+' The load-bearing compiler change this exercises is one line of type spelling:
+' a record field read must yield the `RES`-STRIPPED field type. `split_state`
+' matches `Stateful` only at the top level, so `Res(Stateful{..}).state()` is
+' `None` -- without the strip, `h.handle.state` fails as "record has no field
+' 'state'", a message naming the wrong problem entirely.
+IMPORT fs
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+TYPE Holder
+  label  AS String
+  handle AS RES fs::File STATE Cursor
+END TYPE
+
+FUNC main AS Integer
+  RES f AS fs::File STATE Cursor = fs::openFile("target/record-res-field-state-rt.txt", "w")
+
+  ' Write the payload through the OWNING binding.
+  f.state.pos = 42
+
+  LET h = Holder["first", f]
+  ' The copy. `g` carries the same handle pointer, so it must see the same
+  ' payload -- not a fresh default-initialized one.
+  LET g = WITH h { label := "copy" }
+
+  io::print("owner   pos=" & toString(f.state.pos))
+  io::print("record  pos=" & toString(h.handle.state.pos))
+  io::print("copy    pos=" & toString(g.handle.state.pos))
+
+  ' And the reverse direction: writing through the owning binding after the copy
+  ' must be visible through the copy, since there is only one payload.
+  f.state.pos = 7
+  io::print("after   pos=" & toString(g.handle.state.pos))
+
+  RETURN 0
+END FUNC

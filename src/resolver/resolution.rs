@@ -1304,6 +1304,21 @@ impl Resolver<'_> {
             ParameterType::Named(name) if matches!(name.resolve(), "Result" | "Ok") => {
                 self.report_result_not_user_visible(file, line);
             }
+            // plan-114-D: a `RES`-marked type in its OWN right — a record field,
+            // `handle AS RES fs::File`. The marker rides on the field and names a
+            // type that must still be resolved, exactly as a collection element's
+            // does below.
+            //
+            // Before this arm, a `Res` reaching the top level fell through to the
+            // leaf tail, which sees a name containing `.` and calls
+            // `resolve_package_qualified_name` on the WHOLE spelling — reporting
+            // `SYMBOL_UNKNOWN_IMPORT` for a package named `RES fs`. The same
+            // failure shape as bug-463, and the same cause: a `ParameterType`
+            // variant that a structural walk does not have an arm for is silent
+            // until some spelling reaches it.
+            ParameterType::Res(inner) => {
+                self.resolve_type(file, inner, line, imports);
+            }
             // A `List OF RES fs::File` element carries the resource ownership-axis
             // marker (§15.6); the marker rides on the element and names a type that
             // must still be resolved.

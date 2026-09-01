@@ -1,5 +1,43 @@
 use super::*;
 
+/// Which thread plane a boundary type sits on (plan-114-A).
+///
+/// A thread has two channels: the **data** plane (message, output, input, and a
+/// resource plane's deep-copied `STATE` payload) and the **resource** plane
+/// (`Thread OF … RES R TO …`, moved with `thread::transfer`/`thread::accept`).
+/// A resource that reaches the data plane is a plane mix-up with a remedy worth
+/// naming; the same cause on the resource plane means the resource type itself
+/// may not cross, which is a different fault with a different rule.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Plane {
+    Data,
+    Resource,
+}
+
+/// Why a type cannot cross a thread boundary — the leaf
+/// [`TypeEnv::thread_unsendable_cause`] stopped at, classified by which rule
+/// should report it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(super) enum Unsendable {
+    /// A resource reached the boundary: `Res(_)`, or a bare resource nominal
+    /// whose type is not registered thread-sendable.
+    Resource(ParameterType),
+    /// `Func` / `ThreadHandle` — genuinely unsendable, not a plane mix-up, so no
+    /// resource-plane remedy exists to point at.
+    Other(ParameterType),
+}
+
+impl Unsendable {
+    /// The offending leaf type. For a nested type this is not the type the
+    /// caller passed in — naming the leaf rather than the enclosing spelling is
+    /// the whole point of walking for a cause.
+    pub(super) fn leaf(&self) -> &ParameterType {
+        match self {
+            Unsendable::Resource(type_) | Unsendable::Other(type_) => type_,
+        }
+    }
+}
+
 impl TypeEnv {
     // 7. Resource moves, defaultability, collection RES axis
     // ===========================================================================
@@ -406,18 +444,30 @@ impl TypeEnv {
         }
     }
 
-    /// Whether a value of `type_` may cross a thread boundary (the former source checker's
-    /// `is_thread_sendable_type`): primitives and the built-in nominals yes;
-    /// collections and `Result` by their elements; a `RES`-marked element, a
-    /// FUNC and a thread handle never; a resource by its declared sendability; a
-    /// record by every field, a union by every variant (a resource variant by
-    /// its own bit, bug-173 F); enums yes. A name the tables do not know is
-    /// treated as sendable — only a positively known type may reject.
-    pub(super) fn is_thread_sendable(
+    /// The first leaf of `type_` that cannot cross a thread boundary, or `None`
+    /// when the whole type can — i.e. `None` *is* "thread-sendable" (the former
+    /// source checker's `is_thread_sendable_type`): primitives and the built-in
+    /// nominals yes; collections and `Result` by their elements; a `RES`-marked
+    /// element, a FUNC and a thread handle never; a resource by its declared
+    /// sendability; a record by every field, a union by every variant (a
+    /// resource variant by its own bit, bug-173 F); enums yes. A name the tables
+    /// do not know is treated as sendable — only a positively known type may
+    /// reject.
+    ///
+    /// Structural arms report the **first** blocking child, left to right, so
+    /// the named leaf is deterministic.
+    ///
+    /// plan-114-A: this replaced the boolean `is_thread_sendable`, rather than
+    /// joining it. Answering "is it sendable" and "why is it not" from two
+    /// independent walks would let them disagree, and a leaf that one rejects
+    /// but the other reports as `None` silently drops a diagnostic. What the
+    /// cause carries is which of two rules the plane emits — see [`Unsendable`]
+    /// and [`Self::require_thread_sendable`].
+    pub(super) fn thread_unsendable_cause(
         &self,
         type_: &ParameterType,
         seen: &mut HashSet<ParameterType>,
-    ) -> bool {
+    ) -> Option<Unsendable> {
         match type_ {
             ParameterType::Boolean
             | ParameterType::Byte
@@ -427,17 +477,19 @@ impl TypeEnv {
             | ParameterType::Money
             | ParameterType::Nothing
             | ParameterType::String
-            | ParameterType::Unknown => true,
+            | ParameterType::Unknown => None,
             ParameterType::ListOf(element) | ParameterType::SetOf(element) => {
-                self.is_thread_sendable(element, seen)
+                self.thread_unsendable_cause(element, seen)
             }
-            ParameterType::MapOf(key, value) => {
-                self.is_thread_sendable(key, seen) && self.is_thread_sendable(value, seen)
-            }
-            ParameterType::ResultOf(success) => self.is_thread_sendable(success, seen),
+            ParameterType::MapOf(key, value) => self
+                .thread_unsendable_cause(key, seen)
+                .or_else(|| self.thread_unsendable_cause(value, seen)),
+            ParameterType::ResultOf(success) => self.thread_unsendable_cause(success, seen),
             // Sharing a resource collection across threads is out of scope (§15.6).
-            ParameterType::Res(_) => false,
-            ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => false,
+            ParameterType::Res(_) => Some(Unsendable::Resource(type_.clone())),
+            ParameterType::Func(..) | ParameterType::ThreadHandle { .. } => {
+                Some(Unsendable::Other(type_.clone()))
+            }
             other => {
                 // The built-in nominals are plain values.
                 if other.is_named("AttributedString")
@@ -445,23 +497,23 @@ impl TypeEnv {
                     || other.is_named("ErrorLoc")
                     || other.is_named("Scalar")
                 {
-                    return true;
+                    return None;
                 }
                 if self.close_op_for(other).is_some() {
-                    return self.is_resource_sendable(other);
+                    return self.resource_sendability_cause(other);
                 }
                 if !seen.insert(other.clone()) {
-                    return true;
+                    return None;
                 }
                 let result = match self.unions.get(other) {
-                    Some(union) => union.variant_order.iter().all(|variant| {
+                    Some(union) => union.variant_order.iter().find_map(|variant| {
                         let variant = ParameterType::declared(variant);
                         if self.close_op_for(&variant).is_some() {
-                            return self.is_resource_sendable(&variant);
+                            return self.resource_sendability_cause(&variant);
                         }
-                        self.record_fields_sendable(&variant, seen)
+                        self.record_fields_unsendable_cause(&variant, seen)
                     }),
-                    None => self.record_fields_sendable(other, seen),
+                    None => self.record_fields_unsendable_cause(other, seen),
                 };
                 seen.remove(other);
                 result
@@ -469,30 +521,65 @@ impl TypeEnv {
         }
     }
 
-    /// Every field of record `name` is sendable; a name that is not a record
-    /// (an enum, or a type the tables do not know) is vacuously sendable.
-    fn record_fields_sendable(
+    /// A bare resource nominal blocks the boundary unless its type is registered
+    /// thread-sendable. The cause is always `Resource`: on a data plane that is a
+    /// plane mix-up, on the resource plane it means the resource type itself may
+    /// not cross. The emitter decides which rule says so.
+    fn resource_sendability_cause(&self, base: &ParameterType) -> Option<Unsendable> {
+        (!self.is_resource_sendable(base)).then(|| Unsendable::Resource(base.clone()))
+    }
+
+    /// The first field of record `type_` that cannot cross; `None` when every
+    /// field can. A name that is not a record (an enum, or a type the tables do
+    /// not know) is vacuously sendable.
+    fn record_fields_unsendable_cause(
         &self,
         type_: &ParameterType,
         seen: &mut HashSet<ParameterType>,
-    ) -> bool {
-        self.record_field_lists.get(type_).is_none_or(|fields| {
+    ) -> Option<Unsendable> {
+        self.record_field_lists.get(type_).and_then(|fields| {
             fields
                 .iter()
-                .all(|(_, field_type)| self.is_thread_sendable(field_type, seen))
+                .find_map(|(_, field_type)| self.thread_unsendable_cause(field_type, seen))
         })
     }
 
-    fn require_thread_sendable(&self, context: &str, type_: &ParameterType) {
-        if !self.is_thread_sendable(type_, &mut HashSet::new()) {
-            self.emit(
+    /// Reject `type_` if it cannot cross `plane`, naming the blocking leaf.
+    ///
+    /// plan-114-A: a resource that reaches a **data** plane is a plane mix-up
+    /// with a specific remedy, so it gets its own rule. Every other rejection
+    /// keeps `TYPE_THREAD_NOT_SENDABLE` — a `Func` or thread handle anywhere,
+    /// and anything at all on the resource plane, where "not sendable" means the
+    /// resource type itself may not cross and the data-plane remedy would be
+    /// nonsense (it would name the plane the resource is already on).
+    fn require_thread_sendable(&self, context: &str, type_: &ParameterType, plane: Plane) {
+        match self.thread_unsendable_cause(type_, &mut HashSet::new()) {
+            None => {}
+            Some(cause @ Unsendable::Resource(_)) if plane == Plane::Data => {
+                self.emit_thread_resource_plane_required(context, cause.leaf());
+            }
+            Some(_) => self.emit(
                 "TYPE_THREAD_NOT_SENDABLE",
                 format!(
                     "{context} requires a thread-sendable type, got `{}`.",
                     type_.name()
                 ),
-            );
+            ),
         }
+    }
+
+    /// The one place `2-203-0138` is worded. `resource` is the offending leaf,
+    /// which for a nested type is not `type_` itself — naming the leaf rather
+    /// than the enclosing spelling is the point of the cause walk.
+    fn emit_thread_resource_plane_required(&self, context: &str, resource: &ParameterType) {
+        let name = resource.name();
+        let bare = strip_res(resource).name();
+        self.emit(
+            "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+            format!(
+                "{context} carries resource `{name}`; a resource crosses a thread only on the RES plane. Declare `RES {bare}` on the thread and move it with `thread::transfer` / `thread::accept`."
+            ),
+        );
     }
 
     /// The thread-handle arm of the former source checker's declared-type walk
@@ -525,27 +612,41 @@ impl TypeEnv {
             ParameterType::ThreadHandle { msg, res, out, .. } => {
                 self.check_thread_sendability(msg);
                 self.check_thread_sendability(out);
-                self.require_thread_sendable("Thread message type", msg);
-                self.require_thread_sendable("Thread output type", out);
+                // A resource named directly on the message plane is a plane
+                // mix-up, and it is reported here rather than by the cause walk:
+                // the sendable resources (`fs::File`, `tcp`, `tls`, `udp`) are
+                // *sendable*, so the walk answers `None` for them. Rejecting the
+                // plane is a separate rule from rejecting the type, and the two
+                // are mutually exclusive so one mistake yields one diagnostic.
                 if self.is_resource_type(msg) {
-                    let name = msg.name();
-                    self.emit(
-                        "TYPE_THREAD_NOT_SENDABLE",
-                        format!(
-                            "Thread message type `{name}` is a resource; the data channel is resource-free — declare it on the resource plane (`Thread OF … RES {name} TO …`)."
-                        ),
-                    );
+                    self.emit_thread_resource_plane_required("Thread message type", msg);
+                } else {
+                    self.require_thread_sendable("Thread message type", msg, Plane::Data);
                 }
+                self.require_thread_sendable("Thread output type", out, Plane::Data);
                 // An absent resource plane is `Nothing`; a present one carries
                 // its ` STATE T` inside the nominal's spelling.
                 let (plane_resource, plane_state) = res.split_state();
                 if !matches!(plane_resource, ParameterType::Nothing) {
                     self.check_thread_sendability(&plane_resource);
-                    self.require_thread_sendable("Thread resource type", &plane_resource);
+                    // The resource plane: `Resource` here means this resource
+                    // type may not cross at all, not that it is on the wrong
+                    // plane — it is already on the right one.
+                    self.require_thread_sendable(
+                        "Thread resource type",
+                        &plane_resource,
+                        Plane::Resource,
+                    );
                 }
                 if let Some(plane_state) = &plane_state {
                     self.check_thread_sendability(plane_state);
-                    self.require_thread_sendable("Thread resource STATE type", plane_state);
+                    // The `STATE` payload is deep-copied data riding the resource
+                    // plane, so it is a DATA plane for this rule (bug-301 G4).
+                    self.require_thread_sendable(
+                        "Thread resource STATE type",
+                        plane_state,
+                        Plane::Data,
+                    );
                 }
             }
             _ => {}
@@ -595,7 +696,11 @@ impl TypeEnv {
                     return;
                 }
                 if let Some(Some(input)) = arg_types.get(1) {
-                    self.require_thread_sendable(&format!("Call to `{display}` input"), input);
+                    self.require_thread_sendable(
+                        &format!("Call to `{display}` input"),
+                        input,
+                        Plane::Data,
+                    );
                 }
                 if let ParameterType::ThreadHandle {
                     worker: false,
@@ -605,28 +710,42 @@ impl TypeEnv {
                     ..
                 } = &return_type
                 {
-                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
+                    self.require_thread_sendable(
+                        &format!("Call to `{display}` message type"),
+                        msg,
+                        Plane::Data,
+                    );
                     if !matches!(**res, ParameterType::Nothing) {
                         self.require_thread_sendable(
                             &format!("Call to `{display}` resource type"),
                             &res.without_state(),
+                            Plane::Resource,
                         );
                     }
-                    self.require_thread_sendable(&format!("Call to `{display}` output type"), out);
+                    self.require_thread_sendable(
+                        &format!("Call to `{display}` output type"),
+                        out,
+                        Plane::Data,
+                    );
                 }
             }
             "thread.send" => {
                 if let Some(Some(ParameterType::ThreadHandle { msg, .. })) = arg_types.first() {
-                    self.require_thread_sendable(&format!("Call to `{display}` message type"), msg);
                     // The data plane is resource-free: a resource moves across a
-                    // thread only via `thread::transfer` (§7).
+                    // thread only via `thread::transfer` (§7). As on the declared
+                    // message plane, the plane rule and the sendability rule are
+                    // mutually exclusive — a sendable resource still fails the
+                    // plane rule, and the cause walk would not report it.
                     if self.is_resource_type(msg) {
-                        self.emit(
-                            "TYPE_THREAD_NOT_SENDABLE",
-                            format!(
-                                "Call to `{display}` message type `{}` is a resource; the message channel is resource-free — use `thread::transfer`.",
-                                msg.name()
-                            ),
+                        self.emit_thread_resource_plane_required(
+                            &format!("Call to `{display}` message type"),
+                            msg,
+                        );
+                    } else {
+                        self.require_thread_sendable(
+                            &format!("Call to `{display}` message type"),
+                            msg,
+                            Plane::Data,
                         );
                     }
                 }
@@ -640,9 +759,12 @@ impl TypeEnv {
                 // with the resource (deep-copied into the receiver's arena), so it
                 // must be sendable too.
                 if let Some(resource_state) = &resource_state {
+                    // Deep-copied data riding the resource plane: a DATA plane
+                    // for this rule.
                     self.require_thread_sendable(
                         &format!("Call to `{display}` resource STATE type"),
                         resource_state,
+                        Plane::Data,
                     );
                 }
                 if matches!(resource, ParameterType::Nothing) {
@@ -657,6 +779,7 @@ impl TypeEnv {
                     self.require_thread_sendable(
                         &format!("Call to `{display}` resource type"),
                         &resource,
+                        Plane::Resource,
                     );
                 } else {
                     self.emit(
@@ -932,29 +1055,42 @@ impl TypeEnv {
     /// wrapper rather than a name prefix.
     pub(super) fn check_collection_res_axis(&self, type_: &ParameterType) {
         match type_ {
-            ParameterType::ListOf(element) => self.collection_axis_element(element, "element"),
-            ParameterType::MapOf(_, value) => self.collection_axis_element(value, "value"),
+            ParameterType::ListOf(element) => {
+                self.res_axis_slot(element, "Collection element", "`List OF RES File`")
+            }
+            ParameterType::MapOf(_, value) => {
+                self.res_axis_slot(value, "Collection value", "`List OF RES File`")
+            }
             _ => {}
         }
     }
 
-    pub(super) fn collection_axis_element(&self, element: &ParameterType, role: &str) {
-        let is_res_marked = matches!(element, ParameterType::Res(_));
-        let inner = strip_res(element);
+    /// The `RES` ownership axis for one slot that may hold a resource.
+    ///
+    /// plan-114-D: a record **field** is such a slot too, so this is
+    /// parameterized by `subject` (what the message calls the slot) and
+    /// `example` (a correct spelling to suggest) rather than being
+    /// collection-only. Both call sites share this one decision so the two
+    /// spellings cannot drift — a record field is governed by exactly the rules
+    /// a collection element is, which is the whole point of retiring
+    /// `TYPE_RESOURCE_FIELD_FORBIDDEN`.
+    pub(super) fn res_axis_slot(&self, slot: &ParameterType, subject: &str, example: &str) {
+        let is_res_marked = matches!(slot, ParameterType::Res(_));
+        let inner = strip_res(slot);
         let inner_name = inner.name();
         let is_resource = self.is_resource_or_resource_union(inner);
         if is_resource && !is_res_marked {
             self.emit(
                 "TYPE_RESOURCE_REQUIRES_RES",
                 format!(
-                    "Collection {role} type `{inner_name}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
+                    "{subject} type `{inner_name}` is a resource; mark it `RES` (e.g. {example}), not a bare resource type."
                 ),
             );
         } else if is_res_marked && !is_resource && self.provably_data_type(inner) {
             self.emit(
                 "TYPE_RES_REQUIRES_RESOURCE",
                 format!(
-                    "Collection {role} is marked `RES` but `{inner_name}` is not a resource type; drop the `RES`."
+                    "{subject} is marked `RES` but `{inner_name}` is not a resource type; drop the `RES`."
                 ),
             );
         }

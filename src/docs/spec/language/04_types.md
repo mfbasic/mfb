@@ -115,6 +115,24 @@ io::print(toString(v.x))                      ' field read
 
 Field access uses `.`: `value.fieldName`. It is compile-time checked, and the right side is a field identifier, not a variable or string.
 
+A field may carry the `RES` ownership marker and hold a resource handle:
+
+```basic
+TYPE Holder
+  name   AS String
+  handle AS RES fs::File     ' the marker is required for a resource field
+END TYPE
+```
+
+The field is one 8-byte handle slot. Copying the record copies the pointer and
+aliases the same resource — it never duplicates it — so the record stays
+ordinary copyable data, and the close obligation floats to the record binding's
+scope (§15.6). A bare `handle AS fs::File` is rejected for the missing marker
+(`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource field is rejected as
+meaningless (`TYPE_RES_REQUIRES_RESOURCE`). A record carrying a resource is not
+comparable, so it cannot be a `Map` or `Set` key, and it cannot cross a thread's
+data plane (§16).
+
 Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PUBLIC` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `.`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
 
 Constructors use square brackets: `TypeName[...]`. Brackets are never used for indexing, so constructor syntax does not conflict with collection access.

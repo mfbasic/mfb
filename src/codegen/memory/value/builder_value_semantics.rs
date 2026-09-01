@@ -514,7 +514,24 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 let inline_string = self.record_field_is_inlined(&target_value.type_, field_type);
-                (index, field_type.clone(), 0, inline_string)
+                // plan-114-E: a record field read yields the field type with its
+                // top-level `RES ` marker stripped, leaving `Stateful { base,
+                // state }` (or the bare resource when the field carries no
+                // `STATE`). The VALUE is unchanged — the slot already holds the
+                // record pointer; only the type spelling differs.
+                //
+                // This is what lets `h.handle.state` work. `split_state` matches
+                // `Stateful` only at the TOP level (`src/types.rs:629`), so
+                // `Res(Stateful{..}).state()` is `None` and the `.state` arm above
+                // would fall through to "record has no field 'state'" — a message
+                // naming the wrong problem entirely.
+                //
+                // Stripping is unconditional, exactly as the collection element
+                // does it (`list_element("List OF RES Socket") == "Socket"`): one
+                // rule for both keeps the two positions from drifting, which is
+                // the same reasoning §4.1 gives.
+                let field_type = typed_strip_res_marker(field_type).clone();
+                (index, field_type, 0, inline_string)
             } else if let Some(fields) = self
                 .type_model
                 .union_variant_fields

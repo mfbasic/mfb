@@ -31,9 +31,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-114-D complete and landed | `ls planning/completed/plan-114-D-*` → one match | NOT MET |
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
+| plan-114-D complete and landed | `ls planning/completed/plan-114-D-*` → one match | MET (2026-09-01) — archived in the same sweep; letters D and E landed together, see Corrections |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-09-01, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-09-01) |
 
 If plan-114-D is not complete, this letter cannot start, full stop. Everything
 below is written against the world where these hold.
@@ -68,7 +68,7 @@ below is written against the world where these hold.
 - No change to the resource-record header, `RESOURCE_OFFSET_STATE`, or the STATE
   rebuild path (`NirOp::StateAssign`).
 - No thread-plane change: a `STATE` payload still rides the resource plane, and a
-  record carrying a resource still cannot cross the data plane (`2-203-0137`).
+  record carrying a resource still cannot cross the data plane (`2-203-0138`).
 
 ## 2. Current State
 
@@ -242,96 +242,147 @@ writing code; that section is the map of how this fails silently.
 
 Answers the two §2 UNVERIFIED rows before any code depends on them.
 
-- [ ] Take letter D's baseline two-package fixture and record exactly what it does
-      today: does the `.mfp` write, does the importer resolve the record, and if it
-      fails, with which message and at which of the four layers named in
-      `.ai/resources-packages.md` ("Imported native-resource close-op: 4 starved
-      layers, 2 spellings")?
-- [ ] Read `push_type_identifiers` (`src/binary_repr/mod.rs:804`) and its owner-pool
+- [x] Take letter D's baseline two-package fixture and record exactly what it does
+      today. **Measured rather than fixtured** (plan-114-D Correction C3, this
+      letter's C2): the export ALREADY WORKS — a package exporting
+      `TYPE Holder { handle AS RES fs::File }` builds, writes its `.mfp`, and an
+      importer links and runs against it. The one thing that fails, an importer
+      *constructing* a user-package record, fails identically for a plain
+      resource-free record and predates plan-114.
+
+- [x] Read `push_type_identifiers` (`src/binary_repr/mod.rs:804`) and its owner-pool
       filter; record whether `RES` and `STATE` are discarded as non-pool names.
-- [ ] Write both answers into Corrections. Phase 4's scope comes from them.
+      **They are** (C1): the filter is not a blocklist but existence in the
+      owner's export list, so only a token naming a real export survives. Also
+      corrected §2's candidate list — the tokenizer breaks on `.`, so
+      `RES fs.File STATE Cursor` yields five tokens, not four.
+
+- [x] Write both answers into Corrections. Phase 4's scope comes from them —
+      and it shrank to zero code (C1, C2).
 
 Acceptance: the failure (or success) mode is named, located at a specific layer, and
 written down.
-Commit: —
+Commit: 76f00ecb3 (analysis only — the export path measured and written into §2/Corrections C1)
 
 ### Phase 2 — `STATE` on a field type, and the two-dot read
 
-- [ ] Accept `STATE T` in the field-type grammar, replacing letter D's rejection.
+- [x] Accept `STATE T` in the field-type grammar, replacing letter D's rejection.
       Reuse the collection-element clause parse; do not add a second `STATE` parser.
-- [ ] Strip the top-level `Res` from a record field read's result type per §4.1.
-- [ ] Verify `TYPE_STATE_INVALID` still gates the `STATE` type to a copyable,
+      `parse_optional_field_state` now calls `parse_optional_state`, and keeps the
+      permanent rejection on a **non-`RES`** field.
+
+- [x] Strip the top-level `Res` from a record field read's result type per §4.1.
+      **Three sites, not one** (C3). §2 names only `lower_field_access`, and
+      stripping there alone leaves the failure intact — it is the FRONT END that
+      refuses `h.handle.state` first. The primary site is
+      `ir/lower.rs::record_field_type`, which produces the
+      `IrValue::MemberAccess` annotation that `ir::verify`'s `infer_type`
+      *prefers* over re-resolving.
+
+- [x] Verify `TYPE_STATE_INVALID` still gates the `STATE` type to a copyable,
       defaultable data type at the field position (§15.5), and that
       `TYPE_STATE_MISMATCH` fires on a disagreeing rebind per §4.2; route it if not.
-- [ ] Tests — **`tests/rt-behavior/*` only**, per §3 (a `syntax/*` fixture runs only
-      `-ast -ir` and cannot see the codegen-time mismatch):
-      - `record-res-field-state-rt` — write through the owning binding
-        (`f.state.pos = 42`), then read `h.handle.state.pos` through a **copy** of
-        the record and print it; the assertion is that it prints `42`, proving one
-        shared payload rather than two;
-      - `record-res-field-state-mismatch-rt` — a disagreeing `STATE` rebind →
-        `TYPE_STATE_MISMATCH`;
-      - `record-res-field-state-invalid-rt` — a non-copyable `STATE` type →
-        `TYPE_STATE_INVALID`.
+      **`TYPE_STATE_MISMATCH` already fired; `TYPE_STATE_INVALID` did NOT and had
+      to be routed** — a field could declare `STATE fs::File`, a resource as its
+      own state payload, with no diagnostic at all, while a binding with the
+      identical clause has always been refused (C4).
+
+- [x] Tests — ~~**`tests/rt-behavior/*` only**~~ — **the tier rule in §3 is wrong;
+      see C5.** Both `TYPE_STATE_INVALID` and `TYPE_STATE_MISMATCH` fire under
+      `-ast -ir`, so they are `syntax` fixtures — which is also what
+      `only_syntax_goldens_may_pin_a_compiler_diagnostic` requires. Four fixtures:
+      - `rt-behavior/…/record-res-field-state-rt` — the round trip. Prints
+        `owner 42 / record 42 / copy 42 / after 7`. **`copy pos=42`, not 0, is the
+        proof of one shared payload.**
+      - `syntax/…/record-res-field-state-mismatch-invalid` — `TYPE_STATE_MISMATCH`
+      - `syntax/…/record-res-field-state-invalid` — `TYPE_STATE_INVALID`, the gap
+        C4 found
 
 Acceptance: the round-trip fixture prints `42` (not `0`); both negative fixtures
 show their codes from a **full** `mfb build`, not from `-ast -ir`.
-Commit: —
+Commit: 02d932386 (the STATE-bearing field type and the two-dot read), 673351a13 (the TYPE_STATE_INVALID routing and both negative fixtures)
 
 ### Phase 3 — Document the write path honestly
 
-- [ ] Add to §15.6 (or §15.5, wherever the field rules land) that a `STATE` **write**
-      through a record-field chain is not spelled directly, and give the
+- [x] Add to §15.6 that a `STATE` **write** through a record-field chain is not
+      spelled directly, and give the
       `RES f AS fs::File STATE Cursor = h.handle` rebind as the way to write. State
-      it as a language rule with its reason (the member-target assignment is the
-      one exception to "no member assignment", §15 `:58`), not as a limitation note.
-- [ ] Fixture `record-res-field-state-write-rt` proving the rebind path writes a
-      payload the record's other holders then read.
+      it as a language rule with its reason, not as a limitation note. Done — the
+      reason given is that a `STATE` write names the resource it writes to, and a
+      record field is a way to *reach* a resource rather than to *be* one.
+
+- [x] Fixture `record-res-field-state-write-rt` proving the rebind path writes a
+      payload the record's other holders then read. Prints
+      `wrote via rebind, read via record: 5`, then 200 alias-write cycles — the
+      loop is what proves the alias registers no second close obligation.
 
 Acceptance: the fixture writes through the rebind and reads the new value back
 through the record; the spec states the rule.
-Commit: —
+Commit: 673351a13 (`record-res-field-state-write-rt` landed alongside the Phase 2 gate it shares a file with)
 
 ### Phase 4 — Export a resource-carrying record (largest blast radius)
 
-- [ ] Implement Phase 1's finding in the type-export closure
-      (`enqueue_referenced_types` / `read_package_type_exports_resolved`), checking
-      each of the four layers in `.ai/resources-packages.md` — a fix to one leaves
-      the others silent.
-- [ ] Promote letter D's baseline fixture to a working two-package fixture: the
-      package exports `TYPE Holder { handle AS RES fs::File STATE Cursor }` and a
-      constructor; the importer declares one, reads `h.handle.state`, and closes at
-      scope exit.
-- [ ] Regenerate every affected golden. Editing a package's `.mfb` ripples to every
-      importer's `.ir` and all five `.ncodesum`s — keep the edit line-neutral where
-      possible and prove the delta is only yours by normalizing `"line": N` before
-      diffing (`.ai/resources-packages.md`, "Editing an embedded builtin .mfb ripples
-      to EVERY importer's goldens").
+- [x] ~~Implement Phase 1's finding in the type-export closure~~ — **moot: no code
+      change was needed.** The closure already carries a `RES` field and its
+      `STATE`; C1 predicted it from `push_type_identifiers`' filter and Phase 4's
+      fixture proves it end to end (`11` across the boundary). §2's UNVERIFIED row
+      is answered **no** — an importer needs no extra resource registration for
+      this path.
+
+- [x] Promote letter D's baseline fixture to a working two-package fixture.
+      Landed as `rt-behavior/resources/record-res-field-export-rt`, with two
+      deliberate deviations, both documented in the fixture: the importer **calls
+      an exported function** instead of constructing a `Holder` (constructing a
+      user-package record is a pre-existing, resource-independent gap — C2), and
+      the dependency is a **source directory**, not a committed `.mfp`, which
+      cannot go stale on resource re-qualification.
+
+- [x] Regenerate every affected golden. Only this letter's own fixtures moved,
+      plus two `.ir` goldens from letters C/D whose `memberAccess` type changed
+      `RES fs.File` → `fs.File` — exactly the strip, and the field *declaration*
+      keeps its marker. No embedded builtin `.mfb` was edited, so the
+      "ripples to every importer" hazard did not arise.
 
 Acceptance: the importer fixture builds, runs, prints the payload it expects, and
 closes exactly once (close-site count, as in letter C).
-Commit: —
+Commit: f27296633
 
 ### Phase 5 — Feature closeout
 
-- [ ] Spec: `15_resource-management.md` §15.5 (add the field row to the
-      position table — a field, like an element, names the type and rides it) and
-      §15.6 (a field carries `STATE` exactly as an element does);
-      `04_types.md` §4.2; `./mfb spec architecture escape-analysis` (the record
-      edges from letter C, if letter C did not already land them).
-- [ ] `.ai` invariant docs: `.ai/resources-packages.md` gains a "Record `RES` field"
-      section (the `RES`-stripped field read, the owned-list-by-binding-name fact
-      from letter C, and the arena-transferable split from letter B);
-      `.ai/codegen-invariants.md` gains the two-predicate distinction if letter B did
-      not land it there.
-- [ ] Full `scripts/artifact-gate.sh target/release/mfb all` and
+- [x] Spec: `15_resource-management.md` §15.5 — the position table gains a **Slot**
+      row (a collection element/map value, or a record field), stated as the
+      position `STATE` *rides* rather than a binding, with the
+      `TYPE_STATE_INVALID` gate; §15.6 gains the field-`STATE` rule and the write
+      path; `04_types.md` §4.2 gains the field form (landed with letter D);
+      `./mfb spec architecture escape-analysis` gains the record edges from letter
+      C — the `Constructor`/`WITH` membership edges, the two asymmetries with
+      collections (a record's type does not reveal whether it can own a resource;
+      an inferred record binding still has a knowable type), and the `RES`-parameter
+      exemption from the ordering rule.
+
+- [x] `.ai` invariant docs: `.ai/resources-packages.md` gains a "Record `RES` field"
+      section (the `RES`-stripped field read, the marker surviving only where a type
+      is stored unstripped, the `copy_value_to_current_arena` naming trap, and the
+      annotation-only `decl_type` that let an inferred binding escape the ordering
+      gate); `.ai/codegen-invariants.md` gains the two-predicate distinction.
+
+- [x] Full `scripts/artifact-gate.sh target/release/mfb all` and
       `scripts/test-accept.sh target/release/mfb /tmp/plan114e-scratch`.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
-- [ ] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
+      Gate: `1322 tests, 1484 build(s), 1819 golden(s) checked, 0 diff(s)`,
+      `GATE_EXIT=0` — up from 1311/1809 at letter B, i.e. the eleven fixtures
+      letters D and E added, with **no pre-existing golden moved**.
+      Accept: `acceptance tests passed (1343 test(s) ran)`, `ACCEPT_EXIT=0`,
+      0 mismatches (`grep -cE '^mismatch:|unexpected actual|missing golden'`).
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+      — `cargo fmt --all -- --check` exits 0 in both workspaces.
+- [x] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
+      A, B and C were archived as each landed; D and E move in this commit
+      (`git mv`), so `ls planning/plan-114*` finds nothing and
+      `ls planning/completed/plan-114*` lists all five.
 
 Acceptance: full gate and acceptance harness green; every doc listed above updated;
 all five sub-plans archived.
-Commit: —
+Commit: 49964c86b and eaaa8e38b (docs), 3fcce4b0c (artifact gate), 577f3034d (cargo test), 18fa7b797 (accept + archive)
 
 ## Validation Plan
 
@@ -372,7 +423,163 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (Phase 1, answered ahead of schedule) — the owner-pool filter DOES discard
+`RES` and `STATE`, and §2's candidate list has the tokenization slightly wrong.**
+Read `push_type_identifiers` (`src/binary_repr/mod.rs:819-831`) and the loop that
+consumes its queue (`:769-784`).
+
+The tokenizer keeps runs of `[A-Za-z0-9_]` and breaks on everything else — so a
+`.` is a separator. For a field rendered `RES fs.File STATE Cursor` the queue
+therefore receives **five** tokens, not the four §2 lists:
+
+    RES, fs, File, STATE, Cursor
+
+(§2 says the candidates are `RES`, `fs.File`, `STATE`, `Cursor`; the qualified
+name is actually split into `fs` and `File`.) That does not change the
+conclusion, but it does change what a debugger would expect to see in the queue.
+
+The filter is not a name blocklist — it is existence in the owner's export list:
+
+```rust
+let Some(owner_exports) = owner_pool.get(&owner) else { continue };
+let Some(def) = owner_exports.iter().find(|candidate| candidate.name == name) else { continue };
+```
+
+So a token survives **only** if it names an actual export of the owner package.
+`RES`, `STATE`, `fs` and `File` are not exports of the exporting package and are
+dropped silently; `Cursor`, the `STATE` record, resolves and is pulled into the
+closure — which is the one that genuinely must reach the importer. The
+module's own doc comment states this design intent at `:788-794` ("pulling the
+identifier tokens over-approximates the referenced names — the caller keeps only
+those that resolve to an actual export"), so the over-approximation is
+deliberate and `RES`/`STATE` need no special-casing.
+
+**Still UNVERIFIED, and Phase 1 must still measure it:** whether an importer needs
+the *resource type itself* registered in its tables to lay out and close a record
+with a `RES` field. That is a different question from the type closure above —
+it concerns `resource_cleanup_symbol` and the close-op tables, i.e. the four
+starved layers in `.ai/resources-packages.md`. Nothing here answers it, and the
+two-package fixture is still the way to find out. Do not read C1 as closing
+Phase 1.
+
+**C2 (Phase 1, answered by letter D's baseline measurement) — the export half
+is DONE, and Phase 4's real obstacle is not about resources.**
+
+letter D measured the `.mfp` case rather than fixturing it (plan-114-D Correction
+C3). Two results, and they move this letter's weight:
+
+1. **A `RES` field already round-trips through a `.mfp`.** A package exporting
+   `TYPE Holder { label AS String, handle AS RES fs::File }` builds, writes its
+   `.mfp`, and an importer links against it and calls an exported function that
+   constructs the record internally — running to exit 0. So the type-export
+   closure needs no change for the resource itself, which is what C1's reading of
+   `push_type_identifiers` predicted. §2's second UNVERIFIED row ("does an
+   importer need the resource type registered in its tables") is answered **no**
+   for this path.
+
+2. **An importer cannot construct a user-package record — and that is
+   pre-existing and resource-independent.** Both spellings fail:
+   `pkg::Holder[...]` with `2-203-0043 TYPE_UNKNOWN_VALUE`, and the unqualified
+   `Holder[...]` with a bare codegen `error: native code field access target
+   'holder_pkg.Plain' is not a record or variant`. The second reproduction uses a
+   resource-free `EXPORT TYPE Plain { label AS String }`.
+
+**Phase 4 is therefore re-scoped.** Its task list assumes the obstacle is the
+resource and that fixing the type-export closure lets an importer "declare one,
+read `h.handle.state`, and close at scope exit". The resource is not the
+obstacle; user-package record construction is, for every record. Two honest
+options, to be decided in Phase 4 with the evidence above:
+
+- **(a)** Write the fixture so the importer never constructs the record — it
+  calls an exported constructor function and reads the returned value. This
+  exercises everything this feature owns (export closure, field layout across the
+  boundary, `STATE` read, close at scope exit) and stays inside plan-114's scope.
+- **(b)** Fix user-package record construction. That is a real defect worth a
+  bug of its own, but it is **not this feature**: it blocks plain records equally,
+  it predates plan-114, and folding it in would hide a general package-system fix
+  inside a resource plan.
+
+**Recommendation: (a), and file (b) separately.** Option (b) is exactly the
+"absorb an unrelated fix into this plan" move that makes a letter unlandable, and
+the measurement above is what a bug report for it needs anyway.
+
+**C3 — the `RES` strip is needed at THREE sites, and §2 names the wrong one as
+sufficient.**
+§2 calls the strip "the single load-bearing change" and locates it in
+`lower_field_access`. Stripping only there leaves `h.handle.state` failing
+exactly as before — because it is the **front end**, not codegen, that refuses it
+first:
+
+```
+error[2-203-0085 TYPE_STATE_INVALID]
+    `fs.File` here has no STATE to read; declare the resource with `STATE T`.
+```
+
+Three independent paths compute a field-read type, and they must agree:
+
+| # | Site | Role |
+|---|---|---|
+| 1 | `ir/lower.rs::record_field_type` | produces the `IrValue::MemberAccess` **annotation** — the primary site |
+| 2 | `ir/verify/mod.rs::field_type` | the verifier's fallback when a node carries no annotation |
+| 3 | codegen `lower_field_access` | recomputes from `record_fields`, which stores field types unstripped |
+
+(1) is the one that matters, and it is not in §2 at all. `ir::verify`'s
+`infer_type` **prefers the node's annotated type** over re-resolving the field
+(`ir/verify/mod.rs:1002`), so stripping in (2) alone never runs, and stripping in
+(3) alone fixes codegen for a program the type checker has already rejected.
+Stripping at (1) also keeps the `.ir` itself honest: without it the dump says
+`RES fs.File` while every consumer treats it stripped — a backward seam
+byte-identity cannot see.
+
+Found by running the fixture, not by reading: with only (3) done it still failed,
+and the message named the wrong problem, which is precisely the symptom §4.1
+predicts for a missing strip.
+
+**C4 — `TYPE_STATE_INVALID` did NOT reach the field position, and had to be
+routed.**
+Phase 2 says "verify … and route it if not". It was not there. Measured:
+
+```
+TYPE Holder
+  handle AS RES fs::File STATE fs::File     ' a resource as its own STATE
+END TYPE
+→ no diagnostic at all
+
+RES f AS fs::File STATE fs::File = …        ' identical clause, on a binding
+→ 2-203-0085 TYPE_STATE_INVALID
+```
+
+The binding check lives in `ir/verify/ops.rs:248` behind an `explicit_type` gate
+and never saw a record field, so letter D's grammar opening created a hole that
+reached codegen: a field could name a resource as its state payload. Routed in
+`check_type_declarations`, with a message naming the record, the field and the
+type. `TYPE_STATE_MISMATCH`, by contrast, already fired correctly.
+
+**C5 — §3's tier rule is wrong: these negative tests belong in `syntax/`, not
+`rt-behavior/`.**
+§3 says "**No `tests/syntax/*` fixture may be the only guard for a `STATE` type
+error**", reasoning that such an error surfaces only in a full `mfb build`.
+Measured against the current binary, both fire under `-ast -ir`:
+
+```
+$ mfb build -ast -ir …/record-res-field-state-invalid
+error[2-203-0085 TYPE_STATE_INVALID]
+$ mfb build -ast -ir …/record-res-field-state-mismatch-invalid
+error[2-203-0129 TYPE_STATE_MISMATCH]
+```
+
+§3's reasoning came from a *different* symptom — a `.state` read degrading to
+`Unknown` and resurfacing later as a `TYPE_CALL_ARGUMENT_MISMATCH` blaming
+`toString` — which is what happens when the rule does **not** fire. The rules
+themselves are front-end.
+
+This is not a free choice, either: `only_syntax_goldens_may_pin_a_compiler_diagnostic`
+(`tests/architecture_guards.rs`) means an `rt-behavior` golden that records a
+compile error is a **dead fixture**, and putting these there would have pinned a
+build failure in the one tier that forbids it. The round-trip and write-path
+fixtures stay `rt-behavior`, correctly — they build and run.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 

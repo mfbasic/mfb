@@ -25,8 +25,10 @@ it does not choose it:
 - `RES` binds **only** resources; `RES` on copyable data is an error
   (`TYPE_RES_REQUIRES_RESOURCE`).
 - A resource appears only in `RES` positions — binding, parameter (`RES f AS
-  File`), and return (`AS RES fs::File`) — and **never inside a data type**: a record
-  field of a resource type is an error (`TYPE_RESOURCE_FIELD_FORBIDDEN`).
+  File`), return (`AS RES fs::File`), a collection element or map value
+  (`List OF RES fs::File`), and a record field (`handle AS RES fs::File`). In
+  every one of them the marker is required: a **bare** resource in a collection
+  slot or a record field is an error (`TYPE_RESOURCE_REQUIRES_RES`).
 - A `RES` binding may carry a copyable, defaultable data `STATE` (§15):
   `RES f AS fs::File STATE FileState = …`.
 

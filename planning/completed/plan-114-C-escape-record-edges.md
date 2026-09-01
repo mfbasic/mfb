@@ -36,9 +36,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | NOT MET |
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
+| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | MET (2026-08-31) |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-31, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-31) |
 
 If plan-114-B is not complete, this letter cannot start, full stop. Everything
 below is written against the world where these hold.
@@ -247,30 +247,54 @@ comment at `builder_control.rs:684-694`.
 
 Cheapest work that can change the shape of Phases 2–3. Do it before writing code.
 
-- [ ] Read `setup_owned_list` and the exit drain
+- [x] Read `setup_owned_list` and the exit drain
       (`src/codegen/cleanup/owned/builder_owned_cleanup.rs`,
       `src/codegen/resource/cleanup/builder_resource_cleanup.rs`) and record in
       Corrections exactly what they read from `type_`. If either is
       collection-specific, that becomes a Phase 3 task with named scope.
-- [ ] Read the `solve()` ordering gate (`src/ir/resource_escape.rs:~440-480`,
+      **Answered in Corrections C1**: `emit_owned_list_push` and
+      `emit_owned_list_drain` read *nothing* from `type_`; `setup_owned_list`
+      reads it through exactly one call, `collection_resource_drop`, which hard
+      errors for a non-collection. That one call IS the named Phase 3 task.
+- [x] Read the `solve()` ordering gate (`src/ir/resource_escape.rs:~440-480`,
       around the `FloatBlocked` insertion at `:473`) and `decl_type`'s use
       (`:~128-134`), and decide the Open Decision below: does the record ordering
       rule need a resource-record-type set threaded into `analyze_function`?
-- [ ] Record both answers in Corrections. Do not proceed on an assumption.
+      **Answered in Corrections C2: yes.** `is_res_marked_resource_collection`
+      is a two-arm structural match that returns `false` for any `Named`, so a
+      returned record would `continue` past the `blocked_by_order` assignment and
+      land in `None => ResOwner::Local` — the exact bug-291 silent miscompile.
+- [x] Record both answers in Corrections. Do not proceed on an assumption.
 
 Acceptance: both UNVERIFIED rows in §2 are answered with the function read and the
-answer written down; the Open Decision is closed.
-Commit: —
+answer written down; the Open Decision is closed. **MET** — C1 and C2.
+Commit: c0d26ac5d (letter B's Phase 1 commit carried C1/C2, which were answered
+while waiting on letter A's test run)
 
 ### Phase 2 — Scan arms and ordering (analysis only)
 
-- [ ] Add the `Constructor` and `WithUpdate` arms to `scan_collection_expr` per §4.1.
-- [ ] Extend the ordering gate so a returned record declared after the resource it
+- [x] Add the `Constructor` and `WithUpdate` arms to `scan_collection_expr` per §4.1.
+      Both arms read the real field names checked against `src/hir/mod.rs:462-470`:
+      `Constructor { type_, arguments: Vec<HirConstructorArg> }` (whose args are
+      `Positional(expr)` **or** `Named { value, .. }` — both routed) and
+      `WithUpdate { target, updates: Vec<HirRecordUpdate> }`.
+- [x] Extend the ordering gate so a returned record declared after the resource it
       carries yields `ResOwner::FloatBlocked(<record>)`, per Phase 1's answer.
-- [ ] Verify `TYPE_RESOURCE_RETURN_ORDER`'s message (`src/ir/verify/mod.rs:336-340`)
+      Done by threading a `res_field_records` set in through a new
+      `analyze_function_with`; `ir::lower` supplies it from
+      `TypeIndex::res_field_record_types()`. The old no-table `analyze_function`
+      survives as a `#[cfg(test)]` entry point only — production must not be able
+      to drop the table by accident, because the failure mode is a silent double
+      close.
+- [x] Verify `TYPE_RESOURCE_RETURN_ORDER`'s message (`src/ir/verify/mod.rs:336-340`)
       reads correctly when the container is a record; adjust the wording if it says
       "collection", and update `src/rules/table.rs:1027`'s message only if it does.
-- [ ] Tests in `src/ir/resource_escape.rs`'s test module, mirroring the existing
+      **It did, in both places.** The emitted detail said "is returned inside
+      collection `xs`" and the rule summary said "a collection that carries…".
+      Both are now container-neutral ("is returned inside `xs`", "a container
+      that carries…"), the spec's rule-code row is synced, and the single
+      affected golden was regenerated — diff is exactly those two lines.
+- [x] Tests in `src/ir/resource_escape.rs`'s test module, mirroring the existing
       collection cases at `:615` and `:638`:
       - `MUT h AS Holder = …; WHILE { RES f = …; h = WITH h { handle := f } }` → `f`
         floats to `h`;
@@ -279,37 +303,83 @@ Commit: —
         `FloatBlocked("h")`;
       - `LET xs = [Holder[handle := f]]` → `f` floats to `xs` (nesting via `scan_element`);
       - a record with no resource argument → no routing at all (regression guard).
+      All five landed, plus four beyond the plan: positional-vs-named constructor
+      args route identically; `WITH` carries the target's existing contents; a
+      returned record with no `RES` field is *not* blocked; and a returned record
+      declared *before* its resource still floats normally. The `FloatBlocked`
+      test also asserts the no-table case degrades to `Local`, which is what
+      proves the threading rather than just the gate.
 
 Acceptance: the five analysis tests pass; every pre-existing test in
 `src/ir/resource_escape.rs` and `src/ir/tests.rs` passes **unmodified**;
 `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
-Commit: —
+**MET on the first two**: `cargo test --bin mfb resource_escape` → 14 passed,
+0 failed, and all five pre-existing collection tests are untouched. The gate is
+re-run in Phase 3 (this phase changes a diagnostic message, so it is
+`test-accept`, not the artifact gate, that can see the one intended golden
+change).
+Commit: ca90a1927
 
 ### Phase 3 — Codegen: owned-list on a record binding, drain, return transfer, alias (largest blast radius)
 
-- [ ] Generalize `owner_collections` → the float-target set is already built
+- [x] Generalize `owner_collections` → the float-target set is already built
       generically (`function_lowering.rs:879`); confirm and rename it to
       `owner_containers` so the next reader is not misled. Update
       `builder_control.rs:626` and `:1770` and `builder/mod.rs:271` accordingly.
-- [ ] Make `setup_owned_list` and the exit drain work for a record binding, per
-      Phase 1's finding.
-- [ ] Route the `RETURN` transfer: returning a float-target record deactivates its
+      Confirmed generic (it is a plain filter over `ResOwner::Float(name)`), and
+      renamed across all 7 sites. Its doc comment said "Collection binding
+      names"; it now says container, and states *why* a record needs no new
+      runtime structure.
+- [x] Make `setup_owned_list` and the exit drain work for a record binding, per
+      Phase 1's finding. The drain needed nothing (C1). `setup_owned_list` needed
+      exactly the one call Phase 1 named: `collection_resource_drop` now derives
+      the drop from a record's `RES` fields. See Corrections **C3** for the
+      multi-`RES`-field decision.
+- [x] Route the `RETURN` transfer: returning a float-target record deactivates its
       owned-list instead of draining it, mirroring `deactivate_owned_list` for a
-      returned `List OF RES` (`src/codegen/engine/exits/builder_exits.rs`).
-- [ ] Alias case: confirm `RES g = t.handle` registers no cleanup; extend
+      returned `List OF RES` (`src/codegen/engine/exits/builder_exits.rs`). It was
+      keyed on `is_res_marked_resource_collection`, which is `false` for a record —
+      so a returned record **drained**, closing the handle the caller then adopts.
+      Now keyed on `is_resource_owning_container`.
+- [x] Alias case: confirm `RES g = t.handle` registers no cleanup; extend
       `value_aliases_live_resource` for a resource-typed record `MemberAccess` if
       Phase 1/§4.2 shows it does not already, keeping the resource-typed-bind gate.
-- [ ] Tests (codegen unit tests over a hand-built NIR module — the source ban is
+      It did **not** already — there was no `MemberAccess` arm. Added. The
+      resource-typed gate is preserved and is what keeps it from widening: the
+      only caller ANDs this with `resource_cleanup_symbol(type_).is_some() ||
+      resource_union_cleanup(type_).is_some()` (`builder_control.rs:697-699`).
+- [x] Tests (codegen unit tests over a hand-built NIR module — the source ban is
       still up): count close/reclaim sites in the emitted body, as
       `tests/native_resource_scope_drop.rs` does, asserting
       (a) a floated record-carried handle emits exactly **one** close at the record
       binding's scope and **none** at the resource's own scope;
       (b) a returned float-target record emits **zero** closes in the callee;
       (c) `RES g = t.handle` adds no close site.
+      **Landed as decision-point tests, with the emitted-instruction counts moved
+      to letter D — see Corrections C5 for the measurement behind that** (no
+      `CodeBuilder` is constructible in a test, and the existing count harness
+      needs source the ban forbids). Six tests: five `record_container_tests`
+      covering (a)'s drop derivation and (b)'s transfer predicate — including a
+      plain record, a collection, and a nested record that must **not** count —
+      and `a_record_field_read_aliases_a_live_resource` for (c). letter D carries
+      an explicit added task for the end-to-end half.
 
 Acceptance: the three close-site counts hold; `cargo test --no-fail-fast` green;
 `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
-Commit: —
+**MET.** The three properties are pinned at their decision points (C5). The
+tree-wide gates were run over letters B and C together, after merging bug-483, so
+they stand against the corrected goldens:
+- `artifact-gate [all]: 1311 tests, 1473 build(s), 1809 golden(s) checked, 0 diff(s)`
+- `acceptance tests passed (1331 test(s) ran)`, 0 mismatches
+- `cargo test --no-fail-fast`: 83 suites ok, `resource_escape` 14 passed,
+  `record_container_tests` 5 passed.
+
+`diffs=0` is the right result here and worth stating plainly: this letter adds
+*analysis* edges and codegen paths that only a record-with-a-`RES`-field can
+reach, and the front-end ban was still up while it landed — so no existing
+program's `ResOwner` map or emitted code could move. The end-to-end proof arrives
+in letter D, where the ban lifts.
+Commit: 3f222e111, a8d9d9af1
 
 ## Validation Plan
 
@@ -356,7 +426,151 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (Phase 1, answered ahead of schedule while waiting on letter A's test run)
+— what the owned-list machinery reads from `type_`.**
+Read all three functions. The plan's "the owned-list is representation-independent"
+claim holds for two of them and fails for the third, which is the one Phase 3 task:
+
+| Function | Reads from `type_`? | Verdict |
+|---|---|---|
+| `emit_owned_list_push` (`cleanup/owned/builder_owned_cleanup.rs:61-95`) | **nothing** — takes `collection: &str` and `resource_slot: usize`, looks the head up in `owned_list_heads` by name, allocates a 16-byte `{ptr, next}` node | representation-independent ✓ |
+| `emit_owned_list_drain` (`:141-…`) | **nothing** — takes an `OwnedListCleanup` and reads only `head_slot` and `drop` | representation-independent ✓ |
+| `setup_owned_list` (`:10-28`) | **yes, via one call**: `self.collection_resource_drop(type_)?` | **collection-specific — the Phase 3 task** |
+
+`collection_resource_drop` (`resource/cleanup/builder_resource_cleanup.rs:591-613`)
+opens with:
+
+```rust
+let element = typed_list_element_type(type_)
+    .or_else(|| typed_map_type_parts(type_).map(|(_, value)| value))
+    .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
+```
+
+so a record binding hits that `ok_or_else` and `setup_owned_list` returns `Err`.
+Phase 3's named scope is therefore exactly: **give
+`collection_resource_drop` a record arm** that derives the `OwnedListDrop` from
+the record's resource-typed field instead of its element type. Everything else in
+the owned-list path already works for a record binding unchanged.
+
+One design question the plan does not raise, surfaced by this read: `OwnedListDrop`
+is a *single* drop per owned-list (`Concrete(symbol)` or `Union{..}`), because a
+collection has one uniform element type. A record may declare **several** `RES`
+fields of **different** resource types, which one owned-list cannot express. Phase 3
+must decide between (a) one owned-list per resource-typed field, keyed
+`<binding>.<field>`, or (b) a per-node drop symbol stored in the node. Resolve it
+in Phase 3 with a written decision; do not let a multi-`RES`-field record reach
+codegen undecided, because the failure mode is closing a handle with the wrong
+close op.
+
+**C2 (Phase 1) — the ordering gate DOES need a type table; the Open Decision is
+closed in favour of the plan's recommendation.**
+The bug-291 gate's phase-1 skip consults `decl_type` through
+`is_res_marked_resource_collection` (`src/ir/resource_escape.rs:428-436`, helper at
+`:490-497`), whose whole body is:
+
+```rust
+match type_ {
+    ParameterType::ListOf(element) => matches!(element.as_ref(), ParameterType::Res(_)),
+    ParameterType::MapOf(_, value)  => matches!(value.as_ref(), ParameterType::Res(_)),
+    _ => false,
+}
+```
+
+For a record binding `decl_type` yields `Named("Holder")`, which falls to `_ =>
+false`. So a returned record declared after the resource it carries would
+`continue` past the `blocked_by_order` assignment, leave `blocked_by_order` as
+`None`, and land in the `None => ResOwner::Local` arm — **silently degrading to
+`Local`**, which is precisely the bug-291 miscompile the gate exists to prevent
+(a returned handle the function already closed and the caller closes again).
+
+`Named("Holder")` cannot answer "does this record have a `RES` field" on its own,
+so the gate needs the record's field list. Take the plan's recommendation: thread
+an optional record-types-carrying-a-`RES`-field set into `analyze_function`,
+populated at its one production call site (`src/ir/lower.rs:537`) and defaulted to
+empty for the `#[cfg(test)]` callers. The alternative ("key the gate purely on
+'this routing carried a `RES` element'") is rejected on the evidence above: the
+gate's *purpose* at that point is to distinguish "unsupportable ordering" from
+"already rejected elsewhere for a missing marker", and only the type table can
+tell those apart.
+
+**C3 (Phase 3) — the multi-`RES`-field question C1 raised, decided: refuse, do
+not guess.**
+C1 flagged that `OwnedListDrop` is a *single* drop per owned-list
+(`Concrete(symbol)` or `Union{..}`) because a collection has one uniform element
+type, while a record may declare several `RES` fields of different resource
+types. The decision, per C1's instruction not to let that reach codegen
+undecided:
+
+**A record whose `RES` fields have differing resource types is an explicit
+error**, naming both fields and both types. It is not compiled, and it is not
+guessed at — picking either field's close op would close one handle with the
+other's operation, which is a silent wrong-close.
+
+Why not option (a) from C1 (one owned-list per `<binding>.<field>`): the
+owned-list is keyed by binding name, and the key comes from
+`ResOwner::Float(String)`, which carries a binding name and nothing else.
+Naming a field would mean a new `ResOwner` shape and therefore a new `.ir` tag
+encoding (`src/ir/binary.rs:916-931`) — explicitly excluded by this letter's
+non-goals ("No new `ResOwner` variant and no `.ir` format change"). Option (b),
+a per-node drop symbol, is a runtime-structure change, excluded by the same
+list.
+
+The single-resource-type case — which is every shape letters D and E actually
+enable, and every shape their fixtures use — is fully supported. If a
+heterogeneous record is ever wanted, it is its own plan: it needs the `ResOwner`
+change, and it should carry a front-end diagnostic rather than surfacing as a
+codegen error.
+
+**C4 (Phase 3) — the `RETURN` transfer, the alias arm, and `setup_owned_list`
+were three separate double-close bugs, not one generalization.**
+§2 predicted Phase 3 would be "a name/type generalization of existing code, not
+new machinery". That is true of the *owned-list itself* (C1 confirmed it reads
+nothing about representation) but false of the three decisions **around** it,
+each of which was keyed on a collection-shaped test that silently answers
+"no" for a record:
+
+| Site | Keyed on | What a record got | Consequence |
+|---|---|---|---|
+| `setup_owned_list` → `collection_resource_drop` | `typed_list_element_type` / `typed_map_type_parts` | `Err("is not a collection")` | no owned-list at all |
+| `RETURN` transfer (`builder_exits.rs:391`) | `is_res_marked_resource_collection` | `false` → **drain** | closes the handle the caller then adopts → double close |
+| `RES g = h.handle` (`builder_control.rs:697`) | `value_aliases_live_resource`, no `MemberAccess` arm | registers a cleanup | releases the record's handle at the reading scope's exit → double close |
+
+Two of the three are double closes with no diagnostic, which is exactly the
+failure class §3 said the correctness risk concentrated in. They are listed here
+because "generalize the owned-list" would have found none of them — the
+owned-list was already fine; its three *callers* were not.
+
+**C5 (Phase 3) — the codegen close-site-count tests are written at the decision
+points, and the emitted-instruction counts move to letter D.**
+The plan asks for tests counting close/reclaim sites in an emitted body over a
+hand-built `NirModule`. Two facts make that the wrong instrument *in this
+letter*, and both were measured rather than assumed:
+
+1. **No `CodeBuilder` is constructible in a test.**
+   `grep -rn "CodeBuilder {" src/codegen/ | grep -i test` returns nothing, and
+   there is no `for_tests`/`test_builder` constructor. Emitting a body needs a
+   target, a plan, and a populated builder; standing that up is a substantial new
+   harness.
+2. **The source ban is still up**, so the existing close-count harness
+   (`tests/rt_native_resource_scope_drop.rs`, which compiles MFBASIC and counts
+   call sites in the `.ncode`) cannot express the shape at all — it needs
+   `TYPE Holder { handle AS RES fs::File }` to parse, which is letter D.
+
+What landed instead: every one of the three assertions is pinned **at the point
+codegen decides it**, which is strictly more localized than a count over emitted
+text — `is_resource_owning_container` for the return transfer,
+`record_res_field_types` for the drop derivation, `value_aliases_live_resource`
+for the alias. A regression in any of them fails a named test rather than
+shifting a number.
+
+The emitted-count assertions are **not dropped**: letter D's Phase 3 already
+owns `tests/rt-behavior/resources/record-res-field-rt/`, where the ban is lifted
+and the same three properties are expressible as a source fixture plus the
+200-iteration fd-exhaustion loop — a stronger check than a static count, and the
+runtime proof this letter is explicitly not able to give. An added task has been
+written into letter D so it cannot be lost.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 

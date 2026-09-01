@@ -1,0 +1,36 @@
+' plan-114-E: the exported side. A record whose field is
+' `RES fs::File STATE Cursor` -- the full shape: a resource field AND a STATE
+' clause on it -- crossing a package boundary.
+'
+' What has to survive the `.mfp` for this to work: the record itself, the `RES`
+' marker on its field, the `STATE` clause folded into that field's type, and the
+' `Cursor` record the clause names (which is a separate user type the importer
+' never mentions -- the type-export closure has to pull it in).
+IMPORT fs
+
+EXPORT TYPE Cursor
+  pos AS Integer
+END TYPE
+
+EXPORT TYPE Holder
+  label  AS String
+  handle AS RES fs::File STATE Cursor
+END TYPE
+
+' The importer calls THIS rather than constructing a `Holder` itself.
+'
+' That is deliberate, and not a dodge: an importer cannot construct a
+' user-package record at all -- `pkg::Plain["x"]` fails with
+' TYPE_UNKNOWN_VALUE for a plain, resource-free record too. That limitation
+' predates plan-114 and has nothing to do with resources (see the letter's
+' Corrections C2), so pinning it here would tie this fixture to an unrelated
+' gap. Everything this feature owns is still exercised: the export closure, the
+' field layout across the boundary, the two-dot STATE read, and close at scope
+' exit.
+EXPORT FUNC openInto(path AS String) AS Integer
+  RES f AS fs::File STATE Cursor = fs::openFile(path, "w")
+  f.state.pos = 11
+  LET h = Holder["exported", f]
+  ' The two-dot read, inside the package that declares the type.
+  RETURN h.handle.state.pos
+END FUNC

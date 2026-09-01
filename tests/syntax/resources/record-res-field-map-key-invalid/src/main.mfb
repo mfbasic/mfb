@@ -1,0 +1,27 @@
+' plan-114-D: a record carrying a resource cannot be a `Map` key.
+'
+' The same `resource_base_type` stripping that makes such a record
+' non-comparable (see record-res-field-compare-invalid) is what
+' `check_map_key_comparable` consults, so this falls out of comparability rather
+' than being a separate rule. Pinned separately because a Map key is the place
+' where losing comparability would corrupt a data structure rather than merely
+' compile something odd -- hashing a handle pointer would key entries on an
+' address that means nothing across runs.
+'
+' TWO rules fire here, and both are correct: TYPE_REQUIRES_COMPARABLE (the key is
+' not comparable) and TYPE_COLLECTION_OWNERSHIP_VIOLATION (a resource may not sit
+' in a key position at all, marked or not). The golden pins both -- if either
+' stops firing, the remaining one would still make this fixture "pass" while half
+' the guarantee had gone.
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  handle AS RES fs::File
+END TYPE
+
+FUNC main AS Integer
+  LET m AS Map OF Holder TO String = Map OF Holder TO String { }
+  io::print(toString(len(m)))
+  RETURN 0
+END FUNC

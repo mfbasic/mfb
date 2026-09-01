@@ -12,7 +12,7 @@
 //! as the call-site builder guarantees.
 //!
 //! Field classification goes through the shared `&TypeModel` predicates
-//! (`record_field_is_inlined` / `type_is_flat` / `is_pointer_string_record`), so a
+//! (`record_field_is_inlined` / `type_is_memcpy_copyable` / `is_pointer_string_record`), so a
 //! natively-built record and a source-built one have identical layout. The
 //! `TypeModel` reaches the emitter through the shared `TypeModel` lookup.
 //!

@@ -359,7 +359,25 @@ impl<'a> FileParser<'a> {
         if !self.consume_keyword(Keyword::As, "Field declarations must include an `AS` type.") {
             return None;
         }
+        // plan-114-D: a field type may carry the `RES` ownership marker
+        // (`handle AS RES fs::File`, §15.6). The slot holds a copy of the one
+        // handle pointer, exactly as a collection element's does, and it is
+        // governed by the same two marker rules in `ir::verify`
+        // (`TYPE_RESOURCE_REQUIRES_RES` / `TYPE_RES_REQUIRES_RESOURCE`).
+        //
+        // Same shape as the `List OF RES …` element arm (`expr.rs:775`): match the
+        // marker, parse the type, then fold an optional ` STATE T` clause into the
+        // type string. The marker is a prefix on the rendered type so that
+        // `ParameterType::parse` yields `Res(inner)` — the one type grammar stays
+        // the only parser of it.
+        let field_res = self.match_keyword(Keyword::Res);
         let type_name = self.parse_type_name()?;
+        let type_name = self.parse_optional_field_state(type_name, field_res)?;
+        let type_name = if field_res {
+            format!("RES {type_name}")
+        } else {
+            type_name
+        };
         self.consume_statement_end("Expected end of statement after field declaration.");
         Some(TypeField {
             visibility,
@@ -367,6 +385,33 @@ impl<'a> FileParser<'a> {
             type_name,
             line,
         })
+    }
+
+    /// A record field's optional ` STATE T` clause (plan-114-D/E).
+    ///
+    /// Accepted on a **`RES`** field — `handle AS RES fs::File STATE Cursor` —
+    /// and folded into the field's own type string, exactly as a collection
+    /// element's clause is (`parse_optional_element_state`). The `STATE` rides
+    /// the field, not the binding, so an extracted handle types `.state`.
+    ///
+    /// Rejected on a **non-`RES`** field, permanently: `STATE` rides a resource,
+    /// so a data field cannot carry one. Same rule the collection element takes.
+    fn parse_optional_field_state(&mut self, field: String, field_res: bool) -> Option<String> {
+        if !self.check_identifier_ci("STATE") {
+            return Some(field);
+        }
+        if !field_res {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "A `STATE` clause requires a `RES` record field; a non-resource \
+                 field cannot carry state.",
+                &token,
+            );
+            return None;
+        }
+        let state = self.parse_optional_state()?;
+        Some(format!("{field} STATE {state}"))
     }
 
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {

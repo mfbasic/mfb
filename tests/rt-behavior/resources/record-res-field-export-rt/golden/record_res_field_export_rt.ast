@@ -1,0 +1,28 @@
+{
+  "project": "record_res_field_export_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 16 },
+    { "module": "holder_pkg", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "state through the package boundary: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "holder_pkg.openInto", "arguments": [{ "kind": "string", "value": "target/record-res-field-export-rt.txt" }] }] } }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

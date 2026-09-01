@@ -637,7 +637,7 @@ impl CodeBuilder<'_> {
                         // A collection that owns resources floated up from inner
                         // blocks (§15.6) gets a runtime owned-list anchored at
                         // this scope; it is drained on every exit path.
-                        if self.owner_collections.contains(name) {
+                        if self.owner_containers.contains(name) {
                             self.setup_owned_list(name, type_)?;
                         } else if Self::is_res_marked_resource_collection(&type_)
                             && matches!(
@@ -1781,7 +1781,7 @@ impl CodeBuilder<'_> {
         for name in names {
             if self.address_taken_locals.contains(&name)
                 || self.promoted_float_locals.contains_key(&name)
-                || self.owner_collections.contains(&name)
+                || self.owner_containers.contains(&name)
             {
                 continue;
             }

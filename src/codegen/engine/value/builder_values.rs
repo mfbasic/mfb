@@ -296,6 +296,19 @@ impl CodeBuilder<'_> {
     pub(crate) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
+            // plan-114-C: `RES g = h.handle` reads a handle back OUT of a record
+            // field. The record's scope owns that resource, so this bind must
+            // register no close obligation of its own — registering one would
+            // release the record's handle at this scope's exit, which is bug-375
+            // one container-kind over.
+            //
+            // Safe to state unconditionally here because the only caller ANDs
+            // this with "the bind is resource-typed"
+            // (`builder_control.rs:697-699`: `resource_cleanup_symbol(type_)` or
+            // `resource_union_cleanup(type_)`). A `MemberAccess` reading an
+            // ordinary field is not resource-typed, so it never reaches the
+            // alias branch and still takes the owned-value path below it.
+            NirValue::MemberAccess { .. } => true,
             NirValue::Call { target, .. }
             | NirValue::CallResult { target, .. }
             | NirValue::RuntimeCall { target, .. } => {
@@ -331,7 +344,7 @@ impl CodeBuilder<'_> {
     /// inline by value), resources, threads, and recursive/non-flat composites are
     /// excluded: they are never freed by the generic owned-value path.
     pub(crate) fn is_freeable_flat_value(&self, type_: &ParameterType) -> bool {
-        self.type_is_flat(type_)
+        self.type_is_memcpy_copyable(type_)
             && (*type_ == ParameterType::String
                 || typed_is_collection_type(type_)
                 || matches!(type_, ParameterType::ResultOf(_))
@@ -2585,6 +2598,24 @@ mod borrowed_resource_tests {
     /// listed were therefore never reached, and every `poll(List)` bind was
     /// classified as an owner -- closing the borrowed element at the bind's scope
     /// exit and again when the list drained.
+
+    /// plan-114-C: `RES g = h.handle` reads a handle back OUT of a record field.
+    /// The record's scope owns it, so the bind registers no close of its own —
+    /// the same rule bug-375 established for `poll(List)`, one container-kind
+    /// over. Registering a close here would release the record's handle at this
+    /// scope's exit and the record's drain would then close it again.
+    #[test]
+    fn a_record_field_read_aliases_a_live_resource() {
+        let read = NirValue::MemberAccess {
+            target: Box::new(NirValue::Local("h".to_string())),
+            member: "handle".to_string(),
+        };
+        assert!(
+            CodeBuilder::value_aliases_live_resource(&read),
+            "a record field read is an alias, not a producer"
+        );
+    }
+
     #[test]
     fn poll_list_forms_alias_a_live_resource() {
         for target in ["tcp.poll", "udp.poll", "tls.poll"] {
