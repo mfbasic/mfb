@@ -847,7 +847,13 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     `binary_repr/sections.rs` held 19 spelling match arms until letter G,
     //     in a file that was already a boundary.
     ("declared_sites", "binary_repr", 5),
-    ("declared_sites", "codegen", 50),
+    // 50 -> 52: bug-480 Phase 4b made a builtin value type's declared identity
+    // package-qualified (`json.JsonNull`), so `alias_bare_builtin_type_names` in
+    // `validation.rs` registers the bare spelling alongside it for the five LOOKUP
+    // tables that are keyed by a declared name. Those two are declared-NAME
+    // boundaries in the exact sense this class enumerates -- a name crossing into
+    // the type domain at a table key -- not a decision made below the AST.
+    ("declared_sites", "codegen", 52),
     ("declared_sites", "ir", 47),
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
