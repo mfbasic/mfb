@@ -46,6 +46,31 @@ dependency to negotiate.** Letters B and C point here.
 | bug-480 (package name resolution) is fixed and archived | `ls bugs/bug-480-*.md` → no matches (moved to `bugs/completed/`) | **MET** (measured 2026-09-01: `ls bugs/bug-480-*.md` → `no matches found`; `ls bugs/completed/ | grep 480` → `bug-480-package-name-resolution.md`) |
 | bug-482 (`thread::start` input sendability never fires) is fixed and archived | `ls bugs/bug-482-*.md` → no matches (moved to `bugs/completed/`) | **NOT MET** (measured 2026-09-01: `ls bugs/bug-482-*.md` → `bugs/bug-482-thread-start-input-sendability-check-never-fires.md`, still Open; and the defect is live in source — the `imported_entry` early-return the bug names is verbatim present at `src/ir/verify/resources.rs:691-696`, found by `grep -rn "imported_entry" src/`) |
 
+**bug-482 is not merely an unarchived doc — it reproduces at main's tip.**
+Measured 2026-09-01 by `/follow-plan 115` at commit `781a82f07`, with
+`target/release/mfb` rebuilt from that tip (a bug report is not evidence; the
+run is):
+
+```
+$ ./target/release/mfb build /tmp/b482/wpkg
+Wrote package to /tmp/b482/wpkg/wpkg.mfp
+$ ./target/release/mfb build /tmp/b482/consumer
+Wrote executable to /tmp/b482/consumer/build/consumer.out
+[exit 0]
+$ /tmp/b482/consumer/build/consumer.out
+worker returned 43 (expected 43)
+[exit 0]
+```
+
+That is bug-482 Case 1: a **capturing** `LAMBDA() -> captured + 1` is passed as
+`thread::start`'s `data`, builds clean with no `TYPE_THREAD_NOT_SENDABLE`, and is
+invoked on the worker — dereferencing a closure environment in the *parent's*
+arena. Corroborating static evidence that the check has never fired:
+`grep -rn "Call to .thread.start. input" tests/ | wc -l` → **0**, i.e. not one
+golden in the corpus carries that diagnostic, while the type-driven walk's
+sibling message ("Thread message type requires …") is pinned in
+`tests/syntax/threads/func_thread_start_invalid/golden/build.log`.
+
 **Why bug-480 gates this plan.** bug-480 Defect B is that an imported package's
 value types resolve *without* their required prefix while the correctly prefixed
 spelling *fails*. That is the same package-keyed name table this plan's entry

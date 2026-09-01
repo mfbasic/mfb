@@ -148,6 +148,39 @@ function's signature and never in the `Thread OF Msg TO Out` handle type, so the
 type-driven walk at `resources.rs:520-548` cannot cover it. Line 598 is its only
 guard, and line 598 is unreachable in practice.
 
+### Reproduction re-confirmed 2026-09-01 at `781a82f07`
+
+`/follow-plan 115` re-ran Case 1 against a `target/release/mfb` rebuilt from
+main's tip, because plan-115 gates on this bug and a stale report would have
+been a false gate. It still reproduces verbatim — build exit 0, no diagnostic,
+and the capturing lambda runs on the worker:
+
+```
+$ ./target/release/mfb build /tmp/b482/wpkg
+Wrote package to /tmp/b482/wpkg/wpkg.mfp
+$ ./target/release/mfb build /tmp/b482/consumer
+Wrote executable to /tmp/b482/consumer/build/consumer.out
+[exit 0]
+$ /tmp/b482/consumer/build/consumer.out
+worker returned 43 (expected 43)
+[exit 0]
+```
+
+(Note for the repro-follower: the consumer's `project.json` declares the
+dependency under `"packages"`, not `"dependencies"` — the latter yields
+`IMPORT_PACKAGE_NOT_DECLARED` before the boundary rules are ever reached.)
+
+Corroborating static evidence that the `In` guard has never fired:
+`grep -rn "Call to .thread.start. input" tests/ | wc -l` → **0**. No golden in
+the corpus carries that message, while the sibling type-driven walk's
+"Thread message type requires …" is pinned in
+`tests/syntax/threads/func_thread_start_invalid/golden/build.log`.
+
+The `imported_entry` early-return named under H1 is still verbatim present, now
+at `src/ir/verify/resources.rs:691-696` (the line numbers in this report have
+drifted from 588-595). H1 vs H2 remains unconfirmed — the symptom was
+reproduced, not instrumented.
+
 ## Root Cause
 
 Unconfirmed; two hypotheses, ordered by likelihood. Both sit in
