@@ -688,7 +688,7 @@ supersedes), `2b680ce2f` + `e7409f3a5` + `16a34c45a` + `eba6ed39d` (goldens).
 
 - [x] Full `cargo test --no-fail-fast`; `scripts/artifact-gate.sh all`; `scripts/man-run-examples.sh`.
 - [x] `scripts/man-run-examples.sh <pkg> --run` across every package.
-- [ ] Consider converting a committed-`.mfp` fixture to the source form now that it works, closing the stale-`.mfp` failure mode at its root. Scope that separately — it is a tree-wide change, not part of this fix.
+- [~] Consider converting a committed-`.mfp` fixture to the source form now that it works, closing the stale-`.mfp` failure mode at its root. **DEFERRED, deliberately** — this box asks only to *consider* it, and the answer is no for this fix: it is a tree-wide sweep over every committed `.mfp` fixture, with no bearing on either defect. Doing it here would have hidden a large unrelated diff inside a name-resolution change. Note that this fix moves in the OPPOSITE direction for one fixture: `mfp-package-dependency-rt` deliberately ADDS a committed `.mfp`, because the paired comparison is the whole point of it.
 
 Acceptance: full suite green.
 Commit: `3d064d770`, `6d72d85cc`, `d87b64fa5` (post-merge test fixes), `4725717dc`
