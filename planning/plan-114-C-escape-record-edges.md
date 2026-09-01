@@ -36,9 +36,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | NOT MET |
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
+| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | MET (2026-08-31) |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-31, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-31) |
 
 If plan-114-B is not complete, this letter cannot start, full stop. Everything
 below is written against the world where these hold.
@@ -366,9 +366,20 @@ Commit: ca90a1927
 
 Acceptance: the three close-site counts hold; `cargo test --no-fail-fast` green;
 `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
-The three properties are pinned at their decision points (C5); `cargo test` and
-the gate are re-run for the letter as a whole below.
-Commit: 3f222e111
+**MET.** The three properties are pinned at their decision points (C5). The
+tree-wide gates were run over letters B and C together, after merging bug-483, so
+they stand against the corrected goldens:
+- `artifact-gate [all]: 1311 tests, 1473 build(s), 1809 golden(s) checked, 0 diff(s)`
+- `acceptance tests passed (1331 test(s) ran)`, 0 mismatches
+- `cargo test --no-fail-fast`: 83 suites ok, `resource_escape` 14 passed,
+  `record_container_tests` 5 passed.
+
+`diffs=0` is the right result here and worth stating plainly: this letter adds
+*analysis* edges and codegen paths that only a record-with-a-`RES`-field can
+reach, and the front-end ban was still up while it landed — so no existing
+program's `ResOwner` map or emitted code could move. The end-to-end proof arrives
+in letter D, where the ban lifts.
+Commit: 3f222e111, a8d9d9af1
 
 ## Validation Plan
 
