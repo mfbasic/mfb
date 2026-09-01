@@ -71,6 +71,26 @@ golden in the corpus carries that diagnostic, while the type-driven walk's
 sibling message ("Thread message type requires …") is pinned in
 `tests/syntax/threads/func_thread_start_invalid/golden/build.log`.
 
+**What unblocks this plan — and one stale artifact not to mistake for it.**
+`git worktree list` shows `.claude/worktrees/482` on branch `worktree-B-482`.
+**It is an abandoned, incomplete start, not a fix about to land** (confirmed by
+the repo owner 2026-09-01). Measured: last commit `5744bb402`, Mon Aug 31
+11:03 — 3 commits ahead of main but **158 commits behind** it
+(`git log --oneline worktree-B-482..main | wc -l` → 158). Do not treat it as
+in-flight work, and do not wait on it.
+
+The one thing worth salvaging from it is a *measurement*, which corroborates the
+report's H1 and saves the eventual fixer an instrumentation round: its
+`104e558f0` records that `TypeEnv::build` installs every imported package's
+functions into `self.functions` under the package-keyed name the entry's
+`FunctionRef` carries (`first=fnref:9b89af26bc49e04e.wpkg.w`,
+`fnkeys=[…, "9b89af26bc49e04e.wpkg.w", …]`), so `imported_entry` is false for an
+imported entry and a same-project one alike. Re-derive it before relying on it —
+that branch predates 158 commits of main.
+
+bug-482 therefore still needs fixing from scratch on current main; the gate
+above stands NOT MET.
+
 **Why bug-480 gates this plan.** bug-480 Defect B is that an imported package's
 value types resolve *without* their required prefix while the correctly prefixed
 spelling *fails*. That is the same package-keyed name table this plan's entry
