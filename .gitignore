@@ -7,6 +7,12 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
+# `mfb build -ncode` writes its dump next to the fixture it built, so a golden
+# refresh (`scripts/regen-ncodesum.sh`) litters `tests/byte-identity/<pkg>/` with
+# scratch dumps. Only the copies under a `golden/` directory are goldens.
+*.ncode
+!tests/**/golden/*.ncode
+
 # Build output. Every build emits into its project's `build/` directory
 # (plan-46-D §4.1): `build/<name>.out`, `build/<name>.app`, and the `vendor/`
 # copies an RPATH-bearing build points at. Unanchored, so it covers every
