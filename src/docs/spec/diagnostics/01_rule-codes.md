@@ -432,7 +432,7 @@ Scheme*).
 | `2-203-0081` | `UNREACHABLE_AFTER_EXIT` | error | statement is unreachable after EXIT or CONTINUE |
 | `2-203-0082` | `TYPE_RESOURCE_REQUIRES_RES` | error | resource must be bound with RES |
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |
-| `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | a record field cannot be a resource |
+| `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | **reserved, no longer emitted** — a record field may hold a resource; it is governed by `2-203-0082`/`2-203-0083` |
 | `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
 | `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | **reserved — retired by resource-scoped ownership; never emitted, never recycled** |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |

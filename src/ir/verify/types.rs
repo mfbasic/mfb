@@ -12,13 +12,13 @@ impl TypeEnv {
     /// Reported at the type declaration line; the file is unset (a decoded
     /// package has no source).
     ///
-    /// plan-114-B: the resource-field rule is **no longer** one of those. It is
-    /// still emitted here (`TYPE_RESOURCE_FIELD_FORBIDDEN`, retired by letter D),
-    /// but its old justification — that such a field would mislead the layout and
-    /// drop lowering — is now false. Codegen lays a resource field out as an
-    /// ordinary 8-byte handle slot and the NIR backstop no longer refuses it; the
-    /// rule survives here only until the front door opens, not because the
-    /// lowering cannot cope.
+    /// plan-114-B/D: the resource-field ban is **gone**. Its justification — that
+    /// such a field would mislead the layout and drop lowering — was retired by
+    /// letter B, which lays a resource field out as an ordinary 8-byte handle
+    /// slot and relaxed the NIR backstop accordingly. Letter D then replaced
+    /// `TYPE_RESOURCE_FIELD_FORBIDDEN` (now reserved, never emitted) with the two
+    /// `RES`-marker rules a collection element already takes, routed through the
+    /// same emitter so the positions cannot drift.
     pub(super) fn check_type_declarations(&self, project: &IrProject) {
         for ty in &project.types {
             self.current_file.replace(ty.file.clone());
@@ -29,18 +29,24 @@ impl TypeEnv {
                         self.current_line.set(field.loc.line);
                         self.check_map_key_comparable(&field.type_);
                         self.check_thread_sendability(&field.type_);
+                        // plan-114-D: a record field is governed by the same two
+                        // `RES`-marker rules a collection element is — a bare
+                        // resource field needs the marker
+                        // (`TYPE_RESOURCE_REQUIRES_RES`), and the marker may only
+                        // mark a resource (`TYPE_RES_REQUIRES_RESOURCE`). This
+                        // replaces `TYPE_RESOURCE_FIELD_FORBIDDEN`, which refused
+                        // the field outright.
+                        //
+                        // It routes through the SAME emitter the element uses, so
+                        // the two positions cannot drift; only the subject and the
+                        // suggested spelling differ.
+                        self.current_line.set(field.loc.line);
+                        self.res_axis_slot(
+                            &field.type_,
+                            &format!("Record `{}` field `{}`", ty.name, field.name),
+                            "`handle AS RES fs::File`",
+                        );
                         self.current_line.set(ty.loc.line);
-                        if is_resource_name(&resource_base_type(&field.type_).name()) {
-                            self.current_line.set(field.loc.line);
-                            self.emit(
-                                "TYPE_RESOURCE_FIELD_FORBIDDEN",
-                                format!(
-                                    "Record `{}` field `{}` is resource `{}`; records cannot own resources.",
-                                    ty.name, field.name, field.type_
-                                ),
-                            );
-                            self.current_line.set(ty.loc.line);
-                        }
                     }
                     let record = ParameterType::declared(&ty.name);
                     if self.record_field_cycle(&record, &record, &mut HashSet::new()) {

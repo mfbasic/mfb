@@ -1055,29 +1055,42 @@ impl TypeEnv {
     /// wrapper rather than a name prefix.
     pub(super) fn check_collection_res_axis(&self, type_: &ParameterType) {
         match type_ {
-            ParameterType::ListOf(element) => self.collection_axis_element(element, "element"),
-            ParameterType::MapOf(_, value) => self.collection_axis_element(value, "value"),
+            ParameterType::ListOf(element) => {
+                self.res_axis_slot(element, "Collection element", "`List OF RES File`")
+            }
+            ParameterType::MapOf(_, value) => {
+                self.res_axis_slot(value, "Collection value", "`List OF RES File`")
+            }
             _ => {}
         }
     }
 
-    pub(super) fn collection_axis_element(&self, element: &ParameterType, role: &str) {
-        let is_res_marked = matches!(element, ParameterType::Res(_));
-        let inner = strip_res(element);
+    /// The `RES` ownership axis for one slot that may hold a resource.
+    ///
+    /// plan-114-D: a record **field** is such a slot too, so this is
+    /// parameterized by `subject` (what the message calls the slot) and
+    /// `example` (a correct spelling to suggest) rather than being
+    /// collection-only. Both call sites share this one decision so the two
+    /// spellings cannot drift — a record field is governed by exactly the rules
+    /// a collection element is, which is the whole point of retiring
+    /// `TYPE_RESOURCE_FIELD_FORBIDDEN`.
+    pub(super) fn res_axis_slot(&self, slot: &ParameterType, subject: &str, example: &str) {
+        let is_res_marked = matches!(slot, ParameterType::Res(_));
+        let inner = strip_res(slot);
         let inner_name = inner.name();
         let is_resource = self.is_resource_or_resource_union(inner);
         if is_resource && !is_res_marked {
             self.emit(
                 "TYPE_RESOURCE_REQUIRES_RES",
                 format!(
-                    "Collection {role} type `{inner_name}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
+                    "{subject} type `{inner_name}` is a resource; mark it `RES` (e.g. {example}), not a bare resource type."
                 ),
             );
         } else if is_res_marked && !is_resource && self.provably_data_type(inner) {
             self.emit(
                 "TYPE_RES_REQUIRES_RESOURCE",
                 format!(
-                    "Collection {role} is marked `RES` but `{inner_name}` is not a resource type; drop the `RES`."
+                    "{subject} is marked `RES` but `{inner_name}` is not a resource type; drop the `RES`."
                 ),
             );
         }

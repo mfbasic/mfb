@@ -3186,12 +3186,56 @@ fn accepts_error_member_access_chain() {
 
 // --- type declarations -----------------------------------------------------
 
+/// plan-114-D: a **bare** resource field is still rejected — but by the marker
+/// rule a collection element takes, not by the retired ban. This is the test §3
+/// calls non-optional: if the field walk stopped emitting
+/// `TYPE_RESOURCE_FIELD_FORBIDDEN` without routing to
+/// `TYPE_RESOURCE_REQUIRES_RES`, an unmarked resource field would be silently
+/// accepted, and letter C's analysis would not float it — a leak with no
+/// diagnostic.
 #[test]
-fn rejects_resource_field_in_record() {
+fn rejects_unmarked_resource_field_in_record() {
     let mut ty = record_typed("Holder", &[("f", "fs.File")]);
     ty.file = "src/main.mfb".to_string();
     let f = func_returns("run", "Nothing", vec![], vec![]);
-    expect_rule(&project(vec![f], vec![ty]), "TYPE_RESOURCE_FIELD_FORBIDDEN");
+    let got = rules(&project(vec![f], vec![ty]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_RESOURCE_REQUIRES_RES"),
+        "a bare resource field must be told to add the RES marker: {got:?}"
+    );
+    assert!(
+        !got.iter().any(|r| r == "TYPE_RESOURCE_FIELD_FORBIDDEN"),
+        "the ban is retired and must never be emitted again: {got:?}"
+    );
+}
+
+/// The other half of the marker axis: `RES` on a non-resource field.
+#[test]
+fn rejects_res_marker_on_a_non_resource_field() {
+    let mut ty = record_typed("Holder", &[("n", "RES Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    expect_rule(&project(vec![f], vec![ty]), "TYPE_RES_REQUIRES_RESOURCE");
+}
+
+/// And the accept path this letter exists for: a correctly-marked resource field
+/// is legal. Guards against the routing over-rejecting.
+#[test]
+fn accepts_a_res_marked_resource_field_in_record() {
+    let mut ty = record_typed("Holder", &[("name", "String"), ("handle", "RES fs.File")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    let got = rules(&project(vec![f], vec![ty]));
+    for rule in [
+        "TYPE_RESOURCE_FIELD_FORBIDDEN",
+        "TYPE_RESOURCE_REQUIRES_RES",
+        "TYPE_RES_REQUIRES_RESOURCE",
+    ] {
+        assert!(
+            !got.iter().any(|r| r == rule),
+            "`RES fs.File` is a legal field; {rule} must not fire: {got:?}"
+        );
+    }
 }
 
 #[test]

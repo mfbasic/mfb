@@ -1000,6 +1000,17 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "RES binds only resource types",
     },
+    // RESERVED, no longer emitted. plan-114-D retired this: a record field may
+    // now hold a resource, and is governed by the same two rules a collection
+    // element is — `2-203-0082 TYPE_RESOURCE_REQUIRES_RES` for a bare resource
+    // field, `2-203-0083 TYPE_RES_REQUIRES_RESOURCE` for `RES` on a non-resource.
+    // The ban's original justification (that such a field would mislead the
+    // layout and drop lowering) was retired by plan-114-B, which lays a resource
+    // field out as an ordinary 8-byte handle slot.
+    //
+    // Kept rather than deleted so the code is never recycled for a different
+    // meaning — the convention `2-203-0086` and `RESOURCE_SHADOWS_BUILTIN`
+    // already set.
     Rule {
         code: "2-203-0084",
         name: "TYPE_RESOURCE_FIELD_FORBIDDEN",
