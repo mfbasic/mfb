@@ -306,7 +306,18 @@ Acceptance: `cargo test --no-fail-fast` green, and
 `scripts/artifact-gate.sh target/release/mfb all` reports `diffs=0`. If it does
 not, the diff localizes a mis-assigned site or the §2 UNVERIFIED reachability —
 objdump the flagged fixture, fix the cause, re-run to `diffs=0`.
-Commit: —
+
+**MET, and the "if it does not" branch is what actually happened.** The first run
+reported **10 DIFFs** (`tcp`/`udp` `.ncodesum`, 5 targets each). Both causes were
+mis-assigned arms, localized by dumping one fixture (Corrections C6, C7, C8), and
+after fixing them:
+
+```
+artifact-gate [all]: 1310 tests, 1472 build(s), 1809 golden(s) checked, 0 diff(s)
+GATE_EXIT=0
+```
+
+Commit: 714475afa (Phase 1), 06d14ab33 (the gate-driven fixes)
 
 ### Phase 2 — Lay out, build, copy, size and drop a `RES` record field
 
@@ -348,19 +359,26 @@ Commit: —
 
 Acceptance: the four assertions above pass, and
 `scripts/artifact-gate.sh target/release/mfb all` still reports `diffs=0` (no
-source program reaches the relaxed backstop).
-Commit: —
+source program reaches the relaxed backstop). **MET** — the four
+`res_field_record_layout_tests` pass, the two NIR-backstop tests pass, and the
+gate run quoted in Phase 1 covers this phase's changes too (both landed before
+it).
+Commit: c3c093940
 
 ### Phase 3 — Tree-wide proof
 
-- [ ] Full `scripts/artifact-gate.sh target/release/mfb all` (~15–20 min; run it
+- [x] Full `scripts/artifact-gate.sh target/release/mfb all` (~15–20 min; run it
       alone — two concurrent gates get one killed, and exit 144 / 0-byte output is
-      an infrastructure kill, not a diff).
+      an infrastructure kill, not a diff). **`1310 tests, 1472 build(s), 1809
+      golden(s) checked, 0 diff(s)`, `GATE_EXIT=0`.** Run uncontended for the
+      artifact-gate lock (the other active session held only `test-accept`, which
+      guards separately and, per bug-470, is harmless cross-worktree).
 - [ ] `scripts/test-accept.sh target/release/mfb /tmp/plan114b-scratch` (full).
       Never pass a real directory as the second argument; it is `rm -rf`'d.
 - [ ] `cargo test --no-fail-fast` redirected to a file; check cargo's own exit
       status, not a piped `tail`'s.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+      — `cargo fmt --all -- --check` exits 0.
 
 Acceptance: `diffs=0` tree-wide, acceptance harness green, `cargo test` green.
 Commit: —
@@ -586,6 +604,19 @@ $ shasum -a 256 <tcp .ncode with the fix>
 The baseline build (`git archive 213803f96` → `cargo build --release`) matching
 the golden is what made the diff *provably* this letter's rather than
 pre-existing bug-483 noise.
+
+> **The sha above expires.** bug-483's golden commit moves the `tcp` and `udp`
+> `.ncodesum`s — all 5 targets each, part of its 30 — because main's committed
+> sums encode the broken `net::Address` layout (see C4). Once that lands, a build
+> from `213803f96` will **no longer** match the committed tcp/udp goldens, and the
+> mismatch will be **bug-483's, not this letter's**. It is the same 10 files this
+> letter's gate flagged, which makes it a real trap rather than a theoretical one:
+> the identical file list, for an unrelated second reason.
+>
+> So do **not** carry `56c452e3…` across a rebase. After rebasing onto bug-483,
+> re-derive the baseline from the new merge-base and re-run the comparison; this
+> letter's fix should show 0 diffs on tcp/udp against the *corrected* goldens, and
+> if it does not, that is real and is this letter's.
 
 **C7 — §2's "`type_is_flat(Res(File))` is `true` today" is right about the type
 and WRONG about the collection, and my own Correction C3 inherited the error.**
