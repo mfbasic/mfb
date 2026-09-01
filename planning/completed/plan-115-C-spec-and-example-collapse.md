@@ -354,6 +354,24 @@ assume it", as the plan's Validation Plan asks. **0 diffs** confirms this letter
 changed no compiler behavior — its only `src/` edits are Markdown spec pages and
 two `&'static str` doc fields.
 
+**Post-merge re-verification (main had advanced).** `main` gained three canvas
+commits (`ae29d21a1`, `5b5538116`, `ee12c1bf7`) while this plan ran. Merged into
+`worktree-P-115` cleanly — no conflicts, no overlap with this plan's files — and
+the gates re-run on the merged tree:
+
+| Gate (post-merge) | Result |
+| --- | --- |
+| `scripts/test-accept.sh` | **passed, 1346 ran, 0 mismatches** |
+| `cargo test --no-fail-fast` | 86 suites ok; `golden.rs` failed **on a lock collision only** |
+| `cargo test --test golden` (uncontended re-run) | **ok** — `1823 golden(s) checked, 0 diff(s)` |
+
+The `golden.rs` failure was the harness reporting its own contention verbatim:
+`artifact-gate.sh could not START: another gate run holds the lock. This is NOT a
+golden regression -- nothing was checked.` The named pid was already gone; the
+uncontended re-run passes. Two independent lock collisions occurred while
+finishing this letter (this one and a `test-accept` `EXIT=98`), both from
+overlapping my own background runs — each re-run clean rather than re-baselined.
+
 **One flake, root-caused rather than re-baselined.** An earlier full acceptance
 run reported 2 mismatches, both `missing actual` for
 `rt-behavior/tcp/tcp-readtimeout-convention-rt`. That run was launched
