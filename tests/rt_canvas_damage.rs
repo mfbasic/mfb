@@ -259,8 +259,8 @@ IMPORT io
 IMPORT os
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
   canvas::present([box])
   os::sleep(150)
   ' Before anything resizes: the surface has been its size since it existed, so there
