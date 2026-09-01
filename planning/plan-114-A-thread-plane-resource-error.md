@@ -579,7 +579,12 @@ bug-483: bug-480 Phase 4b package-qualified the builtin value types, and
 silently switched to the inlined-String record layout while its runtime helper
 still writes an absolute pointer. Independently bisected by the session working
 bug-483 to first-bad-commit `363b85696`, with every commit from there to main tip
-bad; their fix is `fdac03c3c` on `worktree-B-483`.
+bad. The fix is tracked by **`bugs/completed/bug-483-*.md`**, whose STATUS block
+names the landed sha — cited that way deliberately rather than by commit, because
+at the time of writing the fix is on `worktree-B-483` and not yet on main, and its
+sha may still move (its own artifact-gate run is expected to require regenerating
+goldens that were regenerated *after* the regression landed, `a243ee742` /
+`8b27c8a11`, and so encode the broken layout).
 
 *Why it is not this letter's.* The build succeeds in both fixtures — the panic is
 in `read_bound_line`, well past `expect("build output executable path")` — so the
