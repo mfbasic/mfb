@@ -1199,9 +1199,13 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(_, _)) {
         return true;
     }
+    // Both spellings, via `is_builtin_named`: a source `AS net::Address`
+    // resolves to the qualified `net.Address`, and matching only the bare leaf
+    // left this rule looking for a name nothing produces any more — so
+    // `net::Address["1.2.3.4", 80]` compiled and ran (bug-483).
     crate::codegen::builtins::term::is_read_only_record(type_)
-        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
-        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
+        || type_.is_builtin_named("net", crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_builtin_named("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).

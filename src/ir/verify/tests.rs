@@ -8467,3 +8467,35 @@ fn accepts_a_body_that_returns_before_its_trap() {
     let got = rules(&project(vec![f], vec![]));
     assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
 }
+
+/// bug-483 sub-issue B: the compiler-owned records a program may neither
+/// construct nor `WITH`-update are recognised by NAME, and bug-480 Phase 4b made
+/// a builtin value type's declared identity package-qualified. Matching only the
+/// bare leaf left the rule looking for a spelling nothing produces any more, so
+/// `net::Address["1.2.3.4", 80]` compiled and ran — silently handing a program a
+/// record whose layout only the runtime helpers are allowed to write.
+///
+/// Both spellings must be refused: a source `AS net::Address` resolves to the
+/// qualified id, while a record FIELD type still arrives bare.
+#[test]
+fn read_only_records_are_refused_under_either_spelling() {
+    for name in [
+        "Address",
+        "net.Address",
+        "AudioDevice",
+        "audio.AudioDevice",
+        "TermColor",
+        "term.TermColor",
+        "TermSize",
+        "term.TermSize",
+    ] {
+        assert!(
+            super::read_only_record_type(&ParameterType::declared(name)),
+            "`{name}` must stay a read-only compiler-owned record (bug-483)"
+        );
+    }
+    // An ordinary record is still constructible.
+    assert!(!super::read_only_record_type(&ParameterType::declared(
+        "net.Url"
+    )));
+}
