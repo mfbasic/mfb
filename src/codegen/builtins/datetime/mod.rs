@@ -704,9 +704,15 @@ mod tests {
             registry::resolve_call(call, &types, false)
         };
         assert_eq!(r("datetime.now", &[]), Some("datetime.Instant".into()));
-        assert_eq!(r("datetime.monotonic", &[]), Some("datetime.Duration".into()));
+        assert_eq!(
+            r("datetime.monotonic", &[]),
+            Some("datetime.Duration".into())
+        );
         assert_eq!(r("datetime.utc", &[]), Some("datetime.Zone".into()));
-        assert_eq!(r("datetime.instant", &["Integer"]), Some("datetime.Instant".into()));
+        assert_eq!(
+            r("datetime.instant", &["Integer"]),
+            Some("datetime.Instant".into())
+        );
         assert_eq!(
             r(
                 "datetime.instant",
@@ -726,7 +732,10 @@ mod tests {
             r("datetime.time", &["Integer", "Integer"]),
             Some("datetime.Time".into())
         );
-        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("datetime.Zone".into()));
+        assert_eq!(
+            r("datetime.fixedOffset", &["Integer"]),
+            Some("datetime.Zone".into())
+        );
         assert_eq!(
             r("datetime.inZone", &["Instant", "Zone"]),
             Some("datetime.DateTime".into())

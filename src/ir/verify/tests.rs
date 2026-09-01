@@ -7975,6 +7975,9 @@ fn rejects_transfer_on_a_thread_without_a_resource_plane() {
 /// `List OF RES fs.File` satisfies both yet carries sender-owned pointers.
 #[test]
 fn rejects_unsendable_resource_plane_state_payload() {
+    // plan-114-A: the payload is deep-copied DATA riding the resource plane, so
+    // the resource inside it is on a data plane and the rejection names the
+    // plane remedy (`2-203-0138`) rather than the generic unsendable rule.
     let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
     let f = func(
         "worker",
@@ -7985,7 +7988,10 @@ fn rejects_unsendable_resource_plane_state_payload() {
         )],
         vec![ret(int_const("0"))],
     );
-    expect_rule(&project(vec![f], vec![holder]), "TYPE_THREAD_NOT_SENDABLE");
+    expect_rule(
+        &project(vec![f], vec![holder]),
+        "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+    );
 
     // A STATE of plain sendable fields is accepted — the rule rejects the
     // unsendable payload, not stateful planes generally.
@@ -8001,7 +8007,8 @@ fn rejects_unsendable_resource_plane_state_payload() {
     );
     let got = rules(&project(vec![f], vec![plain]));
     assert!(
-        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        !got.iter()
+            .any(|r| r == "TYPE_THREAD_NOT_SENDABLE" || r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
         "{got:?}"
     );
 }
@@ -8034,12 +8041,24 @@ fn rejects_a_non_resource_on_the_resource_plane() {
 #[test]
 fn rejects_a_resource_in_the_message_plane() {
     // The data plane is resource-free (§7): a resource rides the `RES` plane.
+    // plan-114-A gives that its own rule, since the remedy is nameable.
     let f = func(
         "run",
         vec![param("t", "Thread OF fs.File TO Integer", None)],
         vec![ret(int_const("0"))],
     );
-    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter()
+            .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+        "{got:?}"
+    );
+    // One mistake, one diagnostic: the plane rule and the sendability rule are
+    // mutually exclusive, so the generic rule must NOT also fire here.
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "both rules fired for one cause: {got:?}"
+    );
 }
 
 #[test]
@@ -8054,6 +8073,230 @@ fn accepts_a_sendable_thread_message() {
         !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
         "{got:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// plan-114-A — the thread-unsendability CAUSE walk.
+//
+// `thread_unsendable_cause` is the single walk; "is it sendable" is `.is_none()`
+// on it. These assert the walk's classification directly, so a future edit that
+// makes it disagree with the rule it feeds is caught here rather than as a
+// silently-missing diagnostic downstream.
+// ---------------------------------------------------------------------------
+
+/// Build the checker's type environment over a project fixture, so the cause
+/// walk can be asked about a type directly.
+fn type_env(project: &IrProject) -> super::TypeEnv {
+    super::TypeEnv::build(project)
+}
+
+/// The cause the walk reports for `spelling`, given `types` are declared.
+fn cause_for(types: Vec<IrType>, spelling: &str) -> Option<super::resources::Unsendable> {
+    let f = func("run", vec![], vec![ret(int_const("0"))]);
+    let project = project(vec![f], types);
+    let env = type_env(&project);
+    env.thread_unsendable_cause(
+        &ParameterType::parse(spelling),
+        &mut std::collections::HashSet::new(),
+    )
+}
+
+#[test]
+fn cause_walk_reports_a_res_marked_element_as_a_resource() {
+    // `RES fs.File` in a collection: the §15.6 case. The reported leaf is the
+    // `RES`-marked element itself, not the enclosing `List`.
+    let cause = cause_for(vec![], "List OF RES fs.File");
+    assert_eq!(
+        cause,
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        )),
+        "expected the RES element as the blocking leaf"
+    );
+}
+
+#[test]
+fn cause_walk_reports_a_res_map_value_through_both_positions() {
+    // The Map arm reports key first, then value; only the value blocks here.
+    let cause = cause_for(vec![], "Map OF String TO RES fs.File");
+    assert_eq!(
+        cause,
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_accepts_a_sendable_bare_resource_but_rejects_an_unsendable_one() {
+    // A bare resource nominal is judged by its registered sendability, NOT by
+    // being a resource: `fs.File` is `sendable: true`
+    // (src/codegen/builtins/fs/mod.rs), `process.Process` is `sendable: false`
+    // (src/codegen/builtins/process/mod.rs). This is why the bare-resource
+    // DATA-plane rejection cannot come from this walk — see the plane rule in
+    // `check_thread_sendability`.
+    //
+    // Both spellings are package-qualified because that is the only form the
+    // resource tables answer to: `registry().resolve_type` splits on the `.`
+    // (src/codegen/registry/mod.rs:1372), so a bare `Process` resolves to
+    // nothing and reads as an unknown name — which is vacuously sendable.
+    assert_eq!(cause_for(vec![], "fs.File"), None, "fs.File is sendable");
+    assert_eq!(
+        cause_for(vec![], "process.Process"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("process.Process")
+        )),
+        "process.Process is not thread-sendable"
+    );
+    // The unqualified spelling is not a resource as far as the tables are
+    // concerned. Pinned so the contrast above is not mistaken for a typo.
+    assert_eq!(cause_for(vec![], "Process"), None);
+}
+
+#[test]
+fn cause_walk_reports_func_and_thread_handle_as_other_not_resource() {
+    // These are genuinely unsendable — no resource plane exists to move them
+    // to — so they must NOT be classified as a plane mix-up.
+    assert_eq!(
+        cause_for(vec![], "FUNC(Integer) AS String"),
+        Some(super::resources::Unsendable::Other(ParameterType::parse(
+            "FUNC(Integer) AS String"
+        )))
+    );
+    assert_eq!(
+        cause_for(vec![], "Thread OF String TO Integer"),
+        Some(super::resources::Unsendable::Other(ParameterType::parse(
+            "Thread OF String TO Integer"
+        )))
+    );
+}
+
+#[test]
+fn cause_walk_descends_into_a_record_field_and_names_the_leaf() {
+    // The nested case behind `rejects_unsendable_resource_plane_state_payload`:
+    // the record itself is not a resource, so the cause must come from the
+    // field, and the reported leaf must be the field's element — not `Holder`.
+    let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
+    assert_eq!(
+        cause_for(vec![holder], "Holder"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_reports_the_first_blocking_field_left_to_right() {
+    // Determinism: two blocking fields, and the FIRST is reported. Without this
+    // the emitted message would depend on field-map iteration order.
+    let holder = record_typed(
+        "Holder",
+        &[
+            ("ok", "Integer"),
+            ("first", "List OF RES fs.File"),
+            ("second", "FUNC(Integer) AS String"),
+        ],
+    );
+    assert_eq!(
+        cause_for(vec![holder], "Holder"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_accepts_every_plain_sendable_shape() {
+    // The regression guard for the refactor: the walk must still say `None`
+    // for everything that crossed a boundary before it existed.
+    let holder = record_typed("Holder", &[("count", "Integer"), ("label", "String")]);
+    for spelling in [
+        "Integer",
+        "String",
+        "Boolean",
+        "Byte",
+        "Float",
+        "Fixed",
+        "Money",
+        "Nothing",
+        "List OF Integer",
+        "Set OF String",
+        "Map OF String TO Integer",
+        "Result OF Integer",
+        "Error",
+        "ErrorLoc",
+        "Scalar",
+        "AttributedString",
+        "Holder",
+    ] {
+        assert_eq!(
+            cause_for(vec![holder.clone()], spelling),
+            None,
+            "`{spelling}` must stay sendable"
+        );
+    }
+}
+
+#[test]
+fn the_resource_plane_keeps_the_generic_unsendable_rule() {
+    // plan-114-A C3: a resource plane naming a resource that is not registered
+    // thread-sendable is NOT a plane mix-up — it is already on the right plane.
+    // Emitting `2-203-0138` here would tell the author to move it to the plane
+    // it is on, so the resource plane keeps `2-203-0063`.
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES process.Process TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
+    assert!(
+        !got.iter()
+            .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+        "the resource plane must not get the data-plane remedy: {got:?}"
+    );
+}
+
+#[test]
+fn func_and_thread_handle_planes_keep_the_generic_unsendable_rule() {
+    // The other half of the split: a genuinely unsendable type has no resource
+    // plane to be moved to, so it must keep `2-203-0063` and never get the
+    // resource remedy.
+    for spelling in [
+        "Thread OF FUNC(Integer) AS String TO Integer",
+        "Thread OF ThreadWorker OF Integer TO Integer TO Integer",
+    ] {
+        let f = func(
+            "run",
+            vec![param("t", spelling, None)],
+            vec![ret(int_const("0"))],
+        );
+        let got = rules(&project(vec![f], vec![]));
+        assert!(
+            got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+            "`{spelling}`: {got:?}"
+        );
+        assert!(
+            !got.iter()
+                .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+            "`{spelling}` is not a plane mix-up: {got:?}"
+        );
+    }
+}
+
+#[test]
+fn cause_walk_terminates_on_a_self_referential_record() {
+    // The cycle guard: `seen` must still stop the walk now that the `all(..)`
+    // fold became a `find_map`.
+    let node = record_typed("Node", &[("next", "Node"), ("label", "String")]);
+    assert_eq!(cause_for(vec![node], "Node"), None);
 }
 
 // ---------------------------------------------------------------------------

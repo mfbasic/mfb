@@ -363,7 +363,37 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (pre-execution, carried in from a peer session) — `is_pointer_string_record`
+is name-keyed on the BARE leaf and is a live miscompile on main (bug-483).**
+`type_is_flat_inner` calls `is_pointer_string_record(type_)`
+(`builder_collection_layout.rs:2713`), whose body is a literal match on
+`"Address" | "Datagram" | "DatagramText" | "AudioDevice"` (`:2632-2635`).
+bug-480 Phase 4b package-qualified the builtin value types (`Address` became
+`net.Address`), and this predicate was not updated — so those records silently
+switched to the inlined-String record layout while their runtime helpers still
+write absolute pointers, and reading `.host`/`.name` off one SIGSEGVs. Reported
+by the session working bug-483; it hits `net::lookup`,
+`tcp`/`udp`/`tls::localAddress`/`remoteAddress`, `udp::receive` and
+`audio::devices` on current main.
+
+Two consequences for this letter, neither of which changes its design:
+
+1. **Do not write a new literal name match anywhere in the split.** bug-483's fix
+   adds `ParameterType::is_builtin_named(package, leaf)` in `src/types.rs`, which
+   accepts both spellings. Reuse it. If bug-483 has landed by the time this letter
+   runs, take its `is_pointer_string_record` verbatim and rebase; this letter
+   changes only the *callers* of that function, never its body, so the conflict
+   is confined to one function.
+2. **It is the precedent for why §4.1's resource arms must be explicit.** bug-483
+   is the same failure mode one level down: a predicate that answers by *falling
+   through to a default* rather than by a stated arm silently gives the wrong
+   answer for a value that arrived by the other route. §2 already records that
+   `type_is_flat(Res(File))` is `true` today "incidentally rather than by
+   decision" — bug-483 is what that costs when it happens to be the wrong
+   default. Both predicates get a written `Res(_)` arm and a written
+   bare-resource arm for this reason, not for tidiness.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 

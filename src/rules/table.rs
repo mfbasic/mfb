@@ -738,6 +738,18 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand",
     },
+    // plan-114-A: a resource that reaches a thread's DATA plane is a plane
+    // mix-up with a specific remedy — declare it on the `RES` plane and move it
+    // with `thread::transfer`/`thread::accept` (§15.6, §16). It is split out of
+    // 2-203-0063 TYPE_THREAD_NOT_SENDABLE, which still reports every genuinely
+    // unsendable type (`Func`, `ThreadHandle`) and every rejection on the
+    // resource plane itself, where no plane remedy exists to point at.
+    Rule {
+        code: "2-203-0138",
+        name: "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+        severity: Severity::Error,
+        message: "a resource cannot cross the thread data plane",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for

@@ -356,7 +356,74 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (Phase 1, answered ahead of schedule while waiting on letter A's test run)
+— what the owned-list machinery reads from `type_`.**
+Read all three functions. The plan's "the owned-list is representation-independent"
+claim holds for two of them and fails for the third, which is the one Phase 3 task:
+
+| Function | Reads from `type_`? | Verdict |
+|---|---|---|
+| `emit_owned_list_push` (`cleanup/owned/builder_owned_cleanup.rs:61-95`) | **nothing** — takes `collection: &str` and `resource_slot: usize`, looks the head up in `owned_list_heads` by name, allocates a 16-byte `{ptr, next}` node | representation-independent ✓ |
+| `emit_owned_list_drain` (`:141-…`) | **nothing** — takes an `OwnedListCleanup` and reads only `head_slot` and `drop` | representation-independent ✓ |
+| `setup_owned_list` (`:10-28`) | **yes, via one call**: `self.collection_resource_drop(type_)?` | **collection-specific — the Phase 3 task** |
+
+`collection_resource_drop` (`resource/cleanup/builder_resource_cleanup.rs:591-613`)
+opens with:
+
+```rust
+let element = typed_list_element_type(type_)
+    .or_else(|| typed_map_type_parts(type_).map(|(_, value)| value))
+    .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
+```
+
+so a record binding hits that `ok_or_else` and `setup_owned_list` returns `Err`.
+Phase 3's named scope is therefore exactly: **give
+`collection_resource_drop` a record arm** that derives the `OwnedListDrop` from
+the record's resource-typed field instead of its element type. Everything else in
+the owned-list path already works for a record binding unchanged.
+
+One design question the plan does not raise, surfaced by this read: `OwnedListDrop`
+is a *single* drop per owned-list (`Concrete(symbol)` or `Union{..}`), because a
+collection has one uniform element type. A record may declare **several** `RES`
+fields of **different** resource types, which one owned-list cannot express. Phase 3
+must decide between (a) one owned-list per resource-typed field, keyed
+`<binding>.<field>`, or (b) a per-node drop symbol stored in the node. Resolve it
+in Phase 3 with a written decision; do not let a multi-`RES`-field record reach
+codegen undecided, because the failure mode is closing a handle with the wrong
+close op.
+
+**C2 (Phase 1) — the ordering gate DOES need a type table; the Open Decision is
+closed in favour of the plan's recommendation.**
+The bug-291 gate's phase-1 skip consults `decl_type` through
+`is_res_marked_resource_collection` (`src/ir/resource_escape.rs:428-436`, helper at
+`:490-497`), whose whole body is:
+
+```rust
+match type_ {
+    ParameterType::ListOf(element) => matches!(element.as_ref(), ParameterType::Res(_)),
+    ParameterType::MapOf(_, value)  => matches!(value.as_ref(), ParameterType::Res(_)),
+    _ => false,
+}
+```
+
+For a record binding `decl_type` yields `Named("Holder")`, which falls to `_ =>
+false`. So a returned record declared after the resource it carries would
+`continue` past the `blocked_by_order` assignment, leave `blocked_by_order` as
+`None`, and land in the `None => ResOwner::Local` arm — **silently degrading to
+`Local`**, which is precisely the bug-291 miscompile the gate exists to prevent
+(a returned handle the function already closed and the caller closes again).
+
+`Named("Holder")` cannot answer "does this record have a `RES` field" on its own,
+so the gate needs the record's field list. Take the plan's recommendation: thread
+an optional record-types-carrying-a-`RES`-field set into `analyze_function`,
+populated at its one production call site (`src/ir/lower.rs:537`) and defaulted to
+empty for the `#[cfg(test)]` callers. The alternative ("key the gate purely on
+'this routing carried a `RES` element'") is rejected on the evidence above: the
+gate's *purpose* at that point is to distinguish "unsupportable ordering" from
+"already rejected elsewhere for a missing marker", and only the type table can
+tell those apart.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 

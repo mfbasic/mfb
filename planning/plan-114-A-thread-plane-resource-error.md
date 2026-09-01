@@ -275,47 +275,85 @@ and nothing more.
 
 Acceptance: every contrast-matrix row matches, and the fixture golden reads
 `TYPE_THREAD_NOT_SENDABLE`. **MET** (see Corrections C2).
-Commit: (recorded in the next commit)
+Commit: 78e83a1e8
 
 ### Phase 2 — Cause walk (no behavior change)
 
 Refactor only: one walk, two entry points. The nine existing assertions prove it.
 
-- [ ] Add `Unsendable` and `thread_unsendable_cause` in `src/ir/verify/resources.rs`,
-      mirroring `is_thread_sendable`'s arms per §4.2.
-- [ ] Reduce `is_thread_sendable` to `thread_unsendable_cause(t).is_none()`. Delete
-      the old body — do not leave two walks.
-- [ ] Tests: in `src/ir/verify/tests.rs`, add a case per cause asserting the
+- [x] Add `Unsendable` and `thread_unsendable_cause` in `src/ir/verify/resources.rs`,
+      mirroring `is_thread_sendable`'s arms per §4.2. Added `Plane` alongside them
+      (Corrections C3), and `Unsendable::leaf()`.
+- [x] ~~Reduce `is_thread_sendable` to `thread_unsendable_cause(t).is_none()`.~~
+      **Deleted outright instead** — once `require_thread_sendable` reads the cause,
+      nothing called the boolean, and `cargo check --all-targets` reported
+      `method is_thread_sendable is never used`. A `pub(super)` wrapper kept only
+      for a later letter is the dead code AGENTS.md forbids. Its doc comment (the
+      per-arm contract) was moved onto `thread_unsendable_cause`, which is now the
+      single walk — the anti-divergence intent of the task is met more strongly by
+      there being exactly one entry point, not two.
+- [x] Tests: in `src/ir/verify/tests.rs`, add a case per cause asserting the
       returned `Unsendable` variant and leaf type — `Res(fs.File)` element,
       bare `fs.File` nominal, `Func`, `ThreadHandle`, and the nested
       record-field case from `rejects_unsendable_resource_plane_state_payload`.
+      Eight `cause_walk_*` tests, plus two added beyond the plan: first-blocking-field
+      determinism (the `all(..)`→`find_map` change makes order observable) and
+      cycle-guard termination.
+- [x] Added task: pin that the **resource plane** keeps `2-203-0063`
+      (`the_resource_plane_keeps_the_generic_unsendable_rule`) and that a `Func`
+      or thread-handle plane never gets the resource remedy
+      (`func_and_thread_handle_planes_keep_the_generic_unsendable_rule`). These are
+      the RED guard for Corrections C3 — without them the plane split is untested.
 
 Acceptance: all 9 pre-existing `TYPE_THREAD_NOT_SENDABLE` assertions in
 `src/ir/verify/tests.rs` still pass **unmodified**, and the new cause tests pass.
-`cargo check --all-targets` clean.
-Commit: —
+`cargo check --all-targets` clean. **MET, with the scope note in Corrections C5**:
+7 of the 9 pass unmodified; the 2 that changed are precisely the two resource-cause
+assertions §1 requires to move to the new rule, and Phase 3 owns that flip. The
+refactor alone was proven neutral before the rule was wired.
+`cargo check --all-targets` clean (one dead-code warning, resolved by the deletion
+above).
+Commit: 4ac6c2b (see Phase 3 — Phases 2 and 3 landed as one commit, Corrections C5)
 
 ### Phase 3 — Emit the dedicated rule
 
-- [ ] Add `2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` to `src/rules/table.rs` per §4.1.
-- [ ] Split `require_thread_sendable` to emit by cause (§4.1 message shape).
-- [ ] Add the row to `src/docs/spec/diagnostics/01_rule-codes.md` (the table around
+- [x] Add `2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` to `src/rules/table.rs` per §4.1.
+- [x] Split `require_thread_sendable` to emit by cause (§4.1 message shape), gated
+      on `Plane::Data` per Corrections C3, and convert the two bespoke bare-resource
+      blocks per Corrections C4.
+- [x] Add the row to `src/docs/spec/diagnostics/01_rule-codes.md` (the table around
       `:446`, in code order) and cross-reference it from
       `src/docs/spec/language/15_resource-management.md` §15.6 where "Sharing a
-      resource collection across threads remains out of scope" is stated, and from
+      resource collection across threads is out of scope" is stated, and from
       `src/docs/spec/language/16_threads.md` at the data-plane/`RES`-plane split.
-- [ ] Update the Phase 1 fixture golden to `2-203-0138`.
-- [ ] Check the two existing golden `build.log`s (§2) and regenerate **only** those
+      §16 also gained the sentence that the resource plane keeps `2-203-0063` (C3).
+- [x] Update the Phase 1 fixture golden to `2-203-0138`
+      (`scripts/sync-goldens.sh target/release/mfb 'thread-res-collection-plane-invalid'`
+      reported `synced 1 golden file(s) across 1 test(s)`). All three of its `FUNC`s moved.
+- [x] Check the two existing golden `build.log`s (§2) and regenerate **only** those
       whose cause is a resource. If a `Func`/`ThreadHandle` fixture churns, stop
-      and fix the cause walk.
-- [ ] Tests: flip the resource-cause assertions in `src/ir/verify/tests.rs` to the
+      and fix the cause walk. **Neither churned** — both `func_thread_send_invalid`
+      and `func_thread_start_invalid` reject `BadMessage`, a record whose field is
+      `Thread OF String TO Integer`, an `Other` cause. Measured on each:
+      `mfb build -ast -ir <fixture> | grep -c TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
+      gave `0`, and `grep -c 2-203-0063` gave `2`. The canary held.
+- [x] Tests: flip the resource-cause assertions in `src/ir/verify/tests.rs` to the
       new rule name; keep `Func`/`ThreadHandle` on `TYPE_THREAD_NOT_SENDABLE`.
+      Exactly two flipped — `rejects_a_resource_in_the_message_plane` and
+      `rejects_unsendable_resource_plane_state_payload` — which are §1's shapes 1
+      and 3. The first also now asserts the generic rule does **not** also fire,
+      pinning the C4 mutual-exclusion contract.
 
 Acceptance: a source program putting a resource on any of the three plane shapes
 (bare nominal, `RES` collection element, resource nested in a record field) fails
 with `2-203-0138` naming the resource; a `Func`-planed program still fails with
-`2-203-0063`. `mfb man`/spec rule table lists `2-203-0138`.
-Commit: —
+`2-203-0063`. `mfb man`/spec rule table lists `2-203-0138`. **MET** — all three
+shapes verified: bare nominal and record-field by the two flipped unit tests, the
+`RES` collection element by the re-goldened source fixture. The `Func` plane is
+verified by the two unchanged canary goldens plus
+`func_and_thread_handle_planes_keep_the_generic_unsendable_rule`, and
+`mfb spec diagnostics rule-codes | grep -c 2-203-0138` gave `1`.
+Commit: PHASE3HASH
 
 ## Validation Plan
 
@@ -465,6 +503,103 @@ neighbouring `require_thread_sendable` are made **mutually exclusive**: when the
 plane type is itself a bare resource the bespoke plane rule fires alone. For a
 *non-sendable* bare resource on a message plane this reduces two diagnostics to
 one; the set of rejected programs is unchanged, which is §1's non-goal.
+
+**C5 — Phases 2 and 3 landed as one commit, and `is_thread_sendable` was deleted
+rather than reduced to a wrapper.**
+Two deviations from the phase plan, both forced by what the refactor turned out
+to be:
+
+1. *The phases could not be separated by a commit boundary.* Phase 2 was written
+   as "refactor only, no behavior change", with Phase 3 flipping the rule. But
+   `require_thread_sendable` is the **only** caller of the walk, so the moment it
+   reads a cause instead of a boolean it must decide which rule to emit — there
+   is no intermediate state that both compiles and changes nothing. The
+   neutrality Phase 2 exists to prove was still obtained, in this order: the walk
+   was written and the eight `cause_walk_*` tests were made green *before* the
+   rule was wired, and the full `ir::verify` suite (443 tests) was run at that
+   point. It reported exactly two failures, and they were the two assertions §1
+   names as required to move. Nothing else in the suite noticed the refactor,
+   which is the evidence Phase 2's acceptance was asking for.
+
+2. *`is_thread_sendable` is deleted, not kept as a one-line wrapper.* With
+   `require_thread_sendable` on the cause, nothing called the boolean;
+   `cargo check --all-targets` reported `method is_thread_sendable is never
+   used`. Keeping a `pub(super)` predicate alive for a possible future letter is
+   precisely the dead code AGENTS.md forbids, and the plan's own instruction was
+   "do not leave two walks" — one entry point satisfies that more strongly than
+   two. The per-arm contract from its doc comment was moved onto
+   `thread_unsendable_cause` so nothing was lost.
+
+**C6 — the resource tables only answer to a package-qualified spelling.**
+Found while writing the cause tests: `registry().resolve_type` splits its
+argument on the first `.` (`src/codegen/registry/mod.rs:1372`), so `close_op_for`
+and `is_resource_sendable` see `process.Process` as a resource and a bare
+`Process` as an unknown name — which the walk treats as vacuously sendable. This
+is correct for the checker (IR always carries qualified names) but it is a live
+trap for anyone writing a test with a hand-spelled type, and it is why the first
+version of `cause_walk_accepts_a_sendable_bare_resource_but_rejects_an_unsendable_one`
+failed with `left: None`. Both spellings are now pinned in that test so the
+contrast cannot be mistaken for a typo. No production code changed for this.
+
+**C7 — the full `cargo test` ends `CARGO_EXIT=101` with exactly 2 failures, and
+both are bug-483, pre-existing on main.**
+`cargo test --no-fail-fast` over the whole tree: 79 suites green, 2 failed.
+
+    tests/rt_tls_listener_local_address.rs:188
+      tls_local_address_reports_the_port_a_listener_bound_to
+    tests/rt_tls_listener_thread_transfer.rs:192
+      a_transferred_tls_listener_accepts_on_the_receiving_thread
+
+Both assert `unexpected first line from the TLS server: ""`.
+
+*Attribution, measured here rather than assumed.* Both fixtures' generated server
+has the same first output statement (`…local_address.rs:139`,
+`…thread_transfer.rs:139`):
+
+```basic
+io::print("bound " & bound.host & " " & toString(bound.port))
+```
+
+`bound.host` is a `net::Address` String field. I reduced it to a program with
+**no thread, no resource plane and no record field** — nothing this letter can
+reach — built it with this worktree's binary, and ran it:
+
+```
+$ target/release/mfb build /tmp/p114-tls      # builds clean, no diagnostic
+Wrote executable to /tmp/p114-tls/build/tlsprobe.out
+$ /tmp/p114-tls/build/tlsprobe.out
+about to read .host
+bound  60607
+=== exit=138 ===
+```
+
+The host is **empty** and the process dies (138 = 128+10, SIGBUS). That is
+bug-483: bug-480 Phase 4b package-qualified the builtin value types, and
+`is_pointer_string_record` still matched only the bare leaf, so `net.Address`
+silently switched to the inlined-String record layout while its runtime helper
+still writes an absolute pointer. Independently bisected by the session working
+bug-483 to first-bad-commit `363b85696`, with every commit from there to main tip
+bad; their fix is `fdac03c3c` on `worktree-B-483`.
+
+*Why it is not this letter's.* The build succeeds in both fixtures — the panic is
+in `read_bound_line`, well past `expect("build output executable path")` — so the
+verifier accepted both programs and no diagnostic of this letter's fired. This
+letter touches `src/ir/verify/resources.rs`, `src/rules/table.rs`, two spec files,
+`src/ir/verify/tests.rs` and one syntax golden; none of them reaches codegen,
+record layout, or `net`/`tls`.
+
+*One thing this does NOT prove, recorded so a later reader does not over-read it.*
+`rt_tls_listener_thread_transfer` does exercise a thread **resource** plane
+(`Thread OF RES tls::Listener TO Integer`), which is a path this letter touched.
+But it dies at line 139, in `main`, **before** `thread::transfer` is ever called —
+so its failure is no evidence about the resource plane, and its passing once
+bug-483 lands will not be evidence either. The resource-plane behaviour is covered
+by `the_resource_plane_keeps_the_generic_unsendable_rule` instead, which asserts it
+directly.
+
+Not fixed here: bug-483 is already filed, already root-caused, and already fixed
+on another branch. Re-fixing it in this worktree would duplicate and conflict with
+landed work. Letter B rebases onto it (see plan-114-B Corrections C1).
 
 ## Summary
 
