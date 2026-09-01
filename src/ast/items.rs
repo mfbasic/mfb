@@ -359,7 +359,25 @@ impl<'a> FileParser<'a> {
         if !self.consume_keyword(Keyword::As, "Field declarations must include an `AS` type.") {
             return None;
         }
+        // plan-114-D: a field type may carry the `RES` ownership marker
+        // (`handle AS RES fs::File`, §15.6). The slot holds a copy of the one
+        // handle pointer, exactly as a collection element's does, and it is
+        // governed by the same two marker rules in `ir::verify`
+        // (`TYPE_RESOURCE_REQUIRES_RES` / `TYPE_RES_REQUIRES_RESOURCE`).
+        //
+        // Same shape as the `List OF RES …` element arm (`expr.rs:775`): match the
+        // marker, parse the type, then fold an optional ` STATE T` clause into the
+        // type string. The marker is a prefix on the rendered type so that
+        // `ParameterType::parse` yields `Res(inner)` — the one type grammar stays
+        // the only parser of it.
+        let field_res = self.match_keyword(Keyword::Res);
         let type_name = self.parse_type_name()?;
+        let type_name = self.parse_optional_field_state(type_name, field_res)?;
+        let type_name = if field_res {
+            format!("RES {type_name}")
+        } else {
+            type_name
+        };
         self.consume_statement_end("Expected end of statement after field declaration.");
         Some(TypeField {
             visibility,
@@ -367,6 +385,37 @@ impl<'a> FileParser<'a> {
             type_name,
             line,
         })
+    }
+
+    /// A record field's optional ` STATE T` clause (plan-114-D).
+    ///
+    /// Rejected for now, in both directions and for different reasons:
+    ///
+    /// * on a **non-`RES`** field the clause is meaningless — `STATE` rides a
+    ///   resource, so a data field cannot carry one. This mirrors
+    ///   `parse_optional_element_state`'s rule for a collection element and is
+    ///   permanent.
+    /// * on a **`RES`** field it is well-formed and simply not wired up yet: the
+    ///   field read would have to yield the `RES`-stripped type for
+    ///   `.state()` to see the clause, which is plan-114-E's one load-bearing
+    ///   change. Rejected explicitly rather than parsed-and-ignored, because
+    ///   silently dropping a `STATE` clause would type `h.handle.state` as "no
+    ///   such field" with no hint that the clause was the problem.
+    fn parse_optional_field_state(&mut self, field: String, field_res: bool) -> Option<String> {
+        if !self.check_identifier_ci("STATE") {
+            return Some(field);
+        }
+        let token = self.peek().clone();
+        let detail = if field_res {
+            "A `STATE` clause on a record field is not supported yet; bind the \
+             handle first (`RES f AS fs::File STATE Cursor = h.handle`) and read \
+             `f.state`."
+        } else {
+            "A `STATE` clause requires a `RES` record field; a non-resource field \
+             cannot carry state."
+        };
+        self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+        None
     }
 
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {
