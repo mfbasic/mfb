@@ -355,7 +355,8 @@ cross-build-plus-codegen-inspection only, so **no Windows binary this repo produ
 ever been executed by a test.** Implementing the Vulkan half against an unmeasurable
 oracle would produce exactly the "reports success, renders nothing" result both
 `*Renderable` predicates exist to prevent. See Correction 15.
-Commit: —
+Commit: — (superseded; this note is history. Phase 3's live `Commit:` line is the one
+above the two blocking notes, and carries `25bb3c5e0`.)
 
 ## Validation Plan
 
