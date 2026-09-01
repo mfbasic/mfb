@@ -1,0 +1,55 @@
+{
+  "project": "self_is_an_ordinary_identifier",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "self",
+      "line": 17,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 17 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "2" } }, "line": 18 }
+      ]
+    },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "selfCount", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 22 },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Holder",
+      "line": 24,
+      "fields": [
+      { "visibility": null, "name": "self", "type": "Integer", "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 29,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "self", "type": "Integer", "value": { "kind": "number", "value": "21" }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "updated", "type": "Holder", "value": { "kind": "with", "target": { "kind": "identifier", "value": "h" }, "updates": [{ "field": "self", "value": { "kind": "number", "value": "8" } }] }, "line": 34 },
+      { "kind": "assignment", "name": "selfCount", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "self" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "updated" }, "member": "self" } }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "self=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "self" }] } }, "right": { "kind": "string", "value": " field=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "updated" }, "member": "self" }] } }, "right": { "kind": "string", "value": " count=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "selfCount" }] } }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

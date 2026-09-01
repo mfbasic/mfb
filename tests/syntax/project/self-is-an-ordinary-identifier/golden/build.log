@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/project/self-is-an-ordinary-identifier
+Wrote AST to tests/syntax/project/self-is-an-ordinary-identifier/self_is_an_ordinary_identifier.ast
+Wrote IR to tests/syntax/project/self-is-an-ordinary-identifier/self_is_an_ordinary_identifier.ir
+[exit 0]

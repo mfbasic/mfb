@@ -1,0 +1,24 @@
+' plan-115-A: the guardrail proving ISOLATED did not become universally legal.
+'
+' plan-115-A lifted the VISIBILITY half of TYPE_ISOLATED_NOT_VISIBLE (2-203-0113)
+' -- a PRIVATE ISOLATED FUNC is now valid, pinned by the sibling fixture
+' private_isolated_func_valid. The DECLARATION-FORM half is untouched: ISOLATED
+' marks a thread entry, a SUB produces no value and can never be one.
+'
+' NOTE ON WHAT THIS FIXTURE ACTUALLY PINS. From source, `ISOLATED SUB` never
+' reaches TYPE_ISOLATED_NOT_VISIBLE at all -- the grammar does not admit ISOLATED
+' before SUB, so it is rejected earlier, by the PARSER
+' (MFB_PARSE_UNEXPECTED_STATEMENT, 1-102-0004). That is the real source-level
+' behavior and it is what the golden here records.
+'
+' The rule's own kind-half (`function.kind != "func"`) is therefore reachable only
+' from a crafted .mfp on the package path, where no parser ever ran. That path is
+' pinned by the unit test `rejects_isolated_sub` in src/ir/verify/tests.rs, which
+' constructs the IR directly. The two together cover both entry paths; neither
+' alone does.
+ISOLATED SUB s(x AS Integer)
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -1,12 +1,12 @@
-REM plan-81 IMPORT self: a package spawns its OWN exported ISOLATED FUNC as a
-REM thread worker through the reserved `self` specifier. Two self-workers each
+REM A package spawns its OWN ISOLATED FUNC as a thread worker, naming it by its
+REM bare name from within the package that declares it (plan-115: ISOLATED is the
+REM sole marker; plan-81's reserved `self` specifier is gone). Two workers each
 REM mutate the package-level MUT COUNTER; because a worker runs on its own arena
 REM with its own copy of the writable-globals region (initialized from the same
 REM declaration the parent runs), each worker sees COUNTER start at 7, mutates
 REM only its own copy, and the parent's COUNTER is never touched.
 
 IMPORT thread
-IMPORT self
 
 MUT COUNTER AS Integer = 7
 
@@ -22,11 +22,12 @@ EXPORT FUNC counter AS Integer
   RETURN COUNTER
 END FUNC
 
-REM Fan out two self-workers from WITHIN this package via `self::bump`, join both,
-REM and report each worker's result plus this (parent) instance's untouched COUNTER.
+REM Fan out two workers from WITHIN this package via the bare name `bump`, join
+REM both, and report each worker's result plus this (parent) instance's untouched
+REM COUNTER.
 EXPORT FUNC runFanout AS String
-  LET a AS Thread OF Nothing TO Integer = thread::start(self::bump, 100)
-  LET b AS Thread OF Nothing TO Integer = thread::start(self::bump, 200)
+  LET a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
+  LET b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
   LET ra AS Integer = thread::waitFor(a)
   LET rb AS Integer = thread::waitFor(b)
   RETURN "a=" & toString(ra) & " b=" & toString(rb) & " parent=" & toString(COUNTER)

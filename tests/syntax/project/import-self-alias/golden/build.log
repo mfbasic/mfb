@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/syntax/project/import-self-alias
-Wrote AST to tests/syntax/project/import-self-alias/import_self_alias.ast
-Wrote IR to tests/syntax/project/import-self-alias/import_self_alias.ir
-[exit 0]

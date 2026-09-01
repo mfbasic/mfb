@@ -1,0 +1,49 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_executable_local_entry_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "COUNTER", "line": 19, "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "bump",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 21, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
+    { "name": "add", "line": 21, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "assignGlobal", "line": 22, "name": "COUNTER", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "global", "name": "COUNTER" }, "right": { "kind": "local", "name": "add" } } },
+    { "op": "return", "line": 23, "value": { "kind": "global", "name": "COUNTER" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 27, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "bump", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "bump", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "200" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "ra", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "rb", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ra" }] } }, "right": { "kind": "const", "type": "String", "value": " b=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rb" }] } }, "right": { "kind": "const", "type": "String", "value": " parent=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "COUNTER" }] } }] } },
+    { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
