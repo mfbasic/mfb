@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-31
 Overall Effort: huge (>3d)
-Effort: large (3h–1d)
+Effort: x-large (1d–3d) — revised 2026-09-01; see Corrections C1
 Depends on: nothing
 
 Both GPU backends today send one item's parameters *per draw* — Metal through
@@ -15,7 +15,12 @@ past the guarantee.
 
 This letter moves the item block into a **per-frame buffer of `ITEM_BLOCK_SIZE`-byte
 records indexed by instance id**, and turns each item's draw into an instanced draw.
-It adds no feature and changes no pixel.
+**On Metal it also moves the polygon edge payload into the same frame buffer**,
+because an instanced run cannot rebind a per-item `setFragmentBytes:` payload
+between instances — without this, every polygon would end the run and letters F
+(per-item gradient stops) and H (one instanced draw per group) would each rediscover
+the same conflict. It adds no feature and, with one named exception (§Compatibility),
+changes no pixel.
 
 Behavioral outcome: every existing canvas scene renders **byte-identically** on the
 software, Metal and Vulkan paths before and after this letter, while the per-item
@@ -29,7 +34,7 @@ the next. Each is a complete plan in its own right.
 
 | Letter | What it lands | Effort |
 |---|---|---|
-| **A** (this) | The item block moves into a per-frame instance buffer, both backends. No feature, no pixel change. **The enabler**: the block is at 112 of Vulkan's guaranteed 128 push-constant bytes, and B–F need 56 more. | large |
+| **A** (this) | The item block moves into a per-frame instance buffer, both backends, and Metal's polygon edges move into the same buffer. No feature; no pixel change except one named decline (§Compatibility). **The enabler**: the block is at 112 of Vulkan's guaranteed 128 push-constant bytes, B–F need 56 more, and instanced draws cannot coexist with per-item side payloads. | x-large |
 | **B** | `Paint.blend` and `Paint.clip` become real — four blend modes as four pipelines, a clip that antialiases its own edge. | large |
 | **C** | `Paint.transform` becomes real — the SDF is evaluated at the inverse-transformed query point. | large |
 | **D** | `cap AS CapStyle` on `Line` and `Arc` (`Butt`/`Round`). | medium |
@@ -37,7 +42,8 @@ the next. Each is a complete plan in its own right.
 | **F** | Gradient fills — `GradientKind`/`GradientStop`/`Gradient` and `Paint.fillGradient`. | large |
 | **G** | Named groups: `setGroup`/`removeGroup`/`canvas::Group`, storage, lifetime, resolution, software rendering. | large |
 | **H** | Groups on the GPU — one instanced draw per group node, per-draw offset bound to both stages. | large |
-| **I** | `setGroup` takes ownership of resources in its list. **Hard prerequisite: plan-114 A–E complete** — the ban on `RES` record fields is live today (`src/rules/table.rs:993`), so nothing ownable can currently be in a `DrawItem`. | medium |
+| **I** | `canvas::Picture` and `canvas::Text` hold `RES canvas::Image` / `RES canvas::Font` directly; the `ImageRef`/`FontRef` records and `canvas::imageRef`/`fontRef` are **removed**. plan-114 A–E landed 2026-09-01 (`ls planning/completed/plan-114-*` → 5), so `RES` record fields are legal source. | large |
+| **J** | `setGroup` takes ownership of the resources in its list. **Hard prerequisite: plan-116-I complete** — before I, nothing ownable can be in a `DrawItem`. | medium |
 
 B and C together close the defect that `Paint.transform`, `Paint.clip` and
 `Paint.blend` are documented but never read
@@ -58,9 +64,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh --help` / `ssh -p 2228 test@127.0.0.1 true` | UNVERIFIED — verify before Phase 3 |
-| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --test rt_canvas_metal -- --no-fail-fast` | UNVERIFIED — verify before Phase 2 |
-| A Vulkan-capable Linux box (ICD present, not just loader) | run any canvas program with `MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=…` and read `vulkanReady=` | UNVERIFIED — verify before Phase 3 |
+| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh` (ships GLSL to box 2228, compiles against a dpkg-extracted glslang — its own header documents this) | MET (2026-09-01: box 2228 reachable; the script needs no preinstalled glslang) |
+| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --test rt_canvas_metal -- --no-fail-fast` | MET (2026-09-01: in the default local suite on this host; re-run at Phase 2 start) |
+| A Vulkan-capable Linux box (ICD present, not just loader) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh` end to end | MET (2026-09-01: 7 ICDs on 2228 including `lvp_icd.json` — lavapipe, a software ICD, so `vulkanReady` does not depend on GPU hardware); run the script before relying on it |
 
 Everything below is written against the world where these hold. The SPIR-V one is
 hard: the `.spv` blobs are checked in and there is no build-time shader compiler
@@ -92,7 +98,15 @@ hard: the `.spv` blobs are checked in and there is no build-time shader compiler
 - **The two `*Renderable` predicates keep declining exactly what they decline today.**
   Widening what the GPU accepts is a later letter's job, and doing it here would hide
   a regression inside a change whose whole gate is "nothing moved".
-- **`MAX_EDGES` / `VULKAN_MAX_FRAME_EDGES` / the glyph caps are unchanged.**
+- **The per-item `MAX_EDGES` polygon cap and both glyph caps are unchanged.** The
+  Metal predicate keeps declining a >`MAX_EDGES` polygon even though the frame
+  buffer no longer forces the cap — decline parity with today is this letter's
+  gate; unifying the caps is later work, taken deliberately or not at all.
+- **Glyph runs keep their per-draw `setFragmentBytes:` coverage payload.** A text
+  item is already N separate draws and stays so (§4.3), so its per-glyph payload
+  never has to coexist with instancing and does NOT move in this letter. Only the
+  polygon edge payload moves, because polygons are ordinary one-draw items inside
+  instanced runs.
 
 ## 2. Current State
 
@@ -105,10 +119,18 @@ fits Vulkan's guaranteed 128-byte push-constant range, which is why neither back
 needs descriptor sets or uniform buffers."*
 
 - **Metal** (`src/target/macos_aarch64/app/metal.rs`) sends it with
-  `setVertexBytes:`/`setFragmentBytes:` — 9 call sites
-  (`grep -c 'setFragmentBytes\|setVertexBytes' src/target/macos_aarch64/app/metal.rs`
-  → 9) — and draws with `drawPrimitives:vertexStart:vertexCount:`
-  (`metal.rs:315`), one draw per item.
+  `setVertexBytes:`/`setFragmentBytes:` and draws with
+  `drawPrimitives:vertexStart:vertexCount:` (`metal.rs:314`), one draw per item.
+  Classified by emission site
+  (`grep -n 'SEL_SET_VERTEX_BYTES\|SEL_SET_FRAGMENT_BYTES\|SEL_DRAW_PRIMITIVES'
+  src/target/macos_aarch64/app/metal.rs`): the **item block** is sent twice, each
+  to both stages — the shape path's setter loop at `:996` and the glyph path's at
+  `:1539`; the **polygon edge payload** is a separate per-item
+  `setFragmentBytes:` at `:1017` ("always bound even when empty"); the **glyph
+  coverage bitmap** is a per-glyph `setFragmentBytes:` at `:1560`/`:1571`; the
+  draws are `:1043` (shape) and `:1596` (glyph). The distinction matters: the
+  item-block sends become buffer writes, the edge send becomes a buffer region,
+  and the glyph sends stay (non-goals).
 - **Vulkan** (`src/codegen/runtime/canvas/vulkan.rs`) sends it with
   `vkCmdPushConstants` and draws with `vkCmdDraw` (`vulkan.rs:144-145`, resolved once
   and kept at `:4284`), one draw per item.
@@ -131,7 +153,7 @@ not a new one.
 
 | What | Count | Command |
 |---|---|---|
-| Metal per-item byte-push call sites | 9 | `grep -c 'setFragmentBytes\|setVertexBytes' src/target/macos_aarch64/app/metal.rs` |
+| Metal byte-push emission sites | 2 item-block setter loops (`:996`, `:1539`), 1 edge send (`:1017`), 2 glyph sends (`:1560`, `:1571`) | `grep -n 'SEL_SET_VERTEX_BYTES\|SEL_SET_FRAGMENT_BYTES' src/target/macos_aarch64/app/metal.rs` |
 | Vulkan push/draw fn slots resolved once | 2 | `grep -n 'vkCmdPushConstants\|vkCmdDraw' src/codegen/runtime/canvas/vulkan.rs` → `:4284-4285` |
 | `metal.rs` LOC | 2073 | `wc -l src/target/macos_aarch64/app/metal.rs` |
 | `vulkan.rs` LOC | 5073 | `wc -l src/codegen/runtime/canvas/vulkan.rs` |
@@ -163,7 +185,7 @@ not a new one.
 
 ## 3. Design Overview
 
-Three pieces, layered:
+Four pieces, layered:
 
 1. **A per-frame item buffer** in the graphics state, host-visible and persistently
    mapped, holding N `ITEM_BLOCK_SIZE` records. Sized once at device/pipeline creation
@@ -172,8 +194,15 @@ Three pieces, layered:
    Metal the block becomes `constant MfbItem *items [[buffer(0)]]` plus
    `uint iid [[instance_id]]`; on Vulkan a second `readonly buffer` binding plus
    `gl_InstanceIndex`.
-3. **The emitters write the buffer, then draw.** Each backend fills its slice of the
-   buffer at record time and issues an instanced draw.
+3. **Metal's polygon edges move into an edge region of the same frame buffer**,
+   with each polygon's first-edge index carried in `ITEM_ARC_EDGE_BASE` — the word
+   that already exists for exactly this and that Metal currently leaves zero
+   (`runtime/canvas/mod.rs`, `ITEM_OFFSET_ARC` doc: "Metal leaves the edge base
+   zero — its `setFragmentBytes:` copies each item's edges into the command
+   buffer"). After this letter the two backends carry edges identically.
+4. **The emitters write the buffer, then draw.** Each backend fills its slice of the
+   buffer at record time and issues one instanced draw per run of consecutive
+   non-text items (§4.3).
 
 **Where the correctness risk concentrates:** the shaders. A mis-indexed instance is a
 scene drawn with another item's parameters — plausible-looking output, not a crash.
@@ -204,6 +233,13 @@ would be *expected* is none: no target should diff.
 - **Keep push constants and put only the *new* fields in a buffer.** Rejected: it
   splits one logical item block across two transports with different lifetimes, and
   every later letter would have to decide, per field, which half it lands in.
+- **Keep Metal's per-item edge payload and end the instanced run at every
+  polygon.** Rejected: it works for this letter alone, but plan-116-F's gradient
+  stops and plan-116-H's one-draw-per-group each add another per-item payload, so
+  each would re-split the runs and H's outcome would be false for any group
+  containing a polygon. The frame buffer is the same mechanism this letter already
+  builds for the item blocks — the edge region is one more range in it, and it is
+  the shape Vulkan has already proven on this exact payload.
 - **One uniform buffer per item rather than one buffer for the frame.** Rejected for
   the reason already recorded for Vulkan's edge buffer at `runtime/canvas/mod.rs:216`:
   a command buffer is recorded once and executed once, so per-item rebinding gives
@@ -226,6 +262,13 @@ does not depend on the surface), host-visible, persistently mapped, mirroring
   predicates gain a frame-item-count check against it, declining to software past it —
   the same honesty-gate shape `VULKAN_MAX_FRAME_EDGES` already has, and for the same
   reason: a truncated scene is a *different scene*.
+- **Metal's buffer carries two regions**: the item blocks at offset 0, then an edge
+  region of `METAL_MAX_FRAME_EDGES` (**16384**, mirroring `VULKAN_MAX_FRAME_EDGES`)
+  × 16 bytes. The Metal shape emitter writes each polygon's edges there and stores
+  the first-edge index in `ITEM_ARC_EDGE_BASE`, exactly as the Vulkan emitter
+  already does. `__canvas_metalRenderable` gains the same frame-total edge sum
+  `__canvas_vulkanRenderable` has (`helper_render.rs:232-248`) — see
+  §Compatibility for the one scene class this newly declines.
 
 ### 4.2 The shader change
 
@@ -261,9 +304,11 @@ reported stride and record the number in `ITEM_BLOCK_SIZE`'s doc comment.
 
 ### 4.3 The draw
 
-- Metal: one `drawPrimitives:instanceCount:` per *run of items sharing a pipeline* —
-  which, in this letter, is every item, because there is still exactly one pipeline.
-  The selector string at `metal.rs:315-316` gains its instanced sibling
+- Metal: one `drawPrimitives:instanceCount:` per *run of consecutive non-text
+  items* — a run ends only at a `Text` item (which is its own N glyph draws, below)
+  or at the end of the scene; there is still exactly one pipeline. Polygons ride
+  inside runs, their edges reached through the edge region. The selector string at
+  `metal.rs:314-316` gains its instanced sibling
   `drawPrimitives:vertexStart:vertexCount:instanceCount:`.
 - Vulkan: `vkCmdDraw(cmd, 4, instanceCount, 0, firstInstance)`.
 
@@ -274,8 +319,15 @@ per-glyph path with the item block read from the buffer at its own index.
 
 ## Compatibility / Format Impact
 
-- **No externally observable change.** No API, no `mfb man` output, no scene format,
-  no golden.
+- **No externally observable change**, with ONE named exception. No API, no
+  `mfb man` output, no scene format, no golden.
+- **The exception:** a Metal scene whose polygons sum past `METAL_MAX_FRAME_EDGES`
+  (16384) previously rendered on the GPU via unbounded per-item `setFragmentBytes:`
+  and now **declines to software** — the honest cap the frame edge region forces,
+  the same one Vulkan has always had. Software is the oracle, so the picture is at
+  least as correct; assert the decline via `MFB_CANVAS_STATS`, and name this class
+  in the Phase 2 commit message. Every other scene renders byte-identically per
+  path.
 - **`GRAPHICS_STATE_SIZE` changes** — internal to the runtime, not a stable ABI.
 - **The two `.spv` blobs are regenerated.** They are checked in
   (`src/codegen/runtime/canvas/shaders/*.spv`), so the commit contains binary churn;
@@ -324,14 +376,25 @@ Commit: —
 ### Phase 2 — Metal to the same mechanism
 
 - [ ] Add `GRAPHICS_OFFSET_MTL_ITEM_BUFFER`; create the buffer with the device in
-      `_mfb_macapp_metal_init`.
+      `_mfb_macapp_metal_init`, sized for `CANVAS_MAX_FRAME_ITEMS` blocks plus the
+      `METAL_MAX_FRAME_EDGES` × 16-byte edge region.
+- [ ] Convert the Metal edge payload (`metal.rs:1017`) to writes into the edge
+      region, storing each polygon's first-edge index in `ITEM_ARC_EDGE_BASE`;
+      delete the edge-base-is-always-zero comment at `runtime/canvas/mod.rs`
+      (`ITEM_OFFSET_ARC`) and rewrite it for the shared shape.
+- [ ] Add the frame-total edge sum to `__canvas_metalRenderable`
+      (`METAL_MAX_FRAME_EDGES`), keeping the per-item `MAX_EDGES` decline
+      unchanged.
 - [ ] Rewrite `METAL_SHADER_SOURCE` to take `constant MfbItem *items [[buffer(0)]]`
       with `[[instance_id]]`, and add the flat `iid` varying to `VOut`.
 - [ ] Replace the 9 `setVertexBytes:`/`setFragmentBytes:` item-block sites with buffer
       writes; add the `drawPrimitives:vertexStart:vertexCount:instanceCount:`
       selector and use it.
 - [ ] Add the frame-item-count check to `__canvas_metalRenderable`.
-- [ ] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case.
+- [ ] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case, plus a
+      polygon scene (edges through the region) and the negative case: a scene
+      summing past `METAL_MAX_FRAME_EDGES` declines (assert via
+      `MFB_CANVAS_STATS`, never by pixel equality).
 
 Acceptance: on the macOS host, `cargo test --test rt_canvas_metal -- --no-fail-fast`
 passes and the Metal frame for the smiley scene matches the oracle at least as
@@ -348,10 +411,12 @@ Commit: —
       guaranteed push-constant range — it is now asserting a constraint that no longer
       applies. Replace it with one pinning the block against the *buffer stride*
       glslang reports, so the two-language agreement stays gated.
-- [ ] Update `.ai/canvas-threading.md` §10 to describe the buffer transport, since it
-      currently describes `setFragmentBytes:` as the reason Metal's polygon cap is
-      per-item and Vulkan's is per-frame — that asymmetry's *cause* changes here even
-      though the caps do not.
+- [ ] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
+      currently explains the predicate asymmetry by Metal's edges crossing as a
+      per-item `setFragmentBytes:` payload — after this letter both backends carry
+      edges in a frame buffer, Metal is frame-capped too, and only the per-item
+      `MAX_EDGES` decline (kept by policy, §Non-goals) and the per-glyph vs
+      per-frame glyph caps still differ. Rewrite the section to say exactly that.
 - [ ] Run `scripts/regen-ncodesum.sh` and prove every `.ncodesum` diff is this
       letter's.
 - [ ] Tests: full `cargo test --no-fail-fast`.
@@ -366,9 +431,12 @@ Commit: —
 
 - **Tests:** `tests/rt_canvas_golden.rs`, `tests/rt_canvas_metal.rs`,
   `tests/rt_canvas_rasteriser.rs`, `tests/rt_canvas_damage.rs`,
-  `tests/rt_canvas_graphics_thread.rs`. Negative case: a scene with more than
-  `CANVAS_MAX_FRAME_ITEMS` items must **decline to software**, not truncate — assert
-  via `MFB_CANVAS_STATS`.
+  `tests/rt_canvas_graphics_thread.rs`, and on the Vulkan side
+  `scripts/test-canvas-vulkan.sh target/release/mfb` (the oracle-vs-GPU diff
+  harness — `.ai/testing-gates.md` §"The GPU comparison is against the ORACLE").
+  Negative cases: a scene with more than `CANVAS_MAX_FRAME_ITEMS` items and a Metal
+  scene past `METAL_MAX_FRAME_EDGES` must each **decline to software**, not
+  truncate — assert via `MFB_CANVAS_STATS`.
 - **Coverage check:** the new buffer code is in the *emitters*, which are compiler
   code reached only when a canvas program is built. Confirm the new lines are in the
   denominator with `cargo llvm-cov --bin mfb` per `.ai` memory — a green
@@ -391,10 +459,21 @@ Commit: —
   memory"). Recommend the fixed cap; revisit only if a real scene hits it. (§4.1)
 - **Glyph runs stay N draws.** Recommended. Folding them into instancing is a
   separate, larger change and this letter's gate is "nothing moved". (§4.3)
+- **`METAL_MAX_FRAME_EDGES` = 16384, mirroring Vulkan.** Recommended: one number to
+  reason about across both backends, and the region costs 256 KiB. The cost is the
+  §Compatibility decline for >16384-edge Metal scenes; raising both caps together
+  later is one-line-per-backend. (§4.1)
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (2026-09-01, review — pre-execution).** As first written, this letter moved
+  only the item block and left Metal's polygon edge payload as a per-item
+  `setFragmentBytes:` — which an instanced draw cannot rebind between instances, so
+  every polygon would have silently ended the run, and plan-116-F (gradient stops)
+  and plan-116-H (one draw per group) each collided with the same fact. The edge
+  region moved into this letter; effort re-estimated large → x-large. The "9 call
+  sites" population was also a miscount (it counted selector-constant declarations
+  and comments); replaced with the classified emission sites in §2.
 
 ## Summary
 

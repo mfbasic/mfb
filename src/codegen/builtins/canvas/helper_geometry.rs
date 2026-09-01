@@ -499,6 +499,56 @@ r#"FUNC __canvas_headerMatches(offset AS Integer, header AS List OF Float) AS Bo
   RETURN TRUE
 END FUNC
 
+' The header compare above cannot see a polygon's point coordinates -- they live in
+' the tail. A hit for a polygon is therefore confirmed against the stored edge
+' origins as well, or a 31-bit hash collision between two same-header polygons
+' would hand one the other's edges. The stored edge layout is `x0, y0, dx, dy,
+' invLenSq` per edge (`__canvas_polygonEdges`), so slots 0-1 of each edge are the
+' point itself, copied verbatim -- exact float compare is right here.
+FUNC __canvas_polygonPointsMatch(offset AS Integer, points AS List OF Point) AS Boolean
+  LET count AS Integer = len(points)
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET base AS Integer = offset + __CANVAS_GEO_HEADER + i * 5
+    LET q AS Point = collections::getOr(points, i, Point[x := 0.0, y := 0.0])
+    IF collections::getOr(__CANVAS_GEO_DATA, base, 0.0) <> q.x THEN
+      RETURN FALSE
+    END IF
+    IF collections::getOr(__CANVAS_GEO_DATA, base + 1, 0.0) <> q.y THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
+  MATCH item
+    CASE Polygon(p)
+      ' Guard on the STORED kind: a degenerate (<2 point) polygon stores an empty
+      ' NONE header with no tail, and comparing points against absent slots would
+      ' refuse the hit every frame and grow the cache without bound.
+      IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
+        RETURN __canvas_polygonPointsMatch(offset, p.points)
+      END IF
+      RETURN TRUE
+    CASE Rectangle(r)
+      RETURN TRUE
+    CASE RoundedRect(rr)
+      RETURN TRUE
+    CASE Circle(c)
+      RETURN TRUE
+    CASE Line(l)
+      RETURN TRUE
+    CASE Arc(a)
+      RETURN TRUE
+    CASE Text(t)
+      RETURN TRUE
+    CASE Picture(pic)
+      RETURN TRUE
+  END MATCH
+END FUNC
+
 FUNC __canvas_geoEvict() AS Integer
   LET slots AS Integer = len(__CANVAS_GEO_HASHES)
   MUT evicted AS Integer = 0
@@ -542,7 +592,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   WHILE slot < slots
     IF collections::getOr(__CANVAS_GEO_HASHES, slot, 0) = hash THEN
       LET offset AS Integer = collections::getOr(__CANVAS_GEO_OFFSETS, slot, 0)
-      IF deferred OR __canvas_headerMatches(offset, header) THEN
+      IF deferred OR (__canvas_headerMatches(offset, header) AND __canvas_tailMatches(item, offset)) THEN
         __CANVAS_GEO_LASTUSED = collections::set(__CANVAS_GEO_LASTUSED, slot, __CANVAS_GEO_REV)
         RETURN offset
       END IF
@@ -709,7 +759,37 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     RETURN __canvas_deferredHash(item)
   END IF
   LET header AS List OF Float = __canvas_headerFor(item)
-  RETURN __canvas_hashGeometry(header, 0, __CANVAS_GEO_HEADER)
+  MUT acc AS Integer = __canvas_hashGeometry(header, 0, __CANVAS_GEO_HEADER)
+  ' A polygon's POINTS live only in the tail, and its header carries just their
+  ' bounds and count -- so two different polygons can share a header (two same-box,
+  ' same-count, same-paint triangles collided and one drew twice). The hash carries
+  ' the coordinates by hand, exactly as `__canvas_textHash` carries its codepoints.
+  MATCH item
+    CASE Polygon(p)
+      LET count AS Integer = len(p.points)
+      MUT i AS Integer = 0
+      WHILE i < count
+        LET q AS Point = collections::getOr(p.points, i, Point[x := 0.0, y := 0.0])
+        acc = __canvas_hashFloat(acc, q.x)
+        acc = __canvas_hashFloat(acc, q.y)
+        i = i + 1
+      END WHILE
+      RETURN acc
+    CASE Rectangle(r)
+      RETURN acc
+    CASE RoundedRect(rr)
+      RETURN acc
+    CASE Circle(c)
+      RETURN acc
+    CASE Line(l)
+      RETURN acc
+    CASE Arc(a)
+      RETURN acc
+    CASE Text(t)
+      RETURN acc
+    CASE Picture(pic)
+      RETURN acc
+  END MATCH
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

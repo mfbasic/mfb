@@ -479,3 +479,58 @@ fn cache_hit_skips_geometry_generation() {
         "expected 3 new items, then exactly 1 regeneration, then none: {stats:?}",
     );
 }
+
+/// Two polygons with the same bounding box, vertex count and paint — but different
+/// points — must each draw their own shape.
+///
+/// The geometry cache keys an item by a hash of its 22-slot header and confirms a
+/// hit by comparing only that header (`__canvas_headerMatches`). A polygon's point
+/// coordinates live only in the *tail*, so these two triangles collide: identical
+/// bounds (100..300 x 100..300), identical count (3), identical paint. The second
+/// item must not be handed the first one's edges.
+#[test]
+fn polygons_sharing_a_header_keep_their_own_points() {
+    let (frame, stats) = render(
+        "canvas_polygon_cache_collision",
+        &scene(
+            "  MUT down AS List OF canvas::Point = []\n  \
+             down = collections::append(down, canvas::Point[x := 100.0, y := 100.0])\n  \
+             down = collections::append(down, canvas::Point[x := 300.0, y := 100.0])\n  \
+             down = collections::append(down, canvas::Point[x := 200.0, y := 300.0])\n  \
+             MUT up AS List OF canvas::Point = []\n  \
+             up = collections::append(up, canvas::Point[x := 100.0, y := 300.0])\n  \
+             up = collections::append(up, canvas::Point[x := 300.0, y := 300.0])\n  \
+             up = collections::append(up, canvas::Point[x := 200.0, y := 100.0])\n  \
+             LET a AS canvas::DrawItem = canvas::Polygon[points := down, \
+             paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             LET b AS canvas::DrawItem = canvas::Polygon[points := up, \
+             paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::present([a, b])\n",
+        ),
+    );
+
+    // Inside the apex-down triangle only (the up triangle spans x 195..205 here).
+    assert_eq!(
+        pixel(&frame, 110, 110),
+        (0, 0, 255, 255),
+        "inside the first (apex-down) triangle"
+    );
+    // Inside the apex-up triangle only (the down triangle spans x 195..205 here).
+    assert_eq!(
+        pixel(&frame, 110, 290),
+        (0, 0, 255, 255),
+        "inside the second (apex-up) triangle — a cache collision draws the first \
+         triangle here instead and leaves this pixel background"
+    );
+    // The two polygons are different geometry, so the cache must hold two entries.
+    let entries = stats
+        .iter()
+        .rev()
+        .find_map(|l| {
+            l.split_whitespace()
+                .find_map(|w| w.strip_prefix("entries="))
+                .map(str::to_string)
+        })
+        .expect("stats line with entries=");
+    assert_eq!(entries, "2", "one cache entry per distinct polygon");
+}

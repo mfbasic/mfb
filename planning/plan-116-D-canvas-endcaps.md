@@ -88,11 +88,23 @@ renegotiated.
 **false for `Arc`** — for `Arc`, it is `Butt` that reproduces today's bytes. Both must
 be stated in the tests, and the existing fixtures updated accordingly (§Compatibility).
 
+**A second, smaller finding: the arc's radial cut is hard.** Out-of-sweep pixels get
+`RETURN 1000000.0` (`helper_draw.rs`, the `__CANVAS_GEO_ARC` arm), so the cut has no
+fractional coverage — a pixel is in the sweep or it is not, decided at its centre.
+(The doc comment there says the ends "antialias through exactly the same coverage
+path"; that is a statement about the *code path*, not about smoothness across the
+radial edge.) The `Line` butt cap this letter adds IS antialiased — the `max` with a
+signed half-plane distance composes with the coverage rule like any other edge — so
+after this letter a butt line end is smooth and a butt arc end is not. That
+asymmetry is accepted deliberately: making the arc's cut a signed half-plane too
+would move `smiley.png` and every existing arc byte, which this letter's Phase 1
+gate forbids. Recorded in Open Decisions as named future work.
+
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| `canvas::Line[` / `canvas::Arc[` construction sites | 10 | `grep -rn 'Line\[\|Arc\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` → 13 hits, of which 3 (`examples/ai_chat/src/main.mfb:356,366,368`) are a **user-defined** `Line` record, not `canvas::Line` |
+| `canvas::Line[` / `canvas::Arc[` construction sites | 11 | `grep -rn 'Line\[\|Arc\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` → 14 hits (2026-09-01), of which 3 (`examples/ai_chat/src/main.mfb:356,366,368`) are a **user-defined** `Line` record, not `canvas::Line`. The 11th canvas site is `examples/emoji/src/main.mfb:219` (an `Arc`), new since this letter was first written — **re-run the census at Phase 1 start**; this count has already moved once. |
 | …in `tests/` | 7 | same command, `tests/` rows |
 | …in `mfb man` example prose | 2 | `func_stroke.rs:35`, `func_present.rs:50` |
 | …in `cli_canvas_package.rs` | 2 | `:57`, `:59` |
@@ -242,13 +254,16 @@ the geometry work are never in the same failing gate.
 - [ ] Add `CapStyle` to `mod.rs` via `pkg.add_enum`, `Butt` then `Round`.
 - [ ] Add `cap AS CapStyle` to the `Line` record (`mod.rs:499`) after `y2`, and to
       `Arc` (`mod.rs:571`) after `endAngle`.
-- [ ] Update all **10** `canvas::Line[`/`canvas::Arc[` sites: `Line` → `cap :=
-      CapStyle.Round`, `Arc` → `cap := CapStyle.Butt`, per §2's finding that those are
-      each variant's *current* behaviour. Sites:
+- [ ] Re-run the site census (the §2 command), then update **every**
+      `canvas::Line[`/`canvas::Arc[` site: `Line` → `cap := CapStyle.Round`, `Arc` →
+      `cap := CapStyle.Butt`, per §2's finding that those are each variant's
+      *current* behaviour. Sites at last census (11):
       `tests/rt_canvas_rasteriser.rs:183,273,424`, `tests/cli_canvas_package.rs:57,59`,
       `tests/rt_canvas_golden.rs:45`, `tests/rt_canvas_metal.rs:76,79`,
       `src/codegen/builtins/canvas/func_stroke.rs:35`,
-      `src/codegen/builtins/canvas/func_present.rs:50`.
+      `src/codegen/builtins/canvas/func_present.rs:50`,
+      `examples/emoji/src/main.mfb:219` (an `Arc` → `Butt`; keeps the example's
+      rendering byte-identical).
 - [ ] Header slot 35 carries the cap; `__canvas_segmentHeader`/`__canvas_arcHeader`
       write it. **Nothing reads it yet.**
 - [ ] Tests: add a case asserting `mfb man canvas types` lists `CapStyle` with both
@@ -340,6 +355,13 @@ Commit: —
   `smiley.png`.
 - **Sibling function vs. cap parameter on `__canvas_segmentDistance` (Phase 2).**
   Recommended: sibling, so the polygon edge walk is untouched.
+- **The arc's radial butt cut stays hard (aliased), as today (§2).** Recommended for
+  this letter: smoothing it (replace the `1000000.0` out-of-sweep return with a
+  signed distance to the sweep's bounding half-planes) is a one-arm change but moves
+  `smiley.png` and every arc byte, so it is its own deliberate change with its own
+  golden regeneration — not a rider on a cap feature. If taken later, do it for
+  BOTH `Butt` arcs and the sweep cut under `Round`, in one change, so the two cap
+  styles stay mutually consistent.
 
 ## Corrections
 

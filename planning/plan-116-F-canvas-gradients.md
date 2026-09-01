@@ -132,16 +132,18 @@ rather than inventing a fourth.
   `func_fill.rs:42-44` and `func_stroke.rs:42-44`: both `RETURN
   __canvas_fillStroke(…)`. So one line changes and all three public constructors
   follow.
-- **The geometry cache hashes the whole header and tail.**
-  `__canvas_hashGeometry(geo, offset, count)` (`helper_geometry.rs:109`) walks
-  `count` slots from `offset`, and header slot 1 is the total length — so a gradient
-  carried in the tail participates in the cache key automatically, and two items
-  differing only in a stop colour get different cache entries. **Verified by reading
-  `__canvas_headerMatches` (`:489`), which compares only the fixed header** — so the
-  tail's contribution comes through the hash, and a hash collision falls back to a
-  confirmation compare of the header alone. That is a real gap for gradients: two
-  gradients with identical headers and different stops would collide. §4.2 addresses
-  it.
+- **The cache's tail blindness was a LIVE bug and is already fixed.** Planning this
+  letter surfaced that `__canvas_hashItem` hashed only the 22-slot header and
+  `__canvas_headerMatches` compared only the header, while a polygon's point
+  coordinates live only in the tail — so two same-box, same-count, same-paint
+  polygons deterministically shared one entry and the second drew the first's
+  shape. Fixed on main 2026-09-01: the polygon's points are folded into the item
+  hash and a hit is confirmed by `__canvas_tailMatches` against the stored edge
+  origins (`helper_geometry.rs`; pinned by
+  `tests/rt_canvas_rasteriser.rs::polygons_sharing_a_header_keep_their_own_points`).
+  **A gradient's stops are the same shape of content** — header-invisible tail —
+  so this letter must add a gradient arm to BOTH seams: the hash and
+  `__canvas_tailMatches`. §4.2.
 - **UNVERIFIED: whether stop interpolation in linear light matches what a designer
   expects.** It is the choice consistent with `06_canvas.md`'s compositing rule, but
   the two spaces differ visibly on a black→white ramp. §4.3 decides and documents;
@@ -161,12 +163,12 @@ Five pieces:
    different gradients share an entry. §4.2.
 5. **All three renderers.**
 
-**Where the correctness risk concentrates:** the geometry cache. Every other letter
-added fields the header compare already covered; this one adds a *tail* whose contents
-are not compared. A collision there is not a wrong pixel, it is an item drawn with
-another item's gradient — intermittently, depending on hash values. §4.2 fixes it by
-extending the confirmation compare to the tail, and Phase 2 tests it directly with two
-deliberately-colliding gradients.
+**Where the correctness risk concentrates:** the geometry cache — specifically,
+forgetting one of the TWO seams the landed polygon fix established (§2): the stop
+colours must be folded into the item hash AND confirmed by a `__canvas_tailMatches`
+arm. Missing the first degrades distribution; missing the second turns a 31-bit
+hash collision into an item drawn with another item's gradient. Phase 2 adds both
+arms and tests them directly with two deliberately-colliding gradients.
 
 **Where the design uncertainty concentrates:** the interpolation space (§4.3) and the
 per-item stop cap on Metal. Both are settled in Phase 1 before renderers change.
@@ -181,9 +183,11 @@ field).
 
 - **A `Gradient` resource (`RES`) holding a compiled ramp.** Rejected: `Paint` is a
   flat value threaded through items (`mod.rs:424`, and `06_canvas.md` §"Paint is a
-  value"), and a record field cannot hold a resource today
-  (`TYPE_RESOURCE_FIELD_FORBIDDEN`, `src/rules/table.rs:993`, live). It would also make
-  a scene retain something, which `func_present.rs`'s DESC promises it never does.
+  value"). A `RES` record field is *legal* now (plan-114 retired `2-203-0084`,
+  2026-09-01), so the ban is no longer the reason — the reason is that a resource in
+  `Paint` would make every painted scene carry lifetime, which `func_present.rs`'s
+  DESC promises it never does; plan-116-I deliberately confines scene-carried
+  resources to the two variants that name external assets.
 - **Pre-bake the ramp to a 256-entry texture on the CPU.** Rejected: it quantises the
   gradient to 256 steps, which is visible as banding on a large area, and it would need
   a sampler on both GPU backends where neither has one today
@@ -240,19 +244,20 @@ fixed**: edges first, then stops, with the stop base derivable as
 `HEADER_SLOTS + edgeCount * EDGE_SLOTS`. Write it that way in one helper so no reader
 computes it independently.
 
-**The cache-key fix.** `__canvas_headerMatches` (`helper_geometry.rs:489`) compares
-only the fixed header — so two gradients whose headers agree (same count, kind, from,
-to) but whose *stop colours* differ would be confirmed as the same entry. Today no kind
-has a tail whose content is invisible to the header: a polygon's tail is derived
-entirely from its points, and its point count is in the header, but its *coordinates*
-are not — **so this gap already exists for polygons**, and gradients would widen it.
+**The cache-key extension.** The polygon half of this problem was fixed on main
+2026-09-01 (§2): `__canvas_hashItem` folds tail-only content into the hash per
+kind, and `__canvas_tailMatches` confirms a hit against the stored tail. Gradients
+join that landed mechanism, not a new one:
 
-Extend `__canvas_headerMatches` to compare the **whole** stored geometry — header and
-tail — against the candidate, using the length in slot 1. It is a compare over a few
-dozen floats on a cache *hit path* that already reads them, and it closes the polygon
-gap at the same time. Note this as a real (pre-existing, latent) bug found while
-planning; it is fixed here rather than filed, per `AGENTS.md`'s "never leave a bug you
-found".
+- `__canvas_hashItem` hashes each stop's five values after the header (and after a
+  polygon's points, for a polygon carrying a gradient — the fixed edges-then-stops
+  tail order above makes the hash order equally fixed).
+- `__canvas_tailMatches` gains a stop compare: for any item whose paint carries ≥ 2
+  stops, compare the stored stop slots (base = `HEADER_SLOTS + edgeCount *
+  EDGE_SLOTS`, the same helper every reader calls) against the item's stops.
+
+Both seams are per-kind `MATCH` arms beside the polygon ones, so the pattern is
+already on main to copy.
 
 **Item block.** The gradient's scalars take one new `ivec4` (kind + count) and one for
 `from`/`to` in 16.16 — block reaches **224** bytes. The stops ride:
@@ -260,16 +265,18 @@ found".
 - **Vulkan** — a third region of the shared buffer, after glyph coverage. New constant
   `VULKAN_GRADIENT_BASE_WORDS`, and a per-item start index in a free block word,
   mirroring `ITEM_ARC_EDGE_BASE` exactly.
-- **Metal** — a third `setFragmentBytes:` binding, capped like `MAX_EDGES` /
-  `METAL_MAX_GLYPH_SAMPLES`. New constant `METAL_MAX_GRADIENT_STOPS`; recommend **64**
-  (64 × 5 floats × 4 bytes = 1280 bytes, well inside the 4 KiB payload).
-  `__canvas_metalRenderable` **declines** an item past it rather than truncating —
-  a truncated gradient is a different gradient, the same reasoning
-  `runtime/canvas/mod.rs:255` gives for polygons.
-- **Vulkan** caps the **frame**, not the item — `VULKAN_MAX_FRAME_GRADIENT_STOPS` —
-  and `__canvas_vulkanRenderable` sums the scene's stops against it, exactly as it
-  already sums polygon edges. The two predicates decline different things, which
-  `.ai/canvas-threading.md` §10 establishes as correct and deliberate.
+- **Metal** — a **gradient region in plan-116-A's frame buffer**, after the edge
+  region, mirroring how A moved the edges: the emitter writes each item's stops
+  there and carries the per-item first-stop index in a free block word. A per-item
+  `setFragmentBytes:` is NOT an option — plan-116-A made items instanced, and an
+  instanced run cannot rebind a payload between instances (plan-116-A §3, rejected
+  alternatives). New constant `METAL_MAX_FRAME_GRADIENT_STOPS`, equal to Vulkan's.
+- **Vulkan** — the third region of its shared buffer as described above, capped by
+  `VULKAN_MAX_FRAME_GRADIENT_STOPS`.
+- **Both predicates sum the frame's stops** against the same number, exactly as
+  both now sum polygon edges (plan-116-A gave Metal its frame edge cap). Recommend
+  **4096** stops (× 5 floats × 4 bytes = 80 KiB per backend region): generous for
+  a hand-authored scene, cheap to raise in one constant per backend.
 
 ### 4.3 Evaluating the gradient
 
@@ -343,12 +350,13 @@ The correctness-critical piece, landed before any pixel depends on it.
 - [ ] Append the stop tail (five floats per stop) after any existing tail; one helper
       computes the stop base as `HEADER_SLOTS + edgeCount * EDGE_SLOTS` and **every**
       reader calls it.
-- [ ] Extend `__canvas_headerMatches` (`helper_geometry.rs:489`) to compare the whole
-      stored geometry using the length in slot 1, closing the latent polygon gap
-      described in §4.2.
-- [ ] Tests: two polygons with identical headers and different point coordinates must
-      get different cache entries (the pre-existing gap — assert it is closed); two
-      gradients with identical headers and different stop colours likewise.
+- [ ] Add the gradient arm to `__canvas_hashItem` (stop values after header/points)
+      and to `__canvas_tailMatches` (stored-stop compare), beside the polygon arms
+      the 2026-09-01 fix landed (§4.2).
+- [ ] Tests: two gradients with identical headers and different stop colours get
+      different cache entries and draw their own ramps — the gradient sibling of
+      `polygons_sharing_a_header_keep_their_own_points`, which already pins the
+      polygon case and must stay green.
 
 Acceptance: the two cache-collision cases pass, every existing golden is
 byte-identical, and `MFB_CANVAS_STATS`'s `entries=`/`floats=` counters show the
@@ -379,13 +387,16 @@ Commit: —
 
 - [ ] Vulkan: a third buffer region, `VULKAN_GRADIENT_BASE_WORDS`, a per-item start
       index, and the frame-total cap in `__canvas_vulkanRenderable`.
-- [ ] Metal: a third `setFragmentBytes:` binding, `METAL_MAX_GRADIENT_STOPS = 64`, and
-      the per-item decline in `__canvas_metalRenderable`.
+- [ ] Metal: the gradient region of the frame buffer, the per-item first-stop index
+      in the block, `METAL_MAX_FRAME_GRADIENT_STOPS`, and the frame-sum decline in
+      `__canvas_metalRenderable`.
 - [ ] The stop walk and linear-light lerp in MSL and GLSL; `scripts/regen-spirv.sh`.
 - [ ] Tests: both GPUs match the oracle on `gradients.png` within
-      `Tolerance::GPU_DEFAULT`; a scene with 65 stops **declines to software** on Metal
-      (assert via `MFB_CANVAS_STATS`, not by pixel equality — a declined frame equals
-      the oracle by construction, which is the false pass).
+      `Tolerance::GPU_DEFAULT`; a scene whose stops sum past
+      `METAL_MAX_FRAME_GRADIENT_STOPS` / `VULKAN_MAX_FRAME_GRADIENT_STOPS`
+      **declines to software** on each backend (assert via `MFB_CANVAS_STATS`, not
+      by pixel equality — a declined frame equals the oracle by construction, which
+      is the false pass).
 
 Acceptance: `gradients.png` matches on both GPUs within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`/`vulkanReady=TRUE`, and the over-cap scene is provably declined
@@ -437,25 +448,27 @@ Commit: —
   at the image, then document the choice; do not leave it implicit.
 - **Stops are used in order, offsets clamped monotonically, never sorted (§4.1).**
   Recommended: sorting silently reinterprets the program's request.
-- **`METAL_MAX_GRADIENT_STOPS = 64` (§4.2).** Recommended as a starting value.
-  Raise only with a measured payload figure.
-- **Extending `__canvas_headerMatches` to the whole tail (§4.2)** costs a longer
-  compare on every cache hit. Recommended anyway — it fixes a latent polygon
-  mis-cache. If profiling shows it matters, the alternative is to fold the tail into
-  a second hash word, not to leave the compare partial.
+- **`METAL_MAX_FRAME_GRADIENT_STOPS = VULKAN_MAX_FRAME_GRADIENT_STOPS = 4096`
+  (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **C1 (2026-09-01, review — pre-execution).** The "latent" polygon cache gap this
+  letter planned to close in Phase 2 was reproduced as a LIVE mis-render and fixed
+  on main immediately (per `AGENTS.md` "never leave a bug you found"); §4.2 and
+  Phase 2 were rewritten to extend the landed mechanism rather than build it. The
+  Metal stop transport also changed from a per-item `setFragmentBytes:` (impossible
+  under plan-116-A's instancing, as revised) to a region of A's frame buffer, and
+  the per-item stop cap became a frame cap on both backends.
 
 ## Summary
 
-The visible feature is small — one `t`, one lerp — and the risk is somewhere else
-entirely: the geometry cache's confirmation compare only ever looked at the fixed
-header, which is sound for every kind that exists today but silently wrong the moment
-two items share a header and differ in their tail. Planning this letter surfaced that
-the gap is **already reachable with polygons**, so Phase 2 closes it before any
-gradient depends on it. The other decision worth a second look is the interpolation
+The visible feature is small — one `t`, one lerp — and the sharp edge is the
+geometry cache: planning this letter surfaced that its header-only key was already
+a LIVE polygon bug, which was reproduced and fixed on main 2026-09-01
+(`__canvas_tailMatches`; see §2). What remains here is to give gradients the same
+two arms — hash and tail confirmation — so their header-invisible stops can never
+share an entry. The other decision worth a second look is the interpolation
 space; it is settled here in favour of linear light for consistency, and
 `gradients.png`'s black→white ramp exists so a human can check that call. Untouched:
 strokes, `Text` fills, and every existing scene.
