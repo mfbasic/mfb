@@ -331,7 +331,7 @@ impl CodeBuilder<'_> {
     /// inline by value), resources, threads, and recursive/non-flat composites are
     /// excluded: they are never freed by the generic owned-value path.
     pub(crate) fn is_freeable_flat_value(&self, type_: &ParameterType) -> bool {
-        self.type_is_flat(type_)
+        self.type_is_memcpy_copyable(type_)
             && (*type_ == ParameterType::String
                 || typed_is_collection_type(type_)
                 || matches!(type_, ParameterType::ResultOf(_))

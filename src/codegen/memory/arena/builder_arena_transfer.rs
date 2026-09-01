@@ -393,7 +393,9 @@ impl CodeBuilder<'_> {
             // copy (`arena_alloc` + `memcpy`) is a sound deep copy (plan-02 §4.1,
             // Phase 6). Only types that still embed pointers fall through to the
             // per-type glue below.
-            other if self.type_is_flat(other) => self.copy_flat_block(&other.clone(), source),
+            other if self.type_is_arena_transferable(other) => {
+                self.copy_flat_block(&other.clone(), source)
+            }
             // The only non-flat values left are resources and the collections /
             // unions that embed them (the single remaining pointer, plan-02 §9).
             // Their transfer copy is still a `memcpy` that moves the resource
@@ -1185,7 +1187,7 @@ impl CodeBuilder<'_> {
             // copied whole; only a non-flat one (an embedded pointer/resource
             // payload) needs the per-payload deep-copy fix (plan-02 §4.3/§4.4).
             // Bare resource payloads fall through (moved verbatim, no fix).
-            return !self.type_is_flat(type_);
+            return !self.type_is_arena_transferable(type_);
         }
         false
     }

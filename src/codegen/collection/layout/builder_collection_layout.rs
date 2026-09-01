@@ -55,7 +55,7 @@ impl CodeBuilder<'_> {
         // collection (one that itself embeds a pointer/resource payload) stays a
         // pointer handle.
         if typed_is_collection_type(type_) {
-            return !self.type_is_flat(type_);
+            return !self.type_is_memcpy_copyable(type_);
         }
         crate::codegen::builtins::is_resource_type(&type_)
             && !self.type_model.union_names.contains(type_)
@@ -102,7 +102,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn list_element_padding_alignment(&self, type_: &ParameterType) -> usize {
         if self.record_has_inline_data(type_)
             || self.union_is_data(type_)
-            || (typed_is_collection_type(type_) && self.type_is_flat(type_))
+            || (typed_is_collection_type(type_) && self.type_is_memcpy_copyable(type_))
         {
             8
         } else {
@@ -403,7 +403,7 @@ impl CodeBuilder<'_> {
         // Size the flat block from its pointer slot. This dispatcher handles every
         // flat type — `String`, collection, record (walk), and data union
         // (`size@8`) — so `copy_flat_block` is a sound deep copy for any
-        // `type_is_flat` value (plan-02 §4.1).
+        // `type_is_memcpy_copyable` value (plan-02 §4.1).
         self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
         // plan-71-C Family-1a: the size is arg 0 of the arena-alloc call — emit it into
         // `%arg0`, not `return_register()` (`%ret0`). Byte-identical; clears
@@ -614,16 +614,29 @@ impl CodeBuilder<'_> {
         record_field_is_pointer(&self.type_model, field_type)
     }
 
-    /// True when a value of `type_` is **fully flat** — a single pointer-free
-    /// block that a `memcpy` deep-copies. Flat types: scalars, `String`, a record
-    /// whose every field is flat, a **data** union whose every variant is flat,
-    /// and a collection whose payloads are flat **and not themselves collections**
-    /// (nested collections are still pointers — plan-02 §4.4 pending). Not flat:
-    /// resource unions/handles, `Result`, `Error`/`ErrorLoc` and the other
-    /// helper-built pointer-`String` records, and any recursive type (broken by
-    /// the `visited` path set, so a cyclic type stays a pointer).
-    pub(crate) fn type_is_flat(&self, type_: &ParameterType) -> bool {
-        type_is_flat(&self.type_model, type_)
+    /// True when a `memcpy` of this value's block is a correct **copy within one
+    /// thread**. Copyable types: scalars, `String`, a record whose every field is
+    /// copyable, a **data** union whose every variant is copyable, a collection
+    /// whose payloads are copyable, and a **resource handle** — the 8-byte slot
+    /// is a pointer to the one resource record, and copying it aliases that
+    /// resource rather than duplicating it (§15.6), which is the same rule
+    /// [`Self::is_pointer_collection_payload_type`] already applies to a
+    /// collection slot. Not copyable: resource *unions* (a `{tag, ptr}` block,
+    /// not a plain slot), `Result` of a non-copyable payload, `Error`/`ErrorLoc`
+    /// and the other helper-built pointer-`String` records, and any recursive
+    /// type (broken by the `visited` path set, so a cyclic type stays a pointer).
+    pub(crate) fn type_is_memcpy_copyable(&self, type_: &ParameterType) -> bool {
+        type_is_memcpy_copyable(&self.type_model, type_)
+    }
+
+    /// True when this value's block may be **relocated into another thread's
+    /// arena**. Strictly stronger than [`Self::type_is_memcpy_copyable`]: arenas
+    /// are per-thread, so a resource handle anywhere inside the block would
+    /// arrive pointing into the *sender's* arena. A resource — bare, `RES`-marked,
+    /// or nested in a field or payload — makes this false; everything else
+    /// answers exactly as memcpy-copyability does.
+    pub(crate) fn type_is_arena_transferable(&self, type_: &ParameterType) -> bool {
+        type_is_arena_transferable(&self.type_model, type_)
     }
 
     /// True when field `field_type` of `record_type` is inlined into the record's
@@ -2642,9 +2655,9 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         // A resource union is a pointer composite (its value is a pointer to a
         // `{tag, ptr}` block), never a flat block. A transferred stateful union
         // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
-        // not misclassify it as a flat scalar (plan-75 gap 3, else `type_is_flat`
-        // would route the transfer copy to `copy_flat_block` and alias the +8
-        // variant record).
+        // not misclassify it as a flat scalar (plan-75 gap 3, else
+        // `type_is_arena_transferable` would route the transfer copy to
+        // `copy_flat_block` and alias the +8 variant record).
         || model
             .union_names
             .contains(&base_resource_type(field_type))
@@ -2678,17 +2691,43 @@ fn base_resource_type(type_: &ParameterType) -> ParameterType {
     }
 }
 
-/// True when a value of `type_` is **fully flat** — a single pointer-free block a
-/// `memcpy` deep-copies. See the `CodeBuilder::type_is_flat` doc for the full
-/// rule set; this is its implementation.
-pub(crate) fn type_is_flat(model: &TypeModel, type_: &ParameterType) -> bool {
-    let mut visited = std::collections::HashSet::new();
-    type_is_flat_inner(model, type_, &mut visited)
+/// Which of the two questions [`flatness_walk`] is answering. plan-114-B split
+/// these apart: `type_is_flat` used to answer both with one predicate, which was
+/// invisible only because no type existed for which they differ. A record holding
+/// a resource pointer is the first that does — within a thread a `memcpy` is
+/// exactly right (it copies the handle pointer, aliasing the one resource,
+/// §15.6), but across an arena boundary the same `memcpy` produces a pointer into
+/// the *sender's* arena.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flatness {
+    /// "Does a `memcpy` correctly COPY this, within one thread?"
+    MemcpyCopyable,
+    /// "May this block be RELOCATED into another thread's arena?"
+    ArenaTransferable,
 }
 
-fn type_is_flat_inner(
+/// True when a `memcpy` of this value's block is a correct copy within one
+/// thread. See [`CodeBuilder::type_is_memcpy_copyable`] for the rule set.
+pub(crate) fn type_is_memcpy_copyable(model: &TypeModel, type_: &ParameterType) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    flatness_walk(model, type_, Flatness::MemcpyCopyable, &mut visited)
+}
+
+/// True when this value's block may be relocated into another thread's arena.
+/// See [`CodeBuilder::type_is_arena_transferable`] for the rule set.
+pub(crate) fn type_is_arena_transferable(model: &TypeModel, type_: &ParameterType) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    flatness_walk(model, type_, Flatness::ArenaTransferable, &mut visited)
+}
+
+/// The one walk behind both predicates. The structural arms (collection payloads,
+/// record fields, union variants, `ResultOf`, the cycle guard) exist once and so
+/// cannot drift apart; `mode` changes the answer in exactly the three leaf arms
+/// marked below.
+fn flatness_walk(
     model: &TypeModel,
     type_: &ParameterType,
+    mode: Flatness,
     visited: &mut std::collections::HashSet<ParameterType>,
 ) -> bool {
     if !visited.insert(type_.clone()) {
@@ -2698,17 +2737,28 @@ fn type_is_flat_inner(
     }
     let result = if *type_ == ParameterType::String {
         true
+    } else if let ParameterType::Res(_) = type_ {
+        // DIVERGENCE 1 — a `RES`-marked element/map value. The slot holds one
+        // 8-byte pointer to the resource record, so a `memcpy` copying it is a
+        // correct alias (§15.6) but relocating it into another arena is not.
+        //
+        // Before plan-114-B there was no `Res` arm at all: it fell through to
+        // `!record_field_is_pointer(..)`, which has no `Res` arm either, so the
+        // answer was `true` INCIDENTALLY rather than by decision — and `true` is
+        // the wrong answer for the transfer path. bug-483 is what that class of
+        // accident costs when the default happens to be wrong.
+        mode == Flatness::MemcpyCopyable
     } else if let ParameterType::ResultOf(payload) = type_ {
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        type_is_flat_inner(model, payload, visited)
+        flatness_walk(model, payload, mode, visited)
     } else if typed_is_collection_type(type_) {
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
         // Phase 5a). A resource or recursive payload makes it non-flat.
         collection_payload_types(type_)
             .into_iter()
-            .all(|p| type_is_flat_inner(model, &p, visited))
+            .all(|p| flatness_walk(model, &p, mode, visited))
     } else if model.record_fields.contains_key(type_) {
         !is_pointer_string_record(type_)
             && model
@@ -2717,21 +2767,34 @@ fn type_is_flat_inner(
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .all(|(_, ft)| type_is_flat_inner(model, ft, visited))
+                .all(|(_, ft)| flatness_walk(model, ft, mode, visited))
     } else if union_is_data(model, type_) {
         model
             .variants_for_union(type_)
             .cloned()
             .collect::<Vec<_>>()
             .iter()
-            .all(|variant| type_is_flat_inner(model, variant, visited))
+            .all(|variant| flatness_walk(model, variant, mode, visited))
     } else if crate::codegen::builtins::is_resource_type(&type_) {
-        // A resource is a move-only handle to its single instance, never a
-        // copyable flat block.
-        false
+        // DIVERGENCE 2 — a bare resource nominal. Same reasoning as DIVERGENCE 1:
+        // the value IS the 8-byte handle pointer, so copying it within a thread
+        // aliases the one resource, and relocating it does not.
+        //
+        // This arm answered `false` for BOTH questions before plan-114-B, on the
+        // grounds that "a resource is a move-only handle, never a copyable flat
+        // block". That is right for the arena question and wrong for the memcpy
+        // one — `is_pointer_collection_payload_type` (`:49-62`) already states
+        // the opposite rule for a collection slot, and this now agrees with it.
+        mode == Flatness::MemcpyCopyable
     } else {
-        // A scalar (anything that is not a pointer composite, `String`, or
-        // resource) is flat; resource unions / `Result` are excluded above.
+        // DIVERGENCE 3 (by inheritance) — a resource *union* reaches
+        // `record_field_is_pointer`, which routes it to the pointer-composite
+        // path: a `{tag, record-ptr}` block is not a plain slot, so it is false
+        // for both modes. Written down here so the next reader does not have to
+        // re-derive why the resource arms above do not cover it.
+        //
+        // Everything else is a scalar (not a pointer composite, `String`, or
+        // resource) and is flat for both modes.
         !record_field_is_pointer(model, type_)
     };
     visited.remove(type_);
@@ -2757,7 +2820,7 @@ pub(crate) fn record_field_is_inlined(
         || model.union_names.contains(field_type)
         || typed_is_collection_type(field_type)
         || matches!(field_type, ParameterType::ResultOf(_));
-    is_composite && type_is_flat(model, field_type)
+    is_composite && type_is_memcpy_copyable(model, field_type)
 }
 
 /// True when `type_` is a **data** union (all variants are data records, no
@@ -3037,5 +3100,130 @@ mod kind2_layout_tests {
             list_entry_stride(&ParameterType::declared("RES File")),
             COLLECTION_ENTRY_SIZE
         );
+    }
+}
+
+/// plan-114-B: the two predicates that replaced `type_is_flat`.
+///
+/// These assert the DIVERGENCE explicitly. The whole point of the split is that
+/// "a `memcpy` copies this correctly within one thread" and "this block may be
+/// relocated into another thread's arena" are different questions; for every
+/// type that existed before a resource could sit in a record they coincide, so
+/// only the resource-carrying cases can catch a regression that re-merges them.
+#[cfg(test)]
+mod flatness_split_tests {
+    use super::*;
+
+    /// A model with one record: `Holder { name AS String, handle AS RES fs.File }`.
+    /// The source-level ban is still up (letter D lifts it), so the only way to
+    /// reach this shape is to build the model by hand.
+    fn model_with_res_field_record() -> TypeModel {
+        let mut model = TypeModel::empty();
+        model.record_fields.insert(
+            ParameterType::declared("Holder"),
+            vec![
+                ("name".to_string(), ParameterType::String),
+                ("handle".to_string(), ParameterType::parse("RES fs.File")),
+            ],
+        );
+        model
+    }
+
+    /// Everything a resource can be reached through must be memcpy-copyable and
+    /// NOT arena-transferable. Before the split these all answered one value.
+    #[test]
+    fn a_resource_diverges_between_the_two_predicates() {
+        let model = model_with_res_field_record();
+        for spelling in [
+            "RES fs.File",
+            "List OF RES fs.File",
+            "Map OF String TO RES fs.File",
+            "List OF List OF RES fs.File",
+            "Holder",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert!(
+                type_is_memcpy_copyable(&model, &type_),
+                "`{spelling}` must be memcpy-copyable: a handle slot is one \
+                 8-byte pointer and copying it aliases the resource (§15.6)"
+            );
+            assert!(
+                !type_is_arena_transferable(&model, &type_),
+                "`{spelling}` must NOT be arena-transferable: the handle would \
+                 arrive pointing into the sender's arena"
+            );
+        }
+    }
+
+    /// A bare resource nominal is the other divergence arm. It is stated
+    /// separately from the `RES`-marked spellings above because it reaches a
+    /// different arm of the walk (`is_resource_type`, not `ParameterType::Res`).
+    #[test]
+    fn a_bare_resource_nominal_diverges_too() {
+        let model = TypeModel::empty();
+        let file = ParameterType::declared("fs.File");
+        assert!(type_is_memcpy_copyable(&model, &file));
+        assert!(!type_is_arena_transferable(&model, &file));
+    }
+
+    /// The regression net for the split: every type that existed before a
+    /// resource could sit in a record must answer IDENTICALLY to both
+    /// predicates. If a refactor makes one of these diverge, the split has
+    /// leaked into ordinary types.
+    #[test]
+    fn every_resource_free_type_answers_both_predicates_the_same() {
+        let mut model = TypeModel::empty();
+        model.record_fields.insert(
+            ParameterType::declared("Plain"),
+            vec![
+                ("count".to_string(), ParameterType::Integer),
+                ("label".to_string(), ParameterType::String),
+            ],
+        );
+        // (spelling, expected answer for BOTH predicates)
+        let cases: &[(&str, bool)] = &[
+            ("Integer", true),
+            ("Boolean", true),
+            ("Byte", true),
+            ("Float", true),
+            ("Money", true),
+            ("String", true),
+            ("List OF Integer", true),
+            ("List OF String", true),
+            ("Map OF String TO Integer", true),
+            ("List OF List OF Integer", true),
+            ("Result OF Integer", true),
+            ("Plain", true),
+            // `Error` is a pointer composite, so it is flat in neither mode.
+            ("Error", false),
+        ];
+        for (spelling, expected) in cases {
+            let type_ = ParameterType::parse(spelling);
+            assert_eq!(
+                type_is_memcpy_copyable(&model, &type_),
+                *expected,
+                "`{spelling}` memcpy-copyable"
+            );
+            assert_eq!(
+                type_is_arena_transferable(&model, &type_),
+                *expected,
+                "`{spelling}` arena-transferable — must match memcpy-copyable \
+                 for every resource-free type"
+            );
+        }
+    }
+
+    /// The cycle guard must survive the rewrite in both modes: a self-referential
+    /// record is not a finite flat block and must stay a pointer.
+    #[test]
+    fn a_cyclic_record_is_flat_in_neither_mode() {
+        let mut model = TypeModel::empty();
+        model.record_fields.insert(
+            ParameterType::declared("Node"),
+            vec![("next".to_string(), ParameterType::declared("Node"))],
+        );
+        let node = ParameterType::declared("Node");
+        assert!(!type_is_memcpy_copyable(&model, &node));
+        assert!(!type_is_arena_transferable(&model, &node));
     }
 }
