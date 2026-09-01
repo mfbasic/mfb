@@ -31,6 +31,7 @@ use std::collections::HashSet;
 
 use crate::codegen::collection::layout::emit_alloc_byte_list;
 use crate::codegen::link::locator::LinkLibraries;
+use crate::operators::BinaryOp;
 /// sec-02: bytes of guard region appended past an `OUT CBuffer`'s declared
 /// `SIZE`, stamped with a canary before the native call and checked after. A
 /// callee that writes past `SIZE` clobbers the canary (contiguous writers like
@@ -2108,19 +2109,20 @@ fn emit_link_expr(
             let id = *counter;
             *counter += 1;
             let end = format!("{symbol}_cmp{id}_end");
-            let branch = match op.as_str() {
-                "=" => abi::branch_eq(&end),
-                "<>" => abi::branch_ne(&end),
-                "<" => abi::branch_lt(&end),
-                ">" => abi::branch_gt(&end),
-                "<=" => abi::branch_le(&end),
-                ">=" => abi::branch_ge(&end),
-                // Unreachable after validation: the frontend's `lower_link_expr`
-                // only ever emits these six operators, and the package (`.mfp`)
-                // decoder rejects any other via `link_compare_op_valid` (bug-403).
-                // A loud panic here (never a silent `=`) keeps a future decode gap
-                // from miscompiling instead of failing.
-                other => unreachable!("invalid LINK Compare operator {other:?} reached codegen"),
+            // `IrLinkExpr::Compare` carries the operator as the wire spelling,
+            // so this is a decode-side parse, not a stage re-deciding on a
+            // string: the frontend's `lower_link_expr` only ever emits the six
+            // comparisons, and the package (`.mfp`) decoder rejects any other
+            // via `link_compare_op_valid` (bug-403). A loud panic here (never a
+            // silent `=`) keeps a future decode gap from miscompiling.
+            let branch = match BinaryOp::parse(op) {
+                Some(BinaryOp::Equal) => abi::branch_eq(&end),
+                Some(BinaryOp::NotEqual) => abi::branch_ne(&end),
+                Some(BinaryOp::Less) => abi::branch_lt(&end),
+                Some(BinaryOp::Greater) => abi::branch_gt(&end),
+                Some(BinaryOp::LessEqual) => abi::branch_le(&end),
+                Some(BinaryOp::GreaterEqual) => abi::branch_ge(&end),
+                _ => unreachable!("invalid LINK Compare operator {op:?} reached codegen"),
             };
             instructions.push(abi::compare_registers(&lhs_reg, &rhs_reg));
             instructions.push(abi::move_immediate(&dst, "Integer", "1"));

@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Remove every occurrence of `qualifier` in `input` that begins a type-name
 /// token — at position 0 or immediately after a non-identifier byte — leaving
@@ -2108,26 +2109,26 @@ impl<'a> Monomorphizer<'a> {
                 right,
                 ..
             } => {
-                if matches!(
-                    operator.as_str(),
-                    "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-                ) {
+                if operator.is_comparison()
+                    || matches!(operator, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+                {
                     return Some(ParameterType::Boolean);
                 }
-                if operator == "&" {
+                if *operator == BinaryOp::Concat {
                     return Some(ParameterType::String);
                 }
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
                 Some(
-                    numeric::typed_binary_result_type(operator, &left, &right)
+                    // plan-112 Phase 4 retypes `numeric` and deletes this seam.
+                    numeric::typed_binary_result_type(operator.name(), &left, &right)
                         .unwrap_or(ParameterType::Integer),
                 )
             }
             HirExpression::Unary {
                 operator, operand, ..
             } => {
-                if operator == "NOT" {
+                if *operator == UnaryOp::Not {
                     Some(ParameterType::Boolean)
                 } else {
                     self.expression_type(operand, context)

@@ -20,6 +20,7 @@ mod lexer;
 mod manifest;
 mod monomorph;
 mod numeric;
+mod operators;
 mod optimizer;
 mod os;
 mod resolver;

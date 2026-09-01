@@ -49,9 +49,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Tree compiles clean at HEAD | `cargo check --all-targets` → 0 warnings | UNMEASURED — run at kickoff |
-| The type-string gate is green (this plan must not regress it) | `cargo test --test no_type_strings` → 7 passed, 0 failed | MET (measured 2026-08-30) |
-| `artifact-gate all` reads 0 diffs before any work starts | `scripts/artifact-gate.sh all` | UNMEASURED — run at kickoff, **before** the first edit |
+| Tree compiles clean at HEAD | `cargo check --all-targets` → 0 warnings | **MET** (2026-09-01, worktree P-112: exit 0, `grep -c warning` → 0) |
+| The type-string gate is green (this plan must not regress it) | `cargo test --test no_type_strings` → 7 passed, 0 failed | **MET** (2026-09-01: 7 passed; 0 failed; 1 ignored) |
+| `artifact-gate all` reads 0 diffs before any work starts | `scripts/artifact-gate.sh all` | **MET** (2026-09-01, before the first edit: `artifact-gate [all]: 1324 tests, 1486 build(s), 1819 golden(s) checked, 0 diff(s)`, exit 0) |
 
 The third row is not optional bookkeeping. Per
 `abi-function-migration-drifts-ncodesum`, gating to 0 diffs *before* landing is
@@ -328,19 +328,20 @@ the enum cannot work.
 Lands the vocabulary and proves `name()` reproduces every spelling in the
 golden corpus *before* anything depends on it. Safe alone: nothing calls it yet.
 
-- [ ] Create `src/operators.rs` with `BinaryOp` (17 variants) and `UnaryOp` (3
+- [x] Create `src/operators.rs` with `BinaryOp` (17 variants) and `UnaryOp` (3
       variants), both `#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]`, per
       the §2 vocabulary table. Register the module in `src/main.rs`.
-- [ ] Implement `BinaryOp::name(self) -> &'static str` and
+- [x] Implement `BinaryOp::name(self) -> &'static str` and
       `UnaryOp::name(self) -> &'static str` returning the exact current
       spellings.
-- [ ] Implement `BinaryOp::parse(&str) -> Option<Self>` and
+- [x] Implement `BinaryOp::parse(&str) -> Option<Self>` and
       `UnaryOp::parse(&str) -> Option<Self>`. `parse` is for the IR-binary
       decode boundary only; document that in the fn doc comment.
-- [ ] Grep the `link-const-pins` fixture for `SIZEOF` and record in Corrections
+- [x] Grep the `link-const-pins` fixture for `SIZEOF` and record in Corrections
       whether any committed golden covers it (§2 UNVERIFIED). If none does, add
-      a fixture in Phase 5 rather than dropping the variant.
-- [ ] Tests: `src/operators.rs` `#[cfg(test)]` module with (a) `round_trip` —
+      a fixture in Phase 5 rather than dropping the variant. **Answer: no golden
+      covers it** — see Corrections C4.
+- [x] Tests: `src/operators.rs` `#[cfg(test)]` module with (a) `round_trip` —
       `parse(name(op)) == Some(op)` for all 20 variants, enumerated explicitly,
       not via a helper that could silently skip one; (b) `parse` returns `None`
       for `"GARBAGE"`, `""`, `"and"` (wrong case), `"=="`; (c) a
@@ -351,7 +352,13 @@ golden corpus *before* anything depends on it. Safe alone: nothing calls it yet.
 Acceptance: `cargo test operators` passes, and the golden-corpus test proves all
 18 corpus spellings round-trip byte-exactly. `cargo check --all-targets` → 0
 warnings (the enums are `#[allow(dead_code)]`-free because the tests use them).
-Commit: —
+
+**Measured:** `cargo test --bin mfb operators::` → 8 passed, 0 failed; the
+corpus test printed `corpus operator spellings (18)`. The `--all-targets` half
+of the acceptance is **not reachable at this phase boundary** — see Corrections
+C5 — so Phases 1–3 land in one commit, with the corpus proof taken *before* any
+carrier was retyped, which is the ordering guarantee the phase existed for.
+Commit: (with Phase 3)
 
 ### Phase 2 — the parser mints the enum
 
@@ -359,45 +366,50 @@ Converts the 12 mint sites and the `.ast` render sink. Lands alone because HIR
 still takes a `String`: `elaborate` calls `.name().to_string()` at the seam for
 exactly one commit.
 
-- [ ] Add `BinaryOp::from_token(TokenKind) -> Option<Self>` in
+- [x] Add `BinaryOp::from_token(TokenKind) -> Option<Self>` in
       `src/operators.rs`; rewrite `src/ast/expr.rs:73,139,183,208` to use it
       instead of matching a `TokenKind` to a `&str`.
-- [ ] Retype `Expression::Binary { operator }` and `Expression::Unary
+- [x] Retype `Expression::Binary { operator }` and `Expression::Unary
       { operator }` in `src/ast/types.rs` to `BinaryOp`/`UnaryOp`; fix the 12
       mint sites in `src/ast/expr.rs` and `src/ast/link_items.rs:253,682`.
-- [ ] Retype `src/ast/build.rs:23` `binary(left, operator: BinaryOp, right)`.
-- [ ] `src/ast/serialize.rs:1303,1313`: render `json_string(operator.name())`.
-- [ ] `src/hir/build.rs:26,68` and `src/hir/mod.rs:965-982`: at the elaborate
+- [x] Retype `src/ast/build.rs:23` `binary(left, operator: BinaryOp, right)`.
+- [x] `src/ast/serialize.rs:1303,1313`: render `json_string(operator.name())`.
+- [x] `src/hir/build.rs:26,68` and `src/hir/mod.rs:965-982`: at the elaborate
       seam, emit `operator.name().to_string()` so HIR is unchanged this phase.
       Mark it with a `// plan-112 Phase 3 deletes this seam` comment.
-- [ ] Tests: update `src/ast/tests.rs` operator assertions
+- [x] Tests: update `src/ast/tests.rs` operator assertions
       (`:67,79,298,299`, …) from string compares to variant compares.
 
 Acceptance: all 793 `.ast` goldens byte-identical
 (`scripts/test-accept.sh <target> /tmp/accept-112` → 0 mismatches);
 `cargo test --no-fail-fast` green.
-Commit: —
+
+**Measured** at the Phase 2 boundary, before the carriers moved:
+`scripts/artifact-gate.sh ./target/release/mfb strings|math|link-const-pins` →
+`0 diff(s)` each (7 + 7 + 6 goldens, `.ast` and `.ir` among them). The full
+793-golden reading is the Phase 3 gate below, which covers the same files.
+Commit: (with Phase 3)
 
 ### Phase 3 — HIR and IR carriers, and the decode boundary
 
 Retypes 2 of the 3 carriers and deletes the Phase 2 seam. 48 `src/ir` sites plus
 1 `src/hir` site become compile errors; fix them arm-for-arm in source order.
 
-- [ ] Retype `src/hir/mod.rs:420,426` to `BinaryOp`/`UnaryOp`; delete the
+- [x] Retype `src/hir/mod.rs:420,426` to `BinaryOp`/`UnaryOp`; delete the
       `.name().to_string()` seam in `src/hir/build.rs` and `src/hir/mod.rs:971,
       982` (the per-node `String` clone goes with it).
-- [ ] Retype `src/ir/value.rs:123,132` to `BinaryOp`/`UnaryOp`.
-- [ ] Fix the resulting compile errors across `src/ir/**` (48 sites; heaviest:
+- [x] Retype `src/ir/value.rs:123,132` to `BinaryOp`/`UnaryOp`.
+- [x] Fix the resulting compile errors across `src/ir/**` (48 sites; heaviest:
       `verify/values.rs` 12, `lower_link.rs` 11, `verify/mod.rs` 7, `shape.rs`
       7, `lower.rs` 5) and `src/monomorph/lower.rs` (2).
-- [ ] **Delete the two dead unary-`+` arms** at `src/ir/lower_link.rs:294` and
+- [x] **Delete the two dead unary-`+` arms** at `src/ir/lower_link.rs:294` and
       `src/ir/shape.rs:388` (§2 Verified properties — no parser mints a unary
       `+`). Record in Corrections that this was a live defect the enum exposed.
-- [ ] `src/ir/json.rs`: render `op.name()`.
-- [ ] `src/ir/binary.rs:981` `encode_op`: write `op.name()`.
+- [x] `src/ir/json.rs`: render `op.name()`.
+- [x] `src/ir/binary.rs:981` `encode_op`: write `op.name()`.
       `src/ir/binary.rs:1585,1592`: decode via
       `BinaryOp::parse(&r.string()?).ok_or_else(|| format!("invalid operator …"))`.
-- [ ] Tests: confirm bug-403's `"GARBAGE"` regression test at
+- [x] Tests: confirm bug-403's `"GARBAGE"` regression test at
       `src/ir/binary.rs:1728-1762` still passes **unmodified**. If it needs an
       edit, stop — that is a behavior change, and the 4-question gate in
       `AGENTS.md` applies.
@@ -405,6 +417,14 @@ Retypes 2 of the 3 carriers and deletes the Phase 2 seam. 48 `src/ir` sites plus
 Acceptance: all 793 `.ir` goldens byte-identical; `cargo test --no-fail-fast`
 green including bug-403's unmodified regression test; `cargo check
 --all-targets` → 0 warnings.
+
+**Measured:** `scripts/artifact-gate.sh ./target/release/mfb all` →
+`1324 tests, 1486 build(s), 1819 golden(s) checked, 0 diff(s)` — the identical
+reading to the pre-plan Prerequisites baseline, so every `.ast` and `.ir` golden
+in the tree is byte-identical. `cargo test --no-fail-fast -- --skip
+artifact_gate_all` → exit 0, `grep -c '^failures:'` → 0, 87 suites ok;
+bug-403's `decode_rejects_garbage_compare_op` passes unmodified.
+`cargo check --all-targets` → 0 warnings, 0 errors.
 Commit: —
 
 ### Phase 4 — NIR, codegen, opt1, numeric (largest blast radius)
@@ -523,6 +543,126 @@ Commit: —
 
 <!-- Filled in DURING execution. Every place this plan turned out to be wrong:
      the claim, what was actually true, and the evidence. -->
+
+**C1 — the site census drifted between authoring and execution (193 → 196,
+30 → 31 files).** The §Measured populations table was taken on 2026-08-30; re-run
+verbatim on 2026-09-01 the same pipeline reads **196** sites over **31** files.
+The only per-file row that moved is `src/ir/lower.rs`, 5 → **6**. Command (the
+plan's own, unchanged):
+
+```
+grep -rnE --include="*.rs" '(\bop\b|\boperator\b)[^A-Za-z_"]{0,25}"(OR|XOR|AND|NOT|MOD|DIV|SIZEOF|\+|-|\*|/|\^|&|=|<>|<|<=|>|>=)"|^\s*"(OR|XOR|AND|NOT|MOD|DIV|SIZEOF|\+|-|\*|/|\^|&|=|<>|<|<=|>|>=)"(\s*\|\s*"[^"]*")*\s*=>' src/ \
+  | grep -v _tests.rs | grep -v '/tests.rs' | grep -v '^src/ast/' | grep -v '^src/lexer.rs' | wc -l
+```
+
+No sub-plan's scope was derived from the number — the carriers' retyping is what
+generates the work list — so nothing was re-scoped. Recorded so the Phase 5
+re-measure has the right "before".
+
+**C2 — "18 fallback arms" is a miscount; there are 10.** The plan's own count
+command ends `grep -B 2 … | grep -E 'format!|=>' | wc -l`, and `-B 2` emits the
+`other => {` context line *and* the `format!(` line for the same arm, so nine
+arms are counted twice. Reading the output rather than its line count
+(`grep -rn 'does not lower\|unsupported operator\|unknown operator\|cannot lower.*operator' src/codegen src/ir src/target src/optimizer`) gives **10** distinct
+operator-spelling error paths — the 10 rows the plan's own table lists — and the
+"(+ 8 more found by the same grep)" row is an artifact of the overcount, not a
+population. Three further `does not lower` hits in `link_thunk.rs` are **ctype**
+messages, not operators, and are out of scope. §1's "the 18 … error paths are
+deleted" therefore reads **10**.
+
+**C3 — `IrLinkExpr::Compare { op: String }` is a fourth operator carrier the
+plan does not list, and it deliberately stays a `String`.** §1 names six fields
+across three carriers (HIR, `IrValue`, `NirValue`); `src/ir/link.rs:891` holds a
+seventh. It is **not** retyped, because bug-403's regression test constructs
+`IrLinkExpr::Compare { op: "GARBAGE".to_string() }` and Phase 3 requires that
+test to pass **unmodified** — retyping the field would stop it compiling. Applying
+`AGENTS.md`'s four-question gate: the test is not disproved, so the test wins.
+What *was* done instead removes the spelling decisions without touching the
+field: `link_compare_op_valid` now reads
+`BinaryOp::parse(op).is_some_and(BinaryOp::is_comparison)`, and
+`link_thunk.rs:2111`'s six-way branch `match`es `BinaryOp::parse(op)` variants
+rather than `op.as_str()`. The `String` survives only as the wire spelling on
+both sides of the `.mfp` boundary, which is what §Compatibility already
+guarantees.
+
+**C4 — Phase 1 task 4, answered: no committed golden covers `SIZEOF`, and none
+covers it as an operator node at all.** A per-arity census over all 1586 `.ast`
+and `.ir` goldens (anchored on `"kind": "binary"`/`"kind": "unary"`, not on the
+overloaded `"op"` key) reads:
+
+| arity | spellings covered |
+|---|---|
+| binary | all 17 (`&` `*` `+` `-` `/` `<` `<=` `<>` `=` `>` `>=` `AND` `DIV` `MOD` `OR` `XOR` `^`) |
+| unary | `-` (1832 nodes), `NOT` (124 nodes) — **`SIZEOF`: 0** |
+
+`grep -rn '= *SIZEOF\|SIZEOF [A-Z]' tests/ examples/` finds **no** fixture with a
+live `SIZEOF <CStruct>` CONST pin anywhere; the four `SIZEOF` hits in `tests/`
+are diagnostic prose in two `build.log` goldens plus one source comment. Per the
+plan this is a coverage gap to fill, not grounds to drop the variant — Phase 5
+adds the fixture. (`SIZEOF` also folds to its integer during LINK lowering, so it
+can only ever reach a golden through a fixture that fails *before* the fold, or
+through the `-ast` dump.)
+
+**C5 — Phases 1 and 2 are not independently landable; 1–3 land as one commit.**
+Phase 1's acceptance says `cargo check --all-targets` → 0 warnings "because the
+tests use them". Measured, that is false: `--all-targets` also builds the plain
+(non-`cfg(test)`) bin target, where a module with only `#[cfg(test)]` callers is
+dead code —
+
+```
+warning: enum `BinaryOp` is never used                     --> src/operators.rs:39
+warning: enum `UnaryOp` is never used                      --> src/operators.rs:86
+warning: associated items `name`, `parse`, `from_token`, and `is_comparison` are never used
+warning: associated function `parse` is never used
+```
+
+`AGENTS.md` forbids the obvious patch (`#[allow(dead_code)]` justified as
+"consumed by a later phase"), so the acceptance criterion is met by **moving the
+commit boundary, not weakening the criterion**: `parse` gets its first
+non-test caller at Phase 3's decode boundary and `is_comparison` at Phase 3's
+`link_compare_op_valid`, so Phases 1–3 land together, warning-free. Phase 1's
+*verification* still ran first and unchanged — the golden-corpus round-trip was
+green before any carrier was retyped, which is the ordering the phase existed to
+guarantee.
+
+**C6 — the two dead unary-`+` arms are real, and they surfaced in Phase 2, not
+Phase 3.** `src/ir/lower_link.rs:294` (`if operator == "+"`) and
+`src/ir/shape.rs:417` (`operator == "-" || operator == "+"`) both consume the
+**AST** `Expression`, not `HirExpression`, so retyping `Expression` in Phase 2 is
+what made them compile errors. Both are now deleted: `UnaryOp` has no `Plus`
+variant and `grep -rn 'operator: "+"' src/` still returns nothing. This was a
+live defect the enum exposed, exactly as §2 predicted. Several other
+`src/ir/shape.rs` and `src/ir/lower_link.rs` sites the plan budgeted for Phase 3
+moved into Phase 2 for the same reason.
+
+**C7 — `operator_can_raise` conflated the two arities through one `&str` list,
+and had to be split.** `ARITHMETIC_OPERATORS` (`src/ir/fallible.rs:133`) was
+`["+", "-", "*", "/", "DIV", "MOD", "^"]` and was consulted for **both** a
+binary and a unary node (`ir::lower::trap_hoist_kind` matched
+`IrValue::Binary { op, .. } | IrValue::Unary { op, .. }` in one arm), so `"-"`
+stood for subtraction and negation at once and which one a lookup meant depended
+on the caller. With the arities separately typed that arm no longer compiles.
+Split into `ARITHMETIC_OPERATORS: [BinaryOp; 7]` +
+`ARITHMETIC_UNARY_OPERATORS: [UnaryOp; 1]` and `operator_can_raise` +
+`unary_operator_can_raise`, preserving the exact verdict for every input
+(`NOT`/`SIZEOF` were `false` before and are `false` now).
+`ir::shape::note_short_circuited_operator` needed the same split for the same
+reason.
+
+**C8 — `TYPE_UNARY_OPERATOR_UNKNOWN` survives, its test retargeted, and the
+guarantee it stood for moved to the decode boundary.**
+`ir::verify::tests::rejects_unknown_unary_operator` fed the operator `"~"`,
+which `UnaryOp` no longer lets anyone construct. The rule is *not* dead:
+`UnaryOp::SizeOf` reaches the same arm (a LINK-only operator that folds before
+lowering, so an IR node still carrying one is malformed exactly as `~` was), and
+the test now uses it — the code, the message and `POISONING_RULES` are all
+unchanged. The out-of-vocabulary half of what `"~"` covered moved to where it is
+actually reachable: `binary::value_op_tests::decode_rejects_garbage_binary_and_unary_ops`
+hand-assembles `IrValue` bytes carrying `"GARBAGE"`/`""`/`"~"`/`"and"`/`"=="`
+and requires each to be rejected at decode, with
+`decode_accepts_every_valid_operator` as the counterpart proving all 20 valid
+spellings still decode. That is bug-403's guarantee extended from `IrLinkExpr`
+to `IrValue`, which had never had it.
 
 ## Summary
 

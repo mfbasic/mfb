@@ -2,6 +2,7 @@ use super::*;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::operators::{BinaryOp, UnaryOp};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
@@ -64,7 +65,7 @@ fn string_concat_has_lower_precedence_than_addition() {
     else {
         panic!("expected binary expression");
     };
-    assert_eq!(operator, "&");
+    assert_eq!(*operator, BinaryOp::Concat);
     assert!(matches!(&**left, Expression::Identifier(name) if name == "a"));
 
     let Expression::Binary {
@@ -76,7 +77,7 @@ fn string_concat_has_lower_precedence_than_addition() {
     else {
         panic!("expected addition on concat right side");
     };
-    assert_eq!(add_operator, "+");
+    assert_eq!(*add_operator, BinaryOp::Add);
     assert!(matches!(&**add_left, Expression::Identifier(name) if name == "b"));
     assert!(matches!(&**add_right, Expression::Identifier(name) if name == "c"));
 }
@@ -295,32 +296,32 @@ fn parses_operator_precedence_chain() {
     let Expression::Binary { operator, .. } = expr_of("a OR b") else {
         panic!("or");
     };
-    assert_eq!(operator, "OR");
+    assert_eq!(operator, BinaryOp::Or);
     let Expression::Binary { operator, .. } = expr_of("a XOR b") else {
         panic!("xor");
     };
-    assert_eq!(operator, "XOR");
+    assert_eq!(operator, BinaryOp::Xor);
     // AND
     let Expression::Binary { operator, .. } = expr_of("a AND b") else {
         panic!("and");
     };
-    assert_eq!(operator, "AND");
+    assert_eq!(operator, BinaryOp::And);
     // NOT (unary, right-recursive)
     let Expression::Unary { operator, .. } = expr_of("NOT NOT a") else {
         panic!("not");
     };
-    assert_eq!(operator, "NOT");
+    assert_eq!(operator, UnaryOp::Not);
 }
 
 #[test]
 fn parses_every_comparison_operator() {
     for (src, op) in [
-        ("a = b", "="),
-        ("a <> b", "<>"),
-        ("a < b", "<"),
-        ("a <= b", "<="),
-        ("a > b", ">"),
-        ("a >= b", ">="),
+        ("a = b", BinaryOp::Equal),
+        ("a <> b", BinaryOp::NotEqual),
+        ("a < b", BinaryOp::Less),
+        ("a <= b", BinaryOp::LessEqual),
+        ("a > b", BinaryOp::Greater),
+        ("a >= b", BinaryOp::GreaterEqual),
     ] {
         let Expression::Binary { operator, .. } = expr_of(src) else {
             panic!("comparison {src}");
@@ -332,13 +333,13 @@ fn parses_every_comparison_operator() {
 #[test]
 fn parses_arithmetic_and_multiplicative_operators() {
     for (src, op) in [
-        ("a + b", "+"),
-        ("a - b", "-"),
-        ("a * b", "*"),
-        ("a / b", "/"),
-        ("a MOD b", "MOD"),
-        ("a DIV b", "DIV"),
-        ("a & b", "&"),
+        ("a + b", BinaryOp::Add),
+        ("a - b", BinaryOp::Subtract),
+        ("a * b", BinaryOp::Multiply),
+        ("a / b", BinaryOp::Divide),
+        ("a MOD b", BinaryOp::Mod),
+        ("a DIV b", BinaryOp::IntDiv),
+        ("a & b", BinaryOp::Concat),
     ] {
         let Expression::Binary { operator, .. } = expr_of(src) else {
             panic!("arith {src}");
@@ -355,13 +356,13 @@ fn parses_power_right_associative_and_unary_minus() {
     else {
         panic!("power");
     };
-    assert_eq!(operator, "^");
+    assert_eq!(operator, BinaryOp::Power);
     // Right-associative: right side is itself a power binary.
-    assert!(matches!(&*right, Expression::Binary { operator, .. } if operator == "^"));
+    assert!(matches!(&*right, Expression::Binary { operator, .. } if *operator == BinaryOp::Power));
     let Expression::Unary { operator, .. } = expr_of("-a") else {
         panic!("unary minus");
     };
-    assert_eq!(operator, "-");
+    assert_eq!(operator, UnaryOp::Negate);
 }
 
 #[test]
@@ -513,7 +514,7 @@ fn parses_lambda_expression() {
     };
     assert_eq!(params.len(), 1);
     assert!(assign_target.is_none());
-    assert!(matches!(&*body, Expression::Binary { operator, .. } if operator == "+"));
+    assert!(matches!(&*body, Expression::Binary { operator, .. } if *operator == BinaryOp::Add));
 }
 
 #[test]
@@ -2774,7 +2775,7 @@ fn parse_keeps_a_member_comparison_in_expression_position() {
     let Expression::Binary { left, operator, .. } = condition else {
         panic!("expected a binary condition");
     };
-    assert_eq!(operator, "=");
+    assert_eq!(*operator, BinaryOp::Equal);
     assert!(matches!(**left, Expression::MemberAccess { .. }));
 }
 

@@ -535,7 +535,8 @@ fn lower_value(value: &IrValue) -> NirValue {
             loc,
             ..
         } => NirValue::Binary {
-            op: op.clone(),
+            // plan-112 Phase 4 deletes this seam when `NirValue` carries the enum.
+            op: op.name().to_string(),
             left: Box::new(lower_value(left)),
             right: Box::new(lower_value(right)),
             loc: lower_loc(*loc),
@@ -543,7 +544,8 @@ fn lower_value(value: &IrValue) -> NirValue {
         IrValue::Unary {
             op, operand, loc, ..
         } => NirValue::Unary {
-            op: op.clone(),
+            // plan-112 Phase 4 deletes this seam when `NirValue` carries the enum.
+            op: op.name().to_string(),
             operand: Box::new(lower_value(operand)),
             loc: lower_loc(*loc),
         },

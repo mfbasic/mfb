@@ -1,3 +1,4 @@
+use crate::operators::BinaryOp;
 use crate::types::ParameterType;
 
 /// Whether `ctype` is a C ABI type the marshaling backend implements for an
@@ -919,7 +920,7 @@ pub(crate) enum IrLinkExpr {
 /// exactly as [`AbiDirection::from_code`] rejects an unknown direction — and by
 /// `link_thunk`'s codegen, whose comparison `match` is exhaustive over this set.
 pub(crate) fn link_compare_op_valid(op: &str) -> bool {
-    matches!(op, "=" | "<>" | "<" | ">" | "<=" | ">=")
+    BinaryOp::parse(op).is_some_and(BinaryOp::is_comparison)
 }
 
 #[cfg(test)]

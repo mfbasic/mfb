@@ -28,6 +28,7 @@ use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
     HirProject, HirStatement,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::rules::PendingDiagnostic;
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
@@ -295,7 +296,9 @@ fn numeric_literal_type(expression: &HirExpression) -> Option<ParameterType> {
         }),
         HirExpression::Unary {
             operator, operand, ..
-        } if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => {
+        } if *operator == UnaryOp::Negate
+            && matches!(operand.as_ref(), HirExpression::Number(_)) =>
+        {
             numeric_literal_type(operand)
         }
         _ => None,
@@ -409,12 +412,15 @@ fn link_const_foldable(expression: &crate::ast::Expression, cstructs: &[&str]) -
         Expression::Identifier(name) => name == "NOTHING",
         Expression::Unary {
             operator, operand, ..
-        } if operator == "SIZEOF" => {
-            matches!(operand.as_ref(), Expression::Identifier(name) if cstructs.contains(&name.as_str()))
-        }
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" || operator == "+" => link_const_foldable(operand, cstructs),
+        } => match operator {
+            UnaryOp::SizeOf => {
+                matches!(operand.as_ref(), Expression::Identifier(name) if cstructs.contains(&name.as_str()))
+            }
+            UnaryOp::Negate => link_const_foldable(operand, cstructs),
+            // A boolean negation is not a foldable integer constant; it reached
+            // the catch-all `false` before the operator became an enum.
+            UnaryOp::Not => false,
+        },
         _ => false,
     }
 }
@@ -433,7 +439,7 @@ fn is_bare_decimal_float(expression: &HirExpression) -> bool {
         }
         HirExpression::Unary {
             operator, operand, ..
-        } if operator == "-" => is_bare_decimal_float(operand),
+        } if *operator == UnaryOp::Negate => is_bare_decimal_float(operand),
         _ => false,
     }
 }
@@ -1644,10 +1650,31 @@ impl<'a> Walker<'a> {
     /// conditionally cannot be hoisted, because hoisting evaluates it every time.
     /// Reporting it is the alternative to letting the division-by-zero escape the
     /// handler unnoticed, which is the whole of bug-471.
-    fn note_short_circuited_operator(
+    fn note_short_circuited_binary_operator(
         &self,
         expression: &HirExpression,
-        operator: &str,
+        operator: BinaryOp,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        if super::fallible::operator_can_raise(operator, &type_) {
+            *offender = Some(operator.name().to_string());
+        }
+    }
+
+    /// The unary half of [`Self::note_short_circuited_binary_operator`]. Split
+    /// by arity because the raise-set is: before the operator became an enum
+    /// both arities shared one `&str` list in which `"-"` stood for subtraction
+    /// and negation at once, so which one a lookup meant depended on the caller.
+    fn note_short_circuited_unary_operator(
+        &self,
+        expression: &HirExpression,
+        operator: UnaryOp,
         locals: &HashMap<String, ParameterType>,
         conditional: bool,
         offender: &mut Option<String>,
@@ -1667,8 +1694,8 @@ impl<'a> Walker<'a> {
                 return;
             }
         }
-        if super::fallible::operator_can_raise(operator, &type_) {
-            *offender = Some(operator.to_string());
+        if super::fallible::unary_operator_can_raise(operator, &type_) {
+            *offender = Some(operator.name().to_string());
         }
     }
 
@@ -1701,16 +1728,16 @@ impl<'a> Walker<'a> {
                 ..
             } => {
                 self.find_short_circuited_call(left, locals, conditional, offender);
-                let short_circuit = lower::is_short_circuit_operator(operator);
+                let short_circuit = lower::is_short_circuit_operator(*operator);
                 self.find_short_circuited_call(
                     right,
                     locals,
                     conditional || short_circuit,
                     offender,
                 );
-                self.note_short_circuited_operator(
+                self.note_short_circuited_binary_operator(
                     expression,
-                    operator,
+                    *operator,
                     locals,
                     conditional,
                     offender,
@@ -1720,9 +1747,9 @@ impl<'a> Walker<'a> {
                 operand, operator, ..
             } => {
                 self.find_short_circuited_call(operand, locals, conditional, offender);
-                self.note_short_circuited_operator(
+                self.note_short_circuited_unary_operator(
                     expression,
-                    operator,
+                    *operator,
                     locals,
                     conditional,
                     offender,
@@ -1942,13 +1969,30 @@ impl<'a> Walker<'a> {
                     matches!(walker.type_of(value, locals), ParameterType::Float)
                         && is_bare_decimal_float(value)
                 };
-                let culprit = match operator.as_str() {
-                    "*" => {
+                let culprit = match operator {
+                    BinaryOp::Multiply => {
                         (money(self, left) && bare_float(self, right))
                             || (money(self, right) && bare_float(self, left))
                     }
-                    "/" => money(self, left) && bare_float(self, right),
-                    _ => false,
+                    BinaryOp::Divide => money(self, left) && bare_float(self, right),
+                    // Only a scaling operator can silently make Money inexact:
+                    // `+`/`-` require two Money operands and the rest are not
+                    // Money operators at all.
+                    BinaryOp::Or
+                    | BinaryOp::Xor
+                    | BinaryOp::And
+                    | BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+                    | BinaryOp::Concat
+                    | BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Mod
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Power => false,
                 };
                 if culprit {
                     self.emit(
@@ -2784,7 +2828,11 @@ impl<'a> Walker<'a> {
                 HirExpression::Unary {
                     operator, operand, ..
                 },
-            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
+            ) if *operator == UnaryOp::Negate
+                && matches!(operand.as_ref(), HirExpression::Number(_)) =>
+            {
+                true
+            }
             (
                 ParameterType::ListOf(expected_element),
                 ParameterType::ListOf(_),
@@ -3293,8 +3341,14 @@ impl<'a> Walker<'a> {
                 right,
                 ..
             } if matches!(
-                operator.as_str(),
-                "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^"
+                operator,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Mod
+                    | BinaryOp::Power
             ) =>
             {
                 // A value-less (`SUB`) or untyped operand: the checker's
@@ -3312,7 +3366,12 @@ impl<'a> Walker<'a> {
                 if (left_money || right_money)
                     && crate::numeric::is_numeric(&left)
                     && crate::numeric::is_numeric(&right)
-                    && crate::numeric::typed_money_result_type(operator, left_money, right_money)
+                    // plan-112 Phase 4 retypes `numeric` and deletes this seam.
+                    && crate::numeric::typed_money_result_type(
+                        operator.name(),
+                        left_money,
+                        right_money,
+                    )
                         .is_none()
                 {
                     return true;

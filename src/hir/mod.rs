@@ -27,6 +27,7 @@
 //! later plan). Name resolution beyond the structural copy is likewise deferred.
 
 use crate::ast::{ExitTarget, FunctionKind, LoopKind, TypeDeclKind, Visibility};
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 pub(crate) mod build;
@@ -437,13 +438,13 @@ pub(crate) enum HirExpression {
     Boolean(bool),
     Binary {
         left: Box<HirExpression>,
-        operator: String,
+        operator: BinaryOp,
         right: Box<HirExpression>,
         line: usize,
         column: usize,
     },
     Unary {
-        operator: String,
+        operator: UnaryOp,
         operand: Box<HirExpression>,
         line: usize,
         column: usize,
@@ -995,7 +996,7 @@ fn elaborate_expression(
             column,
         } => HirExpression::Binary {
             left: Box::new(elaborate_expression(left, type_params)),
-            operator: operator.clone(),
+            operator: *operator,
             right: Box::new(elaborate_expression(right, type_params)),
             line: *line,
             column: *column,
@@ -1006,7 +1007,7 @@ fn elaborate_expression(
             line,
             column,
         } => HirExpression::Unary {
-            operator: operator.clone(),
+            operator: *operator,
             operand: Box::new(elaborate_expression(operand, type_params)),
             line: *line,
             column: *column,

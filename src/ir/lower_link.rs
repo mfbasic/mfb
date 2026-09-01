@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 /// Collect `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
@@ -272,26 +273,26 @@ fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::hir::HirCStructDecl
         Expression::Identifier(name) if name == "NOTHING" => Some(0),
         Expression::Unary {
             operator, operand, ..
-        } if operator == "SIZEOF" => {
-            let Expression::Identifier(name) = operand.as_ref() else {
-                return None;
-            };
-            let decl = cstructs.iter().find(|c| c.name == *name)?;
-            let fields: Vec<(String, String)> = decl
-                .fields
-                .iter()
-                .map(|f| (f.name.clone(), f.ctype.clone()))
-                .collect();
-            crate::ir::compute_c_layout(&fields, "")
-                .ok()
-                .map(|l| l.size as i64)
-        }
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" => eval_link_const_opt(operand, cstructs).map(i64::wrapping_neg),
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "+" => eval_link_const_opt(operand, cstructs),
+        } => match operator {
+            UnaryOp::SizeOf => {
+                let Expression::Identifier(name) = operand.as_ref() else {
+                    return None;
+                };
+                let decl = cstructs.iter().find(|c| c.name == *name)?;
+                let fields: Vec<(String, String)> = decl
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ctype.clone()))
+                    .collect();
+                crate::ir::compute_c_layout(&fields, "")
+                    .ok()
+                    .map(|l| l.size as i64)
+            }
+            UnaryOp::Negate => eval_link_const_opt(operand, cstructs).map(i64::wrapping_neg),
+            // A boolean negation is not an integer constant form; it folded to
+            // `None` through the catch-all before the operator became an enum.
+            UnaryOp::Not => None,
+        },
         _ => None,
     }
 }
@@ -343,8 +344,10 @@ fn lower_bind_in_field(
         Expression::Boolean(value) => (None, Some(i64::from(*value))),
         Expression::Unary {
             operator, operand, ..
-        } if operator == "-" => match operand.as_ref() {
-            Expression::Number(text) => (None, Some(link_const_bits(text).wrapping_neg())),
+        } => match (operator, operand.as_ref()) {
+            (UnaryOp::Negate, Expression::Number(text)) => {
+                (None, Some(link_const_bits(text).wrapping_neg()))
+            }
             _ => (None, None),
         },
         _ => (None, None),
@@ -375,15 +378,18 @@ fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
         Expression::Identifier(name) => IrLinkExpr::Var(name.clone()),
         Expression::Unary {
             operator, operand, ..
-        } if operator == "-" => match lower_link_expr(operand) {
-            IrLinkExpr::Int(value) => IrLinkExpr::Int(value.wrapping_neg()),
-            other => other,
+        } => match operator {
+            UnaryOp::Negate => match lower_link_expr(operand) {
+                IrLinkExpr::Int(value) => IrLinkExpr::Int(value.wrapping_neg()),
+                other => other,
+            },
+            UnaryOp::Not => IrLinkExpr::Not(Box::new(lower_link_expr(operand))),
+            // `SIZEOF` is folded to its integer by `eval_link_const_opt` before
+            // a `SUCCESS_ON`/`RESULT` expression is lowered; reaching here means
+            // it was written where no constant fold applies, which lowered to
+            // `0` through the catch-all below before the enum made it explicit.
+            UnaryOp::SizeOf => IrLinkExpr::Int(0),
         },
-        Expression::Unary {
-            operator, operand, ..
-        } if operator.eq_ignore_ascii_case("NOT") => {
-            IrLinkExpr::Not(Box::new(lower_link_expr(operand)))
-        }
         Expression::Binary {
             left,
             operator,
@@ -392,23 +398,36 @@ fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
         } => {
             let lhs = Box::new(lower_link_expr(left));
             let rhs = Box::new(lower_link_expr(right));
-            match operator.to_ascii_uppercase().as_str() {
-                "AND" => IrLinkExpr::And(lhs, rhs),
-                "OR" => IrLinkExpr::Or(lhs, rhs),
-                "=" | "<>" | "<" | ">" | "<=" | ">=" => IrLinkExpr::Compare {
-                    op: operator.clone(),
+            match operator {
+                BinaryOp::And => IrLinkExpr::And(lhs, rhs),
+                BinaryOp::Or => IrLinkExpr::Or(lhs, rhs),
+                BinaryOp::Equal
+                | BinaryOp::NotEqual
+                | BinaryOp::Less
+                | BinaryOp::Greater
+                | BinaryOp::LessEqual
+                | BinaryOp::GreaterEqual => IrLinkExpr::Compare {
+                    op: operator.name().to_string(),
                     lhs,
                     rhs,
                 },
                 // plan-58-B: integer arithmetic for `BUFFER … SIZE` / `LENGTH`.
-                // Before these arms `SIZE frames * channels` fell into the `_`
-                // below and lowered to the literal 0 — a silently zero-capacity
-                // buffer, which is exactly the class of failure this whole
-                // sub-plan exists to prevent.
-                "*" => IrLinkExpr::Mul(lhs, rhs),
-                "+" => IrLinkExpr::Add(lhs, rhs),
-                "-" => IrLinkExpr::Sub(lhs, rhs),
-                _ => IrLinkExpr::Int(0),
+                // Before these arms `SIZE frames * channels` fell into the
+                // not-a-link-operator group below and lowered to the literal 0 —
+                // a silently zero-capacity buffer, which is exactly the class of
+                // failure this whole sub-plan exists to prevent.
+                BinaryOp::Multiply => IrLinkExpr::Mul(lhs, rhs),
+                BinaryOp::Add => IrLinkExpr::Add(lhs, rhs),
+                BinaryOp::Subtract => IrLinkExpr::Sub(lhs, rhs),
+                // A LINK expression admits no other operator. The source
+                // checkers reject one before lowering runs, so this is the
+                // total-function tail, not a reachable behaviour.
+                BinaryOp::Xor
+                | BinaryOp::Concat
+                | BinaryOp::Divide
+                | BinaryOp::Mod
+                | BinaryOp::IntDiv
+                | BinaryOp::Power => IrLinkExpr::Int(0),
             }
         }
         _ => IrLinkExpr::Int(0),

@@ -6,6 +6,7 @@ use super::fixtures::*;
 use super::*;
 use crate::ast::LoopKind;
 use crate::ir::{IrMatchCase, IrMatchPattern, IrParam, IrRecordUpdate, IrSourceLoc};
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 fn file_local() -> IrValue {
@@ -100,14 +101,14 @@ fn every_value() -> Vec<IrValue> {
             type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(file_local()),
             right: Box::new(file_local()),
             loc: IrSourceLoc::default(),
             type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Unary {
-            op: "-".to_string(),
+            op: UnaryOp::Negate,
             operand: Box::new(file_local()),
             loc: IrSourceLoc::default(),
             type_: crate::types::ParameterType::parse("fs.File"),
@@ -365,14 +366,14 @@ fn every_plain_value() -> Vec<IrValue> {
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(plain_local()),
             right: Box::new(plain_local()),
             loc: IrSourceLoc::default(),
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Unary {
-            op: "-".to_string(),
+            op: UnaryOp::Negate,
             operand: Box::new(plain_local()),
             loc: IrSourceLoc::default(),
             type_: crate::types::ParameterType::parse("Integer"),

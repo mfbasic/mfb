@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 #[derive(Clone)]
@@ -144,7 +145,7 @@ pub(crate) enum IrValue {
         type_: ParameterType,
     },
     Binary {
-        op: String,
+        op: BinaryOp,
         left: Box<IrValue>,
         right: Box<IrValue>,
         // Result type of the operation (plan-20-B).
@@ -153,7 +154,7 @@ pub(crate) enum IrValue {
         loc: IrSourceLoc,
     },
     Unary {
-        op: String,
+        op: UnaryOp,
         operand: Box<IrValue>,
         // Result type of the operation (plan-20-B).
         type_: ParameterType,
@@ -352,7 +353,7 @@ mod visit_tests {
 
     fn unary(operand: IrValue) -> IrValue {
         IrValue::Unary {
-            op: "-".to_string(),
+            op: UnaryOp::Negate,
             operand: Box::new(operand),
             type_: crate::types::ParameterType::parse("Integer"),
             loc: loc(),
@@ -363,7 +364,7 @@ mod visit_tests {
     fn visit_value_reaches_nested_children_pre_order() {
         // Binary(left=Local"a", right=Unary(Local"b")) — every node visited.
         let value = IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(IrValue::Local("a".to_string())),
             right: Box::new(unary(IrValue::Local("b".to_string()))),
             type_: crate::types::ParameterType::parse("Integer"),
