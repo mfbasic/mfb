@@ -35,9 +35,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-114-A complete and landed | `ls planning/completed/plan-114-A-*` → one match | NOT MET |
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
+| plan-114-A complete and landed | `ls planning/completed/plan-114-A-*` → one match | MET (2026-08-31) |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-31, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-31) |
 
 If plan-114-A is not complete, this letter cannot start, full stop. Everything
 below is written against the world where these hold.
@@ -373,8 +373,12 @@ Commit: c3c093940
       golden(s) checked, 0 diff(s)`, `GATE_EXIT=0`.** Run uncontended for the
       artifact-gate lock (the other active session held only `test-accept`, which
       guards separately and, per bug-470, is harmless cross-worktree).
-- [ ] `scripts/test-accept.sh target/release/mfb /tmp/plan114b-scratch` (full).
+- [x] `scripts/test-accept.sh target/release/mfb /tmp/plan114b-scratch` (full).
       Never pass a real directory as the second argument; it is `rm -rf`'d.
+      Run post-merge, covering letters B and C together:
+      `acceptance tests passed (1331 test(s) ran)`, `ACCEPT_EXIT=0`, **0
+      mismatches**. The `1331 ran` count is the guard against a silently skipped
+      tier (`find tests -name project.json | wc -l` agrees).
 - [x] `cargo test --no-fail-fast` redirected to a file; check cargo's own exit
       status, not a piped `tail`'s. Pre-merge: `CARGO_EXIT=101`, 83 suites ok,
       **2 failed — both bug-483's TLS fixtures**, which that run predated the fix
@@ -384,7 +388,13 @@ Commit: c3c093940
       — `cargo fmt --all -- --check` exits 0.
 
 Acceptance: `diffs=0` tree-wide, acceptance harness green, `cargo test` green.
-Commit: —
+**MET, all three, measured after merging bug-483 so they stand against the
+corrected goldens:**
+- `artifact-gate [all]: 1311 tests, 1473 build(s), 1809 golden(s) checked, 0 diff(s)`
+- `acceptance tests passed (1331 test(s) ran)`, 0 mismatches
+- `cargo test --no-fail-fast`: 83 suites ok; its only 2 failures were bug-483's
+  TLS fixtures, which pass on the merged tree with no change from this letter.
+Commit: 9640c2e70, 3a037c4fc
 
 ## Validation Plan
 
