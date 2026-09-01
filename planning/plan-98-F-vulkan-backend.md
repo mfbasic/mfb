@@ -34,7 +34,7 @@ References:
 | Working tree builds | `cargo build` → pass | MET (`Finished \`dev\` profile`) |
 | A SPIR-V compiler is reachable (added — F cannot start without one) | `ssh -p 2228 test@127.0.0.1 'apt-get download glslang-tools && dpkg -x … && ./glslangValidator --version'` | MET. Not installed on the macOS host and not installable without root on the test boxes, but `apt-get download` + `dpkg -x` into a scratch dir works as a plain user — the same trick `.ai/remote_systems.md` documents for qemu-user. `scripts/regen-spirv.sh` automates it. |
 | **A Windows `--app` program runs at all (added — Phase 3 only)** | `scripts/test-winapp.sh target/release/mfb` | **MET** (2026-08-31). It used to fault with `0xC0000005` before `main`'s first statement — **bug-478**, now fixed: two Win64 stack defects (a seam calling out with no shadow space, and a thread-entry frame that misaligned the whole program body). The script is new and is the thing whose absence let five Windows defects ship; it reports `rc=0`, `worker reached main`, `readback:written by the worker`. |
-| **A Windows canvas program renders (added — Phase 3 only)** | `mfb build --app --target windows-x86_64 <setMode(Canvas); present([])>`, then run it on box 2230 with `MFB_WINAPP_HEADLESS=1 MFB_CANVAS_SYNC=1` | **NOT MET.** `0xC0000005` on the **graphics** thread, in a UTF-8→UTF-16 marshal dereferencing a pointer of `2` — **bug-479**, filed with the minidump, the faulting instruction and a leading hypothesis. `setMode(Mode.Canvas)` alone is fine; the first `present` dies. Phase 3's acceptance is a tolerance match against the Windows *software* render, so it cannot be measured until this renders. |
+| **A Windows canvas program renders (added — Phase 3 only)** | `scripts/test-winapp.sh target/release/mfb` (the canvas half, added with the fix) | **MET** (2026-08-31). Was `0xC0000005`; **bug-479**, now fixed and archived. It was never the UTF-8 marshal the first three titles named — the **graphics thread ran 8 bytes out of stack alignment** from the moment canvas mode existed on Windows, because `emit_graphics_trampoline` skipped the x86-64 realign on the false premise that `BaseThreadInitThunk` enters a start routine already 16-aligned. Measured on 2230 with a breakpoint on `ntdll!RtlAcquireSRWLockExclusive`: worker `rsp % 16 == 8`, graphics `rsp % 16 == 0`. The frame now dumps `2304000` bytes = 900×640×4 with the background `(0,0,0,255)`, the rectangle `(200,40,40,255)` over exactly 24000 px and the circle `(40,200,120,255)` — **the software reference Phase 3 compares against now exists.** Four unrelated Win64 return-bank defects were found and fixed on the way in. |
 | **The Windows box has a Vulkan ICD (added — Phase 3 only)** | `ssh -p 2230 test@127.0.0.1 'reg query HKLM\SOFTWARE\Khronos\Vulkan\Drivers'`, then `C:\mfbvk\vkprobe.ps1` | **MET** (2026-08-31, with the owner's approval). Mesa 26.2.0's `lavapipe` is unpacked at `C:\mfbvk\mesa\x64` and registered as an ICD; `vkCreateInstance=0`, one physical device. Two things are worth writing down for the next reader. The archive is a `.7z` and the box has no 7-Zip — **`tar` on Windows 10+ is bsdtar/libarchive and reads 7z**, which is what unpacked it. And `VK_ICD_FILENAMES`/`VK_DRIVER_FILES` are **ignored** here: the ssh session runs elevated, and the loader drops every driver-selection variable under elevation ("Loader is running with elevated permissions… will be ignored", visible with `VK_LOADER_DEBUG=all`). Hence the registry key rather than the per-run variable the Linux `--icd auto` uses. |
 | Vulkan is loadable on the proof surface (added) | `ssh -p 2228 … vulkaninfo --summary` | MET. Ubuntu x86_64 glibc (2228): loader 1.4.309, device `llvmpipe` (`PHYSICAL_DEVICE_TYPE_CPU`). Alpine x86_64 musl (2227): `/usr/lib/libvulkan.so.1` present. Win11 (2230): `vulkan-1.dll` present. The aarch64 GTK boxes (2225, 2226) refuse connections right now, so the Linux proof surface is x86_64. |
 
@@ -295,28 +295,17 @@ tolerance; resize + retirement correct; the D race matrix green on the Windows V
 Run only the new Vulkan tolerance-golden tests plus C's software goldens (the reference
 they are compared against).
 
-**BLOCKED on two Prerequisites rows, and the second cannot be satisfied without a
-decision that is not this plan's to make.**
+**UNBLOCKED (2026-08-31).** Both rows that held this phase are now MET, each re-checked
+by running its own command rather than reading its Status cell:
 
-*The software reference does not render.* bug-478 is **fixed** — Windows `--app`
-programs now run, and `scripts/test-winapp.sh` proves it on box 2230 (worker reaches
-`main`, a file written by the worker reads back). But `Mode.Canvas` still faults on the
-graphics thread, filed as **bug-479** with a minidump, the faulting instruction and a
-leading hypothesis whose obvious fix is measured to regress app mode. Phase 3's
-acceptance is a comparison against the Windows software render, so it cannot begin
-until that renders.
+* *The software reference renders.* bug-479 is fixed and archived — the graphics thread
+  was 8 bytes out of stack alignment, not marshalling a bad pointer. `test-winapp.sh`
+  now asserts the Windows frame's size and three pixels, so the oracle this phase
+  compares against is measured, not assumed.
+* *The box has a Vulkan ICD.* `reg query HKLM\SOFTWARE\Khronos\Vulkan\Drivers` →
+  `C:\mfbvk\mesa\x64\lvp_icd.x86_64.json`, installed with the owner's approval.
 
-*The box has no Vulkan driver.* Box 2230 has the loader
-(`C:\Windows\System32\vulkan-1.dll`) but no ICD — `reg query
-HKLM\SOFTWARE\Khronos\Vulkan\Drivers` returns "unable to find the specified registry
-key". So even a complete and correct Windows Vulkan backend could not be *verified*
-there. The Linux boxes solved the same problem with `--icd auto`, which downloads Mesa's
-`lavapipe` from the Alpine mirror; the Windows equivalent means fetching a third-party
-driver binary onto the box, and that is an install decision for the repository's owner
-rather than something to do unasked. **Recorded here, with its check command, rather
-than waived.**
-
-The original blocking note follows, for the history.
+The two blocking notes that stood here follow, for the history.
 
 **BLOCKED on the Prerequisites row added above (bug-478).** The acceptance is a
 comparison against the Windows *software* render, and no `--app` program reaches its
