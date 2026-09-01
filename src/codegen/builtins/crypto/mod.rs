@@ -1046,7 +1046,10 @@ mod tests {
             Some("__crypto_hmacText")
         );
         assert_eq!(
-            sel("crypto.hmac", &["crypto.Hash", "List OF Byte", "List OF Byte"]),
+            sel(
+                "crypto.hmac",
+                &["crypto.Hash", "List OF Byte", "List OF Byte"]
+            ),
             Some("__crypto_hmac")
         );
         // The unified `pbkdf2(Hash, password, …)` has a single `List OF Byte`
@@ -1054,7 +1057,13 @@ mod tests {
         assert_eq!(
             sel(
                 "crypto.pbkdf2",
-                &["crypto.Hash", "List OF Byte", "List OF Byte", "Integer", "Integer"]
+                &[
+                    "crypto.Hash",
+                    "List OF Byte",
+                    "List OF Byte",
+                    "Integer",
+                    "Integer"
+                ]
             ),
             Some("__crypto_pbkdf2")
         );

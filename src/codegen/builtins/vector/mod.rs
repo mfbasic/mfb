@@ -627,7 +627,10 @@ mod tests {
             super::resolve_return_type(name, &types(args)).map(|t| t.name().into_owned())
         };
         // Scalar-returning members echo the element type.
-        assert_eq!(r("vector.length", &["vector.Float3"]).as_deref(), Some("Float"));
+        assert_eq!(
+            r("vector.length", &["vector.Float3"]).as_deref(),
+            Some("Float")
+        );
         assert_eq!(
             r("vector.length", &["vector.Integer2"]).as_deref(),
             Some("Integer")
@@ -646,13 +649,20 @@ mod tests {
             Some("vector.Float3")
         );
         // cross by dimension/arity.
-        assert_eq!(r("vector.cross", &["vector.Float2"]).as_deref(), Some("vector.Float2"));
+        assert_eq!(
+            r("vector.cross", &["vector.Float2"]).as_deref(),
+            Some("vector.Float2")
+        );
         assert_eq!(
             r("vector.cross", &["vector.Float3", "vector.Float3"]).as_deref(),
             Some("vector.Float3")
         );
         assert_eq!(
-            r("vector.cross", &["vector.Float4", "vector.Float4", "vector.Float4"]).as_deref(),
+            r(
+                "vector.cross",
+                &["vector.Float4", "vector.Float4", "vector.Float4"]
+            )
+            .as_deref(),
             Some("vector.Float4")
         );
         assert_eq!(r("vector.cross", &["vector.Float3"]), None);
@@ -673,7 +683,10 @@ mod tests {
             Some("vector.Float2")
         );
         // Mismatched vector types / scalar args are rejected.
-        assert_eq!(r("vector.distance", &["vector.Float3", "vector.Float2"]), None);
+        assert_eq!(
+            r("vector.distance", &["vector.Float3", "vector.Float2"]),
+            None
+        );
         assert_eq!(r("vector.abs", &["String"]), None);
     }
 
@@ -692,7 +705,10 @@ mod tests {
             Some("__vector_cross_float2")
         );
         assert_eq!(
-            super::rewrite_target("vector.angle", &strings(&["vector.Integer2", "vector.Integer2"])),
+            super::rewrite_target(
+                "vector.angle",
+                &strings(&["vector.Integer2", "vector.Integer2"])
+            ),
             Some("__vector_angle_integer2")
         );
     }

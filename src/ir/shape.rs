@@ -678,11 +678,8 @@ impl<'a> Walker<'a> {
                 //
                 // `named`, not `declared`: this is a constructor call from a
                 // `&'static str`, not a grammar entry.
-                let type_ = ParameterType::named(&format!(
-                    "{}.{}",
-                    package.import_name(),
-                    record.name
-                ));
+                let type_ =
+                    ParameterType::named(&format!("{}.{}", package.import_name(), record.name));
                 if shadowed.contains(&type_) {
                     continue;
                 }

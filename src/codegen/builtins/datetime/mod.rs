@@ -704,9 +704,15 @@ mod tests {
             registry::resolve_call(call, &types, false)
         };
         assert_eq!(r("datetime.now", &[]), Some("datetime.Instant".into()));
-        assert_eq!(r("datetime.monotonic", &[]), Some("datetime.Duration".into()));
+        assert_eq!(
+            r("datetime.monotonic", &[]),
+            Some("datetime.Duration".into())
+        );
         assert_eq!(r("datetime.utc", &[]), Some("datetime.Zone".into()));
-        assert_eq!(r("datetime.instant", &["Integer"]), Some("datetime.Instant".into()));
+        assert_eq!(
+            r("datetime.instant", &["Integer"]),
+            Some("datetime.Instant".into())
+        );
         assert_eq!(
             r(
                 "datetime.instant",
@@ -726,17 +732,26 @@ mod tests {
             r("datetime.time", &["Integer", "Integer"]),
             Some("datetime.Time".into())
         );
-        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("datetime.Zone".into()));
+        assert_eq!(
+            r("datetime.fixedOffset", &["Integer"]),
+            Some("datetime.Zone".into())
+        );
         assert_eq!(
             r("datetime.inZone", &["datetime.Instant", "datetime.Zone"]),
             Some("datetime.DateTime".into())
         );
         assert_eq!(
-            r("datetime.between", &["datetime.Instant", "datetime.Instant"]),
+            r(
+                "datetime.between",
+                &["datetime.Instant", "datetime.Instant"]
+            ),
             Some("datetime.Duration".into())
         );
         assert_eq!(
-            r("datetime.isBefore", &["datetime.Instant", "datetime.Instant"]),
+            r(
+                "datetime.isBefore",
+                &["datetime.Instant", "datetime.Instant"]
+            ),
             Some("Boolean".into())
         );
         assert_eq!(
@@ -828,7 +843,14 @@ mod tests {
         // The value records/enums are registry-modeled and
         // recognized through the generic registry via `add_record`.
         for t in [
-            "datetime.Instant", "datetime.Duration", "datetime.Date", "datetime.Time", "datetime.Zone", "datetime.DateTime", "datetime.ZoneKind", "datetime.Weekday",
+            "datetime.Instant",
+            "datetime.Duration",
+            "datetime.Date",
+            "datetime.Time",
+            "datetime.Zone",
+            "datetime.DateTime",
+            "datetime.ZoneKind",
+            "datetime.Weekday",
             "datetime.Month",
         ] {
             assert!(registry().is_builtin_type(t), "{t}");

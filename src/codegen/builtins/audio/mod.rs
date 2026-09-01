@@ -229,9 +229,7 @@ pub(crate) fn runtime_overload_name(qualified: &str, arg_types: &[String]) -> Op
         // selecting the device-first code form and every
         // `audio::openInput(device, …)` lowered to the deviceless helper.
         "audio.openInput" if first == Some(AUDIO_DEVICE_TYPE_ID) => Some("audio.openInputDevice"),
-        "audio.openOutput" if first == Some(AUDIO_DEVICE_TYPE_ID) => {
-            Some("audio.openOutputDevice")
-        }
+        "audio.openOutput" if first == Some(AUDIO_DEVICE_TYPE_ID) => Some("audio.openOutputDevice"),
         "audio.read" if arg_types.len() == 3 => Some("audio.readTimeout"),
         "audio.poll" if arg_types.len() == 2 => Some("audio.pollTimeout"),
         "audio.close" if first == Some(AUDIO_INPUT_TYPE_ID) => Some(CLOSE_INPUT),
