@@ -13,7 +13,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Release a font before it leaves scope."#;
 
 const DESC: &str = r#"`destroyFont` closes the font, exactly as `fs::close` closes a file: the handle is
-released now rather than when the binding goes out of scope. Letting a `Font` leave
+released now rather than when the binding goes out of scope. Letting a `canvas::Font` leave
 scope does the same thing, so this is for the case where a font is large and the
 scope is long — a font file is measured in hundreds of kilobytes, so this is a more
 useful call than its image twin.
@@ -25,7 +25,7 @@ released font measures and draws as empty rather than faulting.
 Closing twice is the defined no-op, and using a closed font afterwards raises the
 universal `ErrResourceClosed` — the same contract every resource has.
 
-Unlike the rest of `canvas`, `destroyFont` does **not** require `Mode.Canvas`: a
+Unlike the rest of `canvas`, `destroyFont` does **not** require `app::Mode.Canvas`: a
 program leaving canvas mode must still be able to release what it allocated, and
 closing a handle touches no surface."#;
 
@@ -34,7 +34,7 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
   canvas::destroyFont(face)
 END SUB

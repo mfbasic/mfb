@@ -9,8 +9,8 @@ const INTRO: &str = r#"Decode an image file and hold it as an `Image` resource."
 
 const DESC: &str = r#"`loadImage` reads the file at `path`, decodes it to RGBA8, and returns the same
 `Image` resource `canvas::createImage` produces — owned, bound with `RES`, released
-when it leaves scope or when `canvas::destroyImage` is called. A `Picture` item names
-it through an `ImageRef`, never directly.
+when it leaves scope or when `canvas::destroyImage` is called. A `canvas::Picture` item names
+it through a `canvas::ImageRef`, never directly.
 
 **PNG.** All five colour types (greyscale, truecolour, palette, greyscale+alpha,
 truecolour+alpha), bit depths 1 through 16, `tRNS` transparency, and Adam7
@@ -25,17 +25,17 @@ past, and the pixels arrive as the file stores them.
 A program that already has pixels — generated, or decoded by itself — wants
 `canvas::createImage` instead; `loadImage` is that call with a decoder in front of it.
 
-Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
 const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES logo AS canvas::Image = canvas::loadImage("logo.png")
-  LET size AS Size = canvas::getSize(logo)
-  LET art AS DrawItem = Picture[x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := canvas::imageRef(logo)]
+  LET size AS canvas::Size = canvas::getSize(logo)
+  LET art AS canvas::DrawItem = canvas::Picture[x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := canvas::imageRef(logo), paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([art])
 END SUB
 ```"#;

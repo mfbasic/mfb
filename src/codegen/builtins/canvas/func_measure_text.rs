@@ -15,7 +15,7 @@ use super::gen_image::emit_closed_guard;
 
 const INTRO: &str = r#"Measure a string in a font without drawing it."#;
 
-const DESC: &str = r#"`measureText` returns the `TextMetrics` a `Text` item would occupy: the advance
+const DESC: &str = r#"`measureText` returns the `canvas::TextMetrics` a `canvas::Text` item would occupy: the advance
 `width` of the string, and the font's `ascent`, `descent` and `lineGap` scaled to
 `size`. `height` is the full line height, `ascent + descent + lineGap`, so stacking
 lines is repeated addition of one number.
@@ -30,7 +30,7 @@ ligatures or complex shaping (see `canvas::loadFont`), so the width is exact for
 it will actually draw — measuring and drawing use the same glyph walk, which is the
 property that matters more than absolute typographic fidelity.
 
-A font with no `head` table, or a `FontRef` naming a released font, measures as all
+A font with no `head` table, or a `canvas::FontRef` naming a released font, measures as all
 zeroes rather than failing: a program that lays out text before its font is ready
 should get an empty box, not an error in the middle of a frame."#;
 
@@ -40,9 +40,9 @@ IMPORT canvas
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
-  LET m AS TextMetrics = canvas::measureText(face, 24.0, "hello")
+  LET m AS canvas::TextMetrics = canvas::measureText(face, 24.0, "hello")
   io::print("width " & toString(m.width) & " height " & toString(m.height))
 END SUB
 ```"#;

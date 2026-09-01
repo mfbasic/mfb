@@ -12,13 +12,13 @@ use crate::types::ParameterType;
 
 use super::gen_image::emit_closed_guard;
 
-const INTRO: &str = r#"Take a plain `FontRef` handle naming a `Font`."#;
+const INTRO: &str = r#"Take a plain `canvas::FontRef` handle naming a `canvas::Font`."#;
 
-const DESC: &str = r#"`fontRef` produces the value a `Text` item carries: the id the backend knows the
+const DESC: &str = r#"`fontRef` produces the value a `canvas::Text` item carries: the id the backend knows the
 font by, and nothing else.
 
 This exists for the same reason `canvas::imageRef` does — **a scene must not hold a
-resource.** A `DrawItem` is a record and a record field cannot hold a `RES` value;
+resource.** A `canvas::DrawItem` is a record and a record field cannot hold a `RES` value;
 more importantly a published scene outlives the call that installed it and is read
 by the renderer at arbitrary times, so a scene holding resources would have to keep
 them alive, which would make `canvas::destroyFont` a lie. Holding only the id means
@@ -36,9 +36,9 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
-  LET label AS DrawItem = Text[x := 10.0, y := 40.0, text := "hello", font := canvas::fontRef(face), size := 24.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 10.0, y := 40.0, text := "hello", font := canvas::fontRef(face), size := 24.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 ```"#;
