@@ -391,6 +391,29 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize =
 /// rasteriser bug rather than as a backend limit.
 pub(crate) const METAL_MAX_GLYPH_SAMPLES: usize = 4096;
 
+/// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
+/// elsewhere. It sits at the BOTTOM of the frame, so the saves above it are out of reach
+/// of a callee that spills its register arguments into it.
+pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
+    usize::from(windows) * 32
+}
+
+/// The graphics trampoline's frame size, split out from the emitter so the alignment
+/// invariant it exists to satisfy can be asserted directly (bug-479).
+///
+/// **Every x86-64 thread entry is reached by a `call`** — `_pthread_start` on Unix and
+/// `BaseThreadInitThunk` on Windows alike — so the routine begins at `rsp % 16 == 8`.
+/// A callee must in turn be entered at `rsp % 16 == 8`, which means `rsp % 16 == 0`
+/// immediately before the `call`. This trampoline only subtracts (it pushes nothing), so
+/// the frame itself has to carry the odd 8: `frame % 16 == 8` is the whole requirement.
+///
+/// AArch64 needs no such thing — the entry `sp` is 16-aligned and the return address
+/// arrives in `lr` rather than on the stack.
+pub(crate) fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+    let realign = usize::from(arch == "x86_64") * 8;
+    32 + realign + graphics_trampoline_shadow(windows)
+}
+
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
 
@@ -486,9 +509,8 @@ pub(crate) fn emit_graphics_trampoline(
     // (`outgoing_args_base_offset`), but this trampoline is hand-built and gets none —
     // so without it the saves below sit exactly where a callee is entitled to write.
     let windows = platform.family() == PlatformFamily::Windows;
-    let realign = usize::from(platform.arch() == "x86_64") * 8;
-    let shadow = usize::from(windows) * 32;
-    let frame = 32 + realign + shadow;
+    let shadow = graphics_trampoline_shadow(windows);
+    let frame = graphics_trampoline_frame(platform.arch(), windows);
     instructions.push(abi::label("entry"));
     instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
@@ -1457,4 +1479,64 @@ pub(crate) fn emit_use_gpu(
         GRAPHICS_OFFSET_GPU,
     ));
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{graphics_trampoline_frame, graphics_trampoline_shadow};
+
+    /// bug-479. The graphics thread ran eight bytes out of alignment on Windows for as
+    /// long as canvas mode existed there, because this frame skipped the x86-64 realign
+    /// on the (false) premise that `BaseThreadInitThunk` enters a start routine already
+    /// 16-aligned. Nothing noticed until `SleepConditionVariableSRW`, which builds its
+    /// wait block on the caller's stack and tags the pointer in its low 4 bits — eight
+    /// bytes out, ntdll walked a garbage list and faulted with every argument correct.
+    ///
+    /// The invariant is the same on every x86-64 OS, which is the point: a thread entry
+    /// is reached by a `call`, so `rsp % 16 == 8` on arrival, and a frame of `8 (mod 16)`
+    /// is what puts the next `call` back on an aligned boundary.
+    #[test]
+    fn every_x86_64_graphics_trampoline_frame_realigns_the_stack() {
+        for windows in [false, true] {
+            let frame = graphics_trampoline_frame("x86_64", windows);
+            assert_eq!(
+                frame % 16,
+                8,
+                "x86_64 (windows={windows}) trampoline frame {frame} leaves every call \
+                 the render loop makes misaligned by 8"
+            );
+        }
+    }
+
+    /// AArch64 is entered with a 16-aligned `sp` and the return address in `lr`, so it
+    /// takes no realign — asserted so a future "just make it uniform" does not silently
+    /// skew the Mac and the Linux arm64 boxes to fix Windows.
+    #[test]
+    fn aarch64_takes_no_realign() {
+        assert_eq!(graphics_trampoline_frame("aarch64", false) % 16, 0);
+    }
+
+    /// The saves must sit ABOVE the shadow space, or a callee spilling its register
+    /// arguments overwrites the saved return address and arena pointer. The emitter
+    /// stores at `shadow` and `shadow + 8`, so the frame has to hold both beyond it.
+    #[test]
+    fn the_frame_holds_both_saves_above_the_shadow_space() {
+        for (arch, windows) in [("x86_64", true), ("x86_64", false), ("aarch64", false)] {
+            let frame = graphics_trampoline_frame(arch, windows);
+            let shadow = graphics_trampoline_shadow(windows);
+            assert!(
+                frame >= shadow + 16,
+                "{arch} (windows={windows}): frame {frame} cannot hold the two saves at \
+                 {shadow} and {} above its {shadow}-byte shadow space",
+                shadow + 8
+            );
+        }
+    }
+
+    /// Windows owes its callees 32 bytes; nothing else does.
+    #[test]
+    fn only_windows_reserves_shadow_space() {
+        assert_eq!(graphics_trampoline_shadow(true), 32);
+        assert_eq!(graphics_trampoline_shadow(false), 0);
+    }
 }

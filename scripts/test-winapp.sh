@@ -118,8 +118,96 @@ case "$out" in
   *) fail "os::getEnvOr did not fall back for an unset variable" ;;
 esac
 
+
+# ---------------------------------------------------------------------------
+# Mode.Canvas (bug-479)
+#
+# The graphics thread is a SECOND thread entry, and it had the x86-64 realign that
+# `_pthread_start` gets but `BaseThreadInitThunk` was assumed not to need. It does:
+# both reach a start routine through a `call`, so both arrive at `rsp % 16 == 8`.
+# Eight bytes out, `SleepConditionVariableSRW` faulted inside ntdll on the FIRST
+# wait — with the condition variable initialised, the lock genuinely held and every
+# argument correct — because it tags its stack wait-block pointer in the low 4 bits.
+#
+# Checking the exit code alone would not have caught it: the fault is on the graphics
+# thread, at shutdown, AFTER the program has printed everything it prints. So this
+# asserts the pixels too, which is also the frame plan-98-F Phase 3 compares Vulkan
+# against.
+cproj="$work/wincanvas"
+mkdir -p "$cproj/src"
+cat > "$cproj/project.json" <<'JSON'
+{ "name": "wincanvas", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$cproj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  canvas::present([box, dot])
+  io::print("canvas presented")
+END SUB
+MFB
+
+echo "--- building the canvas program for windows-x86_64 ---"
+"$MFB_EXE" build --app --target windows-x86_64 "$cproj" >/dev/null
+
+cat > "$work/canvas.bat" <<'BAT'
+@echo off
+setlocal
+set MFB_WINAPP_HEADLESS=1
+set MFB_CANVAS_SYNC=1
+set MFB_CANVAS_DUMP=C:\mfbwin\wincanvas.raw
+cd /d C:\mfbwin
+wincanvas.exe > wincanvas.out 2>&1
+echo rc=%errorlevel%
+type wincanvas.out
+BAT
+
+ssh -p "$PORT" "$host" "del /q $remote\\wincanvas.raw $remote\\wincanvas.out 2>nul" >/dev/null 2>&1 || true
+scp -P "$PORT" "$cproj/build/wincanvas.exe" "$host:C:/mfbwin/wincanvas.exe" >/dev/null
+scp -P "$PORT" "$work/canvas.bat" "$host:C:/mfbwin/canvas.bat" >/dev/null
+cout="$(ssh -p "$PORT" "$host" "$remote\\canvas.bat" 2>&1 || true)"
+echo "$cout" | sed 's/^/    /'
+
+case "$cout" in
+  *"canvas presented"*) pass "canvas::present returned on Windows" ;;
+  *) fail "canvas::present never returned — the graphics thread died before completing a frame" ;;
+esac
+case "$cout" in
+  *"rc=0"*) pass "the canvas program exited cleanly" ;;
+  *) fail "the canvas program did not exit 0 — the graphics thread faults at shutdown when its stack is 8 bytes out (bug-479)" ;;
+esac
+
+# The frame itself. 900x640 BGRA/RGBA, 4 bytes a pixel.
+scp -P "$PORT" "$host:C:/mfbwin/wincanvas.raw" "$work/wincanvas.raw" >/dev/null 2>&1 || true
+if [ -f "$work/wincanvas.raw" ]; then
+  size="$(wc -c < "$work/wincanvas.raw" | tr -d ' ')"
+  if [ "$size" = "2304000" ]; then
+    pass "the dumped frame is 900x640x4 bytes"
+  else
+    fail "the dumped frame is $size bytes, expected 2304000 (900*640*4)"
+  fi
+  # (5,5) background, (150,150) inside the rectangle, (600,400) inside the circle.
+  probe() { od -An -tu1 -j "$1" -N 4 "$work/wincanvas.raw" | tr -s ' ' | sed 's/^ //;s/ $//'; }
+  bg="$(probe 18020)"; rect="$(probe 540600)"; circ="$(probe 1442400)"
+  [ "$bg" = "0 0 0 255" ] && pass "the background is opaque black" \
+    || fail "the background is [$bg], expected [0 0 0 255] — every backend clears to opaque black"
+  [ "$rect" = "200 40 40 255" ] && pass "the rectangle rendered at its requested colour" \
+    || fail "the rectangle pixel is [$rect], expected [200 40 40 255]"
+  [ "$circ" = "40 200 120 255" ] && pass "the circle rendered at its requested colour" \
+    || fail "the circle pixel is [$circ], expected [40 200 120 255]"
+else
+  fail "no frame was dumped — MFB_CANVAS_DUMP produced nothing, so no frame completed"
+fi
+
 if [ "$fails" -eq 0 ]; then
-  echo "windows app-mode runtime tests passed"
+  echo "windows app-mode and canvas runtime tests passed"
 else
   echo "$fails failure(s)"
   exit 1
