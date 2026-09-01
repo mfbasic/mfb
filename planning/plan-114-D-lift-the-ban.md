@@ -606,6 +606,42 @@ callee-produced resource inside a record is ever wanted, it needs the
 `ResOwner::Float` field-naming change that letter C's C3 rules out, and it is its
 own plan.
 
+**C5 — a NEW rt-behavior fixture needs FOUR golden files, and `sync-goldens.sh`
+creates none of them.**
+`test-accept` came back with `4 mismatch(es)`, and none of them printed a
+`mismatch:` line — they were `unexpected actual`:
+
+```
+unexpected actual rt-behavior/resources/record-res-field-rt/record_res_field_rt.ast
+unexpected actual rt-behavior/resources/record-res-field-rt/record_res_field_rt.ir
+unexpected actual …/record-res-field-return-rt/record_res_field_return_rt.ast
+unexpected actual …/record-res-field-return-rt/record_res_field_return_rt.ir
+```
+
+Two fixtures × two files. An `rt-behavior` fixture's `build.log` begins with
+`mfb build -ast -ir`, so it **always** emits `.ast` and `.ir` dumps, and
+`compare_optional_output` (`scripts/test-accept.sh:390-403`) counts an actual
+with no golden as a failure. I had created only `build.log` and the empty `.run`
+marker.
+
+Two things make this easy to ship and worth writing down:
+
+1. **`sync-goldens.sh` never CREATES a golden** — its own header says so — so an
+   incomplete golden *set* is invisible to it. It reported `synced 1 golden
+   file(s)` and looked like success while two of the four files did not exist.
+2. **The failure mode is silent until a FULL `test-accept` run.** A filtered sync
+   and the artifact gate both pass; only the whole-tree accept compares the set.
+
+The fix is to copy the model fixture's golden set exactly
+(`res-rebind-alias-runtime` has all four), create the empty files, then sync.
+Grep-check for a new rt fixture:
+`ls tests/rt-behavior/<group>/<fixture>/golden/` should show `build.log`, `.ast`,
+`.ir` and `.run`.
+
+The `.ir` golden also does real work here: it pins `"type": "RES fs.File"` on
+both the field declaration and the `memberAccess` that reads it, which is the
+`ParameterType::parse(s).name() == s` round-trip the whole feature rests on.
+
 <!-- Further corrections filled in during execution. -->
 
 ## Summary
