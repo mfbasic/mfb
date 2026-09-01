@@ -602,6 +602,25 @@ bug-483 lands will not be evidence either. The resource-plane behaviour is cover
 by `the_resource_plane_keeps_the_generic_unsendable_rule` instead, which asserts it
 directly.
 
+**Resolved after bug-483 landed.** Both tests pass on the merged tree with no
+change from this letter:
+
+```
+$ cargo test --test rt_tls_listener_local_address
+test tls_local_address_reports_the_port_a_listener_bound_to ... ok
+$ cargo test --test rt_tls_listener_thread_transfer
+test a_transferred_tls_listener_accepts_on_the_receiving_thread ... ok
+```
+
+That confirms the attribution — the fix was entirely in `net::Address`'s record
+layout. The caveat above still stands as *reasoning* (a green run here is not by
+itself proof about the resource plane, because the crash preceded the transfer),
+but now that the fixture runs to completion it does additionally exercise
+`Thread OF RES tls::Listener TO Integer` end to end — a `thread::transfer` of a
+sendable resource on the resource plane, taking the `Plane::Resource` path this
+letter added. That is a genuine end-to-end check of the C3 split which was
+unavailable while the fixture was crashing.
+
 Not fixed here: bug-483 is already filed, already root-caused, and already fixed
 on another branch. Re-fixing it in this worktree would duplicate and conflict with
 landed work. Letter B rebases onto it (see plan-114-B Corrections C1).

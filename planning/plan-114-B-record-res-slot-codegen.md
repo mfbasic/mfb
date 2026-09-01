@@ -375,8 +375,11 @@ Commit: c3c093940
       guards separately and, per bug-470, is harmless cross-worktree).
 - [ ] `scripts/test-accept.sh target/release/mfb /tmp/plan114b-scratch` (full).
       Never pass a real directory as the second argument; it is `rm -rf`'d.
-- [ ] `cargo test --no-fail-fast` redirected to a file; check cargo's own exit
-      status, not a piped `tail`'s.
+- [x] `cargo test --no-fail-fast` redirected to a file; check cargo's own exit
+      status, not a piped `tail`'s. Pre-merge: `CARGO_EXIT=101`, 83 suites ok,
+      **2 failed — both bug-483's TLS fixtures**, which that run predated the fix
+      for. Both pass on the merged tree with no change from this letter, so the
+      letter's own result is green.
 - [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
       — `cargo fmt --all -- --check` exits 0.
 
@@ -617,6 +620,22 @@ pre-existing bug-483 noise.
 > re-derive the baseline from the new merge-base and re-run the comparison; this
 > letter's fix should show 0 diffs on tcp/udp against the *corrected* goldens, and
 > if it does not, that is real and is this letter's.
+>
+> **Done — and it holds.** bug-483 landed on main as `6e56e1264` and was merged
+> into this branch (clean, no conflict, despite both sides editing
+> `builder_collection_layout.rs`: their change is the *body* of
+> `is_pointer_string_record`, mine is its *callers*). Re-run against the
+> corrected sums:
+>
+> ```
+> artifact-gate [all]: 1311 tests, 1473 build(s), 1809 golden(s) checked, 0 diff(s)
+> GATE_EXIT=0
+> ```
+>
+> So the split is neutral against both the old and the new goldens, which is a
+> stronger statement than either run alone. The superseded sha `56c452e3…` is
+> retained above only as the record of how the C6 defect was originally
+> localized; **do not re-use it as a baseline.**
 
 **C7 — §2's "`type_is_flat(Res(File))` is `true` today" is right about the type
 and WRONG about the collection, and my own Correction C3 inherited the error.**
