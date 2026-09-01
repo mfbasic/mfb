@@ -33,20 +33,25 @@ want to know when the cache is stale.
 
 Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
-const EX: &str = r#"```
+const EX: &str = r#"A banner that always spans the window: laid out once, and again only when the
+surface changes size.
+
+```
 IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  MUT items AS List OF DrawItem = []
-  WHILE TRUE
+  app::setMode(app::Mode.Canvas)
+  MUT items AS List OF canvas::DrawItem = []
+  MUT frame AS Integer = 0
+  WHILE frame < 600
     IF canvas::didResize() OR len(items) = 0 THEN
-      LET size AS Size = canvas::getSize()
-      LET box AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height) / 2.0, paint := canvas::fill(canvas::rgb(30, 90, 200))]
-      items = [box]
+      LET size AS canvas::Size = canvas::getSize()
+      LET banner AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height) / 8.0, paint := canvas::fill(canvas::rgb(30, 90, 200))]
+      items = [banner]
     END IF
     canvas::present(items)
+    frame = frame + 1
   END WHILE
 END SUB
 ```"#;
