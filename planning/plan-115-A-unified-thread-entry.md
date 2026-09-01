@@ -1,6 +1,6 @@
 # plan-115-A: Any `ISOLATED FUNC` is a thread entry
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Overall Effort: large (3h–1d) — the whole plan-115 feature, split A → B → C
 Effort: medium (1h–2h)
 Depends on: nothing (first letter)
@@ -291,7 +291,7 @@ Cheapest experiment that could kill the design. No production code changes.
 Acceptance: the probe runs and its printed values match the "fresh copy of the
 declaring project's globals, parent untouched" prediction — or the premise is
 recorded as falsified with the observed values.
-Commit: (recorded in the next commit — a hash cannot be known inside the commit it names)
+Commit: `a6d193d82`
 
 ### Phase 2 — `ISOLATED` becomes orthogonal to visibility
 
@@ -347,6 +347,8 @@ The replacement covers *both* entry paths, so it is strictly harder to satisfy):
   no parser runs, by `TYPE_ISOLATED_NOT_VISIBLE` (pinned by the unit test
   `rejects_isolated_sub`). Neither test alone covers both.
 - `cargo test --no-fail-fast` green — run as the plan's final gate.
+
+Commit: `dc896ffcc`
 
 ### Phase 3 — A bare `ISOLATED FUNC` is a valid entry (largest blast radius)
 
@@ -428,7 +430,7 @@ build. All 46 rt-behavior and 34 syntax thread fixtures pass unchanged.
   see Corrections. Sendability coverage in `func_thread_start_invalid` is
   unchanged (2 `TYPE_THREAD_NOT_SENDABLE` before and after, same lines).
 
-Commit: (recorded in the next commit)
+Commit: `86637b1c6`
 
 ## Validation Plan
 
@@ -532,6 +534,20 @@ Commit: (recorded in the next commit)
   `SYMBOL_UNKNOWN_IDENTIFIER` rejection proving a package cannot name a consumer's
   global. The goal's namespace sentence stands and letter C's spec text needs no
   change on this account.
+
+## Final gate results (2026-09-01)
+
+| Gate | Result |
+| --- | --- |
+| `scripts/test-accept.sh` | **passed, 1349 ran, 0 mismatches** (1345 before this letter + 4 new fixtures) |
+| `cargo test --no-fail-fast` | **exit 0**, 87 suites, 0 failed |
+| `cargo check --all-targets` | clean — no warnings, no errors |
+| rt runtime proof | `a=107 b=207 parent=7` |
+
+`scripts/artifact-gate.sh all` was not run as a separate step: this letter
+changes which programs the front end *accepts*, and the acceptance suite above
+already compares every fixture's `.ast`/`.ir`/`.ncode` goldens, which is the
+drift signal the sentinel exists to provide.
 
 ## Summary
 
