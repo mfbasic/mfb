@@ -130,6 +130,24 @@ pub(crate) fn lower_process_drop_helper(
         )?;
         instructions.push(abi::label(&skip));
     }
+    // Hand back the two spill blocks `waitFor` may have grown (bug-475). Each can
+    // reach SPILL_MAX_CAPACITY, so leaving them parked on the arena for the rest of
+    // the program would be a real retention on a program that supervises several
+    // chatty children. The handle is closed on this path, so nothing can read them
+    // afterwards.
+    for off in [PROC_STDOUT_BUF, PROC_STDERR_BUF] {
+        let skip = format!("{symbol}_skip_spill_{off}");
+        instructions.extend([
+            abi::load_u64(&fd, &file, off),
+            abi::compare_immediate(&fd, "0"),
+            abi::branch_eq(&skip),
+            abi::load_u64(&one, &fd, SPILL_CAPACITY),
+            abi::add_immediate(abi::c_arg(1), &one, SPILL_DATA),
+            abi::move_register(abi::return_register(), &fd),
+        ]);
+        emit_arena_free(symbol, &mut instructions, &mut relocations);
+        instructions.extend([abi::store_u64(abi::ZERO, &file, off), abi::label(&skip)]);
+    }
     instructions.extend([
         abi::move_immediate(&one, "Integer", "1"),
         abi::store_u64(&one, &file, RESOURCE_OFFSET_CLOSED),
