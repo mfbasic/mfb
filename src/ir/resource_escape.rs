@@ -137,6 +137,10 @@ struct Analyzer {
     /// tell a container that can actually own a resource from one that cannot.
     /// See [`analyze_function_with`] for why a type name alone cannot answer it.
     res_field_records: HashSet<crate::types::ParameterType>,
+    /// `RES` bindings that are PARAMETERS. The caller owns these; this function
+    /// never produces them, so the bug-291 ordering rule does not apply — there
+    /// is no production point for a container's owned-list to be missing at.
+    res_params: HashSet<String>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
@@ -183,6 +187,7 @@ pub fn analyze_function_with(
         decl_order: HashMap::new(),
         decl_type: HashMap::new(),
         res_field_records: res_field_records.clone(),
+        res_params: HashSet::new(),
         res_depth: HashMap::new(),
         routings: Vec::new(),
         next_order: 0,
@@ -193,6 +198,7 @@ pub fn analyze_function_with(
         if param.resource {
             analyzer.declare(&param.name, 0);
             analyzer.res_names.insert(param.name.clone());
+            analyzer.res_params.insert(param.name.clone());
             analyzer.res_depth.insert(param.name.clone(), 0);
         }
     }
@@ -235,6 +241,34 @@ impl Analyzer {
                 // Mirror the AST rule: only an explicit `AS T` annotation records a
                 // declared type (an inferred binding carried `None` there).
                 if *explicit_type {
+                    self.decl_type
+                        .entry(name.clone())
+                        .or_insert_with(|| type_.clone());
+                } else if let Some(HirExpression::Constructor { type_, .. }) = value {
+                    // plan-114-C: a record CONSTRUCTOR names its own type, so an
+                    // inferred binding still has a knowable one. Recording it is
+                    // load-bearing, not tidiness — the bug-291 ordering gate reads
+                    // `decl_type` to decide whether a returned container can own a
+                    // resource at all, and with no entry it answers "no" and
+                    // degrades to `ResOwner::Local`.
+                    //
+                    // That degradation is the silent double close bug-291 exists to
+                    // prevent. Measured before the fix:
+                    //
+                    //   FUNC makeHolder(p AS String) AS Holder
+                    //     RES f AS fs::File = fs::openFile(p, "w")
+                    //     LET h = Holder["made", f]     ' inferred -> no decl_type
+                    //     RETURN h
+                    //   END FUNC
+                    //
+                    // compiled, and the caller's first write raised
+                    // `7-703-0004 Resource handle is already closed` — the callee
+                    // closed the handle it had just handed over.
+                    //
+                    // A collection literal is deliberately NOT covered here: a
+                    // `List`/`Map` literal does not name its element type, so there
+                    // is nothing to record, and the explicit-annotation rule is
+                    // what those bindings have always relied on.
                     self.decl_type
                         .entry(name.clone())
                         .or_insert_with(|| type_.clone());
@@ -479,7 +513,17 @@ impl Analyzer {
             // purely because of declaration order -- that is the unsupportable
             // case, and it must not silently degrade to `Local`.
             let mut blocked_by_order: Option<String> = None;
-            if best.is_none() {
+            // plan-114-C: a `RES` PARAMETER is never blocked by ordering. The
+            // rule's hazard is that the container's owned-list does not exist yet
+            // *when the resource is produced* — and a parameter is not produced in
+            // this function at all. The caller owns it and closes it; returning a
+            // container that carries it transfers nothing.
+            //
+            // Without this, `FUNC wrap(RES f AS fs::File) AS Holder` with
+            // `LET h = Holder[…, f]; RETURN h` is rejected, and it is a correct
+            // program: measured working (the caller writes through the returned
+            // record after `wrap` returns, and the handle is still open).
+            if best.is_none() && !self.res_params.contains(resource) {
                 for collection in &returned_collections {
                     if !membership
                         .get(collection)
@@ -864,6 +908,98 @@ mod tests {
     /// silent miscompile — the callee closes the handle at its own scope while
     /// the returned record still carries it, and the caller's adopted list
     /// closes it a second time.
+
+    /// plan-114-C, found by running the returned-record shape rather than
+    /// reasoning about it: an **inferred** record binding had no `decl_type`, so
+    /// the bug-291 ordering gate could not see the container and degraded to
+    /// `ResOwner::Local`. That is the silent double close the gate exists to
+    /// prevent -- measured before the fix as a caller write raising
+    /// `7-703-0004 Resource handle is already closed`.
+    ///
+    /// A record CONSTRUCTOR names its own type, so an inferred binding still has
+    /// a knowable one; recording it from the initializer is what makes the gate
+    /// fire.
+    #[test]
+    fn an_inferred_record_binding_is_still_seen_by_the_ordering_gate() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        // `RES f = …; LET h = Holder[handle := f]; RETURN h` -- note `h` carries
+        // NO `AS Holder` annotation, which is the whole point.
+        let inferred = HirStatement::Let {
+            mutable: false,
+            resource: false,
+            state_type: None,
+            name: "h".to_string(),
+            type_: ParameterType::declared("Holder"),
+            explicit_type: false,
+            value: Some(construct("f")),
+            line: 1,
+        };
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                inferred,
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &records,
+        );
+        assert_eq!(
+            result.owner("f"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "an inferred `LET h = Holder[…]` must still be recognised as the \
+             container; degrading to Local is a double close"
+        );
+    }
+
+    /// The other half of the same fix, and the guard against over-rejecting it:
+    /// a `RES` **parameter** is never blocked by ordering. The rule's hazard is
+    /// that the container's owned-list does not exist yet *when the resource is
+    /// produced* -- and a parameter is not produced here at all. The caller owns
+    /// and closes it.
+    ///
+    /// Measured working end to end: `FUNC wrap(RES f AS fs::File) AS Holder`
+    /// returning `Holder[…, f]`, with the caller writing through the returned
+    /// record's handle after `wrap` returns.
+    #[test]
+    fn a_res_parameter_is_never_blocked_by_return_order() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        let mut f = func(vec![
+            HirStatement::Let {
+                mutable: false,
+                resource: false,
+                state_type: None,
+                name: "h".to_string(),
+                type_: ParameterType::declared("Holder"),
+                explicit_type: false,
+                value: Some(construct("p")),
+                line: 1,
+            },
+            HirStatement::Return {
+                value: Some(ident("h")),
+                line: 1,
+            },
+        ]);
+        f.params = vec![crate::hir::HirParam {
+            name: "p".to_string(),
+            type_: ParameterType::parse("fs.File"),
+            resource: true,
+            state_type: None,
+            default: None,
+            line: 1,
+        }];
+        let result = analyze_function_with(&f, &records);
+        assert_ne!(
+            result.owner("p"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "a RES parameter is owned by the caller; returning a record that \
+             carries it transfers nothing and must not be refused"
+        );
+    }
+
     #[test]
     fn a_returned_record_declared_after_its_resource_is_blocked() {
         let body = vec![

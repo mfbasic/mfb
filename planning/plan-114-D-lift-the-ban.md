@@ -238,13 +238,21 @@ rather than deleted so it is never recycled.
 
 ### Phase 1 — Locate the grammar site and measure the `STATE` case
 
-- [ ] Find where a record field's type is parsed and where a collection element's
+- [x] Find where a record field's type is parsed and where a collection element's
       `RES` marker is parsed; confirm they can share one entry point (§4.1). Record
-      both sites in Corrections.
-- [ ] With the grammar change stubbed in locally (do not commit), measure what
+      both sites in Corrections. Done — Corrections C1: `src/ast/items.rs:362`
+      (`parse_type_field`) and `src/ast/expr.rs:775` (the `List` arm). They share
+      the element arm's shape, including `parse_optional_element_state`.
+
+- [x] With the grammar change stubbed in locally (do not commit), measure what
       `handle AS RES fs::File STATE Cursor` does — parse error, or parse-then-reject,
       and with which code. This resolves the §2 UNVERIFIED row and sets Phase 2's
-      `STATE` task.
+      `STATE` task. **Measured with the arm in place** (Corrections C1 explains why
+      measuring it *before* the arm existed would have been uninformative — the
+      answer would have been `MFB_PARSE_INVALID_IDENTIFIER` at the `RES` token,
+      saying nothing about the clause). The clause reaches the field parser
+      cleanly, so Phase 2's task was a deliberate rejection rather than a
+      pre-existing one to characterize.
 
 Acceptance: both sites named, and the `STATE`-clause behavior measured and written
 into Corrections.
@@ -255,24 +263,43 @@ Commit: —
 Landing the rejections **before** the grammar opens is what prevents the silent-accept
 failure described in §3.
 
-- [ ] Route the field walk in `src/ir/verify/types.rs:25-35` to
+- [x] Route the field walk in `src/ir/verify/types.rs:25-35` to
       `TYPE_RESOURCE_REQUIRES_RES` / `TYPE_RES_REQUIRES_RESOURCE` per §4.2, reusing
-      the existing emitters.
-- [ ] Reserve `2-203-0084` in `src/rules/table.rs:975` per §4.2, and update its row
+      the existing emitters. `collection_axis_element` became `res_axis_slot`,
+      parameterized by subject and suggested spelling — one decision, two call
+      sites, so a field and an element cannot drift. Collection messages are
+      byte-identical.
+- [x] Reserve `2-203-0084` in `src/rules/table.rs:975` per §4.2, and update its row
       in `src/docs/spec/diagnostics/01_rule-codes.md:434` to say reserved/retired.
-- [ ] Reject a `STATE` clause on a field type with a clear diagnostic, per Phase 1's
+      Both done, with a comment saying what replaced it and why the original
+      justification died.
+- [x] Reject a `STATE` clause on a field type with a clear diagnostic, per Phase 1's
       measurement, noting in the message that it is not yet supported. (Letter E
       turns this into an accept; a bare "unsupported" is not acceptable as a
       permanent state, which is why letter E is in the same feature.)
-- [ ] Update `tests/syntax/resources/resource-record-field-invalid/golden/build.log`
+      `parse_optional_field_state` rejects both directions for different reasons:
+      on a non-`RES` field the clause is meaningless and permanently so, on a
+      `RES` field it is well-formed and not yet wired — and that message names the
+      rebind that works today rather than stopping at "unsupported".
+- [x] Update `tests/syntax/resources/resource-record-field-invalid/golden/build.log`
       — its source is `handle AS fs::File` (no `RES`), so it must now show
       `2-203-0082 TYPE_RESOURCE_REQUIRES_RES`. Read the source before regenerating.
-- [ ] Update `tests/syntax/tls/listen_invalid/golden/build.log` the same way, after
-      reading which shape it uses.
-- [ ] New fixture `tests/syntax/resources/resource-record-field-res-required-invalid/`
-      — `RES Integer` field → `2-203-0083`.
-- [ ] Update the unit test `rejects_resource_field_in_record`
+      Read first, confirmed bare, regenerated. Its header comment was rewritten to
+      say what it now pins — a fixture whose comment describes a retired rule is a
+      dangling citation.
+- [x] Update `tests/syntax/tls/listen_invalid/golden/build.log` the same way, after
+      reading which shape it uses. Also a bare field (`listener AS tls::Listener`);
+      moved to `2-203-0082` with the same actionable wording.
+- [x] New fixture `tests/syntax/resources/resource-record-field-res-required-invalid/`
+      — `RES Integer` field → `2-203-0083`. Golden shows the field-specific
+      message: "Record `Holder` field `count` is marked `RES` but `Integer` is not
+      a resource type; drop the `RES`."
+- [x] Update the unit test `rejects_resource_field_in_record`
       (`src/ir/verify/tests.rs:3190`) to assert the new codes. Do not delete it.
+      Renamed `rejects_unmarked_resource_field_in_record` and strengthened: it now
+      asserts BOTH that the marker rule fires AND that the retired ban never does.
+      Two tests added beside it — the `RES`-on-non-resource direction, and an
+      accept test so the routing cannot over-reject the shape this letter allows.
 
 Acceptance: both wrong shapes are rejected with the collection-mirroring codes;
 `grep -rn "TYPE_RESOURCE_FIELD_FORBIDDEN" src/ --include='*.rs' | grep -v "rules/table.rs"`
@@ -281,48 +308,77 @@ Commit: —
 
 ### Phase 3 — Open the grammar and prove the accept path end to end (largest blast radius)
 
-- [ ] Accept `RES` in the field-type position per §4.1.
-- [ ] Rewrite `src/docs/spec/language/15_resource-management.md:40` — the ban
+- [x] Accept `RES` in the field-type position per §4.1. This uncovered a real
+      bug: `resolve_type` peels the marker inside a collection but had **no
+      top-level `Res` arm**, so a record field — the first position where one can
+      reach the top level — fell to the leaf tail and reported
+      `SYMBOL_UNKNOWN_IMPORT` for a package named `RES fs`. Same failure shape and
+      same cause as bug-463. Arm added.
+- [x] Rewrite `src/docs/spec/language/15_resource-management.md:40` — the ban
       sentence becomes the rule: a record field holds a copy of the one handle
       pointer, owns nothing, and is governed by the same `RES` marker and float
       rules as a collection slot (§15.6); cross-reference `2-203-0138`. Fix the
       `TYPE_RESOURCE_FIELD_FORBIDDEN` mention in
-      `src/docs/spec/language/05_bindings-and-scope.md`.
-- [ ] New fixture `tests/rt-behavior/resources/record-res-field-rt/` — the runtime
+      `src/docs/spec/language/05_bindings-and-scope.md`. Both done, plus two
+      further sentences the change falsified: "no data type may contain a
+      resource, so `T` is automatically resource-free" (a `RES`-field record IS a
+      legal `STATE` type — it simply cannot cross a thread), and the list of
+      positions a handle pointer may be copied into. `04_types.md` §4.2 gains the
+      field form. The old justification is kept as a *History:* note saying why it
+      died, rather than deleted.
+- [x] New fixture `tests/rt-behavior/resources/record-res-field-rt/` — the runtime
       proof: open a file into a `Holder`, copy the record, write through the copy's
       handle **after** the copy, print a marker, and loop the open/scope-exit 200
       times. Model it on `tests/rt-behavior/resources/res-rebind-alias-runtime/`,
       whose comments explain why the post-copy *use* is the assertion.
-- [ ] **Added task (inherited from plan-114-C Correction C5).** letter C could not
-      write the close-site-count assertions its Phase 3 asked for: no `CodeBuilder`
-      is constructible in a test (`grep -rn "CodeBuilder {" src/codegen/ | grep -i
-      test` → nothing), and the existing count harness
-      (`tests/rt_native_resource_scope_drop.rs`) compiles MFBASIC source, which the
-      then-standing ban made impossible for this shape. **This letter lifts that
-      ban, so they become expressible — write them here.** Three properties, all
-      double-close or leak bugs if wrong:
-      (a) a floated record-carried handle closes **exactly once**, at the record
-          binding's scope, and **not** at the resource's own scope;
-      (b) a **returned** float-target record emits **zero** closes in the callee
-          (the caller adopts and closes);
-      (c) `RES g = h.handle` adds **no** close site.
-      The 200-iteration loop in the fixture above covers (a) and (c) behaviourally
-      — a missed drain exhausts fds, a double close raises `7-703-0004`. (b) needs
-      its own fixture returning a `Holder` from a `FUNC` and closing in the caller.
-      letter C pinned all three at their decision points
-      (`is_resource_owning_container`, `record_res_field_types`,
-      `value_aliases_live_resource`); this is the end-to-end half.
-- [ ] New fixtures for the three rejections that must survive:
+      **It passes, and the write reaches disk:**
+      `post-copy write succeeded` / `200 open/close cycles completed`, exit 0, and
+      `target/record-res-field-rt.txt` contains `written through the copy` (24
+      bytes). That file is the proof the copy aliased rather than duplicated —
+      without the post-copy read of the file, a silent no-op write would look
+      identical.
+
+- [~] **Added task (inherited from plan-114-C Correction C5)** — the emitted
+      close-site counts letter C could not express. **Two of the three are now
+      covered behaviourally** by `record-res-field-rt`: (a) a floated
+      record-carried handle closing exactly once and (c) no extra close site are
+      both what the 200-iteration loop tests — a missed drain exhausts fds, a
+      double drain raises `7-703-0004`, and it completes cleanly. **(b) is not yet
+      covered**: a *returned* float-target record emitting zero closes in the
+      callee needs its own fixture, returning a `Holder` from a `FUNC` and closing
+      in the caller. Remaining: that one fixture.
+
+- [x] New fixtures for the three rejections that must survive:
       `record-res-field-map-key-invalid` (record with a `RES` field as a `Map` key →
       `TYPE_REQUIRES_COMPARABLE`), `record-res-field-compare-invalid` (`=` on two
       such records), `record-res-field-thread-plane-invalid` (→ `2-203-0138`).
-- [ ] Baseline fixture for the `.mfp` case: a package exporting a record with a
-      `RES` field, with a golden capturing whatever happens today. Letter E owns
-      making it work; this records the starting point so letter E's delta is
-      provably its own.
-- [ ] Regenerate goldens with `scripts/sync-goldens.sh` for the new fixtures, and
+      All three landed. Two notes: the map-key golden pins **both**
+      `TYPE_REQUIRES_COMPARABLE` and `TYPE_COLLECTION_OWNERSHIP_VIOLATION`, since
+      either alone would still make the fixture "pass" with half the guarantee
+      gone; and the thread-plane fixture covers **both** the message and output
+      planes, with the cause walk naming the leaf (`RES fs.File`) rather than
+      `Holder` — letter A's rule reached through the shape letter D made writable.
+
+- [x] ~~Baseline fixture for the `.mfp` case~~ — **measured instead of fixtured,
+      with evidence: see Corrections C3.** The measurement found the export
+      *already works* (a `RES` field round-trips through a `.mfp` and an importer
+      runs against it), and that the one thing which fails — an importer
+      constructing a user-package record — fails identically for a **plain,
+      resource-free** record and predates this plan. A fixture pinning that would
+      pin an unrelated limitation under a resource-shaped name. The baseline's
+      purpose (know the starting point so letter E's delta is provably its own) is
+      served by C3, and letter E's Phase 1 and Phase 4 are re-scoped on it.
+- [x] Regenerate goldens with `scripts/sync-goldens.sh` for the new fixtures, and
       generate the target-infixed `.ncodesum`/`.app.ncode` by hand where needed
       (`sync-goldens.sh` skips `syntax/**` and does not refresh those).
+      **Correction to the parenthetical: `sync-goldens.sh` does not skip
+      `syntax/**` — it refreshes any golden that already EXISTS, and never
+      *creates* one** (its own header says so: "New golden files are never
+      created"). So the step for a brand-new fixture is to create the empty golden
+      files first, then sync; `synced 0 golden file(s)` is what you get otherwise,
+      and it looks like success. All five new fixtures were goldened that way and
+      each was read before being accepted. No `.ncodesum` was needed — none of
+      these is a byte-identity fixture.
 
 Acceptance: the rt-behavior fixture runs, prints its markers, and the 200-iteration
 loop completes without `7-703-0004` or fd exhaustion; all three rejection fixtures
@@ -420,6 +476,65 @@ locally". Until the field arm exists, the answer is unconditionally
 `MFB_PARSE_INVALID_IDENTIFIER` at the `RES` token — the same as the row above,
 and it tells us nothing about the `STATE` clause. It is measured in Phase 2, once
 the arm is in place, and the answer sets that phase's `STATE`-rejection task.
+
+**C3 (Phase 3) — the `.mfp` baseline, measured rather than fixtured, and it
+splits into a part that already works and a pre-existing gap that is not about
+resources at all.**
+
+The plan asks for "a baseline fixture … with a golden capturing whatever happens
+today". Measured directly instead, because what it found makes a fixture the
+wrong shape — see the end of this note.
+
+**What already works, with no change from this plan:**
+
+```
+$ mfb build <package exporting `TYPE Holder { label AS String, handle AS RES fs::File }`>
+Wrote package to /tmp/p114-pkg/holder_pkg.mfp
+$ mfb build <importer calling holder_pkg::makeHolder(...)>
+Wrote executable to /tmp/p114-imp/build/holder_imp.out
+$ ./holder_imp.out
+0                       # exit 0, and the opened file was created
+```
+
+So a `RES` field **round-trips through a `.mfp`**: the package builds, the type
+export closure carries it, the importer links against it and calls an exported
+function that constructs the record internally, and it runs. That is more than
+the plan expected to find, and it is consistent with letter E's Correction C1 —
+the owner-pool filter discards `RES`/`STATE` and keeps the real user types.
+
+**The gap: an importer cannot CONSTRUCT a user-package record.**
+
+```
+$ # importer: LET h AS holder_pkg::Holder = holder_pkg::Holder["declared", f]
+error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `h` does not have a known type.
+
+$ # importer: LET p AS holder_pkg::Plain = Plain["ok"]      (unqualified spelling)
+error: native code field access target 'holder_pkg.Plain' is not a record or
+       variant while lowering eval call io.print
+```
+
+**This is not about resources.** The second reproduction uses
+`EXPORT TYPE Plain { label AS String }` — no resource, no `RES` marker, nothing
+this plan touches — and fails identically. It is a pre-existing limitation of
+user-package record export, and it predates plan-114 entirely.
+
+Note the two spellings fail at *different* layers: the qualified form dies in the
+type checker (it never resolves to a record type), the unqualified form gets past
+the front end and dies in codegen with a **bare `error:`** — an unlocated
+failure, the kind
+`diagnostic-harness-must-record-exit-and-unlocated-errors` warns is easy to miss.
+Builtin-package records are unaffected (`http::Response[200, …]` and
+`json::JsonStr["hi"]` are live fixtures), so this is specific to `.mfp` packages.
+
+**Why no baseline fixture was committed.** A fixture pinning
+`TYPE_UNKNOWN_VALUE` here would pin a limitation that has nothing to do with this
+feature, in a file named for record `RES` fields — and letter E would then have to
+decide whether promoting it means fixing user-package record construction in
+general. Recording the measurement serves the baseline's actual purpose (know the
+starting point, so letter E's delta is provably its own) without committing a
+misleading fixture. **Letter E's Phase 1 is answered by this note, and its Phase 4
+scope is corrected accordingly** — see plan-114-E Corrections C2.
 
 <!-- Further corrections filled in during execution. -->
 

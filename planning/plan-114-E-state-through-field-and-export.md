@@ -411,6 +411,47 @@ starved layers in `.ai/resources-packages.md`. Nothing here answers it, and the
 two-package fixture is still the way to find out. Do not read C1 as closing
 Phase 1.
 
+**C2 (Phase 1, answered by letter D's baseline measurement) — the export half
+is DONE, and Phase 4's real obstacle is not about resources.**
+
+letter D measured the `.mfp` case rather than fixturing it (plan-114-D Correction
+C3). Two results, and they move this letter's weight:
+
+1. **A `RES` field already round-trips through a `.mfp`.** A package exporting
+   `TYPE Holder { label AS String, handle AS RES fs::File }` builds, writes its
+   `.mfp`, and an importer links against it and calls an exported function that
+   constructs the record internally — running to exit 0. So the type-export
+   closure needs no change for the resource itself, which is what C1's reading of
+   `push_type_identifiers` predicted. §2's second UNVERIFIED row ("does an
+   importer need the resource type registered in its tables") is answered **no**
+   for this path.
+
+2. **An importer cannot construct a user-package record — and that is
+   pre-existing and resource-independent.** Both spellings fail:
+   `pkg::Holder[...]` with `2-203-0043 TYPE_UNKNOWN_VALUE`, and the unqualified
+   `Holder[...]` with a bare codegen `error: native code field access target
+   'holder_pkg.Plain' is not a record or variant`. The second reproduction uses a
+   resource-free `EXPORT TYPE Plain { label AS String }`.
+
+**Phase 4 is therefore re-scoped.** Its task list assumes the obstacle is the
+resource and that fixing the type-export closure lets an importer "declare one,
+read `h.handle.state`, and close at scope exit". The resource is not the
+obstacle; user-package record construction is, for every record. Two honest
+options, to be decided in Phase 4 with the evidence above:
+
+- **(a)** Write the fixture so the importer never constructs the record — it
+  calls an exported constructor function and reads the returned value. This
+  exercises everything this feature owns (export closure, field layout across the
+  boundary, `STATE` read, close at scope exit) and stays inside plan-114's scope.
+- **(b)** Fix user-package record construction. That is a real defect worth a
+  bug of its own, but it is **not this feature**: it blocks plain records equally,
+  it predates plan-114, and folding it in would hide a general package-system fix
+  inside a resource plan.
+
+**Recommendation: (a), and file (b) separately.** Option (b) is exactly the
+"absorb an unrelated fix into this plan" move that makes a letter unlandable, and
+the measurement above is what a bug report for it needs anyway.
+
 <!-- Further corrections filled in during execution. -->
 
 ## Summary
