@@ -393,6 +393,52 @@ Two consequences for this letter, neither of which changes its design:
    default. Both predicates get a written `Res(_)` arm and a written
    bare-resource arm for this reason, not for tidiness.
 
+**C2 (Phase 1) — the §2 classification table is CORRECT; all 8 sites verified by
+reading, and the two drifted line numbers are corrected.**
+Phase 1 exists to falsify the table cheaply before anything depends on it. It
+survived: every site wants the meaning §2 assigns it. Two line numbers had drifted
+since the plan was authored (`grep -rn "type_is_flat" src/ --include='*.rs' | wc -l`
+still gives `20`, so the population is unchanged):
+
+| Site (corrected) | Plan said | Function | Why that meaning |
+|---|---|---|---|
+| `memory/arena/builder_arena_transfer.rs:396` | `:386` | `copy_value_to_current_arena` dispatch | routes to `copy_flat_block` **for a thread arena transfer** → arena-transferable |
+| `memory/arena/builder_arena_transfer.rs:1188` | `:945` | `collection_payload_needs_transfer_fix` | decides whether a **transferred** payload needs the deep-copy fix → arena-transferable |
+| `cleanup/thread/builder_thread_cleanup.rs:198` | same | `size_computable`, failed-send pending-free | sizes the **thread-send copy** block → arena-transferable |
+| `collection/layout/builder_collection_layout.rs:58` | same | `is_pointer_collection_payload_type` | in-thread slot layout → memcpy-copyable |
+| `collection/layout/builder_collection_layout.rs:105` | same | `list_element_padding_alignment` | in-thread element alignment → memcpy-copyable |
+| `collection/layout/builder_collection_layout.rs:2760` | same | `record_field_is_inlined` | in-thread record layout → memcpy-copyable |
+| `engine/value/builder_values.rs:334` | same | `is_freeable_flat_value` | scope-drop `arena_free` **within one thread** → memcpy-copyable |
+| `collection/layout/builder_collection_layout.rs:626` | `:625` | `CodeBuilder::type_is_flat` forwarder | split into two forwarders |
+
+The rule that decides every row: **does this site's answer travel across an arena
+boundary?** The three arena-transferable sites are all on the thread
+transfer/send path; the four memcpy-copyable sites are all in-thread layout or
+scope-drop.
+
+**C3 (Phase 1) — §2's UNVERIFIED reachability question, answered by hand-evaluating
+the predicate.**
+§2 asks whether any *currently reachable* program reaches
+`builder_arena_transfer.rs:396` with a `Res`-carrying type, and says the artifact
+gate is the measurement. Traced it directly instead, for `List OF RES fs.File`:
+
+- `type_is_flat_inner` → `typed_is_collection_type` → every payload flat?
+- payload is `Res(fs.File)` → no `Res` arm → falls to `else => !record_field_is_pointer(..)`
+- `record_field_is_pointer(Res(fs.File))`: not a collection, not in `record_fields`,
+  `base_resource_type` leaves `Res(fs.File)` unchanged so `union_names` misses, not
+  `ResultOf`, not `Error` → **false**
+- so `!false` → **`type_is_flat(List OF RES fs.File)` is `true` today.**
+
+Site `:198` (`size_computable`) would therefore call such a message "sizeable" and
+site `:396` would route it to `copy_flat_block`, aliasing the sender's arena. It is
+**unreachable**, and letter A is now what makes that true at the front end: a
+`RES`-marked collection on any thread data plane is refused with
+`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` before codegen sees it
+(`tests/syntax/threads/thread-res-collection-plane-invalid`). So this letter's
+split changes these two sites' answers only for programs that cannot be written,
+which is exactly why `artifact-gate.sh all` → `diffs=0` is the right gate and a
+legitimate one.
+
 <!-- Further corrections filled in during execution. -->
 
 ## Summary
