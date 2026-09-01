@@ -366,8 +366,11 @@ Commit: —
       annotation-only `decl_type` that let an inferred binding escape the ordering
       gate); `.ai/codegen-invariants.md` gains the two-predicate distinction.
 
-- [ ] Full `scripts/artifact-gate.sh target/release/mfb all` and
+- [x] Full `scripts/artifact-gate.sh target/release/mfb all` and
       `scripts/test-accept.sh target/release/mfb /tmp/plan114e-scratch`.
+      Gate: `1322 tests, 1484 build(s), 1819 golden(s) checked, 0 diff(s)`,
+      `GATE_EXIT=0` — up from 1311/1809 at letter B, i.e. the eleven fixtures
+      letters D and E added, with **no pre-existing golden moved**.
 - [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
 - [ ] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
 
