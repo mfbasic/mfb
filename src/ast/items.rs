@@ -387,35 +387,31 @@ impl<'a> FileParser<'a> {
         })
     }
 
-    /// A record field's optional ` STATE T` clause (plan-114-D).
+    /// A record field's optional ` STATE T` clause (plan-114-D/E).
     ///
-    /// Rejected for now, in both directions and for different reasons:
+    /// Accepted on a **`RES`** field — `handle AS RES fs::File STATE Cursor` —
+    /// and folded into the field's own type string, exactly as a collection
+    /// element's clause is (`parse_optional_element_state`). The `STATE` rides
+    /// the field, not the binding, so an extracted handle types `.state`.
     ///
-    /// * on a **non-`RES`** field the clause is meaningless — `STATE` rides a
-    ///   resource, so a data field cannot carry one. This mirrors
-    ///   `parse_optional_element_state`'s rule for a collection element and is
-    ///   permanent.
-    /// * on a **`RES`** field it is well-formed and simply not wired up yet: the
-    ///   field read would have to yield the `RES`-stripped type for
-    ///   `.state()` to see the clause, which is plan-114-E's one load-bearing
-    ///   change. Rejected explicitly rather than parsed-and-ignored, because
-    ///   silently dropping a `STATE` clause would type `h.handle.state` as "no
-    ///   such field" with no hint that the clause was the problem.
+    /// Rejected on a **non-`RES`** field, permanently: `STATE` rides a resource,
+    /// so a data field cannot carry one. Same rule the collection element takes.
     fn parse_optional_field_state(&mut self, field: String, field_res: bool) -> Option<String> {
         if !self.check_identifier_ci("STATE") {
             return Some(field);
         }
-        let token = self.peek().clone();
-        let detail = if field_res {
-            "A `STATE` clause on a record field is not supported yet; bind the \
-             handle first (`RES f AS fs::File STATE Cursor = h.handle`) and read \
-             `f.state`."
-        } else {
-            "A `STATE` clause requires a `RES` record field; a non-resource field \
-             cannot carry state."
-        };
-        self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
-        None
+        if !field_res {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "A `STATE` clause requires a `RES` record field; a non-resource \
+                 field cannot carry state.",
+                &token,
+            );
+            return None;
+        }
+        let state = self.parse_optional_state()?;
+        Some(format!("{field} STATE {state}"))
     }
 
     pub(super) fn parse_union_variant(&mut self) -> Option<UnionVariant> {

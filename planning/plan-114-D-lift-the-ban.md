@@ -304,7 +304,11 @@ failure described in §3.
 Acceptance: both wrong shapes are rejected with the collection-mirroring codes;
 `grep -rn "TYPE_RESOURCE_FIELD_FORBIDDEN" src/ --include='*.rs' | grep -v "rules/table.rs"`
 returns nothing (no emission site remains).
-Commit: —
+**MET.** Both wrong shapes rejected (`2-203-0082` for a bare field, `2-203-0083`
+for `RES` on a non-resource), each with a message naming the record and field.
+The grep returns only **comments** — three of them, all describing the retirement
+— and no emission site.
+Commit: 41cb2ee28
 
 ### Phase 3 — Open the grammar and prove the accept path end to end (largest blast radius)
 
