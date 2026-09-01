@@ -2649,6 +2649,17 @@ pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
 
 /// True when `field_type` occupies a record slot as a pointer to a separate
 /// allocation (nested record/union/collection/`Result`/`Error`).
+///
+/// **A resource field is NOT one of these** (plan-114-B). A concrete resource
+/// nominal matches no arm below — resources are registered in `resource_names`,
+/// not `record_fields` (`engine/validation/validation.rs:264` populates the
+/// latter only for `"type" | "record"` kinds) — so it is classified as a plain
+/// 8-byte inline scalar slot holding the handle pointer. That is the wanted
+/// layout, and it is the same rule `is_pointer_collection_payload_type` (`:49`)
+/// already applies to a collection slot: "a resource handle is a single 8-byte
+/// pointer to its record; a slot stores a copy of that pointer exactly like any
+/// other pointer payload (§15.6)". A resource *union* IS a pointer composite and
+/// is caught by the `union_names` arm.
 pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
     typed_is_collection_type(field_type)
         || model.record_fields.contains_key(field_type)
@@ -2805,6 +2816,13 @@ fn flatness_walk(
 /// trailing data region (the slot holds a block-relative offset): an inlined
 /// `String`, or a fully-flat composite. Scalars stay inline in the slot;
 /// not-yet-flat composites stay pointers.
+///
+/// **A resource field is NOT inlined** (plan-114-B): it is not a composite, so
+/// `is_composite` is false and the `type_is_memcpy_copyable` term is never
+/// reached. It stays a value slot holding the handle pointer, which is what
+/// makes `emit_record_block_size_to_slot` (`:794`) contribute exactly its 8
+/// bytes from the fixed `8 * fields.len()` term and `continue` past it without
+/// walking a sub-block that does not exist.
 pub(crate) fn record_field_is_inlined(
     model: &TypeModel,
     record_type: &ParameterType,
@@ -3225,5 +3243,141 @@ mod flatness_split_tests {
         let node = ParameterType::declared("Node");
         assert!(!type_is_memcpy_copyable(&model, &node));
         assert!(!type_is_arena_transferable(&model, &node));
+    }
+}
+
+/// plan-114-B Phase 2: the layout, copy, size and drop of a record carrying a
+/// `RES` field — `Holder { name AS String, handle AS RES fs.File }`.
+///
+/// The source-level ban is still up (letter D lifts it), so no fixture can reach
+/// this shape; the model is built by hand. Each test asserts the property at the
+/// point codegen actually decides it, and names the emitter that consumes the
+/// answer, so a change to either side breaks a test rather than silently
+/// diverging.
+#[cfg(test)]
+mod res_field_record_layout_tests {
+    use super::*;
+
+    fn holder_model() -> (TypeModel, ParameterType) {
+        let mut model = TypeModel::empty();
+        let holder = ParameterType::declared("Holder");
+        model.record_fields.insert(
+            holder.clone(),
+            vec![
+                ("name".to_string(), ParameterType::String),
+                ("handle".to_string(), ParameterType::parse("RES fs.File")),
+            ],
+        );
+        (model, holder)
+    }
+
+    /// (a) The handle occupies a plain 8-byte value slot at `8*index`.
+    ///
+    /// `record_field_is_pointer` false + `record_field_is_inlined` false is
+    /// exactly the classification `emit_build_inlined_record`'s `else` branch
+    /// keys on (`memory/marshal/record.rs:163-168`), which emits
+    /// `load [sp+field_slot]` / `store -> [record + 8*index]` — i.e. the field's
+    /// lowered value, which for a resource is its record pointer.
+    #[test]
+    fn the_handle_field_is_a_plain_value_slot_not_a_pointer_or_inlined_block() {
+        let (model, holder) = holder_model();
+        let handle = ParameterType::parse("RES fs.File");
+
+        assert!(
+            !record_field_is_pointer(&model, &handle),
+            "a resource field must not be classified as a pointer composite — \
+             that would give it a separate allocation instead of a handle slot"
+        );
+        assert!(
+            !record_field_is_inlined(&model, &holder, &handle),
+            "a resource field must not be inlined into the data region — its \
+             slot holds the handle, not a block-relative offset"
+        );
+        // Contrast: the String field IS inlined, so the record really does
+        // exercise both branches of the write loop.
+        assert!(record_field_is_inlined(
+            &model,
+            &holder,
+            &ParameterType::String
+        ));
+    }
+
+    /// (b) A `memcpy` of the block is a correct copy, and the copied handle word
+    /// therefore EQUALS the source's — the copy aliases the one resource rather
+    /// than duplicating it (§15.6).
+    ///
+    /// `copy_value_to_current_arena` routes to `copy_flat_block` on
+    /// `type_is_arena_transferable`; `is_freeable_flat_value` and the in-thread
+    /// layout sites key on `type_is_memcpy_copyable`. The pair below is what
+    /// makes an in-thread copy a `memcpy` while a thread transfer refuses.
+    #[test]
+    fn the_record_copies_by_memcpy_but_may_not_cross_an_arena() {
+        let (model, holder) = holder_model();
+        assert!(
+            type_is_memcpy_copyable(&model, &holder),
+            "an in-thread copy of Holder is a memcpy: the handle word is copied \
+             verbatim, aliasing the same resource record"
+        );
+        assert!(
+            !type_is_arena_transferable(&model, &holder),
+            "Holder must NOT be arena-transferable: the copied handle would \
+             point into the sender's arena"
+        );
+    }
+
+    /// (c) The block sizes to `8 * fields.len()` plus the inlined String's bytes
+    /// — the resource field contributes exactly its 8 bytes and no sub-block.
+    ///
+    /// `emit_record_block_size_to_slot` (`:794`) starts at `8 * fields.len()`
+    /// and `continue`s past every non-inlined field, so the fixed term below IS
+    /// the resource field's whole contribution.
+    #[test]
+    fn the_handle_field_contributes_exactly_eight_bytes_and_no_sub_block() {
+        let (model, holder) = holder_model();
+        let fields = model.record_fields.get(&holder).cloned().unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(8 * fields.len(), 16, "the fixed slot region is 8 per field");
+
+        // Exactly one field walks the inlined-sub-block path; the handle is
+        // skipped, so the only variable term is the String's.
+        let inlined: Vec<&str> = fields
+            .iter()
+            .filter(|(_, ft)| record_field_is_inlined(&model, &holder, ft))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(
+            inlined,
+            vec!["name"],
+            "only the String field is inlined; the handle contributes no sub-block"
+        );
+    }
+
+    /// (d) Scope-drop frees the record block and nothing else.
+    ///
+    /// `is_freeable_flat_value` gates the generic owned-value `arena_free` on
+    /// memcpy-copyability plus "is a record/String/collection/data-union/Result".
+    /// Holder qualifies, so ONE `arena_free` reclaims the record block. The
+    /// resource record itself is not reachable from that path — it is reclaimed
+    /// by the resource's own `ActiveCleanup::Resource`, which is letter C's
+    /// routing — so the drop must not touch it.
+    #[test]
+    fn the_record_block_is_freeable_but_the_resource_record_is_not() {
+        let (model, holder) = holder_model();
+        assert!(
+            type_is_memcpy_copyable(&model, &holder) && model.record_fields.contains_key(&holder),
+            "both terms of is_freeable_flat_value hold for Holder, so scope-drop \
+             emits one arena_free for its block"
+        );
+        // The resource itself is NOT a freeable flat value: it is not a record,
+        // String, collection, data union or Result, so the generic owned-value
+        // path cannot reach it however the record is dropped.
+        let handle = ParameterType::parse("RES fs.File");
+        assert!(
+            !model.record_fields.contains_key(&handle)
+                && !typed_is_collection_type(&handle)
+                && handle != ParameterType::String,
+            "the resource field must not satisfy is_freeable_flat_value's second \
+             term, or scope-drop would arena_free the resource record too"
+        );
     }
 }

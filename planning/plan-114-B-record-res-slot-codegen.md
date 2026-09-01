@@ -310,23 +310,41 @@ Commit: —
 
 ### Phase 2 — Lay out, build, copy, size and drop a `RES` record field
 
-- [ ] Relax the record half of `validate_resource_rules`
+- [x] Relax the record half of `validate_resource_rules`
       (`src/target/shared/validate/mod.rs:144`) to permit a resource-owning record
       field; leave the union half unchanged. Update the doc comment on
       `check_type_declarations` (`src/ir/verify/types.rs:8-12`) to stop asserting
-      the layout/drop lowering would be misled — that is no longer true.
-- [ ] Read `emit_build_inlined_record` and confirm a non-inlined resource-typed
+      the layout/drop lowering would be misled — that is no longer true. Both
+      done; the record arm is deleted outright rather than weakened, and the
+      union arm is untouched and pinned by a new test.
+- [x] Read `emit_build_inlined_record` and confirm a non-inlined resource-typed
       field is written as its record pointer at `8*index`; record any deviation in
-      Corrections and fix it here.
-- [ ] Add resource-field arms to the doc comments on `record_field_is_pointer`
+      Corrections and fix it here. **Confirmed, no deviation** — read
+      `src/codegen/memory/marshal/record.rs:163-168`, the `else` (non-inlined)
+      branch of pass 2:
+      `load %v9 <- [sp + field_slots[index]]` ; `load %v10 <- [sp + result]` ;
+      `store %v9 -> [%v10 + 8*index]`. It writes the field's lowered value word at
+      `8*index`, which for a resource-typed field is its record pointer. Nothing
+      to fix.
+- [x] Add resource-field arms to the doc comments on `record_field_is_pointer`
       (`:2639`) and `record_field_is_inlined` (`:2745`) per §4.2.
-- [ ] Tests (codegen unit tests, `NirModule` built directly — the source ban is
-      still up, so no fixture can reach this): a record `Holder { name AS String,
-      handle AS RES fs.File }` that (a) builds with the handle pointer at its slot,
-      (b) `copy_flat_block`s to a second block whose handle word **equals** the
-      source's, (c) sizes to `8*2 + inlined-String-bytes`, (d) at scope-drop emits
-      exactly one `arena_free` for the record block and none for the resource
-      record.
+- [x] Tests (codegen unit tests, `NirModule` built directly — the source ban is
+      still up, so no fixture can reach this): a record
+      `Holder { name AS String, handle AS RES fs.File }` that (a) builds with the
+      handle pointer at its slot, (b) `copy_flat_block`s to a second block whose
+      handle word **equals** the source's, (c) sizes to `8*2 + inlined-String-bytes`,
+      (d) at scope-drop emits exactly one `arena_free` for the record block and
+      none for the resource record. Landed as `res_field_record_layout_tests`
+      (4 tests), each asserting the property **at the point codegen decides it**
+      and naming the emitter that consumes the answer, so a change to either side
+      breaks a test. Plus two NIR-backstop tests
+      (`a_record_field_may_own_a_resource_at_nir_level`,
+      `a_union_still_may_not_mix_data_and_resource_variants`) — the second is the
+      guard that the relaxation did not over-reach.
+- [x] Added task: writing the union test surfaced a live gap worth recording —
+      `type_owns_resource` has **no `Res(_)` arm**, so a `RES`-marked field is
+      invisible to the NIR backstop entirely. See Corrections C5.
+
 
 Acceptance: the four assertions above pass, and
 `scripts/artifact-gate.sh target/release/mfb all` still reports `diffs=0` (no
@@ -477,6 +495,42 @@ with the extra wrinkle that the baseline itself is currently wrong.
 Note also that a `no_other_declared_record_is_pointer_string` unit test now walks
 the registry on that branch; it will report immediately if this letter's split
 changes the membership of that list.
+
+**C5 (Phase 2) — `type_owns_resource` has no `Res(_)` arm, so the NIR backstop
+cannot see a `RES`-marked field at all.**
+Found by writing the union guard test: a `NirVariant` whose field is
+`RES fs.File` **validated cleanly** where it should have been refused as a mixed
+union. Root cause is a documented deliberate omission at
+`src/target/shared/validate/mod.rs:128-131`:
+
+```rust
+// NB: no `Res(inner)` arm — the string form never stripped the `RES `
+// marker (`is_resource_type("RES File")` is false), so a `Res`-wrapped
+// element falls to the name check below exactly as the string walk did.
+other => crate::codegen::builtins::is_resource_type(&other),
+```
+
+So `type_owns_resource(Res(fs.File))` is `false`, and by the same path
+`type_owns_resource(List OF RES fs.File)` is `false` too.
+
+Two consequences, and neither is acted on in this letter:
+
+1. **It does not weaken anything this letter did.** The record half is being
+   *removed* here, so a field the backstop cannot see is moot for records. The
+   union half is what remains, and its primary enforcer is the front-end
+   `TYPE_MIXED_RESOURCE_UNION` (`2-203-0087`), which letter D's §1 explicitly
+   leaves untouched. The backstop is a guard against malformed NIR, not the rule.
+2. **It changes how the union guard test had to be written.** Written with the
+   `RES` spelling the test would have passed for the wrong reason — the union
+   would validate because the field was invisible, not because the union half was
+   preserved. It uses a bare `fs.File` variant field instead, with the reason in a
+   comment so nobody "simplifies" it back.
+
+Deliberately **not** widened here. Adding a `Res(_)` arm would make the backstop
+newly reject NIR it currently accepts, which is a behavior change outside this
+letter's "no change to which programs compile" non-goal, and it belongs with the
+union rules rather than with record layout. Recorded so letter D's union work has
+it in hand.
 
 <!-- Further corrections filled in during execution. -->
 

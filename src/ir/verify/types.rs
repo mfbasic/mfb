@@ -6,11 +6,19 @@ impl TypeEnv {
 
     /// Structural well-formedness of the type table (the former source checker's
     /// `check_type_decl`), checkable directly on the IR. On decoded package IR
-    /// these guard codegen's layout and drop assumptions: a record that owns a
-    /// resource field, a union mixing data and resource variants (tag-dependent
-    /// copyability / drop dispatch), or a record with no base case (infinite
-    /// size) would all mislead the layout/drop lowering. Reported at the type
-    /// declaration line; the file is unset (a decoded package has no source).
+    /// these guard codegen's layout and drop assumptions: a union mixing data and
+    /// resource variants (tag-dependent copyability / drop dispatch) or a record
+    /// with no base case (infinite size) would mislead the layout/drop lowering.
+    /// Reported at the type declaration line; the file is unset (a decoded
+    /// package has no source).
+    ///
+    /// plan-114-B: the resource-field rule is **no longer** one of those. It is
+    /// still emitted here (`TYPE_RESOURCE_FIELD_FORBIDDEN`, retired by letter D),
+    /// but its old justification — that such a field would mislead the layout and
+    /// drop lowering — is now false. Codegen lays a resource field out as an
+    /// ordinary 8-byte handle slot and the NIR backstop no longer refuses it; the
+    /// rule survives here only until the front door opens, not because the
+    /// lowering cannot cope.
     pub(super) fn check_type_declarations(&self, project: &IrProject) {
         for ty in &project.types {
             self.current_file.replace(ty.file.clone());
