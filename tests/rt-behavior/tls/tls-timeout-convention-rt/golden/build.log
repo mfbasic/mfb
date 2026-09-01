@@ -8,4 +8,4 @@ Wrote executable to tests/rt-behavior/tls/tls-timeout-convention-rt/build/tls_ti
 $ tests/rt-behavior/tls/tls-timeout-convention-rt/build/tls_timeout_convention_rt.out
 neg invalid
 connect0 timeout
-[exit 138]
+[exit 0]

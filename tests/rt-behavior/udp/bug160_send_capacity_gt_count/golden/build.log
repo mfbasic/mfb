@@ -6,4 +6,8 @@ $ mfb build tests/rt-behavior/udp/bug160_send_capacity_gt_count
 Wrote executable to tests/rt-behavior/udp/bug160_send_capacity_gt_count/build/bug160_send_capacity_gt_count.out
 [exit 0]
 $ tests/rt-behavior/udp/bug160_send_capacity_gt_count/build/bug160_send_capacity_gt_count.out
-[exit 139]
+3
+65
+66
+67
+[exit 0]

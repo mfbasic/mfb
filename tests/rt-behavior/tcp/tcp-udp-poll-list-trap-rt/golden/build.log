@@ -8,4 +8,4 @@ Wrote executable to tests/rt-behavior/tcp/tcp-udp-poll-list-trap-rt/build/tcp_ud
 $ tests/rt-behavior/tcp/tcp-udp-poll-list-trap-rt/build/tcp_udp_poll_list_trap_rt.out
 tcpIdleTimeout=TRUE
 udpIdleTimeout=TRUE
-[exit 138]
+[exit 0]

@@ -6,4 +6,8 @@ $ mfb build tests/rt-behavior/udp/func_udp_receive_valid
 Wrote executable to tests/rt-behavior/udp/func_udp_receive_valid/build/func_udp_receive_valid.out
 [exit 0]
 $ tests/rt-behavior/udp/func_udp_receive_valid/build/func_udp_receive_valid.out
-[exit 139]
+4
+77070007
+hello
+127.0.0.1 port>0=TRUE
+[exit 0]

@@ -3,6 +3,18 @@ $ mfb build -ast -ir tests/syntax/net/net_address_read_only_invalid
   13 | FUNC main AS Integer
   14 |   LET made AS net::Address = net::Address["1.2.3.4", 80]
      | ^
+tests/syntax/net/net_address_read_only_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `made` does not have a known type.
+  16 |   RES server = tcp::listen("127.0.0.1", 0)
+  17 |   LET bound AS net::Address = tcp::localAddress(server)
+  18 |   LET updated AS net::Address = WITH bound { port := 99 }
+     | ^
+tests/syntax/net/net_address_read_only_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `updated` does not have a known type.
+  12 | 
+  13 | FUNC main AS Integer
+  14 |   LET made AS net::Address = net::Address["1.2.3.4", 80]
+     | ^
 tests/syntax/net/net_address_read_only_invalid/src/main.mfb:14 error[2-203-0039 TYPE_READ_ONLY_RECORD_CONSTRUCTOR]: read-only record cannot be constructed
                TYPE `net.Address` is compiler-owned and cannot be constructed.
   16 |   RES server = tcp::listen("127.0.0.1", 0)

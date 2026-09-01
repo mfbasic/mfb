@@ -6,7 +6,7 @@ $ mfb build tests/rt-behavior/udp/func_udp_bind_valid
 Wrote executable to tests/rt-behavior/udp/func_udp_bind_valid/build/func_udp_bind_valid.out
 [exit 0]
 $ tests/rt-behavior/udp/func_udp_bind_valid/build/func_udp_bind_valid.out
-
+127.0.0.1
 port>0=TRUE
 closed
-[exit 138]
+[exit 0]
