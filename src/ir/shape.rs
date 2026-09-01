@@ -1321,7 +1321,7 @@ impl<'a> Walker<'a> {
                         _ => success_type,
                     };
                     self.walk_expression(expression, locals);
-                    self.check_trap_short_circuit(expression, *trap_line);
+                    self.check_trap_short_circuit(expression, locals, *trap_line);
                     let trapped_type = self.type_of(expression, locals);
                     self.walk_handler(binding, handler, locals, trapped_type, *trap_line);
                     // The checker typed the binding by the trapped call.
@@ -1591,7 +1591,7 @@ impl<'a> Walker<'a> {
         } = value
         {
             self.walk_expression(expression, locals);
-            self.check_trap_short_circuit(expression, *line);
+            self.check_trap_short_circuit(expression, locals, *line);
             let trapped_type = self.type_of(expression, locals);
             self.walk_handler(binding, handler, locals, trapped_type, *line);
             return;
@@ -1614,15 +1614,20 @@ impl<'a> Walker<'a> {
     ///
     /// Lowering erases the evidence — the operand structure is gone by the time
     /// `ir::verify` sees the lifted chain — so the rule lives here.
-    fn check_trap_short_circuit(&mut self, expression: &HirExpression, line: usize) {
+    fn check_trap_short_circuit(
+        &mut self,
+        expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        line: usize,
+    ) {
         let mut offender = None;
-        self.find_short_circuited_call(expression, false, &mut offender);
+        self.find_short_circuited_call(expression, locals, false, &mut offender);
         if let Some(callee) = offender {
             self.emit(
                 "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
                 format!(
                     "Inline TRAP cannot cover `{callee}`: AND/OR evaluate their right operand \
-                     only conditionally, so the call cannot be lifted ahead of the expression. \
+                     only conditionally, so it cannot be lifted ahead of the expression. \
                      Bind it to its own LET with a TRAP first, then use that value here."
                 ),
                 line,
@@ -1630,13 +1635,51 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Records the first fallible call reached through a short-circuited operand.
-    /// `conditional` is true once the walk has entered the right side of an
-    /// `AND`/`OR`; a lambda body is skipped because it runs at the callback's
-    /// call site, not in this expression.
+    /// Records a raising operator sitting in a short-circuited operand (bug-471).
+    ///
+    /// `lower_inline_trap` covers a raising operator by lifting it into its own
+    /// `Checked` bind ahead of the residual expression — the same lift, and the
+    /// same restriction, as a fallible call: an operand `AND`/`OR` evaluates only
+    /// conditionally cannot be hoisted, because hoisting evaluates it every time.
+    /// Reporting it is the alternative to letting the division-by-zero escape the
+    /// handler unnoticed, which is the whole of bug-471.
+    fn note_short_circuited_operator(
+        &self,
+        expression: &HirExpression,
+        operator: &str,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        // The same exemption `lower::trap_hoist_kind` applies: a unary `-` over a
+        // numeric literal is the spelling of a negative literal and cannot raise,
+        // so `t AND -1 > 0` must not be reported. Kept in step with the lift by
+        // reading the one predicate both sides share.
+        if let HirExpression::Unary { operand, .. } = expression {
+            if matches!(operand.as_ref(), HirExpression::Number(_))
+                && super::fallible::is_total_literal_negation(operator, &type_)
+            {
+                return;
+            }
+        }
+        if super::fallible::operator_can_raise(operator, &type_) {
+            *offender = Some(operator.to_string());
+        }
+    }
+
+    /// Records the first fallible call — or, since bug-471, raising **operator**
+    /// — reached through a short-circuited operand. `conditional` is true once
+    /// the walk has entered the right side of an `AND`/`OR`; a lambda body is
+    /// skipped because it runs at the callback's call site, not in this
+    /// expression.
     fn find_short_circuited_call(
         &self,
         expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
         conditional: bool,
         offender: &mut Option<String>,
     ) {
@@ -1656,12 +1699,33 @@ impl<'a> Walker<'a> {
                 right,
                 ..
             } => {
-                self.find_short_circuited_call(left, conditional, offender);
+                self.find_short_circuited_call(left, locals, conditional, offender);
                 let short_circuit = lower::is_short_circuit_operator(operator);
-                self.find_short_circuited_call(right, conditional || short_circuit, offender);
+                self.find_short_circuited_call(
+                    right,
+                    locals,
+                    conditional || short_circuit,
+                    offender,
+                );
+                self.note_short_circuited_operator(
+                    expression,
+                    operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
             }
-            HirExpression::Unary { operand, .. } => {
-                self.find_short_circuited_call(operand, conditional, offender)
+            HirExpression::Unary {
+                operand, operator, ..
+            } => {
+                self.find_short_circuited_call(operand, locals, conditional, offender);
+                self.note_short_circuited_operator(
+                    expression,
+                    operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
             }
             HirExpression::Call {
                 callee, arguments, ..
@@ -1669,7 +1733,7 @@ impl<'a> Walker<'a> {
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
-                            self.find_short_circuited_call(value, conditional, offender)
+                            self.find_short_circuited_call(value, locals, conditional, offender)
                         }
                     }
                 }
@@ -1687,35 +1751,35 @@ impl<'a> Walker<'a> {
                     match argument {
                         HirConstructorArg::Positional(value)
                         | HirConstructorArg::Named { value, .. } => {
-                            self.find_short_circuited_call(value, conditional, offender)
+                            self.find_short_circuited_call(value, locals, conditional, offender)
                         }
                     }
                 }
             }
             HirExpression::WithUpdate { target, updates } => {
-                self.find_short_circuited_call(target, conditional, offender);
+                self.find_short_circuited_call(target, locals, conditional, offender);
                 for update in updates {
-                    self.find_short_circuited_call(&update.value, conditional, offender);
+                    self.find_short_circuited_call(&update.value, locals, conditional, offender);
                 }
             }
             HirExpression::ListLiteral(values) => {
                 for value in values {
-                    self.find_short_circuited_call(value, conditional, offender);
+                    self.find_short_circuited_call(value, locals, conditional, offender);
                 }
             }
             HirExpression::SetLiteral { elements, .. } => {
                 for element in elements {
-                    self.find_short_circuited_call(element, conditional, offender);
+                    self.find_short_circuited_call(element, locals, conditional, offender);
                 }
             }
             HirExpression::MapLiteral { entries, .. } => {
                 for (key, value) in entries {
-                    self.find_short_circuited_call(key, conditional, offender);
-                    self.find_short_circuited_call(value, conditional, offender);
+                    self.find_short_circuited_call(key, locals, conditional, offender);
+                    self.find_short_circuited_call(value, locals, conditional, offender);
                 }
             }
             HirExpression::MemberAccess { target, .. } => {
-                self.find_short_circuited_call(target, conditional, offender)
+                self.find_short_circuited_call(target, locals, conditional, offender)
             }
             // A nested inline TRAP routes its own expression's errors to its own
             // handler, so nothing inside it escapes into this one.

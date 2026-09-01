@@ -85,11 +85,29 @@ const CANVAS_BLIT_SYMBOL: &str = "_mfb_gtkapp_canvas_blit";
 const CANVAS_COMMIT_SYMBOL: &str = "_mfb_gtkapp_canvas_commit";
 /// The `GtkDrawingAreaDrawFunc` that paints the committed frame.
 const CANVAS_DRAW_SYMBOL: &str = "_mfb_gtkapp_canvas_draw";
+/// The canvas drawing area's `resize` handler (plan-98-F Phase 2): publishes the new
+/// surface size into the graphics state and asks for the repaint that uses it.
+///
+/// The Linux twin of macOS's `CANVAS_SET_FRAME_SIZE_SYMBOL`. Until this existed the
+/// Linux canvas surface stayed at its default size forever — `canvas::surfaceWidth`
+/// reads the graphics state and nothing on this platform ever wrote it.
+const CANVAS_RESIZE_SYMBOL: &str = "_mfb_gtkapp_canvas_resize";
+/// `canvas::signalRedraw`, by the registry's derived symbol name.
+///
+/// Called rather than re-emitted: this is physical-register bootstrap code and that
+/// emitter expects a vreg allocator. A rename breaks the link step loudly ("internal
+/// relocation target ... is not defined") instead of silently dropping the repaint.
+const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
 /// register preservation (plan-05-linux-app.md §6.2).
 const STATE_SYMBOL: &str = "_mfb_gtkapp_state";
+/// plan-98-F: the headless gate's environment variable, the Linux twin of
+/// `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`.
+pub(super) const STR_HEADLESS_ENV: (&str, &str) =
+    ("_mfb_gtkapp_str_headless", "MFB_GTKAPP_HEADLESS");
+
 const ST_APPLICATION: usize = 0;
 const ST_WINDOW: usize = 8;
 const ST_SCROLLED: usize = 16;
@@ -286,6 +304,14 @@ const STR_CLOSE_REQUEST: (&str, &str) = ("_mfb_gtkapp_str_close_request", "close
 const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-pressed");
 /// `GtkDrawingArea::resize` signal name (plan-35-E grid reflow on window resize).
 const STR_RESIZE: (&str, &str) = ("_mfb_gtkapp_str_resize", "resize");
+/// plan-98-F Phase 2: drive one scripted resize in a headless run.
+///
+/// A resize is a *window* event, and no reachable Linux box has a display server — so
+/// without this the resize path could be written but never run, on either renderer.
+/// Two variables rather than one `WxH` string because parsing a separator in
+/// hand-written assembly buys nothing: `atoi` already exists.
+const STR_RESIZE_W_ENV: (&str, &str) = ("_mfb_gtkapp_str_resize_w", "MFB_CANVAS_RESIZE_W");
+const STR_RESIZE_H_ENV: (&str, &str) = ("_mfb_gtkapp_str_resize_h", "MFB_CANVAS_RESIZE_H");
 /// Completion status line appended to the transcript when the program ends
 /// (matches macOS `app/mod.rs` STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
 const STR_EXIT_PREFIX: (&str, &str) =
@@ -519,7 +545,7 @@ pub(crate) fn emit_app_program_entry(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_libc_start_trampoline()?,
-        emit_main_bootstrap()?,
+        emit_main_bootstrap(spec.uses_canvas)?,
         emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
@@ -552,6 +578,7 @@ pub(crate) fn emit_app_program_entry(
         functions.push(emit_canvas_blit_helper()?);
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
+        functions.push(emit_canvas_resize_helper()?);
     }
     Ok(functions)
 }
@@ -585,7 +612,7 @@ pub(crate) fn emit_app_program_entry_x86(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap()?,
+        emit_main_bootstrap(spec.uses_canvas)?,
         emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
@@ -615,6 +642,7 @@ pub(crate) fn emit_app_program_entry_x86(
         functions.push(emit_canvas_blit_helper()?);
         functions.push(emit_canvas_commit_helper()?);
         functions.push(emit_canvas_draw_helper()?);
+        functions.push(emit_canvas_resize_helper()?);
     }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
@@ -932,6 +960,9 @@ pub(crate) fn app_mode_imports(
         // the redundant original descriptor so stdin EOF works (bug-59).
         (libc, "close"),
         (libc, "setenv"),
+        // plan-98-F: the headless gate reads its env name. (`pause`, which parks the
+        // main thread afterwards, is already declared below for the existing park.)
+        (libc, "getenv"),
         (libc, "write"),
         // The activate handler sets the pipe write end O_NONBLOCK so a full pipe
         // makes the key handler's write() return EAGAIN instead of blocking the
@@ -944,6 +975,12 @@ pub(crate) fn app_mode_imports(
         (libc, "memset"),
         (libc, "memmove"),
         (libc, "pause"),
+        // plan-98-F Phase 2: the headless scripted resize parses its two dimensions
+        // and waits for the first frame before publishing them. Declared with the
+        // rest of the app's libc set rather than per-call: this whole table is the
+        // app bootstrap's, and it is emitted for every GTK program.
+        (libc, "atoi"),
+        (libc, "usleep"),
         // The finish helper's hard-exit fallback. The x86-64 console exit is a
         // raw `exit_group` syscall, so unlike aarch64 nothing else declares it.
         (libc, "_exit"),
@@ -978,6 +1015,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
         STR_RESIZE,
+        STR_RESIZE_W_ENV,
+        STR_RESIZE_H_ENV,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
         STR_MONO_DESC,
@@ -985,6 +1024,8 @@ pub(crate) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         STR_ENV_A11Y,
         STR_ENV_IM,
         STR_ENV_NONE,
+        // plan-98-F: the headless gate's env name.
+        STR_HEADLESS_ENV,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -1239,9 +1280,16 @@ mod import_tests {
             .into_iter()
             .map(|import| import.symbol)
             .collect();
+        // bug-59 removed `getenv` as a dead import and pinned its absence here.
+        // plan-98-F made it live again: `emit_main_bootstrap` reads
+        // `MFB_GTKAPP_HEADLESS` with it. The assertion is inverted rather than
+        // deleted, because the property bug-59 cared about — no import without a
+        // caller — is still the one worth holding, and the companion test
+        // (`every_emitted_external_call_is_a_declared_import`) is what pins the
+        // caller's existence.
         assert!(
-            !symbols.iter().any(|s| s == "getenv"),
-            "getenv is dead in the GTK backend and must not be imported (bug-59)"
+            symbols.iter().any(|s| s == "getenv"),
+            "the headless gate reads MFB_GTKAPP_HEADLESS, so `getenv` must be imported"
         );
         assert!(
             symbols.iter().any(|s| s == "close"),
@@ -1281,6 +1329,8 @@ mod import_tests {
             "memset",
             "memmove",
             "pause",
+            // plan-98-F: the MFB_GTKAPP_HEADLESS gate.
+            "getenv",
             "_exit",
             "__libc_start_main",
             "pthread_create",
@@ -1298,7 +1348,12 @@ mod import_tests {
                  relocation binding would fail the build"
             );
         }
-        assert!(!declared.contains("getenv"), "getenv is dead (bug-59)");
+        // Was `!declared.contains("getenv")` (bug-59, when nothing called it). The
+        // headless gate does now, and it is in the emitted-call list above.
+        assert!(
+            declared.contains("getenv"),
+            "the headless gate emits a getenv call, so it must be declared"
+        );
     }
 }
 
@@ -1310,6 +1365,49 @@ mod import_tests {
 /// these inspect the emitted code rather than running it.
 mod canvas_reconcile_tests {
     use super::*;
+
+    /// No emitter in this backend spells a register as a raw `"xN"` string.
+    ///
+    /// These bodies are hand-written AArch64 assembly transpiled to x86 by
+    /// `finalize_x86_app_function`, which renames the scratch/parking space to virtual
+    /// registers **keyed by the token string**. So `"x10"` and `abi::SCRATCH[1]` are one
+    /// register on AArch64 and two different vregs on x86 — a body that writes through
+    /// one spelling and reads through the other is correct on the development host and
+    /// silently broken on Linux x86-64. plan-98-F Phase 1 found one instance in the
+    /// finish helper (`ST_TEXT_BUFFER` stored to `"x9"`, compared as `SCRATCH[0]`); a
+    /// census then found sixteen more functions mixing the two, including
+    /// `emit_term_resize_helper`, which divided by an uninitialized divisor.
+    ///
+    /// The rule `.ai/arch-abi.md` states is "never mix"; this asserts the stronger and
+    /// checkable form — never spell one at all — because "mixed" needs a def/use analysis
+    /// and "present" does not. Rewriting all 146 sites to tokens left the linux-aarch64
+    /// binary **byte-identical** (the two spellings were already the same register there)
+    /// and changed the x86-64 one, which is exactly the shape of the fix.
+    ///
+    /// `x0`–`x8` are excluded from the pattern only because they are already forbidden by
+    /// the residual-token `debug_assert` in `select_x86`, which reds a debug build.
+    #[test]
+    fn no_emitter_spells_a_register_as_a_raw_register_string() {
+        for (name, source) in [
+            ("bootstrap.rs", include_str!("bootstrap.rs")),
+            ("term_draw.rs", include_str!("term_draw.rs")),
+            ("app_io.rs", include_str!("app_io.rs")),
+        ] {
+            for (index, line) in source.lines().enumerate() {
+                for n in 9usize..=30 {
+                    assert!(
+                        !line.contains(&format!("\"x{n}\"")),
+                        "{name}:{} spells a register as \"x{n}\"; use abi::SCRATCH[{}] / \
+                         abi::LOCAL[{}] instead — the x86 app wrap renames by token string, \
+                         so the raw spelling is a different vreg there",
+                        index + 1,
+                        n.saturating_sub(9),
+                        n.saturating_sub(19),
+                    );
+                }
+            }
+        }
+    }
 
     fn externals(func: &CodeFunction, name: &str) -> usize {
         func.relocations

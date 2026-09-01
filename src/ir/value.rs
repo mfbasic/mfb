@@ -69,6 +69,30 @@ pub(crate) enum IrValue {
         // Source location of the call expression (origin for helper-generated errors).
         loc: IrSourceLoc,
     },
+    /// Evaluate `value` with its domain-error exits **captured**, yielding a
+    /// `Result OF <type_>` instead of propagating (bug-471).
+    ///
+    /// `CallResult` is the same idea for a *call*: it turns one callee's error
+    /// return into a `Result` the caller checks. `Checked` generalizes it to an
+    /// expression that raises without being a call — a division by zero, an
+    /// arithmetic overflow, a `Float` that overflows to infinity — which
+    /// `ir::lower`'s inline-`TRAP` desugar lifts out of the trapped expression
+    /// exactly as it lifts a fallible call. Codegen lowers it by running
+    /// `value`'s normal lowering under a `raw_result_capture`, so every error
+    /// `emit_error_register_return` emits inside it joins the capture point
+    /// rather than the function's error exit.
+    ///
+    /// `type_` is the **success** type (the `T` of `Result OF T`), matching
+    /// `CallResult`'s annotation convention.
+    ///
+    /// `value` must contain no `Call`/`CallResult`: a call auto-propagates from
+    /// its own site through a seam the capture does not cover, so the desugar
+    /// lifts every call out *before* wrapping what is left (`ir::verify` rejects
+    /// a nested call here).
+    Checked {
+        type_: ParameterType,
+        value: Box<IrValue>,
+    },
     Constructor {
         type_: ParameterType,
         args: Vec<IrValue>,
@@ -155,6 +179,7 @@ impl IrValue {
             | IrValue::Capture { type_, .. }
             | IrValue::Call { type_, .. }
             | IrValue::CallResult { type_, .. }
+            | IrValue::Checked { type_, .. }
             | IrValue::Constructor { type_, .. }
             | IrValue::UnionExtract { type_, .. }
             | IrValue::ResultValue { type_, .. }
@@ -222,6 +247,7 @@ fn visit_value_depth<F: FnMut(&IrValue)>(value: &IrValue, depth: usize, f: &mut 
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => visit_value_depth(value, next, f),
         IrValue::WithUpdate {
@@ -287,6 +313,7 @@ fn visit_value_mut_inner<F: FnMut(&mut IrValue)>(value: &mut IrValue, f: &mut F)
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => visit_value_mut_inner(value, f),
         IrValue::WithUpdate {

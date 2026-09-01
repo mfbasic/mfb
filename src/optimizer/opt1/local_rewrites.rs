@@ -228,7 +228,8 @@ impl Rows {
             | NirValue::UnionExtract { value, .. }
             | NirValue::ResultIsOk { value }
             | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => self.rewrite_value(value, scopes),
+            | NirValue::ResultError { value }
+            | NirValue::Checked { value, .. } => self.rewrite_value(value, scopes),
             NirValue::WithUpdate {
                 target, updates, ..
             } => {
@@ -323,6 +324,7 @@ pub(super) fn scopes_type_is(value: &NirValue, expected: &ParameterType, scopes:
         | NirValue::ResultIsOk { .. }
         | NirValue::ResultValue { .. }
         | NirValue::ResultError { .. }
+        | NirValue::Checked { .. }
         | NirValue::WithUpdate { .. }
         | NirValue::ListLiteral { .. }
         | NirValue::SetLiteral { .. }

@@ -14,6 +14,13 @@
 
 mod app_io;
 mod bootstrap;
+mod metal;
+// plan-98-E: the plan declares these as canvas-gated imports, so they have to
+// leave this module.
+pub(crate) use metal::{
+    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+    CLASS_MTL_TEXTURE_DESCRIPTOR,
+};
 mod term_view;
 
 pub(crate) use app_io::*;
@@ -805,6 +812,11 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         functions.push(emit_canvas_blit_helper());
         functions.push(emit_canvas_blit_apply_helper());
         functions.push(emit_canvas_set_frame_size_helper());
+        // plan-98-E Phase 1: the Metal device/queue/pipeline setup. Same gate as
+        // the blit for the same reason — `MFB_CANVAS_GPU=1` is a runtime choice,
+        // so any program that draws must carry the code that choice would run.
+        functions.push(metal::emit_metal_init());
+        functions.push(metal::emit_metal_draw());
     }
     Ok(functions)
 }
@@ -824,6 +836,46 @@ pub(crate) fn emit_canvas_blit_seam(
     relocations.push(CodeRelocation {
         from: from_symbol.to_string(),
         to: CANVAS_BLIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
+/// plan-98-E Phase 1: call the one-time Metal setup, leaving 1/0 in `c_return(0)`.
+///
+/// A plain call with no argument staging: `_mfb_macapp_metal_init` takes none and is
+/// idempotent, so the caller's only job is to invoke it and read the answer.
+pub(crate) fn emit_metal_init_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(metal::METAL_INIT_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: metal::METAL_INIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
+/// plan-98-E Phase 1: call the Metal frame renderer.
+///
+/// The caller has already staged the surface payload, its dimensions, the geometry
+/// payload, the draw-order offsets and their count in the MFB argument registers —
+/// the same shape `canvas::blitSurface` uses, and for the same reason: the helper is
+/// a plain function with a fixed contract, so the seam is one call.
+pub(crate) fn emit_metal_draw_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(metal::METAL_DRAW_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: metal::METAL_DRAW_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
@@ -1076,9 +1128,10 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         SEL_LONG_LONG_VALUE,
         SEL_SET_CONTENTS,
     ]
-    .iter()
+    .into_iter()
+    .chain(metal::metal_data_objects())
     .map(|(symbol, text)| CodeDataObject {
-        symbol: (*symbol).to_string(),
+        symbol: symbol.to_string(),
         kind: "raw".to_string(),
         layout: "C string (NUL-terminated)".to_string(),
         align: 1,

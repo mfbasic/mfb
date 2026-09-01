@@ -272,6 +272,28 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
+    fn emit_metal_init(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-E Phase 1: device + queue + pipeline, built once and remembered.
+        app::emit_metal_init_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
+    fn emit_metal_draw(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-98-E Phase 1: record, submit and read back one GPU frame.
+        app::emit_metal_draw_seam(symbol, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,

@@ -1371,6 +1371,14 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_str(out, &type_.name());
             put_loc(out, *loc);
         }
+        // bug-471: append-only tag, exactly as `SetLiteral` (21) was added — a
+        // decoder that has never seen a `Checked` node simply rejects the tag,
+        // and every already-committed `.mfp` re-encodes byte-identically.
+        IrValue::Checked { type_, value } => {
+            put_u8(out, 22);
+            put_str(out, &type_.name());
+            encode_value(out, value);
+        }
         IrValue::Constructor { type_, args } => {
             put_u8(out, 8);
             put_str(out, &type_.name());
@@ -1526,6 +1534,10 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             args: decode_vec(r, decode_value)?,
             type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
+        },
+        22 => IrValue::Checked {
+            type_: crate::types::ParameterType::parse(&r.string()?),
+            value: Box::new(decode_value(r)?),
         },
         8 => IrValue::Constructor {
             type_: crate::types::ParameterType::parse(&r.string()?),

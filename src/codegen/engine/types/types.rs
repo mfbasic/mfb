@@ -1218,6 +1218,38 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<(), String>> {
         None
     }
+
+    /// plan-98-E Phase 1: build (once) the Metal device, command queue and render
+    /// pipeline, leaving 1 or 0 in `c_return(0)`.
+    ///
+    /// `None` — the default — means this target has no GPU renderer, which
+    /// `canvas::metalReady` turns into a plain `FALSE`. That is the whole reason it
+    /// is a seam and not a direct call: the renderer branch is compiled for every
+    /// target so there is one shape of `__canvas_renderFrame`, and only macOS has an
+    /// implementation behind it.
+    fn emit_metal_init(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
+
+    /// plan-98-E Phase 1: render one frame on the GPU into the surface payload the
+    /// MFB argument registers point at.
+    ///
+    /// `None` — the default — means no GPU renderer, which `canvas::metalDrawScene`
+    /// turns into a no-op. It is never reached on such a target: the renderer branch
+    /// gates on `canvas::metalReady`, which is `FALSE` wherever this is `None`.
+    fn emit_metal_draw(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts

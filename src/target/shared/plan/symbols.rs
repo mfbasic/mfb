@@ -463,7 +463,8 @@ pub(super) fn collect_platform_imports_from_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             collect_platform_imports_from_value(platform, required_by, value, imports);
         }
         NirValue::WithUpdate {
@@ -698,7 +699,8 @@ pub(super) fn collect_runtime_symbols_from_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             collect_runtime_symbols_from_value(value, symbols, constants);
         }
         NirValue::WithUpdate {

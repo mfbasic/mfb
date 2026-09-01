@@ -34,6 +34,86 @@ root in chain, or issuer not locally available) is accepted — while the server
 enforced, on all three backends. Nothing else in the package changes, and no
 existing call site's behavior changes.
 
+## Sequencing: this must land AFTER bug-476 (2026-08-31, coordinator)
+
+bug-476's root cause turned out to be general, not http-specific:
+`static_type_name`'s `NirValue::Call` arm is a hand-written table, so an
+*untabulated call passed as an overload-selecting argument* answers `None` and
+every such selector silently takes its fallback code form. **`tls::connect` is on
+the affected list** (host/port vs `Address`), alongside `tcp::connect`,
+`tcp`/`tls`/`udp` `write`/`send`/`poll`, `net::ping` and `tls::localAddress`.
+
+Why that blocks this bug specifically: `func_connect.rs:41-44` records that the
+two overloads **do not share a positional layout** — `timeoutMs` and `serverName`
+are parameters 2 and 3 of the host/port form but 1 and 2 of the `Address` form,
+"since one endpoint value replaces two", and named arguments "bind per-overload,
+against whichever overload the argument types select".
+
+So today, `tls::connect(addressReturningCall(), …)` selects the wrong form and
+its named arguments bind against the wrong positional layout. This bug adds a
+**new named `Boolean` parameter that must bind correctly in both forms**.
+Implementing it against the broken selection risks encoding the wrong layout, or
+shipping a parameter that binds to the wrong slot in the `Address` form —
+and the failure would be silent, in a security-relevant flag, which is the worst
+possible place for it.
+
+Wait for bug-476 to land, then build on the corrected selection. When it has
+landed, add an `Address`-form fixture for the new argument specifically, not only
+a host/port one — the two layouts are exactly what makes this member fragile.
+
+## Implementation constraints, added 2026-08-31 (coordinator, pre-dispatch)
+
+This document states the *behavior* correctly. What follows is the **mechanism**
+trap: on all three backends the shortest implementation of "accept a self-signed
+cert" also silently disables the hostname and expiry checks this document
+requires to stay enforced. That converts a fail-closed surface into a silent MITM
+hazard, which is the outcome the doc's own framing warns against — so it must be
+gated by construction, not by intent.
+
+**The rule for every backend: keep verification ON and *classify the failure*.
+Never turn verification off.** The flag accepts a specific set of trust-anchor
+errors and nothing else.
+
+**OpenSSL** (`src/codegen/builtins/tls/gen_openssl.rs`). The client today sets
+`SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)` (:538), `SSL_set1_host(ssl, sni)`
+(:559) and then requires `SSL_get_verify_result(ssl) == X509_V_OK` (:661).
+Note that **`SSL_set1_host` folds the hostname check into the verify result** —
+so `SSL_VERIFY_NONE`, or simply skipping the `:661` check, drops the name check
+too. The correct shape keeps :538 and :559 exactly as they are and relaxes only
+:661, accepting `X509_V_OK` plus **only**
+`X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT` (18),
+`X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN` (19) and
+`X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY` (20). A name mismatch
+(`X509_V_ERR_HOSTNAME_MISMATCH`, 62) and an expiry
+(`X509_V_ERR_CERT_HAS_EXPIRED`, 10 / `..._NOT_YET_VALID`, 9) must still fail.
+
+**Schannel** (`gen_schannel.rs`). Verification runs *after* the handshake via
+`CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)` (:7, :51-52). Relax by
+masking only `CERT_TRUST_IS_UNTRUSTED_ROOT` / `CERT_TRUST_IS_PARTIAL_CHAIN` in
+the chain-policy status — **not** by passing
+`SECURITY_FLAG_IGNORE_UNKNOWN_CA`-style blanket flags, and never by clearing
+`pwszServerName` (which is what enforces the name) or ignoring
+`CERT_TRUST_IS_NOT_TIME_VALID`.
+
+**macOS** (`gen_macos/client.rs`). Do **not** reach for
+`kSecTrustOptionAllowExpired*` or `SecTrustSetOptions`. Evaluate as today and
+accept only a result whose sole defect is an untrusted anchor
+(`kSecTrustResultRecoverableTrustFailure` **plus** a check that the recorded
+reason is anchor-related); keep `SecTrustSetPolicies` with the SSL policy and
+its hostname so the name check stays live.
+
+**Plumbing constraint.** `http::` reaches HTTPS through this member. The new
+argument must **not** acquire an `http::` passthrough in the same change — an
+`http::get(url, insecure: TRUE)` is a much larger blast radius than this document
+scopes, and it should be a separate, separately-argued decision.
+
+**Test the negative, not just the positive.** A fixture proving a self-signed
+cert is accepted at `TRUE` proves nothing about safety. Pair it with fixtures
+that must still FAIL at `TRUE`: (a) a cert whose name does not match the host,
+(b) an expired cert. Without those two, the implementation that disables
+verification wholesale passes the suite. `examples/network-server/certs/` now
+ships a self-signed pair usable for (a) via a deliberate name mismatch.
+
 References:
 
 - `mfb spec stdlib transports` → "TLS specifics" (`src/docs/spec/stdlib/17_transports.md:118-125`) — "**The client verifies.** `tls::connect` validates the server's chain against the host trust store … a chain it cannot verify raises rather than connecting." This is the sentence the fix amends.

@@ -456,6 +456,13 @@ impl NativePlanPlatform for Platform {
             | "canvas.frameDone"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
+            | "canvas.setGpuMode"
+            | "canvas.metalAvailable"
+            | "canvas.vulkanReady"
+            | "canvas.vulkanDrawScene"
+            | "canvas.metalReady"
+            | "canvas.metalDrawScene"
+            | "canvas.useGpu"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => vec![
                 import("CreateThread", KERNEL32, required_by),

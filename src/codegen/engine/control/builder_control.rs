@@ -2237,6 +2237,7 @@ pub(crate) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => nir_value_reads_local(value, name),
         NirValue::WithUpdate {
             target, updates, ..
@@ -2309,6 +2310,7 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::ResultIsOk { .. } => "result is ok".to_string(),
         NirValue::ResultValue { .. } => "result value".to_string(),
         NirValue::ResultError { .. } => "result error".to_string(),
+        NirValue::Checked { type_, .. } => format!("checked {type_}"),
         NirValue::WithUpdate { type_, .. } => format!("with update {type_}"),
         NirValue::Capture { index, .. } => format!("capture {index}"),
     }

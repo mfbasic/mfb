@@ -403,6 +403,34 @@ pub(crate) const CANVAS_SCENE_SLOTS: usize = (CANVAS_SCENE_RETIRED_FRAME_OFFSET 
 /// program can have several of.
 pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
 
+/// The loaded-font table: a writable **process-global** block, for the same reason
+/// the scene region is one (plan-98-G).
+///
+/// `canvas::loadFont` runs on the **worker** and the geometry cache that needs a
+/// glyph's outline runs on the **graphics thread**, so the bytes have to be reachable
+/// from a thread that did not allocate them. They already are — an arena block is
+/// ordinary process memory, and it is only the *allocator state* that is per-thread —
+/// but the graphics thread has no way to find the block from the `FontRef` integer a
+/// scene carries. This table is that map: `handle` (the resource record's address,
+/// which is what a `FontRef` holds) to the byte block.
+///
+/// A fixed table rather than a growing one because the alternative needs an allocator
+/// reachable from both threads, and a program with more than [`CANVAS_FONT_SLOTS`]
+/// fonts open *at once* is not what this letter is for. Loading a seventeenth font
+/// does not fail — it simply is not registered, and text in it draws empty, which is
+/// the same thing that happens to a released font.
+pub(crate) const CANVAS_FONTS_SYMBOL: &str = "_mfb_rt_canvas_fonts";
+/// Slots in the font table. Each is `handle` then `block`, so 16 bytes.
+pub(crate) const CANVAS_FONT_SLOTS: usize = 16;
+/// A slot's two words.
+pub(crate) const CANVAS_FONT_SLOT_HANDLE: usize = 0;
+pub(crate) const CANVAS_FONT_SLOT_BLOCK: usize = 8;
+/// Bytes per slot, and the table's total size. There is no count word: a zero
+/// `handle` is the empty slot, and scanning sixteen words to find one is cheaper than
+/// keeping a count consistent between two threads.
+pub(crate) const CANVAS_FONT_SLOT_BYTES: usize = 16;
+pub(crate) const CANVAS_FONT_TABLE_BYTES: usize = CANVAS_FONT_SLOTS * CANVAS_FONT_SLOT_BYTES;
+
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================
@@ -879,9 +907,7 @@ pub(crate) const RESOURCE_TAG_PROCESS: &str = "10";
 // scene holds the id, never the record, so it has no opinion about the resource's
 // lifetime.
 pub(crate) const RESOURCE_TAG_IMAGE: &str = "11";
-// `12` is reserved for `canvas::Font`, which lands with the text path (plan-98-G):
-// a `Font` cannot be constructed without `canvas::loadFont`, and that needs the
-// font parser G vendors.
+pub(crate) const RESOURCE_TAG_FONT: &str = "12";
 pub(crate) const RESOURCE_TAG_NATIVE: &str = "255";
 
 /// The word at `RESOURCE_OFFSET_CLOSED` is a u64 flag set, not a boolean: bit 0
