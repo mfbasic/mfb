@@ -1,4 +1,4 @@
-# bug-479: Windows `Mode.Canvas` — the WORKER faults inside `canvas::present`, reading a String whose payload pointer is `2`
+# bug-479: Windows `Mode.Canvas` — the graphics thread faults on its FIRST condition-variable wait
 
 Last updated: 2026-08-31
 Effort: large — Windows-only, needs the box and a minidump
@@ -182,6 +182,90 @@ The next thing to try is a debugger rather than another minidump. The box is an
 administrator and the loader now has a Vulkan driver registered (see below), so a
 `cdb`/WinDbg session that breaks on the access violation would name the function in one
 step, where a dump only gives an image offset.
+
+## Current state (2026-08-31, second session) — the render works; the WAIT does not
+
+Four defects have been found and fixed since filing, all of them the plan-85 return-bank
+family (a Win32 call answers in `rax` = `c_return(0)`; the code named `return_register()`,
+which is `rcx` on Win64 and the SAME register on AArch64 — so every one read correctly on
+the Mac and wrongly on Windows):
+
+1. `emit_env_get` answered in the wrong register, so `os::getEnvOr` returned a **byte
+   count** where a pointer was wanted. That is the `payload pointer is 2` this bug was
+   filed about: `2` was the length of the value string. Fixed in `4c9e7e16a`.
+2. `_mfb_winapp_canvas_blit` read `HeapAlloc`'s block from `return_register()`. `74c034c01`.
+3. `WM_GETTEXTLENGTH` masked `rcx` while its own comment said the length arrives in `rax`.
+4. `MultiByteToWideChar` (two sites) and `GetDC` — same shape. 3 and 4 in `cce4707f9`.
+
+**The canvas now renders on Windows.** `canvas::present` completes, `"presented"` prints,
+the program runs its whole body and its `os::sleep` expires. The original symptom is gone.
+
+What remains is a different fault, at the other end of the program:
+
+```
+ntdll!RtlSleepConditionVariableSRW+0x148:
+00007ff9`cce7fbd8 48894110  mov qword ptr [rcx+10h],rax   ds:0000000000000010=????
+rcx=0  rax=0000000003aefc90 (a wait block on the faulting thread's own stack)
+```
+
+`~*k` puts it on the **graphics thread** (thread 5 of 6; thread 0 is in
+`WaitForSingleObjectEx`, threads 1-3 are the ntdll thread pool, thread 4 is the worker).
+
+### What the breakpoint trace establishes
+
+Run `scripts/`-free, with a cdb script file (`-cf`) — note **not** `-g`, or cdb runs to
+the fault before it ever reads the script and no breakpoint is ever armed:
+
+```
+bp ntdll!RtlAcquireSRWLockExclusive   ".printf \"ACQ  t=%x lock=%p\\n\", @$tid, @rcx; gc"
+bp ntdll!RtlSleepConditionVariableSRW ".printf \"WAIT t=%x cv=%p lock=%p lockval=%p\\n\", @$tid, @rcx, @rdx, poi(@rdx); gc"
+```
+
+yields, immediately before the fault:
+
+```
+ACQ  t=175c lock=00000001405dc018
+WAIT t=175c cv=00000001405dc048 lock=00000001405dc018 lockval=0000000000000001
+```
+
+and the emitted call site disassembles exactly as `emit_wait_for_redraw` writes it:
+
+```
+mov rcx,r12 ; add rcx,40h    ; cv   = base + GRAPHICS_OFFSET_COND  (64)
+mov rdx,r12 ; add rdx,10h    ; lock = base + GRAPHICS_OFFSET_MUTEX (16)
+mov r8,0 ; sub r8,1          ; dwMilliseconds = INFINITE
+mov r9,0                     ; Flags = 0 (exclusive)
+call SleepConditionVariableSRW
+```
+
+So the arguments are right, the lock **is** held (`lockval=1`), and this is the **first**
+wait in the process — there is exactly one `WAIT` line in the whole trace.
+
+### Ruled out, each with its measurement
+
+| hypothesis | how it was ruled out |
+|---|---|
+| the worker, not the graphics thread, faults | `~*k 6` — the worker is thread 4, in our code; the fault is thread 5 |
+| the 1 MiB `CreateThread` default stack overflows | gave it 8 MiB reserved (`STACK_SIZE_PARAM_IS_A_RESERVATION`); byte-for-byte the same fault |
+| wrong argument registers (the bug-478 family again) | disassembled the call site, above |
+| the SRW lock is not held at the wait | `lockval=1` in the trace; the `0` seen in a post-fault `dq` is ntdll having already released it |
+| corruption accumulated over frames | it is the first wait; only one `WAIT` line exists |
+| cv/lock offsets collide in the state block | `MUTEX=16`, `COND=64`, `ARENA=112` — 48 bytes apart, and a Win32 `CONDITION_VARIABLE` is 8 |
+
+### The one number still missing
+
+What the `CONDITION_VARIABLE` at `base+0x40` contains **at the instant of the call**. A
+zeroed CV is the valid initial state and would work; a non-zero one would make ntdll walk
+a garbage queue and produce precisely this `mov [rcx+10h],rax` with `rcx=0`. Print it with
+`poi(@rcx)` in the `WAIT` breakpoint (staged as `/tmp/p98f-win/trace2.cdb`), together with
+a breakpoint on `ntdll!RtlInitializeConditionVariable` to confirm the CV is ever
+initialised at that address and on no other.
+
+The next suspect after that is the missing Win64 **shadow space** on this call: the
+`pthread_cond_wait` arm of `src/codegen/runtime/thread/runtime_helpers.rs` reserves none,
+while the `pthread_cond_timedwait` arm right below it explicitly subtracts `0x50` with the
+comment *"0x00..0x20 is the Win64 shadow space every call below needs"*. Missing shadow
+space is the exact defect bug-478 found in `emit_random_bytes`.
 
 ## Reproduction
 

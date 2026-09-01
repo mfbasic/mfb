@@ -454,11 +454,31 @@ pub(crate) fn emit_graphics_trampoline(
     // rendering onto a thread. AArch64 takes no realign: `pthread_create` enters with
     // a 16-aligned `sp` and the return address in `lr`.
     //
-    // **Windows takes neither the realign nor the same frame.** `BaseThreadInitThunk`
-    // enters a `CreateThread` start routine ALREADY 16-aligned, so the `+8` that is
-    // right for pthread is exactly wrong here — and because a body's alignment is its
-    // caller's call site, that skew would be inherited by every Win32 call the render
-    // loop ever makes (bug-478 is the same mistake in `win_x86_64/app/mod.rs`).
+    // **Windows takes the realign too — measured, not assumed.** This comment used to
+    // claim `BaseThreadInitThunk` enters a `CreateThread` start routine ALREADY
+    // 16-aligned, and skipped the `+8` on that basis. It is false: the thunk reaches
+    // the start routine through an ordinary `call`, so the routine begins at
+    // `rsp % 16 == 8` exactly like `_pthread_start`.
+    //
+    // The skew is invisible until something on the graphics thread calls a Win32
+    // function that cares. `SleepConditionVariableSRW` cares, because ntdll builds its
+    // wait block on the caller's stack and tags the pointer in the block's low 4 bits
+    // (`and rdx,0FFFFFFFFFFFFFFF0h` at `RtlSleepConditionVariableSRW+0x13d`). Eight
+    // bytes out, that mask yields a pointer into the middle of the block, the wait-list
+    // walk below it loads a NULL `Next`, and `mov [rcx+10h],rax` faults with `rcx=0` —
+    // with every argument correct, on the very first wait. That is bug-479.
+    //
+    // Measured on box 2230 with a breakpoint on `ntdll!RtlAcquireSRWLockExclusive`
+    // printing `@rsp` per thread, both acquiring the SAME canvas mutex:
+    //
+    //     worker   t=1728  rsp=0x332de68  -> % 16 == 8   correct
+    //     graphics t=1a28  rsp=0x3b2fd30  -> % 16 == 0   skewed
+    //
+    // The worker is right because its entry pushes a register before its frame; this
+    // trampoline only subtracts, so the frame itself has to carry the odd 8. And
+    // because a body's alignment is its caller's call site, the skew was inherited by
+    // every Win32 call the render loop ever made (bug-478 is the same mistake in
+    // `win_x86_64/app/mod.rs`).
     //
     // Windows also needs the callee's **shadow space**: 32 bytes at the bottom of this
     // frame that any callee may spill its register arguments into. The shared
@@ -466,7 +486,7 @@ pub(crate) fn emit_graphics_trampoline(
     // (`outgoing_args_base_offset`), but this trampoline is hand-built and gets none —
     // so without it the saves below sit exactly where a callee is entitled to write.
     let windows = platform.family() == PlatformFamily::Windows;
-    let realign = usize::from(platform.arch() == "x86_64" && !windows) * 8;
+    let realign = usize::from(platform.arch() == "x86_64") * 8;
     let shadow = usize::from(windows) * 32;
     let frame = 32 + realign + shadow;
     instructions.push(abi::label("entry"));
