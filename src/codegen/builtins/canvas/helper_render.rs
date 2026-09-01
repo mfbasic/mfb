@@ -151,6 +151,17 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   RETURN offsets
 END FUNC
 
+' The frame's item buffer holds one block per drawn QUAD, and both backends index it by
+' instance -- so this is the one cap that is neither Metal's nor Vulkan's, it is the
+' shared transport's (plan-116-A, `CANVAS_MAX_FRAME_ITEMS`). A shape is one quad; a glyph
+' run is one per glyph, because each glyph is its own quad with its own block.
+'
+' Counting the run's whole glyph count over-estimates by the glyphs whose cache entry the
+' eviction pass dropped -- those draw nothing and take no block. Over-estimating declines
+' a hair early, which is the safe direction: under-estimating would let the emitter write
+' past the mapping.
+LET __CANVAS_MAX_FRAME_ITEMS AS Integer = 4096
+
 LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
 
 LET __CANVAS_METAL_MAX_GLYPH_SAMPLES AS Integer = 4096
@@ -232,15 +243,22 @@ END FUNC
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
+  MUT quads AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
+      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    ELSE
+      quads = quads + 1
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
+  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
   IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
     RETURN FALSE
   END IF

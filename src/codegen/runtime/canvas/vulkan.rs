@@ -41,27 +41,29 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT,
-    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+    push_symbol_address, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS, EDGE_SLOTS,
+    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
     GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
     GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
     GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
     GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
     GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
-    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_QUEUE,
-    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
-    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
-    HEADER_AUX0, HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS,
-    HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE,
-    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
+    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
+    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
+    HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
+    HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT,
+    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD,
+    ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, VULKAN_BUFFER_BYTES,
+    VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -472,19 +474,15 @@ const SHADER_MODULE_STYPE: usize = 0;
 const SHADER_MODULE_CODE_SIZE: usize = 24;
 const SHADER_MODULE_CODE: usize = 32;
 
-/// `VkPushConstantRange`, 12 bytes.
-const PUSH_RANGE_SIZE: usize = 12;
-const PUSH_RANGE_STAGES: usize = 0;
-const PUSH_RANGE_OFFSET: usize = 4;
-const PUSH_RANGE_BYTES: usize = 8;
-
 /// `VkPipelineLayoutCreateInfo`, 48 bytes.
 const LAYOUT_INFO_SIZE: usize = 48;
 const LAYOUT_INFO_STYPE: usize = 0;
 const LAYOUT_INFO_SET_COUNT: usize = 20;
 const LAYOUT_INFO_SETS: usize = 24;
 const LAYOUT_INFO_RANGE_COUNT: usize = 32;
-const LAYOUT_INFO_RANGES: usize = 40;
+// `pPushConstantRanges` (offset 40) is deliberately absent: `emit_struct` zeroes the
+// whole struct, and with `rangeCount` 0 the pointer must be null. plan-116-A moved the
+// item block out of the push constants, so there is no range to point at.
 
 /// `VkAttachmentDescription`, 36 bytes.
 const ATTACHMENT_SIZE: usize = 36;
@@ -1093,10 +1091,15 @@ pub(crate) fn emit_vulkan_ready(
 
 /// Create the descriptor set that binds the polygon edge buffer, and the buffer.
 ///
-/// One binding, one set, one descriptor — a `readonly buffer` the fragment shader
-/// walks when `kind` is `Polygon`. It exists only because a polygon carries an
-/// unbounded number of edges: everything else about an item fits the 112-byte push
-/// constant block, and the guaranteed push-constant range is 128.
+/// **Two** bindings, one set, two descriptors — both `readonly buffer`s.
+///
+/// - `binding = 0`, fragment only: the edge/glyph buffer the fragment shader walks
+///   when `kind` is `Polygon` or `Text`. It exists because those two payloads are
+///   unbounded, which no per-draw transport can carry.
+/// - `binding = 1`, **both stages**: the per-frame item buffer (plan-116-A). Both
+///   stages, because the vertex stage reads `quad`/`surface` to place the corners and
+///   the fragment stage reads everything else — the same two-stage visibility the
+///   push-constant range it replaced had.
 ///
 /// This runs *before* `emit_vulkan_pipeline`, not after, because the pipeline
 /// **layout** names the set layout. It is also here rather than in
@@ -1117,7 +1120,10 @@ fn emit_vulkan_descriptors(
     off_out: usize,
     unavailable: &str,
 ) -> Result<(), String> {
-    let off_binding = builder.allocate_stack_object("vk_binding", BINDING_SIZE);
+    // An *array* of two bindings, so they must be contiguous — hence one allocation of
+    // twice the size rather than two objects, whose relative placement is the
+    // allocator's business and not something to bet a descriptor layout on.
+    let off_binding = builder.allocate_stack_object("vk_binding", BINDING_SIZE * 2);
     let off_set_layout_info =
         builder.allocate_stack_object("vk_set_layout_info", SET_LAYOUT_INFO_SIZE);
     let off_pool_size = builder.allocate_stack_object("vk_pool_size", POOL_SIZE_SIZE);
@@ -1132,8 +1138,11 @@ fn emit_vulkan_descriptors(
         builder.allocate_stack_object("vk_edge_properties", MEMORY_PROPERTIES_SIZE);
     let off_type_index = builder.allocate_stack_object("vk_edge_type_index", 8);
     let off_type_bits = builder.allocate_stack_object("vk_edge_type_bits", 8);
-    let off_desc_buffer = builder.allocate_stack_object("vk_desc_buffer", DESC_BUFFER_INFO_SIZE);
-    let off_write_set = builder.allocate_stack_object("vk_write_set", WRITE_SET_SIZE);
+    // Two of each, contiguous: `vkUpdateDescriptorSets` takes an array of writes, and
+    // each write points at its own buffer info. One call, both bindings.
+    let off_desc_buffer =
+        builder.allocate_stack_object("vk_desc_buffer", DESC_BUFFER_INFO_SIZE * 2);
+    let off_write_set = builder.allocate_stack_object("vk_write_set", WRITE_SET_SIZE * 2);
 
     // --- the set layout -----------------------------------------------------------
     emit_struct(
@@ -1149,11 +1158,22 @@ fn emit_vulkan_descriptors(
     );
     emit_struct(
         builder,
+        off_binding + BINDING_SIZE,
+        BINDING_SIZE,
+        &[
+            (BINDING_INDEX, Field::U32("1")),
+            (BINDING_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
+            (BINDING_COUNT, Field::U32("1")),
+            (BINDING_STAGES, Field::U32(SHADER_STAGE_VERTEX_AND_FRAGMENT)),
+        ],
+    );
+    emit_struct(
+        builder,
         off_set_layout_info,
         SET_LAYOUT_INFO_SIZE,
         &[
             (0, Field::U32(ST_DESCRIPTOR_SET_LAYOUT_CREATE_INFO)),
-            (SET_LAYOUT_BINDING_COUNT, Field::U32("1")),
+            (SET_LAYOUT_BINDING_COUNT, Field::U32("2")),
             (SET_LAYOUT_BINDINGS, Field::Addr(off_binding)),
         ],
     );
@@ -1178,7 +1198,8 @@ fn emit_vulkan_descriptors(
         POOL_SIZE_SIZE,
         &[
             (POOL_SIZE_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
-            (POOL_SIZE_COUNT, Field::U32("1")),
+            // Two storage-buffer descriptors now — edges and items — still in one set.
+            (POOL_SIZE_COUNT, Field::U32("2")),
         ],
     );
     emit_struct(
@@ -1409,56 +1430,201 @@ fn emit_vulkan_descriptors(
         abi::SCRATCH[0],
     );
 
-    // --- point the set at the buffer, once -----------------------------------------
+    // --- the per-frame item buffer (plan-116-A) --------------------------------------
+    // A second buffer rather than a third region of the first, and that asymmetry is
+    // deliberate. Edges and glyph coverage share one buffer because they have the same
+    // element type (a raw `int` array) and the same reader (the fragment stage). The
+    // item blocks are a *struct* array read by both stages, so sharing would mean one
+    // `readonly buffer` whose element type is a union of the two — the shader would
+    // have to index blocks as raw ints and reassemble them by hand, which is exactly
+    // the packing mistake that produces a plausible wrong picture rather than a fault.
+    //
+    // Every step below mirrors the edge buffer's, reusing its scratch structs: they
+    // describe one creation at a time and that one is finished.
+    emit_struct(
+        builder,
+        off_edge_info,
+        BUFFER_INFO_SIZE,
+        &[
+            (0, Field::U32(ST_BUFFER_CREATE_INFO)),
+            (BUFFER_INFO_USAGE, Field::U32(BUFFER_USAGE_STORAGE)),
+        ],
+    );
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &CANVAS_ITEM_BUFFER_BYTES.to_string(),
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_info + BUFFER_INFO_BYTES,
+    ));
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateBuffer",
+        off_handle,
+        off_fn,
+        off_state,
+        off_edge_info,
+        off_out,
+        GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkGetBufferMemoryRequirements",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_reqs,
+    ));
+    emit_call_fn(builder, off_fn);
+    emit_allocate_and_bind(
+        builder,
+        platform,
+        platform_imports,
+        off_handle,
+        off_fn,
+        off_state,
+        off_reqs,
+        off_alloc_info,
+        off_properties,
+        off_type_index,
+        off_type_bits,
+        off_out,
+        MEMORY_HOST_VISIBLE_COHERENT,
+        GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
+        "vkBindBufferMemory",
+        GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+        unavailable,
+    )?;
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkMapMemory",
+        off_handle,
+        off_fn,
+        unavailable,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_DEVICE,
+        abi::c_arg(0),
+    );
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // offset
+    builder.emit(abi::move_immediate(
+        abi::c_arg(3),
+        "Integer",
+        &CANVAS_ITEM_BUFFER_BYTES.to_string(),
+    ));
+    emit_int_arg(builder, platform, 4, "0"); // flags
+    emit_addr_arg(builder, platform, 5, off_out);
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(unavailable));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_out,
+    ));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
+        abi::SCRATCH[0],
+    );
+
+    // --- point the set at the buffers, once -----------------------------------------
     // Zero it first. `offset` sits between `buffer` and `range` and is not written
     // below, and a storage buffer's offset must be a multiple of
     // `minStorageBufferOffsetAlignment` — so leftover stack garbage there is not a
     // wrong picture, it is a rejected descriptor write and a blank frame.
-    emit_struct(builder, off_desc_buffer, DESC_BUFFER_INFO_SIZE, &[]);
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_desc_buffer + DESC_BUFFER_INFO_BUFFER,
-    ));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        &VULKAN_BUFFER_BYTES.to_string(),
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_desc_buffer + DESC_BUFFER_INFO_RANGE,
-    ));
-    emit_struct(
-        builder,
-        off_write_set,
-        WRITE_SET_SIZE,
-        &[
-            (0, Field::U32(ST_WRITE_DESCRIPTOR_SET)),
-            (WRITE_SET_BINDING, Field::U32("0")),
-            (WRITE_SET_COUNT, Field::U32("1")),
-            (WRITE_SET_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
-            (WRITE_SET_BUFFER_INFO, Field::Addr(off_desc_buffer)),
-        ],
-    );
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_DESC_SET,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_write_set + WRITE_SET_DST,
-    ));
+    for (slot, buffer_offset, bytes, binding) in [
+        (
+            0usize,
+            GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+            VULKAN_BUFFER_BYTES,
+            "0",
+        ),
+        (
+            1,
+            GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+            CANVAS_ITEM_BUFFER_BYTES,
+            "1",
+        ),
+    ] {
+        let info = off_desc_buffer + slot * DESC_BUFFER_INFO_SIZE;
+        let write = off_write_set + slot * WRITE_SET_SIZE;
+        emit_struct(builder, info, DESC_BUFFER_INFO_SIZE, &[]);
+        emit_state_load(builder, off_state, buffer_offset, abi::SCRATCH[0]);
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            info + DESC_BUFFER_INFO_BUFFER,
+        ));
+        builder.emit(abi::move_immediate(
+            abi::SCRATCH[0],
+            "Integer",
+            &bytes.to_string(),
+        ));
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            info + DESC_BUFFER_INFO_RANGE,
+        ));
+        emit_struct(
+            builder,
+            write,
+            WRITE_SET_SIZE,
+            &[
+                (0, Field::U32(ST_WRITE_DESCRIPTOR_SET)),
+                (WRITE_SET_BINDING, Field::U32(binding)),
+                (WRITE_SET_COUNT, Field::U32("1")),
+                (WRITE_SET_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
+                (WRITE_SET_BUFFER_INFO, Field::Addr(info)),
+            ],
+        );
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_DESC_SET,
+            abi::SCRATCH[0],
+        );
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            write + WRITE_SET_DST,
+        ));
+    }
     emit_dlsym(
         builder,
         platform,
@@ -1474,7 +1640,7 @@ fn emit_vulkan_descriptors(
         GRAPHICS_OFFSET_VULKAN_DEVICE,
         abi::c_arg(0),
     );
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "1"));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "2"));
     builder.emit(abi::add_immediate(
         abi::c_arg(2),
         abi::stack_pointer(),
@@ -1517,7 +1683,6 @@ fn emit_vulkan_pipeline(
     let off_module_info = builder.allocate_stack_object("vk_module_info", SHADER_MODULE_INFO_SIZE);
     let off_vert_module = builder.allocate_stack_object("vk_vert_module", 8);
     let off_frag_module = builder.allocate_stack_object("vk_frag_module", 8);
-    let off_push_range = builder.allocate_stack_object("vk_push_range", PUSH_RANGE_SIZE);
     let off_layout_info = builder.allocate_stack_object("vk_layout_info", LAYOUT_INFO_SIZE);
     let off_set_layout_handle = builder.allocate_stack_object("vk_set_layout_handle", 8);
     let off_attachment = builder.allocate_stack_object("vk_attachment", ATTACHMENT_SIZE);
@@ -1613,20 +1778,12 @@ fn emit_vulkan_pipeline(
         ));
     }
 
-    // --- pipeline layout: one push-constant range, both stages --------------------
-    emit_struct(
-        builder,
-        off_push_range,
-        PUSH_RANGE_SIZE,
-        &[
-            (
-                PUSH_RANGE_STAGES,
-                Field::U32(SHADER_STAGE_VERTEX_AND_FRAGMENT),
-            ),
-            (PUSH_RANGE_OFFSET, Field::U32("0")),
-            (PUSH_RANGE_BYTES, Field::U32(&ITEM_BLOCK_SIZE.to_string())),
-        ],
-    );
+    // --- pipeline layout: one set, and NO push-constant range ---------------------
+    // plan-116-A moved the item block into `binding = 1` of the set above, so neither
+    // shader declares a push constant any more. The range is not merely unused — a
+    // layout that declares bytes no stage consumes is a layout the validation layers
+    // flag, and it is the one line that would keep the 128-byte ceiling alive in the
+    // API even after the shaders stopped caring about it.
     // `pSetLayouts` is an array, so the set-layout handle has to be somewhere
     // addressable — the same reason `vkAllocateDescriptorSets` parks it.
     emit_state_load(
@@ -1651,8 +1808,7 @@ fn emit_vulkan_pipeline(
             ),
             (LAYOUT_INFO_SET_COUNT, Field::U32("1")),
             (LAYOUT_INFO_SETS, Field::Addr(off_set_layout_handle)),
-            (LAYOUT_INFO_RANGE_COUNT, Field::U32("1")),
-            (LAYOUT_INFO_RANGES, Field::Addr(off_push_range)),
+            (LAYOUT_INFO_RANGE_COUNT, Field::U32("0")),
         ],
     );
     emit_dlsym(
@@ -3221,9 +3377,9 @@ fn emit_item_block(
 /// and executed later, all at once. There is one edge buffer for the frame, so
 /// rewriting it per item — or rebinding the same buffer per item — would give every
 /// polygon whatever the *last* one wrote. Each polygon therefore takes a slice and
-/// carries its start index in the item block, which is a per-draw push constant and
-/// so really is per-item. Metal has the opposite property and needs none of this:
-/// `setFragmentBytes:` copies the bytes into the command buffer at record time.
+/// carries its start index in its own item block, which is per-item. Metal has the
+/// opposite property and needs none of this: `setFragmentBytes:` copies the bytes
+/// into the command buffer at record time.
 ///
 /// The geometry cache stores each edge as `x0, y0, dx, dy, invLenSq` doubles; the
 /// shader wants the two endpoints in 16.16, and recomputes the rest. `invLenSq` is
@@ -3367,6 +3523,160 @@ fn emit_edge_upload(
     builder.emit(abi::label(&done));
 }
 
+/// Copy the item block just built on the stack into the frame's item buffer at the
+/// cursor, and advance the cursor by one quad.
+///
+/// This is what replaced `vkCmdPushConstants` (plan-116-A). The block is built on the
+/// stack exactly as before — `emit_item_block` and `emit_edge_upload` are untouched —
+/// and then lands in the buffer instead of in the command stream, at the index the
+/// shaders will read it back from through `gl_InstanceIndex`.
+///
+/// **The cursor counts quads, not scene items.** A shape is one, and a glyph run is
+/// one per glyph, because each glyph is its own quad with its own block. That is the
+/// same number `__canvas_vulkanRenderable` sums against `CANVAS_MAX_FRAME_ITEMS`, so
+/// the two cannot disagree about what "full" means.
+///
+/// Branches to `full` without writing or advancing if the frame is already at
+/// capacity. Unreachable in the same way `emit_edge_upload`'s bound is: the predicate
+/// declined any frame with too many quads, so the whole scene went to software. Kept
+/// because the alternative to declining is a write past the mapping.
+fn emit_item_publish(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_item_cursor: usize,
+    full: &str,
+) {
+    let cursor = abi::SCRATCH[0];
+    let target = abi::SCRATCH[1];
+    let value = abi::SCRATCH[2];
+    let stride = abi::SCRATCH[3];
+
+    builder.emit(abi::load_u64(cursor, abi::stack_pointer(), off_item_cursor));
+    builder.emit(abi::compare_immediate(
+        cursor,
+        &CANVAS_MAX_FRAME_ITEMS.to_string(),
+    ));
+    builder.emit(abi::branch_ge(full));
+
+    // target = mapped + cursor * ITEM_BLOCK_SIZE. A multiply rather than a second
+    // byte-cursor kept in step with this one: two cursors that must never diverge is
+    // exactly the invariant that breaks silently, and the product is one instruction.
+    builder.emit(abi::move_immediate(
+        stride,
+        "Integer",
+        &ITEM_BLOCK_SIZE.to_string(),
+    ));
+    builder.emit(abi::multiply_registers(stride, cursor, stride));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, stride));
+
+    // 112 bytes is 14 words. Unrolled: a loop would need a counter register that no
+    // call clobbers, for fourteen iterations.
+    debug_assert_eq!(
+        ITEM_BLOCK_SIZE % 8,
+        0,
+        "the item block is copied to the buffer eight bytes at a time"
+    );
+    for word in 0..ITEM_BLOCK_SIZE / 8 {
+        builder.emit(abi::load_u64(
+            value,
+            abi::stack_pointer(),
+            off_item + word * 8,
+        ));
+        builder.emit(abi::store_u64(value, target, word * 8));
+    }
+
+    builder.emit(abi::add_immediate(cursor, cursor, 1));
+    builder.emit(abi::store_u64(
+        cursor,
+        abi::stack_pointer(),
+        off_item_cursor,
+    ));
+}
+
+/// Draw every quad published since the last flush as **one instanced draw**, and start
+/// a new run.
+///
+/// `vkCmdDraw(cmd, 4, count, 0, firstInstance)` — four synthesised corners, `count`
+/// instances, and the run's base as `firstInstance`. Vulkan's `gl_InstanceIndex`
+/// *includes* `firstInstance`, so each instance reads exactly the block it was
+/// published into with no index arithmetic in the shader.
+///
+/// A run ends at a glyph run or at the end of the scene, and nowhere else. Nothing
+/// per-item is bound between instances any more — the edges were already a buffer
+/// region and the item block just became one — so consecutive shapes have nothing left
+/// to separate them.
+///
+/// Emits nothing if the run is empty, which is the case at the very start of a frame
+/// and after two glyph runs in a row; `vkCmdDraw` with `instanceCount = 0` is legal but
+/// this keeps the command stream honest.
+fn emit_run_flush(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    off_cmd_handle: usize,
+    off_draw_fn: usize,
+    off_item_cursor: usize,
+    off_run_start: usize,
+    off_run_count: usize,
+) {
+    let empty = builder.label("vk_run_empty");
+
+    // The count is computed into a **stack slot**, and every one of the five arguments
+    // below is then staged from memory. That is not ceremony: on x86-64 the scratch
+    // pool aliases the C argument bank (`map_scratch_register` — `SCRATCH[3]` is `r8`,
+    // which is `c_arg(4)`), so a count or a base held in a scratch register across the
+    // staging is one an earlier argument's `move` destroys. Sourcing every argument
+    // from the stack makes the staging order irrelevant, which is the only version of
+    // this that stays correct when a later letter adds a sixth argument.
+    let cursor = builder.temporary_vreg();
+    let start = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &cursor,
+        abi::stack_pointer(),
+        off_item_cursor,
+    ));
+    builder.emit(abi::load_u64(&start, abi::stack_pointer(), off_run_start));
+    builder.emit(abi::compare_registers(&cursor, &start));
+    builder.emit(abi::branch_le(&empty));
+    builder.emit(abi::subtract_registers(&cursor, &cursor, &start));
+    builder.emit(abi::store_u64(&cursor, abi::stack_pointer(), off_run_count));
+
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // vertexCount
+    builder.emit(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_run_count,
+    )); // instanceCount
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // firstVertex
+    emit_int_arg_slot(builder, platform, 4, off_run_start); // firstInstance
+    emit_call_fn(builder, off_draw_fn);
+
+    builder.emit(abi::label(&empty));
+    // The next run starts wherever this frame has published to, whether or not
+    // anything was drawn just now.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item_cursor,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_run_start,
+    ));
+}
+
 /// `canvas::vulkanDrawScene(surface, width, height, geometry, offsets)` — render one
 /// frame on the GPU and read it back into `surface`.
 ///
@@ -3393,8 +3703,13 @@ struct GlyphDrawSlots {
     width: usize,
     height: usize,
     cmd_handle: usize,
-    push_fn: usize,
     draw_fn: usize,
+    /// The frame's item-buffer cursor — shared with the shape loop, because a glyph is
+    /// a quad and takes a block exactly as a shape does.
+    item_cursor: usize,
+    /// Where this glyph's block landed, parked so the draw's `firstInstance` can be
+    /// staged from memory rather than held in a scratch register across the staging.
+    instance: usize,
     glyph_meta: usize,
     glyph_cov: usize,
     glyph_cursor: usize,
@@ -3830,28 +4145,26 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, a
         at.glyph_cursor,
     ));
 
-    // --- push and draw -------------------------------------------------------------
+    // --- publish and draw ------------------------------------------------------------
+    // This glyph's block goes into the frame's item buffer like any other quad's, and
+    // the draw names it through `firstInstance`. The index is parked *before* the
+    // publish, because publishing advances the cursor past it.
     builder.emit(abi::load_u64(
-        abi::c_arg(0),
+        abi::SCRATCH[0],
         abi::stack_pointer(),
-        at.cmd_handle,
+        at.item_cursor,
     ));
-    emit_state_load(
-        builder,
-        at.state,
-        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-        abi::c_arg(1),
-    );
-    builder.emit(abi::move_immediate(
-        abi::c_arg(2),
-        "Integer",
-        SHADER_STAGE_VERTEX_AND_FRAGMENT,
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.instance,
     ));
-    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    emit_int_arg(builder, platform, 4, &ITEM_BLOCK_SIZE.to_string());
-    emit_addr_arg(builder, platform, 5, at.item);
-    emit_call_fn(builder, at.push_fn);
+    emit_item_publish(builder, at.state, at.item, at.item_cursor, &next);
 
+    // One instance, not a run: a glyph run is N draws by design (`GEO_KIND_TEXT`), and
+    // folding it into the instancing scheme is a change of shape rather than of
+    // transport. The block still rides the buffer, so nothing here is per-draw state
+    // any more except the index itself.
     builder.emit(abi::load_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
@@ -3860,7 +4173,7 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, a
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4"));
     builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    emit_int_arg(builder, platform, 4, "0");
+    emit_int_arg_slot(builder, platform, 4, at.instance);
     emit_call_fn(builder, at.draw_fn);
 
     builder.emit(abi::label(&next));
@@ -3925,6 +4238,12 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_cmd_handle = builder.allocate_stack_object("vk_cmd_handle", 8);
     let off_desc_set_handle = builder.allocate_stack_object("vk_desc_set_handle", 8);
     let off_edge_cursor = builder.allocate_stack_object("vk_edge_cursor", 8);
+    // The frame's item-buffer cursor, and the base of the instanced run currently being
+    // accumulated. `run_count` is scratch for the flush, which has to compute
+    // `cursor - run_start` somewhere the argument staging cannot clobber.
+    let off_item_cursor = builder.allocate_stack_object("vk_item_cursor", 8);
+    let off_run_start = builder.allocate_stack_object("vk_run_start", 8);
+    let off_run_count = builder.allocate_stack_object("vk_run_count", 8);
     let off_header = builder.allocate_stack_object("vk_header", 8);
     // The glyph cache, and the frame's running cursor into the buffer's glyph region.
     let off_glyph_meta = builder.allocate_stack_object("vk_glyph_meta", 8);
@@ -3936,10 +4255,12 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_glyph_h = builder.allocate_stack_object("vk_glyph_h", 8);
     let off_glyph_x = builder.allocate_stack_object("vk_glyph_x", 8);
     let off_glyph_y = builder.allocate_stack_object("vk_glyph_y", 8);
-    // `vkCmdPushConstants` and `vkCmdDraw`, resolved once and kept, because the glyph
-    // path calls both per glyph rather than per item and a `dlsym` per glyph would be a
-    // string comparison in the inner loop of every string on screen.
-    let off_push_fn = builder.allocate_stack_object("vk_push_fn", 8);
+    let off_glyph_instance = builder.allocate_stack_object("vk_glyph_instance", 8);
+    // `vkCmdDraw`, resolved once and kept, because the glyph path calls it per glyph
+    // rather than per item and a `dlsym` per glyph would be a string comparison in the
+    // inner loop of every string on screen. `vkCmdPushConstants` used to be resolved
+    // here beside it and is gone: the item block travels in a buffer now, so nothing
+    // pushes a constant.
     let off_draw_fn = builder.allocate_stack_object("vk_draw_fn", 8);
 
     // Park the arguments before anything calls.
@@ -4276,24 +4597,18 @@ pub(crate) fn emit_vulkan_draw_scene(
         emit_call_fn(builder, off_fn);
     }
 
-    // `vkCmdPushConstants` and `vkCmdDraw`, resolved once. The shape path re-resolves
-    // them per item and that is left alone; the glyph path calls both once per glyph,
-    // and a `dlsym` per glyph would put a string comparison in the inner loop of every
-    // string on screen.
-    for (name, slot) in [
-        ("vkCmdPushConstants", off_push_fn),
-        ("vkCmdDraw", off_draw_fn),
-    ] {
-        emit_dlsym(
-            builder,
-            platform,
-            platform_imports,
-            name,
-            off_handle,
-            slot,
-            &unavailable,
-        )?;
-    }
+    // `vkCmdDraw`, resolved once. Every draw in the frame goes through this one slot
+    // now — the run flushes and the per-glyph draws alike — so the shape path no longer
+    // re-resolves anything per item.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdDraw",
+        off_handle,
+        off_draw_fn,
+        &unavailable,
+    )?;
 
     // --- one quad per item --------------------------------------------------------
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
@@ -4314,6 +4629,17 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_glyph_cursor,
+    ));
+    // The item-buffer cursor and the current run's base, both starting at quad zero.
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item_cursor,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_run_start,
     ));
     builder.emit(abi::label(&item_head));
     builder.emit(abi::load_u64(
@@ -4382,59 +4708,25 @@ pub(crate) fn emit_vulkan_draw_scene(
 
     emit_item_block(builder, off_item, off_width, off_height);
     emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
-
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkCmdPushConstants",
-        off_handle,
-        off_fn,
-        &unavailable,
-    )?;
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_cmd_handle,
-    ));
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-        abi::c_arg(1),
-    );
-    builder.emit(abi::move_immediate(
-        abi::c_arg(2),
-        "Integer",
-        SHADER_STAGE_VERTEX_AND_FRAGMENT,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    emit_int_arg(builder, platform, 4, &ITEM_BLOCK_SIZE.to_string());
-    emit_addr_arg(builder, platform, 5, off_item);
-    emit_call_fn(builder, off_fn);
-
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkCmdDraw",
-        off_handle,
-        off_fn,
-        &unavailable,
-    )?;
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        off_cmd_handle,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // vertices
-    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // instances
-    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    emit_int_arg(builder, platform, 4, "0");
-    emit_call_fn(builder, off_fn);
+    // Published, not drawn. The draw happens at the end of the run this item joins —
+    // which is what makes consecutive shapes one instanced `vkCmdDraw` instead of N.
+    emit_item_publish(builder, off_state, off_item, off_item_cursor, &item_next);
     builder.emit(abi::branch(&item_next));
 
+    // A glyph run ends the instanced run: its quads are N draws rather than N
+    // instances (they are still one block each, at the same cursor), so the shapes
+    // accumulated so far have to reach the command stream before them or they would
+    // be drawn out of order — on top of the text instead of under it.
     builder.emit(abi::label(&text_item));
+    emit_run_flush(
+        builder,
+        platform,
+        off_cmd_handle,
+        off_draw_fn,
+        off_item_cursor,
+        off_run_start,
+        off_run_count,
+    );
     emit_glyph_draws(
         builder,
         platform,
@@ -4445,8 +4737,9 @@ pub(crate) fn emit_vulkan_draw_scene(
             width: off_width,
             height: off_height,
             cmd_handle: off_cmd_handle,
-            push_fn: off_push_fn,
             draw_fn: off_draw_fn,
+            item_cursor: off_item_cursor,
+            instance: off_glyph_instance,
             glyph_meta: off_glyph_meta,
             glyph_cov: off_glyph_cov,
             glyph_cursor: off_glyph_cursor,
@@ -4458,6 +4751,22 @@ pub(crate) fn emit_vulkan_draw_scene(
             glyph_y: off_glyph_y,
         },
     );
+    // The glyphs consumed item-buffer slots of their own, so the next run of shapes
+    // begins after them — not where the flush above left the base. Without this the
+    // scene's trailing shapes are drawn as one run that *starts at the first glyph*,
+    // so every glyph quad is drawn a second time. That is invisible for an opaque
+    // glyph — compositing an opaque square over itself is idempotent — which is
+    // precisely why `scripts/test-canvas-vulkan.sh` draws its label translucent.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item_cursor,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_run_start,
+    ));
 
     builder.emit(abi::label(&item_next));
     builder.emit(abi::load_u64(
@@ -4473,6 +4782,19 @@ pub(crate) fn emit_vulkan_draw_scene(
     ));
     builder.emit(abi::branch(&item_head));
     builder.emit(abi::label(&item_done));
+
+    // The scene's last run — everything published since the final glyph run, or the
+    // whole frame when it contains no text. Without this the trailing shapes are
+    // written into the buffer and never drawn.
+    emit_run_flush(
+        builder,
+        platform,
+        off_cmd_handle,
+        off_draw_fn,
+        off_item_cursor,
+        off_run_start,
+        off_run_count,
+    );
 
     emit_dlsym(
         builder,
@@ -4823,6 +5145,35 @@ fn emit_int_arg(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, n: us
     ));
 }
 
+/// Stage the integer **stored at** stack offset `offset` as C argument `n`.
+///
+/// The load-from-memory counterpart of [`emit_int_arg`], and the reason it exists is
+/// the hazard in that function's own doc turned around: an argument whose value is
+/// computed rather than constant cannot wait in a scratch register while the other
+/// arguments are staged, because on x86-64 the scratch pool aliases the argument bank.
+/// Parking it on the stack and loading it straight into its argument register makes
+/// the staging order irrelevant. Same register-model rule as [`emit_int_arg`].
+fn emit_int_arg_slot(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    n: usize,
+    offset: usize,
+) {
+    let register_args = platform
+        .backend()
+        .register_model()
+        .external_int_argument_registers();
+    if n < register_args {
+        builder.emit(abi::load_u64(abi::c_arg(n), abi::stack_pointer(), offset));
+        return;
+    }
+    builder.emit(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), offset));
+    builder.emit(abi::outgoing_stack_arg_store(
+        abi::SCRATCH[0],
+        n - register_args,
+    ));
+}
+
 /// Stage the address of the stack object at `offset` as C argument `n` — the
 /// `&out` / `&structure` shape every Vulkan out-parameter uses. Same register-model
 /// rule as [`emit_int_arg`].
@@ -5015,23 +5366,42 @@ mod tests {
         }
     }
 
-    /// The push-constant block is the size both shaders declare, and fits Vulkan's
-    /// guaranteed range.
+    /// The item block is the size the GLSL `ItemBlock`'s std430 array stride is.
     ///
-    /// 128 bytes is the `maxPushConstantsSize` minimum every implementation must
-    /// support. Exceeding it would not fail here — it would fail at pipeline-layout
-    /// creation on whichever machine has the smallest limit, which is exactly the
-    /// machine the developer does not have.
+    /// **This replaced a check against Vulkan's guaranteed 128-byte push-constant
+    /// range** (plan-116-A). That bound was real while the block *was* a push constant:
+    /// 128 is the `maxPushConstantsSize` minimum every implementation must support, and
+    /// exceeding it would have failed at pipeline-layout creation on whichever machine
+    /// had the smallest limit — which is exactly the machine the developer does not
+    /// have. The block now rides a storage buffer, so that ceiling is gone, and
+    /// asserting it would pin a constraint nothing enforces.
+    ///
+    /// What replaces it is the constraint that *is* still live: the CPU emitter writes
+    /// records of `ITEM_BLOCK_SIZE` bytes and the shaders index an `ItemBlock[]`, so the
+    /// two agree only if std430's array stride equals that size. std430 gives a struct
+    /// the alignment of its largest member — `ivec4`, 16 bytes — and rounds the stride
+    /// up to a multiple of it. So the stride equals the size exactly when the size is a
+    /// multiple of 16, which is what this asserts, and it is why every member of the
+    /// block is an `ivec4` rather than packed.
+    ///
+    /// Measured against the real compiler rather than reasoned about alone:
+    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 112` with
+    /// members at 0/16/32/48/64/80/96 (2026-09-01, glslang 11:15.2.0). A later letter
+    /// that widens the block must re-run that and keep this equality.
     #[test]
-    fn the_push_constant_block_fits_the_guaranteed_range() {
-        assert!(
-            ITEM_BLOCK_SIZE <= 128,
-            "the item block is {ITEM_BLOCK_SIZE} bytes; Vulkan only guarantees 128"
-        );
+    fn the_item_block_matches_the_std430_stride() {
         assert_eq!(
             ITEM_BLOCK_SIZE % 16,
             0,
-            "the block is a run of ivec4s, so its size must be a multiple of 16"
+            "the block is a run of ivec4s: std430 rounds its array stride up to a \
+             multiple of 16, so a size that is not one makes the stride differ from the \
+             {ITEM_BLOCK_SIZE} bytes the emitter writes per record, and every item after \
+             the first would read a shifted block"
+        );
+        assert_eq!(
+            CANVAS_ITEM_BUFFER_BYTES,
+            CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE,
+            "the buffer must hold exactly the number of records the predicates admit"
         );
     }
 

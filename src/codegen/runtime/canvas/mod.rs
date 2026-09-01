@@ -219,7 +219,6 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_DESC_SET: usize = 608;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER: usize = 616;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY: usize = 624;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED: usize = 632;
-/// Total block size.
 /// How many times the platform has published a **different** surface size.
 ///
 /// A counter, not a flag, and that is what makes `canvas::didResize` lock-free. Only
@@ -230,7 +229,25 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED: usize = 632;
 pub(crate) const GRAPHICS_OFFSET_RESIZES: usize = 640;
 /// The value `canvas::didResize` last reported. The worker owns this word.
 pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 656;
+/// The per-frame **item buffer**: one `ITEM_BLOCK_SIZE` record per drawn quad, indexed
+/// by `gl_InstanceIndex`, plus the memory backing it and its persistent mapping.
+///
+/// This is the transport that replaced the push constants (plan-116-A). A push
+/// constant is a per-*draw* value, so it could only ever describe one item, which
+/// forced one draw call per item and — far more importantly — pinned the item block
+/// under Vulkan's guaranteed 128-byte range. The buffer has neither property: the
+/// whole frame's items are written once, a run of them is drawn with a single
+/// instanced `vkCmdDraw`, and the block's size is bounded by
+/// `CANVAS_ITEM_BUFFER_BYTES` rather than by a device limit.
+///
+/// Host-visible and mapped for its lifetime, created with the *device* and not with
+/// the target, exactly like `…_VULKAN_EDGE_*` above — its size does not depend on the
+/// surface, so a resize must not tear it down.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER: usize = 656;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY: usize = 664;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
+/// Total block size.
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 680;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -241,10 +258,26 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 656;
 /// staying in step. Each backend emits the *stores* in its own IR flavour; the
 /// *layout* is here, once.
 ///
-/// Six `ivec4`s and a seventh holding the surface size. Every member is an `ivec4`
-/// so the two shading languages' packing rules cannot disagree, and 112 bytes fits
-/// Vulkan's guaranteed 128-byte push-constant range, which is why neither backend
-/// needs descriptor sets or uniform buffers.
+/// Six `ivec4`s and a seventh holding the surface size. Every member is an `ivec4` so
+/// the two shading languages' packing rules cannot disagree.
+///
+/// **The bound is the item buffer, not a push-constant range** (plan-116-A). Until
+/// then the block rode `vkCmdPushConstants` / `setVertexBytes:` and 112 was chosen to
+/// fit Vulkan's *guaranteed* 128-byte range — a hard ceiling, and the only guaranteed
+/// one, so widening the block past it would have made the feature set depend on the
+/// device. It now travels in `…_VULKAN_ITEM_BUFFER` (Metal:
+/// `…_MTL_ITEM_BUFFER`), one record per drawn quad indexed by instance, so the only
+/// limit left is capacity: `CANVAS_MAX_FRAME_ITEMS` records must fit
+/// `CANVAS_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
+/// cannot fall out of step.
+///
+/// What still constrains the value is **agreement between the two shading languages**,
+/// and that is gated rather than trusted: glslang's reflection for the GLSL
+/// `ItemBlock` reports `topLevelArrayStride 112` with members at 0/16/32/48/64/80/96
+/// (`glslangValidator -V -q mfb_canvas.vert`, measured 2026-09-01), matching the
+/// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
+/// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
+/// so std430's stride stays equal to the size, then re-running that reflection.
 pub(crate) const ITEM_BLOCK_SIZE: usize = 112;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
@@ -360,6 +393,25 @@ pub(crate) const MAX_EDGES: usize = 256;
 pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
 /// Four 16.16 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
+
+/// The most **item blocks** one frame may carry — the capacity of the item buffer.
+///
+/// A *drawn quad*, not a scene item: every non-text item takes one block, and a glyph
+/// run takes one per glyph, because each glyph is its own quad with its own block
+/// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
+/// number this bounds.
+///
+/// 4096 blocks is 448 KiB at the current `ITEM_BLOCK_SIZE`, and it grows with the
+/// block — which is the point: later letters widen the block, and the buffer absorbs
+/// that where the 128-byte push-constant range could not.
+///
+/// Both `*Renderable` predicates sum a frame's quads against this and decline the
+/// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
+/// already has and for the same reason: a truncated scene is a *different scene*, and
+/// software is the oracle, so declining is never worse than drawing.
+pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+/// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
+pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///

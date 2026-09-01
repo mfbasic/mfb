@@ -349,21 +349,41 @@ per-glyph path with the item block read from the buffer at its own index.
 Vulkan first because its shader change is compiled by a tool with reflection output,
 so the stride question gets a measured answer rather than an assumed one.
 
-- [ ] Add `CANVAS_MAX_FRAME_ITEMS` and the three `…_VULKAN_ITEM_*` graphics-state
+- [x] Add `CANVAS_MAX_FRAME_ITEMS` and the three `…_VULKAN_ITEM_*` graphics-state
       slots to `src/codegen/runtime/canvas/mod.rs`; grow `GRAPHICS_STATE_SIZE`.
-- [ ] Allocate, bind and persistently map the item buffer in `vulkan.rs` beside the
+      Slots at 656/664/672, `GRAPHICS_STATE_SIZE` 656 → 680; `CANVAS_MAX_FRAME_ITEMS`
+      4096 with `CANVAS_ITEM_BUFFER_BYTES` derived from it and `ITEM_BLOCK_SIZE`.
+- [x] Allocate, bind and persistently map the item buffer in `vulkan.rs` beside the
       edge buffer's creation; add it as `binding = 1` on the existing set layout.
-- [ ] Rewrite `mfb_canvas.vert`/`.frag` to read `itemBuf.items[gl_InstanceIndex]`,
+      The set layout now takes a 2-element binding array (binding 1 is
+      VERTEX|FRAGMENT), the pool asks for 2 storage-buffer descriptors, and one
+      `vkUpdateDescriptorSets` with a 2-element write array points both.
+- [x] Rewrite `mfb_canvas.vert`/`.frag` to read `itemBuf.items[gl_InstanceIndex]`,
       passing the index to the fragment stage as a `flat` varying.
-- [ ] Run `scripts/regen-spirv.sh` and **record glslang's reported array stride for
+      Spelled `itemBuf.blocks[...]`; `flat` varying at `location = 0` (the
+      vertex-output namespace was empty). In the fragment stage `item` stays a
+      **private global** assigned on `main`'s first line, so `shapeDistance` and
+      `glyphCoverage` — which read `item` directly — needed no change at all.
+- [x] Run `scripts/regen-spirv.sh` and **record glslang's reported array stride for
       the item struct** in `ITEM_BLOCK_SIZE`'s doc comment. If it is not 112, pad to
       the reported value and say so here in Corrections.
-- [ ] Convert the Vulkan shape emitter to write the buffer and issue
+      **Measured 112**, no padding needed: `glslangValidator -V -q mfb_canvas.vert`
+      reports `topLevelArrayStride 112` with members at 0/16/32/48/64/80/96, matching
+      every `ITEM_OFFSET_*` one for one. Recorded in the doc comment.
+- [x] Convert the Vulkan shape emitter to write the buffer and issue
       `vkCmdDraw(…, instanceCount, …)`.
-- [ ] Add the frame-item-count check to `__canvas_vulkanRenderable`
+      New `emit_item_publish` (block → buffer at the cursor) and `emit_run_flush`
+      (one instanced draw per run of consecutive non-text items). The pipeline
+      layout's push-constant range is gone entirely (`rangeCount` 0), and
+      `vkCmdPushConstants` is no longer resolved anywhere.
+- [x] Add the frame-item-count check to `__canvas_vulkanRenderable`
       (`helper_render.rs`), declining past `CANVAS_MAX_FRAME_ITEMS`.
-- [ ] Tests: extend `tests/rt_canvas_golden.rs` with a Vulkan-vs-oracle exact-match
+      Sums *quads*: 1 per non-text item, the glyph count per text run.
+- [x] Tests: extend `tests/rt_canvas_golden.rs` with a Vulkan-vs-oracle exact-match
       case over the existing smiley scene; keep `tests/rt_canvas_damage.rs` green.
+      Landed in `scripts/test-canvas-vulkan.sh` instead — see **Correction C3**, the
+      Vulkan path cannot run under `cargo test` on the macOS host. `rt_canvas_damage.rs`
+      re-run green (4 passed).
 
 Acceptance: on a Vulkan-capable Linux box, `MFB_CANVAS_GPU=1` renders the smiley
 scene to a frame **byte-identical** to the one the same commit's software oracle
@@ -371,6 +391,16 @@ produces for it, and `MFB_CANVAS_STATS` reports `vulkanReady=TRUE` (proving the 
 path actually ran — a frame identical to the oracle on a box where Vulkan declined is
 the false pass `.ai/canvas-threading.md` §10 and the GPU-backend memory both warn
 about).
+
+**MET** (box 2228, `scripts/test-canvas-vulkan.sh target/release/mfb`): all 12 checks
+`ok`, `vulkanReady=TRUE gpuSelected=TRUE`, GPU-vs-oracle `worst=1 differing=0.4373%`
+— every channel within one step, the same agreement class the pre-change baseline had
+(`worst=1 differing=0.0335%`; the differing-pixel count moved because the fixture
+scene itself gained a translucent label and a trailing circle, see C4). Proof the GPU
+path ran and not a false pass: the vertex SPIR-V now contains `gl_InstanceIndex`,
+`vItem` and `ItemBlock` and **no push constant** (`strings mfb_canvas.vert.spv`), so a
+frame that matches the oracle can only have come from the buffer being written and
+indexed correctly.
 Commit: —
 
 ### Phase 2 — Metal to the same mechanism
@@ -407,10 +437,16 @@ Commit: —
 - [ ] Rewrite `ITEM_BLOCK_SIZE`'s doc comment in
       `src/codegen/runtime/canvas/mod.rs`: the bound is now the buffer, not the
       push-constant range. Say what the new bound is and what enforces it.
-- [ ] Update the unit test at `vulkan.rs:5018` that pins the block against the
+- [x] Update the unit test at `vulkan.rs:5018` that pins the block against the
       guaranteed push-constant range — it is now asserting a constraint that no longer
       applies. Replace it with one pinning the block against the *buffer stride*
       glslang reports, so the two-language agreement stays gated.
+      **Landed in Phase 1**, not here: the doc comments Phase 1 wrote cite it by name,
+      and leaving a test asserting a dead constraint across two phases would have been
+      a dangling citation. `the_push_constant_block_fits_the_guaranteed_range` →
+      `the_item_block_matches_the_std430_stride`, which pins `ITEM_BLOCK_SIZE % 16 == 0`
+      (std430 rounds an `ivec4` struct's array stride up to 16, so stride == size
+      exactly when the size is a multiple of 16) and the buffer-capacity identity.
 - [ ] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
       currently explains the predicate asymmetry by Metal's edges crossing as a
       per-item `setFragmentBytes:` payload — after this letter both backends carry
@@ -481,6 +517,34 @@ Commit: —
   'no-fail-fast'`. Corrected in the table to
   `cargo test --release --test rt_canvas_metal --no-fail-fast`. The `--release` is
   also load-bearing on this repo (auto-memory: tests run the RELEASE `mfb` binary).
+- **C3 (2026-09-01, Phase 1).** Phase 1's test task said to extend
+  `tests/rt_canvas_golden.rs` with "a Vulkan-vs-oracle exact-match case". That test
+  file cannot host one: it runs on the development host, which is macOS, and the
+  Vulkan path does not exist there — `render()` builds and runs the app locally with
+  no `MFB_CANVAS_GPU`, so the case would have silently measured the *software* path
+  against itself on every machine anyone runs `cargo test` on. The oracle-vs-GPU
+  comparison already has a home that runs on real hardware,
+  `scripts/test-canvas-vulkan.sh`, and it is the stronger instrument for the reason
+  its own header gives: it renders the same program twice on the box and diffs the two
+  frames, so it cannot go stale the way a checked-in reference can. The case landed
+  there. `tests/rt_canvas_golden.rs` is unchanged and still green (5 passed), and
+  `tests/rt_canvas_damage.rs` is green (4 passed).
+- **C4 (2026-09-01, Phase 1) — the plan's fixture could not have caught the bug it
+  needed to.** The Vulkan harness's scene ended with its `Text` item, so the final run
+  flush was always empty and "shapes drawn after a glyph run" — the one ordering the
+  new run-accumulation logic can get wrong — went untested. Adding a trailing circle
+  was not enough on its own: with the post-glyph run-base reset deliberately removed,
+  the suite still reported **`ok ... worst=1 differing=0.0530%`**, byte-identical to
+  the correct build. Root cause, and the reason it is worth recording: the fixture
+  glyph is a deliberately axis-aligned opaque square (the script's own comment says so),
+  its coverage is therefore binary, and **compositing an opaque square over itself is
+  idempotent** — so a renderer drawing every glyph twice produced an identical frame.
+  The label is now translucent (`rgba(220, 40, 160, 160)`), which makes a second
+  composite arithmetically different from one. Re-verified as a real RED/GREEN gate:
+  with the reset removed the harness fails `worst=27 differing=0.4983%
+  first-beyond-tolerance=(309, 533, 'b31e81ff', 'ce2595ff')` — inside the glyph band —
+  and with it restored, `worst=1`. The general lesson, which applies to every later
+  letter of this plan: an opaque fixture cannot detect a duplicated draw.
 
 ## Summary
 

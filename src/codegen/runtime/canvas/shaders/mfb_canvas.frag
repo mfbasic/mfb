@@ -12,7 +12,10 @@
 // `gl_FragCoord.xy` is the pixel centre with a top-left origin, matching the software
 // path's `px = x + 0.5, py = y + 0.5` — the same property `[[position]]` has in MSL.
 
-layout(push_constant) uniform Item {
+// plan-116-A: the block arrives in a storage buffer indexed by instance rather than in
+// a push constant — see `mfb_canvas.vert` for why both of that transport's properties
+// had to go.
+struct ItemBlock {
     ivec4 quad;
     ivec4 shape;   // p0..p3 (16.16 px); for a glyph, the bitmap origin in WHOLE px
     ivec4 fill;
@@ -20,7 +23,21 @@ layout(push_constant) uniform Item {
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
     ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
     ivec4 surface;
-} item;
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer Items {
+    ItemBlock blocks[];
+} itemBuf;
+
+// The instance index the vertex stage read, flat-interpolated. `gl_InstanceIndex` does
+// not exist in a fragment shader, so it has to travel as a varying.
+layout(location = 0) flat in int vItem;
+
+// A private global rather than a local in `main`, because `shapeDistance` and
+// `glyphCoverage` below read `item` directly. Making it a local would mean threading
+// twenty-eight ints through both of them for no gain; `main` fills it on its first
+// line, before anything can read it.
+ItemBlock item;
 
 // The polygon edge buffer: four 16.16 ints per edge, the two endpoints. It is a
 // storage buffer rather than more push constants because a polygon carries an
@@ -157,6 +174,9 @@ vec4 premultiplied(ivec4 rgba, float distance) {
 }
 
 void main() {
+    // First, before anything reads it: everything below, and both helpers above, work
+    // off this one record.
+    item = itemBuf.blocks[vItem];
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline
         // polygon by the geometry builder, so there is nothing here to stroke.
