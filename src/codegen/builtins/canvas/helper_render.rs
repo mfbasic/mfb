@@ -188,21 +188,41 @@ FUNC __canvas_runLargestGlyph(offset AS Integer) AS Integer
   RETURN worst
 END FUNC
 
+LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
+  MUT total AS Integer = 0
+  MUT quads AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
         RETURN FALSE
       END IF
+      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    ELSE
+      quads = quads + 1
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
+      ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
+      ' frame buffer, so this one is no longer forced by the transport -- but declining
+      ' the same scenes Metal declined before is that letter's gate, and unifying the
+      ' two backends' caps is later work, taken deliberately or not at all.
       IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
         RETURN FALSE
       END IF
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  RETURN TRUE
+  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
+  ' The FRAME cap, new in plan-116-A and the one scene class Metal newly declines: its
+  ' edges used to ride an unbounded per-item `setFragmentBytes:` payload copied into the
+  ' command buffer, and they now take a slice of one region that serves the whole frame,
+  ' exactly as Vulkan's always have. Software is the oracle, so a declined scene is at
+  ' least as correct -- truncating it would draw a DIFFERENT shape.
+  RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
 FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height AS Integer) AS Boolean

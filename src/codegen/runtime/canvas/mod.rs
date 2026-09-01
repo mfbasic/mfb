@@ -246,8 +246,24 @@ pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER: usize = 656;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY: usize = 664;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
+/// Metal's frame buffer — the same transport, one `MTLBuffer` instead of a Vulkan
+/// buffer plus a descriptor (plan-116-A).
+///
+/// It carries **two regions**: the item blocks from byte 0, then the polygon edges
+/// from `METAL_EDGE_BASE_WORDS`. Before this, Metal's edges rode a per-item
+/// `setFragmentBytes:` payload, which an instanced draw cannot rebind between
+/// instances — so every polygon would have ended the instanced run, and letters F and
+/// H would each have rediscovered the same conflict. Both backends now carry edges the
+/// same way.
+///
+/// `…_CONTENTS` caches `[buffer contents]` so the frame path writes through a plain
+/// pointer instead of sending a message per item, mirroring the Vulkan side's
+/// persistent mapping. Created with the *device*, not the target: its size does not
+/// depend on the surface, so a resize must not tear it down.
+pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_BUFFER: usize = 680;
+pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_CONTENTS: usize = 688;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 680;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 696;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -412,6 +428,33 @@ pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
 /// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
 pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+
+/// The most edges one **frame** may carry on the Metal path, mirroring
+/// `VULKAN_MAX_FRAME_EDGES` (plan-116-A).
+///
+/// Metal's edges used to ride a per-item `setFragmentBytes:` payload, which is copied
+/// into the command buffer at record time — so the cap was per *item* (`MAX_EDGES`)
+/// and there was no frame total at all. An instanced draw cannot rebind that payload
+/// between instances, so the edges moved into a region of the frame buffer, exactly
+/// where Vulkan has always kept them, and the cap became a frame total to match.
+///
+/// **This is the one scene class that newly declines to software**: a Metal scene
+/// whose polygon edges sum past 16384. It previously rendered on the GPU through the
+/// unbounded per-item payload. Software is the oracle, so the picture is at least as
+/// correct. The per-item `MAX_EDGES` decline is deliberately kept beside this one —
+/// unifying the two caps is later work, taken deliberately or not at all.
+pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
+/// Where Metal's edge region starts inside the frame buffer, in 32-bit words.
+///
+/// The item blocks come first, so this is simply past them. The shader adds it to each
+/// polygon's `ITEM_ARC_EDGE_BASE` rather than reading a separately-offset binding,
+/// which is the same shape `VULKAN_GLYPH_BASE_WORDS` already uses — and it sidesteps
+/// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
+/// offset. `the_metal_shader_edge_base_matches_the_buffer_layout` pins the number
+/// against the copy inside the MSL string.
+pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
+/// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each).
+pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES + METAL_MAX_FRAME_EDGES * 16;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///

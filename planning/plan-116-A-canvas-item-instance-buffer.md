@@ -285,7 +285,9 @@ fragment float4 mfbFragment(VOut in [[stage_in]], …)
 
 The fragment stage needs the same index, so `VOut` gains a flat-interpolated
 `uint iid [[flat]]` passed from the vertex stage. That is the standard way to get an
-instance id into a fragment shader in MSL and it costs one varying.
+instance id into a fragment shader in MSL and it costs one varying. (The vertex stage
+takes `[[instance_id]]` only — **not** the `[[base_instance]]` the sketch below also
+lists; see Correction C5.)
 
 Vulkan (`mfb_canvas.vert` / `.frag`): the push-constant block becomes
 
@@ -309,8 +311,15 @@ reported stride and record the number in `ITEM_BLOCK_SIZE`'s doc comment.
   or at the end of the scene; there is still exactly one pipeline. Polygons ride
   inside runs, their edges reached through the edge region. The selector string at
   `metal.rs:314-316` gains its instanced sibling
-  `drawPrimitives:vertexStart:vertexCount:instanceCount:`.
+  `drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:` — corrected
+  from the `…:instanceCount:` form first written here, because a run that begins
+  partway through the item buffer has to name where it starts.
 - Vulkan: `vkCmdDraw(cmd, 4, instanceCount, 0, firstInstance)`.
+
+**Both languages' instance index includes the base** — Vulkan's `gl_InstanceIndex`
+and MSL's `[[instance_id]]` alike — so each shader indexes the buffer with that one
+value and adds nothing. This paragraph originally claimed the opposite for MSL; see
+Correction C5 for the measurement that disproved it.
 
 Glyph runs stay N draws, not N instances, in this letter — a text item is already
 "not one draw" (`runtime/canvas/mod.rs`, `GEO_KIND_TEXT` doc) and folding it into the
@@ -401,35 +410,76 @@ path ran and not a false pass: the vertex SPIR-V now contains `gl_InstanceIndex`
 `vItem` and `ItemBlock` and **no push constant** (`strings mfb_canvas.vert.spv`), so a
 frame that matches the oracle can only have come from the buffer being written and
 indexed correctly.
-Commit: —
+Commit: 5a4bb72f2
 
 ### Phase 2 — Metal to the same mechanism
 
-- [ ] Add `GRAPHICS_OFFSET_MTL_ITEM_BUFFER`; create the buffer with the device in
+- [x] Add `GRAPHICS_OFFSET_MTL_ITEM_BUFFER`; create the buffer with the device in
       `_mfb_macapp_metal_init`, sized for `CANVAS_MAX_FRAME_ITEMS` blocks plus the
       `METAL_MAX_FRAME_EDGES` × 16-byte edge region.
-- [ ] Convert the Metal edge payload (`metal.rs:1017`) to writes into the edge
+      Plus `GRAPHICS_OFFSET_MTL_ITEM_CONTENTS` — an unplanned but necessary second
+      slot, caching `[buffer contents]` so the frame path writes through a pointer
+      instead of sending a message per item. `GRAPHICS_STATE_SIZE` 680 → 696.
+- [x] Convert the Metal edge payload (`metal.rs:1017`) to writes into the edge
       region, storing each polygon's first-edge index in `ITEM_ARC_EDGE_BASE`;
       delete the edge-base-is-always-zero comment at `runtime/canvas/mod.rs`
       (`ITEM_OFFSET_ARC`) and rewrite it for the shared shape.
-- [ ] Add the frame-total edge sum to `__canvas_metalRenderable`
+      `emit_edge_buffer` now runs **after** `emit_item_block` (which writes all four
+      words of `ITEM_OFFSET_ARC` and would overwrite the base), matching Vulkan's
+      order. The `MAX_EDGES * 16` stack staging area is gone with the payload, so
+      `DRAW_FRAME` shrinks by 4 KiB.
+- [x] Add the frame-total edge sum to `__canvas_metalRenderable`
       (`METAL_MAX_FRAME_EDGES`), keeping the per-item `MAX_EDGES` decline
       unchanged.
-- [ ] Rewrite `METAL_SHADER_SOURCE` to take `constant MfbItem *items [[buffer(0)]]`
+- [x] Rewrite `METAL_SHADER_SOURCE` to take `constant MfbItem *items [[buffer(0)]]`
       with `[[instance_id]]`, and add the flat `iid` varying to `VOut`.
-- [ ] Replace the 9 `setVertexBytes:`/`setFragmentBytes:` item-block sites with buffer
+      `VOut` gained `uint item [[flat]]`. See **Correction C5**: the plan also called
+      for `[[base_instance]]` to be added to `[[instance_id]]`, and that is wrong —
+      MSL's `[[instance_id]]` already includes it.
+- [x] Replace the 9 `setVertexBytes:`/`setFragmentBytes:` item-block sites with buffer
       writes; add the `drawPrimitives:vertexStart:vertexCount:instanceCount:`
       selector and use it.
-- [ ] Add the frame-item-count check to `__canvas_metalRenderable`.
-- [ ] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case, plus a
+      The classified sites from §2, not "9": both item-block setter loops and the
+      per-item edge send are gone; the two per-glyph coverage sends stay (non-goal).
+      The selector taken is the `…:baseInstance:` form — a run needs to name where in
+      the buffer it starts.
+- [x] Add the frame-item-count check to `__canvas_metalRenderable`.
+- [x] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case, plus a
       polygon scene (edges through the region) and the negative case: a scene
       summing past `METAL_MAX_FRAME_EDGES` declines (assert via
       `MFB_CANVAS_STATS`, never by pixel equality).
+      `PRIMITIVES` gained a **second** polygon — with one, the edge base is still 0 and
+      a base that was never written would pass. New
+      `a_frame_whose_polygons_together_overflow_the_edge_region_falls_back` (200 rings
+      × 200 edges = 40,000, each ring inside the per-item cap so only the *sum* is
+      over). Asserted by **exact pixel equality against the software oracle** rather
+      than via `MFB_CANVAS_STATS` — see **Correction C6**, the stats route is the
+      weaker instrument here. Added
+      `a_shape_after_a_glyph_run_matches_the_software_oracle` to
+      `tests/rt_canvas_font.rs` (which owns the font fixture); it is the test that
+      caught C5.
 
 Acceptance: on the macOS host, `cargo test --test rt_canvas_metal -- --no-fail-fast`
 passes and the Metal frame for the smiley scene matches the oracle at least as
 closely as it did at this letter's base commit (record both pixel-difference counts
 in the commit message; the number must not increase).
+
+**MET.** `cargo test --release --test rt_canvas_metal --no-fail-fast` → 4 passed,
+0 failed (and `rt_canvas_font` 10 passed, `rt_canvas_golden` 5, `rt_canvas_damage` 4,
+`rt_canvas_rasteriser` 10, `rt_canvas_graphics_thread` 8,
+`rt_canvas_present_deep_copy` 4, `rt_canvas_image_decode` 9). The pixel-difference
+count was measured **like for like** — the same one-polygon primitive scene rendered
+GPU-vs-oracle under a temporary `compare_exact` probe, run in this worktree and again
+in a detached `git worktree` at the base commit ee12c1bf7:
+
+| | differing pixels | max channel delta | first differing |
+|---|---|---|---|
+| base ee12c1bf7 | 80 | 1 | (225, 17) |
+| this letter | 80 | 1 | (225, 17) |
+
+Identical, not merely non-increasing. (The probe was removed afterwards; the scene had
+to be held fixed across both runs because Phase 2 adds a second polygon to
+`PRIMITIVES`, which changes the count for reasons unrelated to the transport.)
 Commit: —
 
 ### Phase 3 — Lift the 128-byte ceiling in the contract, and prove the whole suite
@@ -545,6 +595,35 @@ Commit: —
   first-beyond-tolerance=(309, 533, 'b31e81ff', 'ce2595ff')` — inside the glyph band —
   and with it restored, `worst=1`. The general lesson, which applies to every later
   letter of this plan: an opaque fixture cannot detect a duplicated draw.
+- **C5 (2026-09-01, Phase 2) — §4.2's claim about Metal's instance id is false.** The
+  plan said MSL's `[[instance_id]]` does not include the draw's base instance, unlike
+  Vulkan's `gl_InstanceIndex`, and §4.3 followed that to a design where the shader adds
+  `[[base_instance]]`. Implemented as written, it double-counts: index = base + base.
+  The symptom was sharply diagnostic rather than vague — **`baseInstance = 0` drew
+  perfectly and every non-zero base drew nothing at all**, because 2×base indexed past
+  the scene's published blocks into zeroed buffer, giving a degenerate all-zero quad.
+  So `rt_canvas_metal`'s shape scenes all passed (a scene with no text is one run with
+  base 0) while `text_on_the_gpu_matches_the_software_oracle` failed with the GPU black
+  where the oracle had text, and the new trailing-shape test failed at the trailing
+  circle. Measured fix: index with `[[instance_id]]` alone; all 10 `rt_canvas_font`
+  tests then pass. **Metal and Vulkan agree here** — both include the base — which is
+  the happier outcome, and the `[[base_instance]]` parameter is deleted rather than
+  left unused. The plan's §4.2/§4.3 text is corrected accordingly.
+  Worth noting for later letters: this was caught only because Phase 2 added a test
+  with a *non-zero* base. Every pre-existing GPU test used base 0.
+- **C6 (2026-09-01, Phase 2).** Phase 2's test task said the over-cap decline must be
+  asserted "via `MFB_CANVAS_STATS`, never by pixel equality". That is backwards for
+  this particular case and the existing sibling test already knew it:
+  `an_unsupported_scene_falls_back_to_the_software_renderer` asserts **exact pixel
+  equality** with the software oracle, and its doc says why — the fallback runs the
+  identical software renderer on the identical scene, so byte equality is available and
+  is the strongest available claim. A stats flag is strictly weaker here: a renderer
+  that silently *truncated* at `METAL_MAX_FRAME_EDGES` rather than declining would still
+  report `gpuSelected=TRUE` and pass a stats assertion, which is exactly the failure the
+  cap exists to prevent. The new test therefore mirrors its sibling and compares pixels.
+  (The plan's instruction is right in general — a decline must never be asserted by
+  pixel equality when the fallback might render *nothing*, since two blank frames match
+  — which is why the test also asserts the software frame is non-empty first.)
 
 ## Summary
 
