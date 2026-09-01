@@ -313,7 +313,7 @@ assertions §1 requires to move to the new rule, and Phase 3 owns that flip. The
 refactor alone was proven neutral before the rule was wired.
 `cargo check --all-targets` clean (one dead-code warning, resolved by the deletion
 above).
-Commit: 4ac6c2b (see Phase 3 — Phases 2 and 3 landed as one commit, Corrections C5)
+Commit: d8e600599 (Phases 2 and 3 landed as one commit — Corrections C5)
 
 ### Phase 3 — Emit the dedicated rule
 
@@ -353,7 +353,7 @@ shapes verified: bare nominal and record-field by the two flipped unit tests, th
 verified by the two unchanged canary goldens plus
 `func_and_thread_handle_planes_keep_the_generic_unsendable_rule`, and
 `mfb spec diagnostics rule-codes | grep -c 2-203-0138` gave `1`.
-Commit: PHASE3HASH
+Commit: d8e600599
 
 ## Validation Plan
 
