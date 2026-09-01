@@ -1,0 +1,66 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "record_res_field_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 20,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 21, "name": "label", "type": "String" },
+    { "visibility": null, "line": 22, "name": "handle", "type": "RES fs.File" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "useThroughACopy",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 28, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "const", "type": "String", "value": "first" }, { "kind": "local", "name": "f" }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "g", "type": "Holder", "value": { "kind": "with", "type": "Holder", "target": { "kind": "local", "name": "h" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "copy" } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "RES fs.File", "target": { "kind": "local", "name": "g" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "written through the copy" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 40,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "useThroughACopy", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-rt.txt" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "post-copy write succeeded" }] } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 47,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "useThroughACopy", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-rt-loop.txt" }] } },
+      { "op": "assign", "line": 49, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "200 open/close cycles completed" }] } },
+    { "op": "return", "line": 53, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
