@@ -3,7 +3,7 @@ use crate::codegen::io::stdin::lower_stdin_recompute_base;
 use crate::codegen::io::stdin::lower_stdin_subscribe;
 use crate::codegen::io::stdin::lower_stdin_unsubscribe;
 use crate::codegen::io::stdin::stdin_log_data_object;
-use crate::types::ParameterType;
+use crate::types::{CAbiType, ParameterType};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -1807,14 +1807,14 @@ pub(crate) fn lower_module_for_platform(
     // a test failure.
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         let returns_c_string = matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
-            && function.abi_return_ctype == "CPtr"
+            && function.abi_return_ctype.is_c_abi(CAbiType::Ptr)
             && matches!(function.return_type, ParameterType::String);
         let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
             module
                 .link_cstructs
                 .iter()
-                .find(|c| c.alias == function.alias && c.name == slot.ctype)
-                .is_some_and(|c| c.fields.iter().any(|f| f.ctype == "CString"))
+                .find(|c| c.alias == function.alias && slot.ctype.is_named(&c.name))
+                .is_some_and(|c| c.fields.iter().any(|f| f.ctype.is_c_abi(CAbiType::Str)))
         });
         returns_c_string || struct_has_cstring_field
     });

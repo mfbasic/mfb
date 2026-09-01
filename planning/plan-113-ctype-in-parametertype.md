@@ -401,14 +401,14 @@ Corrections.
 Acceptance: `cargo test --no-fail-fast` green; the round-trip and corpus tests
 pass; `cargo test --test no_type_strings` still 7 passed / 0 failed; the
 `Named(_)` audit is written into Corrections with a verdict per site.
-Commit: —
+Commit: 3da36a576
 
 ### Phase 2 — the five authorities and the front-end carriers
 
 Converts the decision points and the AST/IR carriers. 23 of 86 sites
 (`src/ir/link.rs`) plus the resolver and the AST structs.
 
-- [ ] ~~Retype the AST carriers to `ParameterType`: `CStructField.ctype`
+- [x] ~~Retype the AST carriers to `ParameterType`: `CStructField.ctype`
       (`src/ast/types.rs:299`), `FreeSpec.param_ctype`/`return_ctype`
       (`:364,366`), `AbiSpec.return_ctype` (`:378`), `AbiSlot.ctype` (`:388`);
       fix the mint site in `src/ast/link_items.rs`.~~ **Replaced by C5** — the
@@ -419,35 +419,35 @@ Converts the decision points and the AST/IR carriers. 23 of 86 sites
       `hir::elaborate_link_block` (`src/hir/mod.rs:567`, `BOUNDARY_FILES`
       entry 3), and correct the `hir/mod.rs:170-171` comment that says the
       C-side field list is untouched.
-- [ ] Retype the IR carriers to **`ParameterType`** (C6, not `CAbiType` —
+- [x] Retype the IR carriers to **`ParameterType`** (C6, not `CAbiType` —
       that would move `NATIVE_ABI_UNKNOWN_CTYPE` to a decode error):
       `IrCStructField.ctype` (`src/ir/link.rs:97`),
       `IrLinkFunction.abi_return_ctype` (`:432`), `IrAbiSlot.ctype` (`:872`).
-- [ ] **Delete `abi_slot_ctype_is_known`** (`src/ir/link.rs:21-41`) — a
+- [x] **Delete `abi_slot_ctype_is_known`** (`src/ir/link.rs:21-41`) — a
       `CAbiType` *is* the proof of knownness. Its three production callers are
       `:51` and `:68` (the two position predicates, which absorb it) and `:345`
       (the CSTRUCT-field check, which becomes "parse failed"), preserving the
       exact `NATIVE_ABI_UNKNOWN_CTYPE` text. Note `:580` emits the same rule
       code for the `CBuffer`-as-ABI-return position rule but does **not** call
       this predicate — leave it alone beyond retyping its `== "CBuffer"`.
-- [ ] Delete the unreachable arm at
+- [x] Delete the unreachable arm at
       `src/codegen/link/thunk/link_thunk.rs:1872`, whose own comment says it is
       gated by `abi_slot_ctype_is_known`. With a `CAbiType` scrutinee the state
       is unrepresentable, so the arm is not merely unreachable but ill-typed.
-- [ ] Convert `abi_ctype_valid_as_argument` (`:50`) and
+- [x] Convert `abi_ctype_valid_as_argument` (`:50`) and
       `abi_ctype_valid_as_return` (`:67`) to `CAbiType` matches. Keep the
       position rules identical: argument = all but `Void` and `Buffer`; return =
       all but `Str`.
-- [ ] Convert `ctype_size_align` (`:119`) to a `CAbiType` match. It returns
+- [x] Convert `ctype_size_align` (`:119`) to a `CAbiType` match. It returns
       `None` for the storage-less types today; keep that, now as explicit arms.
-- [ ] **Convert `resolver::is_c_abi_type` (`src/resolver/mod.rs:243`) to a
+- [x] **Convert `resolver::is_c_abi_type` (`src/resolver/mod.rs:243`) to a
       12-variant `CAbiType` match — NOT `matches!(t, C(_))`.** (§3 Risk 2.) The
       excluded four are `Bool`, `Byte`, `Void`, `Buffer`.
-- [ ] Tests: extend `is_c_abi_type_recognizes_and_rejects`
+- [x] Tests: extend `is_c_abi_type_recognizes_and_rejects`
       (`src/resolver/mod.rs:851`) with **negative** assertions that `CBool`,
       `CByte`, `CVoid` and `CBuffer` are NOT C-ABI types for this predicate. That
       test is the regression guard for Risk 2; write it before the conversion.
-- [ ] `src/ir/verify/link.rs`: `is_cstruct_slot` (`:211`) now compares a
+- [x] `src/ir/verify/link.rs`: `is_cstruct_slot` (`:211`) now compares a
       `Named`'s symbol against the alias's CSTRUCT names; the scalar path takes
       a `CAbiType`.
 
@@ -462,12 +462,12 @@ Commit: —
 The 49 `link_thunk.rs` sites plus the IR binary codec. Last: this is where a
 wrong arm moves wrong bytes.
 
-- [ ] Convert `src/codegen/link/thunk/link_thunk.rs`'s marshaling arms to
+- [x] Convert `src/codegen/link/thunk/link_thunk.rs`'s marshaling arms to
       `CAbiType`, **one arm at a time in source order**. Do not merge arms in
       the same commit that retypes them (§3 Risk 1).
-- [ ] Convert `src/codegen/engine/builder/mod.rs` (2 sites) and
+- [x] Convert `src/codegen/engine/builder/mod.rs` (2 sites) and
       `src/audit/collect/project.rs` (1 site).
-- [ ] `src/ir/binary.rs`: encode via `name()` at `:310,388,392`; decode at
+- [x] `src/ir/binary.rs`: encode via `name()` at `:310,388,392`; decode at
       `:615,653,666` via **`ParameterType::parse` for all three** — field, slot
       and ABI return alike (C6). `parse` is total, so the codec cannot fail;
       an unknown spelling decodes to a `Named` and is rejected by the same
@@ -476,17 +476,17 @@ wrong arm moves wrong bytes.
       be an error~~ — moot: that turns a checker diagnostic into a decode
       error, which the non-goals forbid (see C6 for the exact message it
       would displace).
-- [ ] Delete **`ctype_list_is_exhaustive`** (`src/ir/link.rs:946`) — once the
+- [x] Delete **`ctype_list_is_exhaustive`** (`src/ir/link.rs:946`) — once the
       list *is* `CAbiType::ALL` and the authority *is* the enum, both sides of
       its assertion are the same value. Replace with a comment naming the
       exhaustive `match` that supersedes it.
-- [ ] **KEEP `every_known_ctype_lowers`** (`link_thunk.rs:2915`) — C7: it
+- [x] **KEEP `every_known_ctype_lowers`** (`link_thunk.rs:2915`) — C7: it
       asserts `lower_link_thunk(...).is_ok()`, which an exhaustive match does
       **not** prove, and its `OUT CBuffer` case exercises the whole buffer
       staging path. Retype its hand-copied `CTYPES` array to `CAbiType::ALL`,
       which is what removes the drift hazard it was compensating for.
       ~~Delete both hand-maintained exhaustiveness harnesses.~~
-- [ ] Verify no `_ =>` arm was left on a `CAbiType` match:
+- [x] Verify no `_ =>` arm was left on a `CAbiType` match:
       `grep -rn -B 20 '_ =>' src/codegen/link/thunk/link_thunk.rs src/ir/link.rs`
       reviewed for `CAbiType` scrutinees.
 
@@ -501,12 +501,12 @@ Commit: —
 
 ### Phase 4 — lock the gate
 
-- [ ] Extend `tests/no_type_strings.rs` with a C-vocabulary class: **0**
+- [x] Extend `tests/no_type_strings.rs` with a C-vocabulary class: **0**
       `ctype`/`param_ctype`/`return_ctype`/`abi_return_ctype` typed
       `String`/`Option<String>`/`&str` outside `src/ast/`, and **0** comparisons
       or match arms on a C spelling outside `src/types.rs` and the two decode
       sites. Assert hard zero, no budget row.
-- [ ] Re-run every §Measured populations command and paste the new counts into
+- [x] Re-run every §Measured populations command and paste the new counts into
       Corrections. Every line must read 0 except the vocabulary itself.
 
 Acceptance: `cargo test --test no_type_strings` passes with the new class at
@@ -515,20 +515,20 @@ Commit: —
 
 ### Phase 5 — docs and archive
 
-- [ ] **Fix `src/docs/spec/language/17_native-libraries.md:94`**: the 16 names
+- [x] **Fix `src/docs/spec/language/17_native-libraries.md:94`**: the 16 names
       are the only names for an ABI *return* and for a CSTRUCT *field*, but a
       *slot* may additionally name a CSTRUCT declared in the same LINK alias
       (`src/ir/verify/link.rs:211-216,256-259`; goldens
       `libsnd-open-file-info-rt`, `native-struct-scalar-rt`, +4). Keep the
       citation markers (`[[src/ir/link.rs:abi_slot_ctype_is_known]]` must be
       repointed — that function is deleted in Phase 2).
-- [ ] Sweep for other citations of the deleted `abi_slot_ctype_is_known`:
+- [x] Sweep for other citations of the deleted `abi_slot_ctype_is_known`:
       `grep -rn "abi_slot_ctype_is_known" src/docs .ai planning` → repoint each.
-- [ ] Update `mfb spec architecture type-name-encoding` to list `C(CAbiType)`
+- [x] Update `mfb spec architecture type-name-encoding` to list `C(CAbiType)`
       among the variants and to record that a C ABI spelling is no longer a
       `Named` (the section's own "audit every `Named(_)`" guidance gains a second
       worked example).
-- [ ] `.ai/resources-packages.md`: record that the ctype vocabulary is a
+- [x] `.ai/resources-packages.md`: record that the ctype vocabulary is a
       `ParameterType` variant and that CSTRUCT-named slots remain `Named`.
 - [ ] Move `planning/plan-113-ctype-in-parametertype.md` to `planning/completed/`.
 
@@ -794,6 +794,93 @@ content is "the `CTYPES` array agrees with `abi_slot_ctype_is_known`", and once
 the array *is* `CAbiType::ALL` and the authority *is* the enum, the two sides
 are the same value — there is nothing left that could disagree. That is the
 proof the four-question gate asks for.
+
+### C10 — final verification (all phases)
+
+Measured 2026-09-01 in `.claude/worktrees/P-113`, after the last edit:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1324 tests, 1486 build(s), 1819 golden(s) checked, **0 diff(s)**`, EXIT=0 — byte-identical to the kickoff reading |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1345** test(s) ran)`, EXIT=0, 0 `mismatch:` lines — same `N ran` as the kickoff baseline |
+| `cargo test --test no_type_strings` | 7 passed, 0 failed, with the new `c_type_strings` class at hard zero |
+
+**Runtime proof, not just build proof.** The Validation Plan requires the
+`rt-behavior/native/**` fixtures to *execute*, because a same-width arm swap
+(`CInt64`↔`CUInt64`) moves no byte and is invisible to byte-identity. 21 native
+fixtures ran in the acceptance harness (`grep -n "rt-behavior/native"
+/tmp/accept-113-final.txt | wc -l` → 21), and 20 carry a `.run` golden — all
+four the plan names among them:
+
+```
+tests/rt-behavior/native/libsnd-open-file-info-rt/golden/libsnd_open_file_info_rt.run
+tests/rt-behavior/native/libsnd-read-samples-rt/golden/libsnd_read_samples_rt.run
+tests/rt-behavior/native/native-struct-scalar-rt/golden/native_struct_scalar_rt.run
+tests/rt-behavior/native/native-struct-cstring-rt/golden/native_struct_cstring_rt.run
+```
+
+All matched. The `libsnd` fixtures are the end-to-end case the plan asks for:
+they load a real `libsndfile`, marshal an `SF_INFO` `CSTRUCT` in and out, and
+compare printed output.
+
+### C9 — the re-measured census (Phase 4)
+
+Every §Measured-populations command re-run at the end of Phase 3
+(2026-09-01, `.claude/worktrees/P-113`). Production counts exclude `_tests.rs`,
+`tests.rs` **and** in-file `#[cfg(test)]` modules — the last is what
+`tests/no_type_strings.rs` strips with `test_free_lines`, and a plain `grep`
+does not, which is why the two disagree by exactly the test-module hits.
+
+| What | Was | Now | Command |
+|---|---|---|---|
+| `ctype`-family carriers typed `String`/`Option<String>`/`&str` after `src/ast/` | 23 | **0** | the `c_type_strings` scanner's carrier half; `cargo test --test no_type_strings` → the class has no budget row, so any hit fails |
+| C-spelling `==`/`!=` compares outside `src/types.rs` | 63 (with the arms) | **0** | `grep -rnE --include="*.rs" '[!=]= *"C(Ptr\|String\|…)"' src/ \| grep -v '^src/types.rs' \| wc -l` |
+| C-spelling `match` arms outside `src/types.rs` | (same 63) | **0** | `grep -rnE --include="*.rs" '^\s*"C(Ptr\|…)"(\s*\|\s*"[^"]*")*\s*=>' src/ \| grep -v '^src/types.rs' \| wc -l` |
+| `ParameterType` variants | 23 | **24** | `grep -n "pub(crate) enum ParameterType" -A 220 src/types.rs \| grep -cE "^\s*[0-9]+-\s{4}[A-Z][A-Za-z]*(\(\|,\| \{)"` |
+
+One plain-`grep` hit survives and is **not** a violation:
+`src/audit/collect/project.rs:217` `return_ctype: String::new()`. It is a
+*value* (the census regex matches the `String` in `String::new()`), it
+constructs the AST `AbiSpec` — which correctly stays the name world per C5 —
+and it sits inside that file's `#[cfg(test)] mod tests` (which begins at
+`:166`). The gate reads it as 0 for both reasons.
+
+Every remaining C-spelling literal in `src/` outside `src/types.rs` is inside a
+`#[cfg(test)]` module, building an `IrLinkFunction` fixture through
+`ParameterType::parse`. Checked by file:
+`grep -rnoE '"C(Ptr|…)"' src/ | grep -v '^src/types.rs' | cut -d: -f1 | sort | uniq -c`
+→ `ir/link.rs` 41 (all ≥ `:930`, module starts `:922`), `resolver/mod.rs` 25
+(all ≥ `:885`, module starts `:724`), `link_thunk.rs` 12 (all ≥ `:2799`, module
+starts `:2730`), `audit/collect/project.rs` 2 (`:422-423`, module starts
+`:166`), `registry/mod.rs` 1 (`:3637`), `ir/verify/link.rs` 1 (`:181`, a
+comment).
+
+### C8 — Phases 2 and 3 cannot land as separate commits
+
+**The plan splits them** — Phase 2 "the five authorities and the front-end
+carriers", Phase 3 "codegen marshaling and the wire seam" — with a `Commit:`
+line each.
+
+**They are one compile unit.** Retyping `IrAbiSlot.ctype` from `String` to
+`ParameterType` (Phase 2) makes every `slot.ctype == "CInt32"` in
+`link_thunk.rs` a type error (Phase 3). There is no ordering in which the tree
+compiles between them: the carrier and its 49 readers must change together.
+Measured — with only the Phase 2 edits applied, `cargo check --bin mfb` reported
+errors in `link_thunk.rs`, `engine/builder/mod.rs`, `ir/binary.rs` and
+`target/shared/nir/json.rs`.
+
+**Repair:** they land as one commit. The risk discipline the split existed to
+enforce is kept in full — the marshaling arms were converted one at a time in
+source order, and **no two arms were merged**. In fact the arm count went *up*:
+four `_ =>` / `other =>` defaults were replaced by explicit enumerations
+(`emit_return_passthrough`, the OUT-slot result match, `store_field`/`load_field`,
+and `marshal_struct_out`'s post-load normalization), because with a `CAbiType`
+scrutinee the wildcard is no longer needed — and that wildcard is exactly how
+bug-238 shipped (a `CInt32` OUT falling through and surfacing `-1` as
+`4294967295`).
+
+The `Commit:` line under Phase 2 therefore reads "landed with Phase 3".
 
 ### C4 — a C spelling can legally be a template parameter name
 

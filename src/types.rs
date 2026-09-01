@@ -407,6 +407,14 @@ impl ParameterType {
         }
     }
 
+    /// Whether this type is exactly the C ABI type `ctype` — the variant
+    /// analogue of the `slot.ctype == "CInt32"` compares plan-113 replaced.
+    /// Takes a specific variant, so it cannot be the mistake
+    /// [`c_abi`](Self::c_abi)'s doc warns about.
+    pub(crate) fn is_c_abi(&self, ctype: CAbiType) -> bool {
+        self.c_abi() == Some(ctype)
+    }
+
     /// Reclassify every [`Named`](Self::Named) leaf whose name is one of
     /// `type_params` as a [`Var`](Self::Var) type variable, recursing through the
     /// container/function/thread structure. On an empty `type_params` this is an

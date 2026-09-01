@@ -307,7 +307,7 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
             put_str(o, &c.maps_to.name());
             put_vec(o, &c.fields, |o, f| {
                 put_str(o, &f.name);
-                put_str(o, &f.ctype);
+                put_str(o, &f.ctype.name());
             });
         });
         encode_link_state_trailer(out, &project.link_functions);
@@ -385,11 +385,11 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     // see encode_link_state_trailer.
     put_vec(out, &f.abi_slots, |o, slot| {
         put_str(o, &slot.name);
-        put_str(o, &slot.ctype);
+        put_str(o, &slot.ctype.name());
         put_u8(o, slot.direction.code());
     });
     put_str(out, &f.abi_return_name);
-    put_str(out, &f.abi_return_ctype);
+    put_str(out, &f.abi_return_ctype.name());
     // plan-58-C: the CBuffer surface, appended to the positional record. Rides the
     // 5->6 bump for the same reason BIND IN rode 4->5 — the record has no
     // per-field tags, so a field cannot be added without a version break.
@@ -612,7 +612,12 @@ fn decode_cstructs(r: &mut IrReader) -> Result<Vec<crate::ir::IrCStruct>, String
         for _ in 0..field_count {
             fields.push(crate::ir::IrCStructField {
                 name: r.string()?,
-                ctype: r.string()?,
+                // plan-113: `ParameterType::parse` is TOTAL, so the codec cannot
+                // fail here. A spelling outside the 16 decodes to a `Named` and is
+                // rejected by `check_cstruct` with the same NATIVE_ABI_UNKNOWN_CTYPE
+                // text and location as before -- a decode error would have moved
+                // that diagnostic.
+                ctype: ParameterType::parse(&r.string()?),
             });
         }
         structs.push(crate::ir::IrCStruct {
@@ -650,7 +655,9 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         bind_state_resource: None,
         abi_slots: decode_vec(r, |r| {
             let name = r.string()?;
-            let ctype = r.string()?;
+            // A slot ctype may legitimately be a CSTRUCT nominal, so it parses
+            // as a full `ParameterType` (plan-113).
+            let ctype = ParameterType::parse(&r.string()?);
             let code = r.u8()?;
             // An unknown direction must be an error, never a silent default: it
             // decides whether the callee writes through this slot.
@@ -663,7 +670,7 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
             })
         })?,
         abi_return_name: r.string()?,
-        abi_return_ctype: r.string()?,
+        abi_return_ctype: ParameterType::parse(&r.string()?),
         // plan-58-C. Struct-literal fields are evaluated in WRITTEN order, which
         // for this decoder IS the wire order — so these must sit exactly where
         // `encode_link_function` writes them (after `abi_return_ctype`, before

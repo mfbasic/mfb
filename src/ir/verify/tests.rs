@@ -4149,11 +4149,11 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         return_state_type: None,
         abi_slots: vec![crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         }],
         abi_return_name: "value".to_string(),
-        abi_return_ctype: "CInt32".to_string(),
+        abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
         consts: vec![],
         bind_in: vec![],
         bind_state: None,
@@ -4205,7 +4205,7 @@ fn cstruct(name: &str, fields: &[(&str, &str)]) -> crate::ir::IrCStruct {
             .iter()
             .map(|(n, t)| crate::ir::IrCStructField {
                 name: (*n).to_string(),
-                ctype: (*t).to_string(),
+                ctype: crate::types::ParameterType::parse(t),
             })
             .collect(),
     }
@@ -4310,7 +4310,7 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     )];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "info".to_string(),
-        ctype: "CInt32".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt32"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project_with_cstructs(vec![cstruct("SfInfo", &[("a", "CInt32")])]);
@@ -4323,7 +4323,7 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
 fn abi_slot(name: &str, ctype: &str, dir: crate::ir::AbiDirection) -> crate::ir::IrAbiSlot {
     crate::ir::IrAbiSlot {
         name: name.to_string(),
-        ctype: ctype.to_string(),
+        ctype: crate::types::ParameterType::parse(ctype),
         direction: dir,
     }
 }
@@ -4666,7 +4666,7 @@ fn rejects_struct_slot_with_uncovered_record_field() {
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction: crate::ir::AbiDirection::Out,
     }];
     lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
@@ -4689,7 +4689,7 @@ fn rejects_struct_slot_with_mistyped_record_field() {
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction: crate::ir::AbiDirection::Out,
     }];
     lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
@@ -4711,7 +4711,7 @@ fn rejects_link_unknown_slot_ctype() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CIint32".to_string(),
+        ctype: crate::types::ParameterType::parse("CIint32"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4722,7 +4722,7 @@ fn rejects_link_unknown_slot_ctype() {
 #[test]
 fn rejects_link_unknown_return_ctype() {
     let mut lf = link_fn();
-    lf.abi_return_ctype = "CFloat32".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CFloat32");
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
@@ -4734,7 +4734,7 @@ fn rejects_link_cvoid_argument_slot() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CVoid".to_string(),
+        ctype: crate::types::ParameterType::parse("CVoid"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4748,7 +4748,7 @@ fn rejects_link_cptr_escape_in_param() {
     lf.params = vec![("p".to_string(), crate::types::ParameterType::parse("CPtr"))];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "p".to_string(),
-        ctype: "CPtr".to_string(),
+        ctype: crate::types::ParameterType::parse("CPtr"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4773,12 +4773,12 @@ fn rejects_link_unbound_input_slot() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "stray".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -4793,12 +4793,12 @@ fn rejects_link_unbound_slot() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "mystery".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -4813,12 +4813,12 @@ fn rejects_link_out_slot_not_return() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "extra".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::Out,
         },
     ];
@@ -4835,12 +4835,12 @@ fn rejects_link_const_out() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::Out,
         },
     ];
@@ -4854,7 +4854,7 @@ fn rejects_link_no_result() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CString".to_string(),
+        ctype: crate::types::ParameterType::parse("CString"),
         direction: crate::ir::AbiDirection::In,
     }];
     // A value-returning wrapper with no RETURN clause names no result.
@@ -4910,12 +4910,12 @@ fn accepts_link_const_pin() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -7497,17 +7497,17 @@ fn cbuffer_fn() -> crate::ir::IrLinkFunction {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "buf".to_string(),
-            ctype: "CBuffer".to_string(),
+            ctype: crate::types::ParameterType::parse("CBuffer"),
             direction: crate::ir::AbiDirection::Out,
         },
         crate::ir::IrAbiSlot {
             name: "n".to_string(),
-            ctype: "CInt64".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt64"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
     lf.abi_return_name = "status".to_string();
-    lf.abi_return_ctype = "CInt32".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CInt32");
     lf.result = Some(crate::ir::IrLinkExpr::Var("buf".to_string()));
     lf.buffers = vec![crate::ir::IrBuffer {
         slot: "buf".to_string(),
@@ -7599,7 +7599,7 @@ fn rejects_cbuffer_const_pin() {
 #[test]
 fn rejects_cbuffer_as_abi_return() {
     let mut lf = cbuffer_fn();
-    lf.abi_return_ctype = "CBuffer".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CBuffer");
     expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNKNOWN_CTYPE");
 }
 
@@ -7665,7 +7665,7 @@ fn rejects_buffer_size_reading_an_out_slot() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "written".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::Out,
     });
     lf.buffers[0].size = crate::ir::IrLinkExpr::Var("written".to_string());
@@ -7679,7 +7679,7 @@ fn accepts_buffer_size_reading_a_const_pin() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "cap".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::In,
     });
     lf.consts = vec![("cap".to_string(), 4096)];
@@ -7725,7 +7725,7 @@ fn accepts_length_reading_an_out_slot() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "written".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::Out,
     });
     lf.result_length = Some(crate::ir::IrLinkExpr::Var("written".to_string()));
@@ -8643,7 +8643,7 @@ fn struct_slot_project(
     f.params = vec![];
     f.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction,
     }];
     (p, f)

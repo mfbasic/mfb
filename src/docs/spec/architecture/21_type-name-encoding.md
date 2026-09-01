@@ -54,6 +54,7 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 | User template | `Name OF A, B` |
 | Grouping | `(T)` |
 | Internal success | `Result OF X` |
+| C ABI type (LINK only) | `CPtr`, `CInt32`, … — see below |
 
 ### Fixed-width separators
 
@@ -171,6 +172,26 @@ matcher's `resource_base_eq`, which every builtin overload goes through.
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.
 
+### C ABI types
+
+A `LINK` binding's `ABI (...)` clause names C types, not MFBASIC ones, and the
+sixteen spellings are a closed vocabulary the marshaling backend implements:
+
+`CPtr`, `CString`, `CBuffer`, `CInt8`, `CInt16`, `CInt32`, `CInt64`, `CUInt8`,
+`CUInt16`, `CUInt32`, `CUInt64`, `CBool`, `CByte`, `CFloat`, `CDouble`, `CVoid`.
+
+They are `ParameterType::C(CAbiType)` — one variant carrying a closed enum, not
+sixteen variants — so a consumer needs one arm and can still enumerate the cases
+exhaustively where the decision depends on which C type it is. `name()` renders
+the spelling back byte-exact, which is what keeps the IR binary's `LINK` section
+and every `.ast`/`.ir` golden unchanged. Each spelling is a bare token, so it
+carries no separators and nests like any other leaf (`List OF CPtr` decomposes
+normally). [[src/types.rs:CAbiType]]
+
+A `CSTRUCT` name used as an `ABI` slot is **not** one of these: that namespace is
+open (any `CSTRUCT` declared in the same `LINK` alias), so it stays a `Named`.
+See [language native-libraries](./mfb spec language native-libraries).
+
 ## Thread types
 
 `parse_thread_type_name` handles `Thread`/`ThreadWorker` bodies after `<kind> OF`.
@@ -251,6 +272,28 @@ silently changed answer — `ir::shape::checker_binds_pattern` stopped binding
 rejecting `.state` on every stateful resource. Neither failed to compile; the
 signal was one acceptance fixture that no longer built. **Audit every
 `Named(_)` when the new variant is one a `Named` used to stand in for.**
+
+`C(CAbiType)` is the second worked example, and the audit caught three guards
+before they shipped. Every C ABI spelling — `CPtr`, `CInt32`, … — was a `Named`
+until plan-113 gave the vocabulary its own variant; `parse` is the constructor,
+so the two `is_c_abi_type` reject-lists (`resolver`, `ir::verify::link`) both
+destructured `Named` and stopped firing the instant the `parse` arm landed,
+silently dropping every `NATIVE_CPTR_ESCAPE`. A third was quieter still: a C
+spelling is a bare token, so `TYPE Box OF CPtr` may name a template *parameter*
+with one, and `ParameterType::with_vars` had to gain a `C` arm to keep
+reclassifying it as a `Var`. The other twenty-five `Named` sites answered
+identically, all for one of two structural reasons — a tail that re-wraps
+(`other => …named(other.name())`) or one that compares whole values
+(`_ => expected == actual`). Both patterns make a new variant safe by
+construction; a guard that has neither is the one to read closely.
+
+Note what did **not** move: a `CSTRUCT`-named `ABI` slot is still a `Named`. The
+C vocabulary is closed at sixteen, but the slot namespace is not — a slot may
+name any `CSTRUCT` declared in the same `LINK` alias — so the open nominal tail
+stays where `ParameterType` already models it. That is also why the vocabulary
+is a variant here rather than a standalone enum: a standalone one would need its
+own `Named` arm and become a second type grammar.
+[[src/types.rs:CAbiType]]
 
 ## See Also
 

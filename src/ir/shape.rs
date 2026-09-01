@@ -29,7 +29,7 @@ use crate::hir::{
     HirProject, HirStatement,
 };
 use crate::rules::PendingDiagnostic;
-use crate::types::ParameterType;
+use crate::types::{CAbiType, ParameterType};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -1105,9 +1105,9 @@ impl<'a> Walker<'a> {
             );
             let well_formed = free.slot == function.abi.return_name
                 && returns_the_c_value
-                && function.abi.return_ctype == "CPtr"
-                && free.param_ctype == "CPtr"
-                && free.return_ctype == "CVoid";
+                && function.abi.return_ctype.is_c_abi(CAbiType::Ptr)
+                && free.param_ctype.is_c_abi(CAbiType::Ptr)
+                && free.return_ctype.is_c_abi(CAbiType::Void);
             if !well_formed {
                 self.emit(
                     "NATIVE_FREE_INVALID",
