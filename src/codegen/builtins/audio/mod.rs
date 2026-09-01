@@ -512,7 +512,7 @@ mod tests {
         assert!(!registry().is_builtin_type("AudioInput"));
         assert_eq!(
             registry().qualified_builtin_type("audio.AudioInput"),
-            Some("AudioInput".to_string())
+            Some("audio.AudioInput".to_string())
         );
     }
 

@@ -4372,10 +4372,10 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            10,
-            "5 address loads — Canvas publishes, Console and None clear, WM_CHAR \
-             gates on it, WM_PAINT gates on it — each an adrp/add pair = 2 \
-             relocations"
+            12,
+            "6 address loads — Canvas publishes, Console and None clear, WM_CHAR \
+             gates on it, WM_PAINT gates on it, and WM_SIZE gates on it \
+             (plan-98-F Phase 3) — each an adrp/add pair = 2 relocations"
         );
     }
 

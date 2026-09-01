@@ -703,37 +703,37 @@ mod tests {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             registry::resolve_call(call, &types, false)
         };
-        assert_eq!(r("datetime.now", &[]), Some("Instant".into()));
-        assert_eq!(r("datetime.monotonic", &[]), Some("Duration".into()));
-        assert_eq!(r("datetime.utc", &[]), Some("Zone".into()));
-        assert_eq!(r("datetime.instant", &["Integer"]), Some("Instant".into()));
+        assert_eq!(r("datetime.now", &[]), Some("datetime.Instant".into()));
+        assert_eq!(r("datetime.monotonic", &[]), Some("datetime.Duration".into()));
+        assert_eq!(r("datetime.utc", &[]), Some("datetime.Zone".into()));
+        assert_eq!(r("datetime.instant", &["Integer"]), Some("datetime.Instant".into()));
         assert_eq!(
             r(
                 "datetime.instant",
                 &["Integer", "Integer", "Integer", "Integer", "Integer"]
             ),
-            Some("Instant".into())
+            Some("datetime.Instant".into())
         );
         assert_eq!(
             r("datetime.duration", &["Integer", "Integer"]),
-            Some("Duration".into())
+            Some("datetime.Duration".into())
         );
         assert_eq!(
             r("datetime.date", &["Integer", "Integer", "Integer"]),
-            Some("Date".into())
+            Some("datetime.Date".into())
         );
         assert_eq!(
             r("datetime.time", &["Integer", "Integer"]),
-            Some("Time".into())
+            Some("datetime.Time".into())
         );
-        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("Zone".into()));
+        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("datetime.Zone".into()));
         assert_eq!(
             r("datetime.inZone", &["Instant", "Zone"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
             r("datetime.between", &["Instant", "Instant"]),
-            Some("Duration".into())
+            Some("datetime.Duration".into())
         );
         assert_eq!(
             r("datetime.isBefore", &["Instant", "Instant"]),
@@ -741,11 +741,11 @@ mod tests {
         );
         assert_eq!(
             r("datetime.parse", &["String", "String"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
             r("datetime.parse", &["String", "String", "Zone"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(r("datetime.nowNanos", &[]), Some("Integer".into()));
         assert_eq!(
@@ -838,7 +838,7 @@ mod tests {
         // The qualified form resolves the same source-declared names.
         assert_eq!(
             registry().qualified_builtin_type("datetime.Instant"),
-            Some("Instant".to_string())
+            Some("datetime.Instant".to_string())
         );
     }
 

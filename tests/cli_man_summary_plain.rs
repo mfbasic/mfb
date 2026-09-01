@@ -27,14 +27,22 @@ fn man_listing_summaries_are_plain_rendered() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // The plain one-line summary must appear in the listing...
+    //
+    // A FRAGMENT, not the whole sentence, and the type is spelled qualified. bug-480
+    // Phase 4b qualified type names in the descriptor prose, so the source intro is now
+    // "The signed `datetime::Duration` span between two instants." — eleven characters
+    // longer, which pushes "instants." onto the listing table's next wrapped line. A
+    // `contains` of the full sentence can never match a wrapped cell. What bug-214
+    // protects is unaffected by either change: it is that the backticks are STRIPPED,
+    // which the pair of assertions here still pins exactly.
     assert!(
-        stdout.contains("The signed Duration span between two instants."),
+        stdout.contains("The signed datetime::Duration span"),
         "expected the plain-rendered `between` summary in the listing, got:\n{stdout}"
     );
-    // ...and its raw Markdown form (backtick-wrapped `Duration`) must NOT — that
-    // is exactly the leak bug-214 fixed.
+    // ...and its raw Markdown form (backtick-wrapped type) must NOT — that is exactly
+    // the leak bug-214 fixed.
     assert!(
-        !stdout.contains("The signed `Duration` span"),
+        !stdout.contains("The signed `datetime::Duration` span"),
         "man listing leaked raw Markdown backticks (bug-214 regressed):\n{stdout}"
     );
 }

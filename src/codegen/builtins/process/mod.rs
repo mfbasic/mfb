@@ -259,7 +259,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Process"));
         assert_eq!(
             registry().qualified_builtin_type("process.Process"),
-            Some("Process".to_string())
+            Some("process.Process".to_string())
         );
     }
 
@@ -305,7 +305,7 @@ mod tests {
             registry::call_return_type_typed("process.didSignal")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Signal")
+            Some("process.Signal")
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
         // the trailing-optional streaming forms, and the single-signature queries.
