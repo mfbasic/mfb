@@ -47,6 +47,11 @@ mod helper_trim_float_text_at;
 mod helper_unicode_control_escape;
 mod helper_valid_number;
 
+/// The `Json` union's package-qualified identity — what a consumer must write,
+/// and what the resolver seeds, so a bare `AS Json` is refused (bug-484). Inside
+/// `json`'s own companion the leaf is local and stays bare.
+pub(crate) const JSON_TYPE_ID: &str = "json.Json";
+
 const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `json::Json` tree"#;
 
 const DESC: &str = r#"The `json` package converts between JSON text and a `json::Json` value tree and reads

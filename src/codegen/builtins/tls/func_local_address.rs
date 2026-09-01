@@ -125,7 +125,7 @@ fn overload(
             ty: ParameterType::named(type_id),
             default: DefaultValue::None,
         }],
-        return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE),
+        return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
         errors: vec![],
         body: Body::abi_function_aliased(lower_local_address, os_aliases),
     }

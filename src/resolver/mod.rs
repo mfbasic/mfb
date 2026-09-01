@@ -25,27 +25,35 @@ const BUILTIN_TYPES: &[&str] = &[
     "Fixed",
     "Float",
     "Integer",
-    "Json",
     "Money",
     "Nothing",
     "Result",
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
-    crate::codegen::builtins::term::TERM_COLOR_TYPE,
-    crate::codegen::builtins::term::TERM_SIZE_TYPE,
-    crate::codegen::builtins::net::ADDRESS_TYPE,
+    // bug-484: every entry below is a PACKAGE-QUALIFIED id, and that is the whole
+    // point of the list. It seeds the resolver's known-type set, so a bare leaf
+    // here makes that name resolvable from ANY file with no `pkg::` prefix —
+    // against the governing rule, and silently, because resolution simply
+    // succeeds. Six entries used to be bare (`Address`, `Datagram`, `TermColor`,
+    // `TermSize`, `AudioDevice`, `Json`), which is why `AS Address` compiled from
+    // a consumer while the sibling `AS Url` — same package, same kind, but absent
+    // from this list — was correctly refused.
+    crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
+    crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
+    crate::codegen::builtins::net::ADDRESS_TYPE_ID,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
     // entirely — a datagram's encoding is not something the network reports.
     crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
     crate::codegen::builtins::tcp::LISTENER_TYPE_ID,
     crate::codegen::builtins::udp::SOCKET_TYPE_ID,
-    crate::codegen::builtins::udp::DATAGRAM_TYPE,
+    crate::codegen::builtins::udp::DATAGRAM_TYPE_ID,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE_ID,
-    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE,
+    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE_ID,
+    crate::codegen::builtins::json::JSON_TYPE_ID,
     crate::codegen::builtins::process::PROCESS_TYPE_ID,
 ];
 

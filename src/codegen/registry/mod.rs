@@ -1695,15 +1695,22 @@ impl Registry {
             .map(|mut package| {
                 let pkg = package.import_name;
                 let map = |ty: &ParameterType| qualify_type_leaves(ty, pkg, &owners);
-                // Record FIELD types are deliberately NOT rewritten. A record is
-                // rendered back into injectable source by `get_mfb` and re-parsed,
-                // and source spells a qualifier `::` -- a `.` there is field
-                // access, so emitting the dot form makes the companion
-                // unparseable. The parser qualifies those bare field types itself
-                // when it reads the companion, which is the same answer by the
-                // shorter route. Only types that never round-trip through source
-                // -- the signatures below, which type-check call sites directly --
-                // need rewriting here.
+                // Record FIELD types are rewritten too (bug-484). They used to be
+                // skipped, on the reasoning that a record round-trips through
+                // injectable source where a qualifier is `::` and a `.` would parse
+                // as field access. True, but it argues for rendering `::`, not for
+                // leaving the field bare -- and `source_spelling` already does that
+                // rewrite for every rendered type. Leaving them bare put a name that
+                // is IMPORTED into the declaring package (`udp::Datagram`'s `from`
+                // is net's `Address`) into the companion with no prefix, against the
+                // governing rule, and left the parser to guess it back from the
+                // file's imports. An ambiguous leaf it could not guess was left bare
+                // and unresolved -- silently, which is the bug-483 class again.
+                for record in &mut package.records {
+                    for prop in &mut record.props {
+                        prop.ty = qualify_type_leaves_for_source(&prop.ty, pkg, &owners);
+                    }
+                }
                 for function in &mut package.functions {
                     for imp in &mut function.implementations {
                         for param in &mut imp.params {
@@ -1805,18 +1812,62 @@ fn qualify_type_leaves(
     package: &str,
     owners: &std::collections::HashMap<String, Vec<String>>,
 ) -> ParameterType {
+    qualify_type_leaves_inner(ty, package, owners, true)
+}
+
+/// The governing rule's two cases, for a type reference that is RENDERED BACK INTO
+/// SOURCE (a record field): a name defined **locally** needs no prefix, a name that
+/// is **imported** requires one. So the own-package arm leaves the leaf bare here,
+/// where `qualify_type_leaves` (used for signatures, which are type-system
+/// identities and never round-trip through source) qualifies it.
+///
+/// Getting this backwards is not cosmetic: `regex`'s companion declares PRIVATE
+/// types like `#regex_Cont` locally, and prefixing those made the descriptor's
+/// field type `regex.#regex_Cont` disagree with the `#regex_Cont` the parser
+/// produces for the local declaration — `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH` on
+/// the package's own source (bug-484).
+fn qualify_type_leaves_for_source(
+    ty: &ParameterType,
+    package: &str,
+    owners: &std::collections::HashMap<String, Vec<String>>,
+) -> ParameterType {
+    qualify_type_leaves_inner(ty, package, owners, false)
+}
+
+fn qualify_type_leaves_inner(
+    ty: &ParameterType,
+    package: &str,
+    owners: &std::collections::HashMap<String, Vec<String>>,
+    qualify_own: bool,
+) -> ParameterType {
     let qualify_leaf = |leaf: &str| -> Option<String> {
         if leaf.contains('.') {
             return None; // already qualified (a resource id, or a spelled-out reference)
         }
+        // Not a registry-declared value type at all: a scalar nominal (`Scalar`,
+        // `Error`, `ErrorLoc`, `AttributedString`), a C ABI spelling, or a generic
+        // parameter. Nothing to qualify, and not an error.
         let declaring = owners.get(leaf)?;
         if declaring.iter().any(|owner| owner == package) {
-            return Some(format!("{package}.{leaf}"));
+            // Declared by THIS package, so it is local. A signature carries the
+            // qualified identity; a rendered field keeps the bare local name.
+            return qualify_own.then(|| format!("{package}.{leaf}"));
         }
-        match declaring.as_slice() {
-            [only] => Some(format!("{only}.{leaf}")),
-            _ => None, // ambiguous across packages and not ours: leave it alone
-        }
+        // Not declared by this package, so the bare leaf denotes nothing: under the
+        // governing rule a bare name is a LOCAL name, and this package has no such
+        // declaration. How many OTHER packages happen to export the leaf is
+        // irrelevant — one is not more resolvable than three, it is just a guess
+        // that happens to have one candidate. The pass used to make exactly that
+        // guess for a single owner and leave the reference bare for several, both
+        // silently. A descriptor must spell a cross-package reference out
+        // (`net::ADDRESS_TYPE_ID`, not `net::ADDRESS_TYPE`), so reaching here is an
+        // authoring error, not a user one (bug-484).
+        panic!(
+            "registry: `{package}` references the bare type name `{leaf}`, but \
+             declares no such type. A bare name is a LOCAL name; `{leaf}` is \
+             declared by {declaring:?}. Spell the reference out as \
+             `<package>.{leaf}`."
+        )
     };
     match ty {
         ParameterType::Named(sym) => match qualify_leaf(sym.resolve()) {
@@ -1826,38 +1877,60 @@ fn qualify_type_leaves(
         ParameterType::UserOf(head, args) => {
             let args = args
                 .iter()
-                .map(|arg| qualify_type_leaves(arg, package, owners))
+                .map(|arg| qualify_type_leaves_inner(arg, package, owners, qualify_own))
                 .collect::<Vec<_>>();
             match qualify_leaf(head.resolve()) {
                 Some(qualified) => ParameterType::user_of(&qualified, args),
                 None => ParameterType::user_of(head.resolve(), args),
             }
         }
-        ParameterType::ListOf(inner) => {
-            ParameterType::list_of(qualify_type_leaves(inner, package, owners))
-        }
-        ParameterType::SetOf(inner) => {
-            ParameterType::set_of(qualify_type_leaves(inner, package, owners))
-        }
+        ParameterType::ListOf(inner) => ParameterType::list_of(qualify_type_leaves_inner(
+            inner,
+            package,
+            owners,
+            qualify_own,
+        )),
+        ParameterType::SetOf(inner) => ParameterType::set_of(qualify_type_leaves_inner(
+            inner,
+            package,
+            owners,
+            qualify_own,
+        )),
         ParameterType::MapOf(key, value) => ParameterType::map_of(
-            qualify_type_leaves(key, package, owners),
-            qualify_type_leaves(value, package, owners),
+            qualify_type_leaves_inner(key, package, owners, qualify_own),
+            qualify_type_leaves_inner(value, package, owners, qualify_own),
         ),
-        ParameterType::ResultOf(inner) => {
-            ParameterType::result_of(qualify_type_leaves(inner, package, owners))
-        }
+        ParameterType::ResultOf(inner) => ParameterType::result_of(qualify_type_leaves_inner(
+            inner,
+            package,
+            owners,
+            qualify_own,
+        )),
         // A resource's STATE clause and a `RES` wrapper both hold a nominal that has
         // to be qualified too: `http::startRead` returns `Stream STATE PendingState`,
         // and leaving the state bare made the initializer disagree with the binding
         // (`declares STATE http.PendingState but its initializer carries STATE
         // PendingState`).
         ParameterType::Stateful { base, state } => ParameterType::Stateful {
-            base: Box::new(qualify_type_leaves(base, package, owners)),
-            state: Box::new(qualify_type_leaves(state, package, owners)),
+            base: Box::new(qualify_type_leaves_inner(
+                base,
+                package,
+                owners,
+                qualify_own,
+            )),
+            state: Box::new(qualify_type_leaves_inner(
+                state,
+                package,
+                owners,
+                qualify_own,
+            )),
         },
-        ParameterType::Res(inner) => {
-            ParameterType::Res(Box::new(qualify_type_leaves(inner, package, owners)))
-        }
+        ParameterType::Res(inner) => ParameterType::Res(Box::new(qualify_type_leaves_inner(
+            inner,
+            package,
+            owners,
+            qualify_own,
+        ))),
         other => other.clone(),
     }
 }
@@ -3486,6 +3559,120 @@ fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections
         | HirExpression::Scalar(_)
         | HirExpression::Boolean(_)
         | HirExpression::Identifier(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod qualification_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// `net` and `udp` each declare a type of their own; `Socket` is declared by
+    /// two packages, so a third package naming it bare declares no such type.
+    fn owners() -> HashMap<String, Vec<String>> {
+        HashMap::from([
+            ("Address".to_string(), vec!["net".to_string()]),
+            ("Datagram".to_string(), vec!["udp".to_string()]),
+            (
+                "Socket".to_string(),
+                vec!["tcp".to_string(), "udp".to_string()],
+            ),
+        ])
+    }
+
+    fn for_source(ty: &str, package: &str) -> String {
+        qualify_type_leaves_for_source(&ParameterType::declared(ty), package, &owners())
+            .name()
+            .into_owned()
+    }
+
+    fn for_signature(ty: &str, package: &str) -> String {
+        qualify_type_leaves(&ParameterType::declared(ty), package, &owners())
+            .name()
+            .into_owned()
+    }
+
+    /// The governing rule, source side: a locally-declared name needs no prefix.
+    /// `net` declares `Address`, `udp` declares `Datagram`, so each keeps the bare
+    /// leaf in its own rendered companion — `regex`'s PRIVATE `#regex_Cont` is the
+    /// case that matters, since prefixing it stopped the descriptor's field type
+    /// matching the local declaration the parser produces (bug-484).
+    #[test]
+    fn a_rendered_field_leaves_a_local_name_bare() {
+        assert_eq!(for_source("Address", "net"), "Address");
+        assert_eq!(for_source("Datagram", "udp"), "Datagram");
+        assert_eq!(for_source("List OF Datagram", "udp"), "List OF Datagram");
+    }
+
+    /// A signature is a type-system identity, never rendered back into source, so
+    /// it carries the qualified id even for the declaring package's own types.
+    #[test]
+    fn a_signature_qualifies_its_own_package() {
+        assert_eq!(for_signature("Address", "net"), "net.Address");
+        assert_eq!(for_signature("Datagram", "udp"), "udp.Datagram");
+    }
+
+    /// A cross-package reference is spelled out by the descriptor author, and both
+    /// passes then leave it exactly as written.
+    #[test]
+    fn a_spelled_out_cross_package_reference_is_left_alone() {
+        assert_eq!(for_source("net.Address", "udp"), "net.Address");
+        assert_eq!(for_signature("net.Address", "udp"), "net.Address");
+        assert_eq!(
+            for_source("List OF net.Address", "udp"),
+            "List OF net.Address"
+        );
+    }
+
+    /// Names that are not registry-declared types — scalar nominals, C ABI
+    /// spellings, generic parameters — are left exactly as written, and must not
+    /// trip the not-declared-here check.
+    #[test]
+    fn a_non_registry_leaf_is_untouched() {
+        for leaf in [
+            "Scalar",
+            "Error",
+            "ErrorLoc",
+            "AttributedString",
+            "CPtr",
+            "T",
+        ] {
+            assert_eq!(for_source(leaf, "net"), leaf, "{leaf}");
+            assert_eq!(for_signature(leaf, "net"), leaf, "{leaf}");
+        }
+    }
+
+    /// bug-484: a bare leaf the referencing package does not declare is UNDEFINED,
+    /// and how many other packages export it is irrelevant — one is not more
+    /// resolvable than three, it is the same guess with a smaller search space.
+    /// `udp` naming a bare `Address` (net's, single owner) is refused...
+    #[test]
+    #[should_panic(expected = "declares no such type")]
+    fn a_bare_cross_package_leaf_is_refused_even_with_one_owner() {
+        let _ = for_source("Address", "udp");
+    }
+
+    /// ...and so is the same shape in a signature.
+    #[test]
+    #[should_panic(expected = "declares no such type")]
+    fn a_bare_cross_package_leaf_is_refused_in_a_signature() {
+        let _ = for_signature("Address", "udp");
+    }
+
+    /// Several owners is the same error, not a different one.
+    #[test]
+    #[should_panic(expected = "declares no such type")]
+    fn a_bare_leaf_with_several_owners_is_refused() {
+        let _ = for_source("Socket", "http");
+    }
+
+    /// A shared leaf the referencing package DOES declare is local, and local
+    /// always wins: `Socket` inside `tcp` is tcp's. That other packages export the
+    /// same leaf never makes it ambiguous — the local declaration decides.
+    #[test]
+    fn a_shared_leaf_the_referencing_package_declares_is_local() {
+        assert_eq!(for_source("Socket", "tcp"), "Socket");
+        assert_eq!(for_signature("Socket", "tcp"), "tcp.Socket");
     }
 }
 

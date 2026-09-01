@@ -90,6 +90,10 @@ pub(crate) const TERM_COLOR_TYPE: &str = "TermColor";
 /// The read-only `TermSize` record type (`columns`/`rows` `Integer`), returned by
 /// `term::terminalSize`.
 pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
+/// Their package-qualified identities — what a consumer must write, and what the
+/// resolver seeds, so a bare `AS TermColor`/`AS TermSize` is refused (bug-484).
+pub(crate) const TERM_COLOR_TYPE_ID: &str = "term.TermColor";
+pub(crate) const TERM_SIZE_TYPE_ID: &str = "term.TermSize";
 
 /// Whether `type_name` is one of `term`'s compiler-owned, read-only record types
 /// (`TermColor`/`TermSize`): the runtime allocates them, so a program may neither

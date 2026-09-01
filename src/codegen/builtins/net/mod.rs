@@ -120,6 +120,10 @@ pub(crate) const PING_RESULT_TYPE_ID: &str = "net.PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
+/// Its package-qualified identity. A consumer package's descriptor must name
+/// THIS, not the bare leaf: a bare leaf means "local to the referencing package"
+/// and `http` does not declare a `Url` (bug-484).
+pub(crate) const URL_TYPE_ID: &str = "net.Url";
 
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].

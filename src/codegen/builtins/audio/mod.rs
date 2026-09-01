@@ -106,6 +106,9 @@ pub(crate) const AUDIO_OUTPUT_TYPE_ID: &str = "audio.AudioOutput";
 /// The `AudioDevice` value record's type name (a plain read-only record obtained
 /// only from `audio::devices()`).
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
+/// Its package-qualified identity — what a consumer must write, and what the
+/// resolver seeds, so a bare `AS AudioDevice` is refused (bug-484).
+pub(crate) const AUDIO_DEVICE_TYPE_ID: &str = "audio.AudioDevice";
 /// The `AudioEnvelope`/`AudioNote` value records the user constructs and passes to
 /// `audio::render` (rendered into the injected source by `get_mfb` so the source
 /// `render` body operates on them).

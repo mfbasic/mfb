@@ -78,6 +78,10 @@ pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
 /// The package-qualified resource identity, deliberately distinct from
 /// `net.UdpSocket` so the two cannot be substituted while both exist.
 pub(crate) const SOCKET_TYPE_ID: &str = "udp.Socket";
+/// The package-qualified identity of the `Datagram` value record. This — not the
+/// bare leaf — is what a consumer must write and what the resolver seeds, so
+/// `AS Datagram` from an importing file is refused (bug-484).
+pub(crate) const DATAGRAM_TYPE_ID: &str = "udp.Datagram";
 
 /// `net::Address` as this package refers to it — the shared record, not a copy.
 pub(crate) fn address() -> ParameterType {

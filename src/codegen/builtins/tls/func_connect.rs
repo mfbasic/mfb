@@ -141,7 +141,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         name: "address",
                         desc: ADDRESS_DESC,
                         aliases: &[],
-                        ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE),
+                        ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
                         default: DefaultValue::None,
                     },
                     timeout_param(),
