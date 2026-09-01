@@ -229,7 +229,7 @@ before and after; the fanout's diff mentions only `a`/`b`/`c`/`fetchStatus`/
 lowering-neutrality claim measured rather than assumed. The three converted
 fixtures pass.
 
-Commit: (recorded in the next commit)
+Commit: `f5e976935`
 
 ### Phase 2 — Regenerate `self_fanout_workers.mfp` and prove the rt fixture (largest blast radius)
 
@@ -279,7 +279,7 @@ and golden changes and nothing else.
 identical to pre-conversion. `git status` shows only the rename, the two
 `.mfp` copies, and the fixture's own goldens.
 
-Commit: (recorded in the next commit)
+Commit: `0f06dd495`
 
 ### Phase 3 — Delete the compiler support
 
@@ -348,7 +348,7 @@ really been 3, this would have read 1347.
 `IMPORT self` now resolves ordinarily:
 `error[2-201-0002 IMPORT_PACKAGE_NOT_DECLARED]: Package \`self\` is not built in`.
 
-Commit: (recorded in the next commit)
+Commit: `35479878d`
 
 ## Validation Plan
 
@@ -369,6 +369,24 @@ Commit: (recorded in the next commit)
   name-identical after lowering; any diff is a bug in Phase 1);
   `cargo check --all-targets`; `rustup run 1.96.0 cargo fmt --all &&
   (cd repository && rustup run 1.96.0 cargo fmt)`.
+
+## Final gate results (2026-09-01)
+
+| Gate | Result |
+| --- | --- |
+| `scripts/test-accept.sh` | **passed, 1346 ran, 0 mismatches** — 1349 after letter A, −4 deleted, +1 added |
+| `cargo test --no-fail-fast` | **exit 0**, 87 suites, 0 failed |
+| `cargo check --all-targets` | clean |
+| `grep -rn "SELF_IMPORT" src/` | **0** |
+| `grep -rn "IMPORT_SELF_IN_EXECUTABLE" src/ tests/` | **0** |
+| rt runtime proof (`thread-package-fanout-rt`) | `a=107 b=207 parent=7` / `main_counter=7` — identical to pre-conversion |
+
+`scripts/artifact-gate.sh all` was not run as a separate step. Its role here was
+to catch a `.ncodesum` diff from the Phase 1 conversion, and the acceptance suite
+above already compares every fixture's artifact goldens; the stronger direct
+evidence is that the conversion is name-identical after lowering (the `.ir`
+`functionRef` names are byte-identical across the change) and that the runtime
+fixture prints the same numbers.
 
 ## Open Decisions
 
