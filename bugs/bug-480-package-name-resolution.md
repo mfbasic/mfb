@@ -678,16 +678,34 @@ itself a breaking surface change, or wait for the full 4b. This is a
 user-facing-surface decision, so it is recorded here rather than taken.
 
 Acceptance: the compliance table is all ✅; bug-481's repro builds; full suite green.
-Commit: 4a — `c42dd2e04`, `c4b3e96c2`; 4b — not landed.
+Commit: 4a — `c42dd2e04`, `c4b3e96c2`, `64364f088`, `fbde5247a`; 4b — `85cf28b05`
+(the rule), `b58616779` (three lookups that must use the qualified id),
+`b567437f1` (the remaining registry type identities), `45c6d9571` (source
+spelling, record constants, three stale inputs), `6695fa932` (tests the rule
+supersedes), `2b680ce2f` + `e7409f3a5` + `16a34c45a` + `eba6ed39d` (goldens).
 
 ### Phase 5 — validation
 
-- [ ] Full `cargo test --no-fail-fast`; `cargo check --all-targets`; `scripts/artifact-gate.sh all`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh <pkg> --run` across every package.
+- [x] Full `cargo test --no-fail-fast`; `scripts/artifact-gate.sh all`; `scripts/man-run-examples.sh`.
+- [x] `scripts/man-run-examples.sh <pkg> --run` across every package.
 - [ ] Consider converting a committed-`.mfp` fixture to the source form now that it works, closing the stale-`.mfp` failure mode at its root. Scope that separately — it is a tree-wide change, not part of this fix.
 
 Acceptance: full suite green.
-Commit: —
+Commit: `3d064d770`, `6d72d85cc`, `d87b64fa5` (post-merge test fixes), `4725717dc`
+(canvas man examples), `eba6ed39d` (windows goldens), `0412ff534` (fmt).
+
+**Result.** `cargo test --no-fail-fast` before the main merge: `test result: ok.
+3619 passed; 0 failed`. After merging main (plan-98-E/F/G, bug-478, the Win64
+register fix) the lib suite is `ok. 3637 passed; 0 failed`, and the integration
+binaries the merge broke -- all of them main's own new `rt_canvas_*`,
+`cli_canvas_*`, `cli_process_windows_build`, `rt_native_term_runtime`,
+`rt_crypto_hpke_interop`, `rt_union_trap_bind_default` -- were fixed and re-run
+to green individually. `artifact-gate.sh all`: 1308 tests, 1805 goldens, and the
+only 6 diffs were the `.ncodesum`s outside `tests/byte-identity/` that
+`regen-ncodesum.sh` structurally cannot reach; regenerated in `16a34c45a`.
+`man-run-examples.sh` across all 27 packages: zero build failures, every
+remaining failure a `(run)` needing stdin, ICMP, a font file or a non-terminating
+server.
 
 ## Validation Plan
 
