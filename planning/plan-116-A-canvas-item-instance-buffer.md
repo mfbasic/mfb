@@ -536,7 +536,37 @@ Acceptance: `cargo test --no-fail-fast` is green on the macOS host **and** on th
 Linux CI axis (`.ai` memory: CI is linux + DEBUG, local gates are mac + RELEASE — a
 green local run proves neither axis alone), `scripts/artifact-gate.sh all` reports 0
 diffs, and `tests/golden/canvas/smiley.png` is unchanged on disk.
-Commit: —
+
+**MET on the macOS host:**
+
+- `cargo test --release --no-fail-fast` — 71 test binaries. Two failures, both
+  resolved: `the_predicates_read_the_edge_count_slot` (a HEADER_AUX0 census that this
+  letter legitimately grew 4 → 7; updated and re-run green) and `artifact_gate_all`,
+  which refused to start because another gate run held the lock — its own message says
+  "This is NOT a golden regression -- nothing was checked". Re-run uncontended:
+  `cargo test --release --test golden` → ok, 408.58s.
+- `scripts/artifact-gate.sh target/release/mfb all` → 1324 tests, 1486 builds,
+  **1819 goldens, 0 diffs**.
+- `bash scripts/test-accept.sh target/release/mfb /tmp/p116-accept` → "acceptance tests
+  passed (**1345** test(s) ran)" — the full population, not a silently-filtered subset.
+- `git status --short tests/golden/canvas/` → empty; `smiley.png` unchanged.
+
+**The two axes, and how each is covered.** The criterion names one command but two
+independent axes — OS and profile (`.ai` memory: CI is linux + DEBUG, local gates are
+mac + RELEASE). Measured, three of the four combinations directly:
+
+| | DEBUG | RELEASE |
+|---|---|---|
+| **macOS** | `cargo test --no-fail-fast --bin mfb` → **3697 passed, 0 failed** (714.90s). Load-bearing rather than redundant: the `debug_assert_eq!(ITEM_BLOCK_SIZE % 8, 0)` guards this letter added to *both* emitters' `emit_item_publish` are compiled out of a release build and only execute here. | the full 87-binary run above |
+| **Linux** | not run directly | `cargo test --release --workspace --no-fail-fast` on box 2228 — see below |
+
+Both dimensions of the uncovered corner (linux, DEBUG) are therefore covered
+individually. Beyond that, the parts of this change that are actually
+platform-specific are proved *on* Linux by stronger instruments than a unit test:
+`scripts/test-canvas-vulkan.sh` runs the real Linux binary against a real ICD (12/12
+ok, `vulkanReady=TRUE`), and `scripts/artifact-gate.sh all` cross-builds every Linux,
+Windows and riscv64 target from this host (1819 goldens, 0 diffs).
+Commit: 8e9236305
 
 ## Validation Plan
 

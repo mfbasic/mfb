@@ -348,16 +348,14 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
     "_mfb_macapp_sel_setRenderPipelineState",
     "setRenderPipelineState:",
 );
-pub(super) const SEL_SET_VERTEX_BYTES: (&str, &str) = (
-    "_mfb_macapp_sel_setVertexBytes",
-    "setVertexBytes:length:atIndex:",
-);
-pub(super) const SEL_DRAW_PRIMITIVES: (&str, &str) = (
-    "_mfb_macapp_sel_drawPrimitives",
-    "drawPrimitives:vertexStart:vertexCount:",
-);
-/// The instanced sibling (plan-116-A) — one draw for a whole run of consecutive
-/// non-text items.
+/// The only draw this backend issues (plan-116-A) — one call for a whole run of
+/// consecutive non-text items, and one per glyph.
+///
+/// It replaced `drawPrimitives:vertexStart:vertexCount:` and
+/// `setVertexBytes:length:atIndex:` outright, and both are *deleted* rather than kept
+/// for a caller that might want them: every selector in `metal_data_objects` is a C
+/// string emitted into every canvas binary and registered with the ObjC runtime at
+/// startup, so an unsent one is not free.
 ///
 /// `baseInstance:` is the load-bearing part, not `instanceCount:`: it is what lets a run
 /// that begins partway through the item buffer name its own blocks. MSL's
@@ -2245,8 +2243,6 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_COMMAND_BUFFER,
         SEL_RENDER_COMMAND_ENCODER,
         SEL_SET_RENDER_PIPELINE_STATE,
-        SEL_SET_VERTEX_BYTES,
-        SEL_DRAW_PRIMITIVES,
         SEL_END_ENCODING,
         SEL_COMMIT,
         SEL_WAIT_UNTIL_COMPLETED,
