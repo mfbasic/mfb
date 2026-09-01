@@ -256,7 +256,8 @@ rather than deleted so it is never recycled.
 
 Acceptance: both sites named, and the `STATE`-clause behavior measured and written
 into Corrections.
-Commit: —
+Commit: 92df978e8 (analysis only — no source change; the grammar arm the second
+task needed to measure against landed with Phase 3, 393179e23)
 
 ### Phase 2 — Rules first: reject the wrong shapes before accepting the right one
 

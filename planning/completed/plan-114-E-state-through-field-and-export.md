@@ -262,7 +262,7 @@ Answers the two §2 UNVERIFIED rows before any code depends on them.
 
 Acceptance: the failure (or success) mode is named, located at a specific layer, and
 written down.
-Commit: —
+Commit: 76f00ecb3 (analysis only — the export path measured and written into §2/Corrections C1)
 
 ### Phase 2 — `STATE` on a field type, and the two-dot read
 
@@ -300,7 +300,7 @@ Commit: —
 
 Acceptance: the round-trip fixture prints `42` (not `0`); both negative fixtures
 show their codes from a **full** `mfb build`, not from `-ast -ir`.
-Commit: —
+Commit: 02d932386 (the STATE-bearing field type and the two-dot read), 673351a13 (the TYPE_STATE_INVALID routing and both negative fixtures)
 
 ### Phase 3 — Document the write path honestly
 
@@ -318,7 +318,7 @@ Commit: —
 
 Acceptance: the fixture writes through the rebind and reads the new value back
 through the record; the spec states the rule.
-Commit: —
+Commit: 673351a13 (`record-res-field-state-write-rt` landed alongside the Phase 2 gate it shares a file with)
 
 ### Phase 4 — Export a resource-carrying record (largest blast radius)
 
@@ -345,7 +345,7 @@ Commit: —
 
 Acceptance: the importer fixture builds, runs, prints the payload it expects, and
 closes exactly once (close-site count, as in letter C).
-Commit: —
+Commit: f27296633
 
 ### Phase 5 — Feature closeout
 
@@ -382,7 +382,7 @@ Commit: —
 
 Acceptance: full gate and acceptance harness green; every doc listed above updated;
 all five sub-plans archived.
-Commit: —
+Commit: 49964c86b and eaaa8e38b (docs), 3fcce4b0c (artifact gate), 577f3034d (cargo test), 18fa7b797 (accept + archive)
 
 ## Validation Plan
 
