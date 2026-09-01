@@ -3350,15 +3350,23 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     // killed the program because one frame could not be shown would be worse than
     // one that skips it, and the next frame re-renders the same scene.
     ins.push(abi::branch_eq("blit_done"));
+    // `c_return(0)`, not `return_register()`. `HeapAlloc` hands the block back in the C
+    // result (`rax`); the aligned MFB bank is `rcx` on Win64. The null check two lines
+    // up already reads `c_return(0)` — it is the *uses* that read the wrong one, which
+    // is the shape every member of this family has (bug-478).
+    //
+    // What it cost: the header stores wrote the width and height THROUGH the width, so
+    // the graphics thread faulted storing to address 900 on the first frame of every
+    // Windows canvas program (bug-479).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         BLOCK,
     ));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDTH));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::return_register(), 0));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::c_return(0), 0));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HEIGHT));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::return_register(), 8));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::c_return(0), 8));
 
     // Swizzle-copy RGBA -> BGRX.
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), CURSOR));
