@@ -551,6 +551,28 @@ diffs, and `tests/golden/canvas/smiley.png` is unchanged on disk.
   passed (**1345** test(s) ran)" — the full population, not a silently-filtered subset.
 - `git status --short tests/golden/canvas/` → empty; `smiley.png` unchanged.
 
+**Re-run after merging `main` (§5), which is the version that counts.** All of the
+above were re-measured on the merged tree, and two of them moved for reasons that are
+not this letter's:
+
+- `cargo test --release --no-fail-fast` → **87 test binaries, 0 failures**, artifact
+  gate included (no lock contention this time).
+- `scripts/artifact-gate.sh target/release/mfb all` → 1325 tests, 1487 builds,
+  **1823 goldens, 0 diffs**. The golden count rose 1819 → 1823 because `main` brought
+  four new plan-115 fixtures.
+- `bash scripts/test-accept.sh …` → "acceptance tests passed (**1346** test(s) ran)";
+  1345 → 1346 for the same reason.
+- `scripts/test-canvas-vulkan.sh target/release/mfb` → 12/12 ok, `vulkanReady=TRUE`,
+  `worst=1`.
+
+One flake, identified rather than waved through: an earlier acceptance run reported
+`2 mismatch(es)`, both "missing actual" for
+`rt-behavior/tcp/func_tcp_close_valid` — a TCP fixture that binds a real port, failing
+while peer sessions were running their own suites (load average 12). Re-run alone:
+"acceptance tests passed (1 test(s) ran)"; re-run in full on a quieter machine: 1346
+passed. Nothing in this letter touches TCP, and the whole-suite re-run is the evidence,
+not the isolated one.
+
 **The two axes, and how each is covered.** The criterion names one command but two
 independent axes — OS and profile (`.ai` memory: CI is linux + DEBUG, local gates are
 mac + RELEASE). Measured, three of the four combinations directly:
