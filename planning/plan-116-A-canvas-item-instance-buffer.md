@@ -64,9 +64,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh` (ships GLSL to box 2228, compiles against a dpkg-extracted glslang — its own header documents this) | MET (2026-09-01: box 2228 reachable; the script needs no preinstalled glslang) |
-| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --test rt_canvas_metal -- --no-fail-fast` | MET (2026-09-01: in the default local suite on this host; re-run at Phase 2 start) |
-| A Vulkan-capable Linux box (ICD present, not just loader) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh` end to end | MET (2026-09-01: 7 ICDs on 2228 including `lvp_icd.json` — lavapipe, a software ICD, so `vulkanReady` does not depend on GPU hardware); run the script before relying on it |
+| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh` (ships GLSL to box 2228, compiles against a dpkg-extracted glslang — its own header documents this) | **MET** (re-measured 2026-09-01 at execution start: ran end to end, "Glslang Version: 11:15.2.0", vert→2540 B, frag→14676 B, and `git status --short src/codegen/runtime/canvas/shaders/` was **empty** — the checked-in blobs reproduce byte-identically, so the regen path is trustworthy for a real GLSL edit) |
+| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --release --test rt_canvas_metal --no-fail-fast` | **MET** (re-measured 2026-09-01: `3 passed; 0 failed` in 66.64s. NOTE: the command as first written put `--no-fail-fast` after `--`, which the test binary rejects with "Unrecognized option"; it is a cargo flag. Command corrected here — see Corrections C2) |
+| A Vulkan-capable Linux box (ICD present, not just loader) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh target/release/mfb` end to end | **MET** (re-measured 2026-09-01: 7 ICDs on 2228 incl. `lvp_icd.json`; the harness ran end to end — `vulkanReady=TRUE`, `gpuSelected=TRUE`, all 12 checks ok, "canvas Vulkan runtime tests passed") |
 
 Everything below is written against the world where these hold. The SPIR-V one is
 hard: the `.spv` blobs are checked in and there is no build-time shader compiler
@@ -474,6 +474,13 @@ Commit: —
   region moved into this letter; effort re-estimated large → x-large. The "9 call
   sites" population was also a miscount (it counted selector-constant declarations
   and comments); replaced with the classified emission sites in §2.
+- **C2 (2026-09-01, execution — Prerequisites gate).** The Metal prerequisite's
+  command was written `cargo test --test rt_canvas_metal -- --no-fail-fast`, which
+  fails immediately: `--no-fail-fast` is a **cargo** flag, and placing it after `--`
+  hands it to the test binary, which answers `error: Unrecognized option:
+  'no-fail-fast'`. Corrected in the table to
+  `cargo test --release --test rt_canvas_metal --no-fail-fast`. The `--release` is
+  also load-bearing on this repo (auto-memory: tests run the RELEASE `mfb` binary).
 
 ## Summary
 
