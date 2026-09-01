@@ -455,7 +455,7 @@ Acceptance: `cargo test --no-fail-fast` green, including the new negative
 `is_c_abi_type` assertions; all `.ast` and `.ir` goldens byte-identical
 (`scripts/test-accept.sh <target> /tmp/accept-113` → 0 mismatches, same `N ran`
 as the kickoff baseline); the six CSTRUCT-slot goldens still build.
-Commit: —
+Commit: eae8d47a0 — **landed with Phase 3** (C8: they are one compile unit)
 
 ### Phase 3 — codegen marshaling and the wire seam (largest blast radius)
 
@@ -497,7 +497,7 @@ mismatches; `cargo test --no-fail-fast` green; the `rt-behavior/native/**`
 fixtures (`libsnd-open-file-info-rt`, `libsnd-read-samples-rt`,
 `native-struct-scalar-rt`, `native-struct-cstring-rt`) **execute** correctly —
 a same-width arm swap is invisible to byte-identity and only running catches it.
-Commit: —
+Commit: eae8d47a0
 
 ### Phase 4 — lock the gate
 
@@ -511,7 +511,7 @@ Commit: —
 
 Acceptance: `cargo test --test no_type_strings` passes with the new class at
 hard zero; the re-measured census reads 0.
-Commit: —
+Commit: eae8d47a0
 
 ### Phase 5 — docs and archive
 
@@ -536,7 +536,7 @@ Acceptance: `mfb spec language native-libraries` renders the corrected prose;
 no dangling citation to `abi_slot_ctype_is_known`
 (`grep -rn "abi_slot_ctype_is_known" src/ .ai planning` → 0 outside this plan's
 Corrections); `cargo test --no-fail-fast` green.
-Commit: —
+Commit: eae8d47a0
 
 ## Validation Plan
 
