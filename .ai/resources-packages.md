@@ -256,3 +256,59 @@ Known instances:
 **Finding them:** `python3 scripts/check-man-examples.py` compiles all ~1010 man-page example blocks. It uses `target/release/mfb` — a stale release build will report already-fixed failures, so build release first. It wraps a block with no `main` in a synthetic empty `SUB main()`, so reproduce that wrapping by hand when checking a single block.
 
 Fixture note: a `<name>.run` golden may be empty and still load-bearing — its *presence* is what makes `test-accept.sh` build and execute the program (output lands in `build.log`). New fixtures also need seeded empty `.ast`/`.ir` goldens or the harness reports "unexpected actual".
+
+## Record `RES` field (plan-114)
+
+A record field may hold a resource: `TYPE Holder { handle AS RES fs::File }`.
+The field is **one 8-byte handle slot** — copying the record copies the pointer
+and aliases the same resource, never duplicating it (§15.6). Four things about it
+are non-obvious and cost real bugs during plan-114.
+
+**1. The `RES` marker survives only where a type is stored unstripped.**
+`typed_list_element_type` and `typed_map_type_parts` **strip** it
+(`engine/types/type_utils.rs:345`, `:352`), so a collection payload is a *bare*
+resource. `model.record_fields` does **not** strip, so a record field is the only
+position where a `ParameterType::Res(_)` reaches a structural walk at the top
+level. Consequences:
+
+- `type_is_flat` was `false` for `List OF RES fs.File` all along (the payload is
+  bare) — not `true` as one would guess from reading `Res(_)` having no arm.
+- The `Res(_)` arm of any type predicate is reachable **only** through a record
+  field, so its blast radius is exactly the new feature.
+
+**2. A bare resource nominal is flat in NEITHER sense; `Res(_)` is flat in one.**
+`type_is_memcpy_copyable` / `type_is_arena_transferable` (plan-114-B) split
+"does a `memcpy` copy this within one thread" from "may this block be relocated
+into another thread's arena". `Res(inner)` is `true`/`false`; a **bare** nominal
+is `false`/`false`, and making it `true` for the memcpy question **propagates
+through `ResultOf`**: `Result OF tcp.Socket` becomes "flat",
+`is_freeable_flat_value` claims it, and a `pending_temp` free is emitted for
+something that is not a block. Measured as a real `.ncode` diff in
+`tests/byte-identity/tcp`, a fixture with no thread in it.
+
+**3. `copy_value_to_current_arena` asks the MEMCPY question, not the arena one.**
+Its name is the tell: it copies into the *current* arena, and the `Result` wrap
+at `builder_arena_transfer.rs:145` is reached by any `TRAP` in a thread-free
+program. Whether the source came from another thread is the *caller's* question,
+answered by `collection_payload_needs_transfer_fix` and the thread-send
+`size_computable` — the only two consumers of arena-transferability.
+
+**4. The escape analysis needs a type table for records, and `decl_type` is
+annotation-only.** `ResOwner::Float(name)` carries a binding name, and the
+bug-291 ordering gate consults `decl_type` to ask "can this container own a
+resource". `Named("Holder")` cannot answer that, so `ir::lower` threads
+`TypeIndex::res_field_record_types()` into `analyze_function_with`. **And
+`decl_type` is populated only for an explicit `AS T`** — so
+`LET h = Holder[..., f]; RETURN h` (inferred) had no entry, the gate degraded to
+`ResOwner::Local`, and the callee closed the handle it had just returned
+(`7-703-0004` in the caller). A record *constructor* names its own type, so the
+type is recorded from the initializer. A `RES` **parameter** is exempt from the
+ordering rule entirely: the caller owns it, this function never produces it, so
+there is no production point for the rule's hazard to attach to.
+
+**Design limit worth knowing:** a resource the callee **produces** cannot be
+returned inside a record. The ordering rule wants the container declared before
+the resource, and a record — unlike an empty `List` — cannot be constructed
+before its handle exists. `FUNC wrap(RES f AS fs::File) AS Holder` is the usable
+shape. A record with two `RES` fields of *different* resource types is refused:
+an owned-list carries one `OwnedListDrop`.

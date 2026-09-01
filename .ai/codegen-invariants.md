@@ -332,3 +332,26 @@ across it. When a converted function calls a still-untyped helper
 `type_.name()` at that call and name the letter that deletes it. What this rule
 forbids is the opposite move: typing a signature and pushing the render *out* to
 its callers, which multiplies renders while the gate count goes down.
+
+## Two flatness predicates, not one (plan-114-B)
+
+`type_is_flat` is gone. It answered two questions with one predicate:
+
+- `type_is_memcpy_copyable` — "does a `memcpy` of this block COPY it correctly,
+  within one thread?" Consumers: `is_pointer_collection_payload_type`,
+  `list_element_padding_alignment`, `record_field_is_inlined`,
+  `is_freeable_flat_value`, and `copy_value_to_current_arena` (which copies into
+  the CURRENT arena — see below).
+- `type_is_arena_transferable` — "may this block be RELOCATED into another
+  thread's arena?" Strictly stronger: a resource handle anywhere inside would
+  arrive pointing into the *sender's* arena. Consumers:
+  `collection_payload_needs_transfer_fix` and the thread-send `size_computable`.
+
+Both are one shared `flatness_walk` with a `mode`, so the structural arms exist
+once and cannot drift. They differ in exactly one leaf: `ParameterType::Res(_)`
+is memcpy-copyable and not arena-transferable.
+
+**The trap:** classifying a site by "it has 'arena' in the name" is wrong.
+`copy_value_to_current_arena` takes the *memcpy* predicate — most of its callers
+are in-arena (the `Result` wrap is reached by any `TRAP`), and asking the arena
+question there changed codegen for a fixture containing no threads at all.
