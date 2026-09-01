@@ -45,7 +45,7 @@
     "body": [
     { "op": "bind", "line": 40, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-return-rt.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
     { "op": "bind", "line": 41, "mutable": false, "name": "first", "type": "Holder", "value": { "kind": "call", "type": "Holder", "target": "wrap", "args": [{ "kind": "local", "name": "g" }] } },
-    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "RES fs.File", "target": { "kind": "local", "name": "first" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "written after the callee returned" }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "first" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "written after the callee returned" }] } },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "returned record kept the handle open" }] } },
     { "op": "bind", "line": 46, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
@@ -56,7 +56,7 @@
       "body": [
       { "op": "bind", "line": 48, "mutable": false, "name": "h", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-return-rt-loop.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
       { "op": "bind", "line": 49, "mutable": false, "name": "wrapped", "type": "Holder", "value": { "kind": "call", "type": "Holder", "target": "wrap", "args": [{ "kind": "local", "name": "h" }] } },
-      { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "RES fs.File", "target": { "kind": "local", "name": "wrapped" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "x" }] } },
+      { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "wrapped" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "x" }] } },
       { "op": "assign", "line": 51, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },

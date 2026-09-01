@@ -4752,13 +4752,39 @@ impl TypeIndex {
         }
     }
 
+    /// The type a field READ yields.
+    ///
+    /// plan-114-E: the field's declared type with its top-level `RES ` marker
+    /// stripped, leaving `Stateful { base, state }` (or the bare resource when
+    /// the field carries no `STATE`). The value is unchanged — the slot holds
+    /// the handle pointer either way; only the spelling differs.
+    ///
+    /// **This is the one place to strip it.** `IrValue::MemberAccess` carries an
+    /// annotated `type_` produced from here, and `ir::verify`'s `infer_type`
+    /// *prefers that annotation* over re-resolving the field
+    /// (`ir/verify/mod.rs:1002`) — so stripping only in the verifier or only in
+    /// codegen leaves the IR itself saying `RES fs.File` while its consumers say
+    /// otherwise. Stripping at the annotation site keeps the `.ir`, the type
+    /// checker and codegen telling the same story.
+    ///
+    /// Why it is needed at all: `split_state` matches `Stateful` only at the top
+    /// level (`src/types.rs:629`), so `Res(Stateful{..}).state()` is `None` and
+    /// `h.handle.state` is refused with `TYPE_STATE_INVALID` claiming
+    /// "`fs.File` here has no STATE" — a message naming the wrong problem.
+    ///
+    /// Unconditional, exactly as a collection element does it
+    /// (`list_element("List OF RES Socket") == "Socket"`): one rule for both
+    /// positions keeps them from drifting.
     fn record_field_type(&self, type_: &ParameterType, member: &str) -> Option<ParameterType> {
         self.records
             .get(type_)
             .or_else(|| self.variant_fields.get(type_))?
             .iter()
             .find(|field| field.name == member)
-            .map(|field| field.type_.clone())
+            .map(|field| match &field.type_ {
+                ParameterType::Res(inner) => (**inner).clone(),
+                other => other.clone(),
+            })
     }
 
     fn variant_belongs_to_union(

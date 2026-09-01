@@ -1,0 +1,55 @@
+{
+  "project": "record_res_field_state_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 16 },
+    { "module": "io", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cursor",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 20 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Holder",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 24 },
+      { "visibility": null, "name": "handle", "type": "RES fs.File STATE Cursor", "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/record-res-field-state-rt.txt" }, { "kind": "string", "value": "w" }] }, "line": 29 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "h", "type": null, "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "string", "value": "first" }, { "kind": "identifier", "value": "f" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": null, "value": { "kind": "with", "target": { "kind": "identifier", "value": "h" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "copy" } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "owner   pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record  pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "handle" }, "member": "state" }, "member": "pos" }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "copy    pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "g" }, "member": "handle" }, "member": "state" }, "member": "pos" }] } }] }, "line": 41 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "7" } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after   pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "g" }, "member": "handle" }, "member": "state" }, "member": "pos" }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
+      ]
+    }
+    ]
+  }
+  ]
+}
