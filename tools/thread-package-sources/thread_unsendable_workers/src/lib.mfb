@@ -1,0 +1,26 @@
+IMPORT thread
+
+' bug-482: each entry below declares an `In` parameter that is NOT
+' thread-sendable per spec §16. The entries themselves are well-formed —
+' the defect being pinned is that `thread::start`'s call-site check on the
+' `data` argument never fired, so a caller could hand any of these a value
+' that must not cross the boundary.
+
+' A function value. A capturing lambda passed here would have its closure
+' environment read from the PARENT's arena on the worker thread.
+EXPORT ISOLATED FUNC takesFunc(t AS ThreadWorker OF Nothing TO Integer, f AS FUNC() AS Integer) AS Integer
+  RETURN f()
+END FUNC
+
+' A thread handle. `Thread` is non-sendable: a handle is meaningful only on
+' the thread that owns it.
+EXPORT ISOLATED FUNC takesHandle(t AS ThreadWorker OF Nothing TO Integer, h AS Thread OF Nothing TO Integer) AS Integer
+  RETURN 1
+END FUNC
+
+' The sendable control case: an Integer `In` must keep compiling clean, so
+' the fixture proves the rule narrowed to non-sendable types rather than
+' rejecting every `thread::start`.
+EXPORT ISOLATED FUNC takesInteger(t AS ThreadWorker OF Nothing TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC

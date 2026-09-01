@@ -1,12 +1,12 @@
 # bug-482: `thread::start`'s input-sendability check never fires — a capturing lambda crosses the thread boundary and runs on the worker
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: `tests/syntax/threads/thread-start-input-not-sendable/` (new)
+Status: Fixed 2026-09-01
+Regression Test: `tests/syntax/threads/thread-start-input-not-sendable/`
 
 `thread::start(f, data)` is required to reject a `data` argument whose type is
 not thread-sendable — spec §16 lists functions, lambdas, `Thread`, `ThreadWorker`
@@ -181,10 +181,85 @@ at `src/ir/verify/resources.rs:691-696` (the line numbers in this report have
 drifted from 588-595). H1 vs H2 remains unconfirmed — the symptom was
 reproduced, not instrumented.
 
-## Root Cause
+## Root Cause — CONFIRMED 2026-09-01: **both** H1 and H2, in series
 
-Unconfirmed; two hypotheses, ordered by likelihood. Both sit in
-`check_thread_boundary_sendability` (`src/ir/verify/resources.rs:561`).
+Instrumented on current main. Neither hypothesis alone explains the bug, and
+fixing either alone leaves it effectively unfixed — which is why the report
+below could not choose between them.
+
+**H1 is true, and it kills the rule outright.** Probe at the gate:
+
+```
+B482-PROBE first="04187eb9abe9cc82.wpkg.w" in_functions=true imported_entry=false
+           fnkeys=["$lambda0", "04187eb9abe9cc82.wpkg.w", "main"]
+```
+
+`TypeEnv::build` (`src/ir/verify/mod.rs:737-753`) inserts **every** function of
+`IrProject::functions`, and an imported package's functions are lowered into
+that same list under the package-keyed name the entry's `FunctionRef` carries.
+So the gate's premise — "absent from `functions` ⇒ came from an import" — is
+exactly backwards, `imported_entry` is `false` for an imported entry and a
+same-project one alike, and the whole arm returns early. Everything behind it
+was dead.
+
+**H2 is also true, and it is why H1's fix is not enough.** Probe at the
+`return_type` guard, on the same repro, showing both verify passes:
+
+```
+   source pass: file="src/main.mfb" line=18 return_type=None
+                arg1=Some("FUNC() AS Integer")
+   native pass: file="src/main.mfb" line=18 return_type=Some("Thread OF Nothing TO Integer")
+                arg1=Some("FUNC() AS Integer")
+```
+
+There are two verify passes: `ir::verify_source_diagnostics` on the source-lowered
+IR (`src/cli/build/mod.rs:612`) and `ir::verify_semantics` on the **merged** IR
+(`src/target/shared/nir/lower.rs:110`). In the *source* pass `infer_type(call)`
+is `None` — that pass does not hold the imported entry's signature — so
+`let Some(return_type) = … else { return }` returns **before** the `In` rule,
+even with the gate gone. Only the merged/native pass reached it.
+
+**Why that distinction is not academic.** The native pass reports through
+`verify_semantics`'s `Result` channel, which carries no span, so the diagnostic
+renders unlocated (`error: TYPE_THREAD_NOT_SENDABLE: …`, no file, no rule code) —
+and that pass is skipped entirely when any dump flag is present. Measured on the
+fixture before the H2 half of the fix:
+
+| invocation | exit | errors |
+| --- | --- | --- |
+| `mfb build <fixture>` | 1 | 1 (unlocated) |
+| `mfb build -ast <fixture>` | 0 | 0 |
+| `mfb build -ir <fixture>` | 0 | 0 |
+| `mfb build -ast -ir <fixture>` | 0 | 0 |
+
+`scripts/test-accept.sh` builds every `tests/syntax/` fixture with exactly
+`-ast -ir` (`scripts/test-accept.sh:518`, `console_flags="-ast -ir"`). **A rule
+that fires only in the native pass therefore cannot be pinned by a syntax
+golden at all** — the regression test would have recorded `[exit 0]` and no
+diagnostic, and passed forever while the hole stayed open.
+
+## Fix (landed)
+
+Two edits in `check_thread_boundary_sendability`:
+
+1. **Delete the `imported_entry` gate.** The entry's provenance has no bearing on
+   whether `data` crosses the boundary safely, so there is nothing to gate on.
+2. **Hoist the `In` rule above the `return_type` guard.** The `data` argument's
+   sendability is a property of the argument alone; the call's own type says
+   nothing about it. The handle-plane rules (message/resource/output) genuinely
+   need `return_type` and stay below the guard.
+
+`is_thread_sendable` is unchanged, as the report requires.
+
+After the fix, under the harness's own `-ast -ir` invocation, all four
+non-sendable shapes are rejected at their call sites with `2-203-0063`, and the
+sendable control case (`In = Integer`) is not — proving the rule narrowed to
+non-sendable types rather than swallowing every `thread::start`.
+
+## Original hypotheses (kept for the record)
+
+Both sit in `check_thread_boundary_sendability`
+(`src/ir/verify/resources.rs:561`).
 
 **H1 (likely) — the `imported_entry` gate is never true.**
 
@@ -263,3 +338,31 @@ to failure and reports PASS). Only `tests/syntax/` may pin a diagnostic.
 - Audit for other callers of the same shape: `grep -n "imported_entry" src/` and
   re-read each early-return in `check_thread_boundary_sendability` for the same
   stale-premise pattern.
+
+### Results (2026-09-01)
+
+| Gate | Result |
+| --- | --- |
+| `scripts/test-accept.sh ./target/release/mfb <scratch>` | **passed, 1345 ran, 0 mismatches** |
+| `cargo check --all-targets` | clean — no warnings, no errors |
+| Case 1 (`/tmp/b482/consumer`) | **exit 1**, `…/src/main.mfb:7 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: … Call to \`thread.start\` input requires a thread-sendable type, got \`FUNC() AS Integer\`.` |
+| `grep -n "imported_entry" src/` | 0 hits — the stale-premise gate is gone, not narrowed |
+
+**No behavioral golden was edited.** An intermediate version of this fix deleted
+the gate wholesale, which resurrected the three redundant handle-plane rules and
+drifted exactly one golden (`func_thread_start_invalid/build.log`) by
+double-reporting line 18. That was a defect in the fix, not a stale golden:
+removing the redundant rules (they are covered by the declared-type walk)
+returned that golden to byte-identical and left the new fixture as the only
+test change.
+
+### A trap this bug leaves behind for future diagnostic work
+
+`scripts/test-accept.sh` builds every `tests/syntax/` fixture with `-ast -ir`
+(`console_flags="-ast -ir"`, `scripts/test-accept.sh:518`), and a dump build
+**returns before the native pipeline**. A rule that fires only in
+`ir::verify_semantics` (the merged/native pass, `src/target/shared/nir/lower.rs:110`)
+is therefore invisible to the syntax golden harness *and* reports without a
+span. When adding a diagnostic, confirm it fires from
+`ir::verify_source_diagnostics` — compare `mfb build <fixture>` against
+`mfb build -ast -ir <fixture>` and require the same exit code.

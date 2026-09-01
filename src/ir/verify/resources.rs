@@ -673,6 +673,32 @@ impl TypeEnv {
             "thread.start" | "thread.send" => target,
             _ => return,
         };
+        // bug-482, the `In` rule. This runs BEFORE the `return_type` guard below,
+        // and it is the only boundary rule that may. The `data` argument's
+        // sendability is a property of the argument alone — the call's own type
+        // says nothing about it — so gating it on a derived return type made it
+        // unreachable exactly where it matters. Measured on the repro: in the
+        // source pass `infer_type(call)` is `None` (the entry is an imported
+        // function whose signature that pass does not hold) while the argument
+        // infers fine, so the guard returned before this rule and only the
+        // merged/native pass ever reached it — see the comment on the gate below.
+        //
+        // Keeping it here is also what makes the diagnostic USABLE: the source
+        // pass has `current_file`/`current_line` set (measured: `src/main.mfb:18`),
+        // so the rule reports at the call site, whereas the native pass reports
+        // through `verify_semantics`'s error-return channel, which carries no span
+        // and is skipped entirely for `-ast`/`-ir` dumps — the very invocation
+        // `scripts/test-accept.sh` uses for a `tests/syntax/` fixture. A rule that
+        // only fires in the native pass cannot be pinned by a syntax golden.
+        if target == "thread.start" {
+            if let Some(Some(input)) = args.get(1).map(|arg| self.infer_type(arg, locals)) {
+                self.require_thread_sendable(
+                    &format!("Call to `{display}` input"),
+                    &input,
+                    Plane::Data,
+                );
+            }
+        }
         let Some(return_type) = self.infer_type(call, locals) else {
             return;
         };
@@ -684,51 +710,34 @@ impl TypeEnv {
             .map(|arg| self.infer_type(arg, locals))
             .collect();
         match target {
-            "thread.start" => {
-                // the former source checker reaches the boundary rules only for an entry point
-                // that is an imported package's exported ISOLATED FUNC; a local
-                // function or a lambda was already rejected as the argument.
-                let imported_entry = matches!(
-                    args.first(),
-                    Some(IrValue::FunctionRef { name, .. }) if !self.functions.contains_key(name)
-                );
-                if !imported_entry {
-                    return;
-                }
-                if let Some(Some(input)) = arg_types.get(1) {
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` input"),
-                        input,
-                        Plane::Data,
-                    );
-                }
-                if let ParameterType::ThreadHandle {
-                    worker: false,
-                    msg,
-                    res,
-                    out,
-                    ..
-                } = &return_type
-                {
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` message type"),
-                        msg,
-                        Plane::Data,
-                    );
-                    if !matches!(**res, ParameterType::Nothing) {
-                        self.require_thread_sendable(
-                            &format!("Call to `{display}` resource type"),
-                            &res.without_state(),
-                            Plane::Resource,
-                        );
-                    }
-                    self.require_thread_sendable(
-                        &format!("Call to `{display}` output type"),
-                        out,
-                        Plane::Data,
-                    );
-                }
-            }
+            // bug-482: `thread.start`'s only call-site rule is the `In` rule, and
+            // it runs above (before the `return_type` guard, which it must not
+            // depend on).
+            //
+            // There used to be three more here — message/resource/output — behind
+            // an `imported_entry` gate whose premise ("a `FunctionRef` name absent
+            // from `functions` came from an import") is backwards: `TypeEnv::build`
+            // inserts every function of `IrProject::functions`, and an imported
+            // package's functions are lowered into that same list under the
+            // package-keyed name the entry's `FunctionRef` carries (measured:
+            // `first="04187eb9abe9cc82.wpkg.w"`,
+            // `fnkeys=["$lambda0", "04187eb9abe9cc82.wpkg.w", "main"]`). The gate
+            // was false for an imported entry and a same-project one alike, so all
+            // four rules were dead.
+            //
+            // Only the `In` rule was resurrected, because only it has no other
+            // guard. The other three are strictly redundant with the declared-type
+            // walk (`check_thread_sendability`): `thread::start`'s handle planes
+            // are read off the entry's own `ThreadWorker OF Msg TO Out` parameter
+            // and return type, which are declarations the walk already checks —
+            // whether or not the binding is annotated, and whether the entry is
+            // local or imported (the merged pass walks the imported declarations
+            // too, so a crafted `.mfp` stays covered). Reviving them reported the
+            // same defect twice at one line, measured on
+            // `tests/syntax/threads/func_thread_start_invalid` line 18:
+            //     …:18 … `Call to `thread.start` message type … got `BadStartMessage`.`
+            //     …:18 … `Thread message type … got `BadStartMessage`.`
+            // so they are deleted rather than restored into duplicates.
             "thread.send" => {
                 if let Some(Some(ParameterType::ThreadHandle { msg, .. })) = arg_types.first() {
                     // The data plane is resource-free: a resource moves across a

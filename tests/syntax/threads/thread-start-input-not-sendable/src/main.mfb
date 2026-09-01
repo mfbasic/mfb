@@ -1,0 +1,36 @@
+' bug-482: `thread::start`'s check on the `data` argument sat behind a gate
+' whose premise was backwards, so it never fired and any non-sendable value
+' could cross the thread boundary. Each rejected line below is one shape that
+' used to compile clean and link; the capturing-lambda case used to RUN, with
+' the worker dereferencing a closure environment in the parent's arena.
+IMPORT thread
+IMPORT thread_unsendable_workers
+
+FUNC helper AS Integer
+  RETURN 7
+END FUNC
+
+FUNC main AS Integer
+  LET captured AS Integer = 42
+
+  ' A capturing lambda — the memory-safety case: its environment lives in
+  ' this thread's arena, and the worker would read it across the boundary.
+  LET a AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> captured + 1)
+
+  ' A non-capturing lambda — no environment to dangle, but a function value
+  ' is still not sendable, so it is rejected for the same reason.
+  LET b AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> 7)
+
+  ' A bare function value.
+  LET c AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, helper)
+
+  ' A thread handle: meaningful only on the thread that owns it.
+  LET d AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesHandle, a)
+
+  ' The control case. An Integer IS sendable, so this line must NOT be
+  ' rejected — the rule narrowed to non-sendable types, it did not swallow
+  ' every `thread::start`.
+  LET ok AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesInteger, 5)
+
+  RETURN thread::waitFor(ok)
+END FUNC
