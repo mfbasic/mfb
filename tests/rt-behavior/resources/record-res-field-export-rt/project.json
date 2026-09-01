@@ -1,0 +1,16 @@
+{
+  "name": "record_res_field_export_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "holder_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/holder_pkg"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}
