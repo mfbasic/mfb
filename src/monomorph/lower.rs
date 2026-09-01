@@ -1774,6 +1774,10 @@ impl<'a> Monomorphizer<'a> {
     fn leaf_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
         match type_ {
             ParameterType::Named(name) | ParameterType::Var(name) => Some(*name),
+            // plan-113: same reason as `helpers::leaf_param_symbol` — a C ABI
+            // spelling is a bare token, so a template parameter may be named
+            // with one and used to be a `Named` here.
+            ParameterType::C(ctype) => Some(crate::intern::Symbol::intern(ctype.name())),
             _ => None,
         }
     }

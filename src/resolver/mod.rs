@@ -250,25 +250,33 @@ fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
 /// Whether `type_name` is a raw C ABI type (mirrors the former source checker's `is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
 fn is_c_abi_type(type_: &crate::types::ParameterType) -> bool {
-    // plan-111-B: every C ABI spelling is a nominal (none has a variant), so
-    // this is the same list asked of the interned `Symbol` the `Named` holds.
-    let crate::types::ParameterType::Named(name) = type_ else {
-        return false;
-    };
+    use crate::types::CAbiType;
+    // plan-113: every C ABI spelling is now a `ParameterType::C`, so this asks
+    // the variant instead of the interned `Symbol` a `Named` used to hold.
+    //
+    // **This is 12 of the 16 on purpose, and must NOT become
+    // `type_.c_abi().is_some()`.** `CBool`, `CByte` and `CVoid` are excluded per
+    // `17_native-libraries.md:94` ("it does **not** include `CBool`, `CByte`, or
+    // `CVoid`"), and `CBuffer` with them. Widening this widens what
+    // `NATIVE_CPTR_ESCAPE` rejects from a wrapper's MFBASIC-facing signature —
+    // a silent behaviour change, since the obvious conversion still compiles.
+    // `is_c_abi_type_recognizes_and_rejects` asserts all four negatives.
     matches!(
-        name.resolve(),
-        "CPtr"
-            | "CString"
-            | "CInt8"
-            | "CInt16"
-            | "CInt32"
-            | "CInt64"
-            | "CUInt8"
-            | "CUInt16"
-            | "CUInt32"
-            | "CUInt64"
-            | "CFloat"
-            | "CDouble"
+        type_.c_abi(),
+        Some(
+            CAbiType::Ptr
+                | CAbiType::Str
+                | CAbiType::Int8
+                | CAbiType::Int16
+                | CAbiType::Int32
+                | CAbiType::Int64
+                | CAbiType::UInt8
+                | CAbiType::UInt16
+                | CAbiType::UInt32
+                | CAbiType::UInt64
+                | CAbiType::Float
+                | CAbiType::Double
+        )
     )
 }
 
@@ -869,20 +877,38 @@ mod tests {
 
     #[test]
     fn is_c_abi_type_recognizes_and_rejects() {
+        // plan-113: these go through `parse`, not `named`. A source-written
+        // `CPtr` is a `ParameterType::C` now, and `named("CPtr")` is a nominal
+        // that merely *spells* one — a value the compiler no longer mints for a
+        // C ABI type, so asserting over it would test an unreachable shape.
         for t in [
             "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
             "CUInt32", "CUInt64", "CFloat", "CDouble",
         ] {
             assert!(
-                is_c_abi_type(&crate::types::ParameterType::named(t)),
+                is_c_abi_type(&crate::types::ParameterType::parse(t)),
                 "{t} should be a C ABI type"
             );
         }
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named(
+        // The 12-of-16 list is DELIBERATE (§3 Risk 2 of plan-113): `CBool`,
+        // `CByte` and `CVoid` are excluded per `17_native-libraries.md:94`, and
+        // `CBuffer` with them. Rewriting the predicate as
+        // `type_.c_abi().is_some()` compiles and silently adds these four to
+        // what `NATIVE_CPTR_ESCAPE` rejects; these four assertions are the only
+        // thing that catches it.
+        for t in ["CBool", "CByte", "CVoid", "CBuffer"] {
+            assert!(
+                !is_c_abi_type(&crate::types::ParameterType::parse(t)),
+                "{t} must NOT be a C ABI type for NATIVE_CPTR_ESCAPE"
+            );
+        }
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse(
             "Integer"
         )));
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named("CPtrX")));
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named("")));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse("CPtrX")));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse("")));
+        // A nominal that merely spells a C type is not one.
+        assert!(!is_c_abi_type(&crate::types::ParameterType::named("CPtr")));
     }
 
     #[test]
