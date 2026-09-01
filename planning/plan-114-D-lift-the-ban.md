@@ -31,11 +31,11 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-114-C complete and landed | `ls planning/completed/plan-114-C-*` → one match | NOT MET |
-| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | NOT MET |
-| plan-114-A complete and landed | `ls planning/completed/plan-114-A-*` → one match | NOT MET |
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
+| plan-114-C complete and landed | `ls planning/completed/plan-114-C-*` → one match | MET (2026-08-31) |
+| plan-114-B complete and landed | `ls planning/completed/plan-114-B-*` → one match | MET (2026-08-31) |
+| plan-114-A complete and landed | `ls planning/completed/plan-114-A-*` → one match | MET (2026-08-31) |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty | MET (2026-08-31, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-31) |
 
 If any letter A–C is not complete, this letter cannot start, full stop. Everything
 below is written against the world where these hold.
@@ -385,7 +385,23 @@ loop completes without `7-703-0004` or fd exhaustion; all three rejection fixtur
 show their expected codes; `scripts/artifact-gate.sh target/release/mfb all` shows
 diffs **only** in the newly added fixtures — a diff in a pre-existing fixture is a
 bug to root-cause (objdump one fixture), not an expected cost.
-Commit: —
+
+**MET.** The rt fixture prints both markers and exits 0, and
+`target/record-res-field-rt.txt` contains `written through the copy` — the write
+reached disk *through the copy*, which is the assertion. All rejection fixtures
+show their codes (§Phase 3 tasks). The gate:
+
+```
+artifact-gate [all]: 1317 tests, 1479 build(s), 1809 golden(s) checked, 0 diff(s)
+GATE_EXIT=0
+```
+
+`1317` is up from letter B/C's `1311` — exactly the six new fixtures — and
+**0 diffs**, so no pre-existing fixture moved. Note the gate compares
+`.ncode`/`.ncodesum`, and none of the new fixtures is a byte-identity one, so
+"diffs only in the new fixtures" resolves to "no diffs at all" here; the new
+fixtures' own goldens are `build.log`s, which `test-accept` checks.
+Commit: 393179e23, 9e9c15d1e
 
 ## Validation Plan
 
