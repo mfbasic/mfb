@@ -441,8 +441,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
-        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+        CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES,
+        METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES, VULKAN_MAX_FRAME_EDGES,
+        VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
@@ -460,13 +461,33 @@ mod tests {
     /// The predicates are written in MFBASIC and the emitters in Rust, so the limits
     /// exist twice — with no compiler between them. Drift is not a style problem: if
     /// the MFBASIC cap ever exceeds the Rust one, the predicate admits a scene the
-    /// emitter's buffer cannot hold, and Metal's is a *stack* buffer.
+    /// emitter's buffer cannot hold.
+    ///
+    /// Since plan-116-A every one of these caps guards a *heap* buffer written through
+    /// a mapped pointer (the frame buffer), where Metal's edges used to be a stack
+    /// array. That makes drift worse rather than better: a stack overrun tends to fault
+    /// near the frame that caused it, and a write past a mapped GPU buffer lands in
+    /// whatever the driver happened to put next.
     #[test]
     fn the_two_gpu_edge_budgets_match_the_emitters() {
         assert_eq!(declared("__CANVAS_METAL_MAX_EDGES"), MAX_EDGES);
         assert_eq!(
             declared("__CANVAS_VULKAN_MAX_FRAME_EDGES"),
             VULKAN_MAX_FRAME_EDGES
+        );
+        assert_eq!(
+            declared("__CANVAS_METAL_MAX_FRAME_EDGES"),
+            METAL_MAX_FRAME_EDGES,
+            "the predicate admits a frame whose polygon edges the Metal frame buffer's \
+             edge region cannot hold",
+        );
+        assert_eq!(
+            declared("__CANVAS_MAX_FRAME_ITEMS"),
+            CANVAS_MAX_FRAME_ITEMS,
+            "the predicate admits a frame with more drawn quads than the item buffer \
+             has blocks — on BOTH backends, since they share this one. The emitters \
+             stop publishing at capacity, so the surplus items would silently not be \
+             drawn",
         );
         assert_eq!(
             declared("__CANVAS_VULKAN_MAX_GLYPH_SAMPLES"),
@@ -482,9 +503,20 @@ mod tests {
     }
 
     /// The predicates read the geometry header by slot. `offset + 20` is
-    /// `HEADER_AUX0` — the polygon's edge count — and a renumbered header would leave
-    /// them summing an arc's start angle instead, which is a plausible-looking number
-    /// rather than an error.
+    /// `HEADER_AUX0` — the polygon's edge count, and for a glyph run its glyph count —
+    /// and a renumbered header would leave them summing an arc's start angle instead,
+    /// which is a plausible-looking number rather than an error.
+    ///
+    /// The count is a census, so it moves whenever the predicates gain or lose a read;
+    /// it went 4 → 7 in plan-116-A. Enumerated so the next reader can tell a legitimate
+    /// growth from a slot that drifted:
+    ///
+    /// | | Metal | Vulkan |
+    /// |---|---|---|
+    /// | the glyph-run walk (`__canvas_runLargestGlyph` / `__canvas_runSamples`) | 1 | 1 |
+    /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
+    /// | the frame edge sum | 1 (new) | 1 |
+    /// | the frame quad count, a glyph run's glyphs | 1 (new) | 1 (new) |
     #[test]
     fn the_predicates_read_the_edge_count_slot() {
         assert_eq!(HEADER_AUX0, 20);
@@ -492,8 +524,9 @@ mod tests {
             RENDER_METAL
                 .matches(&format!("offset + {HEADER_AUX0}"))
                 .count(),
-            4,
-            "the two edge sums and both glyph-run walks should all read HEADER_AUX0"
+            7,
+            "every glyph-run walk, edge sum, edge decline and quad count in both \
+             predicates should read HEADER_AUX0"
         );
     }
 

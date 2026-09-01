@@ -480,13 +480,19 @@ in a detached `git worktree` at the base commit ee12c1bf7:
 Identical, not merely non-increasing. (The probe was removed afterwards; the scene had
 to be held fixed across both runs because Phase 2 adds a second polygon to
 `PRIMITIVES`, which changes the count for reasons unrelated to the transport.)
-Commit: —
+Commit: bc9b2e5e7
 
 ### Phase 3 — Lift the 128-byte ceiling in the contract, and prove the whole suite
 
-- [ ] Rewrite `ITEM_BLOCK_SIZE`'s doc comment in
+- [x] Rewrite `ITEM_BLOCK_SIZE`'s doc comment in
       `src/codegen/runtime/canvas/mod.rs`: the bound is now the buffer, not the
       push-constant range. Say what the new bound is and what enforces it.
+      **Landed in Phase 1** beside the test that gates it. The new bound is capacity —
+      `CANVAS_MAX_FRAME_ITEMS` records must fit `CANVAS_ITEM_BUFFER_BYTES`, which is
+      *defined from* this constant and so cannot fall out of step — and what still
+      constrains the value is two-language agreement, gated by
+      `the_item_block_matches_the_std430_stride` and by glslang's measured
+      `topLevelArrayStride 112`.
 - [x] Update the unit test at `vulkan.rs:5018` that pins the block against the
       guaranteed push-constant range — it is now asserting a constraint that no longer
       applies. Replace it with one pinning the block against the *buffer stride*
@@ -497,15 +503,34 @@ Commit: —
       `the_item_block_matches_the_std430_stride`, which pins `ITEM_BLOCK_SIZE % 16 == 0`
       (std430 rounds an `ivec4` struct's array stride up to 16, so stride == size
       exactly when the size is a multiple of 16) and the buffer-capacity identity.
-- [ ] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
+- [x] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
       currently explains the predicate asymmetry by Metal's edges crossing as a
       per-item `setFragmentBytes:` payload — after this letter both backends carry
       edges in a frame buffer, Metal is frame-capped too, and only the per-item
       `MAX_EDGES` decline (kept by policy, §Non-goals) and the per-glyph vs
       per-frame glyph caps still differ. Rewrite the section to say exactly that.
-- [ ] Run `scripts/regen-ncodesum.sh` and prove every `.ncodesum` diff is this
-      letter's.
-- [ ] Tests: full `cargo test --no-fail-fast`.
+      Written as a new subsection covering what the two predicates now share and the
+      two ways they still differ, plus the three traps a later letter would otherwise
+      rediscover: the instance index includes the base on **both** languages (C5), the
+      index must reach the fragment stage **flat**, and **an instanced run cannot
+      rebind a per-item side payload** — so anything per-item must become a buffer
+      region reached by an index, never a payload.
+- [x] ~~Run `scripts/regen-ncodesum.sh` and prove every `.ncodesum` diff is this
+      letter's.~~ — **moot: there is no diff to attribute, and the reason is that
+      these goldens cannot see this code.** Measured, not assumed:
+      `scripts/artifact-gate.sh target/release/mfb all` → "1324 tests, 1486 build(s),
+      1819 golden(s) checked, **0 diff(s)**", and
+      `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/` → **no matches**, so
+      none of the 132 `.ncodesum` fixtures builds a program that emits the canvas
+      runtime at all. Positive confirmation rather than an absence:
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → "132 golden(s) refreshed,
+      0 missing" and `git status --short tests/byte-identity/` came back **empty**,
+      i.e. every regenerated hash equals the committed one. The plan's §Compatibility
+      prediction of "`.ncodesum` churn on every target that emits the canvas runtime"
+      was miscalibrated — no fixture does. Recorded as **Correction C7**, because a
+      green byte-identity gate here means "never hashed your code", not "your change
+      is byte-neutral", and a later letter must not read it as coverage.
+- [x] Tests: full `cargo test --no-fail-fast`.
 
 Acceptance: `cargo test --no-fail-fast` is green on the macOS host **and** on the
 Linux CI axis (`.ai` memory: CI is linux + DEBUG, local gates are mac + RELEASE — a
@@ -624,8 +649,20 @@ Commit: —
   (The plan's instruction is right in general — a decline must never be asserted by
   pixel equality when the fallback might render *nothing*, since two blank frames match
   — which is why the test also asserts the software frame is non-empty first.)
-
-## Summary
+- **C7 (2026-09-01, Phase 3) — §Compatibility predicted `.ncodesum` churn; there is
+  none, and the reason matters more than the fact.** The section said "`.ncodesum`
+  churn is expected on every target that emits the canvas runtime, because the Vulkan
+  emitter and the Metal emitter both change instruction sequences". Both emitters did
+  change, substantially. But `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/`
+  returns **no matches**: not one of the 132 `.ncodesum` fixtures builds a program that
+  emits the canvas runtime, so none of them can observe a canvas codegen change at all.
+  `scripts/artifact-gate.sh target/release/mfb all` reports 0 diffs over 1819 goldens,
+  and a full `bash scripts/regen-ncodesum.sh target/release/mfb` (132 refreshed) leaves
+  `git status --short tests/byte-identity/` empty.
+  **The trap for later letters:** that green gate is *not* evidence this change is
+  codegen-neutral — it is evidence the gate never hashed this code. B–J all touch the
+  same emitters and will all see the same misleading 0. The instruments that genuinely
+  cover this code are `scripts/test-canvas-vulkan.sh` and the `rt_canvas_*` suites.
 
 The real engineering risk is the instance index reaching the fragment stage correctly
 on both languages: get it wrong and every item draws with a neighbour's parameters,
