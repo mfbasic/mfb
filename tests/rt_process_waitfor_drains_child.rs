@@ -80,8 +80,7 @@ fn waitfor_drains_a_chatty_child_without_losing_its_output() {
         "program exited {status:?}; stdout:\n{stdout}"
     );
     assert_eq!(
-        stdout,
-        "exit=0\nline1-ok\nline2-ok\nbytes=262144\n",
+        stdout, "exit=0\nline1-ok\nline2-ok\nbytes=262144\n",
         "waitFor must return the child's exit code and leave its full 256 KiB of \
          output readable through receive/receiveBytes"
     );

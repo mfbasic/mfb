@@ -49,12 +49,19 @@ binding has already ended, or that has been detached, raises
 `ErrResourceClosed`.
 
 
-**Drain a chatty child before you wait.** Output the program never reads is not
-thrown away: once the pipe between parent and child fills up, the child blocks
-in its own write and can never exit, so `waitFor` waits forever. Read the child
-with `process::receive` or `process::receiveBytes` until it reports end of
-stream, *then* call `waitFor`. A child that writes less than a pipeful (tens of
-kilobytes) is safe either way."#;
+**A chatty child does not stall the wait.** While it waits, `waitFor` keeps
+reading the child's standard output and standard error, so a child that writes
+more than the pipe between you can hold does not get stuck part-way through its
+own write. What `waitFor` reads is kept, not thrown away: `process::receive` and
+`process::receiveBytes` hand those bytes back afterwards, in order, ahead of
+anything still in the pipe. You do not have to read a child dry before waiting
+for it.
+
+
+`waitFor` will hold up to 16 MiB of each stream this way. A child that writes
+more than that before it exits raises `ErrResourceBusy` instead of waiting on —
+everything read so far is still there for you to read, and a later `waitFor`,
+once you have taken some of it back, picks up where this one stopped."#;
 const EX: &str = r#"Run a command to completion and read its exit code:
 
 ```
@@ -503,24 +510,72 @@ pub(crate) fn lower_process_waitfor_helper_posix(
     Ok((instructions, relocations, PFD_SLOT + 16))
 }
 
+/// The Windows `waitFor` body — the same drain-while-you-wait contract as the Unix
+/// one (bug-475), over `WaitForSingleObject`/`PeekNamedPipe`/`ReadFile`.
+///
+/// A Windows anonymous pipe buffers even less than a Unix one, so the old
+/// `WaitForSingleObject(hProcess, INFINITE)` deadlocked against a chatty child
+/// exactly as `waitpid` did. There is no `poll` over several pipes here, so the
+/// loop peeks each still-open pipe in turn and sleeps 1 ms when neither has
+/// anything — the shape `process::poll` already uses on this platform.
 pub(crate) fn lower_process_waitfor_helper_win(
     _call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<ProcBodyParts, String> {
-    // Explicit Win64 frame (depth-1, no vregs): shadow [0x00..0x20), then EXIT (the
-    // `GetExitCodeProcess` out-param) and FILE (the record pointer, live across the
-    // two kernel32 calls). Reserving the shadow is mandatory — a callee writes its
-    // 32-byte shadow into the caller's [sp, sp+0x20), which would otherwise clobber
-    // these slots (`call_external` does not reserve it).
-    const EXIT: usize = 0x20;
-    const FILE: usize = 0x28;
-    const FRAME: usize = 0x30;
+    // Explicit Win64 frame (depth-1, no vregs). [0x00..0x20) is the shadow a callee
+    // writes into its caller's frame (`call_external` does not reserve it), and
+    // [0x20..0x30) carries outgoing stack arguments 5 and 6 — `PeekNamedPipe` takes
+    // six. Every value live across a call therefore starts at 0x30.
+    const EXIT: usize = 0x30; // GetExitCodeProcess out-param
+    const FILE: usize = 0x38; // the Process record pointer
+    const AVAIL: usize = 0x40; // PeekNamedPipe out-param
+    const NREAD: usize = 0x48; // ReadFile out-param
+    const EOF_OUT: usize = 0x50;
+    const EOF_ERR: usize = 0x58;
+    const CUR_H: usize = 0x60; // the pipe being serviced this pass
+    const CUR_SLOT: usize = 0x68; // address of its spill-pointer slot in the record
+    const CUR_IS_ERR: usize = 0x70;
+    const BUF: usize = 0x78; // its spill block
+    const CAP: usize = 0x80;
+    const LEN: usize = 0x88;
+    const NEWCAP: usize = 0x90;
+    const SIZE: usize = 0x98;
+    const SRC: usize = 0xA0;
+    const DST: usize = 0xA8;
+    const IDX: usize = 0xB0;
+    const NEWBUF: usize = 0xB8;
+    const FRAME: usize = 0xC0;
+    // WAIT_TIMEOUT: the one return that means "still running". WAIT_FAILED and
+    // WAIT_ABANDONED fall through to the exit path rather than spinning.
+    const WAIT_TIMEOUT: &str = "258";
+    const INFINITE: &str = "4294967295";
+
     let sp = abi::stack_pointer();
     let closed_l = format!("{symbol}_closed");
     let cached = format!("{symbol}_cached");
     let done = format!("{symbol}_done");
+    let out_open = format!("{symbol}_out_open");
+    let err_open = format!("{symbol}_err_open");
+    let wait_loop = format!("{symbol}_wait_loop");
+    let have_status = format!("{symbol}_have_status");
+    let try_stderr = format!("{symbol}_try_stderr");
+    let both_eof = format!("{symbol}_both_eof");
+    let peek = format!("{symbol}_peek");
+    let append_have = format!("{symbol}_append_have");
+    let grow_loop = format!("{symbol}_grow_loop");
+    let do_grow = format!("{symbol}_do_grow");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let cap_ready = format!("{symbol}_cap_ready");
+    let size_ok = format!("{symbol}_size_ok");
+    let stream_eof = format!("{symbol}_stream_eof");
+    let stream_eof_err = format!("{symbol}_stream_eof_err");
+    let idle = format!("{symbol}_idle");
+    let over_limit = format!("{symbol}_over_limit");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+
     let mut relocations = Vec::new();
     let mut instructions = vec![
         abi::subtract_stack(FRAME),
@@ -532,9 +587,28 @@ pub(crate) fn lower_process_waitfor_helper_win(
         abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_REAPED),
         abi::compare_immediate(abi::mfb_arg(1), "0"),
         abi::branch_ne(&cached),
-        // WaitForSingleObject(hProcess, INFINITE)
+        // Seed the per-stream EOF flags; a handle that is not a live pipe (0 or
+        // INVALID_HANDLE_VALUE) is finished before we start.
+        abi::store_u64(abi::ZERO, sp, EOF_OUT),
+        abi::store_u64(abi::ZERO, sp, EOF_ERR),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_gt(&out_open),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(1), sp, EOF_OUT),
+        abi::label(&out_open),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_gt(&err_open),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(1), sp, EOF_ERR),
+        abi::label(&err_open),
+        // --- drain-while-you-wait -------------------------------------------
+        abi::label(&wait_loop),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
-        abi::move_immediate(abi::mfb_arg(1), "Integer", "4294967295"),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
     ];
     platform.emit_external_call(
         "WaitForSingleObject",
@@ -544,7 +618,246 @@ pub(crate) fn lower_process_waitfor_helper_win(
         &mut relocations,
     )?;
     instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), WAIT_TIMEOUT),
+        abi::branch_ne(&have_status),
+        // Still running: service one still-open pipe, stdout first.
+        abi::load_u64(abi::mfb_arg(0), sp, EOF_OUT),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_ne(&try_stderr),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+        abi::store_u64(abi::mfb_arg(1), sp, CUR_H),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_BUF),
+        abi::store_u64(abi::mfb_arg(1), sp, CUR_SLOT),
+        abi::store_u64(abi::ZERO, sp, CUR_IS_ERR),
+        abi::branch(&peek),
+        abi::label(&try_stderr),
+        abi::load_u64(abi::mfb_arg(0), sp, EOF_ERR),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_ne(&both_eof),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+        abi::store_u64(abi::mfb_arg(1), sp, CUR_H),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_BUF),
+        abi::store_u64(abi::mfb_arg(1), sp, CUR_SLOT),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(1), sp, CUR_IS_ERR),
+        abi::branch(&peek),
+        // Both streams finished: nothing of ours can hold the child now.
+        abi::label(&both_eof),
+        abi::load_u64(abi::mfb_arg(0), sp, FILE),
+        abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", INFINITE),
+    ]);
+    platform.emit_external_call(
+        "WaitForSingleObject",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::branch(&have_status),
+        // PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL)
+        abi::label(&peek),
+        abi::store_u64(abi::ZERO, sp, AVAIL),
+        abi::add_immediate(abi::mfb_arg(0), sp, AVAIL),
+        abi::store_u64(abi::mfb_arg(0), sp, 0x20),
+        abi::store_u64(abi::ZERO, sp, 0x28),
+        abi::load_u64(abi::mfb_arg(0), sp, CUR_H),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+    ]);
+    platform.emit_external_call(
+        "PeekNamedPipe",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&stream_eof), // FALSE = broken pipe
+        abi::load_u32(abi::mfb_arg(0), sp, AVAIL),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_eq(&idle),
+        // --- append the ready stream's bytes to its spill buffer -------------
+        abi::load_u64(abi::mfb_arg(0), sp, CUR_SLOT),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+        abi::store_u64(abi::mfb_arg(1), sp, BUF),
+        abi::compare_immediate(abi::mfb_arg(1), "0"),
+        abi::branch_ne(&append_have),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &(SPILL_INITIAL_CAPACITY + SPILL_DATA).to_string(),
+        ),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(abi::mfb_arg(0), abi::mfb_return(1)),
+        abi::store_u64(abi::mfb_arg(0), sp, BUF),
+        abi::move_immediate(
+            abi::mfb_arg(1),
+            "Integer",
+            &SPILL_INITIAL_CAPACITY.to_string(),
+        ),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_CAPACITY),
+        abi::store_u64(abi::ZERO, abi::mfb_arg(0), SPILL_LENGTH),
+        abi::store_u64(abi::ZERO, abi::mfb_arg(0), SPILL_OFFSET),
+        abi::load_u64(abi::mfb_arg(1), sp, CUR_SLOT),
+        abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0),
+        abi::label(&append_have),
+        abi::load_u64(abi::mfb_arg(0), sp, BUF),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_CAPACITY),
+        abi::store_u64(abi::mfb_arg(1), sp, CAP),
+        abi::store_u64(abi::mfb_arg(1), sp, NEWCAP),
+        abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), SPILL_LENGTH),
+        abi::store_u64(abi::mfb_arg(2), sp, LEN),
+        // want = length + CHUNK
+        abi::add_immediate(abi::mfb_arg(3), abi::mfb_arg(2), SPILL_CHUNK),
+        abi::compare_registers(abi::mfb_arg(3), abi::mfb_arg(1)),
+        abi::branch_le(&cap_ready),
+        // Double until a whole chunk fits, then clamp to the stated cap.
+        abi::label(&grow_loop),
+        abi::load_u64(abi::mfb_arg(1), sp, NEWCAP),
+        abi::shift_left_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+        abi::store_u64(abi::mfb_arg(1), sp, NEWCAP),
+        abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(3)),
+        abi::branch_lt(&grow_loop),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", &SPILL_MAX_CAPACITY.to_string()),
+        abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(0)),
+        abi::branch_le(&do_grow),
+        abi::store_u64(abi::mfb_arg(0), sp, NEWCAP),
+        abi::load_u64(abi::mfb_arg(1), sp, CAP),
+        abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::branch_le(&cap_ready),
+        abi::label(&do_grow),
+        abi::load_u64(abi::mfb_arg(0), sp, NEWCAP),
+        abi::add_immediate(abi::return_register(), abi::mfb_arg(0), SPILL_DATA),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(abi::mfb_arg(0), abi::mfb_return(1)),
+        abi::store_u64(abi::mfb_arg(0), sp, NEWBUF),
+        abi::load_u64(abi::mfb_arg(1), sp, NEWCAP),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_CAPACITY),
+        abi::load_u64(abi::mfb_arg(1), sp, LEN),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_LENGTH),
+        abi::load_u64(abi::mfb_arg(2), sp, BUF),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(2), SPILL_OFFSET),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_OFFSET),
+        // Copy the filled prefix a word at a time; both capacities are multiples
+        // of 8, so the final partial word is in bounds on each side.
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(2), SPILL_DATA),
+        abi::store_u64(abi::mfb_arg(1), sp, SRC),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_DATA),
+        abi::store_u64(abi::mfb_arg(1), sp, DST),
+        abi::store_u64(abi::ZERO, sp, IDX),
+        abi::label(&copy_loop),
+        abi::load_u64(abi::mfb_arg(0), sp, IDX),
+        abi::load_u64(abi::mfb_arg(1), sp, LEN),
+        abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::branch_ge(&copy_done),
+        abi::load_u64(abi::mfb_arg(2), sp, SRC),
+        abi::load_u64(abi::mfb_arg(3), sp, DST),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(2), 0),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(3), 0),
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 8),
+        abi::store_u64(abi::mfb_arg(2), sp, SRC),
+        abi::add_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 8),
+        abi::store_u64(abi::mfb_arg(3), sp, DST),
+        abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 8),
+        abi::store_u64(abi::mfb_arg(0), sp, IDX),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::load_u64(abi::return_register(), sp, BUF),
+        abi::load_u64(abi::mfb_arg(1), sp, CAP),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), SPILL_DATA),
+    ]);
+    emit_arena_free(symbol, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, NEWBUF),
+        abi::store_u64(abi::mfb_arg(0), sp, BUF),
+        abi::load_u64(abi::mfb_arg(1), sp, CUR_SLOT),
+        abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0),
+        abi::load_u64(abi::mfb_arg(0), sp, NEWCAP),
+        abi::store_u64(abi::mfb_arg(0), sp, CAP),
+        // size = min(SPILL_CHUNK, capacity - length); zero means the cap is hit.
+        abi::label(&cap_ready),
+        abi::load_u64(abi::mfb_arg(0), sp, CAP),
+        abi::load_u64(abi::mfb_arg(1), sp, LEN),
+        abi::subtract_registers(abi::mfb_arg(2), abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", &SPILL_CHUNK.to_string()),
+        abi::compare_registers(abi::mfb_arg(2), abi::mfb_arg(3)),
+        abi::branch_le(&size_ok),
+        abi::move_register(abi::mfb_arg(2), abi::mfb_arg(3)),
+        abi::label(&size_ok),
+        abi::compare_immediate(abi::mfb_arg(2), "0"),
+        abi::branch_le(&over_limit),
+        abi::store_u64(abi::mfb_arg(2), sp, SIZE),
+        // ReadFile(h, buf + DATA + length, size, &nread, NULL)
+        abi::store_u64(abi::ZERO, sp, 0x20),
+        abi::store_u64(abi::ZERO, sp, NREAD),
+        abi::load_u64(abi::mfb_arg(1), sp, BUF),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), SPILL_DATA),
+        abi::load_u64(abi::mfb_arg(2), sp, LEN),
+        abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(2)),
+        abi::load_u64(abi::mfb_arg(2), sp, SIZE),
+        abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
+        abi::load_u64(abi::mfb_arg(0), sp, CUR_H),
+    ]);
+    platform.emit_external_call(
+        "ReadFile",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&stream_eof),
+        abi::load_u32(abi::mfb_arg(0), sp, NREAD),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_eq(&stream_eof),
+        abi::load_u64(abi::mfb_arg(1), sp, BUF),
+        abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(1), SPILL_LENGTH),
+        abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(0)),
+        abi::store_u64(abi::mfb_arg(2), abi::mfb_arg(1), SPILL_LENGTH),
+        abi::branch(&wait_loop),
+        abi::label(&stream_eof),
+        abi::load_u64(abi::mfb_arg(0), sp, CUR_IS_ERR),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_ne(&stream_eof_err),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(0), sp, EOF_OUT),
+        abi::branch(&wait_loop),
+        abi::label(&stream_eof_err),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
+        abi::store_u64(abi::mfb_arg(0), sp, EOF_ERR),
+        abi::branch(&wait_loop),
+        // Nothing to move right now: yield before re-checking the child.
+        abi::label(&idle),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
+    ]);
+    platform.emit_external_call(
+        "Sleep",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::branch(&wait_loop),
+        // --- reaped ----------------------------------------------------------
         // GetExitCodeProcess(hProcess, &exit)
+        abi::label(&have_status),
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
         abi::add_immediate(abi::mfb_arg(1), sp, EXIT),
@@ -571,8 +884,24 @@ pub(crate) fn lower_process_waitfor_helper_win(
         abi::load_u64(RESULT_VALUE_REGISTER, abi::mfb_arg(0), PROC_EXITCODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&closed_l),
+        abi::label(&over_limit),
     ]);
+    emit_fail(
+        symbol,
+        "ErrResourceBusy",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_l));
     emit_fail(
         symbol,
         "ErrResourceClosed",

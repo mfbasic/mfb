@@ -346,13 +346,25 @@ pub(crate) fn lower_process_receivebytes_helper_win(
     const N: usize = 0x50;
     const I: usize = 0x58;
     const FROM: usize = 0x60;
-    const FRAME: usize = 0x70;
+    // bug-475 spill service: the stream's spill block, plus the cursors of the
+    // copy out of it. Win64 leaves only four safe scratch registers, so the run is
+    // driven from the frame rather than through `emit_spill_take_chunk`.
+    const SPILL: usize = 0x68;
+    const SPILL_SRC: usize = 0x70;
+    const SPILL_DST: usize = 0x78;
+    const SPILL_I: usize = 0x80;
+    const FRAME: usize = 0x90;
     const CHUNK: &str = "65536";
     let sp = abi::stack_pointer();
     let closed_l = format!("{symbol}_closed");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
+    let fd_read = format!("{symbol}_fd_read");
+    let have_bytes = format!("{symbol}_have_bytes");
+    let spill_clamped = format!("{symbol}_spill_clamped");
+    let spill_copy = format!("{symbol}_spill_copy");
+    let spill_copied = format!("{symbol}_spill_copied");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
     let done = format!("{symbol}_done");
@@ -370,25 +382,30 @@ pub(crate) fn lower_process_receivebytes_helper_win(
         abi::compare_immediate(abi::mfb_arg(1), "0"),
         abi::branch_ne(&closed_l),
     ]);
+    // The selected stream's handle *and* its spill block (bug-475): `waitFor` may
+    // have had to move the child's output out of the pipe to keep the child
+    // running, and those bytes come before anything the pipe still holds.
     if with_from {
         instructions.extend([
             abi::load_u64(abi::mfb_arg(1), sp, FROM),
             abi::compare_immediate(abi::mfb_arg(1), "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            PROC_STDOUT_R,
-        ));
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
+        ]);
     }
     instructions.extend([
+        abi::store_u64(abi::mfb_arg(2), sp, SPILL),
         abi::store_u64(abi::mfb_arg(1), sp, FD),
         // chunk buffer = arena_alloc(CHUNK, 1)
         abi::move_immediate(abi::return_register(), "Integer", CHUNK),
@@ -397,6 +414,52 @@ pub(crate) fn lower_process_receivebytes_helper_win(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), sp, BUF),
+        // Serve the spill block first; only when it is empty does this touch the
+        // pipe.
+        abi::load_u64(abi::mfb_arg(0), sp, SPILL),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
+        abi::branch_eq(&fd_read),
+        abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_OFFSET),
+        abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), SPILL_LENGTH),
+        abi::compare_registers(abi::mfb_arg(1), abi::mfb_arg(2)),
+        abi::branch_ge(&fd_read),
+        // n = min(length - offset, CHUNK)
+        abi::subtract_registers(abi::mfb_arg(3), abi::mfb_arg(2), abi::mfb_arg(1)),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", CHUNK),
+        abi::compare_registers(abi::mfb_arg(3), abi::mfb_arg(2)),
+        abi::branch_le(&spill_clamped),
+        abi::move_register(abi::mfb_arg(3), abi::mfb_arg(2)),
+        abi::label(&spill_clamped),
+        abi::store_u64(abi::mfb_arg(3), sp, N),
+        // src = data + offset; consume the run up front.
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(0), SPILL_DATA),
+        abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(2), abi::mfb_arg(1)),
+        abi::store_u64(abi::mfb_arg(2), sp, SPILL_SRC),
+        abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(3)),
+        abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), SPILL_OFFSET),
+        abi::load_u64(abi::mfb_arg(1), sp, BUF),
+        abi::store_u64(abi::mfb_arg(1), sp, SPILL_DST),
+        abi::store_u64(abi::ZERO, sp, SPILL_I),
+        abi::label(&spill_copy),
+        abi::load_u64(abi::mfb_arg(0), sp, SPILL_I),
+        abi::load_u64(abi::mfb_arg(1), sp, N),
+        abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)),
+        abi::branch_ge(&spill_copied),
+        abi::load_u64(abi::mfb_arg(2), sp, SPILL_SRC),
+        abi::load_u64(abi::mfb_arg(3), sp, SPILL_DST),
+        abi::load_u8(abi::mfb_arg(1), abi::mfb_arg(2), 0),
+        abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(3), 0),
+        abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 1),
+        abi::store_u64(abi::mfb_arg(2), sp, SPILL_SRC),
+        abi::add_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1),
+        abi::store_u64(abi::mfb_arg(3), sp, SPILL_DST),
+        abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1),
+        abi::store_u64(abi::mfb_arg(0), sp, SPILL_I),
+        abi::branch(&spill_copy),
+        abi::label(&spill_copied),
+        abi::load_u64(abi::mfb_arg(0), sp, N),
+        abi::branch(&have_bytes),
+        abi::label(&fd_read),
         // ReadFile(fd, buf, CHUNK, &nread, NULL)
         abi::load_u64(abi::mfb_arg(0), sp, FD),
         abi::load_u64(abi::mfb_arg(1), sp, BUF),
@@ -419,6 +482,9 @@ pub(crate) fn lower_process_receivebytes_helper_win(
         abi::compare_immediate(abi::mfb_arg(0), "0"),
         abi::branch_eq(&closed_l), // 0 bytes = EOF, nothing buffered
         abi::store_u64(abi::mfb_arg(0), sp, N),
+        // Both sources land here with the byte count in the first argument
+        // register and stored at N.
+        abi::label(&have_bytes),
         // result block = arena_alloc(HEADER + n, 8)  (byte-list stride 0)
         abi::add_immediate(
             abi::return_register(),
