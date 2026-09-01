@@ -1604,13 +1604,17 @@ pub(super) fn emit_app_io_write(
         "Integer",
         "4294967295",
     ));
+    // `c_return(0)`, not `return_register()`. The comment two lines up already says the
+    // length arrives in `rax`; the aligned MFB bank is `rcx` on Win64, so masking
+    // `return_register()` masked whatever the last call happened to leave there and the
+    // caret was set from it. Same family as bug-478.
     ins.push(abi::and_registers(
-        abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
+        abi::c_return(0),
         abi::mfb_arg(2),
     ));
-    ins.push(abi::move_register(abi::mfb_arg(2), abi::return_register()));
-    ins.push(abi::move_register(abi::mfb_arg(3), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(2), abi::c_return(0)));
+    ins.push(abi::move_register(abi::mfb_arg(3), abi::c_return(0)));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), EDITH));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", EM_SETSEL));
     call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
@@ -1757,9 +1761,10 @@ pub(super) fn emit_app_io_write(
             "Integer",
             "4294967295",
         ));
+        // The wide-char count is a C result (`rax`), not the aligned MFB bank.
         ins.push(abi::and_registers(
             abi::mfb_arg(0),
-            abi::return_register(),
+            abi::c_return(0),
             abi::mfb_arg(1),
         ));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
@@ -2710,9 +2715,10 @@ fn emit_term_draw_text_at(
         "Integer",
         "4294967295",
     ));
+    // The wide-char count is a C result (`rax`), not the aligned MFB bank.
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         abi::mfb_arg(1),
     ));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
@@ -2920,8 +2926,15 @@ fn emit_term_on(
         abi::stack_pointer(),
         HDC_SCREEN,
     ));
-    // memDC = CreateCompatibleDC(hdcScreen); store the global.
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    // memDC = CreateCompatibleDC(hdcScreen); store the global. Reloaded from the slot
+    // the line above just wrote rather than from a register: the HDC is a C result and
+    // `return_register()` is a different register on Win64, which is how this read the
+    // wrong handle (same family as bug-478).
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        HDC_SCREEN,
+    ));
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
