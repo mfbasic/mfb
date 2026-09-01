@@ -1084,9 +1084,8 @@ fn derived_binary_type(
                 if matches!(left, ParameterType::Money)
                     || matches!(right, ParameterType::Money) =>
             {
-                // plan-112 Phase 4 retypes `numeric` and deletes this seam.
                 crate::numeric::typed_money_result_type(
-                    op.name(),
+                    op,
                     matches!(left, ParameterType::Money),
                     matches!(right, ParameterType::Money),
                 )

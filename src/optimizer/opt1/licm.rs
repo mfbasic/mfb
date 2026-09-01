@@ -22,6 +22,8 @@ use crate::target::shared::nir::{NirModule, NirOp};
 
 use super::plans::loops::{invariant, loop_body_defined};
 use super::plans::reads::NameUses;
+#[cfg(test)]
+use crate::operators::BinaryOp;
 use std::collections::HashSet;
 
 /// Apply the LICM row to the whole module. Self-guarded on its catalog
@@ -229,9 +231,9 @@ mod tests {
     fn invariant_pure_binds_hoist() {
         let body = run(
             vec![while_loop(vec![
-                bind("inv", binary("<", local("a"), local("b"))),
-                bind("arith", binary("+", local("a"), local("b"))),
-                bind("var", binary("<", local("a"), local("m"))),
+                bind("inv", binary(BinaryOp::Less, local("a"), local("b"))),
+                bind("arith", binary(BinaryOp::Add, local("a"), local("b"))),
+                bind("var", binary(BinaryOp::Less, local("a"), local("m"))),
                 NirOp::Assign {
                     name: "m".to_string(),
                     value: local("inv"),
@@ -261,7 +263,7 @@ mod tests {
         let body = run(
             vec![
                 while_loop(vec![
-                    bind("t", binary("<", local("a"), local("b"))),
+                    bind("t", binary(BinaryOp::Less, local("a"), local("b"))),
                     NirOp::Eval { value: local("t") },
                 ]),
                 NirOp::Eval { value: local("t") },
@@ -282,7 +284,7 @@ mod tests {
                 end: int_const("9"),
                 step: int_const("1"),
                 body: vec![
-                    bind("t", binary("<", local("i"), local("b"))),
+                    bind("t", binary(BinaryOp::Less, local("i"), local("b"))),
                     NirOp::Eval { value: local("t") },
                 ],
                 loc: Default::default(),
@@ -300,7 +302,7 @@ mod tests {
     fn level_two_disables_the_row() {
         let body = run(
             vec![while_loop(vec![
-                bind("inv", binary("<", local("a"), local("b"))),
+                bind("inv", binary(BinaryOp::Less, local("a"), local("b"))),
                 NirOp::Eval {
                     value: local("inv"),
                 },

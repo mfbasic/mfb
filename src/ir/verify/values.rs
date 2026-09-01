@@ -959,8 +959,7 @@ impl TypeEnv {
             }
             return;
         }
-        // plan-112 Phase 4 retypes `numeric` and deletes this seam.
-        if crate::numeric::typed_money_result_type(spelling, l_money, r_money).is_some() {
+        if crate::numeric::typed_money_result_type(op, l_money, r_money).is_some() {
             return;
         }
         // Craft an explanation for the specific invalid pairing.

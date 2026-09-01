@@ -358,7 +358,7 @@ corpus test printed `corpus operator spellings (18)`. The `--all-targets` half
 of the acceptance is **not reachable at this phase boundary** — see Corrections
 C5 — so Phases 1–3 land in one commit, with the corpus proof taken *before* any
 carrier was retyped, which is the ordering guarantee the phase existed for.
-Commit: (with Phase 3)
+Commit: `a89e44d6e`
 
 ### Phase 2 — the parser mints the enum
 
@@ -388,7 +388,7 @@ Acceptance: all 793 `.ast` goldens byte-identical
 `scripts/artifact-gate.sh ./target/release/mfb strings|math|link-const-pins` →
 `0 diff(s)` each (7 + 7 + 6 goldens, `.ast` and `.ir` among them). The full
 793-golden reading is the Phase 3 gate below, which covers the same files.
-Commit: (with Phase 3)
+Commit: `a89e44d6e`
 
 ### Phase 3 — HIR and IR carriers, and the decode boundary
 
@@ -425,32 +425,32 @@ in the tree is byte-identical. `cargo test --no-fail-fast -- --skip
 artifact_gate_all` → exit 0, `grep -c '^failures:'` → 0, 87 suites ok;
 bug-403's `decode_rejects_garbage_compare_op` passes unmodified.
 `cargo check --all-targets` → 0 warnings, 0 errors.
-Commit: —
+Commit: `a89e44d6e`
 
 ### Phase 4 — NIR, codegen, opt1, numeric (largest blast radius)
 
 The remaining 130 sites, and the deletion of the 18 fallback error arms. Last
 because it is where the codegen output could move if a conversion is wrong.
 
-- [ ] Retype `src/target/shared/nir/mod.rs:354,360` to `BinaryOp`/`UnaryOp`;
+- [x] Retype `src/target/shared/nir/mod.rs:354,360` to `BinaryOp`/`UnaryOp`;
       fix `src/target/shared/nir/visit.rs` and `constfold.rs` (4 sites).
-- [ ] Fix `src/codegen/**` (87 sites). Take
+- [x] Fix `src/codegen/**` (87 sites). Take
       `src/codegen/engine/operators/builder_numeric.rs` (41) first — it holds 6
       of the 18 fallback arms — then `engine/control/builder_control.rs` (13),
       `string/repr/builder_strings.rs` (7), `link/thunk/link_thunk.rs` (6),
       `engine/value/builder_values.rs` (6), the rest.
-- [ ] Fix `src/optimizer/opt1/**` (39 sites: `constant_folding.rs` 24,
+- [x] Fix `src/optimizer/opt1/**` (39 sites: `constant_folding.rs` 24,
       `algebraic.rs` 6, `strength.rs` 5, `rotate.rs` 2, `dce.rs` 1,
       `branches.rs` 1). Do **not** touch `src/optimizer/opt2/**` — different
       vocabulary (non-goals).
-- [ ] Retype `src/numeric.rs:442` `typed_binary_result_type(operator: BinaryOp,
+- [x] Retype `src/numeric.rs:442` `typed_binary_result_type(operator: BinaryOp,
       …)` and its two literal callers at `:478-479`; retype
       `typed_money_result_type` at `:531`.
-- [ ] Delete all 18 fallback arms as each match becomes exhaustive. Where an
+- [x] Delete all 18 fallback arms as each match becomes exhaustive. Where an
       operator is genuinely invalid *for that operand type* (e.g. `^` on
       `Money`), keep the error but match the specific variants — do not leave a
       `_ =>` catch-all, which would re-hide the next addition.
-- [ ] Verify no `_ =>` arm was left on a `BinaryOp`/`UnaryOp` match:
+- [x] Verify no `_ =>` arm was left on a `BinaryOp`/`UnaryOp` match:
       `grep -rn -B 20 '_ =>' src/codegen src/ir src/optimizer/opt1` reviewed for
       operator scrutinees.
 
@@ -459,8 +459,31 @@ Prerequisites row established before the first edit, so every diff seen on the
 way is attributable to this plan and gets root-caused, not regenerated);
 `scripts/test-accept.sh <target> /tmp/accept-112` → 0 mismatches and the same
 `N ran` count as the pre-plan baseline; `cargo test --no-fail-fast` green;
-`MFB_OPT=3 scripts/test-accept.sh` green (the `opt1` folding rows are only
-exercised at higher `-O`, per `optimizer-rows-need-giant-function-stress`).
+`MFB_OPT=3 scripts/test-accept.sh` **produces the same mismatch set as a
+fork-point baseline build, with zero `build.log`/behaviour mismatches and the
+same `N ran`** (strengthened from "green", which is unmeetable on any tree —
+see Corrections C9; the `opt1` folding rows are only exercised at higher `-O`,
+per `optimizer-rows-need-giant-function-stress`).
+
+**Measured:**
+
+- `scripts/artifact-gate.sh ./target/release/mfb all` →
+  `1324 tests, 1486 build(s), 1819 golden(s) checked, 0 diff(s)`, exit 0 —
+  identical to the pre-plan Prerequisites baseline. (A first attempt returned
+  `exit=98`, "Another artifact-gate (pid 61287) is running": a lock refusal, not
+  a result; re-run uncontended.)
+- `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0,
+  `grep -c '^failures:'` → 0, 87 suites ok.
+- `scripts/test-accept.sh ./target/release/mfb /tmp/p112-accept-scratch2` →
+  `acceptance tests passed (1345 test(s) ran)`, exit 0 — the same `N ran` as the
+  Phase 3 run.
+- `MFB_OPT=3 scripts/test-accept.sh` → 9 mismatches, `1345 test(s) ran`. All 9
+  are `.ncode`/`.mir`; **zero** `build.log` or behaviour mismatches. A
+  fork-point (`ee12c1bf7`) baseline build in a detached worktree produces the
+  **byte-identical** 9-entry list — `diff` of the two sorted `mismatch:` lists
+  is empty. See Corrections C9.
+- `cargo check --all-targets` → 0 warnings, 0 errors;
+  `rustup run 1.96.0 cargo fmt --all` clean.
 Commit: —
 
 ### Phase 5 — lock the gate, docs, archive
@@ -663,6 +686,70 @@ and requires each to be rejected at decode, with
 `decode_accepts_every_valid_operator` as the counterpart proving all 20 valid
 spellings still decode. That is bug-403's guarantee extended from `IrLinkExpr`
 to `IrValue`, which had never had it.
+
+**C9 — `MFB_OPT=3 test-accept` is green on no tree, so Phase 4's acceptance was
+strengthened rather than weakened.** The plan asked for it "green". Measured, it
+reports 9 mismatches — and a fork-point (`ee12c1bf7`) baseline build reports the
+**same 9**, byte-identically:
+
+```
+rt-behavior/collections/func_map_getor_hash_probe/…macos-aarch64.ncode
+rt-behavior/collections/list-ops-codegen-rt/…macos-aarch64.ncode
+rt-behavior/control-flow/control-flow-if/…macos-aarch64.mir
+rt-behavior/control-flow/control-flow-if/…macos-aarch64.ncode
+syntax/app/macos-app-mode-io/…macos-aarch64.app.ncode
+syntax/app/macos-app-mode-plumbing/…macos-aarch64.app.ncode
+syntax/lexical/parser-hello-world/…macos-aarch64.mir
+syntax/lexical/parser-hello-world/…macos-aarch64.ncode
+syntax/match/control-flow-match/…macos-aarch64.ncode
+```
+
+`diff <(sort branch-mismatches) <(sort baseline-mismatches)` is empty. This is
+the documented behaviour of a non-default `MFB_OPT` run (`.ai/testing-gates.md`:
+the committed `.ncode` goldens are `-O1`-generated, so a different dial setting
+drifts them and must **not** be re-baselined); what has to hold is that every
+fixture builds and behaviour matches, and it does — all 9 are `.ncode`/`.mir`,
+none is a `build.log` or run mismatch, and `N ran` is 1345 on both sides. The
+criterion is therefore restated as *"the same mismatch set as a fork-point
+baseline, zero behaviour mismatches, same `N ran`"*, which pins the exact list
+instead of tolerating any drift.
+
+**C10 — the `numeric` and NIR seams the plan did not budget for.** §Phase 2
+budgeted one `.name().to_string()` seam (HIR). Two more were needed to keep
+Phase 3 landable on its own: `NirValue`'s `op` (retyped in Phase 4) and
+`numeric::typed_binary_result_type`/`typed_money_result_type` (retyped in Phase
+4). Both were marked `// plan-112 Phase 4 …` at creation and both are deleted in
+Phase 4's commit; `grep -rn 'plan-112 Phase' src/` returns nothing at the end of
+Phase 4.
+
+**C11 — `ARITHMETIC_OPERATORS`-style conflation appears in four more places than
+`fallible.rs`.** The same "one `&str` list serves both arities" shape also had to
+be split at `ir::shape::note_short_circuited_operator` (→ `_binary_operator` /
+`_unary_operator`) and resolved by an explicit `is_comparison()` at
+`ir::lower::expression_type`, `monomorph::lower::expression_type`,
+`data_objects.rs` and `builder_value_semantics.rs`, each of which spelled the
+comparison+logical group as a 9-element string list. None changed behaviour;
+each is now a variant test rustc checks.
+
+**C12 — three test helpers were retyped, and two tests lost an unconstructible
+input.** `ir::verify::tests::{binary,unary}`, `opt1::local_rewrites::testutil::
+{binary,unary}` and `numeric::tests::OPERATORS` now take the enums, which is what
+makes an invalid operator a compile error in tests too. Two tests fed an operator
+that no longer exists: `opt1::constant_folding`'s
+`integer_folds_only_when_the_runtime_would_not_trap` and
+`byte_folds_only_inside_its_range` used `"UNKNOWN"` to mean "an operator this
+fold table has no arm for". Both now use `BinaryOp::IntDiv`, a **real** operator
+the table has always deliberately left unfolded (`fold_integer`/`fold_byte` have
+no `DIV` arm, before or after), so the assertion is unchanged and the coverage is
+strictly better.
+
+**C13 — `numeric.rs`'s frozen `legacy_*` oracles keep their `&str` signatures on
+purpose.** `legacy_binary_result_type` / `legacy_money_result_type` /
+`legacy_is_numeric_type` are verbatim pre-plan-106-A copies kept as a reference
+implementation; retyping them would destroy the independence that makes
+`typed_binary_result_type_matches_the_legacy_table_exhaustively` (1,700 pairs)
+meaningful. They are `#[cfg(test)]` and the typed side now calls them through
+`operator.name()`.
 
 ## Summary
 

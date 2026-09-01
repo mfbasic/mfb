@@ -2120,8 +2120,7 @@ impl<'a> Monomorphizer<'a> {
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
                 Some(
-                    // plan-112 Phase 4 retypes `numeric` and deletes this seam.
-                    numeric::typed_binary_result_type(operator.name(), &left, &right)
+                    numeric::typed_binary_result_type(*operator, &left, &right)
                         .unwrap_or(ParameterType::Integer),
                 )
             }

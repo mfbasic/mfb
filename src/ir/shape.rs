@@ -3366,12 +3366,7 @@ impl<'a> Walker<'a> {
                 if (left_money || right_money)
                     && crate::numeric::is_numeric(&left)
                     && crate::numeric::is_numeric(&right)
-                    // plan-112 Phase 4 retypes `numeric` and deletes this seam.
-                    && crate::numeric::typed_money_result_type(
-                        operator.name(),
-                        left_money,
-                        right_money,
-                    )
+                    && crate::numeric::typed_money_result_type(*operator, left_money, right_money)
                         .is_none()
                 {
                     return true;

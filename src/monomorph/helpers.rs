@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::operators::BinaryOp;
 
 /// The declared type of an optionally-annotated slot: [`ParameterType::Unknown`]
 /// (an absent `AS T` annotation) → `None`, any concrete type → `Some(type)`.
@@ -1126,7 +1128,7 @@ mod tests {
         // the engine calls the one typed source directly.
         assert_eq!(
             crate::numeric::typed_binary_result_type(
-                "+",
+                BinaryOp::Add,
                 &ParameterType::Integer,
                 &ParameterType::Integer
             ),
@@ -1134,7 +1136,7 @@ mod tests {
         );
         assert_eq!(
             crate::numeric::typed_binary_result_type(
-                "+",
+                BinaryOp::Add,
                 &ParameterType::Integer,
                 &ParameterType::Float
             ),

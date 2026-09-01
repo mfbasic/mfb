@@ -3049,9 +3049,7 @@ pub(super) fn expression_type(
             let left = expression_type(left, locals, context)?;
             let right = expression_type(right, locals, context)?;
             Some(
-                // plan-112 Phase 4 retypes `numeric`'s signature and deletes
-                // this `.name()` seam.
-                numeric::typed_binary_result_type(operator.name(), &left, &right)
+                numeric::typed_binary_result_type(*operator, &left, &right)
                     .unwrap_or(ParameterType::Integer),
             )
         }
