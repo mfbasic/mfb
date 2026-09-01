@@ -428,7 +428,7 @@ widening. Phase 4 is the breaking change and depends on all three.
 ### Phase 1 — Defect A: failing test + root cause (no behavior change)
 
 - [x] Add `tests/rt-behavior/packages/source-package-dependency-rt/` — the minimal reproduction above, asserting it prints `42`. Confirm it fails today.
-- [ ] Add the paired `.mfp` fixture so the two forms are compared by the suite, not by hand. **NOT DONE.** The `.mfp` path is covered by the pre-existing `project-with-package-import-as` fixture, which was re-verified unregressed, so the two forms are compared — but not side by side on identical sources as this asks.
+- [x] Add the paired `.mfp` fixture so the two forms are compared by the suite, not by hand. `tests/rt-behavior/packages/mfp-package-dependency-rt/` — the same program and the same `source_pkg_tiny` sources as `source-package-dependency-rt`, differing ONLY in that the dependency is declared as `file:packages/source_pkg_tiny.mfp` instead of a source directory. Both `build.log` goldens record `42` / `hello, world`, so a divergence between the two forms lands as one fixture failing rather than as a hand comparison nobody re-runs. (The `.mfp` is compiled from those sources and committed past `.gitignore`'s `packages/**/*.mfp`, as the existing `project-with-package-import-as` fixture does.)
 - [x] Decide between hypotheses 1–3 with a measurement; record which, and the evidence, here.
 - [x] Complete the Defect A blast-radius audit, especially the lockfile/audit question.
 
