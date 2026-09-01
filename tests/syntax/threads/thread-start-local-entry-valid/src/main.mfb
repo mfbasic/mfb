@@ -1,8 +1,10 @@
 ' plan-115-A: any ISOLATED FUNC declared in the current project is a valid
 ' thread::start entry -- at any visibility, in any project kind. This is an
-' EXECUTABLE, which before this plan could host no entry at all: `self::` is
-' rejected in an executable (IMPORT_SELF_IN_EXECUTABLE) and a bare name was
-' rejected by thread_start_entry_valid, which bailed on any unqualified name.
+' EXECUTABLE, which before plan-115 could host no entry at all: the only
+' same-project spelling was plan-81's `self::`, which an executable was barred
+' from using, and a bare name was rejected outright by thread_start_entry_valid,
+' which bailed on any unqualified name. (plan-115-B has since removed `self::`
+' altogether, so the bare name below is the only spelling there is.)
 IMPORT thread
 
 ' PUBLIC (the default spelling written explicitly).

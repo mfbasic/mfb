@@ -747,8 +747,7 @@ impl<'a> Walker<'a> {
             self.file = file.path.clone();
             for import in &file.imports {
                 let package = import.package_name();
-                if package == crate::ast::SELF_IMPORT
-                    || builtins::is_builtin_import(package)
+                if builtins::is_builtin_import(package)
                     || !seen_packages.insert(package.to_string())
                 {
                     continue;
@@ -808,8 +807,7 @@ impl<'a> Walker<'a> {
             self.file = file.path.clone();
             for import in &file.imports {
                 let package = import.package_name();
-                if package == crate::ast::SELF_IMPORT
-                    || builtins::is_builtin_import(package)
+                if builtins::is_builtin_import(package)
                     || !seen_bindings.insert(import.binding_name().to_string())
                 {
                     continue;
@@ -2168,25 +2166,23 @@ impl<'a> Walker<'a> {
     }
 
     /// The canonical `package.member` spelling of a call target, through this
-    /// file's import bindings (`IMPORT self` binds the package's own exports
-    /// under their bare names) — lowering's `canonical_import_name`.
+    /// file's import bindings — lowering's `canonical_import_name`.
     fn canonical_callee(&self, callee: &str) -> String {
         let Some((binding, member)) = callee.split_once('.') else {
             return callee.to_string();
         };
         match self.context.current_imports.get(binding) {
-            Some(package) if package == crate::ast::SELF_IMPORT => member.to_string(),
             Some(package) => format!("{package}.{member}"),
             None => callee.to_string(),
         }
     }
 
-    /// Whether a `thread::start` entry argument names an exported ISOLATED
-    /// FUNC of an imported package — through an import binding (`pkg::f`, the
-    /// `.mfp`'s export table) or the package's own `self::` binding (an
-    /// `EXPORT ISOLATED FUNC` of this project). A bare project function is not
-    /// an import, whatever it declares. The checker resolved the NORMALIZED
-    /// first argument, so `entry` is that.
+    /// Whether a `thread::start` entry argument names an `ISOLATED FUNC` — that
+    /// is the whole rule (plan-115). Either one this project declares, named by
+    /// its bare identifier at any visibility, or an imported package's
+    /// `EXPORT ISOLATED FUNC` named through an import binding (`pkg::f`, the
+    /// `.mfp`'s export table). The checker resolved the NORMALIZED first
+    /// argument, so `entry` is that.
     fn thread_start_entry_valid(&self, entry: Option<&HirExpression>) -> bool {
         let Some(HirExpression::Identifier(name)) = entry else {
             return false;
@@ -2210,16 +2206,6 @@ impl<'a> Walker<'a> {
             });
         };
         match self.context.current_imports.get(binding) {
-            // `self::w` is now just a spelling of the bare `w` — it canonicalizes
-            // to the bare name before lowering (`src/ir/lower.rs`), so the two
-            // must agree here or the same function would be a valid entry under
-            // one spelling and not the other. The `Visibility::Export` condition
-            // is therefore dropped: it would make `self::w` STRICTER than `w`.
-            Some(package) if package == crate::ast::SELF_IMPORT => {
-                self.functions.get(member).is_some_and(|function| {
-                    function.isolated && function.kind == crate::ast::FunctionKind::Func
-                })
-            }
             Some(package) => self
                 .imported_signatures
                 .get(&format!("{package}.{member}"))
@@ -2229,7 +2215,7 @@ impl<'a> Walker<'a> {
     }
 
     /// TYPE_CALL_ARGUMENT_MISMATCH, the `thread.start` entry form — a source
-    /// fact (`self::` vs a bare name both lower to one `FunctionRef`).
+    /// fact (a bare name and `pkg::name` both lower to one `FunctionRef`).
     fn report_thread_entry(&mut self, line: usize) {
         self.call_typed_unknown = true;
         self.emit(

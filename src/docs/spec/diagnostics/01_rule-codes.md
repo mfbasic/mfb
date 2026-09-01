@@ -307,7 +307,6 @@ program still compiles and runs. Injected builtin source is exempt.
 | `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | function name is a reserved built-in and may not be redeclared |
 | `2-201-0017` | `PRIVATE_SHADOWS_PUBLIC` | warn | PRIVATE declaration shadows a PUBLIC declaration of the same name within its file |
 | `2-201-0018` | `PRIVATE_PATH_HASH_COLLISION` | error | internal: two source file paths produced the same file-scope hash |
-| `2-201-0019` | `IMPORT_SELF_IN_EXECUTABLE` | error | IMPORT self is only valid in a package project |
 
 ### `2-203` — Type checking, ownership, and native ABI
 

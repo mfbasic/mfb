@@ -1,5 +1,0 @@
-IMPORT self AS me
-
-EXPORT FUNC greeting AS String
-  RETURN "hi"
-END FUNC

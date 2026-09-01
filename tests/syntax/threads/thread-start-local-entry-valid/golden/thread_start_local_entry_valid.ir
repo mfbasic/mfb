@@ -12,44 +12,44 @@
   "functions": [
   {
     "name": "pubWorker",
-    "line": 9,
+    "line": 11,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "t", "line": 9, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
-    { "name": "seed", "line": 9, "type": "Integer", "default": null }
+    { "name": "t", "line": 11, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
+    { "name": "seed", "line": 11, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 10, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "op": "return", "line": 12, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
     ]
   },
   {
     "name": "#c2515768f1aa7dc6$privWorker",
-    "line": 16,
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "t", "line": 16, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
-    { "name": "seed", "line": 16, "type": "Integer", "default": null }
+    { "name": "t", "line": 18, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
+    { "name": "seed", "line": 18, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 17, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
     ]
   },
   {
     "name": "main",
-    "line": 20,
+    "line": 22,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 21, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "pubWorker", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "#c2515768f1aa7dc6$privWorker", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
-    { "op": "return", "line": 23, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } } }
+    { "op": "bind", "line": 23, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "pubWorker", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "#c2515768f1aa7dc6$privWorker", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
+    { "op": "return", "line": 25, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } } }
     ]
   }
   ]

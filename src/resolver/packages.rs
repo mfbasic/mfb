@@ -2,22 +2,6 @@ use super::*;
 
 impl Resolver<'_> {
     pub(super) fn resolve_imported_package(&mut self, file: &HirFile, name: &str, line: usize) {
-        // The reserved specifier `self` binds the current package's own exported
-        // interface (plan-81-import-self.md §4.1). It is not probed against the
-        // package store: in a package project it resolves with no diagnostic; in
-        // an executable there is no exported interface to import.
-        if name == SELF_IMPORT {
-            if !self.is_package {
-                self.report(
-                    "IMPORT_SELF_IN_EXECUTABLE",
-                    "`IMPORT self` is only valid in a `kind: \"package\"` project; an executable has no exported interface to import. Self-referencing threads require a package project.",
-                    file,
-                    line,
-                );
-            }
-            return;
-        }
-
         if is_builtin_import(name) {
             return;
         }
@@ -429,33 +413,26 @@ mod tests {
         root
     }
 
+    /// plan-115-B: `IMPORT self` is gone, so `self` is an ordinary package name
+    /// and resolves through the normal order — i.e. it is undeclared like any
+    /// other. This replaces `self_import_in_package_is_ok` /
+    /// `self_import_in_executable_is_reported`, which pinned the reserved
+    /// specifier's two outcomes; the feature they described no longer exists.
     #[test]
-    fn self_import_in_package_is_ok() {
+    fn self_is_an_ordinary_package_name() {
         let dir = tempdir().unwrap();
-        // `self` in a package resolves with no diagnostic and is never probed
-        // against the package store.
-        assert!(!resolve_import(
+        // Reported in BOTH kinds now, and for the ordinary reason
+        // (IMPORT_PACKAGE_NOT_DECLARED) rather than a reserved-specifier rule.
+        assert!(resolve_import(
             dir.path(),
             &manifest_with_kind("package"),
             "self"
         ));
-    }
-
-    #[test]
-    fn self_import_in_executable_is_reported() {
-        let dir = tempdir().unwrap();
-        // An executable has no exported interface to import.
         assert!(resolve_import(
             dir.path(),
             &manifest_with_kind("executable"),
             "self"
         ));
-        // The emitted identity is defined and non-sentinel (mirrors
-        // `present_mfp_that_is_garbage_is_reported`).
-        assert_eq!(
-            crate::rules::code_and_name("IMPORT_SELF_IN_EXECUTABLE"),
-            ("2-201-0019", "IMPORT_SELF_IN_EXECUTABLE")
-        );
     }
 
     #[test]

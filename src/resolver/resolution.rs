@@ -513,20 +513,6 @@ impl Resolver<'_> {
                 );
             }
 
-            // `self` is the reserved specifier for the current package's own
-            // exported interface (plan-81-import-self.md §4.1). Aliasing another
-            // import onto that binding (`IMPORT io AS self`) would silently shadow
-            // it, so it is rejected — the `import.module != SELF_IMPORT` guard lets
-            // the genuine `IMPORT self` through.
-            if binding == SELF_IMPORT && import.module != SELF_IMPORT {
-                self.report(
-                    "SYMBOL_DUPLICATE_IMPORT",
-                    "Import alias `self` conflicts with the reserved `self` specifier (the current package's own exported interface).",
-                    file,
-                    import.line,
-                );
-            }
-
             if self.top_level_visible_in_file(file, binding)
                 || self.function_visible_in_file(file, binding)
             {

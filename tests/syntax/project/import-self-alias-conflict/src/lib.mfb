@@ -1,5 +1,0 @@
-IMPORT io AS self
-
-EXPORT FUNC greeting AS String
-  RETURN "hi"
-END FUNC

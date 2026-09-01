@@ -285,42 +285,70 @@ Commit: (recorded in the next commit)
 
 Only after nothing in the tree uses the feature.
 
-- [ ] `src/resolver/packages.rs:12-19` — delete the `SELF_IMPORT` short-circuit
+- [x] `src/resolver/packages.rs:12-19` — delete the `SELF_IMPORT` short-circuit
       so `self` falls through to normal package resolution.
-- [ ] `src/resolver/resolution.rs:521` — delete the `IMPORT other AS self` guard.
+- [x] `src/resolver/resolution.rs:521` — delete the `IMPORT other AS self` guard.
       Confirm `SYMBOL_DUPLICATE_IMPORT` retains its other callers
       (`grep -n "SYMBOL_DUPLICATE_IMPORT" src/`); if this was its only one, decide
-      explicitly whether the rule survives.
-- [ ] `src/ir/lower.rs:3040-3050` — delete the `SELF_IMPORT` arm of
+      explicitly whether the rule survives. **It has 3 other callers**
+      (`resolution.rs:496,507,534`), so the rule survives and only the guard was
+      deleted — the plan's Open Decision recommendation, now measured.
+- [x] `src/ir/lower.rs:3040-3050` — delete the `SELF_IMPORT` arm of
       `canonical_import_name` and its comment block.
-- [ ] `src/ir/shape.rs` — delete the two `SELF_IMPORT` skip-guards (lines 740,
-      799) and the entry-name arms (2100, 2120) left over from A.
-- [ ] `src/ast/types.rs:23` — delete the `SELF_IMPORT` constant.
-- [ ] `src/resolver/mod.rs:292` — the `is_package` field exists to gate this
+- [x] `src/ir/shape.rs` — delete the two `SELF_IMPORT` skip-guards (lines 740,
+      799) and the entry-name arms (2100, 2120) left over from A. All four gone,
+      plus the three doc comments that described the specifier.
+- [x] `src/ast/types.rs:23` — delete the `SELF_IMPORT` constant (and its doc
+      comment, which would otherwise orphan onto the next item).
+- [x] `src/resolver/mod.rs:292` — the `is_package` field exists to gate this
       feature. `grep -n "is_package" src/resolver/` for other consumers; delete
       the field if it has none, otherwise just correct its doc comment.
-- [ ] `src/rules/table.rs:297` — delete the `IMPORT_SELF_IN_EXECUTABLE` row.
-- [ ] Delete the three fixtures: `tests/syntax/project/import-self-package-valid/`,
+      **No other consumers** — the remaining tree-wide `is_package` hits are
+      `builtins::is_package_constant` (unrelated) and locals in `manifest/` and
+      `cli/build/`. Field, doc and initializer deleted, and the now-unused
+      `SELF_IMPORT` import dropped from the `use` list.
+- [x] `src/rules/table.rs:297` — delete the `IMPORT_SELF_IN_EXECUTABLE` row.
+      Also converted its two unit tests in `src/resolver/packages.rs`
+      (`self_import_in_package_is_ok`, `self_import_in_executable_is_reported`)
+      into one `self_is_an_ordinary_package_name`, which pins that `self` is now
+      reported in BOTH project kinds and for the ordinary reason.
+- [x] Delete the three fixtures: `tests/syntax/project/import-self-package-valid/`,
       `tests/syntax/project/import-self-alias/`,
       `tests/syntax/project/import-self-in-executable/`. Justify in the commit
       message: each pins behavior of a removed feature, so the four-question gate
       resolves as "the feature is gone", not "the test is wrong".
-- [ ] `src/docs/spec/diagnostics/01_rule-codes.md:310` — delete the
-      `2-201-0019` row. Do not reuse the code.
-- [ ] `src/docs/spec/language/13_modules-and-packages.md:105-120` — delete the
-      reserved-`self` paragraph.
-- [ ] `src/docs/spec/language/16_threads.md:28` — remove the `IMPORT self`
+      **Four, not three** — `import-self-alias-conflict` was missing from the
+      census; see Corrections.
+- [x] `src/docs/spec/diagnostics/01_rule-codes.md:310` — delete the
+      `2-201-0019` row. Do not reuse the code. (Not reused.)
+- [x] `src/docs/spec/language/13_modules-and-packages.md:105-120` — delete the
+      reserved-`self` paragraph. Also removed a second mention the plan did not
+      list (`"`IMPORT self` stays optional"` in the qualified-name rules, §73).
+- [x] `src/docs/spec/language/16_threads.md:28` — remove the `IMPORT self`
       sentence (A already rewrote the surrounding rule).
-- [ ] Tests: add `tests/syntax/project/self-is-an-ordinary-identifier/` — a
+- [x] Tests: add `tests/syntax/project/self-is-an-ordinary-identifier/` — a
       project using `self` as a variable and as a function name, building clean.
       This is the guardrail that the removal restored the identifier rather than
-      leaving a half-reserved word.
+      leaving a half-reserved word. Covers five positions: top-level FUNC name,
+      top-level `MUT` name, record field name, local `LET` name, and a `WITH`
+      field update. Builds **and runs**: `self=21 field=8 count=29`.
 
 Acceptance: `grep -rn "SELF_IMPORT" src/` → 0 hits;
 `grep -rn "IMPORT_SELF_IN_EXECUTABLE" src/ tests/` → 0 hits;
 `cargo test --no-fail-fast` green; full `scripts/test-accept.sh` green with the
 fixture count (`N ran`) down by exactly 3 and up by 1.
-Commit: —
+
+**Verified:** `grep -rn "SELF_IMPORT" src/` → **0**.
+`grep -rn "IMPORT_SELF_IN_EXECUTABLE" src/ tests/` → **0** (one straggler was a
+comment in letter A's own `thread-start-local-entry-valid` fixture, corrected).
+`scripts/test-accept.sh` → **passed, 1346 ran, 0 mismatches**. The count is the
+coverage check the plan asks for and it lands exactly on the corrected
+accounting: 1349 after letter A − **4** deleted + 1 added = 1346. Had the census
+really been 3, this would have read 1347.
+`IMPORT self` now resolves ordinarily:
+`error[2-201-0002 IMPORT_PACKAGE_NOT_DECLARED]: Package \`self\` is not built in`.
+
+Commit: (recorded in the next commit)
 
 ## Validation Plan
 
