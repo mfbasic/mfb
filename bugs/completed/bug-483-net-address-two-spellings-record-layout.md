@@ -10,7 +10,7 @@ compile-time guarantees silently stopped being enforced)
 
 Status: **FIXED** — see the STATUS block below.
 
-## STATUS: FIXED (fdac03c3c)
+## STATUS: FIXED (fdac03c3c, 7aa3b13c6, f077c817b)
 
 The report was accurate about the crash and wrong about the cause. It is not a
 TLS bug, not a listener bug, and not in the `tls` package at all: `tcp`, `udp`,
@@ -91,29 +91,60 @@ a bug (AGENTS.md: byte-identity goldens are sentinels, not behaviour).
   for one with what the gate reported. Every other byte-identity fixture passed
   unchanged, which is what rules out a pre-existing diff riding along.
 
-* **33 `rt-behavior` `build.log`s that pinned the crash itself.** Found with
+* **34 `build.log`s that pinned the crash itself** (33 under `rt-behavior/`,
+  one under `rt-error/`). Found deterministically, without running anything:
 
-      grep -rln '^\[exit 13[89]\]' tests/rt-behavior/
+      grep -rln '^\[exit 13[89]\]' tests/
 
-  A behaviour fixture should never legitimately end in a signal, so an
-  `[exit 138]`/`[exit 139]` in one of these is *always* a dead fixture. This is
-  the runtime twin of "a golden pinning a build failure is a dead fixture": the
-  harness compares one crash to another and can report PASS.
+  A behaviour fixture should never legitimately end in a signal — a raise is an
+  `Error:` line with a controlled exit — so an `[exit 138]`/`[exit 139]` in one
+  is *always* a dead fixture. This is the runtime twin of "a golden pinning a
+  build failure is a dead fixture": the harness compares one crash to another and
+  reports PASS, so every assertion below the crash line stops being checked.
 
   They are **flaky-by-crash**, which is why they went unnoticed and why a single
   acceptance run under-reports them. The same bad pointer lands as SIGBUS (138)
   or SIGSEGV (139) depending on where the arithmetic points, and a run may die
   earlier than the golden did and lose trailing output. One acceptance run
-  surfaced 9 of the 33; the grep above finds all of them deterministically,
-  regardless of which way the crash fell that day.
+  surfaced 9 of the 34; a rerun would surface a different subset. The grep finds
+  all of them regardless of which way the crash fell that day.
 
-  `func_udp_endpoints_valid`'s committed golden is the clearest example — it
-  recorded `host=` (empty) followed by `[exit 138]`, while its own remaining
-  lines expect the program to reach `closed`.
+  `func_udp_endpoints_valid`'s golden is the clearest — it recorded `host=`
+  (empty) then `[exit 138]`, while its own remaining lines expect the program to
+  reach `closed`. The costliest is `func_net_ping_valid`: its golden stopped at
+  `loopback status=Ok` + `[exit 139]`, so **13 assertions below that line had not
+  been checked since the regression** (responder, port, rtt, ttl, size, the
+  address form, zero and max size, the silent-host `Timeout` path, the zeroed
+  result). All 13 now run.
 
-  The gate applied after regenerating: **that grep must return nothing.** A
-  fixture still ending in a signal would be a second defect to chase, not
-  something to re-pin.
+* **3 more baselined the OTHER way — onto a build that succeeds.**
+  `syntax/audio/device_literal_invalid` and
+  `syntax/term/func_term_terminalSize_invalid` exist solely to pin a refusal, and
+  their goldens recorded `[exit 0]` from the moment sub-issue B killed the
+  read-only guard. An `*_invalid` fixture that no longer refuses is the same
+  disease inverted. Both refuse again. (The third is this bug's own new fixture,
+  whose golden predated the `ir::shape` half of the guard fix.)
+
+  Swept for that class tree-wide; the only other two hits are non-hits — a
+  `-valid` fixture matching on the substring "invalidate", and
+  `testing-assert-invalid`, whose assertions live in a `.testrun` golden so its
+  clean build is intentional.
+
+**Every one of the 37 was checked before being regenerated**, not regenerated in
+bulk and inspected after: all 34 crash goldens diff from `[exit 13x]` to
+`[exit 0]` and none the other way, no regenerated output holds a volatile value
+(the fixtures print `TRUE`/`127.0.0.1`, never an ephemeral port), and exactly 37
+`build.log`s changed with no `.ast`/`.ir` drift. The mismatch set was also
+confirmed identical to the grep set, so nothing mismatched for an unrelated
+reason.
+
+**The gate now stands permanently.** `no_golden_pins_a_fatal_signal`
+(`tests/architecture_guards.rs`) is the runtime twin of the existing
+`only_syntax_goldens_may_pin_a_compiler_diagnostic`: it scans every
+`golden/build.log` for a 128+signum exit and names the file, line and signal.
+Verified genuinely RED by restoring one pre-fix golden before being trusted. It
+is the check that would have caught this whole class without anyone running a
+binary.
 
 ### Regression tests
 
@@ -126,6 +157,7 @@ a bug (AGENTS.md: byte-identity goldens are sentinels, not behaviour).
 | `tests/syntax/net/net_address_read_only_invalid/` | the two user-visible diagnostics. Nothing pinned them before — which is exactly why the guard could die unnoticed. |
 | `is_builtin_named_accepts_both_spellings` | the new seam, including the prefix near-misses (`subnet.Address`, `netAddress`, `Addressed`) and another package's leaf. |
 | `wire_type_ids_are_unchanged_by_the_typed_encoder` (extended) | `term.TermColor`/`term.TermSize` keep their reserved high-band ids. |
+| `no_golden_pins_a_fatal_signal` | no `golden/build.log` anywhere may record a 128+signum exit. The standing guard against this whole class. |
 
 `DatagramText` was dropped from the pointer-string list: it is no longer a
 declared type anywhere (`udp/mod.rs` asserts it must not be), so that arm was
