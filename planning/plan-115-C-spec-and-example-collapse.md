@@ -1,6 +1,6 @@
 # plan-115-C: Spec consolidation and the `network-server` collapse
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Effort: medium (1h–2h)
 Depends on: plan-115-B
 
@@ -37,12 +37,25 @@ See `plan-115-A-unified-thread-entry.md` § Prerequisites — bug-480 and bug-48
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-115-B is complete and archived | `ls planning/plan-115-B-*.md` → no matches (moved to `planning/completed/`) | **NOT MET** (measured 2026-09-01: → `planning/plan-115-B-remove-import-self.md`; B is blocked on A, which is blocked on bug-482) |
+| plan-115-B is complete and archived | `ls planning/plan-115-B-*.md` → no matches (moved to `planning/completed/`) | **MET** (2026-09-01: B landed in `f5e976935`/`0f06dd495`/`35479878d`, gates green, archived) |
 
 If B is not complete, this letter cannot start, full stop — the example collapse
 depends on the executable being able to host its own `ISOLATED FUNC` entries (A)
 and on `connworker`'s helpers no longer needing a package to live in (B's
 conversion establishes the spelling).
+
+**Re-measured 2026-09-01, all rows MET:** `ls bugs/bug-480-*.md` →
+`no matches found`; `ls bugs/bug-482-*.md` → `no matches found`;
+`ls planning/plan-115-B-*.md` → `no matches found`.
+
+**A's § Corrections read, as Phase 1's first task requires: the namespace premise
+HELD.** A's Phase 1 probe measured `a=107 b=207` / `parent_pcount=7`, and a
+package naming a consumer's global is rejected with `SYMBOL_UNKNOWN_IDENTIFIER`.
+So this letter's spec text stands as drafted and no re-scope is needed.
+
+**B left exactly one dangling reference for this letter**, as its Corrections
+predicted: `src/docs/spec/threading/01_source-model.md` still describes the
+`IMPORT self` specifier. Phase 1 owns it.
 
 ## 1. Goal
 
@@ -168,38 +181,64 @@ in the artifact-gate population; the example's proof is that it runs.
 
 Docs only, no code. Independently landable.
 
-- [ ] Read `plan-115-A` § Corrections first. If A's Phase 1 falsified the
+- [x] Read `plan-115-A` § Corrections first. If A's Phase 1 falsified the
       namespace premise, **stop and re-scope this phase** — the sentences below
-      are drafted against the premise holding.
-- [ ] `src/docs/spec/language/16_threads.md:31` — replace "its own fresh instance
+      are drafted against the premise holding. **Read: the premise HELD** (probe
+      `a=107 b=207` / `parent_pcount=7`, plus `SYMBOL_UNKNOWN_IDENTIFIER` when a
+      package names a consumer's global), so no re-scope.
+- [x] `src/docs/spec/language/16_threads.md:31` — replace "its own fresh instance
       of the entry function's package" with the declaring-project formulation,
       and add the mechanism: the worker's arena carries a fresh, re-initialized
       copy of the program's writable globals, and a worker can only *name* the
       globals of the project that declares its entry (plus that project's
-      imports), which is what makes the instance per-project.
-- [ ] `src/docs/spec/language/13_modules-and-packages.md:148` — same correction
+      imports), which is what makes the instance per-project. Written as three
+      bullets — the guarantee, the mechanism (with the explicit warning that a
+      non-lexical observer would see past the boundary), and the initializer note.
+- [x] `src/docs/spec/language/13_modules-and-packages.md:148` — same correction
       for the isolated-function paragraph.
-- [ ] `src/docs/spec/threading/01_source-model.md` — rewrite the narrative around
+- [x] `src/docs/spec/threading/01_source-model.md` — rewrite the narrative around
       `ISOLATED` as the sole entry marker. Resolve any dangling `self` reference
-      B left behind.
-- [ ] Add an explicit note that initializer side effects re-run once per
+      B left behind. Removed the two `imported_package_export` rejection bullets
+      and the whole `IMPORT self` paragraph; replaced with a "Provenance is not a
+      criterion" paragraph. B's dangling reference is gone.
+- [x] Add an explicit note that initializer side effects re-run once per
       `thread::start` — newly visible now that an executable's top level (where
-      startup-flavored bindings live) can host entries.
-- [ ] `grep -rn "imported package" src/docs/spec/` — sweep for surviving
-      statements of the deleted rule.
-- [ ] `grep -rn "ISOLATED" src/docs/spec/` — confirm every remaining statement
-      matches the implemented rule after A.
-- [ ] Check `mfb man thread start` and `mfb man thread` prose (rendered from
+      startup-flavored bindings live) can host entries. (§16, third new bullet.)
+- [x] `grep -rn "imported package" src/docs/spec/` — sweep for surviving
+      statements of the deleted rule. **Found one the plan did not list:**
+      `src/docs/spec/threading/spec.md:20` still asserted "A thread entry point is
+      an exported `ISOLATED FUNC` from an imported package." Corrected.
+- [x] `grep -rn "ISOLATED" src/docs/spec/` — confirm every remaining statement
+      matches the implemented rule after A. **Found a second file the plan did not
+      list:** `src/docs/spec/threading/02_isolation.md:6-12` still required a
+      "project-visible `FUNC` … not `PRIVATE`" and still said `thread::start`
+      "additionally requires the entry to come from an *imported* package".
+      Both corrected. Every other hit is grammar/encoding/tooling and is unaffected.
+- [x] Check `mfb man thread start` and `mfb man thread` prose (rendered from
       `src/codegen/builtins/thread/func_start.rs` and `mod.rs`, **not** from
       Markdown) for statements the new rules falsify. Verify by rendering, and
       hold any replacement text to `.ai/man-content.md`'s memory-vocabulary ban.
+      Both carried the old rule — `func_start`'s DESC and its `f` parameter
+      description named `self::…` explicitly, and `mod.rs`'s MODULE_DESC said a
+      thread "gets its own copy of its package's top-level state". Rewritten and
+      re-rendered. The replacement text uses only permitted vocabulary (copy,
+      declares, share) — no ownership/lifetime/allocation words.
 
 Acceptance: `mfb spec language threads`, `mfb spec language modules-and-packages`
 and `mfb spec threading source-model` render with no mention of
 import-reachability, `EXPORT`-ness or `self` in the entry rules, and state both
 the namespace guarantee and its enforcing mechanism. `mfb man thread start`
 renders consistent with them.
-Commit: —
+
+**Verified by rendering** (not by reading the source): `mfb spec threading
+source-model` now opens "A thread entry point is an ISOLATED FUNC …" and carries
+the "Provenance is not a criterion" paragraph; `mfb man thread start`'s `f` row
+reads "It must be an ISOLATED FUNC — one your own project declares, or an EXPORT
+ISOLATED FUNC of a package you imported". `scripts/man-census.sh --memory-scope`
+reports 0 unclassified hits in `thread` (the 8 it does report are all `canvas`
+and pre-existing — see Corrections).
+
+Commit: (recorded in the next commit)
 
 ### Phase 2 — Collapse `examples/network-server` (largest blast radius)
 
@@ -275,7 +314,39 @@ Commit: —
 <!-- Filled in DURING execution. Record the claim, what was actually true, and
      the evidence. -->
 
-- (none yet)
+- **Two spec files carrying the deleted rule were missing from the plan's
+  §2 table.** It lists three (`threading/01_source-model.md`,
+  `language/16_threads.md:31`, `language/13_modules-and-packages.md:148`). The
+  Phase 1 sweeps found two more, both corrected here:
+  - `src/docs/spec/threading/spec.md:20` — "A thread entry point is an exported
+    `ISOLATED FUNC` from an imported package." (found by
+    `grep -rn "imported package" src/docs/spec/`)
+  - `src/docs/spec/threading/02_isolation.md:6-12` — required a "project-visible
+    `FUNC` … not `PRIVATE`", quoted the old `TYPE_ISOLATED_NOT_VISIBLE` message,
+    and said `thread::start` "additionally requires the entry to come from an
+    *imported* package". (found by `grep -rn "ISOLATED" src/docs/spec/`)
+
+  Both sweeps were plan tasks, so the plan caught its own omission — but a reader
+  trusting only the §2 table would have shipped two false spec pages.
+
+- **`mfb man thread` prose also carried the old rule**, which the plan flagged as
+  a "check" rather than an expected edit. It needed real edits in both files:
+  `func_start.rs` DESC named `self::worker` and said a bare unqualified name is
+  rejected; its `f` parameter description said the entry "must be an
+  `EXPORT ISOLATED FUNC` of an imported package (or one of your own, named
+  `self::…`)"; and `mod.rs` MODULE_DESC said the thread "gets its own copy of its
+  package's top-level state".
+
+- **`scripts/man-census.sh --memory-scope` does not report 0** — it reports **8
+  unclassified hits, all in `canvas`** (`canvas (types)`, `destroyFont`,
+  `didResize`, `fontRef` ×2, `loadFont` ×2, `loadImage`), using banned vocabulary
+  (`owned`, `released`, `allocated`, `owns`, `lifetime`, `dangling`).
+  **These are pre-existing and not this plan's.** Evidence:
+  `git diff --name-only <merge-base> -- src/codegen/builtins/` returns exactly
+  `thread/func_start.rs` and `thread/mod.rs` — plan-115 touched no `canvas`
+  descriptor. Reported, not absorbed: correcting them needs canvas resource
+  semantics, and guessing would ship false documentation. Worth filing
+  separately.
 
 ## Summary
 

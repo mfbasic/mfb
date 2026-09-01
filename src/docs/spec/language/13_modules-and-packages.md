@@ -167,7 +167,9 @@ An installed `packages/<name>.mfp` always wins over the sources beside it. A
 package may not be part of its own dependency
 graph.[[src/manifest/package.rs:resolved_package_file]]
 
-An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
+An **isolated function** is a top-level `FUNC` declared with `ISOLATED`, at any visibility. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of the project that *declares* it — the package for an imported entry, the current project for a local one. Starting isolated functions from the same project multiple times creates multiple independent instances; their top-level `MUT` bindings are initialized from their declarations and are not shared with each other, with the parent, or with an importing package.
+
+That per-project instance is provided by **name resolution**, not by partitioning the globals: the worker's arena re-initializes the whole program's writable globals, and it is scoping that keeps a worker from naming anything outside its declaring project and that project's imports. See `./mfb spec language threads` for the full statement of the rule and its consequences.
 
 ## See Also
 
