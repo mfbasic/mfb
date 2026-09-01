@@ -349,16 +349,23 @@ Commit: —
 
 ### Phase 5 — Feature closeout
 
-- [ ] Spec: `15_resource-management.md` §15.5 (add the field row to the
-      position table — a field, like an element, names the type and rides it) and
-      §15.6 (a field carries `STATE` exactly as an element does);
-      `04_types.md` §4.2; `./mfb spec architecture escape-analysis` (the record
-      edges from letter C, if letter C did not already land them).
-- [ ] `.ai` invariant docs: `.ai/resources-packages.md` gains a "Record `RES` field"
-      section (the `RES`-stripped field read, the owned-list-by-binding-name fact
-      from letter C, and the arena-transferable split from letter B);
-      `.ai/codegen-invariants.md` gains the two-predicate distinction if letter B did
-      not land it there.
+- [x] Spec: `15_resource-management.md` §15.5 — the position table gains a **Slot**
+      row (a collection element/map value, or a record field), stated as the
+      position `STATE` *rides* rather than a binding, with the
+      `TYPE_STATE_INVALID` gate; §15.6 gains the field-`STATE` rule and the write
+      path; `04_types.md` §4.2 gains the field form (landed with letter D);
+      `./mfb spec architecture escape-analysis` gains the record edges from letter
+      C — the `Constructor`/`WITH` membership edges, the two asymmetries with
+      collections (a record's type does not reveal whether it can own a resource;
+      an inferred record binding still has a knowable type), and the `RES`-parameter
+      exemption from the ordering rule.
+
+- [x] `.ai` invariant docs: `.ai/resources-packages.md` gains a "Record `RES` field"
+      section (the `RES`-stripped field read, the marker surviving only where a type
+      is stored unstripped, the `copy_value_to_current_arena` naming trap, and the
+      annotation-only `decl_type` that let an inferred binding escape the ordering
+      gate); `.ai/codegen-invariants.md` gains the two-predicate distinction.
+
 - [ ] Full `scripts/artifact-gate.sh target/release/mfb all` and
       `scripts/test-accept.sh target/release/mfb /tmp/plan114e-scratch`.
 - [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`

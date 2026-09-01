@@ -63,13 +63,16 @@ s.state = WITH s.state { pos := 10 }                         ' or replace the wh
 
 ## 15.5 What `STATE` means in each position
 
-A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFile CLOSE BY sfClose` and has no `STATE` clause. [[src/ast/items.rs:parse_top_level_resource]] `STATE` is written at the three *use* positions — a parameter, a return, and a binding — and the same two spellings mean different things at each:
+A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFile CLOSE BY sfClose` and has no `STATE` clause. [[src/ast/items.rs:parse_top_level_resource]] `STATE` is written at the *use* positions — a parameter, a return, a binding, and a **slot** (a collection element/map value, or a record field) — and the same two spellings mean different things at each:
 
 | Position | `RES x AS SfFile` (bare) | `RES x AS SfFile STATE FileInfo` |
 |---|---|---|
 | **Parameter** | accepts a `SfFile` carrying **any state or none**; `x.state` is **not** accessible | accepts **only** a `SfFile` carrying a `FileInfo`; `x.state` is accessible |
 | **Return** | **asserts** the resource has no state; rejected if it carries one | returns a resource **carrying** a `FileInfo` |
 | **Binding** | **asserts** the resource has no state; rejected if it carries one | **attaches** a default-initialized `FileInfo` (when the value carries none), or **adopts** the one the value already carries |
+| **Slot** — a collection element/map value, or a **record field** | the slot holds a handle whose state is not readable through it | the `STATE` rides the **slot**: an element or field extracted from it types `.state`, and a rebind is checked for agreement (`TYPE_STATE_MISMATCH`) |
+
+A slot is the position `STATE` rides rather than a binding: `List OF RES fs::File STATE Cursor` and `TYPE Holder { handle AS RES fs::File STATE Cursor }` both fold the clause into the element's or field's own type, which is what lets an extracted handle read `.state`. As at a binding, `T` must be a copyable, defaultable data type (`TYPE_STATE_INVALID`) — a resource is none of those, so a slot may not name one as its own state.
 
 Bare therefore reads two ways: **"opaque"** at a parameter, and **"asserts none"** at a return or a binding. Bare never *strips* a `STATE` — at a return or a binding it is a claim that there is none, and the claim is checked:
 
