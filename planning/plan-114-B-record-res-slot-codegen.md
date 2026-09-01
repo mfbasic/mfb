@@ -447,7 +447,10 @@ transfer/send path; the four memcpy-copyable sites are all in-thread layout or
 scope-drop.
 
 **C3 (Phase 1) — §2's UNVERIFIED reachability question, answered by hand-evaluating
-the predicate.**
+the predicate. SUPERSEDED BY C7 — the hand-evaluation below is WRONG in its
+middle step (the collection payload is `RES`-stripped before the walk sees it),
+though its conclusion happens to hold. Left in place rather than deleted so the
+error and its correction are both visible.**
 §2 asks whether any *currently reachable* program reaches
 `builder_arena_transfer.rs:396` with a `Res`-carrying type, and says the artifact
 gate is the measurement. Traced it directly instead, for `List OF RES fs.File`:
@@ -531,6 +534,101 @@ newly reject NIR it currently accepts, which is a behavior change outside this
 letter's "no change to which programs compile" non-goal, and it belongs with the
 union rules rather than with record layout. Recorded so letter D's union work has
 it in hand.
+
+**C6 — §4.1's divergence table is WRONG for the bare-resource row, and the
+artifact gate is what proved it.**
+The plan says a bare resource nominal is `true` for MemcpyCopyable and `false`
+for ArenaTransferable, by analogy with the `RES`-marked element. Implemented as
+written, `artifact-gate.sh all` reported **10 DIFFs** — `tcp` and `udp`
+`.ncodesum` on all 5 targets.
+
+Root-caused by dumping one fixture rather than theorising, per
+`.ai/testing-gates.md`. `tests/byte-identity/tcp` has **no thread in it at all**,
+which is what ruled out the arena sites immediately. The `.ncode` diff was:
+
+```
+$ diff base.ncode mine.ncode
+408c408
+<     "frame": { "stackSize": 8032, ... }
+>     "frame": { "stackSize": 8080, ... }
+1086c1086
+<     { "name": "ready_674", ... }
+>     { "name": "pending_temp_674", "type": "pending_temp", "offset": 5440 }
+```
+
+A **new `pending_temp` slot**, i.e. a new pending free. `is_freeable_flat_value`
+is `memcpy_copyable(t) && (String | collection | ResultOf | record | data union)`.
+The tcp fixture's `Result OF tcp.Socket` used to fail the first term; with the
+bare-resource row `true` it passed **and** matched `ResultOf`, so the value was
+newly claimed as a freeable flat block and a free was emitted for something that
+is not a block. The row does not stay local to resources — it propagates through
+every structural arm.
+
+The two positions genuinely differ, and the original code was right:
+
+- `Res(inner)` is an **element/field marker**: the enclosing block owns an 8-byte
+  slot holding the handle, so the enclosing block is still one pointer-free run
+  of bytes and a `memcpy` of it is correct.
+- A **bare resource nominal** is the value's OWN type. "Flat" would assert the
+  resource *record* is a copyable block that `arena_free` reclaims as a unit. It
+  is not: separately allocated, own lifetime, own close op.
+
+Corrected to `false` for both modes — identical to `type_is_flat`. Byte-identity
+restored and verified per-fixture before re-running the gate:
+
+```
+$ shasum -a 256 <tcp .ncode built from clean main 213803f96>
+56c452e3aef5519d7cda7de28da8d3107aff380eb4fd731ac14d68b9b3d32c85   # == golden
+$ shasum -a 256 <tcp .ncode with the fix>
+56c452e3aef5519d7cda7de28da8d3107aff380eb4fd731ac14d68b9b3d32c85   # == golden
+```
+
+The baseline build (`git archive 213803f96` → `cargo build --release`) matching
+the golden is what made the diff *provably* this letter's rather than
+pre-existing bug-483 noise.
+
+**C7 — §2's "`type_is_flat(Res(File))` is `true` today" is right about the type
+and WRONG about the collection, and my own Correction C3 inherited the error.**
+Both the plan and C3 reasoned that `type_is_flat(List OF RES fs.File)` is `true`
+because the payload `Res(fs.File)` has no arm and falls through to
+`!record_field_is_pointer(..)`. **The payload is never `Res(fs.File)`.**
+`typed_list_element_type` and `typed_map_type_parts` **strip the `RES` marker**
+(`src/codegen/engine/types/type_utils.rs:345`, `:352` — both call
+`typed_strip_res_marker`), so `collection_payload_types` yields a **bare**
+`fs.File` and the walk has always taken the bare-resource arm → `false`.
+
+Consequences, all of which make this letter *smaller* than the plan thought:
+
+1. `type_is_flat(List OF RES fs.File)` is and always was **`false`**, so §2's
+   "`builder_arena_transfer.rs:386` would route a `List OF RES fs::File` to
+   `copy_flat_block`, aliasing the sender's arena" **never happened**. There was
+   no latent aliasing bug to fix there.
+2. The `Res(_)` arm is reachable **only where a type is stored unstripped — a
+   record field**, which is exactly the new shape this letter exists for. So the
+   divergence the split introduces has a blast radius of precisely the new
+   feature, and touches no existing program. That is a far stronger neutrality
+   argument than the plan's, and it is measured rather than assumed.
+3. §2's UNVERIFIED reachability row is answered **"no"** — but for a different
+   reason than C3 gave. Not "letter A refuses it at the front end", but "the
+   predicate never saw a `Res` payload in the first place".
+
+C3's hand-evaluation is superseded by this. It reached the right conclusion
+(`diffs=0` for existing programs) by the wrong route, which is why the gate still
+found a real defect the reasoning had missed — a good argument for running the
+gate even when the analysis says it is unnecessary.
+
+**C8 — `copy_value_to_current_arena` takes MemcpyCopyable, not
+ArenaTransferable (§2 table corrected).**
+The §2 table assigns `builder_arena_transfer.rs:396` "arena-transferable". That
+conflates two questions, and the function's own name gives it away: it copies
+into the **current** arena, and most of its callers are in-arena — the `Result`
+wrap at `:145` is reached by any `TRAP` in a thread-free program. Whether the
+*source* came from another thread's arena is the caller's question, not this
+value's shape, and it is answered where the cross-thread decision is actually
+made: `collection_payload_needs_transfer_fix` (`:1188`) and the thread-send
+`size_computable` (`builder_thread_cleanup.rs:198`), which keep
+arena-transferability. Those two are the genuine cross-arena guards and the only
+consumers of that predicate.
 
 <!-- Further corrections filled in during execution. -->
 

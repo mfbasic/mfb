@@ -48,7 +48,7 @@
 //! resource which escapes by a route the scan does not model is still closed
 //! exactly once rather than twice or never.
 
-use crate::hir::{HirCallArg, HirExpression, HirFunction, HirStatement};
+use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirStatement};
 use std::collections::{HashMap, HashSet};
 
 /// Where a `RES` binding's close obligation is discharged.
@@ -281,6 +281,31 @@ impl Analyzer {
             HirExpression::MapLiteral { entries, .. } => {
                 for (_, value) in entries {
                     self.scan_element(value, res_elems, src_collections);
+                }
+            }
+            // plan-114-C: a record is a container in exactly the sense this scan
+            // means — a value that holds handle pointers and whose binding has a
+            // scope. `Holder[handle := f]` routes `f` into the constructed
+            // record's binding just as `[f]` routes it into a list's, so a
+            // constructor argument is an element position.
+            HirExpression::Constructor { arguments, .. } => {
+                for argument in arguments {
+                    let value = match argument {
+                        HirConstructorArg::Positional(value) => value,
+                        HirConstructorArg::Named { value, .. } => value,
+                    };
+                    self.scan_element(value, res_elems, src_collections);
+                }
+            }
+            // `WITH v { field := expr }` produces a NEW record carrying both the
+            // updated value and everything `v` already held, so both flow into
+            // the result — `target` exactly as insertion argument 0 does, and
+            // each update as an element. Records have no field assignment, so
+            // this is the only mutation-shaped edge there is (§4.2).
+            HirExpression::WithUpdate { target, updates } => {
+                self.scan_collection_expr(target, res_elems, src_collections);
+                for update in updates {
+                    self.scan_element(&update.value, res_elems, src_collections);
                 }
             }
             HirExpression::Call {
@@ -597,6 +622,195 @@ mod tests {
 
     fn ident(name: &str) -> HirExpression {
         HirExpression::Identifier(name.to_string())
+    }
+
+    // -----------------------------------------------------------------------
+    // plan-114-C Phase 2 — the record edges.
+    //
+    // A record is a container in the same sense a collection is: a value that
+    // holds handle pointers and whose binding has a scope. These mirror the
+    // collection cases above one for one, so a divergence between the two
+    // container kinds shows up as a test that passes for lists and fails for
+    // records.
+    // -----------------------------------------------------------------------
+
+    /// A record binding, `MUT`/`LET` per `mutable`.
+    fn holder(name: &str, mutable: bool, value: HirExpression) -> HirStatement {
+        HirStatement::Let {
+            mutable,
+            resource: false,
+            state_type: None,
+            name: name.to_string(),
+            type_: ParameterType::declared("Holder"),
+            explicit_type: true,
+            value: Some(value),
+            line: 1,
+        }
+    }
+
+    /// `Holder[handle := <element>]`
+    fn construct(element: &str) -> HirExpression {
+        HirExpression::Constructor {
+            type_: ParameterType::declared("Holder"),
+            arguments: vec![HirConstructorArg::Named {
+                name: "handle".to_string(),
+                value: ident(element),
+                line: 1,
+            }],
+        }
+    }
+
+    /// `WITH <target> { handle := <element> }`
+    fn with_update(target: &str, element: &str) -> HirExpression {
+        HirExpression::WithUpdate {
+            target: Box::new(ident(target)),
+            updates: vec![crate::hir::HirRecordUpdate {
+                field: "handle".to_string(),
+                value: ident(element),
+                line: 1,
+            }],
+        }
+    }
+
+    #[test]
+    fn inner_resource_floats_to_an_outer_record_via_with() {
+        // MUT h = Holder[...]; WHILE { RES f; h = WITH h { handle := f } }
+        // The record twin of `inner_resource_floats_to_outer_collection`.
+        let result = analyze_function(&func(vec![
+            holder("h", true, construct("nothing")),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "h".to_string(),
+                        value: with_update("h", "f"),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("h".to_string()));
+        assert!(result.floats("f"));
+    }
+
+    #[test]
+    fn same_scope_record_does_not_float() {
+        // RES f; LET h = Holder[handle := f] — same scope, so ownership stays
+        // local, exactly as for a list literal at the same depth.
+        let result = analyze_function(&func(vec![
+            res("f", open()),
+            holder("h", false, construct("f")),
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Local);
+        assert!(!result.floats("f"));
+    }
+
+    #[test]
+    fn a_constructor_nested_in_a_list_routes_to_the_list() {
+        // MUT xs = []; WHILE { RES f; xs = append(xs, Holder[handle := f]) }
+        // No extra scan arm is needed for this: `scan_element` falls through to
+        // `scan_collection_expr`, which now has a Constructor arm, so the
+        // resource reaches the LIST binding (the outermost container).
+        let result = analyze_function(&func(vec![
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "xs".to_string(),
+                        value: HirExpression::Call {
+                            callee: "collections.append".to_string(),
+                            arguments: vec![
+                                HirCallArg::Positional(ident("xs")),
+                                HirCallArg::Positional(construct("f")),
+                            ],
+                            line: 1,
+                            column: 1,
+                        },
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("xs".to_string()));
+    }
+
+    #[test]
+    fn a_record_with_no_resource_argument_routes_nothing() {
+        // The regression guard: an ordinary record must not acquire an
+        // owned-list just because the Constructor arm now exists.
+        let result = analyze_function(&func(vec![
+            res("f", open()),
+            holder("h", false, construct("unrelated")),
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Local);
+        assert!(!result.floats("f"));
+    }
+
+    #[test]
+    fn a_positional_constructor_argument_routes_the_same_as_a_named_one() {
+        // `Holder[f]` and `Holder[handle := f]` are the same edge; the scan must
+        // not see only the by-field spelling (§4.1 reads both arms).
+        let result = analyze_function(&func(vec![
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "xs".to_string(),
+                        value: HirExpression::Call {
+                            callee: "collections.append".to_string(),
+                            arguments: vec![
+                                HirCallArg::Positional(ident("xs")),
+                                HirCallArg::Positional(HirExpression::Constructor {
+                                    type_: ParameterType::declared("Holder"),
+                                    arguments: vec![HirConstructorArg::Positional(ident("f"))],
+                                }),
+                            ],
+                            line: 1,
+                            column: 1,
+                        },
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("xs".to_string()));
+    }
+
+    #[test]
+    fn with_update_carries_the_targets_existing_contents() {
+        // `h2 = WITH h1 { … }` must route h1's contents into h2 the way
+        // insertion argument 0 does, or a resource already held by h1 would be
+        // lost when the updated copy outlives it.
+        let result = analyze_function(&func(vec![
+            holder("outer", true, construct("nothing")),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    holder("inner", false, construct("f")),
+                    HirStatement::Assign {
+                        name: "outer".to_string(),
+                        value: with_update("inner", "f"),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        // `f` reaches `outer`, the outermost container that references it.
+        assert_eq!(result.owner("f"), ResOwner::Float("outer".to_string()));
     }
 
     #[test]

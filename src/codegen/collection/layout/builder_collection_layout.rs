@@ -2787,16 +2787,27 @@ fn flatness_walk(
             .iter()
             .all(|variant| flatness_walk(model, variant, mode, visited))
     } else if crate::codegen::builtins::is_resource_type(&type_) {
-        // DIVERGENCE 2 — a bare resource nominal. Same reasoning as DIVERGENCE 1:
-        // the value IS the 8-byte handle pointer, so copying it within a thread
-        // aliases the one resource, and relocating it does not.
+        // NOT a divergence — `false` for both modes, unchanged from `type_is_flat`.
         //
-        // This arm answered `false` for BOTH questions before plan-114-B, on the
-        // grounds that "a resource is a move-only handle, never a copyable flat
-        // block". That is right for the arena question and wrong for the memcpy
-        // one — `is_pointer_collection_payload_type` (`:49-62`) already states
-        // the opposite rule for a collection slot, and this now agrees with it.
-        mode == Flatness::MemcpyCopyable
+        // plan-114-B C6: the plan's §4.1 table said `true` for MemcpyCopyable
+        // here, by analogy with the `RES`-marked element above. That analogy is
+        // wrong, and the artifact gate proved it. The two positions are different:
+        //
+        //   * `Res(inner)` is an **element/field marker**. The enclosing block owns
+        //     an 8-byte slot holding the handle, so the enclosing block is still a
+        //     single pointer-free run of bytes and a `memcpy` of it is correct.
+        //   * A **bare resource nominal** is the value's OWN type. "Flat" would
+        //     assert that the resource record itself is a copyable block that
+        //     `arena_free` reclaims as a unit — and it is not. It is separately
+        //     allocated with its own lifetime and its own close op.
+        //
+        // Answering `true` here does not stay local to resources, either: it
+        // propagates through every structural arm. `Result OF tcp.Socket` became
+        // "flat", so `is_freeable_flat_value` newly claimed it and registered a
+        // `pending_temp` free that had never existed — measured as a real
+        // `.ncode` diff in `tests/byte-identity/tcp`, a fixture with no thread in
+        // it at all.
+        false
     } else {
         // DIVERGENCE 3 (by inheritance) — a resource *union* reaches
         // `record_field_is_pointer`, which routes it to the pointer-composite
@@ -3147,18 +3158,18 @@ mod flatness_split_tests {
         model
     }
 
-    /// Everything a resource can be reached through must be memcpy-copyable and
-    /// NOT arena-transferable. Before the split these all answered one value.
+    /// The shapes that genuinely diverge: a `RES`-marked type used directly, and
+    /// a record carrying one as a field. Both are memcpy-copyable (the slot holds
+    /// one 8-byte pointer, and copying it aliases the resource, §15.6) and
+    /// neither is arena-transferable (that pointer would arrive pointing into the
+    /// sender's arena).
+    ///
+    /// C7: this list is deliberately SHORT, and the collection spellings are
+    /// absent on purpose — see `a_res_collection_does_not_diverge`.
     #[test]
-    fn a_resource_diverges_between_the_two_predicates() {
+    fn a_res_field_and_its_record_diverge_between_the_two_predicates() {
         let model = model_with_res_field_record();
-        for spelling in [
-            "RES fs.File",
-            "List OF RES fs.File",
-            "Map OF String TO RES fs.File",
-            "List OF List OF RES fs.File",
-            "Holder",
-        ] {
+        for spelling in ["RES fs.File", "Holder"] {
             let type_ = ParameterType::parse(spelling);
             assert!(
                 type_is_memcpy_copyable(&model, &type_),
@@ -3173,15 +3184,63 @@ mod flatness_split_tests {
         }
     }
 
-    /// A bare resource nominal is the other divergence arm. It is stated
-    /// separately from the `RES`-marked spellings above because it reaches a
-    /// different arm of the walk (`is_resource_type`, not `ParameterType::Res`).
+    /// A `RES` **collection** does not reach the `Res(_)` arm at all, so it does
+    /// not diverge — it is flat in neither mode, exactly as before plan-114-B.
+    ///
+    /// C7: `typed_list_element_type` / `typed_map_type_parts` **strip** the `RES`
+    /// marker (`type_utils.rs:345`, `:352`), so `collection_payload_types`
+    /// yields a BARE `fs.File` and the walk takes the bare-resource arm. The
+    /// `Res(_)` arm is reachable only where a type is stored unstripped — a
+    /// record field, which is exactly the new shape this letter exists for.
+    ///
+    /// Pinned because the plan predicted the opposite, and because it is what
+    /// keeps a resource-carrying collection out of `copy_flat_block` and out of
+    /// `is_freeable_flat_value` — both of which would be wrong for it.
     #[test]
-    fn a_bare_resource_nominal_diverges_too() {
+    fn a_res_collection_does_not_diverge() {
+        let model = model_with_res_field_record();
+        for spelling in [
+            "List OF RES fs.File",
+            "Map OF String TO RES fs.File",
+            "List OF List OF RES fs.File",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert!(
+                !type_is_memcpy_copyable(&model, &type_),
+                "`{spelling}` is flat in neither mode: its payload strips to a \
+                 bare resource, which is not a self-contained block"
+            );
+            assert!(!type_is_arena_transferable(&model, &type_), "`{spelling}`");
+        }
+    }
+
+    /// A bare resource nominal does **not** diverge — it is `false` for both,
+    /// and that is deliberate (C6). `Res(inner)` marks a *slot inside* an
+    /// enclosing block, which stays flat; a bare nominal is the value's own type,
+    /// and the resource record it names is separately allocated with its own
+    /// lifetime, so it is not a block anything may `memcpy` or `arena_free` as a
+    /// unit.
+    ///
+    /// This is a regression test with teeth: answering `true` for the memcpy
+    /// question here propagates through every structural arm — it made
+    /// `Result OF fs.File` "flat", which made `is_freeable_flat_value` claim it
+    /// and emit a `pending_temp` free that had never existed. That was a measured
+    /// `.ncode` diff in a thread-free fixture, not a theoretical concern.
+    #[test]
+    fn a_bare_resource_nominal_is_flat_in_neither_mode() {
         let model = TypeModel::empty();
         let file = ParameterType::declared("fs.File");
-        assert!(type_is_memcpy_copyable(&model, &file));
+        assert!(!type_is_memcpy_copyable(&model, &file));
         assert!(!type_is_arena_transferable(&model, &file));
+
+        // And it must not leak through a structural arm into a wrapper type.
+        let wrapped = ParameterType::ResultOf(Box::new(file));
+        assert!(
+            !type_is_memcpy_copyable(&model, &wrapped),
+            "`Result OF fs.File` must not become flat — is_freeable_flat_value \
+             would claim it and free a block that is not one"
+        );
+        assert!(!type_is_arena_transferable(&model, &wrapped));
     }
 
     /// The regression net for the split: every type that existed before a
