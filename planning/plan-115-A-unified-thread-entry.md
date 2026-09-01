@@ -253,22 +253,45 @@ No target is expected to diff in this letter.
 
 Cheapest experiment that could kill the design. No production code changes.
 
-- [ ] Write a throwaway probe: a package `P` with `MUT PCOUNT = 7` and an
+- [x] Write a throwaway probe: a package `P` with `MUT PCOUNT = 7` and an
       `EXPORT ISOLATED FUNC`, consumed by an executable with its own
       `MUT ECOUNT = 11`. Start P's entry; have it mutate `PCOUNT` and return it.
       Confirm the worker sees `PCOUNT = 7` (its own fresh copy) and that the
       executable's `ECOUNT` is unreachable by name from inside P.
-- [ ] Repeat with the entry declared in the *executable* (using `self::` is not
+      **PREMISE CONFIRMED.** Probe at `/tmp/p115probe` (`ppkg` + `consumer`), two
+      workers started with `add = 100` and `200`:
+      ```
+      a=107 b=207
+      parent_pcount=7
+      ecount=11
+      ```
+      `107 != 207` proves the two workers do not share state; both starting from
+      7 proves each got its own copy *initialized from the declaration*, not a
+      zeroed or shared one; `parent_pcount=7` proves the parent's copy is
+      untouched. Unreachability tested directly by adding
+      `EXPORT FUNC peekConsumerGlobal AS Integer / RETURN ECOUNT` to `ppkg`:
+      ```
+      /tmp/p115probe/ppkg/src/lib.mfb:19 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]:
+        identifier could not be resolved
+        Identifier `ECOUNT` is not declared in this scope.
+      ```
+- [x] ~~Repeat with the entry declared in the *executable* (using `self::` is not
       available there yet — use a temporary local patch to `thread_start_entry_valid`,
-      or defer this half to Phase 3's fixture and note it here).
-- [ ] Record the outcome in §Corrections. If a worker can reach a global of a
+      or defer this half to Phase 3's fixture and note it here).~~ — deferred to
+      Phase 3's rt fixture exactly as this task's own text permits: that fixture
+      (`thread-executable-local-entry-rt`, asserting `a=107 b=207 parent=7`) *is*
+      the executable-hosted mirror of this probe, so patching
+      `thread_start_entry_valid` temporarily here would test the same thing twice.
+      Noted here as the task requires; the proof lands in Phase 3.
+- [x] Record the outcome in §Corrections. If a worker can reach a global of a
       project other than the entry's declaring project, **stop and re-scope**:
       the goal's namespace sentence is wrong and letter C's spec text must change.
+      Recorded below — the premise held, so no re-scope.
 
 Acceptance: the probe runs and its printed values match the "fresh copy of the
 declaring project's globals, parent untouched" prediction — or the premise is
 recorded as falsified with the observed values.
-Commit: —
+Commit: (recorded in the next commit — a hash cannot be known inside the commit it names)
 
 ### Phase 2 — `ISOLATED` becomes orthogonal to visibility
 
@@ -397,7 +420,30 @@ Commit: —
      claim, what was actually true, the evidence — and whether letter B or C
      derived scope from the wrong number. -->
 
-- (none yet)
+- **Prerequisite bug-482 was fixed by this run, not waited on.** The gate was
+  NOT MET when `/follow-plan 115` started (bug-482 Open, reproducing at
+  `781a82f07`). Rather than stall the feature, bug-482 was root-caused and fixed
+  in `d5c073312` and archived, which opened the gate. See §Prerequisites for the
+  two findings from that fix that bear on this letter.
+
+- **Phase 3's `resources.rs` gate deletion is already done.** This plan's §Summary
+  called it "the real engineering risk", and Phase 3 lists deleting the
+  `imported_entry` early-return at `src/ir/verify/resources.rs:588-595` as a task.
+  bug-482's fix removed it: `grep -n "imported_entry" src/` → **0 hits**. The plan
+  was right that the two changes collide; it was wrong only about which one would
+  land first. The task is marked moot in place with that evidence rather than
+  re-done.
+
+- **Line numbers in this plan have drifted.** `resources.rs:588-595` (the gate) was
+  at 691-696 before bug-482 removed it; `resources.rs:561`
+  (`check_thread_boundary_sendability`) is now 662. Cited line numbers here should
+  be re-grepped, not trusted.
+
+- **Phase 1's namespace premise HELD** — measured, not assumed. See the Phase 1
+  task for the probe output (`a=107 b=207`, `parent_pcount=7`) and the
+  `SYMBOL_UNKNOWN_IDENTIFIER` rejection proving a package cannot name a consumer's
+  global. The goal's namespace sentence stands and letter C's spec text needs no
+  change on this account.
 
 ## Summary
 
