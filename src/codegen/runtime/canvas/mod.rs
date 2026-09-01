@@ -443,14 +443,28 @@ pub(crate) fn emit_graphics_trampoline(
     // which is why canvas mode segfaulted on Linux from the moment plan-98-D moved
     // rendering onto a thread. AArch64 takes no realign: `pthread_create` enters with
     // a 16-aligned `sp` and the return address in `lr`.
-    let realign = usize::from(platform.arch() == "x86_64") * 8;
-    let frame = 32 + realign;
+    //
+    // **Windows takes neither the realign nor the same frame.** `BaseThreadInitThunk`
+    // enters a `CreateThread` start routine ALREADY 16-aligned, so the `+8` that is
+    // right for pthread is exactly wrong here — and because a body's alignment is its
+    // caller's call site, that skew would be inherited by every Win32 call the render
+    // loop ever makes (bug-478 is the same mistake in `win_x86_64/app/mod.rs`).
+    //
+    // Windows also needs the callee's **shadow space**: 32 bytes at the bottom of this
+    // frame that any callee may spill its register arguments into. The shared
+    // `finalize_frame` reserves it for every *allocated* function
+    // (`outgoing_args_base_offset`), but this trampoline is hand-built and gets none —
+    // so without it the saves below sit exactly where a callee is entitled to write.
+    let windows = platform.family() == PlatformFamily::Windows;
+    let realign = usize::from(platform.arch() == "x86_64" && !windows) * 8;
+    let shadow = usize::from(windows) * 32;
+    let frame = 32 + realign + shadow;
     instructions.push(abi::label("entry"));
     instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
-        0,
+        shadow,
     ));
     // **Save the arena register.** It is callee-saved, and the caller here is
     // `_pthread_start`, which has its own live state in it — clobbering it corrupts
@@ -462,7 +476,7 @@ pub(crate) fn emit_graphics_trampoline(
     instructions.push(abi::store_u64(
         ARENA_STATE_REGISTER,
         abi::stack_pointer(),
-        8,
+        shadow + 8,
     ));
     // Pin the child arena state. Every MFB global access on this thread — including
     // the geometry cache and the sRGB table — is addressed off it.
@@ -487,8 +501,16 @@ pub(crate) fn emit_graphics_trampoline(
     // return, and parking made the shutdown join wait forever on a thread that
     // was spinning two instructions away from finishing.
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    instructions.push(abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8));
-    instructions.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    instructions.push(abi::load_u64(
+        ARENA_STATE_REGISTER,
+        abi::stack_pointer(),
+        shadow + 8,
+    ));
+    instructions.push(abi::load_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        shadow,
+    ));
     instructions.push(abi::add_stack(frame));
     instructions.push(abi::return_());
 

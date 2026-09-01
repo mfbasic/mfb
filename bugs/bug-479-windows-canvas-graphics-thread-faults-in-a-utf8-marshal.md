@@ -70,6 +70,27 @@ pointer is 2.** The nearest caller frame is an arena allocation of 32 bytes
 * **Not bug-478.** That is fixed and verified; app mode, `fs` and the worker are green
   (`scripts/test-winapp.sh`).
 
+## Ruled out since filing
+
+* **The graphics trampoline's frame.** `emit_graphics_trampoline` is hand-built, so it
+  gets none of the shadow space `finalize_frame` reserves for allocated functions
+  (`outgoing_args_base_offset`), and it took the x86-64 `+8` pthread realign on Windows
+  where a `CreateThread` entry is already aligned. Both are real ABI defects and both are
+  **fixed** — the frame is now `32 + 32` with the saves above the shadow space, and
+  Windows takes no realign. Neither changed the fault. Kept anyway: a hand-built Win64
+  frame without shadow space is a callee's licence to overwrite the saves, and it is
+  byte-identical everywhere else (`artifact-gate all`, 0 diffs).
+
+* **The shadow-space class is narrower than it first looked.** The Win64 backend already
+  answers `shadow_space_bytes` / `outgoing_args_base_offset` as 32, and the shared
+  `finalize_frame` honours it — so **allocated** functions have their shadow space and
+  need no help. Only *hand-built* frames lack it, which is why `emit_random_bytes` (in
+  the hand-managed program entry) needed one and `emit_arena_map` (inside the allocated
+  `arena_alloc`) is actively harmed by one: the allocator spills `map_size` around that
+  call, and moving `rsp` underneath it invalidates the spill slot. That is the mechanism
+  behind the `ErrOutOfMemory` regression recorded below, and it means the audit is
+  "which hand-built frames call out", not "which seams call out".
+
 ## The leading hypothesis, and why the obvious fix is wrong
 
 `emit_arena_map` (`src/target/win_x86_64/code.rs`) calls `VirtualAlloc` and
@@ -86,8 +107,15 @@ while the console path stays green. So `emit_arena_map`'s caller is not an ordin
 body with an aligned, sp-relative frame, and a bare `sub rsp` inside it is not the fix.
 Measured both ways; the change is reverted, with the reason recorded at the seam.
 
-Whoever picks this up should start there: find what the arena bootstrap assumes about
-`rsp` across that call, and give the seam its shadow space in a way that respects it.
+Whoever picks this up should start there — but note the correction above: the arena
+seam sits in an *allocated* function that already has its shadow space, so the fix is
+not to add one. The remaining question is what on the graphics thread produces a String
+whose payload pointer is `2`.
+
+The next thing to try is a debugger rather than another minidump. The box is an
+administrator and the loader now has a Vulkan driver registered (see below), so a
+`cdb`/WinDbg session that breaks on the access violation would name the function in one
+step, where a dump only gives an image offset.
 
 ## Reproduction
 
@@ -111,7 +139,7 @@ bug-478's parser did yields a nonsense `params` list).
 
 plan-98-F Phase 3 needs a Windows canvas frame to compare a Vulkan render against, so
 it needs canvas mode to run. bug-478 was the first blocker on that path and is fixed;
-this is the next one. Note that Phase 3 has a **second**, independent blocker: box 2230
-has the Vulkan loader (`C:\Windows\System32\vulkan-1.dll`) but **no ICD**
-(`HKLM\SOFTWARE\Khronos\Vulkan\Drivers` does not exist), so a Windows Vulkan render
-cannot be verified there at all without provisioning a software driver.
+this is the next one. Phase 3's *other* blocker is now cleared: box 2230 has Mesa
+26.2.0's `lavapipe` registered as an ICD (`vkCreateInstance=0`, one device), so a
+Windows Vulkan render can be verified there as soon as a Windows canvas program runs at
+all. **This bug is the only thing left between plan-98-F Phase 3 and its acceptance.**
