@@ -371,7 +371,8 @@ Commit: —
       Gate: `1322 tests, 1484 build(s), 1819 golden(s) checked, 0 diff(s)`,
       `GATE_EXIT=0` — up from 1311/1809 at letter B, i.e. the eleven fixtures
       letters D and E added, with **no pre-existing golden moved**.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+      — `cargo fmt --all -- --check` exits 0 in both workspaces.
 - [ ] Move `planning/plan-114-A` … `plan-114-E` to `planning/completed/`.
 
 Acceptance: full gate and acceptance harness green; every doc listed above updated;
