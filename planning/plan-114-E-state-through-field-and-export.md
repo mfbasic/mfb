@@ -372,7 +372,46 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (Phase 1, answered ahead of schedule) — the owner-pool filter DOES discard
+`RES` and `STATE`, and §2's candidate list has the tokenization slightly wrong.**
+Read `push_type_identifiers` (`src/binary_repr/mod.rs:819-831`) and the loop that
+consumes its queue (`:769-784`).
+
+The tokenizer keeps runs of `[A-Za-z0-9_]` and breaks on everything else — so a
+`.` is a separator. For a field rendered `RES fs.File STATE Cursor` the queue
+therefore receives **five** tokens, not the four §2 lists:
+
+    RES, fs, File, STATE, Cursor
+
+(§2 says the candidates are `RES`, `fs.File`, `STATE`, `Cursor`; the qualified
+name is actually split into `fs` and `File`.) That does not change the
+conclusion, but it does change what a debugger would expect to see in the queue.
+
+The filter is not a name blocklist — it is existence in the owner's export list:
+
+```rust
+let Some(owner_exports) = owner_pool.get(&owner) else { continue };
+let Some(def) = owner_exports.iter().find(|candidate| candidate.name == name) else { continue };
+```
+
+So a token survives **only** if it names an actual export of the owner package.
+`RES`, `STATE`, `fs` and `File` are not exports of the exporting package and are
+dropped silently; `Cursor`, the `STATE` record, resolves and is pulled into the
+closure — which is the one that genuinely must reach the importer. The
+module's own doc comment states this design intent at `:788-794` ("pulling the
+identifier tokens over-approximates the referenced names — the caller keeps only
+those that resolve to an actual export"), so the over-approximation is
+deliberate and `RES`/`STATE` need no special-casing.
+
+**Still UNVERIFIED, and Phase 1 must still measure it:** whether an importer needs
+the *resource type itself* registered in its tables to lay out and close a record
+with a `RES` field. That is a different question from the type closure above —
+it concerns `resource_cleanup_symbol` and the close-op tables, i.e. the four
+starved layers in `.ai/resources-packages.md`. Nothing here answers it, and the
+two-package fixture is still the way to find out. Do not read C1 as closing
+Phase 1.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 
