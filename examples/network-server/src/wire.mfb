@@ -1,14 +1,15 @@
-' connworker — the wire helpers network-server shares, and the worker entries
-' its --thread mode runs connections on.
+' wire — the wire helpers network-server shares, and the worker entries its
+' --thread mode runs connections on.
 '
-' Two reasons this is a package rather than part of the executable:
+' A sibling file rather than part of main.mfb only for readability: these are the
+' wire format plus the two worker entries, a coherent unit, and main.mfb is
+' already 550 lines. Visibility is PUBLIC, which is project-wide, so the split
+' costs nothing.
 '
-'   1. A thread entry must be an EXPORT ISOLATED FUNC of an imported package.
-'      `IMPORT self` is rejected in an executable (IMPORT_SELF_IN_EXECUTABLE:
-'      "an executable has no exported interface to import"), so a program that
-'      spawns a worker needs a package to spawn it from.
-'   2. The helpers below are wire format, used identically by the single-threaded
-'      server and by the workers, so they belong in one place.
+' This was once a separate `connworker` PACKAGE, because a thread entry had to be
+' reached through an import and an executable had no way to name its own. That
+' rule is gone: an ISOLATED FUNC declared here is started by its bare name from
+' main.mfb, and the example is one project again.
 '
 ' The two worker entries are the whole server session, moved off the main
 ' thread. The main thread only ever binds, accepts, and hands the connection
@@ -30,41 +31,41 @@ IMPORT tls
 ' ---------------------------------------------------------------- constants --
 
 ' How often every live connection is sent its next Update line.
-EXPORT FUNC tickNanos() AS Integer
+PUBLIC FUNC tickNanos() AS Integer
   RETURN 500000000
 END FUNC
 
 ' How long a serving loop naps between sweeps. Small enough that a connect or a
 ' disconnect is noticed promptly, large enough that an idle server is free.
-EXPORT FUNC napMs() AS Integer
+PUBLIC FUNC napMs() AS Integer
   RETURN 20
 END FUNC
 
 ' The smallest slice of a tick worth starting a TLS handshake in. One
 ' tls::accept deadline bounds both the wait for a connection and the handshake
 ' that follows, and a deadline that expires mid-handshake drops the connection.
-EXPORT FUNC minHandshakeMs() AS Integer
+PUBLIC FUNC minHandshakeMs() AS Integer
   RETURN 250
 END FUNC
 
 ' A UDP peer that has said nothing for this long is treated as gone. UDP has no
 ' close, so without a deadline a client that was killed would be broadcast to
 ' forever.
-EXPORT FUNC udpIdleNanos() AS Integer
+PUBLIC FUNC udpIdleNanos() AS Integer
   RETURN 15000000000
 END FUNC
 
 ' ------------------------------------------------------------ wire helpers --
 
 ' The counter as it appears on the wire: at least two digits, zero-padded.
-EXPORT FUNC counterText(n AS Integer) AS String
+PUBLIC FUNC counterText(n AS Integer) AS String
   RETURN strings::padLeft(toString(n), 2, "0")
 END FUNC
 
 ' TRUE when a chunk a client sent carries the "BYE" line. Matched on the raw
 ' bytes rather than decoded text: a peer may send anything at all, and
 ' ill-formed UTF-8 from the network is not this server's business to reject.
-EXPORT FUNC hasBye(bytes AS List OF Byte) AS Boolean
+PUBLIC FUNC hasBye(bytes AS List OF Byte) AS Boolean
   LET at AS Integer = collections::find(bytes, strings::toBytes("BYE")) TRAP(e)
     RECOVER -1
   END TRAP
@@ -76,7 +77,7 @@ END FUNC
 ' Serve every TCP connection the main thread hands over, for the life of the
 ' program. `label` is echoed once at startup so the transport is visible in the
 ' log; the connections themselves arrive on the resource channel.
-EXPORT ISOLATED FUNC serveTcpConnections(worker AS ThreadWorker OF RES tcp::Socket TO Integer, label AS String) AS Integer
+PUBLIC ISOLATED FUNC serveTcpConnections(worker AS ThreadWorker OF RES tcp::Socket TO Integer, label AS String) AS Integer
   io::print("Worker " & label & " ready")
 
   MUT conns AS List OF RES tcp::Socket = []
@@ -162,7 +163,7 @@ END FUNC
 ' main thread, so what arrives here is a live session: its negotiated keys and
 ' provider state travel with the handle (bug-464), and this thread encrypts
 ' under them from the first tls::write.
-EXPORT ISOLATED FUNC serveTlsConnections(worker AS ThreadWorker OF RES tls::Socket TO Integer, label AS String) AS Integer
+PUBLIC ISOLATED FUNC serveTlsConnections(worker AS ThreadWorker OF RES tls::Socket TO Integer, label AS String) AS Integer
   io::print("Worker " & label & " ready")
 
   MUT conns AS List OF RES tls::Socket = []

@@ -244,38 +244,77 @@ Commit: (recorded in the next commit)
 
 The payoff, and the one piece with a runtime gate.
 
-- [ ] Move all 236 lines of `examples/network-server/worker/src/lib.mfb` into the
+- [x] Move all 236 lines of `examples/network-server/worker/src/lib.mfb` into the
       executable — either appended to `src/main.mfb` or as a sibling
       `src/wire.mfb` (prefer the sibling; 553 + 236 in one file is worse for a
       reader). Change every `EXPORT` to `PUBLIC` — `EXPORT` is illegal in an
       executable (`EXPORT_IN_EXECUTABLE`) and this plan deliberately did not
-      change that.
-- [ ] Rewrite the moved file's header comment (lines 4-10). It currently explains
+      change that. Sibling `src/wire.mfb`, per the Open Decision; 8 `EXPORT` →
+      `PUBLIC` (`grep -c "^PUBLIC"` → 8, `grep -c "^EXPORT"` → 0).
+- [x] Rewrite the moved file's header comment (lines 4-10). It currently explains
       the two-project split by naming `IMPORT_SELF_IN_EXECUTABLE`, a diagnostic
       that no longer exists. Replace it with what the file now is: the shared wire
       format plus the two worker entries.
-- [ ] `examples/network-server/src/main.mfb` — drop `IMPORT connworker` (line 41)
+- [x] `examples/network-server/src/main.mfb` — drop `IMPORT connworker` (line 41)
       and strip the `connworker::` prefix from all 19 references across the 8
-      members.
-- [ ] Delete `examples/network-server/worker/` and
-      `examples/network-server/packages/`.
-- [ ] `examples/.gitignore` — remove the `network-server/worker/*.mfp` rule.
+      members. All 19 stripped; `grep -c connworker` → 0 (one prose comment also
+      pointed at `worker/src/lib.mfb` and was rewritten).
+- [x] Delete `examples/network-server/worker/` and
+      `examples/network-server/packages/`. Also removed the now-dead `packages`
+      block from `examples/network-server/project.json`, which the plan did not
+      list but which would otherwise fail resolution.
+- [x] `examples/.gitignore` — remove the `network-server/worker/*.mfp` rule.
       Leave `browser/*/*.mfp` alone.
-- [ ] `scripts/build-examples.sh:75-89` — delete `prepare_network_server()` and
+- [x] `scripts/build-examples.sh:75-89` — delete `prepare_network_server()` and
       its call site, plus the comment block above it explaining the thread-entry
       rule. Leave `prepare_browser` untouched.
-- [ ] `examples/network-server/README.md` — rewrite the "two projects" section
+- [x] `examples/network-server/README.md` — rewrite the "two projects" section
       (lines 8-16) and the rationale at lines 29-31 as a single `mfb build`.
       Keep the protocol/flags documentation intact.
-- [ ] Verify `examples/network-client` still interoperates unchanged — it is the
-      matching client and this letter must not touch its wire format.
+- [x] Verify `examples/network-client` still interoperates unchanged — it is the
+      matching client and this letter must not touch its wire format. Verified by
+      a real session on `--tcp --thread` (below), byte-identical in shape to the
+      pre-collapse baseline.
+- [x] **Added task** (not in the plan): repair the citation this letter dangles.
+      `bugs/bug-479-…md` (open) staged its repro from
+      `examples/network-server/worker`, a path this letter deletes. Its repro note
+      now says where to get an imported-package worker instead.
 
 Acceptance: from a clean checkout with no `packages/` directory,
 `mfb build examples/network-server` succeeds in one command; the binary run with
 `--tcp --thread` and with `--tls --thread` serves a session end-to-end against
 `examples/network-client`, producing the same output as before the collapse.
 `scripts/build-examples.sh` passes for every cross-target it covers.
-Commit: —
+
+**Verified.** Baselines were captured from the two-project build BEFORE any code
+moved, so "same output as before" is a comparison, not an assertion.
+
+- `mfb build examples/network-server` → `[exit 0]` in one command, with
+  `worker/` and `packages/` deleted and no prepare step.
+- `--tcp --thread`, against `examples/network-client`: `Hello <uuid>` then
+  `Update … 01`–`05`, `Connected`/`Disconnect` on the server — identical in shape
+  to the pre-collapse baseline (only UUIDs and PIDs differ).
+- `--tls --thread`: real handshake (`verify return:1`), `Hello` + `Update 01`–`05`,
+  `Connected`/`Disconnect`. **Acceptance strengthened, not weakened:** the plan
+  said to drive this with `network-client`, but on macOS `tls::connect` takes its
+  anchors from the system trust store with no hook for a local test CA
+  (`scripts/check-tls-loopback.sh`; `bugs/bug-477`), so `network-client`'s TLS leg
+  cannot complete against this example's self-signed cert — before *or* after the
+  collapse, as the captured baseline shows. Driven instead with
+  `openssl s_client -CAfile certs/cert.pem`, which is what this example's own
+  README prescribes and what proves the moved `serveTlsConnections` entry
+  end-to-end rather than merely that it started.
+- Also re-ran the two paths the plan did not ask about, since the shared wire
+  helpers moved: `--tcp` (single-threaded) and `--udp` both serve full sessions.
+- `scripts/build-examples.sh`: **`network-server` builds for all 6 targets.** The
+  plan's coverage check is satisfied — it is still reached (13 mentions in the
+  run), so removing the prepare step did not remove it from the loop. The run
+  reports 7 failures, **all pre-existing and none in `network-server`**: 5×
+  `audio` (`SYMBOL_UNKNOWN_TYPE` on the `libsnd` LINK types, reproduced with a
+  pre-letters binary) and 2× `linux-riscv64` (`rv64 jal displacement … exceeds
+  ±1 MiB`, tracked as `bugs/bug-453`).
+
+Commit: (recorded in the next commit)
 
 ## Validation Plan
 
@@ -313,6 +352,25 @@ Commit: —
 
 <!-- Filled in DURING execution. Record the claim, what was actually true, and
      the evidence. -->
+
+- **`examples/network-server/project.json` still declared the `connworker`
+  package.** Phase 2's task list says to delete `worker/` and `packages/` but not
+  to touch the manifest; leaving the `packages` block would have failed
+  resolution against a directory that no longer exists. Removed.
+
+- **This letter dangles a citation in an OPEN bug.** `bugs/bug-479-…md` staged its
+  reproduction from `examples/network-server/worker`, which this letter deletes.
+  Repaired in place with a note on where to get an imported-package worker now.
+  (`bugs/completed/bug-480-…md` also names `connworker`, but that is a historical
+  record of what was measured at the time and is correct to leave.)
+
+- **`scripts/build-examples.sh` reports 7 failures, all pre-existing.** None is
+  `network-server`, which builds for all 6 targets. 5× `audio`
+  (`SYMBOL_UNKNOWN_TYPE` for the `libsnd` LINK types `SoundFile`/`SoundInfo`) —
+  **verified pre-existing by rebuilding the same example with a binary predating
+  letters A/B/C, which fails identically**, so it is not attributable to this
+  plan. It appears untracked and is worth filing separately. 2× `linux-riscv64`
+  (`rv64 jal displacement … exceeds ±1 MiB`) — tracked as `bugs/bug-453`.
 
 - **Two spec files carrying the deleted rule were missing from the plan's
   §2 table.** It lists three (`threading/01_source-model.md`,
