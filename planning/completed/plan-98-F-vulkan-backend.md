@@ -331,7 +331,8 @@ Linux was re-run unchanged after the shared-code edits (`scripts/test-canvas-vul
 assertions green), and `artifact-gate all` is at 0 diffs with only the three
 `windows-x86_64` app-mode goldens regenerated — the exact blast radius of a `_main`/WndProc
 change.
-Commit: `<phase-3>`
+Commit: `25bb3c5e0`, with `854af45e4` (the bug-479 alignment fix that cleared the
+prerequisite) and `8c1c002fe` (its guards).
 
 **UNBLOCKED (2026-08-31).** Both rows that held this phase are now MET, each re-checked
 by running its own command rather than reading its Status cell:
