@@ -44,52 +44,29 @@ dependency to negotiate.** Letters B and C point here.
 | Must be true | Command | Status |
 |---|---|---|
 | bug-480 (package name resolution) is fixed and archived | `ls bugs/bug-480-*.md` → no matches (moved to `bugs/completed/`) | **MET** (measured 2026-09-01: `ls bugs/bug-480-*.md` → `no matches found`; `ls bugs/completed/ | grep 480` → `bug-480-package-name-resolution.md`) |
-| bug-482 (`thread::start` input sendability never fires) is fixed and archived | `ls bugs/bug-482-*.md` → no matches (moved to `bugs/completed/`) | **NOT MET** (measured 2026-09-01: `ls bugs/bug-482-*.md` → `bugs/bug-482-thread-start-input-sendability-check-never-fires.md`, still Open; and the defect is live in source — the `imported_entry` early-return the bug names is verbatim present at `src/ir/verify/resources.rs:691-696`, found by `grep -rn "imported_entry" src/`) |
+| bug-482 (`thread::start` input sendability never fires) is fixed and archived | `ls bugs/bug-482-*.md` → no matches (moved to `bugs/completed/`) | **MET** (fixed 2026-09-01 in `d5c073312`, archived in the follow-up commit; `ls bugs/bug-482-*.md` → `no matches found`) |
 
-**bug-482 is not merely an unarchived doc — it reproduces at main's tip.**
-Measured 2026-09-01 by `/follow-plan 115` at commit `781a82f07`, with
-`target/release/mfb` rebuilt from that tip (a bug report is not evidence; the
-run is):
+**Gate history — bug-482 was fixed by this run, not waited on.** When
+`/follow-plan 115` first ran the table on 2026-09-01 at `781a82f07`, bug-482 was
+Open and reproduced verbatim against a freshly rebuilt binary (Case 1 built clean,
+exit 0, and the capturing lambda ran on the worker). It was then root-caused and
+fixed in `d5c073312` and archived, which is what opened this gate. Two findings
+from that fix bear on this letter:
 
-```
-$ ./target/release/mfb build /tmp/b482/wpkg
-Wrote package to /tmp/b482/wpkg/wpkg.mfp
-$ ./target/release/mfb build /tmp/b482/consumer
-Wrote executable to /tmp/b482/consumer/build/consumer.out
-[exit 0]
-$ /tmp/b482/consumer/build/consumer.out
-worker returned 43 (expected 43)
-[exit 0]
-```
-
-That is bug-482 Case 1: a **capturing** `LAMBDA() -> captured + 1` is passed as
-`thread::start`'s `data`, builds clean with no `TYPE_THREAD_NOT_SENDABLE`, and is
-invoked on the worker — dereferencing a closure environment in the *parent's*
-arena. Corroborating static evidence that the check has never fired:
-`grep -rn "Call to .thread.start. input" tests/ | wc -l` → **0**, i.e. not one
-golden in the corpus carries that diagnostic, while the type-driven walk's
-sibling message ("Thread message type requires …") is pinned in
-`tests/syntax/threads/func_thread_start_invalid/golden/build.log`.
-
-**What unblocks this plan — and one stale artifact not to mistake for it.**
-`git worktree list` shows `.claude/worktrees/482` on branch `worktree-B-482`.
-**It is an abandoned, incomplete start, not a fix about to land** (confirmed by
-the repo owner 2026-09-01). Measured: last commit `5744bb402`, Mon Aug 31
-11:03 — 3 commits ahead of main but **158 commits behind** it
-(`git log --oneline worktree-B-482..main | wc -l` → 158). Do not treat it as
-in-flight work, and do not wait on it.
-
-The one thing worth salvaging from it is a *measurement*, which corroborates the
-report's H1 and saves the eventual fixer an instrumentation round: its
-`104e558f0` records that `TypeEnv::build` installs every imported package's
-functions into `self.functions` under the package-keyed name the entry's
-`FunctionRef` carries (`first=fnref:9b89af26bc49e04e.wpkg.w`,
-`fnkeys=[…, "9b89af26bc49e04e.wpkg.w", …]`), so `imported_entry` is false for an
-imported entry and a same-project one alike. Re-derive it before relying on it —
-that branch predates 158 commits of main.
-
-bug-482 therefore still needs fixing from scratch on current main; the gate
-above stands NOT MET.
+- **The `imported_entry` early-return this letter's Phase 3 was to delete no
+  longer exists** — `grep -n "imported_entry" src/` → 0 hits. bug-482 removed it,
+  because its premise was backwards (`TypeEnv::build` inserts *every* function, so
+  the gate was false for an imported entry and a same-project one alike, leaving
+  every rule behind it dead). Phase 3's task is therefore already satisfied; see
+  the note on that task.
+- **A diagnostic must fire from the *source* verify pass, not the merged/native
+  one.** `scripts/test-accept.sh` builds every `tests/syntax/` fixture with
+  `-ast -ir` (`console_flags="-ast -ir"`, `scripts/test-accept.sh:518`), and a
+  dump build returns before the native pipeline. A rule reached only by
+  `ir::verify_semantics` (`src/target/shared/nir/lower.rs:110`) is invisible to
+  the golden harness *and* reports without a span. Any new diagnostic this letter
+  adds must be checked with `mfb build <fixture>` vs `mfb build -ast -ir <fixture>`
+  returning the same exit code.
 
 **Why bug-480 gates this plan.** bug-480 Defect B is that an imported package's
 value types resolve *without* their required prefix while the correctly prefixed
