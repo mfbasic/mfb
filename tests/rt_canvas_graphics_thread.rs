@@ -99,7 +99,7 @@ fn program(body: &str) -> String {
     )
 }
 
-const ONE_BOX: &str = "  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, \
+const ONE_BOX: &str = "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
                        h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.
@@ -209,10 +209,10 @@ fn an_identical_re_present_draws_no_second_frame() {
 fn sync_mode_gives_one_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS DrawItem = Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
          canvas::present([box, two])\n  \
-         LET three AS DrawItem = Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
@@ -246,10 +246,10 @@ fn the_metal_path_gives_one_completed_frame_per_changed_present() {
     }
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS DrawItem = Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
          canvas::present([box, two])\n  \
-         LET three AS DrawItem = Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
