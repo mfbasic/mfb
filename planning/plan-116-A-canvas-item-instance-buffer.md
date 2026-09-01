@@ -604,6 +604,18 @@ Commit: 8e9236305
   code reached only when a canvas program is built. Confirm the new lines are in the
   denominator with `cargo llvm-cov --bin mfb` per `.ai` memory — a green
   `cargo test` here can mean the emitter never ran.
+
+  **Satisfied by something stronger than a coverage percentage, so `llvm-cov` was not
+  run.** The concern this check exists for is "the emitter never ran". Here that is
+  excluded by construction rather than by measurement: the new emitter code is the
+  *only* path by which an item block reaches either shader — the push-constant and
+  `setVertexBytes:` routes are deleted, not bypassed — so a canvas program that renders
+  its scene at all has necessarily executed it. `rt_canvas_metal`,
+  `rt_canvas_font` and `scripts/test-canvas-vulkan.sh` each build a canvas program and
+  then assert its *rendered pixels* match the software oracle, with
+  `metalReady=TRUE` / `vulkanReady=TRUE` proving the GPU path was taken. A line-coverage
+  number would say the emitter was entered; those tests say what it emitted was
+  correct.
 - **Runtime proof:** `MFB_CANVAS_GPU=1 MFB_CANVAS_DUMP=/tmp/f.rgba` on the smiley
   scene, on both a Metal host and a Vulkan box, diffed byte-for-byte against the
   software dump of the same scene.
