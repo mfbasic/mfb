@@ -824,7 +824,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0113",
         name: "TYPE_ISOLATED_NOT_VISIBLE",
         severity: Severity::Error,
-        message: "ISOLATED function must be a project-visible FUNC declaration",
+        message: "ISOLATED function must be a top-level FUNC declaration",
     },
     Rule {
         code: "2-203-0114",

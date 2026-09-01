@@ -1,5 +1,5 @@
 {
-  "name": "bug227_private_isolated_func_invalid",
+  "name": "isolated_sub_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

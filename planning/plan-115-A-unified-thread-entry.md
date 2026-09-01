@@ -298,38 +298,55 @@ Commit: (recorded in the next commit — a hash cannot be known inside the commi
 Lifts the bug-227 restriction. Independently landable: it widens what declares,
 not what `thread::start` accepts, so no entry becomes valid yet.
 
-- [ ] `src/ir/verify/mod.rs:180` — drop the `|| function.visibility == "private"`
+- [x] `src/ir/verify/mod.rs:180` — drop the `|| function.visibility == "private"`
       condition, leaving `if function.isolated && function.kind != "func"`. Update
       the doc comment above it: the bug-227 rationale ("reached by name from
       another package's `thread::start`") no longer holds; state instead that
       `ISOLATED` marks thread-entry eligibility and is independent of visibility.
-- [ ] `src/rules/table.rs` — update the `TYPE_ISOLATED_NOT_VISIBLE` message to
+- [x] `src/rules/table.rs` — update the `TYPE_ISOLATED_NOT_VISIBLE` message to
       drop the visibility clause. Keep the code `2-203-0113` and the name.
-- [ ] `src/ir/verify/mod.rs` — update the emitted `format!` detail string
+      Now "ISOLATED function must be a top-level FUNC declaration". Also updated
+      the same row in `src/docs/spec/diagnostics/01_rule-codes.md`, which the plan
+      did not list — the two must agree.
+- [x] `src/ir/verify/mod.rs` — update the emitted `format!` detail string
       (currently "must be a project-visible FUNC declaration (PUBLIC — the
       default — or EXPORT, not PRIVATE)").
-- [ ] `src/ir/verify/tests.rs:7742` `rejects_private_isolated_func` — this test
+- [x] `src/ir/verify/tests.rs:7742` `rejects_private_isolated_func` — this test
       protects the behavior being deliberately changed. Work the four-question
       gate from `AGENTS.md` in the commit message: it was written for bug-227,
       it protects "an ISOLATED entry is reachable from another package", the
       dependants are the fixture below, and the disproof is this plan's §3
       rejected-alternative analysis. Convert it to
       `accepts_private_isolated_func`; do **not** delete `rejects_isolated_sub`.
-- [ ] `tests/syntax/functions/bug227_private_isolated_func_invalid/` — the
+      Both pass; `rejects_isolated_sub` untouched. Added the `expect_no_rule`
+      helper it needs (weaker than `expect_clean` on purpose, so it pins that one
+      rule stopped firing without asserting the project is diagnostic-free).
+- [x] `tests/syntax/functions/bug227_private_isolated_func_invalid/` — the
       fixture now describes lifted behavior. Replace it with
       `tests/syntax/functions/private_isolated_func_valid/` (builds clean),
       and keep a sibling pinning `ISOLATED SUB` rejection if none exists
-      (`grep -rn "ISOLATED SUB" tests/syntax/`).
-- [ ] `src/docs/spec/language/06_functions.md:42` and
+      (`grep -rn "ISOLATED SUB" tests/syntax/`). Grep found none, so
+      `tests/syntax/functions/isolated_sub_invalid/` is new. **Correction:** it
+      pins a *parser* rejection, not this rule — see the Corrections entry.
+- [x] `src/docs/spec/language/06_functions.md:42` and
       `src/docs/spec/language/13_modules-and-packages.md:33` — both currently
       state the project-visible requirement. Update both to "any top-level
       `FUNC`". (Line 42 was corrected on 2026-08-31 to match the *old*
       implementation; it now needs the new one.)
 
-Acceptance: `PRIVATE ISOLATED FUNC w(...)` in a fresh project builds with exit 0
-and no diagnostic; `ISOLATED SUB` still emits `TYPE_ISOLATED_NOT_VISIBLE`;
-`cargo test --no-fail-fast` green.
-Commit: —
+Acceptance (**strengthened** — the original said "`ISOLATED SUB` still emits
+`TYPE_ISOLATED_NOT_VISIBLE`", which is not true from source; see Corrections.
+The replacement covers *both* entry paths, so it is strictly harder to satisfy):
+
+- `PRIVATE ISOLATED FUNC w(...)` builds with exit 0 and no diagnostic —
+  **verified**: `tests/syntax/functions/private_isolated_func_valid` golden
+  `build.log` is `Wrote AST … / Wrote IR … / [exit 0]`.
+- `ISOLATED SUB` is still rejected **on both paths** — from source by the parser
+  (`1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT`, pinned by
+  `tests/syntax/functions/isolated_sub_invalid`), and on the package path, where
+  no parser runs, by `TYPE_ISOLATED_NOT_VISIBLE` (pinned by the unit test
+  `rejects_isolated_sub`). Neither test alone covers both.
+- `cargo test --no-fail-fast` green — run as the plan's final gate.
 
 ### Phase 3 — A bare `ISOLATED FUNC` is a valid entry (largest blast radius)
 
@@ -438,6 +455,16 @@ Commit: —
   at 691-696 before bug-482 removed it; `resources.rs:561`
   (`check_thread_boundary_sendability`) is now 662. Cited line numbers here should
   be re-grepped, not trusted.
+
+- **`ISOLATED SUB` never reaches `TYPE_ISOLATED_NOT_VISIBLE` from source.** Phase
+  2's acceptance said "`ISOLATED SUB` still emits `TYPE_ISOLATED_NOT_VISIBLE`".
+  Measured: it does not. The grammar does not admit `ISOLATED` before `SUB`, so
+  source is rejected earlier by the parser —
+  `tests/syntax/functions/isolated_sub_invalid/src/main.mfb:10 error[1-102-0004
+  MFB_PARSE_UNEXPECTED_STATEMENT]`. The rule's `kind != "func"` half is reachable
+  only from a crafted `.mfp` on the package path, where no parser ran, and is
+  pinned by the unit test `rejects_isolated_sub`. The acceptance criterion was
+  **strengthened** to require both paths rather than weakened to drop the claim.
 
 - **Phase 1's namespace premise HELD** — measured, not assumed. See the Phase 1
   task for the probe output (`a=107 b=207`, `parent_pcount=7`) and the

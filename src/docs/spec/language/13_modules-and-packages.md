@@ -30,8 +30,8 @@ cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
-Only project-visible top-level `FUNC` declarations may use `ISOLATED` — i.e.
-`PUBLIC` (the default) or `EXPORT`, not `PRIVATE`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
+Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
+`PRIVATE`, `PUBLIC` (the default) or `EXPORT`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
