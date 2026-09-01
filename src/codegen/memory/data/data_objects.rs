@@ -547,6 +547,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // ErrTimeout. `__drop` is emitted by scope-drop, so a program that only spawns
     // still needs the close-path strings. The whole surface is listed so an I/O-
     // or signal-only reference still pulls the shared close/timeout strings.
+    // bug-475 adds ErrResourceBusy: `waitFor` drains the child's pipes while it
+    // waits, and raises rather than buffering without bound past its cap.
     let process_calls = [
         "process.spawn",
         "process.spawnEnv",
@@ -577,6 +579,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrInvalidArgument"),
             err_msg("ErrOutOfMemory"),
             err_msg("ErrTimeout"),
+            err_msg("ErrResourceBusy"),
         ] {
             push_string_value(&mut values, value);
         }

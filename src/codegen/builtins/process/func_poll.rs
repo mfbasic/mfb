@@ -153,6 +153,8 @@ pub(crate) fn lower_process_poll_helper_posix(
     let fd = v.next();
     let n = v.next();
     let from = v.next();
+    let spill = v.next();
+    let t0 = v.next();
     let closed_l = format!("{symbol}_closed");
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
@@ -176,15 +178,23 @@ pub(crate) fn lower_process_poll_helper_posix(
             abi::compare_immediate(&from, "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(&fd, &file, PROC_STDOUT_R),
+            abi::load_u64(&spill, &file, PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(&fd, &file, PROC_STDERR_R),
+            abi::load_u64(&spill, &file, PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(&fd, &file, PROC_STDOUT_R));
+        instructions.extend([
+            abi::load_u64(&fd, &file, PROC_STDOUT_R),
+            abi::load_u64(&spill, &file, PROC_STDOUT_BUF),
+        ]);
     }
     let mut relocations = Vec::new();
+    // bug-475: bytes `waitFor` had to move out of the pipe are readable now, even
+    // though the fd they came from may already be at EOF.
+    emit_spill_pending(symbol, "poll", &spill, &n, &t0, &ready, &mut instructions);
     instructions.extend([
         abi::store_u32(&fd, abi::stack_pointer(), POLLFD_SLOT),
         abi::move_immediate(&n, "Integer", "1"), // POLLIN

@@ -8,6 +8,7 @@
 //! docs.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::{emit_alloc, emit_arena_free};
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -116,6 +117,23 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
+/// The Unix `waitFor` body: a drain-while-you-wait loop, not a bare `waitpid`.
+///
+/// bug-475: the old body called blocking `waitpid` and nothing else. The parent
+/// held the child's stdout/stderr read ends open and never read them, so a child
+/// writing more than a pipeful (16–64 KiB) blocked in its own `write` and could
+/// never exit, while the parent blocked in `waitpid` for a child that could never
+/// finish. The loop below reaps with `WNOHANG` and, whenever the child is still
+/// alive, `poll`s the two read ends and moves whatever is there into the
+/// per-stream spill buffer (`gen_shared`'s block on record slots 80/88) that
+/// `receive`/`receiveBytes`/`poll` serve from. Draining rather than discarding is
+/// the whole point: the bytes are still the caller's to read afterwards.
+///
+/// Two shapes are preserved deliberately. A child that has *already* exited is
+/// reaped by the very first `WNOHANG` call, so the common quick-child case makes
+/// no `poll` and allocates nothing. And when both streams have reached EOF the
+/// loop drops into a *blocking* `waitpid` — nothing can deadlock on our pipes any
+/// more, and a grandchild holding the pipe open no longer keeps us spinning.
 pub(crate) fn lower_process_waitfor_helper_posix(
     _call: &str,
     symbol: &str,
@@ -123,6 +141,16 @@ pub(crate) fn lower_process_waitfor_helper_posix(
     platform: &dyn CodegenPlatform,
 ) -> Result<ProcBodyParts, String> {
     const STATUS_SLOT: usize = 0;
+    // Two `struct pollfd { int fd; short events; short revents; }` — 8 bytes each,
+    // the same layout `process::poll` builds.
+    const PFD_SLOT: usize = 8;
+    const POLLIN: &str = "1";
+    // The poll only ever times out while the child is alive *and* quiet: its exit
+    // closes the write ends, which wakes `poll` immediately. So this bounds only
+    // the rare grandchild-holds-the-pipe case, not ordinary exit latency.
+    const POLL_TIMEOUT_MS: &str = "200";
+    const EINTR: &str = "4";
+
     let mut v = Vregs::new();
     let file = v.next();
     let closed = v.next();
@@ -132,10 +160,52 @@ pub(crate) fn lower_process_waitfor_helper_posix(
     let one = v.next();
     let s0 = v.next();
     let s1 = v.next();
+    let fd_out = v.next();
+    let fd_err = v.next();
+    let eof_out = v.next();
+    let eof_err = v.next();
+    let cur_fd = v.next();
+    let cur_slot = v.next();
+    let cur_is_err = v.next();
+    let buf = v.next();
+    let cap = v.next();
+    let len = v.next();
+    let want = v.next();
+    let newcap = v.next();
+    let size = v.next();
+    let errno = v.next();
+    let t0 = v.next();
+    let t1 = v.next();
+    let t2 = v.next();
+
     let closed_l = format!("{symbol}_closed");
     let cached = format!("{symbol}_cached");
     let echild = format!("{symbol}_echild");
     let done = format!("{symbol}_done");
+    let out_open = format!("{symbol}_out_open");
+    let err_open = format!("{symbol}_err_open");
+    let wait_loop = format!("{symbol}_wait_loop");
+    let have_status = format!("{symbol}_have_status");
+    let poll_streams = format!("{symbol}_poll_streams");
+    let block_wait = format!("{symbol}_block_wait");
+    let pfd0_set = format!("{symbol}_pfd0_set");
+    let pfd1_set = format!("{symbol}_pfd1_set");
+    let check_stderr = format!("{symbol}_check_stderr");
+    let append = format!("{symbol}_append");
+    let append_have = format!("{symbol}_append_have");
+    let grow_loop = format!("{symbol}_grow_loop");
+    let do_grow = format!("{symbol}_do_grow");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let cap_ready = format!("{symbol}_cap_ready");
+    let size_ok = format!("{symbol}_size_ok");
+    let read_now = format!("{symbol}_read_now");
+    let read_err = format!("{symbol}_read_err");
+    let mark_eof = format!("{symbol}_mark_eof");
+    let mark_eof_err = format!("{symbol}_mark_eof_err");
+    let over_limit = format!("{symbol}_over_limit");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+
     let mut instructions = vec![
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
@@ -144,9 +214,25 @@ pub(crate) fn lower_process_waitfor_helper_posix(
         abi::load_u64(&reaped, &file, PROC_REAPED),
         abi::compare_immediate(&reaped, "0"),
         abi::branch_ne(&cached),
+        // Cache the two read ends and seed their EOF flags. A stream already
+        // marked closed (fd < 0) is finished before we start.
+        abi::load_u64(&fd_out, &file, PROC_STDOUT_R),
+        abi::move_immediate(&eof_out, "Integer", "0"),
+        abi::compare_immediate(&fd_out, "0"),
+        abi::branch_ge(&out_open),
+        abi::move_immediate(&eof_out, "Integer", "1"),
+        abi::label(&out_open),
+        abi::load_u64(&fd_err, &file, PROC_STDERR_R),
+        abi::move_immediate(&eof_err, "Integer", "0"),
+        abi::compare_immediate(&fd_err, "0"),
+        abi::branch_ge(&err_open),
+        abi::move_immediate(&eof_err, "Integer", "1"),
+        abi::label(&err_open),
+        // --- drain-while-you-wait -------------------------------------------
+        abi::label(&wait_loop),
         abi::load_u64(abi::c_arg(0), &file, RESOURCE_OFFSET_HANDLE),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STATUS_SLOT),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", WNOHANG),
     ];
     let mut relocations = Vec::new();
     platform.emit_external_call(
@@ -160,6 +246,215 @@ pub(crate) fn lower_process_waitfor_helper_posix(
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_lt(&echild),
+        abi::branch_gt(&have_status),
+        // Still running. If either stream can still deliver bytes, service it;
+        // once both are at EOF a blocking wait is safe.
+        abi::compare_immediate(&eof_out, "0"),
+        abi::branch_eq(&poll_streams),
+        abi::compare_immediate(&eof_err, "0"),
+        abi::branch_eq(&poll_streams),
+        abi::label(&block_wait),
+        abi::load_u64(abi::c_arg(0), &file, RESOURCE_OFFSET_HANDLE),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STATUS_SLOT),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+    ]);
+    platform.emit_external_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_le(&echild),
+        abi::branch(&have_status),
+        // --- poll both read ends --------------------------------------------
+        // A finished stream goes in as fd -1, which `poll` ignores (revents 0),
+        // so the array is always two entries wide.
+        abi::label(&poll_streams),
+        abi::move_register(&t0, &fd_out),
+        abi::compare_immediate(&eof_out, "0"),
+        abi::branch_eq(&pfd0_set),
+        abi::bitwise_not(&t0, abi::ZERO),
+        abi::label(&pfd0_set),
+        abi::store_u32(&t0, abi::stack_pointer(), PFD_SLOT),
+        abi::move_immediate(&t1, "Integer", POLLIN),
+        abi::store_u16(&t1, abi::stack_pointer(), PFD_SLOT + 4),
+        abi::store_u16(abi::ZERO, abi::stack_pointer(), PFD_SLOT + 6),
+        abi::move_register(&t0, &fd_err),
+        abi::compare_immediate(&eof_err, "0"),
+        abi::branch_eq(&pfd1_set),
+        abi::bitwise_not(&t0, abi::ZERO),
+        abi::label(&pfd1_set),
+        abi::store_u32(&t0, abi::stack_pointer(), PFD_SLOT + 8),
+        abi::move_immediate(&t1, "Integer", POLLIN),
+        abi::store_u16(&t1, abi::stack_pointer(), PFD_SLOT + 12),
+        abi::store_u16(abi::ZERO, abi::stack_pointer(), PFD_SLOT + 14),
+        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), PFD_SLOT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "2"),
+        abi::move_immediate(abi::c_arg(2), "Integer", POLL_TIMEOUT_MS),
+    ]);
+    platform.emit_external_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        // Timed out, or was interrupted: re-check the child and poll again.
+        abi::branch_le(&wait_loop),
+        // Service one ready stream per pass — stdout first — then re-check the
+        // child. Two streams sharing one append block is what keeps this body
+        // from needing a second copy of it.
+        abi::load_u16(&t0, abi::stack_pointer(), PFD_SLOT + 6),
+        abi::compare_immediate(&t0, "0"),
+        abi::branch_eq(&check_stderr),
+        abi::move_register(&cur_fd, &fd_out),
+        abi::add_immediate(&cur_slot, &file, PROC_STDOUT_BUF),
+        abi::move_immediate(&cur_is_err, "Integer", "0"),
+        abi::branch(&append),
+        abi::label(&check_stderr),
+        abi::load_u16(&t0, abi::stack_pointer(), PFD_SLOT + 14),
+        abi::compare_immediate(&t0, "0"),
+        abi::branch_eq(&wait_loop),
+        abi::move_register(&cur_fd, &fd_err),
+        abi::add_immediate(&cur_slot, &file, PROC_STDERR_BUF),
+        abi::move_immediate(&cur_is_err, "Integer", "1"),
+        // --- append the ready stream's bytes to its spill buffer -------------
+        abi::label(&append),
+        abi::load_u64(&buf, &cur_slot, 0),
+        abi::compare_immediate(&buf, "0"),
+        abi::branch_ne(&append_have),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &(SPILL_INITIAL_CAPACITY + SPILL_DATA).to_string(),
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(&buf, abi::mfb_return(1)),
+        abi::move_immediate(&t0, "Integer", &SPILL_INITIAL_CAPACITY.to_string()),
+        abi::store_u64(&t0, &buf, SPILL_CAPACITY),
+        abi::store_u64(abi::ZERO, &buf, SPILL_LENGTH),
+        abi::store_u64(abi::ZERO, &buf, SPILL_OFFSET),
+        abi::store_u64(&buf, &cur_slot, 0),
+        abi::label(&append_have),
+        abi::load_u64(&cap, &buf, SPILL_CAPACITY),
+        abi::load_u64(&len, &buf, SPILL_LENGTH),
+        abi::add_immediate(&want, &len, SPILL_CHUNK),
+        abi::move_register(&newcap, &cap),
+        abi::compare_registers(&want, &newcap),
+        abi::branch_le(&cap_ready),
+        // Double until a whole chunk fits, then clamp to the stated cap.
+        abi::label(&grow_loop),
+        abi::shift_left_immediate(&newcap, &newcap, 1),
+        abi::compare_registers(&newcap, &want),
+        abi::branch_lt(&grow_loop),
+        abi::move_immediate(&t0, "Integer", &SPILL_MAX_CAPACITY.to_string()),
+        abi::compare_registers(&newcap, &t0),
+        abi::branch_le(&do_grow),
+        abi::move_register(&newcap, &t0),
+        abi::compare_registers(&newcap, &cap),
+        abi::branch_le(&cap_ready),
+        abi::label(&do_grow),
+        abi::add_immediate(abi::return_register(), &newcap, SPILL_DATA),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(&t2, abi::mfb_return(1)),
+        abi::store_u64(&newcap, &t2, SPILL_CAPACITY),
+        abi::store_u64(&len, &t2, SPILL_LENGTH),
+        abi::load_u64(&t0, &buf, SPILL_OFFSET),
+        abi::store_u64(&t0, &t2, SPILL_OFFSET),
+        // Copy the filled prefix a word at a time. `len` may not be a multiple of
+        // 8, but both capacities are, so the final partial word is in bounds on
+        // each side and the slop past `len` is dead either way.
+        abi::add_immediate(&t0, &buf, SPILL_DATA),
+        abi::add_immediate(&t1, &t2, SPILL_DATA),
+        abi::move_immediate(&size, "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::compare_registers(&size, &len),
+        abi::branch_ge(&copy_done),
+        abi::load_u64(&want, &t0, 0),
+        abi::store_u64(&want, &t1, 0),
+        abi::add_immediate(&t0, &t0, 8),
+        abi::add_immediate(&t1, &t1, 8),
+        abi::add_immediate(&size, &size, 8),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::move_register(abi::c_arg(0), &buf),
+        abi::add_immediate(abi::c_arg(1), &cap, SPILL_DATA),
+    ]);
+    emit_arena_free(symbol, &mut instructions, &mut relocations);
+    instructions.extend([
+        abi::move_register(&buf, &t2),
+        abi::store_u64(&buf, &cur_slot, 0),
+        abi::move_register(&cap, &newcap),
+        abi::label(&cap_ready),
+        // size = min(SPILL_CHUNK, capacity - length). Zero means the cap is
+        // reached and this child cannot be waited for without draining it.
+        abi::subtract_registers(&size, &cap, &len),
+        abi::move_immediate(&t0, "Integer", &SPILL_CHUNK.to_string()),
+        abi::compare_registers(&size, &t0),
+        abi::branch_le(&size_ok),
+        abi::move_register(&size, &t0),
+        abi::label(&size_ok),
+        abi::compare_immediate(&size, "0"),
+        abi::branch_le(&over_limit),
+        abi::label(&read_now),
+        abi::move_register(abi::c_arg(0), &cur_fd),
+        abi::add_immediate(&t0, &buf, SPILL_DATA),
+        abi::add_registers(abi::c_arg(1), &t0, &len),
+        abi::move_register(abi::c_arg(2), &size),
+    ]);
+    platform.emit_external_call(
+        "read",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_lt(&read_err),
+        abi::branch_eq(&mark_eof),
+        abi::load_u64(&t0, &buf, SPILL_LENGTH),
+        abi::add_registers(&t0, &t0, abi::c_return(0)),
+        abi::store_u64(&t0, &buf, SPILL_LENGTH),
+        abi::branch(&wait_loop),
+        abi::label(&read_err),
+    ]);
+    platform.emit_errno(
+        symbol,
+        (&errno).into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(&errno, EINTR),
+        abi::branch_eq(&read_now),
+        // Any other read error means this stream can give us nothing more; treat
+        // it as end of stream so the wait still makes progress.
+        abi::label(&mark_eof),
+        abi::compare_immediate(&cur_is_err, "0"),
+        abi::branch_ne(&mark_eof_err),
+        abi::move_immediate(&eof_out, "Integer", "1"),
+        abi::branch(&wait_loop),
+        abi::label(&mark_eof_err),
+        abi::move_immediate(&eof_err, "Integer", "1"),
+        abi::branch(&wait_loop),
+        // --- reaped ----------------------------------------------------------
+        abi::label(&have_status),
         abi::load_u32(&status, abi::stack_pointer(), STATUS_SLOT),
     ]);
     emit_decode_status(&status, &exit, &s0, &s1, symbol, &mut instructions);
@@ -179,8 +474,24 @@ pub(crate) fn lower_process_waitfor_helper_posix(
         abi::load_u64(RESULT_VALUE_REGISTER, &file, PROC_EXITCODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&closed_l),
+        abi::label(&over_limit),
     ]);
+    emit_fail(
+        symbol,
+        "ErrResourceBusy",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed_l));
     emit_fail(
         symbol,
         "ErrResourceClosed",
@@ -189,7 +500,7 @@ pub(crate) fn lower_process_waitfor_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    Ok((instructions, relocations, 16))
+    Ok((instructions, relocations, PFD_SLOT + 16))
 }
 
 pub(crate) fn lower_process_waitfor_helper_win(

@@ -131,12 +131,16 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     const FD_OFFSET: usize = 0;
     const N_OFFSET: usize = 8;
     const BUF_OFFSET: usize = 16;
+    const SPILL: usize = 24; // this stream's waitFor spill block (bug-475), or 0
+    const CHUNK_BYTES: usize = 65536;
     const CHUNK: &str = "65536";
     const EINTR: &str = "4";
     let closed = format!("{symbol}_closed");
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
     let read_retry = format!("{symbol}_read_retry");
+    let fd_read = format!("{symbol}_fd_read");
+    let have_bytes = format!("{symbol}_have_bytes");
     let read_fail = format!("{symbol}_read_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let entry_loop = format!("{symbol}_entry_loop");
@@ -157,20 +161,29 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
         abi::compare_immediate(&reg9, "0"),
         abi::branch_ne(&closed),
     ];
+    // The selected stream's fd *and* its spill block (bug-475): `waitFor` may have
+    // had to move the child's output out of the pipe to keep the child running,
+    // and those bytes come before anything the fd still holds.
     if with_from {
         instructions.extend([
             abi::compare_immediate(abi::c_arg(1), "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(&reg9, abi::return_register(), PROC_STDERR_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R));
+        instructions.extend([
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDOUT_BUF),
+        ]);
     }
     instructions.extend([
+        abi::store_u64(&reg10, abi::stack_pointer(), SPILL),
         abi::store_u64(&reg9, abi::stack_pointer(), FD_OFFSET),
         // Allocate the temporary chunk buffer.
         abi::move_immediate(abi::return_register(), "Integer", CHUNK),
@@ -180,7 +193,30 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
+        // Serve the spill block first; only when it is empty does this touch the
+        // pipe.
         abi::label(&read_retry),
+        abi::load_u64(&reg9, abi::stack_pointer(), SPILL),
+        abi::load_u64(&reg10, abi::stack_pointer(), BUF_OFFSET),
+    ]);
+    emit_spill_take_chunk(
+        symbol,
+        "rb",
+        &reg9,
+        &reg10,
+        CHUNK_BYTES,
+        &reg11,
+        &reg12,
+        &reg13,
+        &reg14,
+        &reg15,
+        &fd_read,
+        &mut instructions,
+    );
+    instructions.extend([
+        abi::store_u64(&reg11, abi::stack_pointer(), N_OFFSET),
+        abi::branch(&have_bytes),
+        abi::label(&fd_read),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUF_OFFSET),
         abi::move_immediate(abi::c_arg(2), "Integer", CHUNK),
@@ -201,6 +237,7 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     ]);
     // Build a List OF Byte with N elements from BUF (mirrors net.read).
     instructions.extend([
+        abi::label(&have_bytes),
         abi::load_u64(&reg10, abi::stack_pointer(), N_OFFSET),
         abi::move_immediate(&reg11, "Integer", &byte_list_entry_stride().to_string()),
         abi::multiply_registers(&reg12, &reg10, &reg11),
