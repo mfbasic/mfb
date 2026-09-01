@@ -977,11 +977,24 @@ fn emit_graphics_spawn(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     if platform.family() == PlatformFamily::Windows {
-        // CreateThread(NULL, 0, entry, arg, 0, NULL) — six arguments, the last two on
-        // the stack. The handle is dropped: nothing joins the graphics thread, and the
-        // process exit tears it down.
+        // CreateThread(NULL, 8 MiB, entry, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL).
+        //
+        // **The stack size is not optional**, for the reason the pthread arm below
+        // spells out: `dwStackSize = 0` takes the PE header's default, which is 1 MiB,
+        // and the renderer is not a 1 MiB kind of code — `thread::start` asks for 8 MiB
+        // on POSIX and the graphics thread runs the same sort of frames. macOS learned
+        // this the hard way with a 512 KiB pthread default, where the render *completed*
+        // and the thread then died at exit inside libmalloc.
+        //
+        // `STACK_SIZE_PARAM_IS_A_RESERVATION` (0x00010000) makes the number a
+        // *reservation* rather than a commit, so the cost is address space rather than
+        // RSS — the same trade the pthread arm makes.
         instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
-        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        instructions.push(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &(8 * 1024 * 1024).to_string(),
+        ));
         push_symbol_address(
             symbol,
             GRAPHICS_TRAMPOLINE_SYMBOL,
@@ -998,7 +1011,12 @@ fn emit_graphics_spawn(
         // is an OUT pointer, so a garbage value is not a wrong flag, it is a wild
         // write. The sentinel base is the only spelling the finalizer accounts for:
         // it both places the store correctly and grows the outgoing area to fit it.
-        instructions.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // dwCreationFlags
+        instructions.push(abi::move_immediate(
+            &scratch.scratch,
+            "Integer",
+            "65536", // STACK_SIZE_PARAM_IS_A_RESERVATION
+        ));
+        instructions.push(abi::outgoing_stack_arg_store(&scratch.scratch, 0)); // dwCreationFlags
         instructions.push(abi::outgoing_stack_arg_store(abi::ZERO, 1)); // lpThreadId
         instructions.push(abi::branch_link("CreateThread"));
         relocations.push(external_branch(symbol, "CreateThread", platform_imports)?);
