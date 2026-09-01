@@ -338,15 +338,15 @@ Commit: —
       without the post-copy read of the file, a silent no-op write would look
       identical.
 
-- [~] **Added task (inherited from plan-114-C Correction C5)** — the emitted
-      close-site counts letter C could not express. **Two of the three are now
-      covered behaviourally** by `record-res-field-rt`: (a) a floated
-      record-carried handle closing exactly once and (c) no extra close site are
-      both what the 200-iteration loop tests — a missed drain exhausts fds, a
-      double drain raises `7-703-0004`, and it completes cleanly. **(b) is not yet
-      covered**: a *returned* float-target record emitting zero closes in the
-      callee needs its own fixture, returning a `Holder` from a `FUNC` and closing
-      in the caller. Remaining: that one fixture.
+- [x] **Added task (inherited from plan-114-C Correction C5)** — the emitted
+      close-site counts letter C could not express. **All three are now covered
+      behaviourally**, which is stronger than the static counts the task asked for:
+      (a) and (c) by `record-res-field-rt`'s 200-iteration loop (a missed drain
+      exhausts fds, a double drain raises `7-703-0004`), and (b) by the new
+      `record-res-field-return-rt`, which writes through a returned record's
+      handle *after the callee's scope has exited* and then loops 200 times.
+      **Writing (b) is what found the double close** recorded in Corrections C4 —
+      the shape the task named turned out to be a live bug, not a formality.
 
 - [x] New fixtures for the three rejections that must survive:
       `record-res-field-map-key-invalid` (record with a `RES` field as a `Map` key →
@@ -535,6 +535,56 @@ general. Recording the measurement serves the baseline's actual purpose (know th
 starting point, so letter E's delta is provably its own) without committing a
 misleading fixture. **Letter E's Phase 1 is answered by this note, and its Phase 4
 scope is corrected accordingly** — see plan-114-E Corrections C2.
+
+**C4 — writing the returned-record fixture found a SILENT DOUBLE CLOSE, in two
+halves.** The plan treats "a returned float-target record emits zero closes in
+the callee" as a property to assert. It was not true, and the way it failed is
+worth recording because reasoning would not have found it.
+
+*Half one — the gate could not see an inferred binding.* This compiled:
+
+```basic
+FUNC makeHolder(p AS String) AS Holder
+  RES f AS fs::File = fs::openFile(p, "w")
+  LET h = Holder["made", f]          ' inferred — no `AS Holder`
+  RETURN h
+END FUNC
+```
+
+and then died in the caller with `Error: 7-703-0004  Resource handle is already
+closed`, exit 255. `decl_type` is populated **only for an explicit `AS T`
+annotation** (`resource_escape.rs:236`), so an inferred binding has no entry, the
+ordering gate's `decl_type.get(..).is_some_and(..)` answered `false`, and the
+resource degraded to `ResOwner::Local` — the exact bug-291 miscompile, reached by
+a route bug-291 did not cover. Fixed by recording the type from a `Constructor`
+initializer, which names its own type. (A collection *literal* is deliberately not
+covered: `[f]` names no element type.)
+
+*Half two — the fix over-rejected, and only running the other shape showed it.*
+With the gate now seeing records, this correct program was refused:
+
+```basic
+FUNC wrap(RES f AS fs::File) AS Holder   ' f is a PARAMETER
+  LET h = Holder["made", f]
+  RETURN h
+END FUNC
+```
+
+A `RES` parameter is owned by the **caller**; this function never produces it, so
+the rule's hazard — "the container's owned-list does not exist yet when the
+resource is produced" — has no production point to attach to. `res_params`
+exempts them.
+
+*A design limit this exposed, worth stating plainly.* A resource the callee
+**produces** cannot be returned inside a record at all: the ordering rule requires
+the container to be declared before the resource, and a record — unlike an empty
+`List` — cannot be constructed before its handle exists. So the advice
+`TYPE_RESOURCE_RETURN_ORDER` gives ("declare `h` before `f`") is unfollowable for
+a record. Rejecting is still far better than the silent double close it replaced,
+and the `RES`-parameter form is the usable pattern; but if returning a
+callee-produced resource inside a record is ever wanted, it needs the
+`ResOwner::Float` field-naming change that letter C's C3 rules out, and it is its
+own plan.
 
 <!-- Further corrections filled in during execution. -->
 
