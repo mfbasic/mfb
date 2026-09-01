@@ -51,6 +51,13 @@ package **Tampered** and fails the build:
 dependencies only; a remote unsigned dependency requires the `--unsigned`
 opt-in. [[src/cli/build/packages.rs:classify_installed_package]]
 
+A **source-package** dependency is classified too, against the `.mfp` the build
+just compiled from its sources into `build/packages/`. It is Unsigned by
+construction and its source is local, so it is always permitted; the classifier
+resolves an installed `packages/<name>.mfp` first, so nothing a source
+dependency contributes can relax the chain a compiled dependency is held to.
+[[src/manifest/package.rs:resolved_package_file]]
+
 ### Payload / sections
 
 * `MFPC` magic and `bcMajor == 2` (the structured-Binary-Representation clean break; `1` is rejected as predating the format).
@@ -72,7 +79,7 @@ Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to nat
 
 The IR-level semantic verifier is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR. [[src/ir/verify/mod.rs]] The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker resolves each node's type from the node itself rather than re-inferring the whole expression tree.
 
-Those annotations are **attacker-controlled**, though, so a computed node's self-reported type is never taken on faith: each is reconciled against an independent source of truth, and a disagreement is a `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE` rejection. A `Call`/`CallResult` node must agree with the callee's declared return type; a `MemberAccess` with the declared type of the field it reads; a `Binary`/`Unary` node with the type its operands produce (`Boolean` for comparisons and logical operators, `String` for `&`, the shared operand type for arithmetic). Without this, a `String`-returning call annotated as a record made a member read typecheck against a foreign layout, and one annotated `Integer` made `result - 5` emit an integer subtract over a string pointer. A type that genuinely cannot be derived, or an `Unknown` marker on either side, is left unchecked and never rejects. [[src/ir/verify/compat.rs:check_call_result_type]]
+Those annotations are **attacker-controlled**, though, so a computed node's self-reported type is never taken on faith: each is reconciled against an independent source of truth, and a disagreement is a `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE` rejection. A `Call`/`CallResult` node must agree with the callee's declared return type; a `MemberAccess` with the declared type of the field it reads; a `Binary`/`Unary` node with the type its operands produce (`Boolean` for comparisons and logical operators, `String` for `&`, the shared operand type for arithmetic). A `Checked` node must wrap a **call-free** value: its capture only redirects errors raised in this frame, so a call inside it would auto-propagate past the handler the wrapper exists to feed (bug-471). Without this, a `String`-returning call annotated as a record made a member read typecheck against a foreign layout, and one annotated `Integer` made `result - 5` emit an integer subtract over a string pointer. A type that genuinely cannot be derived, or an `Unknown` marker on either side, is left unchecked and never rejects. [[src/ir/verify/compat.rs:check_call_result_type]]
 
 Concretely it enforces, on package IR:
 

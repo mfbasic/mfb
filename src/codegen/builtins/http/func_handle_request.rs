@@ -38,32 +38,32 @@ with a `413 Payload Too Large`.
 
 **Parsing.** The request line yields an uppercased `method` and a request target.
 The target is split at the first `?`: the part before it is percent-decoded into
-`Request.path` (falling back to the raw text if decoding fails), the part after it
-is parsed into `Request.query`; `Request.rawPath` keeps the target as received.
+`http::Request.path` (falling back to the raw text if decoding fails), the part after it
+is parsed into `http::Request.query`; `http::Request.rawPath` keeps the target as received.
 Header field names are lowercased and duplicates collapse last-wins. A chunked
 body is de-chunked, and a `multipart/form-data` body is split into
-`Request.parts` keyed by each part's `name`. `Request.body` holds the raw body
+`http::Request.parts` keyed by each part's `name`. `http::Request.body` holds the raw body
 bytes.
 
 **Matching.** Routes are tested in list order and the **first** match wins. Path
 matching is segment-based on the decoded path with a single trailing `/` ignored;
 `:name` binds one required segment, `:name?` binds an optional trailing segment,
 and `*` binds all remaining segments joined by `/`. Bound captures are placed in
-`Request.params` (the wildcard under the key `"*"`) before the handler runs.
+`http::Request.params` (the wildcard under the key `"*"`) before the handler runs.
 
 **Crash-proofing.** The accept loop never dies on a bad client. A handler that
 fails for any reason is answered with a built-in `500 Internal Server Error`; a
 path matching no route is answered with `404 Not Found`; an unparsable request
-line or header block is answered with `400 Bad Request`; an over-cap request is
+line or header block is answered with `400 Bad http::Request`; an over-cap request is
 answered with `413 Payload Too Large`. A write that fails mid-response drops the
 connection and returns normally.
 
 **Emission.** The status line is `HTTP/1.1 <status> <reason>`; an empty
-`Response.reason` is filled in from a built-in table keyed by status code, falling
+`http::Response.reason` is filled in from a built-in table keyed by status code, falling
 back to `OK` below 300, `Redirect` below 400, `Client Error` below 500, and
 `Server Error` otherwise. Handler-set `Content-Length` and `Connection` headers
 are dropped so framing stays correct, and the server always emits its own
-`Content-Length` (the byte length of `Response.body`) plus `Connection: close`.
+`Content-Length` (the byte length of `http::Response.body`) plus `Connection: close`.
 The body is written only when it is non-empty."#;
 
 const EX: &str = r#"A plaintext accept loop with one route:

@@ -1,16 +1,16 @@
 IMPORT term
 
-FUNC resize(size AS TermSize) AS TermSize
+FUNC resize(size AS term::TermSize) AS term::TermSize
   RETURN WITH size { columns := 80 }
 END FUNC
 
-FUNC constructLet AS TermSize
-  LET a AS TermSize = TermSize[rows := 10, columns := 10]
+FUNC constructLet AS term::TermSize
+  LET a AS term::TermSize = term::TermSize[rows := 10, columns := 10]
   RETURN a
 END FUNC
 
-FUNC constructMut AS TermSize
-  MUT b AS TermSize = TermSize[rows := 10, columns := 10]
+FUNC constructMut AS term::TermSize
+  MUT b AS term::TermSize = term::TermSize[rows := 10, columns := 10]
   RETURN b
 END FUNC
 

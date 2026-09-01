@@ -39,9 +39,9 @@ with the `collections` package and `FOR EACH`; cells are read positionally with
 row.
 
 For large inputs there is a streaming alternative that never materializes the
-whole grid: `csv::parseStream` returns a `CsvReader` holding the input and a scan
-cursor, and each `csv::readRow` parses exactly one record and returns a `CsvRow`
-(`fields AS List OF String`, `reader AS CsvReader` advanced past the record, and
+whole grid: `csv::parseStream` returns a `csv::CsvReader` holding the input and a scan
+cursor, and each `csv::readRow` parses exactly one record and returns a `csv::CsvRow`
+(`fields AS List OF String`, `reader AS csv::CsvReader` advanced past the record, and
 `done AS Boolean`). A caller loops `WHILE row.done = FALSE` (see `mfb man csv
 readRow`). The rows are identical to `csv::parse`'s.
 

@@ -1,0 +1,16 @@
+{
+  "name": "thread_package_fanout_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "self_fanout_workers",
+      "version": "=0.1.0",
+      "source": "file:packages/self_fanout_workers.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

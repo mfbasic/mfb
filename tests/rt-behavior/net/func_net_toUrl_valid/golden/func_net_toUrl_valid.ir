@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 16,
     "visibility": "export",
-    "name": "Url",
+    "name": "net.Url",
     "fields": [
     { "visibility": null, "line": 17, "name": "scheme", "type": "String" },
     { "visibility": null, "line": 18, "name": "username", "type": "String" },
@@ -28,7 +28,7 @@
     "kind": "type",
     "line": 27,
     "visibility": "export",
-    "name": "Address",
+    "name": "net.Address",
     "fields": [
     { "visibility": null, "line": 28, "name": "host", "type": "String" },
     { "visibility": null, "line": 29, "name": "port", "type": "Integer" }
@@ -38,10 +38,10 @@
     "kind": "type",
     "line": 41,
     "visibility": "export",
-    "name": "PingResult",
+    "name": "net.PingResult",
     "fields": [
-    { "visibility": null, "line": 42, "name": "status", "type": "PingStatus" },
-    { "visibility": null, "line": 43, "name": "address", "type": "Address" },
+    { "visibility": null, "line": 42, "name": "status", "type": "net.PingStatus" },
+    { "visibility": null, "line": 43, "name": "address", "type": "net.Address" },
     { "visibility": null, "line": 44, "name": "rttMs", "type": "Float" },
     { "visibility": null, "line": 45, "name": "ttl", "type": "Integer" },
     { "visibility": null, "line": 46, "name": "size", "type": "Integer" }
@@ -51,7 +51,7 @@
     "kind": "enum",
     "line": 49,
     "visibility": "export",
-    "name": "PingStatus",
+    "name": "net.PingStatus",
     "members": [
     { "name": "Ok" },
     { "name": "Timeout" },
@@ -72,7 +72,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "u", "type": "Url", "value": { "kind": "call", "type": "Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "href" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "u", "type": "net.Url", "value": { "kind": "call", "type": "net.Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "href" }] } },
     { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "label" }] } },
     { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "  scheme=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "u" }, "member": "scheme" } }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "  username=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "u" }, "member": "username" } }] } },
@@ -334,7 +334,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 162, "type": "Url", "default": null }
+    { "name": "value", "line": 162, "type": "net.Url", "default": null }
     ],
     "returns": "String",
     "body": [
@@ -508,7 +508,7 @@
     "params": [
     { "name": "href", "line": 233, "type": "String", "default": null }
     ],
-    "returns": "Url",
+    "returns": "net.Url",
     "body": [
     { "op": "bind", "line": 234, "mutable": false, "name": "schemeEnd", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "href" }, { "kind": "const", "type": "String", "value": "://" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     {
@@ -680,7 +680,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
+    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "net.Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
     ]
   },
   {

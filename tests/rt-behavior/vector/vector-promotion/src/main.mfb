@@ -6,12 +6,12 @@ IMPORT collections
 ' identical results to the heap-record path, and construction overflow still traps.
 
 TYPE Holder
-  v AS Float3
+  v AS vector::Float3
 END TYPE
 
 FUNC overflows AS Float
-  LET big AS Float3 = Float3[1.0e200, 1.0e200, 1.0e200]
-  LET p AS Float3 = vector::scale(big, big)
+  LET big AS vector::Float3 = vector::Float3[1.0e200, 1.0e200, 1.0e200]
+  LET p AS vector::Float3 = vector::scale(big, big)
   RETURN p.x
 END FUNC
 
@@ -22,22 +22,22 @@ END FUNC
 TESTING
   TGROUP "vector local promotion"
     TCASE "non-escaping locals (promoted) compute correctly"
-      LET c AS Float3 = vector::cross(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0])
-      LET s AS Float3 = vector::scale(c, Float3[2.0, 2.0, 2.0])
+      LET c AS vector::Float3 = vector::cross(vector::Float3[1.0, 2.0, 3.0], vector::Float3[4.0, 5.0, 6.0])
+      LET s AS vector::Float3 = vector::scale(c, vector::Float3[2.0, 2.0, 2.0])
       expectFloat(c.x, -3.0)
       expectFloat(s.z, -6.0)
       expectFloat(vector::dot(c, s), 108.0)
     END TCASE
     TCASE "escaping into a collection (not promoted)"
-      LET e AS Float3 = vector::cross(Float3[1.0, 0.0, 0.0], Float3[0.0, 1.0, 0.0])
-      MUT xs AS List OF Float3 = []
+      LET e AS vector::Float3 = vector::cross(vector::Float3[1.0, 0.0, 0.0], vector::Float3[0.0, 1.0, 0.0])
+      MUT xs AS List OF vector::Float3 = []
       xs = collections::append(xs, e)
-      xs = collections::append(xs, vector::scale(e, Float3[3.0, 3.0, 3.0]))
+      xs = collections::append(xs, vector::scale(e, vector::Float3[3.0, 3.0, 3.0]))
       expectFloat(collections::get(xs, 0).z, 1.0)
       expectFloat(collections::get(xs, 1).z, 3.0)
     END TCASE
     TCASE "escaping into a record field (not promoted)"
-      LET f AS Float3 = vector::scale(Float3[2.0, 3.0, 4.0], Float3[1.0, 1.0, 1.0])
+      LET f AS vector::Float3 = vector::scale(vector::Float3[2.0, 3.0, 4.0], vector::Float3[1.0, 1.0, 1.0])
       LET h AS Holder = Holder[f]
       expectFloat(h.v.y, 3.0)
       ' f is still usable after escaping

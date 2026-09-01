@@ -1,0 +1,53 @@
+' plan-114-E: WRITING a `STATE` payload through a record field.
+'
+' `h.handle.state.pos = 5` is not a form the language provides -- the
+' member-target assignment that `resource.state.field = v` uses is anchored to a
+' bare `RES` identifier (src/ast/stmt.rs's token matcher), and extending it to an
+' arbitrary chain is a parser change with its own blast radius. The documented
+' way is to bind the handle first, and this fixture is what makes that a tested
+' path rather than a claim in the spec.
+'
+' THE ASSERTION IS THE READ-BACK. `g` is an ALIAS -- rebinding a handle out of a
+' record field registers no close obligation of its own -- so writing through `g`
+' and reading through `h.handle` must see the same payload. Printing 5 proves one
+' payload behind one pointer; printing 0 would mean the rebind produced a second
+' Cursor and the write went somewhere nobody reads.
+'
+' The loop then keeps the ownership half honest: 200 open/scope-exit cycles with
+' an alias taken each time. A missed drain exhausts file descriptors; an alias
+' wrongly treated as a second owner double-closes and raises 7-703-0004.
+IMPORT fs
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+TYPE Holder
+  handle AS RES fs::File STATE Cursor
+END TYPE
+
+FUNC writeThroughAlias(path AS String) AS Integer
+  RES f AS fs::File STATE Cursor = fs::openFile(path, "w")
+  LET h = Holder[f]
+
+  ' The documented write path: bind the handle, write through the binding.
+  RES g AS fs::File STATE Cursor = h.handle
+  g.state.pos = 5
+
+  ' Read back through the RECORD, not through `g`.
+  RETURN h.handle.state.pos
+END FUNC
+
+FUNC main AS Integer
+  io::print("wrote via rebind, read via record: " & toString(writeThroughAlias("target/record-res-field-state-write-rt.txt")))
+
+  MUT i AS Integer = 0
+  WHILE i < 200
+    LET seen = writeThroughAlias("target/record-res-field-state-write-rt-loop.txt")
+    i = i + 1
+  END WHILE
+  io::print("200 alias-write cycles completed")
+
+  RETURN 0
+END FUNC

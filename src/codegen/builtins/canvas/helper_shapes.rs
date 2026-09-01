@@ -115,11 +115,28 @@ END FUNC"#;
 /// between platforms, and a sub-ULP difference in an arc endpoint moves an
 /// antialiased edge byte — which is exactly what the oracle must not do.
 ///
-/// Range-reduce to `-PI..PI`, then evaluate the Taylor series to the ninth degree.
-/// On that interval the ninth-degree truncation error is below `1e-8`, four orders
-/// of magnitude finer than the sub-pixel geometry needs, and every operation is a
-/// multiply, divide or add — all exactly specified by IEEE-754, so the result is
-/// bit-identical everywhere.
+/// Range-reduce to `-PI..PI`, **then fold into `-PI/2..PI/2`** using
+/// `sin(PI - x) = sin(x)` and `cos(PI - x) = -cos(x)`, and evaluate the Taylor
+/// series there. Every operation is a multiply, divide or add — all exactly
+/// specified by IEEE-754 — so the result stays bit-identical everywhere.
+///
+/// **The fold is not an optimization; without it these were wrong at the ends.** A
+/// Taylor series about zero has its error concentrated at the far end of its
+/// interval, and this file previously claimed the ninth-degree truncation error was
+/// "below 1e-8" over `-PI..PI`. That is the error near *zero*. Measured at the other
+/// end, `x = 3.14159`, the old series gave `sin = 6.93e-3` where the true value is
+/// `2.65e-6`, and `cos = -0.976` where it is `-1.0`.
+///
+/// The consequence was visible, not theoretical: an `Arc` swept to `endAngle = PI`
+/// had its end direction vector off by ~1.4 degrees, so
+/// `__canvas_arcInSweep`'s cross-product test excluded the last sliver of the arc
+/// and the stroke stopped ~0.6 px short of where it was asked to. It surfaced when
+/// the Metal backend — using the hardware `sin`/`cos` — drew 14 pixels of a smile's
+/// end cap that this path did not (plan-98-E Phase 2).
+///
+/// Folded, and with one more term each, the worst error over the whole circle is
+/// `5.6e-8` for `sin` and `4.6e-7` for `cos` — under `1e-4` of a pixel at radius
+/// 150, against `2.4e-2` before.
 #[rustfmt::skip]
 const TRIG: &str =
 r#"FUNC __canvas_wrapAngle(angle AS Float) AS Float
@@ -134,23 +151,41 @@ r#"FUNC __canvas_wrapAngle(angle AS Float) AS Float
   RETURN a
 END FUNC
 
-FUNC __canvas_sin(angle AS Float) AS Float
+FUNC __canvas_foldQuadrant(angle AS Float) AS Float
   LET x AS Float = __canvas_wrapAngle(angle)
+  IF x > 1.5707963267948966 THEN
+    RETURN 3.141592653589793 - x
+  END IF
+  IF x < 0.0 - 1.5707963267948966 THEN
+    RETURN 0.0 - 3.141592653589793 - x
+  END IF
+  RETURN x
+END FUNC
+
+FUNC __canvas_sin(angle AS Float) AS Float
+  LET x AS Float = __canvas_foldQuadrant(angle)
   LET x2 AS Float = x * x
   LET x3 AS Float = x2 * x
   LET x5 AS Float = x3 * x2
   LET x7 AS Float = x5 * x2
   LET x9 AS Float = x7 * x2
-  RETURN x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0 + x9 / 362880.0
+  LET x11 AS Float = x9 * x2
+  RETURN x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0 + x9 / 362880.0 - x11 / 39916800.0
 END FUNC
 
 FUNC __canvas_cos(angle AS Float) AS Float
-  LET x AS Float = __canvas_wrapAngle(angle)
+  LET wrapped AS Float = __canvas_wrapAngle(angle)
+  LET x AS Float = __canvas_foldQuadrant(angle)
   LET x2 AS Float = x * x
   LET x4 AS Float = x2 * x2
   LET x6 AS Float = x4 * x2
   LET x8 AS Float = x6 * x2
-  RETURN 1.0 - x2 / 2.0 + x4 / 24.0 - x6 / 720.0 + x8 / 40320.0
+  LET x10 AS Float = x8 * x2
+  LET magnitude AS Float = 1.0 - x2 / 2.0 + x4 / 24.0 - x6 / 720.0 + x8 / 40320.0 - x10 / 3628800.0
+  IF __canvas_absF(wrapped) > 1.5707963267948966 THEN
+    RETURN 0.0 - magnitude
+  END IF
+  RETURN magnitude
 END FUNC"#;
 
 /// Whether a point's direction from the arc centre lies within the swept sector.

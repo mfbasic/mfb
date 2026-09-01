@@ -15,7 +15,7 @@
       "name": "describe",
       "line": 9,
       "params": [
-      { "name": "attrs", "type": "List OF Attribute", "default": null, "line": 9 }
+      { "name": "attrs", "type": "List OF astrings.Attribute", "default": null, "line": 9 }
       ],
       "returnType": "String",
       "body": [
@@ -32,7 +32,7 @@
           "line": 12,
           "cases": [
           {
-            "pattern": { "kind": "union", "type": "AttrFlag", "binding": "f" },
+            "pattern": { "kind": "union", "type": "astrings.AttrFlag", "binding": "f" },
             "guard": null,
             "line": 13,
             "body": [
@@ -42,7 +42,7 @@
               "line": 14,
               "cases": [
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Bold" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Bold" } },
                 "guard": null,
                 "line": 15,
                 "body": [
@@ -50,7 +50,7 @@
                 ]
               },
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Italic" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Italic" } },
                 "guard": null,
                 "line": 17,
                 "body": [
@@ -58,7 +58,7 @@
                 ]
               },
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Underline" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Underline" } },
                 "guard": null,
                 "line": 19,
                 "body": [
@@ -66,7 +66,7 @@
                 ]
               },
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Strike" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Strike" } },
                 "guard": null,
                 "line": 21,
                 "body": [
@@ -74,7 +74,7 @@
                 ]
               },
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Overline" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Overline" } },
                 "guard": null,
                 "line": 23,
                 "body": [
@@ -86,7 +86,7 @@
             ]
           },
           {
-            "pattern": { "kind": "union", "type": "AttrText", "binding": "t" },
+            "pattern": { "kind": "union", "type": "astrings.AttrText", "binding": "t" },
             "guard": null,
             "line": 26,
             "body": [
@@ -94,7 +94,7 @@
             ]
           },
           {
-            "pattern": { "kind": "union", "type": "AttrNumber", "binding": "n" },
+            "pattern": { "kind": "union", "type": "astrings.AttrNumber", "binding": "n" },
             "guard": null,
             "line": 28,
             "body": [

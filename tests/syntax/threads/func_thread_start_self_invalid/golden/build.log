@@ -1,26 +1,14 @@
 $ mfb build -ast -ir tests/syntax/threads/func_thread_start_self_invalid
-  13 | 
-  14 | EXPORT FUNC spawnHidden AS Integer
-  15 |   LET t AS Thread OF String TO Integer = thread::start(self::hiddenWorker, "hi")
+  26 | 
+  27 | EXPORT FUNC spawnPlain AS Integer
+  28 |   LET t AS Thread OF String TO Integer = thread::start(plainWorker, "hi")
      | ^
-tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
-  13 | 
-  14 | EXPORT FUNC spawnHidden AS Integer
-  15 |   LET t AS Thread OF String TO Integer = thread::start(self::hiddenWorker, "hi")
+tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:28 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               thread.start entry point must name an ISOLATED FUNC.
+  26 | 
+  27 | EXPORT FUNC spawnPlain AS Integer
+  28 |   LET t AS Thread OF String TO Integer = thread::start(plainWorker, "hi")
      | ^
-tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `t` does not have a known type.
-  18 | 
-  19 | EXPORT FUNC spawnPlain AS Integer
-  20 |   LET t AS Thread OF String TO Integer = thread::start(self::plainWorker, "hi")
-     | ^
-tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               thread.start entry point must be an exported ISOLATED FUNC from an imported package.
-  18 | 
-  19 | EXPORT FUNC spawnPlain AS Integer
-  20 |   LET t AS Thread OF String TO Integer = thread::start(self::plainWorker, "hi")
-     | ^
-tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb:28 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `t` does not have a known type.
 [exit 1]

@@ -1,4 +1,4 @@
-REM plan-89-B Phases 1–2: the Attribute model + constructors (build each, MATCH on
+REM plan-89-B Phases 1–2: the astrings::Attribute model + constructors (build each, MATCH on
 REM the union to read the member/value), storage via addAttribute, and read-time
 REM resolution via getAttributes — higher-start-wins per enum member, cross-member
 REM coexistence, and flags OR.
@@ -6,26 +6,26 @@ REM coexistence, and flags OR.
 IMPORT astrings
 IMPORT io
 
-FUNC describe(attrs AS List OF Attribute) AS String
+FUNC describe(attrs AS List OF astrings::Attribute) AS String
   MUT out AS String = ""
   FOR EACH a IN attrs
     MATCH a
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         MATCH f.kind
-          CASE AttrTypeFlag.Bold
+          CASE astrings::AttrTypeFlag.Bold
             out = out & "Bold "
-          CASE AttrTypeFlag.Italic
+          CASE astrings::AttrTypeFlag.Italic
             out = out & "Italic "
-          CASE AttrTypeFlag.Underline
+          CASE astrings::AttrTypeFlag.Underline
             out = out & "Underline "
-          CASE AttrTypeFlag.Strike
+          CASE astrings::AttrTypeFlag.Strike
             out = out & "Strike "
-          CASE AttrTypeFlag.Overline
+          CASE astrings::AttrTypeFlag.Overline
             out = out & "Overline "
         END MATCH
-      CASE AttrText(t)
+      CASE astrings::AttrText(t)
         out = out & "Font:" & t.value & " "
-      CASE AttrNumber(n)
+      CASE astrings::AttrNumber(n)
         out = out & "Size:" & toString(n.value) & " "
     END MATCH
   NEXT

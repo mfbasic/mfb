@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT source_pkg_tiny
+
+' bug-480 Defect A, the paired half of `source-package-dependency-rt`. Byte for
+' byte the same program, against the same `source_pkg_tiny` sources -- the only
+' difference is that here the dependency is a compiled `.mfp` rather than a
+' source directory. The pair is the assertion: both forms must produce the same
+' output, so a signature the source path acquires differently from the `.mfp`
+' path shows up as one of the two failing.
+FUNC main AS Integer
+  io::print(toString(source_pkg_tiny::answer()))
+  io::print(source_pkg_tiny::greet("world"))
+  RETURN 0
+END FUNC

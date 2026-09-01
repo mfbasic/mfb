@@ -17,7 +17,7 @@ greater the result is `1`. Only when the `seconds` fields are equal are the
 tiebreaker. When both `seconds` and `nanos` are equal the instants are
 identical and the result is `0`. Because both arguments are points on the same
 Unix-epoch, leap-second-free UTC timeline, the ordering is absolute and
-independent of any time zone; resolve a `DateTime` to an `Instant` with
+independent of any time zone; resolve a `datetime::DateTime` to a `datetime::Instant` with
 `datetime::resolve` before comparing.
 
 `compare` is pure: the same two instants always yield the same `Integer`, it
@@ -33,8 +33,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(1_000)
-  LET b AS Instant = datetime::instant(2_000)
+  LET a AS datetime::Instant = datetime::instant(1_000)
+  LET b AS datetime::Instant = datetime::instant(2_000)
   io::print(toString(datetime::compare(a, b)))
 END SUB
 ```
@@ -46,8 +46,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::instant(1_000)
-  LET b AS Instant = datetime::instant(1_000)
+  LET a AS datetime::Instant = datetime::instant(1_000)
+  LET b AS datetime::Instant = datetime::instant(1_000)
   io::print(toString(datetime::compare(a, b)))
 END SUB
 ```
@@ -59,8 +59,8 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET a AS Instant = datetime::now()
-  LET b AS Instant = datetime::instant(0)
+  LET a AS datetime::Instant = datetime::now()
+  LET b AS datetime::Instant = datetime::instant(0)
   LET order AS Integer = datetime::compare(a, b)
   IF order < 0 THEN io::print("a is earlier")
 END SUB

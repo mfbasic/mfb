@@ -135,6 +135,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     Ok(BuildOptions {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
         outputs,
+        package_output_dir: None,
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner,
         // plan-51-C §4.7: `--app-debug` implies `--app`. `--app --app-debug` is
@@ -177,6 +178,7 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     Ok(BuildOptions {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
         outputs: Vec::new(),
+        package_output_dir: None,
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner: None,
         app_mode: false,

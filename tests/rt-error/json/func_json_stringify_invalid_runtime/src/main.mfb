@@ -1,7 +1,7 @@
 IMPORT io
 IMPORT json
 
-FUNC showInvalid(value AS Json) AS Nothing
+FUNC showInvalid(value AS json::Json) AS Nothing
   io::print(json::stringify(value))
   RETURN NOTHING
   TRAP(err)
@@ -11,7 +11,7 @@ FUNC showInvalid(value AS Json) AS Nothing
 END FUNC
 
 FUNC main AS Integer
-  showInvalid(JsonNum[toFloat("inf")])
-  showInvalid(JsonNum[toFloat("nan")])
+  showInvalid(json::JsonNum[toFloat("inf")])
+  showInvalid(json::JsonNum[toFloat("nan")])
   RETURN 0
 END FUNC

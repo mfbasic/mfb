@@ -845,8 +845,6 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
-    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
-    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
     asm.push(abi::store_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
     // Park the three arguments before any call clobbers them.
     asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(0))); // pixels
@@ -1278,6 +1276,11 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    // The layer and its background colour must both survive a `load_selector`, so they
+    // live in callee-saved registers — and a callee-saved register this helper uses is
+    // one this helper must save. The frame is 48 bytes and only 32 were spoken for.
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // app
 
     // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY), building one if the
@@ -1371,6 +1374,35 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // [layer setBackgroundColor:CGColorCreateGenericRGB(0, 0, 0, 1)] — opaque black.
+    //
+    // A layer-backed view is transparent by default, so until the first frame lands
+    // the canvas is whatever the window is, and the three backends' own clears could
+    // not fix that: the layer is *under* them. The software surface fills opaque black
+    // (`canvas::newSurface`), Vulkan's clear value is opaque black, and Metal's
+    // `setClearColor:` is now explicit — this is the fourth surface in that list.
+    //
+    // The colour is created once at build and never released, exactly like the view's
+    // own `alloc` reference: it lives as long as the layer does.
+    // **Both the layer and the colour are parked in callee-saved registers before the
+    // selector is looked up.** `load_selector` is not a passive helper: it writes the
+    // selector name's address into `x0` and then *calls* `sel_registerName`, so anything
+    // left in an argument register is gone. Reading `c_arg(0)` after it — as the first
+    // version of this did — hands `setBackgroundColor:` the selector instead of the
+    // colour, and `CFRetain` dies on the misaligned pointer with `EXC_ARM_DA_ALIGN`,
+    // inside CoreFoundation, several frames from anything this file wrote.
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_return(0))); // layer
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 1);
+    asm.call_external("_CGColorCreateGenericRGB", LIB_COREGRAPHICS);
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_return(0))); // the CGColorRef
+    asm.load_selector(SEL_SET_BACKGROUND_COLOR.0);
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     // Stash the view (ASSIGN — see the doc comment on the retain-count reasoning).
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.local_address("x1", CANVAS_VIEW_ASSOC_KEY);
@@ -1406,6 +1438,8 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool) -> CodeFunction {
     asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::load_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     reconcile_code_function(RECONCILE_CANVAS_SYMBOL, asm)

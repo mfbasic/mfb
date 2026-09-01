@@ -37,7 +37,7 @@ IMPORT term
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::drawGlyph(size.columns / 2, size.rows / 2, 9731) ' ☃
   term::sync()
   term::off()

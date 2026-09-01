@@ -16,11 +16,11 @@
       "name": "drive",
       "line": 9,
       "params": [
-      { "name": "u", "type": "Url", "default": null, "line": 9 }
+      { "name": "u", "type": "net.Url", "default": null, "line": 9 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "PendingState", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "identifier", "value": "u" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "http.PendingState", "name": "s", "type": "http.Stream", "value": { "kind": "call", "callee": "http.startRead", "arguments": [{ "kind": "identifier", "value": "u" }] }, "line": 10 },
       {
         "kind": "while",
         "loop": "while",
@@ -39,7 +39,7 @@
         }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "resp", "type": "Response", "value": { "kind": "call", "callee": "http.finish", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "resp", "type": "http.Response", "value": { "kind": "call", "callee": "http.finish", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 16 },
       { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "resp" }, "member": "status" }, "line": 17 }
       ]
     },

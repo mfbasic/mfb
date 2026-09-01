@@ -9,24 +9,24 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Read the rounding mode currently in effect for Money arithmetic"#;
 const DESC: &str = r#"`money::getRounding` returns the `Money` arithmetic rounding mode currently in
-effect, as a `Rounding` value. It takes no arguments and always succeeds.
+effect, as a `money::Rounding` value. It takes no arguments and always succeeds.
 
 Reading the mode is as cheap as reading a local variable, so there is no reason
-to cache it. The answer is always one of the two `Rounding` members — never an
+to cache it. The answer is always one of the two `money::Rounding` members — never an
 unset or out-of-range value.
 
 The mode is per-thread, so `getRounding` reports the mode of the
 thread that calls it: the value most recently written by `money::setRounding` on
 this thread, or — if this thread has never set it — the mode it inherited from its
 spawning thread. A program that has never called `money::setRounding` observes
-`Rounding.Commercial`, the default.
+`money::Rounding.Commercial`, the default.
 
 The returned mode governs `Money` **arithmetic** rounding only. It does not
 describe how `toString(Money)` renders a value — presentation rounding is a fixed
 half-away-from-zero rule that ignores the mode entirely.
 
-The `Rounding` enum is referenced bare, like every other builtin type: write
-`Rounding.Banker`, not `money::Rounding.Banker`."#;
+The `money::Rounding` enum is referenced bare, like every other builtin type: write
+`money::Rounding.Banker`, not `money::Rounding.Banker`."#;
 const EX: &str = r#"Branch on the mode currently in effect:
 
 ```
@@ -34,7 +34,7 @@ IMPORT money
 IMPORT io
 
 SUB main
-  IF money::getRounding() = Rounding.Banker THEN
+  IF money::getRounding() = money::Rounding.Banker THEN
     io::print("banker's rounding is active")
   END IF
 END SUB
@@ -47,8 +47,8 @@ IMPORT money
 IMPORT io
 
 SUB main
-  LET previous AS Rounding = money::getRounding()
-  money::setRounding(Rounding.Banker)
+  LET previous AS money::Rounding = money::getRounding()
+  money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
   money::setRounding(previous)
 END SUB

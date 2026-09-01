@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/tcp/local-address-field-binding-without-net-im
   10 |   LET p AS Integer = b.port
      | ^
 tests/syntax/tcp/local-address-field-binding-without-net-import/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Field `port` belongs to `net::Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
+               Field `port` belongs to `net::net.Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
    8 |   RES s = tcp::listen("127.0.0.1", 0)
    9 |   LET b = tcp::localAddress(s)
   10 |   LET p AS Integer = b.port
@@ -16,7 +16,7 @@ tests/syntax/tcp/local-address-field-binding-without-net-import/src/main.mfb:10 
   11 |   LET q = b.port + 1
      | ^
 tests/syntax/tcp/local-address-field-binding-without-net-import/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Field `port` belongs to `net::Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
+               Field `port` belongs to `net::net.Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
    9 |   LET b = tcp::localAddress(s)
   10 |   LET p AS Integer = b.port
   11 |   LET q = b.port + 1
@@ -34,5 +34,5 @@ tests/syntax/tcp/local-address-field-binding-without-net-import/src/main.mfb:12 
   12 |   io::print(toString(b.port))
      | ^
 tests/syntax/tcp/local-address-field-binding-without-net-import/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Field `port` belongs to `net::Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
+               Field `port` belongs to `net::net.Address`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT net`.
 [exit 1]

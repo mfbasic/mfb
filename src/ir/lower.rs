@@ -1,6 +1,6 @@
 use super::*;
 
-use super::fallible::Fallibility;
+use super::fallible::{is_total_literal_negation, operator_can_raise, Fallibility};
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
@@ -552,9 +552,16 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
             line: function.line as u32,
             column: 1,
         },
-        resource_owners: crate::ir::resource_escape::analyze_function(function)
-            .owners()
-            .clone(),
+        // plan-114-C: the escape analysis needs to know which record types carry
+        // a `RES` field, because a record's type name alone cannot say. Without
+        // it the bug-291 ordering gate cannot recognise a returned
+        // resource-carrying record and degrades it to `Local` — a double close.
+        resource_owners: crate::ir::resource_escape::analyze_function_with(
+            function,
+            &context.type_index.res_field_record_types(),
+        )
+        .owners()
+        .clone(),
     }
 }
 
@@ -1339,11 +1346,22 @@ fn lower_inline_trap(
     // Once a nested call has been lifted the handler is demonstrably live, so an
     // outermost node that cannot fail (`toString(parse(s))`, or no call at all)
     // is left as a plain value instead of a needless always-`Ok` check.
+    // bug-471: with something already lifted, a raising *operator* at the root
+    // is checked too — `LET c = inner(x) + 1 TRAP(e)` (the shape `mfb spec
+    // language error-model` §8.6 rule 11 explicitly blesses) must catch the
+    // `+`'s overflow, not just `inner`'s failure. With nothing lifted the root
+    // is left unchecked whatever it is: that bare bind is the evidence
+    // `ir::verify` reports `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` on, and an
+    // inline `TRAP` still traps a *call* — a scrutinee that is only an operator
+    // is rejected exactly as before.
+    let root_operator_raises = !hoists.is_empty()
+        && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && trap_hoist_kind(&root, context.fallible) == Some(true);
     let check_root = match &root {
         IrValue::Call { target, .. } => {
             hoists.is_empty() || context.fallible.call_is_fallible(target)
         }
-        _ => hoists.is_empty(),
+        _ => hoists.is_empty() || root_operator_raises,
     };
     // Allocated before the value slot so the no-hoist lowering keeps its
     // historical temp numbering.
@@ -1359,6 +1377,12 @@ fn lower_inline_trap(
                 // The fallible form's success type is the call's own result type.
                 type_: success_type.clone(),
                 loc,
+            },
+            // A raising operator has no callee to return a `Result`, so it is
+            // wrapped instead (bug-471).
+            other if root_operator_raises => IrValue::Checked {
+                type_: success_type.clone(),
+                value: Box::new(other),
             },
             other => other,
         };
@@ -1771,6 +1795,7 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => scan_trap_call(value, fallible, next, out),
         IrValue::WithUpdate {
@@ -1803,15 +1828,46 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
     }
 }
 
-/// [`scan_trap_operands`] plus `value`'s own node, so calls are recorded in
-/// evaluation order (operands first, then the call they feed).
+/// Whether `value`'s own node is one the desugar lifts out of the scrutinee: a
+/// call, or (bug-471) an operator that can raise while the expression is
+/// evaluated. Both walks below index exactly these nodes, in evaluation order,
+/// so a node's position means the same thing to each.
+///
+/// `Some(true)` = lifted **and checked** (its error routes to the handler);
+/// `Some(false)` = lifted but not checked — an infallible call kept in place
+/// only so a later lift cannot reorder it past this one; `None` = not indexed.
+fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
+    match value {
+        IrValue::Call { target, .. } => Some(fallible.call_is_fallible(target)),
+        // The spelling of a negative literal, which cannot raise — see
+        // `fallible::is_total_literal_negation` for why, and why `Byte` is not
+        // exempt.
+        IrValue::Unary {
+            op, type_, operand, ..
+        } if matches!(operand.as_ref(), IrValue::Const { .. })
+            && is_total_literal_negation(op, type_) =>
+        {
+            None
+        }
+        // A raising operator is always checked: unlike a call there is no
+        // declaration to prove it total, and `operator_can_raise` is already the
+        // conservative side of that question.
+        IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. } => {
+            operator_can_raise(op, type_).then_some(true)
+        }
+        _ => None,
+    }
+}
+
+/// [`scan_trap_operands`] plus `value`'s own node, so lifted nodes are recorded
+/// in evaluation order (operands first, then the node they feed).
 fn scan_trap_call(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
     scan_trap_operands(value, fallible, depth, out);
-    if let IrValue::Call { target, .. } = value {
-        out.push(fallible.call_is_fallible(target));
+    if let Some(checked) = trap_hoist_kind(value, fallible) {
+        out.push(checked);
     }
 }
 
@@ -1856,6 +1912,7 @@ fn rewrite_trap_operands(
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
+        | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
             rewrite_trap_call(value, fallible, limit, index, next, hoists, locals, context)
@@ -1921,52 +1978,89 @@ fn rewrite_trap_call(
     rewrite_trap_operands(
         value, fallible, limit, index, depth, hoists, locals, context,
     );
-    if !matches!(value, IrValue::Call { .. }) {
+    if !matches!(
+        value,
+        IrValue::Call { .. } | IrValue::Binary { .. } | IrValue::Unary { .. }
+    ) {
         return;
     }
+    // The scan's fallibility verdict is recomputed here rather than read off
+    // `fallible[position]`, because a non-raising operator is not indexed at all
+    // and must not consume a position.
+    let Some(checked) = trap_hoist_kind(value, context.fallible) else {
+        return;
+    };
+    debug_assert_eq!(
+        fallible.get(*index).copied(),
+        Some(checked),
+        "the scan and the rewrite disagree on which nodes are lifted"
+    );
     let position = *index;
     *index += 1;
     if position >= limit {
         return;
     }
     let lifted = std::mem::replace(value, IrValue::Local(String::new()));
-    let IrValue::Call {
-        target,
-        args,
-        type_,
-        loc,
-    } = lifted
-    else {
-        unreachable!("only a Call node reaches here");
+    let (type_, loc, value_node) = match lifted {
+        IrValue::Call {
+            target,
+            args,
+            type_,
+            loc,
+        } => {
+            let node = if checked {
+                IrValue::CallResult {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            } else {
+                IrValue::Call {
+                    target,
+                    args,
+                    type_: type_.clone(),
+                    loc,
+                }
+            };
+            (type_, loc, node)
+        }
+        // bug-471: a raising operator has no callee whose error return could be
+        // turned into a `Result`, so it is wrapped in a `Checked` — "evaluate
+        // this with its domain-error exits captured". Its own operands have
+        // already been rewritten above, so every call inside it is a `Local`
+        // read of an earlier lift and the `Checked` wraps pure arithmetic.
+        operator => {
+            let type_ = operator
+                .annotated_parameter_type()
+                .unwrap_or(ParameterType::Unknown);
+            let loc = match &operator {
+                IrValue::Binary { loc, .. } | IrValue::Unary { loc, .. } => *loc,
+                _ => unreachable!("only a Binary/Unary node reaches here"),
+            };
+            (
+                type_.clone(),
+                loc,
+                IrValue::Checked {
+                    type_,
+                    value: Box::new(operator),
+                },
+            )
+        }
     };
     let name = make_temp_local_name(context, "trap_arg");
     locals.insert(name.clone(), type_.clone());
-    let res = if fallible[position] {
+    let res = if checked {
         let res = make_temp_local_name(context, "trap_res");
         locals.insert(res.clone(), ParameterType::result_of(type_.clone()));
         Some(res)
     } else {
         None
     };
-    let call = if res.is_some() {
-        IrValue::CallResult {
-            target,
-            args,
-            type_: type_.clone(),
-            loc,
-        }
-    } else {
-        IrValue::Call {
-            target,
-            args,
-            type_: type_.clone(),
-            loc,
-        }
-    };
     hoists.push(TrapHoist {
         name: name.clone(),
         type_,
-        value: call,
+        value: value_node,
         res,
         loc,
     });
@@ -3038,15 +3132,6 @@ fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
         return name.to_string();
     };
     // `IMPORT self` binds the current package's own exported interface, so a
-    // `self::worker` reference resolves to the current package's *own* function,
-    // which lives in `function_types` under its bare name (never a prefixed
-    // imported-package key). Canonicalize `self.worker` to bare `worker` so the
-    // `Identifier` lowering finds it in `function_types` and emits a `FunctionRef`
-    // to the already-compiled `_mfb_fn_worker` symbol, rather than a dangling
-    // `Local` (plan-81-import-self.md §4.4).
-    if package == crate::ast::SELF_IMPORT {
-        return rest.to_string();
-    }
     format!("{package}.{rest}")
 }
 
@@ -3284,8 +3369,18 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
     // plan-106-A: the record's declared field types are cloned from the descriptor
     // rather than rendered and re-parsed. The record TYPE is a nominal, so it is
     // built with `named` (a record constant never names a generic).
+    // bug-480 Phase 4b: `constant_type_name` returns the QUALIFIED identity
+    // (`vector.Float3`) now, so prefixing the package again produced
+    // `vector.vector.Float3`, resolved to nothing, and dropped the record constant
+    // through to the scalar-fold path -- which panicked on a constant that has no
+    // single literal value.
+    let qualified_type = if type_name.name().contains('.') {
+        type_name.name().into_owned()
+    } else {
+        format!("{package}.{type_name}")
+    };
     let field_types: Vec<ParameterType> =
-        match registry::registry().resolve_type(&format!("{package}.{type_name}"))? {
+        match registry::registry().resolve_type(&qualified_type)? {
             registry::ResolvedType::Record(record) => {
                 record.props.iter().map(|prop| prop.ty.clone()).collect()
             }
@@ -4492,6 +4587,28 @@ struct TypeIndex {
 }
 
 impl TypeIndex {
+    /// Record types with at least one `RES`-marked field (plan-114-C).
+    ///
+    /// The resource escape analysis needs this because a record binding's
+    /// declared type is a bare nominal — `Named("Holder")` cannot say whether
+    /// `Holder` owns a resource, the way `List OF RES File` says it structurally.
+    ///
+    /// Only a **direct** `RES` field counts, not one reached through a nested
+    /// record. A resource inside a nested record floats to *that* record's
+    /// binding, so the outer type is not the container the ordering gate is
+    /// asking about.
+    fn res_field_record_types(&self) -> HashSet<ParameterType> {
+        self.records
+            .iter()
+            .filter(|(_, fields)| {
+                fields
+                    .iter()
+                    .any(|field| matches!(field.type_, ParameterType::Res(_)))
+            })
+            .map(|(type_, _)| type_.clone())
+            .collect()
+    }
+
     fn new(hir: &HirProject, imported_types: &[ImportedTypeDef]) -> Self {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
@@ -4626,13 +4743,39 @@ impl TypeIndex {
         }
     }
 
+    /// The type a field READ yields.
+    ///
+    /// plan-114-E: the field's declared type with its top-level `RES ` marker
+    /// stripped, leaving `Stateful { base, state }` (or the bare resource when
+    /// the field carries no `STATE`). The value is unchanged — the slot holds
+    /// the handle pointer either way; only the spelling differs.
+    ///
+    /// **This is the one place to strip it.** `IrValue::MemberAccess` carries an
+    /// annotated `type_` produced from here, and `ir::verify`'s `infer_type`
+    /// *prefers that annotation* over re-resolving the field
+    /// (`ir/verify/mod.rs:1002`) — so stripping only in the verifier or only in
+    /// codegen leaves the IR itself saying `RES fs.File` while its consumers say
+    /// otherwise. Stripping at the annotation site keeps the `.ir`, the type
+    /// checker and codegen telling the same story.
+    ///
+    /// Why it is needed at all: `split_state` matches `Stateful` only at the top
+    /// level (`src/types.rs:629`), so `Res(Stateful{..}).state()` is `None` and
+    /// `h.handle.state` is refused with `TYPE_STATE_INVALID` claiming
+    /// "`fs.File` here has no STATE" — a message naming the wrong problem.
+    ///
+    /// Unconditional, exactly as a collection element does it
+    /// (`list_element("List OF RES Socket") == "Socket"`): one rule for both
+    /// positions keeps them from drifting.
     fn record_field_type(&self, type_: &ParameterType, member: &str) -> Option<ParameterType> {
         self.records
             .get(type_)
             .or_else(|| self.variant_fields.get(type_))?
             .iter()
             .find(|field| field.name == member)
-            .map(|field| field.type_.clone())
+            .map(|field| match &field.type_ {
+                ParameterType::Res(inner) => (**inner).clone(),
+                other => other.clone(),
+            })
     }
 
     fn variant_belongs_to_union(

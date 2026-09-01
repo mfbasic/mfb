@@ -5,18 +5,18 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build an opaque `Color` from red, green and blue components."#;
+const INTRO: &str = r#"Build an opaque `canvas::Color` from red, green and blue components."#;
 
-const DESC: &str = r#"`rgb` builds a fully opaque `Color` — `canvas::rgba` with `alpha` fixed at
+const DESC: &str = r#"`rgb` builds a fully opaque `canvas::Color` — `canvas::rgba` with `alpha` fixed at
 `255`. Each component is clamped to `0`..`255` rather than rejected, for the
 reason given on `canvas::rgba`: colours are routinely computed, and a value that
 lands one past an end is a rounding artefact, not a program bug.
 
-Building a `Color` field by field is possible but reads poorly in source, which is
+Building a `canvas::Color` field by field is possible but reads poorly in source, which is
 why these two constructors exist at all.
 
 `rgb` and `rgba` are the two `canvas::` calls that do **not** require
-`Mode.Canvas`. They touch no surface — they only build a value — so a program can
+`app::Mode.Canvas`. They touch no surface — they only build a value — so a program can
 compute its palette before it ever presents anything."#;
 
 const EX: &str = r#"A yellow face on a canvas:
@@ -26,9 +26,9 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET yellow AS Color = canvas::rgb(255, 255, 0)
-  LET face AS DrawItem = Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
+  app::setMode(app::Mode.Canvas)
+  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   canvas::present([face])
 END SUB
 ```"#;

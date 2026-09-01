@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/functions/isolated_sub_invalid
+  17 | ' constructs the IR directly. The two together cover both entry paths; neither
+  18 | ' alone does.
+  19 | ISOLATED SUB s(x AS Integer)
+     | ^^^^^^^^
+tests/syntax/functions/isolated_sub_invalid/src/main.mfb:19 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+  18 | ' alone does.
+  19 | ISOLATED SUB s(x AS Integer)
+  20 | END SUB
+     | ^^^
+tests/syntax/functions/isolated_sub_invalid/src/main.mfb:20 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.
+[exit 1]

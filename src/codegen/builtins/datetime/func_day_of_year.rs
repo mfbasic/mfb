@@ -3,7 +3,7 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"The ordinal day within the year of a `DateTime`'s civil date."#;
+const INTRO: &str = r#"The ordinal day within the year of a `datetime::DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::dayOfYear` returns the ordinal position of `dt`'s civil date within
 its calendar year: `1` for January 1, `2` for January 2, and so on through `365`
 in a common year or `366` in a leap year (the value reached on December 31).
@@ -15,7 +15,7 @@ the proleptic-Gregorian calendar by taking the days-from-civil count of `dt`'s
 date, subtracting the days-from-civil count of January 1 of the same year, and
 adding one (`here - start + 1`), so leap years correctly extend the count past
 February. The time-of-day fields, the sub-second nanoseconds, and the zone's UTC
-offset do not affect the result; no `Instant` is resolved and no zone table is
+offset do not affect the result; no `datetime::Instant` is resolved and no zone table is
 consulted.
 
 Because the computation reads only `dt`'s stored civil date, the same instant
@@ -31,9 +31,9 @@ const EX: &str = r#"Find the day-of-year of a civil date in the local zone:
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET tm AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET tm AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
   LET n AS Integer = datetime::dayOfYear(dt)
 END SUB
 ```
@@ -44,7 +44,7 @@ Compute how many days remain in the year:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
   MUT total AS Integer = 365
   IF datetime::isLeapYear(dt.date.year) THEN
     total = 366

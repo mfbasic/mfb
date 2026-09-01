@@ -482,7 +482,8 @@ fn rename_value(value: &mut NirValue, renames: &std::collections::HashMap<String
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => rename_value(value, renames),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => rename_value(value, renames),
         NirValue::WithUpdate {
             target, updates, ..
         } => {

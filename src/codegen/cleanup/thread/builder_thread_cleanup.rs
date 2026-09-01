@@ -195,7 +195,7 @@ impl CodeBuilder<'_> {
         // the pre-existing bounded leak rather than risk a wrong-size free).
         let msg_type = arg_values[1].type_.clone();
         let size_slot = self.allocate_stack_object("runtime_thread_send_copy_size", 8);
-        let size_computable = self.type_is_flat(&msg_type)
+        let size_computable = self.type_is_arena_transferable(&msg_type)
             && (msg_type == ParameterType::String
                 || self.type_model.record_fields.contains_key(&msg_type)
                 || self.union_is_data(&msg_type)

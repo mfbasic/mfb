@@ -5,9 +5,9 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `Paint` that both fills an item and outlines it."#;
+const INTRO: &str = r#"Build a `canvas::Paint` that both fills an item and outlines it."#;
 
-const DESC: &str = r#"`fillStroke` builds a `Paint` with both channels set: the item's interior is
+const DESC: &str = r#"`fillStroke` builds a `canvas::Paint` with both channels set: the item's interior is
 `fill` and its outline is `width` pixels of `stroke`. `canvas::fill` and
 `canvas::stroke` are the one-channel forms.
 
@@ -19,8 +19,8 @@ LET glow AS Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := BlendMod
 ```
 
 These constructors exist because MFBASIC named construction requires **every**
-field — `Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all six `Paint` fields."#;
+field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
+without them every item would have to spell out all six `canvas::Paint` fields."#;
 
 const EX: &str = r#"A filled circle with a contrasting outline:
 
@@ -29,10 +29,10 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET body AS Color = canvas::rgb(255, 220, 0)
-  LET edge AS Color = canvas::rgb(80, 60, 0)
-  LET dot AS DrawItem = Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
+  app::setMode(app::Mode.Canvas)
+  LET body AS canvas::Color = canvas::rgb(255, 220, 0)
+  LET edge AS canvas::Color = canvas::rgb(80, 60, 0)
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
   canvas::present([dot])
 END SUB
 ```"#;

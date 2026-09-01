@@ -61,7 +61,7 @@ IMPORT strings
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::setBackground(0, 0, 128)
   term::moveTo(0, 0)
   io::write(strings::repeat(" ", size.columns))

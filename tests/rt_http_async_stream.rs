@@ -209,7 +209,7 @@ fn async_stream_client_drives_a_full_exchange_over_the_union() {
         "IMPORT http\nIMPORT net\nIMPORT io\n\n\
          FUNC main AS Integer\n\
         \x20 LET u AS net::Url = net::toUrl(\"http://127.0.0.1:{PORT_ASYNC}/\")\n\
-        \x20 RES s AS http::Stream STATE PendingState = http::startRead(u)\n\
+        \x20 RES s AS http::Stream STATE http::PendingState = http::startRead(u)\n\
         \x20 WHILE http::done(s) = FALSE\n\
         \x20   IF http::ready(s) THEN\n\
         \x20     http::pump(s)\n\

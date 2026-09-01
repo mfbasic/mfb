@@ -513,20 +513,6 @@ impl Resolver<'_> {
                 );
             }
 
-            // `self` is the reserved specifier for the current package's own
-            // exported interface (plan-81-import-self.md §4.1). Aliasing another
-            // import onto that binding (`IMPORT io AS self`) would silently shadow
-            // it, so it is rejected — the `import.module != SELF_IMPORT` guard lets
-            // the genuine `IMPORT self` through.
-            if binding == SELF_IMPORT && import.module != SELF_IMPORT {
-                self.report(
-                    "SYMBOL_DUPLICATE_IMPORT",
-                    "Import alias `self` conflicts with the reserved `self` specifier (the current package's own exported interface).",
-                    file,
-                    import.line,
-                );
-            }
-
             if self.top_level_visible_in_file(file, binding)
                 || self.function_visible_in_file(file, binding)
             {
@@ -1304,6 +1290,21 @@ impl Resolver<'_> {
             ParameterType::Named(name) if matches!(name.resolve(), "Result" | "Ok") => {
                 self.report_result_not_user_visible(file, line);
             }
+            // plan-114-D: a `RES`-marked type in its OWN right — a record field,
+            // `handle AS RES fs::File`. The marker rides on the field and names a
+            // type that must still be resolved, exactly as a collection element's
+            // does below.
+            //
+            // Before this arm, a `Res` reaching the top level fell through to the
+            // leaf tail, which sees a name containing `.` and calls
+            // `resolve_package_qualified_name` on the WHOLE spelling — reporting
+            // `SYMBOL_UNKNOWN_IMPORT` for a package named `RES fs`. The same
+            // failure shape as bug-463, and the same cause: a `ParameterType`
+            // variant that a structural walk does not have an arm for is silent
+            // until some spelling reaches it.
+            ParameterType::Res(inner) => {
+                self.resolve_type(file, inner, line, imports);
+            }
             // A `List OF RES fs::File` element carries the resource ownership-axis
             // marker (§15.6); the marker rides on the element and names a type that
             // must still be resolved.
@@ -1440,6 +1441,21 @@ impl Resolver<'_> {
         imports: &HashMap<String, String>,
     ) {
         let root = name.split('.').next().unwrap_or(name);
+        // bug-480 Phase 4b: a built-in package's injected companion refers to its
+        // OWN package-qualified types (`http.Response` inside `builtins/http.mfb`).
+        // That is a self-reference, not an import — the file IS the package — so it
+        // neither needs nor can have an `IMPORT http` line. Same rule `IMPORT self`
+        // encodes for a source package; without it every companion that names one
+        // of its own value types reports SYMBOL_UNKNOWN_IMPORT against a file the
+        // developer never wrote.
+        if file
+            .path
+            .strip_prefix("builtins/")
+            .and_then(|rest| rest.strip_suffix(".mfb"))
+            == Some(root)
+        {
+            return;
+        }
         // A LINK alias is a package-local namespace, not an import: resolve its
         // members against the block's native functions (plan-link-update.md §5b).
         if let Some(link) = self.link_functions.get(root) {
@@ -1483,7 +1499,39 @@ impl Resolver<'_> {
                     line,
                 );
             }
+            return;
         }
+
+        // bug-480: the same gate for an imported USER package. Without it a
+        // `pkg::member` naming nothing the package exports typed as `Unknown` and
+        // was reported hundreds of lines away as `TYPE_CALL_ARGUMENT_MISMATCH ...
+        // argument type(s) (Unknown)` against whatever consumed it, naming
+        // neither the package nor the member.
+        //
+        // Only a package whose interface was READ contributes an entry, so an
+        // unreadable or not-yet-installed dependency still resolves silently here
+        // and is reported by the import gate that saw the real reason. `IMPORT
+        // self` never records one either: a package's own members are ordinary
+        // top-level declarations, resolved by the bare-name path.
+        let Some(exports) = self.package_exports.get(package) else {
+            return;
+        };
+        let Some((_, member)) = name.split_once('.') else {
+            return;
+        };
+        // The rule governs the HEAD of a path, not field selection: `pkg::rec.field`
+        // resolves `rec` against the package and leaves `.field` to the type
+        // checker.
+        let head = member.split('.').next().unwrap_or(member);
+        if exports.contains(member) || exports.contains(head) {
+            return;
+        }
+        self.report(
+            "SYMBOL_UNKNOWN_IDENTIFIER",
+            &format!("Package `{package}` does not export `{head}`."),
+            file,
+            line,
+        );
     }
 }
 
@@ -1559,7 +1607,7 @@ mod tests {
         }
         assert!(
             !resolve_source_fails(
-                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(Certificate.P256)\nEND SUB\n"
+                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(crypto::Certificate.P256)\nEND SUB\n"
             ),
             "crypto::generate(Certificate) must resolve as the unified generator"
         );
@@ -1593,9 +1641,9 @@ mod tests {
             );
         }
         for ok in [
-            "crypto::hash(Hash.SHA2_256, crypto::randomBytes(4))",
-            "crypto::sign(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
-            "crypto::verify(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
+            "crypto::hash(crypto::Hash.SHA2_256, crypto::randomBytes(4))",
+            "crypto::sign(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
+            "crypto::verify(crypto::Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
         ] {
             assert!(
                 !resolve_source_fails(&format!(

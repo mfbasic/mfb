@@ -35,9 +35,9 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 LET yellow AS Color = canvas::rgb(255, 255, 0)\n\
-    \x20 LET green AS Color = canvas::rgb(0, 160, 0)\n\
-    \x20 LET clamped AS Color = canvas::rgba(300, -20, 128, 255)\n\
+    \x20 LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)\n\
+    \x20 LET green AS canvas::Color = canvas::rgb(0, 160, 0)\n\
+    \x20 LET clamped AS canvas::Color = canvas::rgba(300, -20, 128, 255)\n\
     \x20 IF yellow.red <> toByte(255) THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
@@ -50,22 +50,22 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 IF clamped.green <> toByte(0) THEN\n\
     \x20   RETURN 4\n\
     \x20 END IF\n\
-    \x20 LET pts AS List OF Point = [Point[x := 0.0, y := 0.0], Point[x := 1.0, y := 0.0]]\n\
-    \x20 LET img AS ImageRef = ImageRef[id := 0]\n\
-    \x20 LET fnt AS FontRef = FontRef[id := 0]\n\
-    \x20 LET a AS DrawItem = Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET b AS DrawItem = Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 4.0)]\n\
-    \x20 LET c AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
-    \x20 LET d AS DrawItem = Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := canvas::stroke(green, 1.0)]\n\
-    \x20 LET e AS DrawItem = Polygon[points := pts, paint := canvas::fill(yellow)]\n\
-    \x20 LET f AS DrawItem = RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET g AS DrawItem = Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
-    \x20 LET h AS DrawItem = Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
-    \x20 LET scene AS List OF DrawItem = [a, b, c, d, e, f, g, h]\n\
+    \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 1.0, y := 0.0]]\n\
+    \x20 LET img AS canvas::ImageRef = canvas::ImageRef[id := 0]\n\
+    \x20 LET fnt AS canvas::FontRef = canvas::FontRef[id := 0]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 4.0)]\n\
+    \x20 LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
+    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := canvas::stroke(green, 1.0)]\n\
+    \x20 LET e AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(yellow)]\n\
+    \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
+    \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
+    \x20 LET h AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
+    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h]\n\
     \x20 IF len(scene) <> 8 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
-    \x20 LET layer AS DrawLayer = DrawLayer[items := scene]\n\
+    \x20 LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := scene]\n\
     \x20 IF len(layer.items) <> 8 THEN\n\
     \x20   RETURN 6\n\
     \x20 END IF\n\
@@ -79,15 +79,15 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
 const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      FUNC main AS Integer\n\
-    \x20 LET red AS Color = canvas::rgb(255, 0, 0)\n\
-    \x20 LET filled AS Paint = canvas::fill(red)\n\
+    \x20 LET red AS canvas::Color = canvas::rgb(255, 0, 0)\n\
+    \x20 LET filled AS canvas::Paint = canvas::fill(red)\n\
     \x20 IF filled.stroke.alpha <> toByte(0) THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
     \x20 IF filled.strokeWidth <> 0.0 THEN\n\
     \x20   RETURN 2\n\
     \x20 END IF\n\
-    \x20 IF filled.blend <> BlendMode.Normal THEN\n\
+    \x20 IF filled.blend <> canvas::BlendMode.Normal THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
     \x20 IF filled.transform.a <> 0.0 THEN\n\
@@ -96,14 +96,14 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
     \x20 IF filled.clip.w <> 0.0 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
-    \x20 LET outlined AS Paint = canvas::stroke(red, 3.0)\n\
+    \x20 LET outlined AS canvas::Paint = canvas::stroke(red, 3.0)\n\
     \x20 IF outlined.fill.alpha <> toByte(0) THEN\n\
     \x20   RETURN 6\n\
     \x20 END IF\n\
     \x20 IF outlined.strokeWidth <> 3.0 THEN\n\
     \x20   RETURN 7\n\
     \x20 END IF\n\
-    \x20 LET both AS Paint = canvas::fillStroke(red, red, 2.0)\n\
+    \x20 LET both AS canvas::Paint = canvas::fillStroke(red, red, 2.0)\n\
     \x20 IF both.fill.red <> toByte(255) THEN\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
@@ -111,8 +111,8 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 9\n\
     \x20 END IF\n\
     \x20 ' A WITH update is how the advanced fields are set.\n\
-    \x20 LET added AS Paint = WITH filled { blend := BlendMode.Add }\n\
-    \x20 IF added.blend <> BlendMode.Add THEN\n\
+    \x20 LET added AS canvas::Paint = WITH filled { blend := canvas::BlendMode.Add }\n\
+    \x20 IF added.blend <> canvas::BlendMode.Add THEN\n\
     \x20   RETURN 10\n\
     \x20 END IF\n\
     \x20 IF added.fill.red <> toByte(255) THEN\n\
@@ -125,7 +125,7 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
 /// it outside an `--app` build is a compile error — the same gate `app` has.
 const CONSOLE_IMPORT_SOURCE: &str = "IMPORT canvas\n\
      FUNC main AS Integer\n\
-    \x20 LET c AS Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
     \x20 RETURN toInteger(c.red)\n\
      END FUNC\n";
 
@@ -206,20 +206,20 @@ fn macos_canvas_surface_runs() {
 #[cfg(target_os = "macos")]
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC one(r AS Float) AS List OF DrawItem\n\
-    \x20 LET c AS Color = canvas::rgb(10, 20, 30)\n\
-    \x20 LET a AS DrawItem = Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
-    \x20 LET b AS DrawItem = Text[x := 0.0, y := 0.0, text := \"abc\", font := FontRef[id := 3], size := 8.0, paint := canvas::fill(c)]\n\
+     FUNC one(r AS Float) AS List OF canvas::DrawItem\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(10, 20, 30)\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := canvas::FontRef[id := 3], size := 8.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 canvas::present(one(5.0))\n\
     \x20 canvas::present(one(5.0))\n\
     \x20 canvas::present(one(7.0))\n\
     \x20 canvas::present(one(7.0))\n\
     \x20 canvas::present(one(5.0))\n\
-    \x20 LET empty AS List OF DrawItem = []\n\
+    \x20 LET empty AS List OF canvas::DrawItem = []\n\
     \x20 canvas::present(empty)\n\
     \x20 canvas::present(empty)\n\
     \x20 canvas::present(one(5.0))\n\
@@ -249,34 +249,34 @@ fn macos_repeated_and_changed_presents_are_sound() {
 const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      IMPORT errorCode\n\
-     FUNC layers(r AS Float) AS List OF DrawLayer\n\
-    \x20 LET sky AS Color = canvas::rgb(20, 30, 60)\n\
-    \x20 LET dot AS Color = canvas::rgb(255, 200, 0)\n\
-    \x20 LET backdrop AS DrawItem = Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]\n\
-    \x20 LET marker AS DrawItem = Circle[x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot)]\n\
-    \x20 LET back AS DrawLayer = DrawLayer[items := [backdrop]]\n\
-    \x20 LET front AS DrawLayer = DrawLayer[items := [marker]]\n\
+     FUNC layers(r AS Float) AS List OF canvas::DrawLayer\n\
+    \x20 LET sky AS canvas::Color = canvas::rgb(20, 30, 60)\n\
+    \x20 LET dot AS canvas::Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]\n\
+    \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot)]\n\
+    \x20 LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]\n\
+    \x20 LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]\n\
     \x20 RETURN [back, front]\n\
      END FUNC\n\
-     FUNC flat() AS List OF DrawItem\n\
-    \x20 LET dot AS Color = canvas::rgb(255, 200, 0)\n\
-    \x20 LET marker AS DrawItem = Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot)]\n\
+     FUNC flat() AS List OF canvas::DrawItem\n\
+    \x20 LET dot AS canvas::Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot)]\n\
     \x20 RETURN [marker]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
-    \x20 LET none AS List OF DrawLayer = []\n\
+    \x20 LET none AS List OF canvas::DrawLayer = []\n\
     \x20 canvas::presentLayers(none) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 60\n\
     \x20   END IF\n\
-    \x20   app::setMode(Mode.Canvas)\n\
+    \x20   app::setMode(app::Mode.Canvas)\n\
     \x20   canvas::presentLayers(layers(12.0))\n\
     \x20   canvas::presentLayers(layers(12.0))\n\
     \x20   canvas::presentLayers(layers(20.0))\n\
     \x20   canvas::present(flat())\n\
     \x20   canvas::present(flat())\n\
     \x20   canvas::presentLayers(layers(12.0))\n\
-    \x20   LET empty AS List OF DrawLayer = []\n\
+    \x20   LET empty AS List OF canvas::DrawLayer = []\n\
     \x20   canvas::presentLayers(empty)\n\
     \x20   canvas::presentLayers(empty)\n\
     \x20   canvas::presentLayers(layers(12.0))\n\

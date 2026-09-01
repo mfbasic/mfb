@@ -117,7 +117,7 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 fn scene(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT collections\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
+         app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND SUB\n"
     )
 }
 
@@ -132,7 +132,7 @@ fn rectangle_fills_its_exact_span() {
     let (frame, _) = render(
         "canvas_rect",
         &scene(
-            "  LET box AS DrawItem = Rectangle[x := 10.0, y := 20.0, w := 100.0, h := 50.0, \
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 20.0, w := 100.0, h := 50.0, \
              paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  canvas::present([box])\n",
         ),
     );
@@ -158,6 +158,59 @@ fn rectangle_fills_its_exact_span() {
     assert_eq!(pixel(&frame, 800, 600).3, 255, "background alpha");
 }
 
+/// An arc swept to `endAngle = PI` reaches its end, rather than stopping short.
+///
+/// The sweep test turns the two angles into direction vectors with the rasteriser's
+/// own deterministic `sin`/`cos` (`math::` is unusable here — libm is not correctly
+/// rounded, so an arc endpoint would move between platforms). Those started as a
+/// Taylor series about zero over `-PI..PI`, whose error is concentrated at the far
+/// end of that interval: at `x = 3.14159` it gave `sin = 6.93e-3` against a true
+/// `2.65e-6`, rotating the end direction ~1.4 degrees and making
+/// `__canvas_arcInSweep` exclude the last sliver of the arc.
+///
+/// The check is the end cap, because that is where the error lands: an arc centred
+/// at `(450, 335)` with radius 90, swept `0..PI`, must paint the pixels around
+/// `(360, 335)` — its `endAngle` endpoint. The bug left them background.
+///
+/// Found by the Metal backend drawing 14 pixels here that the software path did not
+/// (plan-98-E Phase 2), which is the GPU comparison doing exactly what an oracle
+/// cross-check is for.
+#[test]
+fn an_arc_swept_to_pi_reaches_its_end_cap() {
+    let (frame, _) = render(
+        "canvas_arc_end_cap",
+        &scene(
+            "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
+             startAngle := 0.0, endAngle := 3.14159, \
+             paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
+             canvas::present([smile])\n",
+        ),
+    );
+
+    // The stroke is 14 wide, so the end cap spans x = 353..366 on the centre row.
+    for x in [354usize, 360, 366] {
+        assert_eq!(
+            pixel(&frame, x, 335),
+            (0, 160, 0, 255),
+            "the arc must reach its endAngle: ({x}, 335) is inside the end cap"
+        );
+    }
+    // The start cap, at the other end, was never affected — it is at angle 0, where
+    // the Taylor series was accurate. It is asserted anyway so a fix that moved the
+    // *whole* arc would not pass.
+    assert_eq!(
+        pixel(&frame, 540, 335),
+        (0, 160, 0, 255),
+        "the arc's startAngle end cap"
+    );
+    // Above the centre row is outside a 0..PI sweep under Y-down.
+    assert_eq!(
+        pixel(&frame, 360, 320),
+        (0, 0, 0, 255),
+        "a 0..PI sweep runs below its centre, not above it"
+    );
+}
+
 /// A filled circle is round, and its edge is antialiased with computable coverage.
 ///
 /// The hand-check: at row `y = 143` the pixel centre is `(243.5, 143.5)`, so
@@ -170,7 +223,7 @@ fn circle_is_round_and_antialiased() {
     let (frame, _) = render(
         "canvas_circle",
         &scene(
-            "  LET disc AS DrawItem = Circle[x := 300.0, y := 200.0, radius := 80.0, \
+            "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
              paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  canvas::present([disc])\n",
         ),
     );
@@ -217,7 +270,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
     let (frame, _) = render(
         "canvas_arc",
         &scene(
-            "  LET a AS DrawItem = Arc[x := 300.0, y := 210.0, radius := 50.0, \
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
              paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
         ),
@@ -256,9 +309,9 @@ fn translucent_fill_blends_in_linear_space() {
     let (frame, _) = render(
         "canvas_blend",
         &scene(
-            "  LET under AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 200.0, h := 200.0, \
+            "  LET under AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 200.0, h := 200.0, \
              paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
-             LET over AS DrawItem = Rectangle[x := 50.0, y := 50.0, w := 100.0, h := 100.0, \
+             LET over AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 100.0, h := 100.0, \
              paint := canvas::fill(canvas::rgba(255, 255, 255, 128))]\n  \
              canvas::present([under, over])\n",
         ),
@@ -293,11 +346,11 @@ fn polygon_fills_its_interior() {
     let (frame, _) = render(
         "canvas_polygon",
         &scene(
-            "  MUT pts AS List OF Point = []\n  \
-             pts = collections::append(pts, Point[x := 100.0, y := 100.0])\n  \
-             pts = collections::append(pts, Point[x := 300.0, y := 100.0])\n  \
-             pts = collections::append(pts, Point[x := 200.0, y := 300.0])\n  \
-             LET tri AS DrawItem = Polygon[points := pts, \
+            "  MUT pts AS List OF canvas::Point = []\n  \
+             pts = collections::append(pts, canvas::Point[x := 100.0, y := 100.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := 300.0, y := 100.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := 200.0, y := 300.0])\n  \
+             LET tri AS canvas::DrawItem = canvas::Polygon[points := pts, \
              paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  canvas::present([tri])\n",
         ),
     );
@@ -331,7 +384,7 @@ fn rounded_rect_corners_are_cut() {
     let (frame, _) = render(
         "canvas_rounded",
         &scene(
-            "  LET box AS DrawItem = RoundedRect[x := 100.0, y := 100.0, w := 200.0, h := 150.0, \
+            "  LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 100.0, w := 200.0, h := 150.0, \
              cornerRadius := 40.0, paint := canvas::fill(canvas::rgb(0, 200, 200))]\n  \
              canvas::present([box])\n",
         ),
@@ -366,9 +419,9 @@ fn rounded_rect_corners_are_cut() {
 #[test]
 fn rendering_is_byte_reproducible() {
     let source = scene(
-        "  LET disc AS DrawItem = Circle[x := 300.0, y := 200.0, radius := 80.0, \
+        "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  \
-         LET a AS DrawItem = Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
+         LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
          endAngle := 3.14159, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
          canvas::present([disc, a])\n",
     );
@@ -398,15 +451,15 @@ fn cache_hit_skips_geometry_generation() {
     let (_, stats) = render(
         "canvas_geo_cache",
         &(scene(
-            "  LET a AS DrawItem = __tri(10.0)\n  LET b AS DrawItem = __tri(100.0)\n  \
-             LET c AS DrawItem = __tri(200.0)\n  canvas::present([a, b, c])\n  \
+            "  LET a AS canvas::DrawItem = __tri(10.0)\n  LET b AS canvas::DrawItem = __tri(100.0)\n  \
+             LET c AS canvas::DrawItem = __tri(200.0)\n  canvas::present([a, b, c])\n  \
              canvas::present([a, b, __tri(300.0)])\n  canvas::present([a, b, c])\n",
-        ) + "\nFUNC __tri(x AS Float) AS DrawItem\n  \
-             MUT pts AS List OF Point = []\n  \
-             pts = collections::append(pts, Point[x := x, y := 20.0])\n  \
-             pts = collections::append(pts, Point[x := x + 60.0, y := 20.0])\n  \
-             pts = collections::append(pts, Point[x := x + 30.0, y := 90.0])\n  \
-             RETURN Polygon[points := pts, paint := canvas::fill(canvas::rgb(200, 30, 30))]\n\
+        ) + "\nFUNC __tri(x AS Float) AS canvas::DrawItem\n  \
+             MUT pts AS List OF canvas::Point = []\n  \
+             pts = collections::append(pts, canvas::Point[x := x, y := 20.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := x + 60.0, y := 20.0])\n  \
+             pts = collections::append(pts, canvas::Point[x := x + 30.0, y := 90.0])\n  \
+             RETURN canvas::Polygon[points := pts, paint := canvas::fill(canvas::rgb(200, 30, 30))]\n\
              END FUNC\n"),
     );
 
@@ -425,4 +478,59 @@ fn cache_hit_skips_geometry_generation() {
         vec![3, 4, 4],
         "expected 3 new items, then exactly 1 regeneration, then none: {stats:?}",
     );
+}
+
+/// Two polygons with the same bounding box, vertex count and paint — but different
+/// points — must each draw their own shape.
+///
+/// The geometry cache keys an item by a hash of its 22-slot header and confirms a
+/// hit by comparing only that header (`__canvas_headerMatches`). A polygon's point
+/// coordinates live only in the *tail*, so these two triangles collide: identical
+/// bounds (100..300 x 100..300), identical count (3), identical paint. The second
+/// item must not be handed the first one's edges.
+#[test]
+fn polygons_sharing_a_header_keep_their_own_points() {
+    let (frame, stats) = render(
+        "canvas_polygon_cache_collision",
+        &scene(
+            "  MUT down AS List OF canvas::Point = []\n  \
+             down = collections::append(down, canvas::Point[x := 100.0, y := 100.0])\n  \
+             down = collections::append(down, canvas::Point[x := 300.0, y := 100.0])\n  \
+             down = collections::append(down, canvas::Point[x := 200.0, y := 300.0])\n  \
+             MUT up AS List OF canvas::Point = []\n  \
+             up = collections::append(up, canvas::Point[x := 100.0, y := 300.0])\n  \
+             up = collections::append(up, canvas::Point[x := 300.0, y := 300.0])\n  \
+             up = collections::append(up, canvas::Point[x := 200.0, y := 100.0])\n  \
+             LET a AS canvas::DrawItem = canvas::Polygon[points := down, \
+             paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             LET b AS canvas::DrawItem = canvas::Polygon[points := up, \
+             paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::present([a, b])\n",
+        ),
+    );
+
+    // Inside the apex-down triangle only (the up triangle spans x 195..205 here).
+    assert_eq!(
+        pixel(&frame, 110, 110),
+        (0, 0, 255, 255),
+        "inside the first (apex-down) triangle"
+    );
+    // Inside the apex-up triangle only (the down triangle spans x 195..205 here).
+    assert_eq!(
+        pixel(&frame, 110, 290),
+        (0, 0, 255, 255),
+        "inside the second (apex-up) triangle — a cache collision draws the first \
+         triangle here instead and leaves this pixel background"
+    );
+    // The two polygons are different geometry, so the cache must hold two entries.
+    let entries = stats
+        .iter()
+        .rev()
+        .find_map(|l| {
+            l.split_whitespace()
+                .find_map(|w| w.strip_prefix("entries="))
+                .map(str::to_string)
+        })
+        .expect("stats line with entries=");
+    assert_eq!(entries, "2", "one cache entry per distinct polygon");
 }

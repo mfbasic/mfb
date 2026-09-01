@@ -1,0 +1,26 @@
+' plan-115-A: any ISOLATED FUNC declared in the current project is a valid
+' thread::start entry -- at any visibility, in any project kind. This is an
+' EXECUTABLE, which before plan-115 could host no entry at all: the only
+' same-project spelling was plan-81's `self::`, which an executable was barred
+' from using, and a bare name was rejected outright by thread_start_entry_valid,
+' which bailed on any unqualified name. (plan-115-B has since removed `self::`
+' altogether, so the bare name below is the only spelling there is.)
+IMPORT thread
+
+' PUBLIC (the default spelling written explicitly).
+PUBLIC ISOLATED FUNC pubWorker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN seed + 1
+END FUNC
+
+' PRIVATE -- file-local, and valid since Phase 2 made ISOLATED orthogonal to
+' visibility. Started from the same file, which is where a PRIVATE name is
+' nameable at all.
+PRIVATE ISOLATED FUNC privWorker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN seed + 2
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Thread OF Nothing TO Integer = thread::start(pubWorker, 10)
+  LET b AS Thread OF Nothing TO Integer = thread::start(privWorker, 20)
+  RETURN thread::waitFor(a) + thread::waitFor(b)
+END FUNC

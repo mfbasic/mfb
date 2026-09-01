@@ -266,9 +266,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// close obligation lives (its own scope, an outer collection's owned-list,
     /// or out via a returned collection).
     pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
-    /// Collection binding names that own a runtime owned-list (some resource
-    /// floats up to their scope).
-    pub(crate) owner_collections: HashSet<String>,
+    /// Container binding names that own a runtime owned-list (some resource
+    /// floats up to their scope). A container is a `List`/`Map` or, since
+    /// plan-114-C, a record with a `RES` field — the set is built generically
+    /// from the `ResOwner::Float(name)` decisions and reads nothing about the
+    /// container's representation, which is why a record binding needs no new
+    /// runtime structure.
+    pub(crate) owner_containers: HashSet<String>,
     /// Live owned-lists: collection binding name -> head-pointer stack slot.
     pub(crate) owned_list_heads: HashMap<String, usize>,
     /// Stack slots to zero at function entry: owned freeable-flat locals and
@@ -809,6 +813,16 @@ pub(crate) fn lower_module_for_platform(
             size: CANVAS_SCENE_SLOTS * 8,
             value: "00".repeat(CANVAS_SCENE_SLOTS * 8),
         });
+        // plan-98-G: the loaded-font table, process-global for the same reason — the
+        // worker loads a font and the graphics thread rasterises from it.
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_FONTS_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.canvas_fonts.v1 { u64 handle, block }[16]".to_string(),
+            align: 8,
+            size: CANVAS_FONT_TABLE_BYTES,
+            value: "00".repeat(CANVAS_FONT_TABLE_BYTES),
+        });
     }
     if module.entry.is_some() && module.target == "linux-riscv64" {
         data_objects.push(CodeDataObject {
@@ -979,6 +993,18 @@ pub(crate) fn lower_module_for_platform(
     // ALSA symbol names; none on macOS). The backend owns the platform decision
     // and the symbol gate (bug-330).
     data_objects.extend(AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
+    // plan-98-F: the Vulkan loader's `dlopen`/`dlsym` C strings. Gated on the member
+    // being in the plan rather than on the platform, so a canvas program that never
+    // probes Vulkan carries none of them — the same shape the audio backend uses.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.contains("canvas_vulkan"))
+    {
+        data_objects.extend(crate::codegen::runtime::canvas::vulkan::data_objects(
+            platform,
+        ));
+    }
     // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
     // `crypto::sign`, `crypto::verify`) share one unified `_mfb_crypto_cert_*` read-only
     // data-object set (framework paths + dlsym names + PKCS#8/SPKI templates + CNG wide

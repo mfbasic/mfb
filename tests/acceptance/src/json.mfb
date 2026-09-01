@@ -23,14 +23,14 @@ FUNC pv(text AS String) AS String
 END FUNC
 
 ' Navigate and serialize (fallible: the get path may miss).
-FUNC getStr(value AS Json, path AS List OF String) AS String
+FUNC getStr(value AS json::Json, path AS List OF String) AS String
   RETURN json::stringify(json::get(value, path))
 END FUNC
 
 ' Byte length of a parsed JSON string scalar (-1 if not a string).
-FUNC strLen(value AS Json) AS Integer
+FUNC strLen(value AS json::Json) AS Integer
   MATCH value
-    CASE JsonStr(s)
+    CASE json::JsonStr(s)
       RETURN strings::byteLen(s.value)
     CASE ELSE
       RETURN 0 - 1
@@ -198,25 +198,25 @@ TESTING
     ' -----------------------------------------------------------------------
     TGROUP "stringify — every variant and the escape set"
       TCASE "member-type constructors"
-        expectString(json::stringify(JsonNull[NOTHING]), "null")
-        expectString(json::stringify(JsonBool[TRUE]), "true")
-        expectString(json::stringify(JsonBool[FALSE]), "false")
-        expectString(json::stringify(JsonNum[toFloat("-12.5")]), "-12.5")
-        expectString(json::stringify(JsonNum[toFloat("1000000")]), "1000000")
-        expectString(json::stringify(JsonStr["Ada"]), "\"Ada\"")
-        expectString(json::stringify(JsonArr[[]]), "[]")
+        expectString(json::stringify(json::JsonNull[NOTHING]), "null")
+        expectString(json::stringify(json::JsonBool[TRUE]), "true")
+        expectString(json::stringify(json::JsonBool[FALSE]), "false")
+        expectString(json::stringify(json::JsonNum[toFloat("-12.5")]), "-12.5")
+        expectString(json::stringify(json::JsonNum[toFloat("1000000")]), "1000000")
+        expectString(json::stringify(json::JsonStr["Ada"]), "\"Ada\"")
+        expectString(json::stringify(json::JsonArr[[]]), "[]")
       END TCASE
       TCASE "nested arrays and objects"
-        LET inner AS List OF Json = [JsonNum[toFloat("1")], JsonStr["x"], JsonBool[TRUE]]
-        expectString(json::stringify(JsonArr[inner]), "[1,\"x\",true]")
-        expectString(json::stringify(JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"] }]), "{\"name\":\"Ada\"}")
+        LET inner AS List OF json::Json = [json::JsonNum[toFloat("1")], json::JsonStr["x"], json::JsonBool[TRUE]]
+        expectString(json::stringify(json::JsonArr[inner]), "[1,\"x\",true]")
+        expectString(json::stringify(json::JsonObj[Map OF String TO json::Json { "name" := json::JsonStr["Ada"] }]), "{\"name\":\"Ada\"}")
       END TCASE
       TCASE "escape set: quote, backslash, slash, and the named controls"
         LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
-        expectString(json::stringify(JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
+        expectString(json::stringify(json::JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
       END TCASE
       TCASE "all C0 control characters escape as named or \\uXXXX"
-        expectString(json::stringify(JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
+        expectString(json::stringify(json::JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
       END TCASE
       TCASE "accepts a Json union value from parse"
         expectString(json::stringify(json::parse("[1,{\"a\":true}]")), "[1,{\"a\":true}]")
@@ -226,7 +226,7 @@ TESTING
     ' -----------------------------------------------------------------------
     TGROUP "get — path reads and ErrNotFound"
       TCASE "empty path and nested reads"
-        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+        LET v AS json::Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
         LET emptyPath AS List OF String = []
         expectString(json::stringify(json::get(v, emptyPath)), "{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
         expectString(getStr(v, ["user", "name"]), "\"Ada\"")
@@ -234,7 +234,7 @@ TESTING
         expectString(getStr(v, ["nothing"]), "null")
       END TCASE
       TCASE "security: missing key raises ErrNotFound"
-        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        LET v AS json::Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
         expectTrap(getStr(v, ["missing"]), errorCode::ErrNotFound)
         expectTrap(getStr(v, ["user", "missing"]), errorCode::ErrNotFound)
       END TCASE
@@ -251,26 +251,26 @@ TESTING
     ' -----------------------------------------------------------------------
     TGROUP "getOr — total fallback"
       TCASE "returns value on a valid path; empty path returns the whole value"
-        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
-        LET fb AS Json = JsonStr["fallback"]
+        LET v AS json::Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
         LET emptyPath AS List OF String = []
         expectString(json::stringify(json::getOr(v, emptyPath, fb)), "{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
         expectString(json::stringify(json::getOr(v, ["user", "name"], fb)), "\"Ada\"")
       END TCASE
       TCASE "returns the default on missing key or non-object"
-        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
-        LET fb AS Json = JsonStr["fallback"]
+        LET v AS json::Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
         expectString(json::stringify(json::getOr(v, ["missing"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(v, ["user", "missing"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(v, ["flag", "x"], fb)), "\"fallback\"")
-        expectString(json::stringify(json::getOr(json::parse("[1,2]"), ["x"], JsonNull[NOTHING])), "null")
+        expectString(json::stringify(json::getOr(json::parse("[1,2]"), ["x"], json::JsonNull[NOTHING])), "null")
       END TCASE
     END TGROUP
 
     ' -----------------------------------------------------------------------
     TGROUP "complex — realistic nested document"
       TCASE "round-trip and multi-path navigation"
-        LET doc AS Json = json::parse("{\"name\":\"Ada\",\"age\":36,\"tags\":[\"x\",\"y\"],\"nested\":{\"a\":{\"b\":{\"c\":42}}},\"items\":[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}],\"score\":9.5,\"note\":null,\"empty\":{},\"arr\":[]}")
+        LET doc AS json::Json = json::parse("{\"name\":\"Ada\",\"age\":36,\"tags\":[\"x\",\"y\"],\"nested\":{\"a\":{\"b\":{\"c\":42}}},\"items\":[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}],\"score\":9.5,\"note\":null,\"empty\":{},\"arr\":[]}")
         expectString(json::stringify(doc), "{\"name\":\"Ada\",\"age\":36,\"tags\":[\"x\",\"y\"],\"nested\":{\"a\":{\"b\":{\"c\":42}}},\"items\":[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}],\"score\":9.5,\"note\":null,\"empty\":{},\"arr\":[]}")
         expectString(getStr(doc, ["name"]), "\"Ada\"")
         expectString(getStr(doc, ["age"]), "36")
@@ -300,7 +300,7 @@ TESTING
         expectString(getStr(json::parse(nestedObject(4)), ["k", "k", "k", "k"]), "1")
       END TCASE
       TCASE "deep read reaches the innermost value"
-        LET deep AS Json = json::parse("{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":42}}}}}}}}")
+        LET deep AS json::Json = json::parse("{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":42}}}}}}}}")
         expectString(getStr(deep, ["a", "a", "a", "a", "a", "a", "a", "a"]), "42")
       END TCASE
     END TGROUP

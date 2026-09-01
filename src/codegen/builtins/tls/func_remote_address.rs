@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE),
+            return_type: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_remote_address),
         }],

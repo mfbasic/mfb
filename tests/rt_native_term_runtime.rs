@@ -12,7 +12,7 @@ IMPORT io
 IMPORT term
 
 FUNC sizeWhileOff AS Nothing
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   io::print("OFF-COLS:" & toString(size.columns))
   RETURN NOTHING
   TRAP(err)
@@ -22,7 +22,7 @@ FUNC sizeWhileOff AS Nothing
 END FUNC
 
 FUNC printSize AS Nothing
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   io::print("SIZE:" & toString(size.columns) & "x" & toString(size.rows))
   RETURN NOTHING
   TRAP(err)
@@ -146,8 +146,8 @@ FUNC main AS Integer
   term::showCursor()
   term::hideCursor()
   LET on AS Boolean = term::isOn()
-  LET fg AS TermColor = term::getForeground()
-  LET bg AS TermColor = term::getBackground()
+  LET fg AS term::TermColor = term::getForeground()
+  LET bg AS term::TermColor = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   io::print("ON:" & toString(on))
@@ -261,8 +261,8 @@ FUNC main AS Integer
   term::setUnderline(TRUE)
   term::off()
   term::on()
-  LET fg AS TermColor = term::getForeground()
-  LET bg AS TermColor = term::getBackground()
+  LET fg AS term::TermColor = term::getForeground()
+  LET bg AS term::TermColor = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   LET on AS Boolean = term::isOn()

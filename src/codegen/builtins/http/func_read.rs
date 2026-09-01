@@ -7,7 +7,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Perform one blocking, body-less HTTP/1.1 request and return the response."#;
 
 const DESC: &str = r#"`read` performs exactly one blocking HTTP/1.1 request that carries **no body**
-and returns the reply as an `http::Response` value. It opens a fresh connection
+and returns the reply as a `http::Response` value. It opens a fresh connection
 to `url.host` on `url.port` — plaintext through the `tcp` package for an `http://`
 URL, TLS through the `tls` package for an `https://` URL — writes the request,
 reads the response to end of stream, closes the connection, and returns. The
@@ -30,7 +30,7 @@ request line.
 The request target is `url.path` (an empty path is normalized to `/`) followed by
 `?` and `url.query` when a query is present; the URL fragment is never sent.
 
-The returned `Response` exposes `status` (Integer), `reason` (String, `""` when
+The returned `http::Response` exposes `status` (Integer), `reason` (String, `""` when
 omitted), `httpVersion` (String, e.g. `"1.1"`), `headers` (a `Map OF String TO
 String`), `body` (a `List OF Byte`), and `ok` (Boolean, `TRUE` only when `status`
 is in `200..299`). Header field names in `headers` are lowercased and duplicates
@@ -77,7 +77,7 @@ END SUB
 #[rustfmt::skip]
 const BODY: &str =
 r#"' plan-76-D: the blocking client is now a thin driver over the non-blocking core.
-' It produces the SAME `Response` as the pre-plan-76-D `__http_exchange` path —
+' It produces the SAME `http::Response` as the pre-plan-76-D `__http_exchange` path —
 ' identical request (`__http_buildRequest`), identical accumulated bytes, identical
 ' parse (`__http_parseResponse`) — only the read loop's shape differs (readiness-
 ' gated `pump` vs a direct `tcp::read` loop). `__http_waitReadable` preserves the
@@ -101,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named("Url")),
+                super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named(crate::codegen::builtins::net::URL_TYPE_ID)),
                 super::fill("headers", "Optional request headers. Names matching `Host`/`User-Agent`/`Accept` override the defaults case-insensitively; others are appended. No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `GET`.", ParameterType::String, "GET"),
             ],

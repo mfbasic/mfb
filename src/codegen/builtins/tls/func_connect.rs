@@ -39,7 +39,7 @@ the attempt and raises `ErrTimeout` when it elapses. A negative `timeoutMs` rais
 happens before the deadline starts, so a slow DNS lookup can exceed `timeoutMs`.
 
 The overloads do not share a positional layout: `timeoutMs` and `serverName` are
-parameters 2 and 3 of the host/port form but 1 and 2 of the `Address` form, since
+parameters 2 and 3 of the host/port form but 1 and 2 of the `net::Address` form, since
 one endpoint value replaces two. Named arguments therefore bind per-overload,
 against whichever overload the argument types select — the same caveat
 `tcp::connect` carries.
@@ -141,7 +141,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         name: "address",
                         desc: ADDRESS_DESC,
                         aliases: &[],
-                        ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE),
+                        ty: ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID),
                         default: DefaultValue::None,
                     },
                     timeout_param(),

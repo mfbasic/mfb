@@ -1,0 +1,22 @@
+REM Package-hosted thread fan-out, runtime proof. `self_fanout_workers::runFanout`
+REM spawns two workers from WITHIN that package, naming its own ISOLATED FUNC
+REM `bump` by its bare name (plan-115: ISOLATED is the sole marker; plan-81's
+REM `self::` spelling was removed in plan-115-B, and this fixture is the evidence
+REM that removing the spelling changed no behavior -- the numbers below are the
+REM same ones it printed before the conversion).
+REM
+REM Each worker runs a fresh isolated instance of the package: it sees COUNTER
+REM start at its declared 7, mutates only its own arena copy (so the two results
+REM are 107 and 207, proving the workers do not share state with each other), and
+REM the package instance in this parent thread keeps COUNTER = 7 (proving the
+REM worker writes are not shared with the parent). `counter()` read here confirms
+REM the parent's 7 once more.
+
+IMPORT io
+IMPORT self_fanout_workers
+
+FUNC main AS Integer
+  io::print(self_fanout_workers::runFanout())
+  io::print("main_counter=" & toString(self_fanout_workers::counter()))
+  RETURN 0
+END FUNC

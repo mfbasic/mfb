@@ -37,7 +37,7 @@ decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
 this package reads and writes. `money` is a built-in package: `IMPORT money` needs
 no manifest dependency.
 
-The mode is one of the `Rounding` enum members: `Commercial` rounds half away from
+The mode is one of the `money::Rounding` enum members: `Commercial` rounds half away from
 zero (the default) and `Banker` rounds half to even (banker's rounding), which
 removes the small upward bias of always rounding ties away. The mode is
 per-thread: a worker thread inherits the spawning thread's mode
@@ -116,7 +116,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Money"));
         assert_eq!(
             registry().qualified_builtin_type("money.Rounding"),
-            Some("Rounding".to_string())
+            Some("money.Rounding".to_string())
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
             registry::call_return_type_typed(GET_ROUNDING)
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Rounding")
+            Some("money.Rounding")
         );
         assert_eq!(
             registry::call_return_type_typed(ROUND)
@@ -174,7 +174,7 @@ mod tests {
         );
         assert_eq!(
             registry::argument_types(SET_ROUNDING),
-            Some(vec!["Rounding".to_string()])
+            Some(vec!["money.Rounding".to_string()])
         );
         // getRounding takes no arguments -> an empty positional signature.
         assert_eq!(registry::argument_types(GET_ROUNDING), Some(vec![]));

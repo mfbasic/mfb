@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/record-res-field-compare-invalid
+  23 |   LET x = Holder[a]
+  24 |   LET y = Holder[b]
+  25 |   IF x = y THEN
+     | ^
+tests/syntax/resources/record-res-field-compare-invalid/src/main.mfb:25 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Operator `=` requires compatible comparable operands, got Holder and Holder.
+[exit 1]

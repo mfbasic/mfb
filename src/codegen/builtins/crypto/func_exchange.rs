@@ -13,8 +13,8 @@ use super::{
 
 const INTRO: &str = r#"Compute a Diffie-Hellman shared secret from your private key and a peer's public key (X25519 or X448)."#;
 const DESC: &str = r#"`crypto::exchange(type, privateKey, publicKey)` performs elliptic-curve
-Diffie-Hellman for the key-agreement curve selected by `type` — `Certificate.X25519`
-(RFC 7748 X25519, 32-byte keys, 32-byte secret) or `Certificate.X448` (RFC 7748
+Diffie-Hellman for the key-agreement curve selected by `type` — `crypto::Certificate.X25519`
+(RFC 7748 X25519, 32-byte keys, 32-byte secret) or `crypto::Certificate.X448` (RFC 7748
 X448, 56-byte keys, 56-byte secret) — combining your `privateKey` with the peer's
 `publicKey` and returning the raw shared secret as a `List OF Byte`. Both parties
 compute the same bytes: `exchange(t, a.privateKey, b.publicKey)` equals
@@ -48,12 +48,12 @@ IMPORT strings
 IMPORT io
 
 SUB main()
-  LET alice AS crypto::KeyPair = crypto::generate(Certificate.X448)
-  LET bob AS crypto::KeyPair = crypto::generate(Certificate.X448)
-  LET s1 AS List OF Byte = crypto::exchange(Certificate.X448, alice.privateKey, bob.publicKey)
-  LET s2 AS List OF Byte = crypto::exchange(Certificate.X448, bob.privateKey, alice.publicKey)
+  LET alice AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
+  LET bob AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
+  LET s1 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, alice.privateKey, bob.publicKey)
+  LET s2 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, bob.privateKey, alice.publicKey)
   io::print(toString(crypto::constantTimeEqual(s1, s2)))
-  LET key AS List OF Byte = crypto::hkdf(Hash.SHA2_256, s1, [], strings::toBytes("demo v1"), 32)
+  LET key AS List OF Byte = crypto::hkdf(crypto::Hash.SHA2_256, s1, [], strings::toBytes("demo v1"), 32)
 END SUB
 ```"#;
 
@@ -69,7 +69,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "type",
-                    desc: "The key-agreement curve: `Certificate.X25519` or `Certificate.X448`.",
+                    desc: "The key-agreement curve: `crypto::Certificate.X25519` or `crypto::Certificate.X448`.",
                     aliases: &[],
                     ty: ParameterType::named("Certificate"),
                     default: DefaultValue::None,

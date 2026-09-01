@@ -1,0 +1,56 @@
+' plan-114-C/D: RETURNING a record that carries a resource must emit ZERO closes
+' in the callee -- the caller adopts the handle.
+'
+' This is the third close-site property, and the one the loop in
+' record-res-field-rt cannot reach: that fixture never returns a Holder, so its
+' owned-list is always drained in the producing function.
+'
+' THE SHAPE IS A `RES` PARAMETER, DELIBERATELY. A resource the callee PRODUCES
+' and returns inside a record is refused at compile time
+' (TYPE_RESOURCE_RETURN_ORDER): the container must be declared before the
+' resource, and a record -- unlike an empty list -- cannot be constructed before
+' its handle exists. A `RES` parameter has no such problem, because the caller
+' owns it and the callee never produces it at all.
+'
+' THE ASSERTION IS THE USE AFTER RETURN. `wrap` returns, its scope exits, and
+' only then does main write through the returned record's handle. Two distinct
+' bugs die here, both of which shipped at some point during plan-114:
+'
+'   * if the callee DRAINED its owned-list instead of transferring, this write is
+'     on a closed handle and raises 7-703-0004;
+'   * if the ordering gate over-rejects a RES parameter, this file does not
+'     compile at all.
+'
+' The 200-iteration loop keeps the count honest in the other direction: a missed
+' close exhausts file descriptors.
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  label  AS String
+  handle AS RES fs::File
+END TYPE
+
+FUNC wrap(RES f AS fs::File) AS Holder
+  LET h = Holder["made", f]
+  RETURN h
+END FUNC
+
+FUNC main AS Integer
+  RES g AS fs::File = fs::openFile("target/record-res-field-return-rt.txt", "w")
+  LET first = wrap(g)
+  ' `wrap` has returned and its scope has exited. The handle must still be open.
+  fs::writeAll(first.handle, "written after the callee returned")
+  io::print("returned record kept the handle open")
+
+  MUT i AS Integer = 0
+  WHILE i < 200
+    RES h AS fs::File = fs::openFile("target/record-res-field-return-rt-loop.txt", "w")
+    LET wrapped = wrap(h)
+    fs::writeAll(wrapped.handle, "x")
+    i = i + 1
+  END WHILE
+  io::print("200 return-transfer cycles completed")
+
+  RETURN 0
+END FUNC

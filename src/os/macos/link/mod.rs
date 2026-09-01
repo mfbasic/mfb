@@ -304,6 +304,11 @@ fn dylib_path(library: &str) -> Result<String, String> {
         "AppKit" => "/System/Library/Frameworks/AppKit.framework/AppKit".to_string(),
         // plan-98-C Phase 3: the canvas frame blit's `CGImage` calls. Versioned
         // install name, matching `dylib_for_library` in the object plan.
+        // plan-98-E: the Metal renderer.
+        "Metal" => "/System/Library/Frameworks/Metal.framework/Versions/A/Metal".to_string(),
+        "QuartzCore" => {
+            "/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore".to_string()
+        }
         "CoreGraphics" => {
             "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics".to_string()
         }

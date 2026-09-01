@@ -64,7 +64,7 @@ IMPORT io
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::moveTo(size.rows / 2, size.columns / 2)
   io::write("middle")
   term::sync()

@@ -26,8 +26,8 @@ mod types;
 mod tests;
 
 pub use manifest::{
-    parse_project, parse_source, parse_source_internal, selected_source_paths, write_ast,
-    BUILTIN_PRELUDE_PATH,
+    parse_project, parse_source, parse_source_builtin, parse_source_internal,
+    selected_source_paths, write_ast, BUILTIN_PRELUDE_PATH,
 };
 pub use overloads::{normalize_types, normalize_ws, param_types};
 pub use types::*;

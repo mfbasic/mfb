@@ -1,0 +1,21 @@
+' bug-483: `net::Address` is compiler-owned. The socket helpers allocate it with
+' a layout only they may write — its `host` String is an absolute pointer, not a
+' block-relative offset like every user record's — so a program may neither
+' construct one nor WITH-update one.
+'
+' This was refused until bug-480 Phase 4b package-qualified builtin value types:
+' the rule matched the bare name `Address`, the type system started holding
+' `net.Address`, and the refusal silently stopped firing. Nothing pinned it, so
+' nothing noticed. This fixture is that pin.
+IMPORT net
+IMPORT tcp
+
+FUNC main AS Integer
+  LET made AS net::Address = net::Address["1.2.3.4", 80]
+
+  RES server = tcp::listen("127.0.0.1", 0)
+  LET bound AS net::Address = tcp::localAddress(server)
+  LET updated AS net::Address = WITH bound { port := 99 }
+
+  RETURN made.port + updated.port
+END FUNC

@@ -9,10 +9,10 @@ use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Read the current foreground colour as a `TermColor`"#;
+const INTRO: &str = r#"Read the current foreground colour as a `term::TermColor`"#;
 
 const DESC: &str = r#"`term::getForeground` returns the colour that subsequently drawn text will be
-written in, as a `TermColor` record with three `Byte` fields
+written in, as a `term::TermColor` record with three `Byte` fields
 `r`, `g`, and `b` holding the red, green, and blue channels. It takes no
 arguments.
 
@@ -44,7 +44,7 @@ IMPORT term
 SUB main()
   term::on()
   term::setForeground(0, 128, 255)
-  LET c AS TermColor = term::getForeground()
+  LET c AS term::TermColor = term::getForeground()
   term::off()
 END SUB
 ```
@@ -57,7 +57,7 @@ IMPORT io
 
 SUB main()
   term::on()
-  LET saved AS TermColor = term::getForeground()
+  LET saved AS term::TermColor = term::getForeground()
   term::setForeground(255, 0, 0)
   io::print("warning")
   term::setForeground(saved.r, saved.g, saved.b)

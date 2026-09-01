@@ -36,7 +36,7 @@ END FUNC
 
 ' Read exactly one record from a fresh stream (used to trap malformed input).
 FUNC readFirst(text AS String) AS Integer
-  LET r AS CsvRow = csv::readRow(csv::parseStream(text))
+  LET r AS csv::CsvRow = csv::readRow(csv::parseStream(text))
   RETURN len(r.fields)
 END FUNC
 
@@ -192,7 +192,7 @@ TESTING
     ' -----------------------------------------------------------------------
     TGROUP "parseStream + readRow"
       TCASE "reads records in order, then reports done at end of input"
-        MUT row AS CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
+        MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
         expectEqual(row.done, FALSE)
         expectInteger(len(row.fields), 2)
         expectString(collections::get(row.fields, 0), "a")
@@ -206,14 +206,14 @@ TESTING
         expectInteger(len(row.fields), 0)
       END TCASE
       TCASE "empty input is done immediately"
-        LET row AS CsvRow = csv::readRow(csv::parseStream(""))
+        LET row AS csv::CsvRow = csv::readRow(csv::parseStream(""))
         expectEqual(row.done, TRUE)
         expectInteger(len(row.fields), 0)
       END TCASE
       TCASE "streamed rows match parse (quoting, CRLF, ragged)"
         LET cr AS String = crChar()
         LET src AS String = "name,\"a,b\"" & cr & "\nx\n1,2,3"
-        MUT sr AS CsvRow = csv::readRow(csv::parseStream(src))
+        MUT sr AS csv::CsvRow = csv::readRow(csv::parseStream(src))
         expectString(collections::get(sr.fields, 1), "a,b")
         sr = csv::readRow(sr.reader)
         expectInteger(len(sr.fields), 1)
@@ -224,7 +224,7 @@ TESTING
         expectEqual(sr.done, TRUE)
       END TCASE
       TCASE "custom delimiter dialect on the stream"
-        LET row AS CsvRow = csv::readRow(csv::parseStream("a;b;c", ";"))
+        LET row AS csv::CsvRow = csv::readRow(csv::parseStream("a;b;c", ";"))
         expectInteger(len(row.fields), 3)
         expectString(collections::get(row.fields, 2), "c")
       END TCASE

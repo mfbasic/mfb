@@ -637,7 +637,7 @@ impl CodeBuilder<'_> {
                         // A collection that owns resources floated up from inner
                         // blocks (§15.6) gets a runtime owned-list anchored at
                         // this scope; it is drained on every exit path.
-                        if self.owner_collections.contains(name) {
+                        if self.owner_containers.contains(name) {
                             self.setup_owned_list(name, type_)?;
                         } else if Self::is_res_marked_resource_collection(&type_)
                             && matches!(
@@ -1781,7 +1781,7 @@ impl CodeBuilder<'_> {
         for name in names {
             if self.address_taken_locals.contains(&name)
                 || self.promoted_float_locals.contains_key(&name)
-                || self.owner_collections.contains(&name)
+                || self.owner_containers.contains(&name)
             {
                 continue;
             }
@@ -2237,6 +2237,7 @@ pub(crate) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => nir_value_reads_local(value, name),
         NirValue::WithUpdate {
             target, updates, ..
@@ -2309,6 +2310,7 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::ResultIsOk { .. } => "result is ok".to_string(),
         NirValue::ResultValue { .. } => "result value".to_string(),
         NirValue::ResultError { .. } => "result error".to_string(),
+        NirValue::Checked { type_, .. } => format!("checked {type_}"),
         NirValue::WithUpdate { type_, .. } => format!("with update {type_}"),
         NirValue::Capture { index, .. } => format!("capture {index}"),
     }

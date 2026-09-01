@@ -1,0 +1,237 @@
+' wire — the wire helpers network-server shares, and the worker entries its
+' --thread mode runs connections on.
+'
+' A sibling file rather than part of main.mfb only for readability: these are the
+' wire format plus the two worker entries, a coherent unit, and main.mfb is
+' already 550 lines. Visibility is PUBLIC, which is project-wide, so the split
+' costs nothing.
+'
+' This was once a separate `connworker` PACKAGE, because a thread entry had to be
+' reached through an import and an executable had no way to name its own. That
+' rule is gone: an ISOLATED FUNC declared here is started by its bare name from
+' main.mfb, and the example is one project again.
+'
+' The two worker entries are the whole server session, moved off the main
+' thread. The main thread only ever binds, accepts, and hands the connection
+' over; from thread::accept onward every byte, every UUID and every printed line
+' is this thread's work. A worker is ISOLATED — it shares no variable with the
+' main thread and no thread-visible state exists between them, so a connection
+' lives on exactly one thread for its whole life and needs no locking.
+
+IMPORT collections
+IMPORT crypto
+IMPORT datetime
+IMPORT io
+IMPORT os
+IMPORT strings
+IMPORT tcp
+IMPORT thread
+IMPORT tls
+
+' ---------------------------------------------------------------- constants --
+
+' How often every live connection is sent its next Update line.
+PUBLIC FUNC tickNanos() AS Integer
+  RETURN 500000000
+END FUNC
+
+' How long a serving loop naps between sweeps. Small enough that a connect or a
+' disconnect is noticed promptly, large enough that an idle server is free.
+PUBLIC FUNC napMs() AS Integer
+  RETURN 20
+END FUNC
+
+' The smallest slice of a tick worth starting a TLS handshake in. One
+' tls::accept deadline bounds both the wait for a connection and the handshake
+' that follows, and a deadline that expires mid-handshake drops the connection.
+PUBLIC FUNC minHandshakeMs() AS Integer
+  RETURN 250
+END FUNC
+
+' A UDP peer that has said nothing for this long is treated as gone. UDP has no
+' close, so without a deadline a client that was killed would be broadcast to
+' forever.
+PUBLIC FUNC udpIdleNanos() AS Integer
+  RETURN 15000000000
+END FUNC
+
+' ------------------------------------------------------------ wire helpers --
+
+' The counter as it appears on the wire: at least two digits, zero-padded.
+PUBLIC FUNC counterText(n AS Integer) AS String
+  RETURN strings::padLeft(toString(n), 2, "0")
+END FUNC
+
+' TRUE when a chunk a client sent carries the "BYE" line. Matched on the raw
+' bytes rather than decoded text: a peer may send anything at all, and
+' ill-formed UTF-8 from the network is not this server's business to reject.
+PUBLIC FUNC hasBye(bytes AS List OF Byte) AS Boolean
+  LET at AS Integer = collections::find(bytes, strings::toBytes("BYE")) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN at >= 0
+END FUNC
+
+' ----------------------------------------------------------- worker: TCP --
+
+' Serve every TCP connection the main thread hands over, for the life of the
+' program. `label` is echoed once at startup so the transport is visible in the
+' log; the connections themselves arrive on the resource channel.
+PUBLIC ISOLATED FUNC serveTcpConnections(worker AS ThreadWorker OF RES tcp::Socket TO Integer, label AS String) AS Integer
+  io::print("Worker " & label & " ready")
+
+  MUT conns AS List OF RES tcp::Socket = []
+  MUT ids AS List OF String = []
+  MUT counts AS List OF Integer = []
+  MUT live AS List OF Boolean = []
+  MUT admitted AS Integer = 0
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
+
+  DO
+    ' 1. Take every connection queued on the resource channel. accept(0) is one
+    '    immediate attempt, so ErrTimeout means "none waiting" and ends the drain.
+    DO
+      RES sock AS tcp::Socket = thread::accept(worker, 0) TRAP(e)
+        EXIT DO
+      END TRAP
+      LET id AS String = crypto::uuid4()
+      conns = collections::append(conns, sock)
+      ids = collections::append(ids, id)
+      counts = collections::append(counts, 0)
+      live = collections::append(live, TRUE)
+      admitted = admitted + 1
+      tcp::write(sock, "Hello " & id & "\n") TRAP(e)
+        RECOVER
+      END TRAP
+      io::print("Connected " & id)
+    LOOP UNTIL FALSE
+
+    ' 2. Drain whatever each client sent. A readable socket whose read raises is
+    '    a closed peer, and "BYE" is an explicit goodbye. Any other read failure
+    '    retires the connection too: poll has already said this socket will not
+    '    block, so leaving it in the list would spin on it forever.
+    FOR i = 0 TO len(conns) - 1
+      IF collections::get(live, i) THEN
+        RES sock AS tcp::Socket = collections::get(conns, i)
+        MUT gone AS Boolean = FALSE
+        IF tcp::poll(sock, 0) THEN
+          LET chunk AS List OF Byte = tcp::read(sock, 4096) TRAP(e)
+            gone = TRUE
+            RECOVER []
+          END TRAP
+          IF hasBye(chunk) THEN
+            gone = TRUE
+          END IF
+        END IF
+        IF gone THEN
+          io::print("Disconnect " & collections::get(ids, i))
+          live = collections::set(live, i, FALSE)
+          tcp::close(sock) TRAP(e)
+            RECOVER
+          END TRAP
+        END IF
+      END IF
+    NEXT
+
+    ' 3. On the tick, send everyone still attached their next counter.
+    IF datetime::monotonicNanos() >= nextTick THEN
+      nextTick = nextTick + tickNanos()
+      FOR i = 0 TO len(conns) - 1
+        IF collections::get(live, i) THEN
+          RES sock AS tcp::Socket = collections::get(conns, i)
+          LET id AS String = collections::get(ids, i)
+          LET n AS Integer = collections::get(counts, i) + 1
+          counts = collections::set(counts, i, n)
+          tcp::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
+            io::print("Disconnect " & id)
+            live = collections::set(live, i, FALSE)
+            RECOVER
+          END TRAP
+        END IF
+      NEXT
+    END IF
+
+    os::sleep(napMs())
+  LOOP UNTIL FALSE
+
+  RETURN admitted
+END FUNC
+
+' ----------------------------------------------------------- worker: TLS --
+
+' The TLS twin of serveTcpConnections. The handshake already completed on the
+' main thread, so what arrives here is a live session: its negotiated keys and
+' provider state travel with the handle (bug-464), and this thread encrypts
+' under them from the first tls::write.
+PUBLIC ISOLATED FUNC serveTlsConnections(worker AS ThreadWorker OF RES tls::Socket TO Integer, label AS String) AS Integer
+  io::print("Worker " & label & " ready")
+
+  MUT conns AS List OF RES tls::Socket = []
+  MUT ids AS List OF String = []
+  MUT counts AS List OF Integer = []
+  MUT live AS List OF Boolean = []
+  MUT admitted AS Integer = 0
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
+
+  DO
+    DO
+      RES sock AS tls::Socket = thread::accept(worker, 0) TRAP(e)
+        EXIT DO
+      END TRAP
+      LET id AS String = crypto::uuid4()
+      conns = collections::append(conns, sock)
+      ids = collections::append(ids, id)
+      counts = collections::append(counts, 0)
+      live = collections::append(live, TRUE)
+      admitted = admitted + 1
+      tls::write(sock, "Hello " & id & "\n") TRAP(e)
+        RECOVER
+      END TRAP
+      io::print("Connected " & id)
+    LOOP UNTIL FALSE
+
+    FOR i = 0 TO len(conns) - 1
+      IF collections::get(live, i) THEN
+        RES sock AS tls::Socket = collections::get(conns, i)
+        MUT gone AS Boolean = FALSE
+        IF tls::poll(sock, 0) THEN
+          LET chunk AS List OF Byte = tls::read(sock, 4096) TRAP(e)
+            gone = TRUE
+            RECOVER []
+          END TRAP
+          IF hasBye(chunk) THEN
+            gone = TRUE
+          END IF
+        END IF
+        IF gone THEN
+          io::print("Disconnect " & collections::get(ids, i))
+          live = collections::set(live, i, FALSE)
+          tls::close(sock) TRAP(e)
+            RECOVER
+          END TRAP
+        END IF
+      END IF
+    NEXT
+
+    IF datetime::monotonicNanos() >= nextTick THEN
+      nextTick = nextTick + tickNanos()
+      FOR i = 0 TO len(conns) - 1
+        IF collections::get(live, i) THEN
+          RES sock AS tls::Socket = collections::get(conns, i)
+          LET id AS String = collections::get(ids, i)
+          LET n AS Integer = collections::get(counts, i) + 1
+          counts = collections::set(counts, i, n)
+          tls::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
+            io::print("Disconnect " & id)
+            live = collections::set(live, i, FALSE)
+            RECOVER
+          END TRAP
+        END IF
+      NEXT
+    END IF
+
+    os::sleep(napMs())
+  LOOP UNTIL FALSE
+
+  RETURN admitted
+END FUNC

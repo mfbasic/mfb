@@ -1,3 +1,16 @@
+' A record field naming a resource WITHOUT the `RES` marker.
+'
+' plan-114-D: this fixture used to pin `TYPE_RESOURCE_FIELD_FORBIDDEN` — records
+' could not hold resources at all. They can now, so what it pins changed from a
+' refusal to a correction: the field needs the ownership marker
+' (`TYPE_RESOURCE_REQUIRES_RES`), exactly as a bare `List OF fs::File` element
+' does. Same program rejected, actionable message instead of a flat "no".
+'
+' This is the fixture plan-114-D §3 calls non-optional. If the field walk had
+' stopped emitting the retired ban without ROUTING to the marker rule, a bare
+' unmarked resource field would be silently accepted — the escape analysis would
+' not float it, and it would leak with no diagnostic at all. A test that only
+' checked "2-203-0084 is gone" would have passed on that bug.
 IMPORT fs
 
 TYPE Holder

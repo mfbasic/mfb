@@ -41,7 +41,7 @@ the resolver results are released first. Because the underlying wait takes a C
 oversight.
 
 The four overloads do not share a positional layout: `timeoutMs` is parameter 2
-of the host/port forms but parameter 1 of the `Address` forms. Named arguments
+of the host/port forms but parameter 1 of the `net::Address` forms. Named arguments
 therefore bind per-overload, against whichever overload the argument types select.
 
 The returned `Socket` is a handle closed when its binding goes out of scope

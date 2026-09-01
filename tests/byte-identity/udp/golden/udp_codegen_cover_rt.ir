@@ -12,9 +12,9 @@
     "kind": "type",
     "line": 9,
     "visibility": "export",
-    "name": "Datagram",
+    "name": "udp.Datagram",
     "fields": [
-    { "visibility": null, "line": 10, "name": "from", "type": "Address" },
+    { "visibility": null, "line": 10, "name": "from", "type": "net.Address" },
     { "visibility": null, "line": 11, "name": "bytes", "type": "List OF Byte" }
     ]
   },
@@ -22,7 +22,7 @@
     "kind": "type",
     "line": 16,
     "visibility": "export",
-    "name": "Url",
+    "name": "net.Url",
     "fields": [
     { "visibility": null, "line": 17, "name": "scheme", "type": "String" },
     { "visibility": null, "line": 18, "name": "username", "type": "String" },
@@ -38,7 +38,7 @@
     "kind": "type",
     "line": 27,
     "visibility": "export",
-    "name": "Address",
+    "name": "net.Address",
     "fields": [
     { "visibility": null, "line": 28, "name": "host", "type": "String" },
     { "visibility": null, "line": 29, "name": "port", "type": "Integer" }
@@ -48,10 +48,10 @@
     "kind": "type",
     "line": 41,
     "visibility": "export",
-    "name": "PingResult",
+    "name": "net.PingResult",
     "fields": [
-    { "visibility": null, "line": 42, "name": "status", "type": "PingStatus" },
-    { "visibility": null, "line": 43, "name": "address", "type": "Address" },
+    { "visibility": null, "line": 42, "name": "status", "type": "net.PingStatus" },
+    { "visibility": null, "line": 43, "name": "address", "type": "net.Address" },
     { "visibility": null, "line": 44, "name": "rttMs", "type": "Float" },
     { "visibility": null, "line": 45, "name": "ttl", "type": "Integer" },
     { "visibility": null, "line": 46, "name": "size", "type": "Integer" }
@@ -61,7 +61,7 @@
     "kind": "enum",
     "line": 49,
     "visibility": "export",
-    "name": "PingStatus",
+    "name": "net.PingStatus",
     "members": [
     { "name": "Ok" },
     { "name": "Timeout" },
@@ -81,14 +81,14 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 14, "mutable": false, "name": "sock", "type": "udp.Socket", "value": { "kind": "call", "type": "udp.Socket", "target": "udp.bind", "args": [{ "kind": "const", "type": "String", "value": "0.0.0.0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 15, "mutable": false, "name": "at", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "udp.localAddress", "args": [{ "kind": "local", "name": "sock" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "at", "type": "net.Address", "value": { "kind": "call", "type": "net.Address", "target": "udp.localAddress", "args": [{ "kind": "local", "name": "sock" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "at" }, "member": "host" }] } },
     { "op": "bind", "line": 20, "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }] } },
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "udp.send", "args": [{ "kind": "local", "name": "sock" }, { "kind": "local", "name": "at" }, { "kind": "local", "name": "payload" }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "udp.send", "args": [{ "kind": "local", "name": "sock" }, { "kind": "local", "name": "at" }, { "kind": "const", "type": "String", "value": "ping" }] } },
-    { "op": "bind", "line": 25, "mutable": false, "name": "dg", "type": "Datagram", "value": { "kind": "call", "type": "Datagram", "target": "udp.receive", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "128" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "dg", "type": "udp.Datagram", "value": { "kind": "call", "type": "udp.Datagram", "target": "udp.receive", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "128" }] } },
     { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "dg" }, "member": "bytes" }] }] }] } },
-    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Address", "target": { "kind": "local", "name": "dg" }, "member": "from" }, "member": "host" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "net.Address", "target": { "kind": "local", "name": "dg" }, "member": "from" }, "member": "host" }] } },
     { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "udp.poll", "args": [{ "kind": "local", "name": "sock" }] }] }] } },
     { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "udp.poll", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "100" }] }] }] } },
     { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "udp.setReadTimeout", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
@@ -96,7 +96,7 @@
     { "op": "bind", "line": 37, "mutable": false, "name": "other", "type": "udp.Socket", "value": { "kind": "call", "type": "udp.Socket", "target": "udp.bind", "args": [{ "kind": "const", "type": "String", "value": "0.0.0.0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 38, "mutable": false, "name": "pool", "type": "List OF RES udp.Socket", "value": { "kind": "list", "type": "List OF RES udp.Socket", "values": [{ "kind": "local", "name": "sock" }, { "kind": "local", "name": "other" }] } },
     { "op": "bind", "line": 39, "mutable": false, "name": "ready", "type": "udp.Socket", "value": { "kind": "call", "type": "udp.Socket", "target": "udp.poll", "args": [{ "kind": "local", "name": "pool" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
-    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "call", "type": "Datagram", "target": "udp.receive", "args": [{ "kind": "local", "name": "ready" }, { "kind": "const", "type": "Integer", "value": "8" }] }, "member": "bytes" }] }] }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "call", "type": "udp.Datagram", "target": "udp.receive", "args": [{ "kind": "local", "name": "ready" }, { "kind": "const", "type": "Integer", "value": "8" }] }, "member": "bytes" }] }] }] } },
     { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "udp.close", "args": [{ "kind": "local", "name": "other" }] } },
     { "op": "return", "line": 44, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
@@ -333,7 +333,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 162, "type": "Url", "default": null }
+    { "name": "value", "line": 162, "type": "net.Url", "default": null }
     ],
     "returns": "String",
     "body": [
@@ -507,7 +507,7 @@
     "params": [
     { "name": "href", "line": 233, "type": "String", "default": null }
     ],
-    "returns": "Url",
+    "returns": "net.Url",
     "body": [
     { "op": "bind", "line": 234, "mutable": false, "name": "schemeEnd", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "href" }, { "kind": "const", "type": "String", "value": "://" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     {
@@ -679,7 +679,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
+    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "net.Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
     ]
   },
   {

@@ -128,22 +128,22 @@
       }, "line": 40 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "score", "arguments": [{ "kind": "identifier", "value": "ok" }] }] } }] }, "line": 43 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bad=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "score", "arguments": [{ "kind": "identifier", "value": "bad" }] }] } }] }, "line": 44 },
-      { "kind": "binding", "mutable": false, "name": "d", "type": "Json", "value": {
+      { "kind": "binding", "mutable": false, "name": "d", "type": "json.Json", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 47,
         "expression": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[1,2]" }] },
         "handler": [
-        { "kind": "recover", "value": { "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 48 }
+        { "kind": "recover", "value": { "kind": "constructor", "type": "json.JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 48 }
         ]
       }, "line": 47 },
-      { "kind": "binding", "mutable": false, "name": "fallback", "type": "Json", "value": {
+      { "kind": "binding", "mutable": false, "name": "fallback", "type": "json.Json", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 50,
         "expression": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{oops" }] },
         "handler": [
-        { "kind": "recover", "value": { "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 51 }
+        { "kind": "recover", "value": { "kind": "constructor", "type": "json.JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 51 }
         ]
       }, "line": 50 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "d" }] }] }, "line": 53 },

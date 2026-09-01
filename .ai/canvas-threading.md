@@ -212,6 +212,7 @@ row names the rule from above that protects it.
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
 | R7 | resize while graphics is mid-render | the in-flight frame completes at the old size; the next is at the new size | §5 clear-at-frame-start |
 | R8 | resize with the worker blocked in `io::input` | repaint happens with zero worker involvement | §5 main↔graphics only |
+| | *(proven on the Vulkan path too: `MFB_CANVAS_RESIZE_W`/`_H` resize while the worker sits in `os::sleep`, and both renderers repaint at the new size)* | | |
 | R9 | N `setBytes` between two frames | one upload, last value wins | §6 coalescing |
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
 | R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
@@ -238,19 +239,201 @@ stopped) before the worker's entry unwinds.
 * **No time-based repaint.** §4.
 * **No cross-thread arena free.** §3.
 
-## 10. Test affordances
+## 10. The renderer branch, and what the Metal backend inherits
+
+`__canvas_renderLoop` calls `__canvas_renderFrame`, which is the **only** place a
+renderer is chosen. The choice is a runtime branch, not a build-time one, because
+every input to it is a runtime fact:
+
+```
+IF canvas::useGpu() AND canvas::metalReady() THEN
+  IF __canvas_renderMetal() THEN RETURN
+END IF
+__canvas_renderScene()
+```
+
+* `canvas::useGpu` — did the program ask? (`MFB_CANVAS_GPU=1`, read once at
+  spawn.) **Software is the default and must stay so**: it is the oracle the GPU
+  backends are measured against, so it cannot become the thing being measured.
+* `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
+  first call and remembers the answer in `GRAPHICS_OFFSET_MTL_READY` as a tri-state
+  (untried / built / failed), so a host with no Metal device pays the device probe and
+  the MSL compile once, not per frame.
+* `__canvas_renderMetal` returning FALSE — is this *scene* one the GPU shader
+  reproduces? It declines rather than draws wrongly. A backend that rendered a circle
+  as its bounding box would still report success, and that is the failure mode this
+  third condition exists to prevent.
+
+Three consequences for anything added here later:
+
+* **The Metal objects live in the graphics-state block**, not in the app module's own
+  storage, for the reason in §2: the graphics thread creates them and is the only
+  thread that may touch them, and the arena is per-thread. `GRAPHICS_OFFSET_MTL_*`.
+* **The frame is rendered offscreen and read back**, then leaves through the same
+  `canvas::blitSurface` the software path uses. That is what makes the two backends
+  comparable — the tolerance comparator diffs an RGBA8 buffer, and a frame that only
+  ever existed in a drawable is not one.
+* **The graphics thread has no autorelease pool**, so the frame renderer pushes and
+  pops its own. This is not a leak-avoidance nicety: an unpooled autorelease on this
+  thread aborts it in libmalloc at thread exit, with none of your frames in the trace.
+
+The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
+`canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
+two probes of overlapping facts can disagree and one of them did. It has the same offscreen
+shape: it renders into an image and reads it back so the frame leaves through
+`canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain, which
+is what lets it be tested on a box with no display server — and no reachable Linux box has
+one.
+
+**The two predicates are not the same predicate.** `__canvas_metalRenderable` declines a
+*polygon* past `MAX_EDGES`, because Metal's edges cross as a `setFragmentBytes:` payload,
+which is per-item and small. `__canvas_vulkanRenderable` has no per-item limit at all — the
+edges live in a descriptor-bound storage buffer — but it declines a *frame* whose polygons
+sum past `VULKAN_MAX_FRAME_EDGES`, because one buffer serves the whole frame. That
+asymmetry is forced by the APIs: a Vulkan command buffer is recorded once and executed
+once, so rewriting or re-binding one buffer per item would give every polygon the *last*
+one's edges. Each polygon instead takes a slice and carries its start index in the item
+block (`ITEM_ARC_EDGE_BASE`), which is a push constant and so genuinely per-item. A scene
+can therefore be GPU-renderable on one backend and not the other, and that is correct.
+
+## 11. Test affordances
 
 Three environment variables, all off by default and none on the production path:
+
+* `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
+  first completed frame and then resize the surface to these dimensions, by calling
+  the same handler the platform's resize signal calls. A resize is a *window* event
+  and no reachable Linux box has a display server, so without this the handshake
+  could be implemented and never executed. Waiting for a frame first is the whole
+  point: resizing before one exists builds the render target once at the new size and
+  proves nothing, where resizing after one forces the tear-down-and-rebuild.
+
+  Two variables rather than one `WxH` string because parsing a separator in
+  hand-written assembly buys nothing over `atoi`. Note that the program under test has
+  to still be alive — with `MFB_CANVAS_SYNC=1` the worker returns from `main` the
+  moment its frame lands and the finish helper `_exit`s the process, so a scene that
+  ends at `present` loses the race every time.
 
 * `MFB_CANVAS_DUMP` — write each rendered frame's raw RGBA to a file. How a headless
   run is observed at all, and what the golden harness reads.
 * `MFB_CANVAS_STATS` — **append** one line per rendered frame with the geometry-cache
-  counters. Appends rather than overwrites because the interesting quantity is the
-  delta between frames.
+  and glyph-cache counters (`entries=`, `floats=`, `glyphs=`, `glyphBytes=`,
+  `glyphEvictions=`). Appends rather than overwrites because the interesting quantity is
+  the delta between frames. It is also the **only** window onto either cache: both live
+  in globals owned by the graphics thread, so a program asking from `main` asks the
+  worker, whose copies are its own and always empty (§1).
+* `MFB_CANVAS_GLYPH_BUDGET` — shrink the glyph coverage cache's byte budget (default
+  1 MiB), so a test can force eviction with a scene small enough to also check pixel by
+  pixel. Resolved once and cached, so the ordinary path is a compare against a global
+  rather than a `getenv` per glyph.
+### The surface is opaque black on every backend, at four layers
+
+An unpainted canvas pixel is opaque black, and that takes agreement in four places
+because each could independently be transparent:
+
+* the software surface — `canvas::newSurface` fills opaque black;
+* the Vulkan render pass — its clear value is opaque black;
+* the Metal render pass — `setClearColor:` is set **explicitly**, not left to
+  `MTLRenderPassAttachmentDescriptor`'s documented default, so the three backends agree
+  by construction rather than by three defaults happening to match;
+* the macOS canvas `CALayer` — its `backgroundColor` is an opaque black `CGColor`, built
+  once when the view is made layer-backed. This one is what a program sees *before* the
+  first frame, and anywhere a frame does not reach: a layer-backed `NSView` is
+  transparent by default, so without it the canvas is the window showing through and no
+  amount of clearing above would fix it.
+
+### `canvas::didResize` is a counter pair, not a flag
+
+The platform's resize path bumps `GRAPHICS_OFFSET_RESIZES` — but only when the size
+actually **changed**, because AppKit re-publishes the size it already has and the
+headless scripted resize does too. `canvas::didResize` compares it against
+`GRAPHICS_OFFSET_RESIZES_SEEN`, which the worker owns, and records the new value when it
+answers TRUE.
+
+Two words with one writer each, so no lock: the main thread only ever writes the
+counter, the worker only ever writes the acknowledgement. A single read-and-clear flag
+would need one, because a resize landing between a reader's load and its store would be
+lost — on the one path whose entire job is to report edges.
+
+* `MFB_CANVAS_DAMAGE` — repaint only what changed: keep the previous frame's pixels,
+  clear the union of the changed items' bounds, and redraw only the items that meet it.
+  Off by default. It changes no pixels — that is what `tests/rt_canvas_damage.rs`
+  asserts, byte for byte — but it does change *when* the renderer runs at all, and a
+  frame counter that silently stops advancing is the kind of thing a stale test reads as
+  a pass.
+
+  Two notes for anyone testing it. An unchanged scene never reaches the renderer in the
+  first place: `canvas::publishScene` refuses it and `present` does not signal a redraw
+  (§2's invariant), so the *empty* damage union only fires on a platform wake — a resize
+  or an OS damage repaint. And the GPU backends always render full-frame: they draw into
+  their own texture and read it back, so there is no kept surface for them to preserve.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
   frame-level assertion needs this.
+
+A fourth selects the renderer rather than observing it:
+
+* `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all
+  of the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=` and, on
+  Linux, `vulkan=` and `vulkanReady=` — which is how a test tells "the GPU agreed
+  with the oracle" from "there was no GPU and both runs were the oracle". The
+  Vulkan pair distinguishes a third case the Metal pair cannot: a machine with a
+  *loader* but no ICD reports `vulkan=FALSE`, which is a real configuration (box
+  2227) and not a failure.
+
+And a fifth is not about the renderer at all, but is what makes any of this
+observable on Linux:
+
+* `MFB_GTKAPP_HEADLESS` — run the app without GTK. The twin of
+  `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`, and structurally different from
+  both: macOS builds its window and merely skips showing it, keeping the AppKit run
+  loop, whereas `gtk_init` fails outright with "Failed to open display", so
+  `activate` never fires and the worker — spawned from `activate` — never starts.
+  The Linux gate therefore skips GTK entirely, spawns the worker from the
+  bootstrap, and parks.
+
+  Nothing downstream needs a flag to notice: the finish helper already exits when
+  `ST_TEXT_BUFFER` is null, and the canvas blit gates on `ST_CANVAS_AREA`. Both are
+  states headless naturally leaves behind rather than a mode to be told about.
+  `MFB_CANVAS_DUMP` still sees every frame — the dump is written by
+  `__canvas_presentSurface`, before and independently of the blit.
+
+## 12. Why the font rasteriser is hand-rolled
+
+Canvas rasterises glyphs with a TrueType reader and a contour rasteriser written in
+**MFBASIC**, in the same helpers as every other primitive — not a vendored library.
+That was plan-98-G's named open question, decided 2026-08-31, and it is recorded here
+because the reasoning is not obvious from the code and the question will be asked again.
+
+**The oracle is the reason.** The software renderer is not one renderer among three; it
+is the reference every GPU backend is measured against (`Tolerance::GPU_DEFAULT`), and
+plan-98-F Phase 1 measured it **byte-identical across macOS/Linux and
+aarch64/x86-64** — 2,304,000 bytes, two ISAs, two operating systems. A vendored font
+library would have to ship per platform and architecture, so the same string would
+rasterise differently on each target, and the text goldens would need a tolerance
+instead of exact match. That trades away the gate the whole feature set rests on, to
+save writing a `glyf` parser.
+
+**Compiling a font library into `mfb` does not work**, and is worth stating so it is not
+re-proposed: rasterisation happens at *program run time* for arbitrary strings, and an
+emitted program has no C toolchain and no CRT. The compiler can only bake glyphs it
+already knows, which text rendering is not.
+
+**It also fits what is here.** `__canvas_edgeDistance` already walks a polygon's edges
+for a signed distance and `__canvas_geoDistance` dispatches the kinds; a glyph is a set
+of quadratic contours, and coverage-from-a-signed-distance is that same machinery. The
+font-specific code is a `cmap`/`loca`/`glyf` reader plus contour flattening — fill,
+antialiasing and blending are shared with rectangles and circles, which is also what
+keeps a glyph's edge pixels consistent with everything else on the surface.
+
+`canvas::loadImage` rides the same decision: an inflate and a PNG unfilter beside the
+font reader, rather than a second vendored library.
+
+The residual risk moved rather than vanished. It is no longer "is the third-party
+rasteriser deterministic" but "does the contour rasteriser use anything width- or
+order-dependent" — a thing to not do, caught by the same cross-target byte-identity
+comparison.
 
 ## See also
 

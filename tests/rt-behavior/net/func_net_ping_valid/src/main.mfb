@@ -17,16 +17,16 @@ IMPORT collections
 IMPORT net
 IMPORT io
 
-FUNC statusName(r AS PingResult) AS String
+FUNC statusName(r AS net::PingResult) AS String
   MUT name = "?"
   MATCH r.status
-    CASE PingStatus.Ok
+    CASE net::PingStatus.Ok
       name = "Ok"
-    CASE PingStatus.Timeout
+    CASE net::PingStatus.Timeout
       name = "Timeout"
-    CASE PingStatus.Unreachable
+    CASE net::PingStatus.Unreachable
       name = "Unreachable"
-    CASE PingStatus.TtlExceeded
+    CASE net::PingStatus.TtlExceeded
       name = "TtlExceeded"
   END MATCH
   RETURN name

@@ -60,10 +60,10 @@ back and forth while it runs, hands open resources across, and collects the
 result when it finishes.
 
 A thread runs an `ISOLATED FUNC` — a function declared so that it shares nothing
-with whoever started it. It gets its own copy of its package's top-level state,
-so two threads running the same function never see each other's variables. The
-entry point takes the worker's own handle as its first argument and one value of
-your choosing as its second:
+with whoever started it. It gets its own copy of the top-level state of the
+project that declares it, so two threads running the same function never see
+each other's variables. The entry point takes the worker's own handle as its
+first argument and one value of your choosing as its second:
 
 ```
 EXPORT ISOLATED FUNC parseFile(worker AS ThreadWorker OF String TO Integer, path AS String) AS Integer
@@ -84,10 +84,11 @@ There are two separate channels, and one thread may use both at once. The
 `thread::poll`, typed by the `Msg` in `Thread OF Msg TO Out`. The **resource
 channel** carries open handles — `thread::transfer` and `thread::accept`, typed
 by the `Res` in `Thread OF Msg RES Res TO Out`. A resource may not travel on the
-message channel; declare it on the resource channel instead. Not every resource
-type may cross: among the built-in ones `fs::File`, `tcp::Socket` and
-`udp::Socket` may, while listeners and `tls::Socket` may not. A resource your
-own project declares may cross when it is declared `THREAD_SENDABLE`.
+message channel; declare it on the resource channel instead. Every built-in
+socket and listener may cross — `fs::File`, `tcp::Socket`, `udp::Socket`,
+`tcp::Listener`, `tls::Socket` and `tls::Listener` — so a server may accept on
+one thread and hand each connection to a worker. A resource your own project
+declares may cross when it is declared `THREAD_SENDABLE`.
 
 Both channels are queues with a size limit, set by `thread::start`'s
 `inboundLimit` and `outboundLimit` and defaulting to 64 messages each. When a

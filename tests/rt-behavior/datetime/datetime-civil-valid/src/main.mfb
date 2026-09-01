@@ -1,33 +1,33 @@
 IMPORT io
 IMPORT datetime
 
-FUNC fmt(dt AS DateTime) AS String
+FUNC fmt(dt AS datetime::DateTime) AS String
   RETURN datetime::format(dt, "yyyy-MM-dd HH:mm:ss")
 END FUNC
 
 FUNC main AS Integer
   ' Epoch 0 is 1970-01-01T00:00:00Z, a Thursday.
-  LET e0 AS DateTime = datetime::toUtc(datetime::instant(0))
+  LET e0 AS datetime::DateTime = datetime::toUtc(datetime::instant(0))
   io::print("epoch=" & fmt(e0))
-  io::print("epoch_weekday=" & toString(datetime::weekday(e0) = Weekday.Thursday))
+  io::print("epoch_weekday=" & toString(datetime::weekday(e0) = datetime::Weekday.Thursday))
   ' Leap day.
-  LET leap AS DateTime = datetime::civil(datetime::date(2024, 2, 29), datetime::time(12, 0, 0), datetime::utc())
+  LET leap AS datetime::DateTime = datetime::civil(datetime::date(2024, 2, 29), datetime::time(12, 0, 0), datetime::utc())
   io::print("leap=" & fmt(leap))
   io::print("leap_doy=" & toString(datetime::dayOfYear(leap)))
   ' Negative instant: one second before epoch.
-  LET neg AS DateTime = datetime::toUtc(datetime::instant(-1))
+  LET neg AS datetime::DateTime = datetime::toUtc(datetime::instant(-1))
   io::print("neg=" & fmt(neg))
   ' Fixed offset projection and round-trip.
-  LET base AS Instant = datetime::instant(1782743400)
-  LET india AS DateTime = datetime::inZone(base, datetime::fixedOffset(5, 30))
+  LET base AS datetime::Instant = datetime::instant(1782743400)
+  LET india AS datetime::DateTime = datetime::inZone(base, datetime::fixedOffset(5, 30))
   io::print("india=" & fmt(india) & " " & india.zone.label)
   io::print("india_off=" & toString(india.offset))
   io::print("resolve=" & toString(datetime::equals(datetime::resolve(india), base)))
   ' Negative fixed offset via seconds form.
-  LET west AS DateTime = datetime::inZone(base, datetime::fixedOffset(-18000))
+  LET west AS datetime::DateTime = datetime::inZone(base, datetime::fixedOffset(-18000))
   io::print("west=" & fmt(west) & " " & west.zone.label)
   ' withZone keeps the instant.
-  LET moved AS DateTime = datetime::withZone(india, datetime::utc())
+  LET moved AS datetime::DateTime = datetime::withZone(india, datetime::utc())
   io::print("moved=" & fmt(moved))
   ' startOfDay.
   io::print("sod=" & fmt(datetime::startOfDay(india)))

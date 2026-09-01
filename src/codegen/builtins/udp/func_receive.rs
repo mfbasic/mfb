@@ -13,7 +13,7 @@ use crate::codegen::registry::AbiCtx;
 const INTRO: &str = r#"Receive the next datagram, with the address it came from."#;
 
 const DESC: &str = r#"`udp::receive` returns the next datagram queued on a bound socket as a
-`Datagram`: the payload `bytes` exactly as sent, and the `from` address that sent
+`udp::Datagram`: the payload `bytes` exactly as sent, and the `from` address that sent
 them. Because a bound socket has no peer, `from` is the only way to know who is
 talking, and it is an ordinary `net::Address` that can be passed straight back to
 `udp::send` to reply.

@@ -1,0 +1,37 @@
+' plan-114-E: rebinding a handle read out of a record field is checked for STATE
+' agreement, exactly as it is for a collection element (spec 15.6) -- the field
+' declares `STATE Cursor`, so binding it as `STATE Other` is TYPE_STATE_MISMATCH.
+'
+' This is the rule that makes the two-dot read safe. `h.handle` yields the
+' RES-stripped field type (`fs.File STATE Cursor`), and the whole point of
+' carrying the STATE on the field is that an extracted handle keeps it. If the
+' rebind could silently re-type the payload, `g.state` and `h.handle.state` would
+' disagree about the same bytes.
+'
+' A `syntax` fixture, deliberately: plan-114-E Sec.3 predicted every negative test
+' here would have to be `rt-behavior`, because a STATE type error was thought to
+' surface only in a full `mfb build`. Measured otherwise -- this fires under
+' `-ast -ir`, so it belongs in the tier that exists to pin diagnostics. See the
+' letter's Corrections.
+IMPORT fs
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+TYPE Other
+  n AS Integer
+END TYPE
+
+TYPE Holder
+  handle AS RES fs::File STATE Cursor
+END TYPE
+
+FUNC main AS Integer
+  RES f AS fs::File STATE Cursor = fs::openFile("target/mismatch.txt", "w")
+  LET h = Holder[f]
+  RES g AS fs::File STATE Other = h.handle
+  io::print(toString(g.state.n))
+  RETURN 0
+END FUNC

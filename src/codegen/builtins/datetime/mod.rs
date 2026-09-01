@@ -26,21 +26,21 @@ use crate::types::ParameterType;
 
 const MODULE_INTRO: &str =
     r#"Instants, civil dates and times, durations, zones, formatting, and parsing"#;
-const MODULE_DESC: &str = r#"The `datetime` package models time around a single source of truth: an `Instant`,
+const MODULE_DESC: &str = r#"The `datetime` package models time around a single source of truth: a `datetime::Instant`,
 an absolute point on the UTC timeline (Unix epoch, leap-second-free) carrying
 whole seconds and a nanosecond field in the range `0 .. 999_999_999`. Everything
-civil — `Date`, `Time`, and `DateTime` — that this package *produces* is a
-projection of an instant through a `Zone`, and every projection records the
-resolved UTC offset, so a `DateTime` always knows its offset and round-trips
-back to its `Instant` without re-consulting the zone. (A `DateTime` you build
+civil — `datetime::Date`, `datetime::Time`, and `datetime::DateTime` — that this package *produces* is a
+projection of an instant through a `datetime::Zone`, and every projection records the
+resolved UTC offset, so a `datetime::DateTime` always knows its offset and round-trips
+back to its `datetime::Instant` without re-consulting the zone. (A `datetime::DateTime` you build
 yourself with the record constructor is not checked: if you supply an `offset`
 that does not match the civil fields, `datetime::resolve` believes the offset.) `datetime` is a built-in package: `IMPORT datetime` needs
 no manifest dependency.
 
-All public types are flat, copyable value records and enums — `Instant`,
-`Duration`, `Date`, `Time`, `Zone`, `DateTime`, and the enums `ZoneKind`,
-`Weekday`, and `Month`. There are no resources and no hidden global state, and the
-types are referenced bare (`Instant`, `Date`, …), not package-qualified. Calendar
+All public types are flat, copyable value records and enums — `datetime::Instant`,
+`datetime::Duration`, `datetime::Date`, `datetime::Time`, `datetime::Zone`, `datetime::DateTime`, and the enums `datetime::ZoneKind`,
+`datetime::Weekday`, and `datetime::Month`. There are no resources and no hidden global state, and the
+types are referenced bare (`datetime::Instant`, `datetime::Date`, …), not package-qualified. Calendar
 arithmetic produces identical results on every target. The operations that read
 host state are the wall clock (`now` and `nowNanos`), the monotonic counter
 (`monotonic` and `monotonicNanos`), and local-zone offset resolution (`local`,
@@ -51,19 +51,19 @@ Zones come in three kinds. `datetime::utc()` is fixed at offset 0;
 `datetime::fixedOffset(...)` builds a constant offset rendered as `+HH:MM`; and
 `datetime::local()` resolves the host's zone per-instant, so it is DST-correct at
 the moment it projects. Named IANA zones are not supported in this version.
-`Instant.seconds` spans the full 64-bit `Integer`, so civil dates reach far beyond
+`datetime::Instant.seconds` spans the full 64-bit `Integer`, so civil dates reach far beyond
 any practical need; `datetime::now()` is additionally bounded by the nanosecond
 count it reads, valid through year 2262. There are no leap seconds:
 every day is 86400 seconds, the POSIX convention.
 
 Projection is the primary "to civil" operation: `inZone` maps an instant into a
-zone, `toUtc` and `toLocal` are shorthands, and `resolve` maps a civil `DateTime`
-back to its `Instant`. Arithmetic operates on instants and durations (`add`,
+zone, `toUtc` and `toLocal` are shorthands, and `resolve` maps a civil `datetime::DateTime`
+back to its `datetime::Instant`. Arithmetic operates on instants and durations (`add`,
 `subtract`, `between`, `plus`, `minus`, `negate`), on calendar days (`addDays`,
 DST-aware) and months (`addMonths`, clamping day-of-month). Formatting and parsing
 share a pattern mini-language: a pattern is literal text with token runs, where a
 run of the same letter is one token whose length selects width or style, and
-literal letters are wrapped in single quotes. `format` renders a `DateTime`,
+literal letters are wrapped in single quotes. `format` renders a `datetime::DateTime`,
 `parse` reads one back, and `toIso`/`parseIso` handle RFC 3339 / ISO 8601 with a
 required offset."#;
 
@@ -181,7 +181,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "kind",
                 ty: ParameterType::Integer,
-                description: "Which kind of zone this is: `ZoneKind.Utc`, `ZoneKind.FixedOffset`, or `ZoneKind.Local`.",
+                description: "Which kind of zone this is: `datetime::ZoneKind.Utc`, `datetime::ZoneKind.FixedOffset`, or `datetime::ZoneKind.Local`.",
             },
             RecordProp {
                 name: "label",
@@ -193,7 +193,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "DateTime",
         export: true,
-        description: "A zoned date-and-time: a `Date` and `Time` interpreted in a `Zone`, with the resolved UTC offset cached alongside.",
+        description: "A zoned date-and-time: a `datetime::Date` and `datetime::Time` interpreted in a `datetime::Zone`, with the resolved UTC offset cached alongside.",
         props: vec![
             RecordProp {
                 name: "date",
@@ -703,37 +703,46 @@ mod tests {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             registry::resolve_call(call, &types, false)
         };
-        assert_eq!(r("datetime.now", &[]), Some("Instant".into()));
-        assert_eq!(r("datetime.monotonic", &[]), Some("Duration".into()));
-        assert_eq!(r("datetime.utc", &[]), Some("Zone".into()));
-        assert_eq!(r("datetime.instant", &["Integer"]), Some("Instant".into()));
+        assert_eq!(r("datetime.now", &[]), Some("datetime.Instant".into()));
+        assert_eq!(
+            r("datetime.monotonic", &[]),
+            Some("datetime.Duration".into())
+        );
+        assert_eq!(r("datetime.utc", &[]), Some("datetime.Zone".into()));
+        assert_eq!(
+            r("datetime.instant", &["Integer"]),
+            Some("datetime.Instant".into())
+        );
         assert_eq!(
             r(
                 "datetime.instant",
                 &["Integer", "Integer", "Integer", "Integer", "Integer"]
             ),
-            Some("Instant".into())
+            Some("datetime.Instant".into())
         );
         assert_eq!(
             r("datetime.duration", &["Integer", "Integer"]),
-            Some("Duration".into())
+            Some("datetime.Duration".into())
         );
         assert_eq!(
             r("datetime.date", &["Integer", "Integer", "Integer"]),
-            Some("Date".into())
+            Some("datetime.Date".into())
         );
         assert_eq!(
             r("datetime.time", &["Integer", "Integer"]),
-            Some("Time".into())
+            Some("datetime.Time".into())
         );
-        assert_eq!(r("datetime.fixedOffset", &["Integer"]), Some("Zone".into()));
+        assert_eq!(
+            r("datetime.fixedOffset", &["Integer"]),
+            Some("datetime.Zone".into())
+        );
         assert_eq!(
             r("datetime.inZone", &["Instant", "Zone"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
             r("datetime.between", &["Instant", "Instant"]),
-            Some("Duration".into())
+            Some("datetime.Duration".into())
         );
         assert_eq!(
             r("datetime.isBefore", &["Instant", "Instant"]),
@@ -741,11 +750,11 @@ mod tests {
         );
         assert_eq!(
             r("datetime.parse", &["String", "String"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(
             r("datetime.parse", &["String", "String", "Zone"]),
-            Some("DateTime".into())
+            Some("datetime.DateTime".into())
         );
         assert_eq!(r("datetime.nowNanos", &[]), Some("Integer".into()));
         assert_eq!(
@@ -838,7 +847,7 @@ mod tests {
         // The qualified form resolves the same source-declared names.
         assert_eq!(
             registry().qualified_builtin_type("datetime.Instant"),
-            Some("Instant".to_string())
+            Some("datetime.Instant".to_string())
         );
     }
 

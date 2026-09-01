@@ -3,31 +3,31 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"The `Zone` representing the host's local time."#;
-const DESC: &str = r#"`datetime::local` returns the `Zone` that represents the host's local time. The
-returned `Zone` has kind `ZoneKind.Local`, marking it as the host-resolved local
-zone rather than the UTC zone built by `datetime::utc` (`ZoneKind.Utc`) or an
+const INTRO: &str = r#"The `datetime::Zone` representing the host's local time."#;
+const DESC: &str = r#"`datetime::local` returns the `datetime::Zone` that represents the host's local time. The
+returned `datetime::Zone` has kind `datetime::ZoneKind.Local`, marking it as the host-resolved local
+zone rather than the UTC zone built by `datetime::utc` (`datetime::ZoneKind.Utc`) or an
 arbitrary fixed offset built by `datetime::fixedOffset`
-(`ZoneKind.FixedOffset`).
+(`datetime::ZoneKind.FixedOffset`).
 
 
 Unlike `datetime::utc` and `datetime::fixedOffset`, whose offsets are baked into
-the `Zone` at construction, the local zone holds no fixed offset of its own. The
-`Zone` returned here carries the label `"Local"` and no offset of its own; the
+the `datetime::Zone` at construction, the local zone holds no fixed offset of its own. The
+`datetime::Zone` returned here carries the label `"Local"` and no offset of its own; the
 real offset is worked out per-instant from the host's time-zone rules when the
-zone is applied to a particular moment. Projecting an `Instant`
+zone is applied to a particular moment. Projecting a `datetime::Instant`
 through this zone with `datetime::inZone` consults that table for the instant
 being projected, so the result is DST-correct: the same local zone yields one
 offset for a summer instant and another for a winter instant when the host
 observes daylight saving time. `datetime::toLocal` is the dedicated shorthand
-for projecting an `Instant` through this zone.
+for projecting a `datetime::Instant` through this zone.
 
 Because the offset is resolved from host configuration, the civil fields a given
-`Instant` projects to depend on the machine: two hosts in different configured
-time zones project the same `Instant` to different `DateTime` fields.
+`datetime::Instant` projects to depend on the machine: two hosts in different configured
+time zones project the same `datetime::Instant` to different `datetime::DateTime` fields.
 
 `datetime::local` takes no arguments. The call itself is pure and constant: it
-always returns the same placeholder `Zone`, reads no host state, and has no side
+always returns the same placeholder `datetime::Zone`, reads no host state, and has no side
 effects. The dependence on the host's configured zone enters only later, when
 the zone is resolved against an instant during projection."#;
 const EX: &str = r#"Obtain the local zone:
@@ -36,7 +36,7 @@ const EX: &str = r#"Obtain the local zone:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::local()
+  LET z AS datetime::Zone = datetime::local()
 END SUB
 ```
 
@@ -46,20 +46,20 @@ Project the current instant into the local zone to read its civil fields:
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::now()
-  LET here AS DateTime = datetime::inZone(t, datetime::local())
+  LET t AS datetime::Instant = datetime::now()
+  LET here AS datetime::DateTime = datetime::inZone(t, datetime::local())
 END SUB
 ```
 
-Combine a date and time into a `DateTime` in the local zone:
+Combine a date and time into a `datetime::DateTime` in the local zone:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET tm AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET tm AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
 END SUB
 ```"#;
 

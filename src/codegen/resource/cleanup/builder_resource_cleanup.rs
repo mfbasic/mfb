@@ -583,18 +583,25 @@ impl CodeBuilder<'_> {
         self.emit_thread_cleanup_call(&cleanup)
     }
 
-    /// The drop descriptor for a resource collection's element/value type: a
-    /// single close-op symbol for a concrete resource element, or a
-    /// tag-dispatch table + uniform STATE type for a resource-union element
-    /// (bug-429). Errors only if `type_` is not a collection, or its element is
-    /// neither a known concrete resource nor a resource union.
+    /// The drop descriptor for an owned-list owner's payload type: a single
+    /// close-op symbol for a concrete resource, or a tag-dispatch table +
+    /// uniform STATE type for a resource union (bug-429).
+    ///
+    /// The owner is a **container**: a `List`/`Map` whose element/value carries
+    /// the resource, or (plan-114-C) a record with a `RES` field. Errors if
+    /// `type_` is neither, or if its payload is neither a known concrete
+    /// resource nor a resource union.
     pub(crate) fn collection_resource_drop(
         &self,
         type_: &ParameterType,
     ) -> Result<OwnedListDrop, String> {
-        let element = typed_list_element_type(type_)
+        let element = match typed_list_element_type(type_)
             .or_else(|| typed_map_type_parts(type_).map(|(_, value)| value))
-            .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
+        {
+            Some(element) => element.clone(),
+            None => self.record_resource_field_element(type_)?,
+        };
+        let element = &element;
         // A resource-union element has no single close op; each floated node is
         // dropped by dispatching on its active variant's tag, exactly as a lone
         // `RES u AS Union STATE S` binding is (plan-74). Check the union path
@@ -606,9 +613,57 @@ impl CodeBuilder<'_> {
                 state_type: element.state(),
             });
         }
-        let symbol = self.resource_cleanup_symbol(&element).ok_or_else(|| {
+        let symbol = self.resource_cleanup_symbol(element).ok_or_else(|| {
             format!("owned-list element type '{element}' has no registered close op")
         })?;
         Ok(OwnedListDrop::Concrete(symbol))
+    }
+
+    /// The resource payload of a **record** owned-list owner: the type of its
+    /// `RES`-marked field (plan-114-C).
+    ///
+    /// Unlike a collection, a record has a *fixed* set of fields, so its
+    /// resource payloads are statically known. An owned-list still carries them
+    /// — the list is keyed by binding name and reads nothing about the
+    /// container's representation — but the list holds **one** `OwnedListDrop`,
+    /// so every resource pushed onto it must close the same way.
+    ///
+    /// That is why a record with two `RES` fields of *different* resource types
+    /// is refused here rather than compiled: one drop symbol cannot close both,
+    /// and picking either would close one handle with the other's op. Expressing
+    /// it would need `ResOwner::Float` to name a field as well as a binding,
+    /// which is an `.ir` format change this letter's non-goals exclude. The
+    /// single-resource-type case — every shape letters D and E actually enable —
+    /// is fully supported.
+    fn record_resource_field_element(
+        &self,
+        type_: &ParameterType,
+    ) -> Result<ParameterType, String> {
+        if !self.type_model.record_fields.contains_key(type_) {
+            return Err(format!("owned-list owner '{type_}' is not a container"));
+        }
+        let resource_fields =
+            crate::codegen::cleanup::owned::builder_owned_cleanup::record_res_field_types(
+                &self.type_model,
+                type_,
+            );
+        let Some((_, first)) = resource_fields.first().cloned() else {
+            return Err(format!(
+                "owned-list owner '{type_}' is a record with no RES field"
+            ));
+        };
+        if let Some((other_name, other)) = resource_fields
+            .iter()
+            .find(|(_, candidate)| *candidate != first)
+        {
+            let first_name = &resource_fields[0].0;
+            return Err(format!(
+                "record '{type_}' has RES fields of differing resource types \
+                 ('{first_name}' is '{first}', '{other_name}' is '{other}'); an \
+                 owned-list carries one close op, so this cannot be dropped \
+                 correctly"
+            ));
+        }
+        Ok(first)
     }
 }

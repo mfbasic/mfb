@@ -116,6 +116,25 @@ fn type_id_maps_primitives_and_composites() {
         ),
         TYPE_TERM_SIZE
     );
+    // bug-483: a member SIGNATURE carries the package-qualified spelling since
+    // bug-480 Phase 4b, and `term`'s registry rows promise these two keep their
+    // reserved high-band ids. Missing the qualified form dropped them through to
+    // the opaque zero-field fallback, so an exported `term::TermColor` encoded a
+    // record with none of its fields.
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("term.TermColor")
+        ),
+        TYPE_TERM_COLOR
+    );
+    assert_eq!(
+        types.type_id(
+            &mut strings,
+            &crate::types::ParameterType::declared("term.TermSize")
+        ),
+        TYPE_TERM_SIZE
+    );
 
     // Composite names get fresh table ids (>= FIRST_TABLE_TYPE_ID) and are
     // interned so a repeated name resolves to the same id.

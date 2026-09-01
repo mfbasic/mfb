@@ -567,6 +567,13 @@ fn dylib_for_library(library: &str) -> Result<String, String> {
         // name is versioned (`Versions/A/`), unlike AppKit's and Foundation's above
         // — taken from `dyld_info -dependents` on AppKit, which links it, rather
         // than assumed to follow the same shape as its neighbours.
+        // plan-98-E: the Metal renderer. Both install names are versioned
+        // (`Versions/A/`), taken from `dyld_info -dependents` on AppKit rather than
+        // assumed to match AppKit's own unversioned shape.
+        "Metal" => Ok("/System/Library/Frameworks/Metal.framework/Versions/A/Metal".to_string()),
+        "QuartzCore" => {
+            Ok("/System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore".to_string())
+        }
         "CoreGraphics" => Ok(
             "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics".to_string(),
         ),

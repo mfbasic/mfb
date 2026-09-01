@@ -1,0 +1,22 @@
+' plan-114-E Phase 4: a record carrying `RES fs::File STATE Cursor` crosses a
+' PACKAGE boundary.
+'
+' THE ASSERTION IS THE VALUE 11. The exporter writes `f.state.pos = 11` and reads
+' it back through `h.handle.state.pos`; printing 11 here means the whole chain
+' survived the `.mfp` -- the record, the `RES` marker on its field, the `STATE`
+' clause folded into that field's type, and the `Cursor` record the clause names
+' (a user type this file never mentions, which the type-export closure has to
+' carry). A 0 would mean the STATE re-default-initialized somewhere in the
+' round trip.
+'
+' A SOURCE-DIRECTORY dependency, not a committed `.mfp`: a checked-in `.mfp` goes
+' stale whenever a resource is re-qualified, and then fails with "native inlined
+' field size not available" long after the change that broke it. Building the
+' dependency from source each run cannot rot that way.
+IMPORT io
+IMPORT holder_pkg
+
+FUNC main AS Integer
+  io::print("state through the package boundary: " & toString(holder_pkg::openInto("target/record-res-field-export-rt.txt")))
+  RETURN 0
+END FUNC

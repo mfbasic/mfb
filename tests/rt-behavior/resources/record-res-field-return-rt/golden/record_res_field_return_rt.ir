@@ -1,0 +1,68 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "record_res_field_return_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 29,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 30, "name": "label", "type": "String" },
+    { "visibility": null, "line": 31, "name": "handle", "type": "RES fs.File" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "wrap",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 34, "type": "fs.File", "default": null }
+    ],
+    "returns": "Holder",
+    "body": [
+    { "op": "bind", "line": 35, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "const", "type": "String", "value": "made" }, { "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 36, "value": { "kind": "local", "name": "h" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 40, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-return-rt.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "first", "type": "Holder", "value": { "kind": "call", "type": "Holder", "target": "wrap", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "first" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "written after the callee returned" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "returned record kept the handle open" }] } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 47,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "bind", "line": 48, "mutable": false, "name": "h", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/record-res-field-return-rt-loop.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+      { "op": "bind", "line": 49, "mutable": false, "name": "wrapped", "type": "Holder", "value": { "kind": "call", "type": "Holder", "target": "wrap", "args": [{ "kind": "local", "name": "h" }] } },
+      { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "wrapped" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "x" }] } },
+      { "op": "assign", "line": 51, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "200 return-transfer cycles completed" }] } },
+    { "op": "return", "line": 55, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

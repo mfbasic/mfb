@@ -84,7 +84,7 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
   term::clear()
 
   term::setForeground(120, 180, 220)
-  term::drawBox(LineStyle.Light, 0, 0, gridW + 1, gridH + 1)
+  term::drawBox(term::LineStyle.Light, 0, 0, gridW + 1, gridH + 1)
 
   term::setForeground(245, 170, 70)
   IF food.x >= 0 THEN
@@ -98,15 +98,15 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
     LET b AS Point = collections::get(snake, i)
     IF a.y = b.y THEN
       IF a.x < b.x THEN
-        term::drawHLine(LineStyle.Heavy, a.y + 1, a.x + 1, b.x + 1)
+        term::drawHLine(term::LineStyle.Heavy, a.y + 1, a.x + 1, b.x + 1)
       ELSE
-        term::drawHLine(LineStyle.Heavy, a.y + 1, b.x + 1, a.x + 1)
+        term::drawHLine(term::LineStyle.Heavy, a.y + 1, b.x + 1, a.x + 1)
       END IF
     ELSEIF a.x = b.x THEN
       IF a.y < b.y THEN
-        term::drawVLine(LineStyle.Heavy, a.x + 1, a.y + 1, b.y + 1)
+        term::drawVLine(term::LineStyle.Heavy, a.x + 1, a.y + 1, b.y + 1)
       ELSE
-        term::drawVLine(LineStyle.Heavy, a.x + 1, b.y + 1, a.y + 1)
+        term::drawVLine(term::LineStyle.Heavy, a.x + 1, b.y + 1, a.y + 1)
       END IF
     END IF
   NEXT
@@ -215,7 +215,7 @@ FUNC main AS Integer
   MUT dirty AS Boolean = TRUE
 
   DO WHILE running
-    LET size AS TermSize = term::terminalSize() TRAP(e)
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
       EXIT DO
     END TRAP
     MUT newW AS Integer = size.columns - 2

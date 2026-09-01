@@ -24,7 +24,7 @@ FUNC main() AS Integer
 
   ' plan-77 C4: streaming read yields the same rows as csv::parse, incl. dialect.
   MUT streamed AS Integer = 0
-  MUT row AS CsvRow = csv::readRow(csv::parseStream("x;'y;z';w", ";", "'"))
+  MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("x;'y;z';w", ";", "'"))
   WHILE row.done = FALSE
     io::print("stream row " & toString(streamed) & " ncols=" & toString(len(row.fields)) & " f1=" & collections::get(row.fields, 1))
     streamed = streamed + 1

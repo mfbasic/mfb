@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/money/money_package_invalid
    4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
      | ^
 tests/syntax/money/money_package_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `money.setRounding` has argument type(s) (Integer), expected Rounding.
+               Call to `money.setRounding` has argument type(s) (Integer), expected money.Rounding.
    3 | FUNC main() AS Integer
    4 |   money::setRounding(5)              ' setRounding wants Rounding, not Integer
    5 |   LET a = money::round("x", 2)      ' round wants (Money, Integer)

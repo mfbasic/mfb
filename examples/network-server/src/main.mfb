@@ -1,0 +1,552 @@
+' network-server — one server, three transports.
+'
+' Pick a transport on the command line. The program binds a local port, gives
+' every connection a UUID, greets it, and then broadcasts a per-connection
+' counter to everyone still attached, every 500 ms:
+'
+'   $ network-server --tcp
+'   $ network-server --udp
+'   $ network-server --tls certs/cert.pem certs/key.pem
+'
+' It writes one line to standard output per connection lifecycle event:
+'
+'   Connected <uuid>       a client attached
+'   Disconnect <uuid>      a client detached
+'
+' and sends each client a line-oriented, "\n"-terminated UTF-8 stream:
+'
+'   Hello <uuid>           once, on connect
+'   Update <uuid> NN       every 500 ms; NN counts from 01 for that connection
+'
+' A client detaches by closing the stream (TCP and TLS) or by sending the line
+' "BYE" (any transport). UDP has no close to observe, so "BYE" — or fifteen
+' seconds of silence — is the only signal there. examples/network-client is the
+' matching client and speaks exactly this protocol.
+'
+' By default the whole server is a single thread running one polling loop: it
+' admits every queued connection, drains what each client sent, then broadcasts
+' on the tick.
+'
+' With --thread (--tcp and --tls only) the work is split instead: this thread
+' does nothing but accept, and every accepted socket is handed to a worker over
+' the thread resource channel. The worker assigns the UUID, greets, ticks and
+' reports — the whole session, off the main thread. The socket itself moves, so
+' only one thread can ever touch a given connection; for TLS the handshake still
+' completes here and the live session travels intact.
+'
+' --udp rejects --thread: a UDP server has one bound socket shared by every
+' peer, so there is no per-connection handle to hand over.
+
+IMPORT collections
+IMPORT crypto
+IMPORT datetime
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT strings
+IMPORT tcp
+IMPORT thread
+IMPORT tls
+IMPORT udp
+
+' The wire helpers and the tick/nap constants live in src/wire.mfb — the same
+' code the --thread workers run, so both modes speak one wire format. They are
+' PUBLIC, which is project-wide, so they are named here without a prefix.
+
+' The argument at position i, or "" when the command line ended before it.
+FUNC argAt(args AS List OF String, i AS Integer) AS String
+  RETURN collections::getOr(args, i, "")
+END FUNC
+
+' The index of a live peer with this "host:port" key, or -1. A retired key is
+' skipped so a client that reconnects from a recycled source port is greeted as
+' the new connection it is, with a fresh UUID.
+FUNC liveIndexOf(keys AS List OF String, live AS List OF Boolean, key AS String) AS Integer
+  FOR i = 0 TO len(keys) - 1
+    IF collections::get(live, i) AND collections::get(keys, i) = key THEN
+      RETURN i
+    END IF
+  NEXT
+  RETURN -1
+END FUNC
+
+SUB usage()
+  io::print("network-server — a broadcast server over TCP, UDP, or TLS.")
+  io::print("")
+  io::print("USAGE")
+  io::print("  network-server --tcp [--host HOST] [--port PORT]")
+  io::print("  network-server --udp [--host HOST] [--port PORT]")
+  io::print("  network-server --tls CERT KEY [--host HOST] [--port PORT]")
+  io::print("  ... any of the above, plus --thread (--tcp and --tls only)")
+  io::print("")
+  io::print("TRANSPORT (exactly one, and it is required)")
+  io::print("  --tcp             Accept plaintext TCP streams.")
+  io::print("  --udp             Serve UDP datagrams. A peer joins by sending any")
+  io::print("                    datagram and leaves by sending BYE or falling silent.")
+  io::print("  --tls CERT KEY    Terminate TLS. CERT is a PEM certificate chain, leaf")
+  io::print("                    first; KEY is the matching unencrypted PEM private key.")
+  io::print("")
+  io::print("OPTIONS")
+  io::print("  --host HOST       Local address to bind. Default 127.0.0.1;")
+  io::print("                    0.0.0.0 binds every interface.")
+  io::print("  --port PORT       Local port to bind. Default 7000; 0 lets the OS pick")
+  io::print("                    one and the bound port is printed.")
+  io::print("  --thread          Accept on the main thread, then hand each connection")
+  io::print("                    to a worker thread that runs the whole session. Not")
+  io::print("                    valid with --udp, which has no per-connection socket.")
+  io::print("  --help            Show this text and exit.")
+  io::print("")
+  io::print("PROTOCOL")
+  io::print("  server -> client  Hello <uuid>        once, on connect")
+  io::print("  server -> client  Update <uuid> NN    every 500 ms")
+  io::print("  client -> server  BYE                 asks the server to drop it")
+  io::print("  Every line is UTF-8 and ends with a newline.")
+  io::print("")
+  io::print("EXAMPLE")
+  io::print("  network-server --tls certs/cert.pem certs/key.pem --port 8443")
+  io::print("  network-server --tcp --thread --port 7000")
+END SUB
+
+' ---------------------------------------------------------------------- TCP --
+
+SUB serveTcp(host AS String, port AS Integer)
+  RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
+    io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+  LET bound AS net::Address = tcp::localAddress(server)
+  io::print("Listening tcp " & bound.host & ":" & toString(bound.port))
+
+  ' One connection per index across four parallel lists. A resource cannot be a
+  ' record field (mfb spec §15), so the per-connection state that travels with a
+  ' socket lives beside it rather than inside it.
+  MUT conns AS List OF RES tcp::Socket = []
+  MUT ids AS List OF String = []
+  MUT counts AS List OF Integer = []
+  MUT live AS List OF Boolean = []
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
+
+  DO
+    ' 1. Admit every connection the kernel has already queued. accept(0) is one
+    '    immediate attempt, so ErrTimeout means "none pending" and ends the drain.
+    DO
+      RES sock AS tcp::Socket = tcp::accept(server, 0) TRAP(e)
+        EXIT DO
+      END TRAP
+      LET id AS String = crypto::uuid4()
+      conns = collections::append(conns, sock)
+      ids = collections::append(ids, id)
+      counts = collections::append(counts, 0)
+      live = collections::append(live, TRUE)
+      ' Greeting after the append so the socket is owned by the list on every
+      ' path. A greeting that fails is not fatal: the next sweep sees the broken
+      ' connection and retires it through the ordinary disconnect path.
+      tcp::write(sock, "Hello " & id & "\n") TRAP(e)
+        RECOVER
+      END TRAP
+      io::print("Connected " & id)
+    LOOP UNTIL FALSE
+
+    ' 2. Drain whatever each client sent. A readable socket whose read raises is
+    '    a closed peer (tcp::read reports end of stream as ErrConnectionClosed,
+    '    never as an empty list), and "BYE" is an explicit goodbye. Any *other*
+    '    read failure retires the connection too: poll has already said this
+    '    socket will not block, so leaving it in the list would spin on it
+    '    forever.
+    FOR i = 0 TO len(conns) - 1
+      IF collections::get(live, i) THEN
+        RES sock AS tcp::Socket = collections::get(conns, i)
+        MUT gone AS Boolean = FALSE
+        IF tcp::poll(sock, 0) THEN
+          LET chunk AS List OF Byte = tcp::read(sock, 4096) TRAP(e)
+            gone = TRUE
+            RECOVER []
+          END TRAP
+          IF hasBye(chunk) THEN
+            gone = TRUE
+          END IF
+        END IF
+        IF gone THEN
+          io::print("Disconnect " & collections::get(ids, i))
+          live = collections::set(live, i, FALSE)
+          ' Release the descriptor now rather than at program exit. The list
+          ' keeps the (closed) handle: a List OF RES owns its members, and
+          ' lifting one back out would need an ownership move out of a
+          ' collection that the language does not offer.
+          tcp::close(sock) TRAP(e)
+            RECOVER
+          END TRAP
+        END IF
+      END IF
+    NEXT
+
+    ' 3. On the tick, send everyone still attached their next counter.
+    IF datetime::monotonicNanos() >= nextTick THEN
+      nextTick = nextTick + tickNanos()
+      FOR i = 0 TO len(conns) - 1
+        IF collections::get(live, i) THEN
+          RES sock AS tcp::Socket = collections::get(conns, i)
+          LET id AS String = collections::get(ids, i)
+          LET n AS Integer = collections::get(counts, i) + 1
+          counts = collections::set(counts, i, n)
+          tcp::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
+            io::print("Disconnect " & id)
+            live = collections::set(live, i, FALSE)
+            RECOVER
+          END TRAP
+        END IF
+      NEXT
+    END IF
+
+    os::sleep(napMs())
+  LOOP UNTIL FALSE
+END SUB
+
+' ---------------------------------------------------------------------- TLS --
+
+SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String)
+  RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
+    io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+  LET bound AS net::Address = tls::localAddress(server)
+  io::print("Listening tls " & bound.host & ":" & toString(bound.port))
+
+  MUT conns AS List OF RES tls::Socket = []
+  MUT ids AS List OF String = []
+  MUT counts AS List OF Integer = []
+  MUT live AS List OF Boolean = []
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
+
+  DO
+    ' One tls::accept deadline bounds *both* the wait for a connection and the
+    ' handshake that follows it, and a deadline that expires mid-handshake drops
+    ' the connection. So the budget is the whole remainder of the tick — which
+    ' doubles as the loop's idle wait, since accept returns the moment a client
+    ' completes — and once too little of the tick is left to finish a handshake
+    ' in, the accept is skipped rather than started and cut off. A client that
+    ' arrives inside that window waits in the kernel backlog for the next pass.
+    DO
+      LET budgetMs AS Integer = (nextTick - datetime::monotonicNanos()) / 1000000
+      IF budgetMs < minHandshakeMs() THEN
+        EXIT DO
+      END IF
+      RES sock AS tls::Socket = tls::accept(server, budgetMs) TRAP(e)
+        EXIT DO
+      END TRAP
+      LET id AS String = crypto::uuid4()
+      conns = collections::append(conns, sock)
+      ids = collections::append(ids, id)
+      counts = collections::append(counts, 0)
+      live = collections::append(live, TRUE)
+      tls::write(sock, "Hello " & id & "\n") TRAP(e)
+        RECOVER
+      END TRAP
+      io::print("Connected " & id)
+    LOOP UNTIL FALSE
+
+    FOR i = 0 TO len(conns) - 1
+      IF collections::get(live, i) THEN
+        RES sock AS tls::Socket = collections::get(conns, i)
+        MUT gone AS Boolean = FALSE
+        IF tls::poll(sock, 0) THEN
+          LET chunk AS List OF Byte = tls::read(sock, 4096) TRAP(e)
+            gone = TRUE
+            RECOVER []
+          END TRAP
+          IF hasBye(chunk) THEN
+            gone = TRUE
+          END IF
+        END IF
+        IF gone THEN
+          io::print("Disconnect " & collections::get(ids, i))
+          live = collections::set(live, i, FALSE)
+          tls::close(sock) TRAP(e)
+            RECOVER
+          END TRAP
+        END IF
+      END IF
+    NEXT
+
+    IF datetime::monotonicNanos() >= nextTick THEN
+      nextTick = nextTick + tickNanos()
+      FOR i = 0 TO len(conns) - 1
+        IF collections::get(live, i) THEN
+          RES sock AS tls::Socket = collections::get(conns, i)
+          LET id AS String = collections::get(ids, i)
+          LET n AS Integer = collections::get(counts, i) + 1
+          counts = collections::set(counts, i, n)
+          tls::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
+            io::print("Disconnect " & id)
+            live = collections::set(live, i, FALSE)
+            RECOVER
+          END TRAP
+        END IF
+      NEXT
+    END IF
+
+    os::sleep(napMs())
+  LOOP UNTIL FALSE
+END SUB
+
+' ---------------------------------------------------------------------- UDP --
+
+SUB serveUdp(host AS String, port AS Integer)
+  RES server AS udp::Socket = udp::bind(host, port) TRAP(e)
+    io::printError("Cannot bind udp " & host & ":" & toString(port) & " — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+  LET bound AS net::Address = udp::localAddress(server)
+  io::print("Listening udp " & bound.host & ":" & toString(bound.port))
+
+  ' UDP has no connection, so one is invented: a peer is a source address, it
+  ' joins by sending its first datagram, and it leaves by saying BYE or by
+  ' falling silent for udpIdleNanos. net::Address is an ordinary value record,
+  ' so unlike the stream servers above these lists hold no resources.
+  MUT keys AS List OF String = []
+  MUT peers AS List OF net::Address = []
+  MUT ids AS List OF String = []
+  MUT counts AS List OF Integer = []
+  MUT live AS List OF Boolean = []
+  MUT lastSeen AS List OF Integer = []
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
+
+  DO
+    ' 1. Drain the receive queue: register new peers, refresh known ones.
+    DO WHILE udp::poll(server, 0)
+      LET datagram AS udp::Datagram = udp::receive(server, 65535) TRAP(e)
+        EXIT DO
+      END TRAP
+      LET now AS Integer = datetime::monotonicNanos()
+      LET key AS String = datagram.from.host & ":" & toString(datagram.from.port)
+      MUT idx AS Integer = liveIndexOf(keys, live, key)
+      IF idx < 0 THEN
+        LET id AS String = crypto::uuid4()
+        keys = collections::append(keys, key)
+        peers = collections::append(peers, datagram.from)
+        ids = collections::append(ids, id)
+        counts = collections::append(counts, 0)
+        live = collections::append(live, TRUE)
+        lastSeen = collections::append(lastSeen, now)
+        idx = len(keys) - 1
+        udp::send(server, datagram.from, "Hello " & id & "\n") TRAP(e)
+          RECOVER
+        END TRAP
+        io::print("Connected " & id)
+      ELSE
+        lastSeen = collections::set(lastSeen, idx, now)
+      END IF
+      IF hasBye(datagram.bytes) THEN
+        io::print("Disconnect " & collections::get(ids, idx))
+        live = collections::set(live, idx, FALSE)
+      END IF
+    LOOP
+
+    ' 2. Retire peers that have gone quiet.
+    FOR i = 0 TO len(keys) - 1
+      IF collections::get(live, i) THEN
+        IF datetime::monotonicNanos() - collections::get(lastSeen, i) > udpIdleNanos() THEN
+          io::print("Disconnect " & collections::get(ids, i))
+          live = collections::set(live, i, FALSE)
+        END IF
+      END IF
+    NEXT
+
+    ' 3. On the tick, broadcast to everyone still attached.
+    IF datetime::monotonicNanos() >= nextTick THEN
+      nextTick = nextTick + tickNanos()
+      FOR i = 0 TO len(keys) - 1
+        IF collections::get(live, i) THEN
+          LET id AS String = collections::get(ids, i)
+          LET n AS Integer = collections::get(counts, i) + 1
+          counts = collections::set(counts, i, n)
+          udp::send(server, collections::get(peers, i), "Update " & id & " " & counterText(n) & "\n") TRAP(e)
+            ' A refused datagram means the peer's port is gone (the host sent
+            ' back ICMP port-unreachable), which is as close to a disconnect as
+            ' UDP gets.
+            io::print("Disconnect " & id)
+            live = collections::set(live, i, FALSE)
+            RECOVER
+          END TRAP
+        END IF
+      NEXT
+    END IF
+
+    os::sleep(napMs())
+  LOOP UNTIL FALSE
+END SUB
+
+' ------------------------------------------------------- threaded transports --
+
+' --thread: accept here, serve there.
+'
+' The main thread does nothing but bind and accept. Each accepted socket is
+' handed to a worker over the thread resource channel, and from that moment the
+' connection belongs entirely to the worker — it assigns the UUID, greets, ticks
+' and reports. thread::transfer closes this end of the handle, so there is no
+' window in which both threads can touch the same socket.
+'
+' One worker serves every connection rather than one worker per connection: a
+' Thread handle is itself an owned handle and cannot be stored in a collection
+' (TYPE_COLLECTION_OWNERSHIP_VIOLATION), so a thread-per-connection server would
+' have no way to hold, poll or reap its handles.
+
+SUB serveTcpThreaded(host AS String, port AS Integer)
+  RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
+    io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+  LET bound AS net::Address = tcp::localAddress(server)
+  io::print("Listening tcp " & bound.host & ":" & toString(bound.port) & " (threaded)")
+
+  ' No inline TRAP on thread::start: an inline TRAP on it fails native lowering
+  ' ("native inlined field size not available for type 'ThreadWorker OF ...'",
+  ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
+  ' start instead — the only error that can reach it, since every other call here
+  ' traps at its own site.
+  LET worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp")
+
+  DO
+    RES sock AS tcp::Socket = tcp::accept(server) TRAP(e)
+      CONTINUE DO
+    END TRAP
+    thread::transfer(worker, sock) TRAP(e)
+      io::printError("Could not hand the connection to the worker — " & e.message)
+      RECOVER
+    END TRAP
+  LOOP UNTIL FALSE
+  EXIT SUB
+
+  TRAP(e)
+    io::printError("Cannot start the connection worker — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+END SUB
+
+SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPath AS String)
+  RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
+    io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+  LET bound AS net::Address = tls::localAddress(server)
+  io::print("Listening tls " & bound.host & ":" & toString(bound.port) & " (threaded)")
+
+  ' No inline TRAP on thread::start: an inline TRAP on it fails native lowering
+  ' ("native inlined field size not available for type 'ThreadWorker OF ...'",
+  ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
+  ' start instead — the only error that can reach it, since every other call here
+  ' traps at its own site.
+  LET worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls")
+
+  ' The handshake still completes here, on the main thread: tls::accept is the
+  ' handshake. Only the finished session crosses to the worker. Unlike the
+  ' single-threaded loop this one may block indefinitely in accept, because
+  ' nothing else runs on this thread that a tick could be late for.
+  DO
+    RES sock AS tls::Socket = tls::accept(server) TRAP(e)
+      CONTINUE DO
+    END TRAP
+    thread::transfer(worker, sock) TRAP(e)
+      io::printError("Could not hand the connection to the worker — " & e.message)
+      RECOVER
+    END TRAP
+  LOOP UNTIL FALSE
+  EXIT SUB
+
+  TRAP(e)
+    io::printError("Cannot start the connection worker — " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+END SUB
+
+' --------------------------------------------------------------------- main --
+
+SUB main()
+  LET args AS List OF String = os::args()
+  IF len(args) = 0 THEN
+    usage()
+    EXIT SUB
+  END IF
+
+  MUT mode AS String = ""
+  MUT certPath AS String = ""
+  MUT keyPath AS String = ""
+  MUT host AS String = "127.0.0.1"
+  MUT port AS Integer = 7000
+  MUT threaded AS Boolean = FALSE
+  MUT i AS Integer = 0
+
+  DO WHILE i < len(args)
+    LET arg AS String = collections::get(args, i)
+    IF arg = "--help" OR arg = "-h" THEN
+      usage()
+      EXIT SUB
+    ELSEIF arg = "--tcp" THEN
+      mode = "tcp"
+      i = i + 1
+    ELSEIF arg = "--udp" THEN
+      mode = "udp"
+      i = i + 1
+    ELSEIF arg = "--tls" THEN
+      mode = "tls"
+      certPath = argAt(args, i + 1)
+      keyPath = argAt(args, i + 2)
+      IF certPath = "" OR keyPath = "" THEN
+        io::printError("--tls needs a certificate path and a key path")
+        EXIT PROGRAM 2
+      END IF
+      i = i + 3
+    ELSEIF arg = "--thread" THEN
+      threaded = TRUE
+      i = i + 1
+    ELSEIF arg = "--host" THEN
+      host = argAt(args, i + 1)
+      IF host = "" THEN
+        io::printError("--host needs an address")
+        EXIT PROGRAM 2
+      END IF
+      i = i + 2
+    ELSEIF arg = "--port" THEN
+      port = toInt(argAt(args, i + 1)) TRAP(e)
+        io::printError("--port needs a number, not " & argAt(args, i + 1))
+        EXIT PROGRAM 2
+      END TRAP
+      i = i + 2
+    ELSE
+      io::printError("Unknown argument: " & arg)
+      io::printError("Run network-server --help for usage.")
+      EXIT PROGRAM 2
+    END IF
+  LOOP
+
+  IF mode = "" THEN
+    io::printError("Pick a transport: --tcp, --udp, or --tls CERT KEY.")
+    io::printError("Run network-server --help for usage.")
+    EXIT PROGRAM 2
+  END IF
+
+  IF threaded AND mode = "udp" THEN
+    io::printError("--thread does not apply to --udp: UDP has no per-connection")
+    io::printError("socket to hand to a worker — every peer shares the one bound")
+    io::printError("socket. Use --thread with --tcp or --tls.")
+    EXIT PROGRAM 2
+  END IF
+
+  io::print("Server " & toString(os::pid()) & " (Ctrl-C to stop)")
+
+  IF mode = "tcp" THEN
+    IF threaded THEN
+      serveTcpThreaded(host, port)
+    ELSE
+      serveTcp(host, port)
+    END IF
+  ELSEIF mode = "udp" THEN
+    serveUdp(host, port)
+  ELSE
+    IF threaded THEN
+      serveTlsThreaded(host, port, certPath, keyPath)
+    ELSE
+      serveTls(host, port, certPath, keyPath)
+    END IF
+  END IF
+END SUB

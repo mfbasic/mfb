@@ -7,12 +7,12 @@
 IMPORT crypto
 
 FUNC main AS Integer
-  LET a AS List OF Byte = crypto::hash(Hash.SHA224, "abc")
-  LET b AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
-  LET c AS List OF Byte = crypto::hash(Hash.SHA384, "abc")
-  LET d AS List OF Byte = crypto::hash(Hash.SHA512, "abc")
-  LET e AS List OF Byte = crypto::hash(Hash.SHA1, 42)
-  LET f AS List OF Byte = crypto::hmac(Hash.SHA2_256, "key", "data")
-  LET g AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
+  LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, "abc")
+  LET b AS List OF Byte = crypto::hash(crypto::Hash.SHA256, "abc")
+  LET c AS List OF Byte = crypto::hash(crypto::Hash.SHA384, "abc")
+  LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA512, "abc")
+  LET e AS List OF Byte = crypto::hash(crypto::Hash.SHA1, 42)
+  LET f AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, "key", "data")
+  LET g AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
   RETURN len(a) + len(b) + len(c) + len(d) + len(e) + len(f) + len(g)
 END FUNC

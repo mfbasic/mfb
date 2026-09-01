@@ -8,53 +8,53 @@ IMPORT strings
 
 SUB main()
   ' SHA-2 (FIPS 180-4).
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_256, "abc")))
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_224, "abc")))
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_512, "abc")))
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA2_384, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_256, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_224, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_512, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA2_384, "abc")))
 
   ' SHA-1 (FIPS 180-4 §A.1 one-block, empty message, §A.2 two-block message);
   ' both the String and the List OF Byte overload. Each `Hash.SHA1` use reports
   ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "")))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
   LET abcBytes AS List OF Byte = encoding::utf8Encode("abc")
-  io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, abcBytes)))
+  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, abcBytes)))
 
   ' HMAC (RFC 4231 test case 2; RFC 2202 test case 2 for HMAC-SHA1).
   LET jefe AS List OF Byte = encoding::utf8Encode("Jefe")
-  io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, jefe, "what do ya want for nothing?")))
-  io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_512, jefe, "what do ya want for nothing?")))
-  io::print(encoding::hexEncode(crypto::hmac(Hash.SHA1, jefe, "what do ya want for nothing?")))
+  io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_256, jefe, "what do ya want for nothing?")))
+  io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_512, jefe, "what do ya want for nothing?")))
+  io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA1, jefe, "what do ya want for nothing?")))
 
   ' HKDF (RFC 5869 test case 1; test case 4 for HKDF-SHA1 — same salt/info, 11-byte IKM).
   LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
   LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
   LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
-  io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA2_256, ikm, salt, info, 42)))
+  io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, 42)))
   LET ikm1 AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b")
-  io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA1, ikm1, salt, info, 42)))
+  io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA1, ikm1, salt, info, 42)))
 
   ' PBKDF2-HMAC-SHA-256 (RFC 7914 vectors, low iteration counts);
   ' PBKDF2-HMAC-SHA1 (RFC 6070 test cases 1 and 2).
   LET pw AS List OF Byte = encoding::utf8Encode("passwd")
   LET sa AS List OF Byte = encoding::utf8Encode("salt")
-  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_256, pw, sa, 1, 64)))
-  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_512, pw, sa, 1, 64)))
+  io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA2_256, pw, sa, 1, 64)))
+  io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA2_512, pw, sa, 1, 64)))
   LET pw1 AS List OF Byte = encoding::utf8Encode("password")
-  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
-  io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 2, 20)))
+  io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 1, 20)))
+  io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 2, 20)))
 
   ' AES-256-GCM (McGrew & Viega test case 16).
   LET gkey AS List OF Byte = encoding::hexDecode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
   LET gnonce AS List OF Byte = encoding::hexDecode("cafebabefacedbaddecaf888")
   LET gaad AS List OF Byte = encoding::hexDecode("feedfacedeadbeeffeedfacedeadbeefabaddad2")
   LET gpt AS List OF Byte = encoding::hexDecode("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39")
-  LET gbox AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, gkey, gnonce, gpt, gaad)
+  LET gbox AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, gkey, gnonce, gpt, gaad)
   io::print(encoding::hexEncode(gbox.ciphertext))
   io::print(encoding::hexEncode(gbox.tag))
-  LET gback AS List OF Byte = crypto::open(SymmetricCipher.AES256GCM, gkey, gnonce, gbox.ciphertext, gbox.tag, gaad)
+  LET gback AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, gkey, gnonce, gbox.ciphertext, gbox.tag, gaad)
   io::print("gcm-open=" & encoding::hexEncode(gback))
 
   ' ChaCha20-Poly1305 (RFC 8439 §2.8.2).
@@ -62,28 +62,28 @@ SUB main()
   LET cnonce AS List OF Byte = encoding::hexDecode("070000004041424344454647")
   LET caad AS List OF Byte = encoding::hexDecode("50515253c0c1c2c3c4c5c6c7")
   LET cpt AS List OF Byte = encoding::utf8Encode("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.")
-  LET cbox AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, ckey, cnonce, cpt, caad)
+  LET cbox AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.CHACHA20POLY1305, ckey, cnonce, cpt, caad)
   io::print(encoding::hexEncode(cbox.ciphertext))
   io::print(encoding::hexEncode(cbox.tag))
 
   ' constantTimeEqual.
-  LET d1 AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
-  LET d2 AS List OF Byte = crypto::hash(Hash.SHA2_256, "abc")
-  LET d3 AS List OF Byte = crypto::hash(Hash.SHA2_256, "abd")
+  LET d1 AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
+  LET d2 AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abc")
+  LET d3 AS List OF Byte = crypto::hash(crypto::Hash.SHA2_256, "abd")
   io::print("cteq-same=" & toString(crypto::constantTimeEqual(d1, d2)))
   io::print("cteq-diff=" & toString(crypto::constantTimeEqual(d1, d3)))
 
   ' Ed25519 (RFC 8032 test 1): deterministic signature + verify round-trip.
   LET edSeed AS List OF Byte = encoding::hexDecode("9d61b19deffbbcc0f5dcb4a5eb28efbcccca7ab3b7a3c6ee5ce3af5b7cba5327")
   LET edMsg AS List OF Byte = encoding::utf8Encode("test message")
-  LET edSig AS List OF Byte = crypto::sign(Certificate.Ed25519, edSeed, edMsg)
+  LET edSig AS List OF Byte = crypto::sign(crypto::Certificate.Ed25519, edSeed, edMsg)
   io::print(encoding::hexEncode(edSig))
-  LET edPub AS List OF Byte = crypto::generate(Certificate.Ed25519).publicKey
-  LET edKp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
-  LET edSig2 AS List OF Byte = crypto::sign(Certificate.Ed25519, edKp.privateKey, edMsg)
+  LET edPub AS List OF Byte = crypto::generate(crypto::Certificate.Ed25519).publicKey
+  LET edKp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  LET edSig2 AS List OF Byte = crypto::sign(crypto::Certificate.Ed25519, edKp.privateKey, edMsg)
   LET edBad AS List OF Byte = encoding::utf8Encode("Test message")
-  io::print("ed-good=" & toString(crypto::verify(Certificate.Ed25519, edKp.publicKey, edMsg, edSig2)))
-  io::print("ed-bad=" & toString(crypto::verify(Certificate.Ed25519, edKp.publicKey, edBad, edSig2)))
+  io::print("ed-good=" & toString(crypto::verify(crypto::Certificate.Ed25519, edKp.publicKey, edMsg, edSig2)))
+  io::print("ed-bad=" & toString(crypto::verify(crypto::Certificate.Ed25519, edKp.publicKey, edBad, edSig2)))
 
   ' CSPRNG property checks (deterministic facts about random output).
   io::print("rand-len=" & toString(len(crypto::randomBytes(24))))

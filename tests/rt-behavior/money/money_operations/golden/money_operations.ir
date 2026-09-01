@@ -12,7 +12,7 @@
     "kind": "enum",
     "line": 1,
     "visibility": "export",
-    "name": "Rounding",
+    "name": "money.Rounding",
     "members": [
     { "name": "Commercial" },
     { "name": "Banker" }
@@ -58,10 +58,10 @@
     { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "toMoney", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }] }] }] } },
     { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "toMoney", "args": [{ "kind": "const", "type": "String", "value": "3.50" }] }] }] } },
     { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "const", "type": "Money", "value": "0.125" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
-    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Banker" }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "money.Rounding", "target": { "kind": "local", "name": "money.Rounding" }, "member": "Banker" }] } },
     { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "const", "type": "Money", "value": "0.125" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
     { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "const", "type": "Money", "value": "0.135" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
-    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Commercial" }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "money.Rounding", "target": { "kind": "local", "name": "money.Rounding" }, "member": "Commercial" }] } },
     { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "math.abs", "args": [{ "kind": "local", "name": "neg" }] }] }] } },
     { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "math.min", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] }] }] } },
     { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "math.max", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] }] }] } },

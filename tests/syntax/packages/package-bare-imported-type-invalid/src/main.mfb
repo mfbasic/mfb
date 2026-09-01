@@ -1,0 +1,80 @@
+' bug-484: the governing rule for every kind of name — a name defined LOCALLY
+' needs no prefix, a name that is IMPORTED requires one.
+'
+' Both halves are pinned here, in one file, because the bug was that they had
+' drifted apart: `src/resolver/mod.rs`'s seed list of always-resolvable type
+' names held six BARE leaves (`Address`, `Datagram`, `TermColor`, `TermSize`,
+' `AudioDevice`, `Json`) where every other entry was a package-qualified id. A
+' bare leaf there makes that one name resolvable from ANY file with no prefix,
+' so `AS Address` compiled from a consumer while the sibling `AS Url` — same
+' package, same kind, but absent from the list — was correctly refused. Nothing
+' failed to build; the rule simply stopped applying to six names.
+'
+' The local declarations are load-bearing, not scenery. A local name must keep
+' winning bare (E, G), including when it shadows an imported one (E shadows
+' net::Url) — otherwise "fix the bare-name hole" would have meant refusing every
+' local type too, and adding an import would break unrelated code.
+'
+' Note what the rule rules OUT: there is no "ambiguous" outcome for a type name.
+' A bare name means the local one, so it either resolves to a local declaration
+' or it is undefined. How many imported packages happen to export the same leaf
+' never enters into it — which is why C below is a not-defined error even though
+' both tcp and udp export a `Socket`.
+IMPORT net
+IMPORT tcp
+IMPORT udp
+IMPORT tls
+
+TYPE Url                    ' Local Url
+    u as String
+END TYPE
+
+TYPE Foo                    ' Local Foo
+    bar as String
+END TYPE
+
+TYPE TestBareA
+    addr AS Address         ' Should fail (not defined)
+END TYPE
+
+TYPE TestBareB
+    addr AS net::Address    ' Should not fail (net)
+END TYPE
+
+TYPE TestBareC
+    s AS RES Socket         ' Should fail (not defined) — bare means LOCAL, and
+                            ' there is no local Socket. That tcp, udp and tls all
+                            ' export one is irrelevant: none of them are in scope
+                            ' bare, so this is undefined, NOT ambiguous. Ambiguity
+                            ' is not a category here — a bare name has exactly one
+                            ' meaning, the local one.
+END TYPE
+
+TYPE TestBareD
+    s AS RES tcp::Socket    ' Should not fail (tcp)
+END TYPE
+
+TYPE TestBareE
+    s AS RES Listener       ' Should fail (not defined) — bare means LOCAL, and
+                            ' there is no local Listener. That tcp and tls both
+                            ' export one is irrelevant: neither is in scope bare,
+                            ' so this is undefined, NOT ambiguous. Ambiguity is
+                            ' not a category here — a bare name has exactly one
+                            ' meaning, the local one.
+END TYPE
+
+TYPE TestBareF
+    u AS Url                ' Should not fail (local)
+END TYPE
+
+TYPE TestBareG
+    u AS net::Url           ' Should not fail (net)
+END TYPE
+
+TYPE TestBareH
+    u AS Foo                ' Should not fail (local)
+END TYPE
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

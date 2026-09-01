@@ -29,12 +29,12 @@ matching X25519 / Curve25519 (RFC 7748) ECDH key pair:
 
 This reproduces libsodium's `crypto_sign_ed25519_pk_to_curve25519` /
 `crypto_sign_ed25519_sk_to_curve25519`, so the converted pair performs the same
-ECDH as one from `crypto::generate(Certificate.X25519)`. It lets a single Ed25519
+ECDH as one from `crypto::generate(crypto::Certificate.X25519)`. It lets a single Ed25519
 identity be used for both signing (`crypto::sign`) and encryption
 (`crypto::encrypt` / `crypto::decrypt`, which perform this conversion internally).
 
 **`Ed448ToX448`** converts an Ed448 (RFC 8032) signing key pair — a 57-byte seed and
-a 57-byte public key, as `crypto::generate(Certificate.Ed448)` returns — to the
+a 57-byte public key, as `crypto::generate(crypto::Certificate.Ed448)` returns — to the
 matching X448 / Curve448 (RFC 7748) ECDH key pair of 56-byte keys:
 
 - **public key** — the Edwards `y` coordinate (the low 56 bytes) is mapped to the
@@ -72,8 +72,8 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET ed AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
-  LET x AS crypto::KeyPair = crypto::convert(KeyConvert.Ed25519ToX25519, ed)
+  LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  LET x AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed25519ToX25519, ed)
 END SUB
 ```"#;
 

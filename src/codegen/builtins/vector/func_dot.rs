@@ -32,7 +32,7 @@ exact within the Q32.32 grid, and the `Float` overloads are ordinary IEEE
 double arithmetic.
 
 Because the terms are ordinary checked arithmetic, `dot` can overflow. Squaring
-a large coordinate is the common way to hit this: `dot(v, v)` on an `Integer3`
+a large coordinate is the common way to hit this: `dot(v, v)` on a `vector::Integer3`
 whose components approach the square root of the `Integer` maximum will exceed
 the range and fail with `ErrOverflow`. There are no other failure modes — `dot`
 never rejects an input, and the zero vector is an entirely ordinary argument

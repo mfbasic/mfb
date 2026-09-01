@@ -64,7 +64,7 @@ fn constant(
 /// Register the `errorCode` package on the clean-room registry.
 ///
 /// A constants-only package: the migration's 45 `Integer` constants plus any added
-/// since (currently one, `ErrBadPixelCount`), and nothing else. Each legacy row is
+/// since (`ErrBadPixelCount`, `ErrBadFontFile`), and nothing else. Each legacy row is
 /// reproduced verbatim from the legacy `ERRORCODE_CONSTANTS` table — the values are
 /// decimal strings equal to the hyphen-stripped `G-SSS-EEEE` code, and several
 /// message symbols are historical/irregular, so they are copied exactly (byte-identity
@@ -116,14 +116,16 @@ pub(crate) fn register(r: &mut Registry) {
         .add_constant(constant("ErrAudioUnavailable", "77050017", "Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied).", "_mfb_str_error_audio_unavailable"))
         .add_constant(constant("ErrAudioDevice", "77050018", "Audio device open, configuration, or stream operation failed.", "_mfb_str_error_audio_device"))
         .add_constant(constant("ErrInvalidContext", "77050019", "Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`).", "_mfb_str_error_invalid_context"))
-        .add_constant(constant("ErrWrongMode", "77050020", "Operation requires a presentation mode the program is not in. In an `--app` build, `term::*` requires `app::Mode.Console` — the character grid exists only there, so `Mode.None` and `Mode.Canvas` both trap. The console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) need only a window to take key events from, so they trap in `Mode.None` alone.", "_mfb_str_error_wrong_mode"))
+        .add_constant(constant("ErrWrongMode", "77050020", "Operation requires a presentation mode the program is not in. In an `--app` build, `term::*` requires `app::Mode.Console` — the character grid exists only there, so `app::Mode.None` and `app::Mode.Canvas` both trap. The console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) need only a window to take key events from, so they trap in `app::Mode.None` alone.", "_mfb_str_error_wrong_mode"))
         .add_constant(constant("ErrResourceMoved", "77030009", "Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender.", "_mfb_str_error_resource_moved"))
         .add_constant(constant("ErrNativeBufferOverrun", "77030010", "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).", "_mfb_str_error_native_buffer_overrun"))
         .add_constant(constant("ErrSpawnFailed", "77080001", "Child process could not be spawned (fork/exec failed, or the program was not found).", "_mfb_str_error_spawn_failed"))
         // plan-98-B: an RGBA8 image is exactly `width * height * 4` bytes, so a
         // wrong-length pixel list is a distinct, actionable mistake rather than a
         // generic bad argument — the message can say what the count should have been.
-        .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"));
+        .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"))
+        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"))
+        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed.", "_mfb_str_error_bad_image_file"));
 
     r.add_package(pkg);
 }
@@ -269,8 +271,16 @@ mod tests {
         //   +1  ErrBadPixelCount (plan-98-B): an RGBA8 image is exactly
         //       `width * height * 4` bytes, so a wrong-length pixel list is a
         //       distinct, actionable mistake rather than a generic bad argument.
+        //   +1  ErrBadFontFile (plan-98-G): "this is not a font I can read" is a
+        //       different mistake from "this file is missing", and the two need
+        //       different fixes — one is a path typo, the other is the wrong format.
+        //   +1  ErrBadImageFile (plan-98-G): the same distinction for `loadImage`.
+        //       Separate from `ErrBadFontFile` because a program can load both, and
+        //       "which of the two files was wrong" is the first thing its handler
+        //       wants to know.
         const LEGACY_ROWS: usize = 45;
-        const ADDED_SINCE_MIGRATION: &[&str] = &["ErrBadPixelCount"];
+        const ADDED_SINCE_MIGRATION: &[&str] =
+            &["ErrBadPixelCount", "ErrBadFontFile", "ErrBadImageFile"];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");
         }

@@ -231,6 +231,108 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
     ]))
 }
 
+/// Where a build keeps the compiled interface of every dependency declared by
+/// SOURCE DIRECTORY (bug-480 Defect A).
+///
+/// A source dependency has no installed `packages/<name>.mfp`; the compiler
+/// builds it and drops the resulting `.mfp` here, so every consumer of an
+/// imported interface — signatures, type defs, resource closers, monomorph
+/// overloads, the shape pass and `merge_packages` — reads the one artifact
+/// format it already understands. The directory lives under `build/` because it
+/// is a build INPUT the compiler derives, not something the user installs, and
+/// because `build/` is already ignored by version control.
+pub(crate) fn source_package_cache_dir(project_dir: &Path) -> PathBuf {
+    project_dir
+        .join(crate::os::BUILD_DIR)
+        .join(SOURCE_PACKAGE_CACHE_DIR)
+}
+
+/// The name of [`source_package_cache_dir`] inside `build/`. Named separately so
+/// the build-directory clear can recognize (and keep) it without rebuilding the
+/// path.
+pub(crate) const SOURCE_PACKAGE_CACHE_DIR: &str = "packages";
+
+/// The `.mfp` carrying package `name`'s exported interface for a build rooted at
+/// `project_dir`, whichever dependency form declared it: the installed
+/// `packages/<name>.mfp` first, then the source-dependency cache.
+///
+/// This is the single resolution point every reader must use. Hand-building
+/// `project_dir/packages/<name>.mfp` at a read site is what made a source
+/// dependency's exports resolve to nothing (bug-480 Defect A). The INSTALL side
+/// (`mfb pkg`, `mfb pkg install`, `mfb audit`) is deliberately not a caller: it
+/// manages what lives in `packages/`, which is a different question from what
+/// this build resolves an import against.
+pub(crate) fn resolved_package_file(project_dir: &Path, name: &str) -> Option<PathBuf> {
+    // `name` reaches here from a manifest entry and from an `IMPORT` line, and
+    // is interpolated into a file name; refuse a traversing spelling before the
+    // join, exactly as the install side does.
+    if validate_package_name(name).is_err() {
+        return None;
+    }
+    let installed = project_dir.join("packages").join(format!("{name}.mfp"));
+    if installed.is_file() {
+        return Some(installed);
+    }
+    let cached = source_package_cache_dir(project_dir).join(format!("{name}.mfp"));
+    if cached.is_file() {
+        return Some(cached);
+    }
+    None
+}
+
+/// How a `packages` manifest entry names the dependency's contents.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SourceDependency {
+    /// Declared by source directory: this is the directory holding its
+    /// `project.json` (bug-480). The compiler compiles it into
+    /// [`source_package_cache_dir`] before resolving any import against it.
+    Directory(PathBuf),
+    /// Declared as a compiled `.mfp`, or fetched from a registry. Nothing to
+    /// build: the artifact is installed into `packages/` by `mfb pkg install`.
+    Compiled,
+    /// A `local://` source whose path is not absolute — `IMPORT_LOCAL_PATH_INVALID`.
+    LocalPathNotAbsolute,
+}
+
+/// Classify one declared dependency's `source` (`13_modules-and-packages.md`,
+/// `07_cli-reference.md`).
+///
+/// - `local:///abs` — the absolute directory holding the package sources;
+/// - `file:<rel>` — project-relative; a `<rel>` ending in `.mfp` is the compiled
+///   form, anything else is a source directory;
+/// - `file://…` — an absolute URL to a `.mfp` (what `mfb pkg add` writes);
+/// - anything else, including an absent `source` — the conventional
+///   `packages/<name>/` source directory, which is also where an installed
+///   `packages/<name>.mfp` would sit. Both are probed: the compiled form wins.
+pub(crate) fn source_dependency(
+    project_dir: &Path,
+    name: &str,
+    source: Option<&str>,
+) -> SourceDependency {
+    let Some(source) = source.filter(|source| !source.is_empty()) else {
+        return SourceDependency::Directory(project_dir.join("packages").join(name));
+    };
+    if let Some(path) = source.strip_prefix("local://") {
+        let path = PathBuf::from(path);
+        return if path.is_absolute() {
+            SourceDependency::Directory(path)
+        } else {
+            SourceDependency::LocalPathNotAbsolute
+        };
+    }
+    if source.starts_with("file://") {
+        // An absolute `file://` URL always names a `.mfp` (`package_file_url_path`).
+        return SourceDependency::Compiled;
+    }
+    if let Some(rel) = source.strip_prefix("file:") {
+        if rel.ends_with(".mfp") {
+            return SourceDependency::Compiled;
+        }
+        return SourceDependency::Directory(project_dir.join(rel));
+    }
+    SourceDependency::Compiled
+}
+
 pub(crate) fn installed_package_files(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
@@ -246,10 +348,10 @@ pub(crate) fn installed_package_files(
         .iter()
         .filter_map(project_package_dependency)
         .map(|dependency| {
-            let package_file = project_dir
-                .join("packages")
-                .join(format!("{}.mfp", dependency.name));
-            if package_file.is_file() {
+            // bug-480: a source-directory dependency has been compiled into the
+            // build's package cache by this point, so it resolves here exactly
+            // like an installed `.mfp` and needs no second code path below.
+            if let Some(package_file) = resolved_package_file(project_dir, &dependency.name) {
                 let header = read_mfp_header(&package_file)?;
                 if dependency.pin && header.version != dependency.version {
                     return Err(format!(
@@ -262,7 +364,10 @@ pub(crate) fn installed_package_files(
                 Err(format!(
                     "package `{}` must be installed as '{}' before binary representation merging",
                     dependency.name,
-                    package_file.display()
+                    project_dir
+                        .join("packages")
+                        .join(format!("{}.mfp", dependency.name))
+                        .display()
                 ))
             }
         })
@@ -1154,6 +1259,99 @@ mod tests {
         let files = installed_package_files(dir.path(), manifest).expect("ok");
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("dep.mfp"));
+    }
+
+    /// bug-480: a dependency compiled from source has no `packages/<name>.mfp`,
+    /// only the build's cache entry — and that entry must resolve exactly like an
+    /// installed one, including the pin check.
+    #[test]
+    fn installed_package_files_resolves_the_source_package_cache() {
+        let value = json(r#"{"name":"p","version":"1","packages":[{"name":"dep","version":"1"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = source_package_cache_dir(dir.path());
+        fs::create_dir_all(&cache).unwrap();
+        fs::write(cache.join("dep.mfp"), build_mfp("dep", "2.0")).unwrap();
+        let files = installed_package_files(dir.path(), manifest).expect("ok");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0], cache.join("dep.mfp"));
+
+        // The pin is enforced against the cache entry too.
+        let value = json(
+            r#"{"name":"p","version":"1","packages":[{"name":"dep","version":"9.9","pin":true}]}"#,
+        );
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let err = installed_package_files(dir.path(), manifest).unwrap_err();
+        assert!(err.contains("is pinned to version"), "{err}");
+    }
+
+    /// The installed form wins: `mfb pkg install` put it there deliberately, and
+    /// a leftover cache entry must never shadow it.
+    #[test]
+    fn resolved_package_file_prefers_the_installed_mfp() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = source_package_cache_dir(dir.path());
+        fs::create_dir_all(&cache).unwrap();
+        fs::write(cache.join("dep.mfp"), build_mfp("dep", "2.0")).unwrap();
+        assert_eq!(
+            resolved_package_file(dir.path(), "dep"),
+            Some(cache.join("dep.mfp"))
+        );
+
+        let installed = dir.path().join("packages");
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(installed.join("dep.mfp"), build_mfp("dep", "2.0")).unwrap();
+        assert_eq!(
+            resolved_package_file(dir.path(), "dep"),
+            Some(installed.join("dep.mfp"))
+        );
+
+        assert_eq!(resolved_package_file(dir.path(), "absent"), None);
+        // A traversing name is refused before the join, not probed.
+        assert_eq!(resolved_package_file(dir.path(), "../../evil"), None);
+    }
+
+    #[test]
+    fn source_dependency_classifies_every_source_spelling() {
+        let root = Path::new("/proj");
+        // No `source`: the conventional `packages/<name>/` directory.
+        assert_eq!(
+            source_dependency(root, "dep", None),
+            SourceDependency::Directory(PathBuf::from("/proj/packages/dep"))
+        );
+        assert_eq!(
+            source_dependency(root, "dep", Some("")),
+            SourceDependency::Directory(PathBuf::from("/proj/packages/dep"))
+        );
+        // A project-relative `file:` directory.
+        assert_eq!(
+            source_dependency(root, "dep", Some("file:vendor/dep")),
+            SourceDependency::Directory(PathBuf::from("/proj/vendor/dep"))
+        );
+        // A project-relative `file:` .mfp, and the absolute `file://` URL form
+        // `mfb pkg add` writes: both are the compiled form.
+        assert_eq!(
+            source_dependency(root, "dep", Some("file:packages/dep.mfp")),
+            SourceDependency::Compiled
+        );
+        assert_eq!(
+            source_dependency(root, "dep", Some("file:///elsewhere/dep.mfp")),
+            SourceDependency::Compiled
+        );
+        // A registry source is never built from source here.
+        assert_eq!(
+            source_dependency(root, "dep", Some("https://example.test/repo")),
+            SourceDependency::Compiled
+        );
+        // `local://` must be absolute.
+        assert_eq!(
+            source_dependency(root, "dep", Some("local:///abs/dep")),
+            SourceDependency::Directory(PathBuf::from("/abs/dep"))
+        );
+        assert_eq!(
+            source_dependency(root, "dep", Some("local://rel/dep")),
+            SourceDependency::LocalPathNotAbsolute
+        );
     }
 
     #[test]

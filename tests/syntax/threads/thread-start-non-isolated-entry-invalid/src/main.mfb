@@ -1,0 +1,18 @@
+' plan-115-A guardrail: the entry rule NARROWED to ISOLATED, it did not vanish.
+'
+' The sibling fixture thread-start-local-entry-valid proves a bare local
+' ISOLATED FUNC is now a valid entry. This one proves that accepting a bare name
+' did not accept EVERY bare name: a local FUNC with the right shape but no
+' ISOLATED marker is still rejected. Without this, deleting the entry rule
+' outright would look green.
+IMPORT thread
+
+' Correct signature for an entry in every respect EXCEPT the ISOLATED marker.
+FUNC plainWorker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN seed + 1
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Thread OF Nothing TO Integer = thread::start(plainWorker, 10)
+  RETURN thread::waitFor(a)
+END FUNC

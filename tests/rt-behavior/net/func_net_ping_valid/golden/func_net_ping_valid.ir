@@ -12,7 +12,7 @@
     "kind": "type",
     "line": 16,
     "visibility": "export",
-    "name": "Url",
+    "name": "net.Url",
     "fields": [
     { "visibility": null, "line": 17, "name": "scheme", "type": "String" },
     { "visibility": null, "line": 18, "name": "username", "type": "String" },
@@ -28,7 +28,7 @@
     "kind": "type",
     "line": 27,
     "visibility": "export",
-    "name": "Address",
+    "name": "net.Address",
     "fields": [
     { "visibility": null, "line": 28, "name": "host", "type": "String" },
     { "visibility": null, "line": 29, "name": "port", "type": "Integer" }
@@ -38,10 +38,10 @@
     "kind": "type",
     "line": 41,
     "visibility": "export",
-    "name": "PingResult",
+    "name": "net.PingResult",
     "fields": [
-    { "visibility": null, "line": 42, "name": "status", "type": "PingStatus" },
-    { "visibility": null, "line": 43, "name": "address", "type": "Address" },
+    { "visibility": null, "line": 42, "name": "status", "type": "net.PingStatus" },
+    { "visibility": null, "line": 43, "name": "address", "type": "net.Address" },
     { "visibility": null, "line": 44, "name": "rttMs", "type": "Float" },
     { "visibility": null, "line": 45, "name": "ttl", "type": "Integer" },
     { "visibility": null, "line": 46, "name": "size", "type": "Integer" }
@@ -51,7 +51,7 @@
     "kind": "enum",
     "line": 49,
     "visibility": "export",
-    "name": "PingStatus",
+    "name": "net.PingStatus",
     "members": [
     { "name": "Ok" },
     { "name": "Timeout" },
@@ -67,12 +67,12 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "r", "line": 20, "type": "PingResult", "default": null }
+    { "name": "r", "line": 20, "type": "net.PingResult", "default": null }
     ],
     "returns": "String",
     "body": [
     { "op": "bind", "line": 21, "mutable": true, "name": "name", "type": "String", "value": { "kind": "const", "type": "String", "value": "?" } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "$match0", "type": "PingStatus", "value": { "kind": "memberAccess", "type": "PingStatus", "target": { "kind": "local", "name": "r" }, "member": "status" } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$match0", "type": "net.PingStatus", "value": { "kind": "memberAccess", "type": "net.PingStatus", "target": { "kind": "local", "name": "r" }, "member": "status" } },
     {
       "op": "match",
       "line": 22,
@@ -80,7 +80,7 @@
       "cases": [
       {
         "line": 23,
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "PingStatus", "target": { "kind": "local", "name": "PingStatus" }, "member": "Ok" } },
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "net.PingStatus", "target": { "kind": "local", "name": "net.PingStatus" }, "member": "Ok" } },
         "guard": null,
         "body": [
         { "op": "assign", "line": 24, "name": "name", "value": { "kind": "const", "type": "String", "value": "Ok" } }
@@ -88,7 +88,7 @@
       },
       {
         "line": 25,
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "PingStatus", "target": { "kind": "local", "name": "PingStatus" }, "member": "Timeout" } },
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "net.PingStatus", "target": { "kind": "local", "name": "net.PingStatus" }, "member": "Timeout" } },
         "guard": null,
         "body": [
         { "op": "assign", "line": 26, "name": "name", "value": { "kind": "const", "type": "String", "value": "Timeout" } }
@@ -96,7 +96,7 @@
       },
       {
         "line": 27,
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "PingStatus", "target": { "kind": "local", "name": "PingStatus" }, "member": "Unreachable" } },
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "net.PingStatus", "target": { "kind": "local", "name": "net.PingStatus" }, "member": "Unreachable" } },
         "guard": null,
         "body": [
         { "op": "assign", "line": 28, "name": "name", "value": { "kind": "const", "type": "String", "value": "Unreachable" } }
@@ -104,7 +104,7 @@
       },
       {
         "line": 29,
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "PingStatus", "target": { "kind": "local", "name": "PingStatus" }, "member": "TtlExceeded" } },
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "net.PingStatus", "target": { "kind": "local", "name": "net.PingStatus" }, "member": "TtlExceeded" } },
         "guard": null,
         "body": [
         { "op": "assign", "line": 30, "name": "name", "value": { "kind": "const", "type": "String", "value": "TtlExceeded" } }
@@ -124,26 +124,26 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 37, "mutable": false, "name": "a", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "a", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
     { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "a" }] } }] } },
-    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback responder=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Address", "target": { "kind": "local", "name": "a" }, "member": "address" }, "member": "host" } }] } },
-    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback port=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Address", "target": { "kind": "local", "name": "a" }, "member": "address" }, "member": "port" }] } }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback responder=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "net.Address", "target": { "kind": "local", "name": "a" }, "member": "address" }, "member": "host" } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback port=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "net.Address", "target": { "kind": "local", "name": "a" }, "member": "address" }, "member": "port" }] } }] } },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback rtt positive=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "a" }, "member": "rttMs" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }] } }] } },
     { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback ttl positive=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "ttl" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
     { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loopback size=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "size" }] } }] } },
-    { "op": "bind", "line": 50, "mutable": false, "name": "target", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF Address", "target": "net.lookup", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "9999" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 51, "mutable": false, "name": "b", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "local", "name": "target" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
+    { "op": "bind", "line": 50, "mutable": false, "name": "target", "type": "net.Address", "value": { "kind": "call", "type": "net.Address", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF net.Address", "target": "net.lookup", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "9999" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 51, "mutable": false, "name": "b", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "local", "name": "target" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
     { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "address status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "b" }] } }] } },
-    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "address port=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Address", "target": { "kind": "local", "name": "b" }, "member": "address" }, "member": "port" }] } }] } },
-    { "op": "bind", "line": 58, "mutable": false, "name": "zero", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "address port=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "net.Address", "target": { "kind": "local", "name": "b" }, "member": "address" }, "member": "port" }] } }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "zero", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "zero status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "zero" }] } }, "right": { "kind": "const", "type": "String", "value": " size=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "zero" }, "member": "size" }] } }] } },
-    { "op": "bind", "line": 60, "mutable": false, "name": "big", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "Integer", "value": "8184" }] } },
+    { "op": "bind", "line": 60, "mutable": false, "name": "big", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "2000" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "Integer", "value": "8184" }] } },
     { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "big" }] } }, "right": { "kind": "const", "type": "String", "value": " size=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "big" }, "member": "size" }] } }] } },
-    { "op": "bind", "line": 66, "mutable": false, "name": "quiet", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "192.0.2.1" }, { "kind": "const", "type": "Integer", "value": "300" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "quiet", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "192.0.2.1" }, { "kind": "const", "type": "Integer", "value": "300" }] } },
     { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "silent status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "quiet" }] } }] } },
-    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "silent host=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Address", "target": { "kind": "local", "name": "quiet" }, "member": "address" }, "member": "host" } }] } },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "silent host=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "net.Address", "target": { "kind": "local", "name": "quiet" }, "member": "address" }, "member": "host" } }] } },
     { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "silent zeroed=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "quiet" }, "member": "rttMs" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "quiet" }, "member": "ttl" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "quiet" }, "member": "size" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } }] } }] } },
-    { "op": "bind", "line": 72, "mutable": false, "name": "immediate", "type": "PingResult", "value": { "kind": "call", "type": "PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "192.0.2.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 72, "mutable": false, "name": "immediate", "type": "net.PingResult", "value": { "kind": "call", "type": "net.PingResult", "target": "net.ping", "args": [{ "kind": "const", "type": "String", "value": "192.0.2.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "immediate status=" }, "right": { "kind": "call", "type": "String", "target": "statusName", "args": [{ "kind": "local", "name": "immediate" }] } }] } },
     { "op": "return", "line": 75, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
@@ -380,7 +380,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 162, "type": "Url", "default": null }
+    { "name": "value", "line": 162, "type": "net.Url", "default": null }
     ],
     "returns": "String",
     "body": [
@@ -554,7 +554,7 @@
     "params": [
     { "name": "href", "line": 233, "type": "String", "default": null }
     ],
-    "returns": "Url",
+    "returns": "net.Url",
     "body": [
     { "op": "bind", "line": 234, "mutable": false, "name": "schemeEnd", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "href" }, { "kind": "const", "type": "String", "value": "://" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     {
@@ -726,7 +726,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
+    { "op": "return", "line": 321, "value": { "kind": "constructor", "type": "net.Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
     ]
   },
   {

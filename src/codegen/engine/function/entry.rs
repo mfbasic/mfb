@@ -169,8 +169,33 @@ pub(crate) fn lower_program_entry(
     // addressed `[arena + X]` keeps its absolute position (arena == sp + shadow);
     // the sp-relative args region below shifts up by the same `shadow`.
     let shadow = platform.backend().shadow_space_bytes();
+    // The x86-64 call-parity bias, when this entry is *called* rather than entered
+    // by the kernel.
+    //
+    // SysV puts `rsp` 16-aligned at a `call` and therefore `rsp % 16 == 8` on entry,
+    // so a frame that is a multiple of 16 leaves every call this entry makes
+    // misaligned. `finalize_frame` adds `frame_call_padding()` for exactly this and
+    // the entry never passes through it, so the bias has to be added here.
+    //
+    // It is conditional because the two ways in are genuinely different. The kernel
+    // enters a process at `_start` with `rsp` already 16-aligned and **no return
+    // address pushed**, so a 16-multiple frame is correct there — which is why every
+    // ordinary program has always been fine. App mode is the other case: the worker
+    // shim *calls* this entry, so it arrives at `rsp % 16 == 8` and inherits the
+    // wrong parity for the whole program beneath it.
+    //
+    // The symptom that found this is worth recording, because it points nowhere near
+    // here: an app-mode program on Linux x86-64 died in `__libc_calloc` under
+    // `g_idle_add` on the first `app::setMode` — in Console mode as much as Canvas —
+    // and the faulting instruction was `movaps %xmm0,(%rsp)`, an *aligned* store. It
+    // reads as heap corruption and is a stack-parity bug six frames up.
+    let call_parity = if entry_called_as_function {
+        platform.backend().frame_call_padding()
+    } else {
+        0
+    };
     instructions.extend([
-        abi::subtract_stack(entry_stack_size + shadow),
+        abi::subtract_stack(entry_stack_size + shadow + call_parity),
         abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), shadow),
         // Zero the whole arena state with a loop (allocator-04): the entry
         // frame is live stack, NOT zero-filled, and this initializer must stay

@@ -30,21 +30,21 @@ IMPORT canvas
 IMPORT io
 
 SUB main()
-  app::setMode(Mode.Canvas)
+  app::setMode(app::Mode.Canvas)
 
-  LET yellow AS Color = canvas::rgb(255, 255, 0)
-  LET green AS Color = canvas::rgb(0, 160, 0)
+  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
 
-  LET canvasSize AS Size = canvas::getSize()
+  LET canvasSize AS canvas::Size = canvas::getSize()
   LET cx AS Float = toFloat(canvasSize.width) / 2.0
   LET cy AS Float = toFloat(canvasSize.height) / 2.0
 
-  LET face AS DrawItem = Circle[x := cx, y := cy, radius := 150.0, paint := canvas::fill(yellow)]
-  LET eyeL AS DrawItem = Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
-  LET eyeR AS DrawItem = Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS DrawItem = Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  LET face AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := 150.0, paint := canvas::fill(yellow)]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
 
-  LET scene AS List OF DrawItem = [face, eyeL, eyeR, smile]
+  LET scene AS List OF canvas::DrawItem = [face, eyeL, eyeR, smile]
 
   canvas::present(scene)
   io::print("rendered")

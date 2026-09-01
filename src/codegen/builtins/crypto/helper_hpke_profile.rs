@@ -48,7 +48,7 @@ FUNC __crypto_hpkeKdfId(cipher AS AsymmetricCipher) AS Integer
   END IF
   RETURN 1
 END FUNC
-' The `Hash` behind the suite's KDF (and its DHKEM's KDF, which coincide here).
+' The `crypto::Hash` behind the suite's KDF (and its DHKEM's KDF, which coincide here).
 FUNC __crypto_hpkeKdfHash(cipher AS AsymmetricCipher) AS Hash
   IF __crypto_hpkeIsX448(cipher) THEN
     RETURN Hash.SHA2_512

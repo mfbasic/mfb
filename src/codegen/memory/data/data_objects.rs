@@ -219,6 +219,13 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.setSyncMode",
             "canvas.surfaceWidth",
             "canvas.surfaceHeight",
+            "canvas.setGpuMode",
+            "canvas.useGpu",
+            "canvas.metalAvailable",
+            "canvas.vulkanReady",
+            "canvas.vulkanDrawScene",
+            "canvas.metalReady",
+            "canvas.metalDrawScene",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",
@@ -241,6 +248,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "canvas.createImage",
+            "canvas.loadImage",
             "canvas.imageRef",
             "canvas.getSize",
             "canvas.getBytes",
@@ -251,7 +259,24 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrOutOfMemory"),
             err_msg("ErrResourceClosed"),
             err_msg("ErrBadPixelCount"),
+            err_msg("ErrBadImageFile"),
             err_msg("ErrWrongMode"),
+        ] {
+            push_string_value(&mut values, value);
+        }
+    }
+    // The font members, keyed the same way and for the same reason: a program that
+    // loads a font and measures text needs these whether or not it ever presents a
+    // scene. `ErrBadFontFile` rides with them because `loadFont` is the only member
+    // that can raise it.
+    if module_uses_any_call(
+        module,
+        &["canvas.loadFont", "canvas.fontFromBytes", "canvas.fontRef"],
+    ) {
+        for value in [
+            err_msg("ErrOutOfMemory"),
+            err_msg("ErrResourceClosed"),
+            err_msg("ErrBadFontFile"),
         ] {
             push_string_value(&mut values, value);
         }
@@ -1169,7 +1194,8 @@ fn collect_string_values_from_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             collect_string_values_from_value(value, values, constants, types, fields)
         }
         NirValue::WithUpdate {
@@ -1288,6 +1314,9 @@ pub(crate) fn static_type_name_with_types(
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
         NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+        // `Checked` reports its success type, as `CallResult` below reports the
+        // callee's return type rather than the `Result OF` wrapper (bug-471).
+        NirValue::Checked { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {

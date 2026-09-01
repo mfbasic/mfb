@@ -586,24 +586,34 @@ SUB main()
   LET ready AS Boolean = io::pollInput()
 END SUB
 MFB
-if ! gui_enabled; then
-  echo "skip: canvas resize GUI test (set MFB_MACAPP_GUI=1 when idle)"
-elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  fail "build -app canvasresize"
-else
+#
+# Run once per renderer. The resize path is shared — main publishes the new size into
+# the graphics state and the renderer reads it at frame start (.ai/canvas-threading.md
+# §5) — but the two backends act on it differently: the software rasteriser allocates
+# a bigger pixel buffer, while Metal reallocates its offscreen texture. Only running
+# both proves the shared handshake reaches both.
+canvas_resize_case() {
+  local label="$1"
+  local metal="$2"
+  local bundle_path app_pid shot verdict
   bundle_path=$(bundle "$proj" canvasresize)
-  "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+  if [ -n "$metal" ]; then
+    MFB_CANVAS_METAL=1 "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+  else
+    "$bundle_path/Contents/MacOS/canvasresize" >/dev/null 2>&1 &
+  fi
   app_pid=$!
   sleep 3
   osascript -e 'tell application "System Events" to tell (first process whose unix id is '"$app_pid"') to set size of front window to {1200, 800}' >/dev/null 2>&1
   sleep 3
-  shot="$work/canvasresize"
+  shot="$work/canvasresize-$label"
   if ! python3 "$ROOT/scripts/snap-macos.py" "$bundle_path" "$shot" >/dev/null 2>&1; then
     kill "$app_pid" 2>/dev/null
-    fail "canvas resize screenshot (grant Screen Recording permission)"
-  else
-    kill "$app_pid" 2>/dev/null
-    verdict=$(python3 - "$shot.png" <<'PY'
+    fail "canvas resize screenshot, $label (grant Screen Recording permission)"
+    return
+  fi
+  kill "$app_pid" 2>/dev/null
+  verdict=$(python3 - "$shot.png" <<'PY'
 import sys
 
 from PIL import Image
@@ -642,12 +652,20 @@ else:
     print(f"square covers {fraction:.3f} of the width — the old frame was stretched")
 PY
 )
-    if [ "$verdict" = "ok" ]; then
-      pass "a window resize re-renders at the new surface size"
-    else
-      fail "canvas resize: $verdict"
-    fi
+  if [ "$verdict" = "ok" ]; then
+    pass "a window resize re-renders at the new surface size ($label)"
+  else
+    fail "canvas resize ($label): $verdict"
   fi
+}
+
+if ! gui_enabled; then
+  echo "skip: canvas resize GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app canvasresize"
+else
+  canvas_resize_case software ""
+  canvas_resize_case metal 1
 fi
 
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT

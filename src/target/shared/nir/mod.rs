@@ -306,6 +306,14 @@ pub(crate) enum NirValue {
         args: Vec<NirValue>,
         loc: NirSourceLoc,
     },
+    /// Evaluate `value` with its domain-error exits captured, yielding a
+    /// `Result OF <type_>` (bug-471) — the operator twin of `CallResult`. See
+    /// [`crate::ir::value::IrValue::Checked`]; codegen lowers it by running
+    /// `value` under a `raw_result_capture`.
+    Checked {
+        type_: ParameterType,
+        value: Box<NirValue>,
+    },
     Constructor {
         type_: ParameterType,
         args: Vec<NirValue>,

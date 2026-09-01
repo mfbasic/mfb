@@ -49,10 +49,10 @@ FUNC main() AS Integer
 
   ' money::round + rounding mode switch (Commercial vs Banker on a 0.5 tie)
   io::print(toString(money::round(0.125m, 2)))  ' 0.13 (Commercial default)
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))  ' 0.12 (Banker)
   io::print(toString(money::round(0.135m, 2)))  ' 0.14 (Banker rounds to even)
-  money::setRounding(Rounding.Commercial)
+  money::setRounding(money::Rounding.Commercial)
 
   ' math:: Money surface
   io::print(toString(math::abs(neg)))                 ' 1.25

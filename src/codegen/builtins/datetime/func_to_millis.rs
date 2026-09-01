@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Return the whole milliseconds between the Unix epoch and an `Instant`."#;
+const INTRO: &str =
+    r#"Return the whole milliseconds between the Unix epoch and a `datetime::Instant`."#;
 const DESC: &str = r#"`datetime::toMillis` collapses the absolute point `at` into a single `Integer`
 count of whole milliseconds measured from the Unix epoch
 (`1970-01-01T00:00:00Z`). Instants before the epoch yield negative counts, the
@@ -14,7 +15,7 @@ The result is computed as `at.seconds * 1000 + at.nanos / 1000000`: the
 seconds-since-epoch field is scaled to milliseconds and the sub-second `nanos`
 field contributes its whole-millisecond part. The `nanos` division truncates,
 discarding any sub-millisecond remainder (the microsecond and nanosecond
-digits). Because a normalized `Instant` always holds a non-negative `nanos`
+digits). Because a normalized `datetime::Instant` always holds a non-negative `nanos`
 field in the range `0..999999999`, this truncation drops the fractional
 millisecond rather than rounding it, in either direction.
 
@@ -43,9 +44,9 @@ Round-trip an instant through its millisecond count:
 IMPORT datetime
 
 SUB main()
-  LET at AS Instant = datetime::now()
+  LET at AS datetime::Instant = datetime::now()
   LET ms AS Integer = datetime::toMillis(at)
-  LET back AS Instant = datetime::fromMillis(ms)
+  LET back AS datetime::Instant = datetime::fromMillis(ms)
 END SUB
 ```"#;
 

@@ -25,7 +25,26 @@ ACTUAL=$(mktemp -d)
 
 # Forward the name globs so test-accept.sh runs ONLY the matching tests. With no
 # globs, "$@" is empty and it runs everything (mass-migration mode).
-bash "$ROOT/scripts/test-accept.sh" "$MFB_EXE" "$ACTUAL" "$@" >/dev/null 2>&1 || true
+#
+# A non-zero exit is EXPECTED here and must not abort: this script's whole job is
+# to refresh goldens that currently differ, so the harness reporting diffs is the
+# normal case.
+#
+# Exit 98 is the one exception. It is test-accept.sh's "another run holds the
+# lock" refusal, not a gate result (it was split off from 1 for exactly this
+# reason). Swallowed with the rest, a refused run produced NO actual output, the
+# copy loop below found nothing to copy, and this script reported
+# "synced 0 golden file(s)" and exited 0 -- indistinguishable from "every golden
+# was already current". A caller then commits a sweep believing its goldens were
+# regenerated when the harness never ran. Refuse loudly instead.
+bash "$ROOT/scripts/test-accept.sh" "$MFB_EXE" "$ACTUAL" "$@" >/dev/null 2>&1
+accept_status=$?
+if [ "$accept_status" -eq 98 ]; then
+  echo "sync-goldens: test-accept.sh refused (another run holds the lock);" >&2
+  echo "              no goldens were regenerated. Re-run when it is free." >&2
+  rm -rf "$ACTUAL"
+  exit 98
+fi
 
 # Copy off what test-accept.sh actually produced: it creates an actual dir only
 # for tests that passed the filter (matches_filter runs before the mkdir), so

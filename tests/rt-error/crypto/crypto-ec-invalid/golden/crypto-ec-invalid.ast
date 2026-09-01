@@ -23,7 +23,7 @@
       { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 9 },
       { "kind": "binding", "mutable": false, "name": "sig", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "3006020101020102" }] }, "line": 10 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 11 },
-      { "kind": "binding", "mutable": false, "name": "ok", "type": "Boolean", "value": { "kind": "call", "callee": "crypto.verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Certificate" }, "member": "P256" }, { "kind": "identifier", "value": "badPub" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "sig" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "ok", "type": "Boolean", "value": { "kind": "call", "callee": "crypto.verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "P256" }, { "kind": "identifier", "value": "badPub" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "sig" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] } }] }, "line": 13 }
       ]
     }

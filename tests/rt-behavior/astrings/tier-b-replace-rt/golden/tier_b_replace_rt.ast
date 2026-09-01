@@ -42,7 +42,7 @@
             "line": 17,
             "cases": [
             {
-              "pattern": { "kind": "union", "type": "AttrFlag", "binding": "f" },
+              "pattern": { "kind": "union", "type": "astrings.AttrFlag", "binding": "f" },
               "guard": null,
               "line": 18,
               "body": [
@@ -52,7 +52,7 @@
                 "line": 19,
                 "cases": [
                 {
-                  "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Bold" } },
+                  "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Bold" } },
                   "guard": null,
                   "line": 20,
                   "body": [
@@ -60,7 +60,7 @@
                   ]
                 },
                 {
-                  "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Italic" } },
+                  "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Italic" } },
                   "guard": null,
                   "line": 22,
                   "body": [

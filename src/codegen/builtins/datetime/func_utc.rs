@@ -3,24 +3,24 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"The `Zone` representing Coordinated Universal Time."#;
-const DESC: &str = r#"`datetime::utc` returns the `Zone` that represents Coordinated Universal Time: a
+const INTRO: &str = r#"The `datetime::Zone` representing Coordinated Universal Time."#;
+const DESC: &str = r#"`datetime::utc` returns the `datetime::Zone` that represents Coordinated Universal Time: a
 fixed zone whose offset from UTC is a constant zero seconds and whose label is
-the literal string `"UTC"`. The returned `Zone` carries a zone kind of
-`ZoneKind::Utc` (the first `ZoneKind` variant, tag `0`), marking it as the
+the literal string `"UTC"`. The returned `datetime::Zone` carries a zone kind of
+`datetime::ZoneKind::Utc` (the first `datetime::ZoneKind` variant, tag `0`), marking it as the
 canonical UTC zone rather than an arbitrary fixed offset built with
-`datetime::fixedOffset` (kind `ZoneKind::FixedOffset`).
+`datetime::fixedOffset` (kind `datetime::ZoneKind::FixedOffset`).
 
 
-A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
-human-readable civil fields of a `DateTime`. Project an `Instant` through this
-zone with `datetime::inZone` to obtain a `DateTime` whose year, month, day, and
+A `datetime::Zone` is the bridge between the absolute UTC timeline (a `datetime::Instant`) and the
+human-readable civil fields of a `datetime::DateTime`. Project a `datetime::Instant` through this
+zone with `datetime::inZone` to obtain a `datetime::DateTime` whose year, month, day, and
 time fields are expressed in UTC; `datetime::toUtc` is the dedicated shorthand
 for exactly that projection. Because the offset is always zero, the civil fields
-of a `DateTime` in this zone match the seconds-since-epoch of the originating
-`Instant` directly, with no offset adjustment.
+of a `datetime::DateTime` in this zone match the seconds-since-epoch of the originating
+`datetime::Instant` directly, with no offset adjustment.
 
-`datetime::utc` takes no arguments and always returns the same constant `Zone`.
+`datetime::utc` takes no arguments and always returns the same constant `datetime::Zone`.
 It is pure: every call yields an identical UTC zone, it reads no host state, and
 it has no side effects. Unlike `datetime::local`, whose offset depends on the
 host's configured time zone, `datetime::utc` is wholly independent of the
@@ -31,7 +31,7 @@ const EX: &str = r#"Obtain the UTC zone:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::utc()
+  LET z AS datetime::Zone = datetime::utc()
 END SUB
 ```
 
@@ -41,20 +41,20 @@ Project the current instant into UTC to read its civil fields:
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::now()
-  LET inUtc AS DateTime = datetime::inZone(t, datetime::utc())
+  LET t AS datetime::Instant = datetime::now()
+  LET inUtc AS datetime::DateTime = datetime::inZone(t, datetime::utc())
 END SUB
 ```
 
-Combine a date and time into a UTC-zoned `DateTime`:
+Combine a date and time into a UTC-zoned `datetime::DateTime`:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET tm AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET tm AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
 END SUB
 ```"#;
 

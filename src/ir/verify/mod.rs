@@ -174,16 +174,24 @@ fn collect_diagnostics_with(
                 .map(|p| p.name.clone())
                 .collect(),
         );
-        // An ISOLATED function is a thread entry point, reached by name from
-        // another package's `thread::start`, so it must be a project-visible
-        // FUNC (bug-227). `IrFunction` carries all three facts.
-        if function.isolated && (function.kind != "func" || function.visibility == "private") {
+        // `ISOLATED` marks thread-entry eligibility, and it is independent of
+        // visibility: any top-level `FUNC` may carry it, `PRIVATE` included.
+        //
+        // plan-115-A: this used to also reject `PRIVATE`, on the bug-227
+        // rationale that "an ISOLATED function is a thread entry point, reached
+        // by name from another package's `thread::start`, so it must be
+        // project-visible". That rationale is exactly what this plan deletes —
+        // an entry need no longer be reached from another package, so a
+        // file-local entry is well-formed and the visibility half of the rule
+        // has no surviving justification. What remains is the declaration-form
+        // half: `ISOLATED` is still meaningless on a `SUB`, a lambda, a closure
+        // or a local function, so `kind != "func"` is still rejected.
+        if function.isolated && function.kind != "func" {
             env.current_line.set(function.loc.line);
             env.emit(
                 "TYPE_ISOLATED_NOT_VISIBLE",
                 format!(
-                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
-                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
+                    "ISOLATED function `{}` must be a top-level FUNC declaration.",
                     function.name
                 ),
             );
@@ -337,7 +345,7 @@ fn collect_diagnostics_with(
                 env.emit(
                     "TYPE_RESOURCE_RETURN_ORDER",
                     format!(
-                        "resource `{name}` is returned inside collection `{collection}`, but \
+                        "resource `{name}` is returned inside `{collection}`, but \
                          `{collection}` is declared after it, so it cannot take ownership; \
                          declare `{collection}` before `{name}`"
                     ),
@@ -1022,9 +1030,28 @@ impl TypeEnv {
         // Project records store field types on the IrType; look them up via the
         // dedicated map built alongside `records`. plan-111-B: keyed by the
         // type, so nothing renders here any more.
+        //
+        // plan-114-E: the result is the field type with its top-level `RES `
+        // marker stripped, leaving `Stateful { base, state }` (or the bare
+        // resource when the field carries no `STATE`). The VALUE is unchanged —
+        // reading the field yields the same handle pointer either way; only the
+        // type spelling differs.
+        //
+        // This is the front-end twin of the same strip in
+        // `lower_field_access` (`memory/value/builder_value_semantics.rs`), and
+        // BOTH are needed. `split_state` matches `Stateful` only at the top
+        // level, so `Res(Stateful{..}).state()` is `None`: without the strip
+        // here, `h.handle.state` is refused by the type checker before codegen
+        // ever sees it — with `TYPE_STATE_INVALID` claiming "`fs.File` here has
+        // no STATE", which names the wrong problem entirely.
+        //
+        // Unconditional, as for a collection element
+        // (`list_element("List OF RES Socket") == "Socket"`): one rule for both
+        // positions keeps them from drifting.
         self.field_types
             .get(type_)
             .and_then(|fields| fields.get(member).cloned())
+            .map(|field_type| strip_res(&field_type).clone())
     }
 }
 
@@ -1199,9 +1226,13 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(_, _)) {
         return true;
     }
+    // Both spellings, via `is_builtin_named`: a source `AS net::Address`
+    // resolves to the qualified `net.Address`, and matching only the bare leaf
+    // left this rule looking for a name nothing produces any more — so
+    // `net::Address["1.2.3.4", 80]` compiled and ran (bug-483).
     crate::codegen::builtins::term::is_read_only_record(type_)
-        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
-        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
+        || type_.is_builtin_named("net", crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_builtin_named("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// Whether `name` is a built-in resource type (has a registered close op).

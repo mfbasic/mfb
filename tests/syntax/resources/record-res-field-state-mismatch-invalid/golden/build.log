@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/record-res-field-state-mismatch-invalid
+  32 |   RES f AS fs::File STATE Cursor = fs::openFile("target/mismatch.txt", "w")
+  33 |   LET h = Holder[f]
+  34 |   RES g AS fs::File STATE Other = h.handle
+     | ^
+tests/syntax/resources/record-res-field-state-mismatch-invalid/src/main.mfb:34 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `g` declares `STATE Other` but its initializer carries STATE `Cursor`; a resource's STATE type is fixed where it is created.
+[exit 1]

@@ -35,7 +35,7 @@ FUNC code(err AS Error) AS String
   RETURN "other=" & toString(err.code)
 END FUNC
 
-FUNC tryExchange(t AS Certificate, priv AS List OF Byte, pub AS List OF Byte) AS String
+FUNC tryExchange(t AS crypto::Certificate, priv AS List OF Byte, pub AS List OF Byte) AS String
   LET s AS List OF Byte = crypto::exchange(t, priv, pub)
   RETURN encoding::hexEncode(s)
   TRAP(err)
@@ -43,7 +43,7 @@ FUNC tryExchange(t AS Certificate, priv AS List OF Byte, pub AS List OF Byte) AS
   END TRAP
 END FUNC
 
-FUNC trySign(t AS Certificate, priv AS List OF Byte) AS String
+FUNC trySign(t AS crypto::Certificate, priv AS List OF Byte) AS String
   LET s AS List OF Byte = crypto::sign(t, priv, fill(3, 1))
   RETURN encoding::hexEncode(s)
   TRAP(err)
@@ -51,7 +51,7 @@ FUNC trySign(t AS Certificate, priv AS List OF Byte) AS String
   END TRAP
 END FUNC
 
-FUNC tryVerify(t AS Certificate, pub AS List OF Byte) AS String
+FUNC tryVerify(t AS crypto::Certificate, pub AS List OF Byte) AS String
   LET ok AS Boolean = crypto::verify(t, pub, fill(3, 1), fill(114, 0))
   RETURN toString(ok)
   TRAP(err)
@@ -59,7 +59,7 @@ FUNC tryVerify(t AS Certificate, pub AS List OF Byte) AS String
   END TRAP
 END FUNC
 
-FUNC tryConvert(c AS KeyConvert, priv AS List OF Byte, pub AS List OF Byte) AS String
+FUNC tryConvert(c AS crypto::KeyConvert, priv AS List OF Byte, pub AS List OF Byte) AS String
   LET kp AS crypto::KeyPair = crypto::convert(c, crypto::KeyPair[priv, pub])
   RETURN encoding::hexEncode(kp.privateKey) & "/" & encoding::hexEncode(kp.publicKey)
   TRAP(err)
@@ -71,51 +71,51 @@ SUB main()
   LET base448 AS List OF Byte = basePoint(56, 5)
   LET alice AS List OF Byte = encoding::hexDecode("9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b")
   LET bob AS List OF Byte = encoding::hexDecode("1c306a7ac2a0e2e0990b294470cba339e6453772b075811d8fad0d1d6927c120bb5ee8972b0d3e21374c9c921b09d1b0366f10b65173992d")
-  io::print("x448-iter1=" & tryExchange(Certificate.X448, base448, base448))
-  LET alicePub AS List OF Byte = crypto::exchange(Certificate.X448, alice, base448)
-  LET bobPub AS List OF Byte = crypto::exchange(Certificate.X448, bob, base448)
+  io::print("x448-iter1=" & tryExchange(crypto::Certificate.X448, base448, base448))
+  LET alicePub AS List OF Byte = crypto::exchange(crypto::Certificate.X448, alice, base448)
+  LET bobPub AS List OF Byte = crypto::exchange(crypto::Certificate.X448, bob, base448)
   io::print("x448-alice-pub=" & encoding::hexEncode(alicePub))
   io::print("x448-bob-pub=" & encoding::hexEncode(bobPub))
-  io::print("x448-shared-ab=" & tryExchange(Certificate.X448, alice, bobPub))
-  io::print("x448-shared-ba=" & tryExchange(Certificate.X448, bob, alicePub))
-  io::print("x448-zero=" & tryExchange(Certificate.X448, alice, fill(56, 0)))
-  io::print("x448-one=" & tryExchange(Certificate.X448, alice, basePoint(56, 1)))
-  io::print("x448-badlen=" & tryExchange(Certificate.X448, fill(32, 7), base448))
-  io::print("x448-sign-reject=" & trySign(Certificate.X448, alice))
-  io::print("x448-verify-reject=" & tryVerify(Certificate.X448, alicePub))
-  LET g1 AS crypto::KeyPair = crypto::generate(Certificate.X448)
-  LET g2 AS crypto::KeyPair = crypto::generate(Certificate.X448)
+  io::print("x448-shared-ab=" & tryExchange(crypto::Certificate.X448, alice, bobPub))
+  io::print("x448-shared-ba=" & tryExchange(crypto::Certificate.X448, bob, alicePub))
+  io::print("x448-zero=" & tryExchange(crypto::Certificate.X448, alice, fill(56, 0)))
+  io::print("x448-one=" & tryExchange(crypto::Certificate.X448, alice, basePoint(56, 1)))
+  io::print("x448-badlen=" & tryExchange(crypto::Certificate.X448, fill(32, 7), base448))
+  io::print("x448-sign-reject=" & trySign(crypto::Certificate.X448, alice))
+  io::print("x448-verify-reject=" & tryVerify(crypto::Certificate.X448, alicePub))
+  LET g1 AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
+  LET g2 AS crypto::KeyPair = crypto::generate(crypto::Certificate.X448)
   io::print("x448-gen-len=" & toString(len(g1.privateKey)) & "/" & toString(len(g1.publicKey)))
-  LET s12 AS List OF Byte = crypto::exchange(Certificate.X448, g1.privateKey, g2.publicKey)
-  LET s21 AS List OF Byte = crypto::exchange(Certificate.X448, g2.privateKey, g1.publicKey)
+  LET s12 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, g1.privateKey, g2.publicKey)
+  LET s21 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, g2.privateKey, g1.publicKey)
   io::print("x448-gen-dh=" & toString(crypto::constantTimeEqual(s12, s21)))
   LET seed1 AS List OF Byte = encoding::hexDecode("6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b")
   LET edPub1 AS List OF Byte = encoding::hexDecode("5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180")
   LET seed2 AS List OF Byte = encoding::hexDecode("c4eab05d357007c632f3dbb48489924d552b08fe0c353a0d4a1f00acda2c463afbea67c5e8d2877c5e3bc397a659949ef8021e954e0a12274e")
   LET edPub2 AS List OF Byte = encoding::hexDecode("43ba28f430cdff456ae531545f7ecd0ac834a55d9358c0372bfa0c6c6798c0866aea01eb00742802b8438ea4cb82169c235160627b4c3a9480")
-  LET x1 AS crypto::KeyPair = crypto::convert(KeyConvert.Ed448ToX448, crypto::KeyPair[seed1, edPub1])
-  LET x2 AS crypto::KeyPair = crypto::convert(KeyConvert.Ed448ToX448, crypto::KeyPair[seed2, edPub2])
+  LET x1 AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed448ToX448, crypto::KeyPair[seed1, edPub1])
+  LET x2 AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed448ToX448, crypto::KeyPair[seed2, edPub2])
   io::print("ed448-pub-1=" & encoding::hexEncode(edPub1))
   io::print("convert-priv-1=" & encoding::hexEncode(x1.privateKey))
   io::print("convert-pub-1=" & encoding::hexEncode(x1.publicKey))
-  io::print("convert-invariant-1=" & toString(crypto::constantTimeEqual(crypto::exchange(Certificate.X448, x1.privateKey, base448), x1.publicKey)))
+  io::print("convert-invariant-1=" & toString(crypto::constantTimeEqual(crypto::exchange(crypto::Certificate.X448, x1.privateKey, base448), x1.publicKey)))
   io::print("ed448-pub-2=" & encoding::hexEncode(edPub2))
   io::print("convert-priv-2=" & encoding::hexEncode(x2.privateKey))
   io::print("convert-pub-2=" & encoding::hexEncode(x2.publicKey))
-  io::print("convert-invariant-2=" & toString(crypto::constantTimeEqual(crypto::exchange(Certificate.X448, x2.privateKey, base448), x2.publicKey)))
-  LET c12 AS List OF Byte = crypto::exchange(Certificate.X448, x1.privateKey, x2.publicKey)
-  LET c21 AS List OF Byte = crypto::exchange(Certificate.X448, x2.privateKey, x1.publicKey)
+  io::print("convert-invariant-2=" & toString(crypto::constantTimeEqual(crypto::exchange(crypto::Certificate.X448, x2.privateKey, base448), x2.publicKey)))
+  LET c12 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, x1.privateKey, x2.publicKey)
+  LET c21 AS List OF Byte = crypto::exchange(crypto::Certificate.X448, x2.privateKey, x1.publicKey)
   io::print("convert-dh=" & toString(crypto::constantTimeEqual(c12, c21)))
-  io::print("convert-badlen=" & tryConvert(KeyConvert.Ed448ToX448, fill(32, 1), fill(32, 2)))
+  io::print("convert-badlen=" & tryConvert(crypto::KeyConvert.Ed448ToX448, fill(32, 1), fill(32, 2)))
   LET base255 AS List OF Byte = basePoint(32, 9)
   LET alice255 AS List OF Byte = encoding::hexDecode("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
   LET bob255 AS List OF Byte = encoding::hexDecode("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")
-  io::print("x25519-iter1=" & tryExchange(Certificate.X25519, base255, base255))
-  io::print("x25519-alice-pub=" & tryExchange(Certificate.X25519, alice255, base255))
-  LET bobPub255 AS List OF Byte = crypto::exchange(Certificate.X25519, bob255, base255)
-  io::print("x25519-shared=" & tryExchange(Certificate.X25519, alice255, bobPub255))
-  io::print("x25519-zero=" & tryExchange(Certificate.X25519, alice255, fill(32, 0)))
-  io::print("x25519-badlen=" & tryExchange(Certificate.X25519, alice, base255))
-  LET ed AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
-  io::print("exchange-ed25519-reject=" & tryExchange(Certificate.Ed25519, ed.privateKey, ed.publicKey))
+  io::print("x25519-iter1=" & tryExchange(crypto::Certificate.X25519, base255, base255))
+  io::print("x25519-alice-pub=" & tryExchange(crypto::Certificate.X25519, alice255, base255))
+  LET bobPub255 AS List OF Byte = crypto::exchange(crypto::Certificate.X25519, bob255, base255)
+  io::print("x25519-shared=" & tryExchange(crypto::Certificate.X25519, alice255, bobPub255))
+  io::print("x25519-zero=" & tryExchange(crypto::Certificate.X25519, alice255, fill(32, 0)))
+  io::print("x25519-badlen=" & tryExchange(crypto::Certificate.X25519, alice, base255))
+  LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  io::print("exchange-ed25519-reject=" & tryExchange(crypto::Certificate.Ed25519, ed.privateKey, ed.publicKey))
 END SUB

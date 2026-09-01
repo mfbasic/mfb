@@ -1,0 +1,17 @@
+{
+  "name": "source_package_dependency_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-480 Defect A: a dependency declared by SOURCE DIRECTORY (`file:packages/<name>`) must resolve its exported signatures exactly as the equivalent `.mfp` does.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "source_pkg_tiny",
+      "version": "=0.1.0",
+      "source": "file:packages/source_pkg_tiny"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -10,12 +10,12 @@ FUNC main() AS Integer
 
   ' json::stringify — the Json union and each of its six member types directly.
   LET s1 AS String = json::stringify(doc)
-  LET s2 AS String = json::stringify(JsonNull[NOTHING])
-  LET s3 AS String = json::stringify(JsonBool[TRUE])
-  LET s4 AS String = json::stringify(JsonNum[42.0])
-  LET s5 AS String = json::stringify(JsonStr["hi"])
-  LET items AS List OF json::Json = [JsonNum[1.0], JsonNum[2.0]]
-  LET s6 AS String = json::stringify(JsonArr[items])
+  LET s2 AS String = json::stringify(json::JsonNull[NOTHING])
+  LET s3 AS String = json::stringify(json::JsonBool[TRUE])
+  LET s4 AS String = json::stringify(json::JsonNum[42.0])
+  LET s5 AS String = json::stringify(json::JsonStr["hi"])
+  LET items AS List OF json::Json = [json::JsonNum[1.0], json::JsonNum[2.0]]
+  LET s6 AS String = json::stringify(json::JsonArr[items])
 
   ' json::get — empty path, single key, multi-key path, and by-name key.
   LET empty AS List OF String = []
@@ -24,9 +24,9 @@ FUNC main() AS Integer
   LET g3 AS json::Json = json::get(doc2, key := ["a"])
 
   ' json::getOr — positional default, by-name default, and by-name fallback.
-  LET o1 AS json::Json = json::getOr(doc, ["a"], JsonNull[NOTHING])
-  LET o2 AS json::Json = json::getOr(doc, key := ["missing"], default := JsonBool[FALSE])
-  LET o3 AS json::Json = json::getOr(doc, ["x"], fallback := JsonNum[0.0])
+  LET o1 AS json::Json = json::getOr(doc, ["a"], json::JsonNull[NOTHING])
+  LET o2 AS json::Json = json::getOr(doc, key := ["missing"], default := json::JsonBool[FALSE])
+  LET o3 AS json::Json = json::getOr(doc, ["x"], fallback := json::JsonNum[0.0])
 
   ' Consume every result so nothing is dead-code eliminated.
   io::print(s1)

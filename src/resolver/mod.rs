@@ -1,6 +1,5 @@
 use crate::ast::{
     AstProject, DocBlock, DocHeaderKind, FunctionKind, ResourceDecl, TypeDeclKind, Visibility,
-    SELF_IMPORT,
 };
 use crate::binary_repr;
 use crate::codegen::builtins;
@@ -8,11 +7,12 @@ use crate::hir::{
     HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchPattern, HirProject,
     HirStatement, HirTopLevelBinding, HirTypeDecl, HirTypeField,
 };
+use crate::manifest::package::{resolved_package_file, source_dependency, SourceDependency};
 use crate::rules;
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
@@ -24,27 +24,35 @@ const BUILTIN_TYPES: &[&str] = &[
     "Fixed",
     "Float",
     "Integer",
-    "Json",
     "Money",
     "Nothing",
     "Result",
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
-    crate::codegen::builtins::term::TERM_COLOR_TYPE,
-    crate::codegen::builtins::term::TERM_SIZE_TYPE,
-    crate::codegen::builtins::net::ADDRESS_TYPE,
+    // bug-484: every entry below is a PACKAGE-QUALIFIED id, and that is the whole
+    // point of the list. It seeds the resolver's known-type set, so a bare leaf
+    // here makes that name resolvable from ANY file with no `pkg::` prefix —
+    // against the governing rule, and silently, because resolution simply
+    // succeeds. Six entries used to be bare (`Address`, `Datagram`, `TermColor`,
+    // `TermSize`, `AudioDevice`, `Json`), which is why `AS Address` compiled from
+    // a consumer while the sibling `AS Url` — same package, same kind, but absent
+    // from this list — was correctly refused.
+    crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
+    crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
+    crate::codegen::builtins::net::ADDRESS_TYPE_ID,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
     // entirely — a datagram's encoding is not something the network reports.
     crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
     crate::codegen::builtins::tcp::LISTENER_TYPE_ID,
     crate::codegen::builtins::udp::SOCKET_TYPE_ID,
-    crate::codegen::builtins::udp::DATAGRAM_TYPE,
+    crate::codegen::builtins::udp::DATAGRAM_TYPE_ID,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE_ID,
-    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE,
+    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE_ID,
+    crate::codegen::builtins::json::JSON_TYPE_ID,
     crate::codegen::builtins::process::PROCESS_TYPE_ID,
 ];
 
@@ -286,12 +294,15 @@ struct Resolver<'a> {
     /// keyed by name. Members are resolved as `alias::func` qualified names
     /// (plan-link-update.md §5b).
     link_functions: HashMap<String, HashMap<String, LinkFnSig>>,
+    /// Every name an imported non-builtin package exports, keyed by PACKAGE name
+    /// (not by import binding — several bindings may name one package).
+    ///
+    /// Present only for a package whose interface was read successfully, which is
+    /// what makes the membership test safe to reject on: a package that could not
+    /// be read has already been reported, and an absent entry means "no positive
+    /// knowledge", never "exports nothing" (bug-480).
+    package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
-    /// Whether this project is `kind: "package"`. Gates the reserved `IMPORT self`
-    /// specifier: only a package has an exported interface to import, so
-    /// `IMPORT self` in an executable is `IMPORT_SELF_IN_EXECUTABLE`
-    /// (plan-81-import-self.md §4.3).
-    is_package: bool,
     had_error: bool,
 }
 
@@ -356,16 +367,8 @@ impl<'a> Resolver<'a> {
                 .map(|name| crate::types::ParameterType::declared(name))
                 .collect(),
             link_functions: HashMap::new(),
+            package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
-            // Non-panicking kind read: `manifest::project_kind` asserts a
-            // validated `kind`, but `Resolver::new` also runs from paths with an
-            // empty/partial manifest (doc validation, unit tests). Absent kind →
-            // treat as non-package, so `IMPORT self` there is rejected, not a panic.
-            is_package: manifest
-                .get("kind")
-                .and_then(|value| value.get::<String>())
-                .map(|kind| kind == "package")
-                .unwrap_or(false),
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);

@@ -1,0 +1,49 @@
+{
+  "project": "thread_executable_local_entry_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 16 },
+    { "module": "thread", "line": 17 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "COUNTER", "type": "Integer", "value": { "kind": "number", "value": "7" }, "line": 19 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "bump",
+      "line": 21,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF Nothing TO Integer", "default": null, "line": 21 },
+      { "name": "add", "type": "Integer", "default": null, "line": 21 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "assignment", "name": "COUNTER", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "COUNTER" }, "right": { "kind": "identifier", "value": "add" } }, "line": 22 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "COUNTER" }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "bump" }, { "kind": "number", "value": "100" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "bump" }, { "kind": "number", "value": "200" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "ra", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "rb", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "a=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ra" }] } }, "right": { "kind": "string", "value": " b=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "rb" }] } }, "right": { "kind": "string", "value": " parent=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "COUNTER" }] } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

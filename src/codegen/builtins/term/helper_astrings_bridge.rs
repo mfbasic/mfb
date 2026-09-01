@@ -70,19 +70,19 @@ FUNC __term_styleAt(value AS AttributedString, index AS Integer) AS __TermStyle
   MUT bg AS Integer = -1
   FOR EACH at IN astrings::getAttributes(value, index)
     MATCH at
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         MATCH f.kind
-          CASE AttrTypeFlag.Bold
+          CASE astrings::AttrTypeFlag.Bold
             bold = TRUE
-          CASE AttrTypeFlag.Underline
+          CASE astrings::AttrTypeFlag.Underline
             underline = TRUE
           CASE ELSE
         END MATCH
-      CASE AttrNumber(nm)
+      CASE astrings::AttrNumber(nm)
         MATCH nm.kind
-          CASE AttrTypeNumber.Foreground
+          CASE astrings::AttrTypeNumber.Foreground
             fg = nm.value
-          CASE AttrTypeNumber.Background
+          CASE astrings::AttrTypeNumber.Background
             bg = nm.value
           CASE ELSE
         END MATCH
@@ -108,7 +108,7 @@ END FUNC
 ' Apply the run's foreground: a packed color when set, else fall back to the pen
 ' the drawText call inherited (`saved`), so an unset run draws in the ambient
 ' foreground rather than whatever the previous run left. Background is symmetric.
-SUB __term_applyFg(packed AS Integer, saved AS TermColor)
+SUB __term_applyFg(packed AS Integer, saved AS term::TermColor)
   IF packed = -1 THEN
     term::setForeground(saved.r, saved.g, saved.b)
   ELSE
@@ -116,7 +116,7 @@ SUB __term_applyFg(packed AS Integer, saved AS TermColor)
   END IF
 END SUB
 
-SUB __term_applyBg(packed AS Integer, saved AS TermColor)
+SUB __term_applyBg(packed AS Integer, saved AS term::TermColor)
   IF packed = -1 THEN
     term::setBackground(saved.r, saved.g, saved.b)
   ELSE
@@ -130,8 +130,8 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
     LET n AS Integer = len(strings::toScalars(value))
     LET saveBold AS Boolean = term::getBold()
     LET saveUnderline AS Boolean = term::getUnderline()
-    LET saveFg AS TermColor = term::getForeground()
-    LET saveBg AS TermColor = term::getBackground()
+    LET saveFg AS term::TermColor = term::getForeground()
+    LET saveBg AS term::TermColor = term::getBackground()
     MUT col AS Integer = x
     MUT i AS Integer = 0
     WHILE i < n

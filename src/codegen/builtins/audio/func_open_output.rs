@@ -36,7 +36,7 @@ pub(crate) fn lower_open_output(
 const INTRO: &str = r#"Open a playback stream and return an `AudioOutput` handle."#;
 const DESC: &str = r#"`audio::openOutput` opens a PCM playback stream and returns an `AudioOutput`. The
 three-argument form opens the system default output device; the four-argument form
-opens the specific device named by an `AudioDevice` from `audio::devices()`. The
+opens the specific device named by an `audio::AudioDevice` from `audio::devices()`. The
 stream carries raw interleaved `s16le` PCM (one frame is `channels * 2` bytes).
 `sampleRate` must be in `8000..=192000`, `channels` must be `1` or `2`, and
 `bufferFrames` must be in `64..=8192`; any value outside these bounds raises

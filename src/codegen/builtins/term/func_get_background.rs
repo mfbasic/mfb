@@ -9,10 +9,10 @@ use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Read the current background colour as a `TermColor`"#;
+const INTRO: &str = r#"Read the current background colour as a `term::TermColor`"#;
 
 const DESC: &str = r#"`term::getBackground` returns the colour drawn behind subsequently written text,
-as a `TermColor` record with three `Byte` fields `r`, `g`, and
+as a `term::TermColor` record with three `Byte` fields `r`, `g`, and
 `b` holding the red, green, and blue channels. It takes no arguments.
 
 The value is the module's current background attribute, unpacked from the 24-bit
@@ -44,7 +44,7 @@ IMPORT term
 SUB main()
   term::on()
   term::setBackground(0, 128, 255)
-  LET c AS TermColor = term::getBackground()
+  LET c AS term::TermColor = term::getBackground()
   term::off()
 END SUB
 ```
@@ -57,7 +57,7 @@ IMPORT io
 
 SUB main()
   term::on()
-  LET c AS TermColor = term::getBackground()
+  LET c AS term::TermColor = term::getBackground()
   term::off()
   io::print(toString(c.r) & "," & toString(c.g) & "," & toString(c.b))
 END SUB

@@ -157,17 +157,41 @@ repeat until no change:
     ; is gathered once, before the fixpoint, from every Returned routing
 ```
 
-This closes membership over collection copy/append/nesting edges (`List`/`Map`
-literals plus insertion builtins).
+This closes membership over container copy/append/nesting edges (`List`/`Map`
+literals plus insertion builtins) and, since plan-114-C, over **record** edges:
+a record `Constructor` argument and a `WITH` update are element positions, and a
+`WITH`'s target flows into the result exactly as insertion argument 0 does. A
+record is a container in the same sense a collection is — a value that holds
+handle pointers and whose binding has a scope — so a resource placed into one
+floats to that record's binding and is drained there.
+
+Two asymmetries with collections are worth stating, because both are load-bearing:
+
+* **A record's type does not reveal whether it can own a resource.**
+  `List OF RES File` says so structurally; `Named("Holder")` does not. The
+  ordering gate below therefore consults a set of record types carrying a `RES`
+  field, threaded in from the type table. Without it the gate cannot see the
+  container and degrades to `Local` — a silent double close.
+* **An inferred record binding still has a knowable type**, because a
+  constructor names it. `LET h = Holder[…]` carries no `AS Holder` annotation,
+  so the declared-type map (which records only explicit annotations) misses it;
+  the type is recovered from the initializer instead.
 
 For each `RES` binding it then chooses an owner in two ordered phases, using the
 resource's own `res_depth` and `res_order`:
 
-**Phase 1 — returned-collection-before-resource forces a float.** Among returned
-collections that contain the resource, consider only those declared **strictly
-before** the resource (`decl_order(C) < res_order`); a collection whose order
-`>= res_order` is skipped, because the collection must be live before the
-resource so its owned-list exists when the resource is produced. This is the
+**Phase 1 — returned-container-before-resource forces a float.** Among returned
+containers that contain the resource, consider only those declared **strictly
+before** the resource (`decl_order(C) < res_order`); a container whose order
+`>= res_order` is skipped, because the container must be live before the
+resource so its owned-list exists when the resource is produced.
+
+A `RES` **parameter** is exempt from this ordering rule entirely: the caller owns
+it and this function never produces it, so there is no production point for the
+hazard to attach to. (A consequence for records: a resource the callee
+*produces* cannot be returned inside a record at all, because a record — unlike
+an empty `List` — cannot be constructed before its handle exists. Taking the
+handle as a `RES` parameter is the shape that works.) This is the
 special rule that **forces a Float even at the same scope depth**: the
 obligation rides the collection's owned-list and transfers to the caller on
 `RETURN`, instead of closing here. Pick the candidate with minimum

@@ -280,7 +280,7 @@ FUNC main AS Integer
   DO WHILE running
     ' Track the live terminal size, reserving the last line for the status bar.
     ' Handle the size query locally: if the terminal is detached mid-run, stop.
-    LET size AS TermSize = term::terminalSize() TRAP(e)
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
       EXIT DO
     END TRAP
     MUT newW AS Integer = size.columns

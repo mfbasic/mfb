@@ -7,5 +7,5 @@ SUB main()
   ' setMode's argument must be a Mode, not an Integer (wrong type).
   app::setMode(1)
   ' getMode takes no arguments (wrong arity: one).
-  LET m AS Mode = app::getMode(Mode.None)
+  LET m AS app::Mode = app::getMode(app::Mode.None)
 END SUB

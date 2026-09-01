@@ -1603,10 +1603,10 @@ IMPORT crypto
 IMPORT strings
 
 SUB main()
-  LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
+  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
   LET msg AS List OF Byte = strings::toBytes("attack at dawn")
-  LET sig AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)
-  LET ok AS Boolean = crypto::verify(Certificate.P256, kp.publicKey, msg, sig)
+  LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)
+  LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)
 END SUB
 ```
 
@@ -1616,7 +1616,7 @@ Ed25519 keys are byte-identical on every platform:
 IMPORT crypto
 
 SUB main()
-  LET kp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
 END SUB
 ```"#;
 

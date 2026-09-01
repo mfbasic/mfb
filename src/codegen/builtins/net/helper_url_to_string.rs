@@ -8,7 +8,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r##"' Render a `Url` back to an absolute href — the inverse of `toUrl`. The compiler
+r##"' Render a `net::Url` back to an absolute href — the inverse of `toUrl`. The compiler
 ' routes a universal `toString(url)` call to this helper (plan-03-http.md §A.3);
 ' the `__`-prefixed name is internalized so it never collides with the builtin
 ' `toString` symbol.

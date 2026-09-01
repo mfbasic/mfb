@@ -97,15 +97,15 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC scene() AS List OF DrawItem\n\
-    \x20 LET c AS Color = canvas::rgb(1, 2, 3)\n\
-    \x20 LET pts AS List OF Point = [Point[x := 1.0, y := 2.0]]\n\
-    \x20 LET a AS DrawItem = Polygon[points := pts, paint := canvas::fill(c)]\n\
-    \x20 LET b AS DrawItem = Text[x := 0.0, y := 0.0, text := \"hi\", font := FontRef[id := 1], size := 9.0, paint := canvas::fill(c)]\n\
+     FUNC scene() AS List OF canvas::DrawItem\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(c)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := canvas::FontRef[id := 1], size := 9.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
-    \x20 app::setMode(Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 canvas::present(scene())\n\
     \x20 RETURN 0\n\
      END FUNC\n";

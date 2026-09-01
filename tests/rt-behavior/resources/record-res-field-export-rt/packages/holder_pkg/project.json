@@ -1,0 +1,9 @@
+{
+  "name": "holder_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-114-E: exports a record whose field is `RES fs::File STATE Cursor`, to prove the type-export closure carries a resource field and its STATE across a package boundary.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

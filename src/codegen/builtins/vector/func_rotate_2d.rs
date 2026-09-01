@@ -21,31 +21,31 @@ type, and there is no 3D or 4D form: rotation in higher dimensions needs an axis
 or a plane, which a single scalar angle cannot specify. Passing a 3D or 4D vector
 is a compile-time error.
 
-`angle` is a `Float` for **every** overload, including the `Fixed2` and `Integer2`
+`angle` is a `Float` for **every** overload, including the `vector::Fixed2` and `vector::Integer2`
 ones — it is not the vector's element type, in contrast to
-`vector::clamp_length`, whose scalar does follow the element type. The `Float2`
+`vector::clamp_length`, whose scalar does follow the element type. The `vector::Float2`
 overload uses the in-tree `Float` `math::sin` and `math::cos` directly. The
-`Fixed2` and `Integer2` overloads convert `angle` with `toFixed` first and then use
+`vector::Fixed2` and `vector::Integer2` overloads convert `angle` with `toFixed` first and then use
 the deterministic Q32.32 `sin` and `cos`, so their results are bit-identical on
 every target; that conversion is also a range check, and an `angle` too large to
 represent as a `Fixed` fails with `ErrOverflow`.
 
-The `Integer2` overload is the coarsest. It widens both components to `Fixed`,
+The `vector::Integer2` overload is the coarsest. It widens both components to `Fixed`,
 applies the rotation in Q32.32, and rounds each result back with `math::round`,
 half away from zero. Because a rotation generally maps lattice points off the
 lattice, the result is snapped to the nearest integer coordinates and the rotation
 is therefore not exactly invertible: rotating by an angle and then by its negative
 need not return the original vector. Only the multiples of a quarter turn are
-exact on `Integer2`, and even those depend on the `Fixed` sine and cosine landing
+exact on `vector::Integer2`, and even those depend on the `Fixed` sine and cosine landing
 exactly on `0` and `1`. For an exact quarter turn counterclockwise, prefer
 `vector::perpendicular`, which is a pure swap and negation with no trigonometry at
 all.
 
-Rotation preserves magnitude on the `Float2` overload up to double-precision
+Rotation preserves magnitude on the `vector::Float2` overload up to double-precision
 rounding, and approximately on the other two.
 
-`vector::rotate_2d` accepts only the three **2D** vector record types — `Float2`,
-`Fixed2`, and `Integer2` — and its second argument must be a `Float` for all
+`vector::rotate_2d` accepts only the three **2D** vector record types — `vector::Float2`,
+`vector::Fixed2`, and `vector::Integer2` — and its second argument must be a `Float` for all
 three, with no implicit numeric promotion from `Integer`. A 3D or 4D first
 argument, a non-`Float` second argument, or any arity other than two is rejected
 by the syntax check with the message that a 2D vector and a `Float` angle were

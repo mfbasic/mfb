@@ -34,32 +34,32 @@ IMPORT io
 
 ' Canonical rendering of an attribute list: one space-terminated token per
 ' attribute, in getAttributes order (span insertion order).
-FUNC astrDescribe(attrs AS List OF Attribute) AS String
+FUNC astrDescribe(attrs AS List OF astrings::Attribute) AS String
   MUT out AS String = ""
   FOR EACH a IN attrs
     MATCH a
-      CASE AttrFlag(f)
+      CASE astrings::AttrFlag(f)
         MATCH f.kind
-          CASE AttrTypeFlag.Bold
+          CASE astrings::AttrTypeFlag.Bold
             out = out & "Bold "
-          CASE AttrTypeFlag.Italic
+          CASE astrings::AttrTypeFlag.Italic
             out = out & "Italic "
-          CASE AttrTypeFlag.Underline
+          CASE astrings::AttrTypeFlag.Underline
             out = out & "Underline "
-          CASE AttrTypeFlag.Strike
+          CASE astrings::AttrTypeFlag.Strike
             out = out & "Strike "
-          CASE AttrTypeFlag.Overline
+          CASE astrings::AttrTypeFlag.Overline
             out = out & "Overline "
         END MATCH
-      CASE AttrText(t)
+      CASE astrings::AttrText(t)
         out = out & "Font:" & t.value & " "
-      CASE AttrNumber(n)
+      CASE astrings::AttrNumber(n)
         MATCH n.kind
-          CASE AttrTypeNumber.FontSize
+          CASE astrings::AttrTypeNumber.FontSize
             out = out & "Size:" & toString(n.value) & " "
-          CASE AttrTypeNumber.Foreground
+          CASE astrings::AttrTypeNumber.Foreground
             out = out & "Fg:" & toString(n.value) & " "
-          CASE AttrTypeNumber.Background
+          CASE astrings::AttrTypeNumber.Background
             out = out & "Bg:" & toString(n.value) & " "
         END MATCH
     END MATCH
@@ -86,17 +86,17 @@ FUNC astrFlagMap(a AS AttributedString) AS String
     MUT over AS Boolean = FALSE
     FOR EACH at IN astrings::getAttributes(a, i)
       MATCH at
-        CASE AttrFlag(f)
+        CASE astrings::AttrFlag(f)
           MATCH f.kind
-            CASE AttrTypeFlag.Bold
+            CASE astrings::AttrTypeFlag.Bold
               bold = TRUE
-            CASE AttrTypeFlag.Italic
+            CASE astrings::AttrTypeFlag.Italic
               italic = TRUE
-            CASE AttrTypeFlag.Underline
+            CASE astrings::AttrTypeFlag.Underline
               under = TRUE
-            CASE AttrTypeFlag.Strike
+            CASE astrings::AttrTypeFlag.Strike
               strike = TRUE
-            CASE AttrTypeFlag.Overline
+            CASE astrings::AttrTypeFlag.Overline
               over = TRUE
           END MATCH
         CASE ELSE
@@ -178,12 +178,12 @@ TESTING
         expectString(astrDescribe([astrings::background(1, 2, 3)]), "Bg:66051 ")
       END TCASE
       TCASE "the Attribute model is open — user-built values are equivalent"
-        LET f AS Attribute = AttrFlag[AttrTypeFlag.Strike]
-        LET t AS Attribute = AttrText[AttrTypeText.Font, "Mono"]
-        LET n AS Attribute = AttrNumber[AttrTypeNumber.Background, 42]
+        LET f AS astrings::Attribute = astrings::AttrFlag[astrings::AttrTypeFlag.Strike]
+        LET t AS astrings::Attribute = astrings::AttrText[astrings::AttrTypeText.Font, "Mono"]
+        LET n AS astrings::Attribute = astrings::AttrNumber[astrings::AttrTypeNumber.Background, 42]
         expectString(astrDescribe([f, t, n]), "Strike Font:Mono Bg:42 ")
         MUT a AS AttributedString = astrings::fromString("xy")
-        a = astrings::addAttribute(a, 0, 1, AttrFlag[AttrTypeFlag.Underline])
+        a = astrings::addAttribute(a, 0, 1, astrings::AttrFlag[astrings::AttrTypeFlag.Underline])
         expectString(astrAt(a, 0), "Underline ")
       END TCASE
       TCASE "all constructors round-trip through storage"

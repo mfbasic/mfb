@@ -134,21 +134,21 @@ fn type_owns_resource(type_: &ParameterType) -> bool {
 
 /// Backstop verification of the resource model's structural rules (the type
 /// checker is the primary enforcer; this guards against a malformed NIR):
-/// a record may not own a resource, and a union may not mix data and resource
-/// variants.
+/// a union may not mix data and resource variants.
+///
+/// plan-114-B: the **record** half of this is gone. It used to reject any record
+/// field owning a resource, on the grounds that such a field would mislead the
+/// layout and drop lowering. That is no longer true: a resource field is an
+/// ordinary 8-byte handle slot (`record_field_is_pointer` classifies it as a
+/// plain scalar slot, `record_field_is_inlined` as not inlined, so
+/// `emit_record_block_size_to_slot` contributes its 8 bytes and skips it), and
+/// `type_is_memcpy_copyable` now says a `memcpy` of that slot is a correct
+/// aliasing copy while `type_is_arena_transferable` says the block may not cross
+/// an arena. The union half is unchanged — a `{tag, record-ptr}` block really
+/// does make drop dispatch tag-dependent.
 fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
     for type_ in &module.types {
         match type_.kind.as_str() {
-            "type" => {
-                for field in &type_.fields {
-                    if type_owns_resource(&field.type_) {
-                        return Err(format!(
-                            "NIR record '{}' field '{}' owns a resource; records cannot own resources",
-                            type_.name, field.name
-                        ));
-                    }
-                }
-            }
             "union" => {
                 // A union must be uniformly data or uniformly resource. A
                 // variant is a resource either by being a bare resource type
@@ -242,6 +242,90 @@ mod tests {
             native_libraries: Default::default(),
             max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
+    }
+
+    /// plan-114-B: the NIR backstop's record half is gone — a record field may
+    /// own a resource at the NIR level. The union half must be untouched.
+    fn record_type(name: &str, fields: &[(&str, &str)]) -> NirType {
+        NirType {
+            kind: "type".to_string(),
+            visibility: "export".to_string(),
+            name: name.to_string(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| crate::target::shared::nir::NirField {
+                    visibility: None,
+                    name: (*n).to_string(),
+                    type_: ParameterType::parse(t),
+                })
+                .collect(),
+            includes: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_record_field_may_own_a_resource_at_nir_level() {
+        // The shape letters C-E build on: an 8-byte handle slot beside ordinary
+        // data. Before plan-114-B this was refused with "records cannot own
+        // resources", on the grounds that it would mislead the layout and drop
+        // lowering — which is no longer true.
+        for spelling in ["RES fs.File", "fs.File", "List OF RES fs.File"] {
+            let mut m = module(vec![RuntimeHelper::Io]);
+            m.types = vec![record_type(
+                "Holder",
+                &[("name", "String"), ("handle", spelling)],
+            )];
+            validate_nir(&m)
+                .unwrap_or_else(|e| panic!("`{spelling}` field must validate, got: {e}"));
+        }
+    }
+
+    #[test]
+    fn a_union_still_may_not_mix_data_and_resource_variants() {
+        // The half of validate_resource_rules that plan-114-B deliberately did
+        // NOT relax: a `{tag, record-ptr}` block really does make drop dispatch
+        // tag-dependent, so this must keep failing.
+        let mut m = module(vec![RuntimeHelper::Io]);
+        m.types = vec![NirType {
+            kind: "union".to_string(),
+            visibility: "export".to_string(),
+            name: "Mixed".to_string(),
+            fields: Vec::new(),
+            includes: Vec::new(),
+            variants: vec![
+                NirVariant {
+                    name: "Plain".to_string(),
+                    fields: vec![crate::target::shared::nir::NirField {
+                        visibility: None,
+                        name: "count".to_string(),
+                        type_: ParameterType::Integer,
+                    }],
+                },
+                NirVariant {
+                    name: "Held".to_string(),
+                    fields: vec![crate::target::shared::nir::NirField {
+                        visibility: None,
+                        name: "handle".to_string(),
+                        // BARE, not `RES fs.File`: `type_owns_resource` has no
+                        // `Res(_)` arm (see its NB comment), so a `RES`-marked
+                        // field is invisible to this backstop. That gap is
+                        // pre-existing and deliberate — the front-end
+                        // `TYPE_MIXED_RESOURCE_UNION` is the primary enforcer —
+                        // but it means a test written with the `RES` spelling
+                        // would pass for the wrong reason and prove nothing.
+                        type_: ParameterType::declared("fs.File"),
+                    }],
+                },
+            ],
+            members: Vec::new(),
+        }];
+        let err = validate_nir(&m).expect_err("a mixed union must still be refused");
+        assert!(
+            err.contains("mixes data and resource variants"),
+            "wrong rejection: {err}"
+        );
     }
 
     #[test]

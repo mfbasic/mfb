@@ -48,7 +48,7 @@
 //! resource which escapes by a route the scan does not model is still closed
 //! exactly once rather than twice or never.
 
-use crate::hir::{HirCallArg, HirExpression, HirFunction, HirStatement};
+use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirStatement};
 use std::collections::{HashMap, HashSet};
 
 /// Where a `RES` binding's close obligation is discharged.
@@ -133,18 +133,61 @@ struct Analyzer {
     /// bare one, so the bug-291 rejection does not pile onto a program already
     /// rejected for the missing `RES` marker.
     decl_type: HashMap<String, crate::types::ParameterType>,
+    /// Record types that carry a `RES` field, so the bug-291 ordering gate can
+    /// tell a container that can actually own a resource from one that cannot.
+    /// See [`analyze_function_with`] for why a type name alone cannot answer it.
+    res_field_records: HashSet<crate::types::ParameterType>,
+    /// `RES` bindings that are PARAMETERS. The caller owns these; this function
+    /// never produces them, so the bug-291 ordering rule does not apply — there
+    /// is no production point for a container's owned-list to be missing at.
+    res_params: HashSet<String>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
 }
 
 /// Analyze a function body, returning per-`RES`-binding ownership decisions.
+///
+/// Equivalent to [`analyze_function_with`] with no record-type knowledge, i.e.
+/// the collection rules only.
+///
+/// `#[cfg(test)]`: **production always has the type table** (`ir::lower` passes
+/// `TypeIndex::res_field_record_types`), and a caller that silently dropped it
+/// would lose the record half of the bug-291 ordering gate — the failure mode
+/// being a double close with no diagnostic. Keeping this convenience entry point
+/// out of non-test builds means that mistake cannot be made by accident; the
+/// tests that predate records use it because for them the empty set is the
+/// truth, not a shortcut.
+#[cfg(test)]
 pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
+    analyze_function_with(function, &HashSet::new())
+}
+
+/// [`analyze_function`], plus the set of record types that carry a `RES` field.
+///
+/// plan-114-C: the bug-291 ordering gate skips a returned container that cannot
+/// actually own a resource, so that it does not pile a `FloatBlocked` rejection
+/// onto a program already refused for a missing `RES` marker. For a collection
+/// that test is structural — `is_res_marked_resource_collection` reads
+/// `List OF RES T` straight off the type. For a **record** it is not:
+/// `Named("Holder")` does not reveal whether `Holder` has a `RES` field, so
+/// without this set the gate would fall through to `ResOwner::Local` and
+/// silently reproduce the exact bug-291 miscompile (the callee closes the
+/// handle, then the caller's adopted list closes it again).
+///
+/// Empty is the safe default: it means "no record can own a resource", which is
+/// what the `#[cfg(test)]` callers and the pre-record world both assume.
+pub fn analyze_function_with(
+    function: &HirFunction,
+    res_field_records: &HashSet<crate::types::ParameterType>,
+) -> FunctionEscape {
     let mut analyzer = Analyzer {
         res_names: HashSet::new(),
         decl_depth: HashMap::new(),
         decl_order: HashMap::new(),
         decl_type: HashMap::new(),
+        res_field_records: res_field_records.clone(),
+        res_params: HashSet::new(),
         res_depth: HashMap::new(),
         routings: Vec::new(),
         next_order: 0,
@@ -155,6 +198,7 @@ pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
         if param.resource {
             analyzer.declare(&param.name, 0);
             analyzer.res_names.insert(param.name.clone());
+            analyzer.res_params.insert(param.name.clone());
             analyzer.res_depth.insert(param.name.clone(), 0);
         }
     }
@@ -197,6 +241,34 @@ impl Analyzer {
                 // Mirror the AST rule: only an explicit `AS T` annotation records a
                 // declared type (an inferred binding carried `None` there).
                 if *explicit_type {
+                    self.decl_type
+                        .entry(name.clone())
+                        .or_insert_with(|| type_.clone());
+                } else if let Some(HirExpression::Constructor { type_, .. }) = value {
+                    // plan-114-C: a record CONSTRUCTOR names its own type, so an
+                    // inferred binding still has a knowable one. Recording it is
+                    // load-bearing, not tidiness — the bug-291 ordering gate reads
+                    // `decl_type` to decide whether a returned container can own a
+                    // resource at all, and with no entry it answers "no" and
+                    // degrades to `ResOwner::Local`.
+                    //
+                    // That degradation is the silent double close bug-291 exists to
+                    // prevent. Measured before the fix:
+                    //
+                    //   FUNC makeHolder(p AS String) AS Holder
+                    //     RES f AS fs::File = fs::openFile(p, "w")
+                    //     LET h = Holder["made", f]     ' inferred -> no decl_type
+                    //     RETURN h
+                    //   END FUNC
+                    //
+                    // compiled, and the caller's first write raised
+                    // `7-703-0004 Resource handle is already closed` — the callee
+                    // closed the handle it had just handed over.
+                    //
+                    // A collection literal is deliberately NOT covered here: a
+                    // `List`/`Map` literal does not name its element type, so there
+                    // is nothing to record, and the explicit-annotation rule is
+                    // what those bindings have always relied on.
                     self.decl_type
                         .entry(name.clone())
                         .or_insert_with(|| type_.clone());
@@ -281,6 +353,31 @@ impl Analyzer {
             HirExpression::MapLiteral { entries, .. } => {
                 for (_, value) in entries {
                     self.scan_element(value, res_elems, src_collections);
+                }
+            }
+            // plan-114-C: a record is a container in exactly the sense this scan
+            // means — a value that holds handle pointers and whose binding has a
+            // scope. `Holder[handle := f]` routes `f` into the constructed
+            // record's binding just as `[f]` routes it into a list's, so a
+            // constructor argument is an element position.
+            HirExpression::Constructor { arguments, .. } => {
+                for argument in arguments {
+                    let value = match argument {
+                        HirConstructorArg::Positional(value) => value,
+                        HirConstructorArg::Named { value, .. } => value,
+                    };
+                    self.scan_element(value, res_elems, src_collections);
+                }
+            }
+            // `WITH v { field := expr }` produces a NEW record carrying both the
+            // updated value and everything `v` already held, so both flow into
+            // the result — `target` exactly as insertion argument 0 does, and
+            // each update as an element. Records have no field assignment, so
+            // this is the only mutation-shaped edge there is (§4.2).
+            HirExpression::WithUpdate { target, updates } => {
+                self.scan_collection_expr(target, res_elems, src_collections);
+                for update in updates {
+                    self.scan_element(&update.value, res_elems, src_collections);
                 }
             }
             HirExpression::Call {
@@ -416,7 +513,17 @@ impl Analyzer {
             // purely because of declaration order -- that is the unsupportable
             // case, and it must not silently degrade to `Local`.
             let mut blocked_by_order: Option<String> = None;
-            if best.is_none() {
+            // plan-114-C: a `RES` PARAMETER is never blocked by ordering. The
+            // rule's hazard is that the container's owned-list does not exist yet
+            // *when the resource is produced* — and a parameter is not produced in
+            // this function at all. The caller owns it and closes it; returning a
+            // container that carries it transfers nothing.
+            //
+            // Without this, `FUNC wrap(RES f AS fs::File) AS Holder` with
+            // `LET h = Holder[…, f]; RETURN h` is rejected, and it is a correct
+            // program: measured working (the caller writes through the returned
+            // record after `wrap` returns, and the handle is still open).
+            if best.is_none() && !self.res_params.contains(resource) {
                 for collection in &returned_collections {
                     if !membership
                         .get(collection)
@@ -424,15 +531,20 @@ impl Analyzer {
                     {
                         continue;
                     }
-                    // Only a RES-marked collection can own a resource at all. A
+                    // Only a container that can actually own a resource counts. A
                     // bare `List OF File` is already rejected for the missing
                     // marker, and telling its author to reorder declarations
                     // would be advice that does not fix their program.
-                    if !self
-                        .decl_type
-                        .get(collection)
-                        .is_some_and(|type_| is_res_marked_resource_collection(type_))
-                    {
+                    //
+                    // plan-114-C: a record qualifies the same way, but its type
+                    // name does not reveal whether it has a `RES` field, so the
+                    // record case is decided by the table threaded in through
+                    // `analyze_function_with`. Without it the gate would fall
+                    // through to `Local` and silently reproduce bug-291.
+                    if !self.decl_type.get(collection).is_some_and(|type_| {
+                        is_res_marked_resource_collection(type_)
+                            || self.res_field_records.contains(type_)
+                    }) {
                         continue;
                     }
                     blocked_by_order = Some(collection.clone());
@@ -597,6 +709,374 @@ mod tests {
 
     fn ident(name: &str) -> HirExpression {
         HirExpression::Identifier(name.to_string())
+    }
+
+    // -----------------------------------------------------------------------
+    // plan-114-C Phase 2 — the record edges.
+    //
+    // A record is a container in the same sense a collection is: a value that
+    // holds handle pointers and whose binding has a scope. These mirror the
+    // collection cases above one for one, so a divergence between the two
+    // container kinds shows up as a test that passes for lists and fails for
+    // records.
+    // -----------------------------------------------------------------------
+
+    /// A record binding, `MUT`/`LET` per `mutable`.
+    fn holder(name: &str, mutable: bool, value: HirExpression) -> HirStatement {
+        HirStatement::Let {
+            mutable,
+            resource: false,
+            state_type: None,
+            name: name.to_string(),
+            type_: ParameterType::declared("Holder"),
+            explicit_type: true,
+            value: Some(value),
+            line: 1,
+        }
+    }
+
+    /// `Holder[handle := <element>]`
+    fn construct(element: &str) -> HirExpression {
+        HirExpression::Constructor {
+            type_: ParameterType::declared("Holder"),
+            arguments: vec![HirConstructorArg::Named {
+                name: "handle".to_string(),
+                value: ident(element),
+                line: 1,
+            }],
+        }
+    }
+
+    /// `WITH <target> { handle := <element> }`
+    fn with_update(target: &str, element: &str) -> HirExpression {
+        HirExpression::WithUpdate {
+            target: Box::new(ident(target)),
+            updates: vec![crate::hir::HirRecordUpdate {
+                field: "handle".to_string(),
+                value: ident(element),
+                line: 1,
+            }],
+        }
+    }
+
+    #[test]
+    fn inner_resource_floats_to_an_outer_record_via_with() {
+        // MUT h = Holder[...]; WHILE { RES f; h = WITH h { handle := f } }
+        // The record twin of `inner_resource_floats_to_outer_collection`.
+        let result = analyze_function(&func(vec![
+            holder("h", true, construct("nothing")),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "h".to_string(),
+                        value: with_update("h", "f"),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("h".to_string()));
+        assert!(result.floats("f"));
+    }
+
+    #[test]
+    fn same_scope_record_does_not_float() {
+        // RES f; LET h = Holder[handle := f] — same scope, so ownership stays
+        // local, exactly as for a list literal at the same depth.
+        let result = analyze_function(&func(vec![
+            res("f", open()),
+            holder("h", false, construct("f")),
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Local);
+        assert!(!result.floats("f"));
+    }
+
+    #[test]
+    fn a_constructor_nested_in_a_list_routes_to_the_list() {
+        // MUT xs = []; WHILE { RES f; xs = append(xs, Holder[handle := f]) }
+        // No extra scan arm is needed for this: `scan_element` falls through to
+        // `scan_collection_expr`, which now has a Constructor arm, so the
+        // resource reaches the LIST binding (the outermost container).
+        let result = analyze_function(&func(vec![
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "xs".to_string(),
+                        value: HirExpression::Call {
+                            callee: "collections.append".to_string(),
+                            arguments: vec![
+                                HirCallArg::Positional(ident("xs")),
+                                HirCallArg::Positional(construct("f")),
+                            ],
+                            line: 1,
+                            column: 1,
+                        },
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("xs".to_string()));
+    }
+
+    #[test]
+    fn a_record_with_no_resource_argument_routes_nothing() {
+        // The regression guard: an ordinary record must not acquire an
+        // owned-list just because the Constructor arm now exists.
+        let result = analyze_function(&func(vec![
+            res("f", open()),
+            holder("h", false, construct("unrelated")),
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Local);
+        assert!(!result.floats("f"));
+    }
+
+    #[test]
+    fn a_positional_constructor_argument_routes_the_same_as_a_named_one() {
+        // `Holder[f]` and `Holder[handle := f]` are the same edge; the scan must
+        // not see only the by-field spelling (§4.1 reads both arms).
+        let result = analyze_function(&func(vec![
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "xs".to_string(),
+                        value: HirExpression::Call {
+                            callee: "collections.append".to_string(),
+                            arguments: vec![
+                                HirCallArg::Positional(ident("xs")),
+                                HirCallArg::Positional(HirExpression::Constructor {
+                                    type_: ParameterType::declared("Holder"),
+                                    arguments: vec![HirConstructorArg::Positional(ident("f"))],
+                                }),
+                            ],
+                            line: 1,
+                            column: 1,
+                        },
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("xs".to_string()));
+    }
+
+    #[test]
+    fn with_update_carries_the_targets_existing_contents() {
+        // `h2 = WITH h1 { … }` must route h1's contents into h2 the way
+        // insertion argument 0 does, or a resource already held by h1 would be
+        // lost when the updated copy outlives it.
+        let result = analyze_function(&func(vec![
+            holder("outer", true, construct("nothing")),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    holder("inner", false, construct("f")),
+                    HirStatement::Assign {
+                        name: "outer".to_string(),
+                        value: with_update("inner", "f"),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        // `f` reaches `outer`, the outermost container that references it.
+        assert_eq!(result.owner("f"), ResOwner::Float("outer".to_string()));
+    }
+
+    /// bug-291's record twin: a RETURNED record declared *after* the resource it
+    /// carries cannot honour the float (its owned-list does not exist yet when
+    /// the resource is produced), so it must be reported rather than degraded.
+    ///
+    /// This is the case that needs the type table. Degrading it to `Local` is a
+    /// silent miscompile — the callee closes the handle at its own scope while
+    /// the returned record still carries it, and the caller's adopted list
+    /// closes it a second time.
+
+    /// plan-114-C, found by running the returned-record shape rather than
+    /// reasoning about it: an **inferred** record binding had no `decl_type`, so
+    /// the bug-291 ordering gate could not see the container and degraded to
+    /// `ResOwner::Local`. That is the silent double close the gate exists to
+    /// prevent -- measured before the fix as a caller write raising
+    /// `7-703-0004 Resource handle is already closed`.
+    ///
+    /// A record CONSTRUCTOR names its own type, so an inferred binding still has
+    /// a knowable one; recording it from the initializer is what makes the gate
+    /// fire.
+    #[test]
+    fn an_inferred_record_binding_is_still_seen_by_the_ordering_gate() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        // `RES f = …; LET h = Holder[handle := f]; RETURN h` -- note `h` carries
+        // NO `AS Holder` annotation, which is the whole point.
+        let inferred = HirStatement::Let {
+            mutable: false,
+            resource: false,
+            state_type: None,
+            name: "h".to_string(),
+            type_: ParameterType::declared("Holder"),
+            explicit_type: false,
+            value: Some(construct("f")),
+            line: 1,
+        };
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                inferred,
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &records,
+        );
+        assert_eq!(
+            result.owner("f"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "an inferred `LET h = Holder[…]` must still be recognised as the \
+             container; degrading to Local is a double close"
+        );
+    }
+
+    /// The other half of the same fix, and the guard against over-rejecting it:
+    /// a `RES` **parameter** is never blocked by ordering. The rule's hazard is
+    /// that the container's owned-list does not exist yet *when the resource is
+    /// produced* -- and a parameter is not produced here at all. The caller owns
+    /// and closes it.
+    ///
+    /// Measured working end to end: `FUNC wrap(RES f AS fs::File) AS Holder`
+    /// returning `Holder[…, f]`, with the caller writing through the returned
+    /// record's handle after `wrap` returns.
+    #[test]
+    fn a_res_parameter_is_never_blocked_by_return_order() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        let mut f = func(vec![
+            HirStatement::Let {
+                mutable: false,
+                resource: false,
+                state_type: None,
+                name: "h".to_string(),
+                type_: ParameterType::declared("Holder"),
+                explicit_type: false,
+                value: Some(construct("p")),
+                line: 1,
+            },
+            HirStatement::Return {
+                value: Some(ident("h")),
+                line: 1,
+            },
+        ]);
+        f.params = vec![crate::hir::HirParam {
+            name: "p".to_string(),
+            type_: ParameterType::parse("fs.File"),
+            resource: true,
+            state_type: None,
+            default: None,
+            line: 1,
+        }];
+        let result = analyze_function_with(&f, &records);
+        assert_ne!(
+            result.owner("p"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "a RES parameter is owned by the caller; returning a record that \
+             carries it transfers nothing and must not be refused"
+        );
+    }
+
+    #[test]
+    fn a_returned_record_declared_after_its_resource_is_blocked() {
+        let body = vec![
+            res("f", open()),
+            holder("h", false, construct("f")),
+            HirStatement::Return {
+                value: Some(ident("h")),
+                line: 1,
+            },
+        ];
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+
+        let blocked = analyze_function_with(&func(body.clone()), &records);
+        assert_eq!(
+            blocked.owner("f"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "a returned record declared after its resource must be reported, \
+             not degraded to Local"
+        );
+
+        // And the reason the table is needed at all: with no record-type
+        // knowledge the very same program degrades to `Local`, which is the
+        // bug-291 double close. This half is what makes the test prove the
+        // threading, not just the gate.
+        let unaware = analyze_function_with(&func(body), &HashSet::new());
+        assert_eq!(
+            unaware.owner("f"),
+            ResOwner::Local,
+            "without the record table the gate cannot see the container — this \
+             is why ir::lower must pass TypeIndex::res_field_record_types"
+        );
+    }
+
+    /// The guard on the guard: a returned record with NO `RES` field must not be
+    /// blocked. Reporting an ordering problem for a container that cannot own a
+    /// resource would be advice that does not fix the program — the same reason
+    /// a bare `List OF File` is skipped.
+    #[test]
+    fn a_returned_record_without_a_res_field_is_not_blocked() {
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                holder("h", false, construct("unrelated")),
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &HashSet::new(),
+        );
+        assert_eq!(result.owner("f"), ResOwner::Local);
+    }
+
+    /// A record declared BEFORE its resource and returned floats normally — the
+    /// ordering gate must not fire just because a record is involved.
+    #[test]
+    fn a_returned_record_declared_before_its_resource_floats() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        let result = analyze_function_with(
+            &func(vec![
+                holder("h", true, construct("nothing")),
+                res("f", open()),
+                HirStatement::Assign {
+                    name: "h".to_string(),
+                    value: with_update("h", "f"),
+                    line: 1,
+                },
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &records,
+        );
+        assert_eq!(result.owner("f"), ResOwner::Float("h".to_string()));
     }
 
     #[test]

@@ -30,7 +30,7 @@ const DESC: &str = r#"`fs::openWithin` opens the file named by `relPath` resolve
 trusted directory `root`, and returns an opaque `File` resource. Its purpose is
 to open a caller-controlled name inside an intended directory with a host-enforced
 guarantee that the result cannot escape that directory — closing the
-time-of-check/time-of-use race that an `fs::isWithin(root, path)` check followed
+time-of-check/time-of-use race that a `fs::isWithin(root, path)` check followed
 by a separate `fs::open(path)` leaves open.
 
 Containment is enforced at open time. `root` is canonicalized once with `realpath`

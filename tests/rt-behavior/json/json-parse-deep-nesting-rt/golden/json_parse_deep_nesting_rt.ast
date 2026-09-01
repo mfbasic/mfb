@@ -20,7 +20,7 @@
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "v", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "json.Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 19 },
       { "kind": "return", "value": { "kind": "string", "value": "ok" }, "line": 20 }
       ],
       "trap": {
@@ -73,7 +73,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "deep object: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepObject", "arguments": [{ "kind": "number", "value": "5000" }] }] } }] }, "line": 38 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legit array: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepArray", "arguments": [{ "kind": "number", "value": "200" }] }] } }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "legit object: " }, "right": { "kind": "call", "callee": "tryParse", "arguments": [{ "kind": "call", "callee": "deepObject", "arguments": [{ "kind": "number", "value": "200" }] }] } }] }, "line": 43 },
-      { "kind": "binding", "mutable": false, "name": "obj", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "obj", "type": "json.Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"a\": [1, 2.5, true, null], \"b\": \"x\"}" }] }, "line": 46 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip=" }, "right": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "obj" }] } }] }, "line": 47 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
       ],

@@ -15,8 +15,9 @@ r#"FUNC __datetime_parse3(value AS String, pattern AS String, zone AS Zone) AS D
   RETURN __datetime_buildFromFields(__datetime_parseFields(value, pattern), zone)
 END FUNC"#;
 
-const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern mini-language."#;
-const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it
+const INTRO: &str =
+    r#"Parse text into a `datetime::DateTime` using the format pattern mini-language."#;
+const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `datetime::DateTime` it
 describes. `pattern` uses the same token mini-language as `datetime::format`, and
 `parse` is the approximate inverse of `format`: it walks `pattern` and `value`
 together from left to right, reading characters of `value` as each `pattern`
@@ -53,11 +54,11 @@ not check that the named weekday agrees with the parsed date.
 
 `parse` does not range-check the decoded calendar fields the way `datetime::date`
 and `datetime::time` do: an out-of-range component in `value` (for example month
-13) is carried into the resulting `DateTime` rather than rejected. The one
+13) is carried into the resulting `datetime::DateTime` rather than rejected. The one
 validated numeric range is the offset token, whose magnitude must be under 24
 hours.
 
-An offset token sets the `DateTime`'s offset directly and makes the result a
+An offset token sets the `datetime::DateTime`'s offset directly and makes the result a
 fixed-offset moment, overriding `zone`. When `pattern` contains no offset token,
 the `zone` argument supplies the offset: the two-argument overload defaults it to
 `datetime::utc()`, and the three-argument overload resolves `value`'s civil fields
@@ -69,7 +70,7 @@ const EX: &str = r#"Parse a date and time, interpreted as UTC:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
+  LET dt AS datetime::DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
 END SUB
 ```
 
@@ -79,8 +80,8 @@ Parse civil fields against an explicit zone:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(-5, 0)
-  LET dt AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
+  LET z AS datetime::Zone = datetime::fixedOffset(-5, 0)
+  LET dt AS datetime::DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
 END SUB
 ```
 
@@ -90,7 +91,7 @@ An offset token in the value overrides the zone argument:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
+  LET dt AS datetime::DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
 END SUB
 ```
 
@@ -101,7 +102,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET bad AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+  LET bad AS datetime::DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
   io::print("accepted")
   EXIT SUB
 TRAP(err)

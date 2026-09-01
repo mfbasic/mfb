@@ -3,7 +3,7 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Parse a completed HTTP stream's accumulated bytes into a `Response`."#;
+const INTRO: &str = r#"Parse a completed HTTP stream's accumulated bytes into a `http::Response`."#;
 
 const DESC: &str = r#"`finish` turns the bytes accumulated in `stream.state.raw` into an
 `http::Response`. Call it once `http::done` reports the exchange complete. If a
@@ -14,7 +14,7 @@ lowercased, duplicates last-wins), and body (de-chunked when the reply was
 `chunked`).
 
 `finish` does not close the stream: the handle stays bound and its socket is
-closed exactly once when its binding goes out of scope. The returned `Response` is a plain,
+closed exactly once when its binding goes out of scope. The returned `http::Response` is a plain,
 copyable value record — `status`, `reason`, `httpVersion`, `headers`, `body`, and
 `ok` (`TRUE` only for a 2xx status) — identical to what a blocking `http::read`
 over the same URL would return. Redirects are not followed; a 3xx reply is
