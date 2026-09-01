@@ -307,7 +307,6 @@ program still compiles and runs. Injected builtin source is exempt.
 | `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | function name is a reserved built-in and may not be redeclared |
 | `2-201-0017` | `PRIVATE_SHADOWS_PUBLIC` | warn | PRIVATE declaration shadows a PUBLIC declaration of the same name within its file |
 | `2-201-0018` | `PRIVATE_PATH_HASH_COLLISION` | error | internal: two source file paths produced the same file-scope hash |
-| `2-201-0019` | `IMPORT_SELF_IN_EXECUTABLE` | error | IMPORT self is only valid in a package project |
 
 ### `2-203` — Type checking, ownership, and native ABI
 
@@ -402,7 +401,7 @@ Scheme*).
 | `2-203-0110` | `TYPE_SCALAR_LITERAL_EMPTY` | error | a backtick scalar literal must contain exactly one Unicode scalar |
 | `2-203-0111` | `TYPE_SCALAR_LITERAL_TOO_MANY` | error | a backtick scalar literal must contain exactly one Unicode scalar |
 | `2-203-0112` | `TYPE_SCALAR_LITERAL_INVALID` | error | a scalar literal must name a valid Unicode scalar value |
-| `2-203-0113` | `TYPE_ISOLATED_NOT_VISIBLE` | error | ISOLATED function must be a project-visible FUNC declaration |
+| `2-203-0113` | `TYPE_ISOLATED_NOT_VISIBLE` | error | ISOLATED function must be a top-level FUNC declaration |
 | `2-203-0114` | `NATIVE_LIBRARY_MISSING` | error | a LINK block names a library with no matching project.json `libraries` entry |
 | `2-203-0115` | `NATIVE_LIBRARY_TARGET_UNCOVERED` | warn | a supported build target has no `libraries` locator for a linked native library |
 | `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | error | a `vendor` locator's file under the project's `vendor/` directory is missing or cannot be read to hash it |

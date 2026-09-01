@@ -3,43 +3,39 @@
 The thread entry shape, the `thread::start`/`transfer`/`accept` signatures, the
 `Thread`/`ThreadWorker` type grammar, and the sendability rules are defined as a
 source-level API by `./mfb spec language threads` and `./mfb man thread`. A thread
-entry point is an exported `ISOLATED FUNC` whose first parameter is
-`ThreadWorker OF Msg TO Out`, passed to `thread::start` by bare function
-identifier. This topic specifies only the compiler-side *enforcement* of those
-rules.
+entry point is an `ISOLATED FUNC` whose first parameter is
+`ThreadWorker OF Msg TO Out`, passed to `thread::start` by function identifier.
+This topic specifies only the compiler-side *enforcement* of those rules.
 
 ## Entry-point enforcement
 
 The compiler rejects:
 
-- Lambdas and closures as thread entry points (only a bare function identifier is
+- Lambdas and closures as thread entry points (only a function identifier is
   accepted).
 - `SUB` thread entry points (the entry must be `FunctionKind::Func`).
 - Non-isolated functions (the signature must be `isolated`).
-- Bare current-package function references (the signature must be an
-  `imported_package_export`).
-- Functions that are not exported through an import.
 - Functions whose first parameter is not `ThreadWorker OF Msg TO Out`.
 - Functions whose return type does not match `Out`.
 
-The first four are enforced together by the thread-builtin call checker, which
-requires the entry argument to resolve to a visible
-signature that is simultaneously an imported-package export, a `FUNC`,
-and isolated; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
-`thread.start entry point must be an exported ISOLATED FUNC from an imported
-package.`. The parameter-shape and return-type checks are the ordinary
-function-reference signature match. [[src/ir/shape.rs:check_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
+The first three are enforced together by the thread-builtin call checker, which
+requires the entry argument to resolve to a visible signature that is
+simultaneously a `FUNC` and isolated; failure reports
+`TYPE_CALL_ARGUMENT_MISMATCH` with the message
+`thread.start entry point must name an ISOLATED FUNC.`. The parameter-shape and
+return-type checks are the ordinary function-reference signature match.
+[[src/ir/shape.rs:check_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
 
-The `imported_package_export` requirement is not weakened by the reserved
-`IMPORT self` specifier. In a `kind: "package"` project, `IMPORT self` registers
-the current package's own `EXPORT` declarations as imported-package signatures
-(`imported_package_export == true`), keyed under the `self`/alias binding, so a
-`self::worker` entry satisfies the *same* checker with no `self`-specific branch:
-the checker never learns about `self`. A bare, unqualified current-package
-reference still carries `imported_package_export == false` and is still rejected;
-only the `self::`-qualified path to an `EXPORT ISOLATED FUNC` newly resolves.
-`self` sees only `EXPORT` symbols, exactly as an external importer does.
-[[src/resolver/packages.rs]] [[src/resolver/packages.rs:resolve_imported_package]]
+**Provenance is not a criterion.** `ISOLATED` is the sole marker: an entry may be
+a function this project declares, named by its bare identifier at any visibility
+(`PRIVATE`, `PUBLIC` or `EXPORT`) and in a project of any `kind`, or an imported
+package's `EXPORT ISOLATED FUNC` named through its import binding. Both spellings
+lower to one `FunctionRef`, so the checker sees a single shape and needs no
+per-spelling branch. There is no reserved import specifier: an earlier design
+required an entry to be reached through an import and added `IMPORT self` so that
+a package could reach its own; both the requirement and the specifier were
+removed, and `self` is an ordinary identifier.
+[[src/ir/shape.rs:thread_start_entry_valid]]
 
 ## Thread type grammar (parsing)
 

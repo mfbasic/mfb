@@ -1,0 +1,33 @@
+REM plan-115-A runtime proof: the EXECUTABLE-hosted mirror of thread-self-fanout-rt.
+REM
+REM There, a package spawned two workers from within itself via `self::bump`. Here
+REM the entry is declared in the executable and started by its BARE name -- the
+REM case that was impossible before this plan (`self::` is rejected in an
+REM executable, and a bare name was rejected by thread_start_entry_valid).
+REM
+REM The assertion is the same three-way one, and it is what makes this a real
+REM proof rather than a compile check: each worker sees COUNTER start at its
+REM declared 7 and mutates only its own arena copy, so the two results are 107 and
+REM 207 (107 != 207 proves the workers do not share state with each other), and
+REM the parent's COUNTER stays 7 (proving the worker writes are not shared with the
+REM parent). A worker reading the wrong arena would print a number, not crash --
+REM which is exactly why this is asserted at runtime and not inferred.
+
+IMPORT io
+IMPORT thread
+
+MUT COUNTER AS Integer = 7
+
+ISOLATED FUNC bump(t AS ThreadWorker OF Nothing TO Integer, add AS Integer) AS Integer
+  COUNTER = COUNTER + add
+  RETURN COUNTER
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Thread OF Nothing TO Integer = thread::start(bump, 100)
+  LET b AS Thread OF Nothing TO Integer = thread::start(bump, 200)
+  LET ra AS Integer = thread::waitFor(a)
+  LET rb AS Integer = thread::waitFor(b)
+  io::print("a=" & toString(ra) & " b=" & toString(rb) & " parent=" & toString(COUNTER))
+  RETURN 0
+END FUNC

@@ -11,10 +11,10 @@ const DESC: &str = r#"`start` launches `f` on a new thread, hands it `data`, and
 handle for talking to that thread and collecting its result. It does not wait:
 the call returns while the function is still running.
 
-`f` must be an `ISOLATED FUNC` reached through an import — an
-`EXPORT ISOLATED FUNC` of a package you imported, or, inside a package project,
-one of your own package's named as `self::worker`. A bare unqualified name is
-rejected, and so are a `SUB`, a lambda, and a closure.
+`f` must be an `ISOLATED FUNC`. That is the whole requirement: it can be one your
+own project declares — at any visibility, named by its plain name — or an
+`EXPORT ISOLATED FUNC` of a package you imported, named through that import. A
+`SUB`, a lambda and a closure are rejected.
 
 The entry point's own signature decides the handle's type. A function declared
 `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` gives back a
@@ -23,9 +23,10 @@ The entry point's own signature decides the handle's type. A function declared
 that also carries open resources names them as well
 (`ThreadWorker OF Msg RES Res TO Out`), giving a `Thread OF Msg RES Res TO Out`.
 
-The new thread gets its own fresh copy of `f`'s package, including its own
-top-level `MUT` state. Start the same function twice and you get two threads
-that share none of it.
+The new thread gets its own fresh copy of the project that declares `f`,
+including its own top-level `MUT` state, set up from the same declarations your
+program starts from. Start the same function twice and you get two threads that
+share none of it, and neither one changes your copy.
 
 `data` is copied into the thread, so it must be thread-sendable, and afterwards
 neither side can reach the other's copy.
@@ -98,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         ],
                         out(),
                     ),
-                    "The function to run. It must be an `EXPORT ISOLATED FUNC` of an imported package (or one of your own, named `self::…`), and a `FUNC` rather than a `SUB`, a lambda, or a closure.",
+                    "The function to run. It must be an `ISOLATED FUNC` — one your own project declares, or an `EXPORT ISOLATED FUNC` of a package you imported — and a `FUNC` rather than a `SUB`, a lambda, or a closure.",
                 ),
                 req(
                     "data",

@@ -36,7 +36,14 @@ failure — for every channel shape (`Thread OF Msg TO Out`,
 Re-reproduced pre-dispatch on a second channel shape, which the doc's single
 example (`Thread OF String TO Integer`) does not cover. A ready-made repro
 project is staged at `/tmp/mfb59-r479` (an executable importing a package with
-an `EXPORT ISOLATED FUNC`; `examples/network-server/worker` supplies one):
+an `EXPORT ISOLATED FUNC`). **Path note (plan-115-C):** that repro originally
+took its worker from `examples/network-server/worker`, a package that no longer
+exists — plan-115 made any `ISOLATED FUNC` a thread entry, so the example was
+collapsed into one project and its entries now live in
+`examples/network-server/src/wire.mfb` as `PUBLIC ISOLATED FUNC`. For an
+*imported-package* worker with a `RES tcp::Socket` channel, use
+`tools/thread-package-sources/*` or declare one locally; the bug is about the
+inline `TRAP` lowering, not about where the entry comes from.
 
 ```
 error: native inlined field size not available for type

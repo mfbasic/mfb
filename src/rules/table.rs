@@ -293,12 +293,6 @@ pub(super) const RULES: &[Rule] = &[
         message: "internal: two source file paths produced the same file-scope hash",
     },
     Rule {
-        code: "2-201-0019",
-        name: "IMPORT_SELF_IN_EXECUTABLE",
-        severity: Severity::Error,
-        message: "IMPORT self is only valid in a package project",
-    },
-    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,
@@ -824,7 +818,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0113",
         name: "TYPE_ISOLATED_NOT_VISIBLE",
         severity: Severity::Error,
-        message: "ISOLATED function must be a project-visible FUNC declaration",
+        message: "ISOLATED function must be a top-level FUNC declaration",
     },
     Rule {
         code: "2-203-0114",

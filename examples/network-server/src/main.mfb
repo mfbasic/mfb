@@ -38,7 +38,6 @@
 ' peer, so there is no per-connection handle to hand over.
 
 IMPORT collections
-IMPORT connworker
 IMPORT crypto
 IMPORT datetime
 IMPORT io
@@ -50,9 +49,9 @@ IMPORT thread
 IMPORT tls
 IMPORT udp
 
-' The wire helpers and the tick/nap constants live in the connworker package —
-' the same code the --thread workers run, so both modes speak one wire format.
-' See examples/network-server/worker/src/lib.mfb.
+' The wire helpers and the tick/nap constants live in src/wire.mfb — the same
+' code the --thread workers run, so both modes speak one wire format. They are
+' PUBLIC, which is project-wide, so they are named here without a prefix.
 
 ' The argument at position i, or "" when the command line ended before it.
 FUNC argAt(args AS List OF String, i AS Integer) AS String
@@ -125,7 +124,7 @@ SUB serveTcp(host AS String, port AS Integer)
   MUT ids AS List OF String = []
   MUT counts AS List OF Integer = []
   MUT live AS List OF Boolean = []
-  MUT nextTick AS Integer = datetime::monotonicNanos() + connworker::tickNanos()
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
 
   DO
     ' 1. Admit every connection the kernel has already queued. accept(0) is one
@@ -163,7 +162,7 @@ SUB serveTcp(host AS String, port AS Integer)
             gone = TRUE
             RECOVER []
           END TRAP
-          IF connworker::hasBye(chunk) THEN
+          IF hasBye(chunk) THEN
             gone = TRUE
           END IF
         END IF
@@ -183,14 +182,14 @@ SUB serveTcp(host AS String, port AS Integer)
 
     ' 3. On the tick, send everyone still attached their next counter.
     IF datetime::monotonicNanos() >= nextTick THEN
-      nextTick = nextTick + connworker::tickNanos()
+      nextTick = nextTick + tickNanos()
       FOR i = 0 TO len(conns) - 1
         IF collections::get(live, i) THEN
           RES sock AS tcp::Socket = collections::get(conns, i)
           LET id AS String = collections::get(ids, i)
           LET n AS Integer = collections::get(counts, i) + 1
           counts = collections::set(counts, i, n)
-          tcp::write(sock, "Update " & id & " " & connworker::counterText(n) & "\n") TRAP(e)
+          tcp::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
             RECOVER
@@ -199,7 +198,7 @@ SUB serveTcp(host AS String, port AS Integer)
       NEXT
     END IF
 
-    os::sleep(connworker::napMs())
+    os::sleep(napMs())
   LOOP UNTIL FALSE
 END SUB
 
@@ -217,7 +216,7 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
   MUT ids AS List OF String = []
   MUT counts AS List OF Integer = []
   MUT live AS List OF Boolean = []
-  MUT nextTick AS Integer = datetime::monotonicNanos() + connworker::tickNanos()
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
 
   DO
     ' One tls::accept deadline bounds *both* the wait for a connection and the
@@ -229,7 +228,7 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
     ' arrives inside that window waits in the kernel backlog for the next pass.
     DO
       LET budgetMs AS Integer = (nextTick - datetime::monotonicNanos()) / 1000000
-      IF budgetMs < connworker::minHandshakeMs() THEN
+      IF budgetMs < minHandshakeMs() THEN
         EXIT DO
       END IF
       RES sock AS tls::Socket = tls::accept(server, budgetMs) TRAP(e)
@@ -255,7 +254,7 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
             gone = TRUE
             RECOVER []
           END TRAP
-          IF connworker::hasBye(chunk) THEN
+          IF hasBye(chunk) THEN
             gone = TRUE
           END IF
         END IF
@@ -270,14 +269,14 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
     NEXT
 
     IF datetime::monotonicNanos() >= nextTick THEN
-      nextTick = nextTick + connworker::tickNanos()
+      nextTick = nextTick + tickNanos()
       FOR i = 0 TO len(conns) - 1
         IF collections::get(live, i) THEN
           RES sock AS tls::Socket = collections::get(conns, i)
           LET id AS String = collections::get(ids, i)
           LET n AS Integer = collections::get(counts, i) + 1
           counts = collections::set(counts, i, n)
-          tls::write(sock, "Update " & id & " " & connworker::counterText(n) & "\n") TRAP(e)
+          tls::write(sock, "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             io::print("Disconnect " & id)
             live = collections::set(live, i, FALSE)
             RECOVER
@@ -286,7 +285,7 @@ SUB serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS Str
       NEXT
     END IF
 
-    os::sleep(connworker::napMs())
+    os::sleep(napMs())
   LOOP UNTIL FALSE
 END SUB
 
@@ -310,7 +309,7 @@ SUB serveUdp(host AS String, port AS Integer)
   MUT counts AS List OF Integer = []
   MUT live AS List OF Boolean = []
   MUT lastSeen AS List OF Integer = []
-  MUT nextTick AS Integer = datetime::monotonicNanos() + connworker::tickNanos()
+  MUT nextTick AS Integer = datetime::monotonicNanos() + tickNanos()
 
   DO
     ' 1. Drain the receive queue: register new peers, refresh known ones.
@@ -337,7 +336,7 @@ SUB serveUdp(host AS String, port AS Integer)
       ELSE
         lastSeen = collections::set(lastSeen, idx, now)
       END IF
-      IF connworker::hasBye(datagram.bytes) THEN
+      IF hasBye(datagram.bytes) THEN
         io::print("Disconnect " & collections::get(ids, idx))
         live = collections::set(live, idx, FALSE)
       END IF
@@ -346,7 +345,7 @@ SUB serveUdp(host AS String, port AS Integer)
     ' 2. Retire peers that have gone quiet.
     FOR i = 0 TO len(keys) - 1
       IF collections::get(live, i) THEN
-        IF datetime::monotonicNanos() - collections::get(lastSeen, i) > connworker::udpIdleNanos() THEN
+        IF datetime::monotonicNanos() - collections::get(lastSeen, i) > udpIdleNanos() THEN
           io::print("Disconnect " & collections::get(ids, i))
           live = collections::set(live, i, FALSE)
         END IF
@@ -355,13 +354,13 @@ SUB serveUdp(host AS String, port AS Integer)
 
     ' 3. On the tick, broadcast to everyone still attached.
     IF datetime::monotonicNanos() >= nextTick THEN
-      nextTick = nextTick + connworker::tickNanos()
+      nextTick = nextTick + tickNanos()
       FOR i = 0 TO len(keys) - 1
         IF collections::get(live, i) THEN
           LET id AS String = collections::get(ids, i)
           LET n AS Integer = collections::get(counts, i) + 1
           counts = collections::set(counts, i, n)
-          udp::send(server, collections::get(peers, i), "Update " & id & " " & connworker::counterText(n) & "\n") TRAP(e)
+          udp::send(server, collections::get(peers, i), "Update " & id & " " & counterText(n) & "\n") TRAP(e)
             ' A refused datagram means the peer's port is gone (the host sent
             ' back ICMP port-unreachable), which is as close to a disconnect as
             ' UDP gets.
@@ -373,7 +372,7 @@ SUB serveUdp(host AS String, port AS Integer)
       NEXT
     END IF
 
-    os::sleep(connworker::napMs())
+    os::sleep(napMs())
   LOOP UNTIL FALSE
 END SUB
 
@@ -405,7 +404,7 @@ SUB serveTcpThreaded(host AS String, port AS Integer)
   ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
   ' start instead — the only error that can reach it, since every other call here
   ' traps at its own site.
-  LET worker AS Thread OF RES tcp::Socket TO Integer = thread::start(connworker::serveTcpConnections, "tcp")
+  LET worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp")
 
   DO
     RES sock AS tcp::Socket = tcp::accept(server) TRAP(e)
@@ -437,7 +436,7 @@ SUB serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPat
   ' bug-479). The function-level TRAP at the bottom of this SUB catches a failed
   ' start instead — the only error that can reach it, since every other call here
   ' traps at its own site.
-  LET worker AS Thread OF RES tls::Socket TO Integer = thread::start(connworker::serveTlsConnections, "tls")
+  LET worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls")
 
   ' The handshake still completes here, on the main thread: tls::accept is the
   ' handshake. Only the finished session crosses to the worker. Unlike the

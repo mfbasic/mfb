@@ -1,0 +1,24 @@
+' plan-115-A: ISOLATED is orthogonal to visibility. A PRIVATE ISOLATED FUNC is
+' a well-formed declaration and builds clean.
+'
+' This fixture replaces bug227_private_isolated_func_invalid, which pinned the
+' opposite. bug-227's rationale was "an ISOLATED function is a thread entry
+' point, reached by name from another package's thread::start, so it must be
+' project-visible" -- and plan-115-A deletes exactly that reachability
+' requirement, leaving the visibility half with no justification. The
+' declaration-form half of TYPE_ISOLATED_NOT_VISIBLE still stands and is pinned
+' by the sibling fixture isolated_sub_invalid.
+PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+' PUBLIC (the default) and EXPORT were already accepted; PRIVATE is the one this
+' plan adds. Declared alongside so the fixture pins that widening the rule did
+' not narrow anything else.
+PUBLIC ISOLATED FUNC pub(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

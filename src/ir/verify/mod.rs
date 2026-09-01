@@ -174,16 +174,24 @@ fn collect_diagnostics_with(
                 .map(|p| p.name.clone())
                 .collect(),
         );
-        // An ISOLATED function is a thread entry point, reached by name from
-        // another package's `thread::start`, so it must be a project-visible
-        // FUNC (bug-227). `IrFunction` carries all three facts.
-        if function.isolated && (function.kind != "func" || function.visibility == "private") {
+        // `ISOLATED` marks thread-entry eligibility, and it is independent of
+        // visibility: any top-level `FUNC` may carry it, `PRIVATE` included.
+        //
+        // plan-115-A: this used to also reject `PRIVATE`, on the bug-227
+        // rationale that "an ISOLATED function is a thread entry point, reached
+        // by name from another package's `thread::start`, so it must be
+        // project-visible". That rationale is exactly what this plan deletes —
+        // an entry need no longer be reached from another package, so a
+        // file-local entry is well-formed and the visibility half of the rule
+        // has no surviving justification. What remains is the declaration-form
+        // half: `ISOLATED` is still meaningless on a `SUB`, a lambda, a closure
+        // or a local function, so `kind != "func"` is still rejected.
+        if function.isolated && function.kind != "func" {
             env.current_line.set(function.loc.line);
             env.emit(
                 "TYPE_ISOLATED_NOT_VISIBLE",
                 format!(
-                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
-                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
+                    "ISOLATED function `{}` must be a top-level FUNC declaration.",
                     function.name
                 ),
             );

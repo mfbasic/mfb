@@ -1,6 +1,5 @@
 use crate::ast::{
     AstProject, DocBlock, DocHeaderKind, FunctionKind, ResourceDecl, TypeDeclKind, Visibility,
-    SELF_IMPORT,
 };
 use crate::binary_repr;
 use crate::codegen::builtins;
@@ -312,11 +311,6 @@ struct Resolver<'a> {
     /// knowledge", never "exports nothing" (bug-480).
     package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
-    /// Whether this project is `kind: "package"`. Gates the reserved `IMPORT self`
-    /// specifier: only a package has an exported interface to import, so
-    /// `IMPORT self` in an executable is `IMPORT_SELF_IN_EXECUTABLE`
-    /// (plan-81-import-self.md §4.3).
-    is_package: bool,
     had_error: bool,
 }
 
@@ -383,15 +377,6 @@ impl<'a> Resolver<'a> {
             link_functions: HashMap::new(),
             package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
-            // Non-panicking kind read: `manifest::project_kind` asserts a
-            // validated `kind`, but `Resolver::new` also runs from paths with an
-            // empty/partial manifest (doc validation, unit tests). Absent kind →
-            // treat as non-package, so `IMPORT self` there is rejected, not a panic.
-            is_package: manifest
-                .get("kind")
-                .and_then(|value| value.get::<String>())
-                .map(|kind| kind == "package")
-                .unwrap_or(false),
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);

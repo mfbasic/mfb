@@ -3,13 +3,14 @@
 `ISOLATED` means the worker is callable from a separate runtime thread without
 capturing current stack locals, closures, or current-package private state.
 
-An `ISOLATED` declaration must itself be a project-visible `FUNC` — a `PUBLIC`
-(the default) or `EXPORT` `FUNC`, not a `SUB` and not `PRIVATE`. The compiler
-enforces this at declaration time, reporting `ISOLATED function `<name>` must be a
-project-visible FUNC declaration (PUBLIC — the default — or EXPORT, not PRIVATE).`
-for a
-violation. This is independent of the call-site check in `thread::start`, which
-additionally requires the entry to come from an *imported* package. [[src/ir/shape.rs:check_builtin_call]]
+An `ISOLATED` declaration must itself be a top-level `FUNC` — not a `SUB`, a
+lambda, a closure or a local function. It is **independent of visibility**:
+`PRIVATE`, `PUBLIC` (the default) and `EXPORT` are all valid. The compiler
+enforces the declaration form at declaration time, reporting
+`ISOLATED function `<name>` must be a top-level FUNC declaration.` for a
+violation. That is a separate check from the call-site one in `thread::start`,
+which requires only that the entry name an `ISOLATED FUNC`; neither check
+considers where the entry is reached from. [[src/ir/shape.rs:check_builtin_call]]
 
 An isolated worker may still call:
 
