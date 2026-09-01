@@ -46,6 +46,28 @@ impl TypeEnv {
                             &format!("Record `{}` field `{}`", ty.name, field.name),
                             "`handle AS RES fs::File`",
                         );
+                        // plan-114-E: a `STATE T` clause on a `RES` field is
+                        // gated exactly as it is on a binding (§15.5) — `T` must
+                        // be a copyable, defaultable DATA type.
+                        //
+                        // This needed routing, not just verifying: the binding
+                        // check lives in `ops.rs` behind an `explicit_type` gate
+                        // and never saw a field, so before this a field could
+                        // declare `STATE fs::File` — a resource as its own state
+                        // payload — and nothing rejected it, all the way to
+                        // codegen. A binding with the identical clause has always
+                        // been refused.
+                        if let Some(state_type) = strip_res(&field.type_).state() {
+                            if !self.is_defaultable(&state_type, &mut HashSet::new()) {
+                                self.emit(
+                                    "TYPE_STATE_INVALID",
+                                    format!(
+                                        "Record `{}` field `{}` STATE type `{state_type}` must be a copyable, defaultable data type.",
+                                        ty.name, field.name
+                                    ),
+                                );
+                            }
+                        }
                         self.current_line.set(ty.loc.line);
                     }
                     let record = ParameterType::declared(&ty.name);
