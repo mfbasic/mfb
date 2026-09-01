@@ -45,7 +45,17 @@ See plan-116-A §Prerequisites for the three environment gates.
 | plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | NOT MET |
 | **plan-114 A–E complete and archived** | `ls planning/plan-114-*` → **no matches** | NOT MET (5 matches) |
 | The ban on resource record fields is retired | `grep -n 'TYPE_RESOURCE_FIELD_FORBIDDEN' src/rules/table.rs` shows a `RETIRED` comment | NOT MET |
-| `Picture` holds a `RES Image` | `grep -n 'RES Image\|ImageRef' src/codegen/builtins/canvas/mod.rs` | NOT MET |
+| `Picture` holds a `RES Image` | `grep -n 'RES Image\|ImageRef' src/codegen/builtins/canvas/mod.rs` | NOT MET — **and plan-114 will not change this**, see below |
+
+**Row 4 will still be NOT MET the day plan-114 lands.** plan-114 does not touch
+`canvas` anywhere: `grep -rln 'canvas' planning/plan-114-*.md` returns **no files** —
+zero mentions across all five letters — and letter D's fixtures use `fs::File`.
+Confirmed independently by mfb-76, the session executing plan-114, 2026-08-31.
+
+So when plan-114 completes, rows 2 and 3 flip to MET and **row 4 does not**. The
+`Picture`-from-`ImageRef`-to-`RES Image` migration is entirely ahead of this letter and
+belongs to nobody yet. Phase 1 and this letter's effort estimate must be written on
+that basis — see §Open Decisions, where it is no longer a conditional.
 
 **If plan-114 is not complete, this letter cannot start, full stop.** It is not scope
 this letter absorbs, not a soft preference, and there is no dual-mode design in which
@@ -105,12 +115,33 @@ the time of writing, so a future implementer can see what changed.
 
 ### Verified properties
 
-- **The two `canvas` resources are not transfer-audited.** Read `mod.rs:745-752`:
-  *"Not audited for transfer (bug-464 left canvas out of scope). Empty here is only
-  consistent with `sendable: false`; opting an image in means auditing its record tail
-  first, not just flipping the bit."* A group is worker-owned state that the graphics
-  thread *reads*, so this letter must establish whether group ownership constitutes a
-  transfer under plan-114's rules. **UNVERIFIED and it is the letter's first task.**
+- **The two `canvas` resources are not transfer-audited.** Read `mod.rs:744-748`:
+  `sendable: false`, `live_slots: &[]`, with the comment *"Not audited for transfer
+  (bug-464 left canvas out of scope). Empty here is only consistent with
+  `sendable: false`; opting an image in means auditing its record tail first, not just
+  flipping the bit."* A group is worker-owned state that the graphics thread *reads*,
+  so this letter must establish whether group ownership constitutes a transfer under
+  plan-114's rules. **UNVERIFIED and it is the letter's first task.**
+
+- **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
+  plan-114-A that is a hard compile error rather than a silent acceptance.**
+  plan-114-A adds `2-203-0137 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
+  (`planning/plan-114-A-thread-plane-resource-error.md:182`; the rule does **not** yet
+  exist on main — `grep -rn '2-203-0137' src/rules/table.rs` returns nothing). Combined
+  with `canvas::Image`'s `sendable: false`, a record carrying one is refused at any
+  thread boundary.
+
+  **This is a design input, not a discovery to be made during implementation.** If any
+  part of this letter — or of a program using it — expects a `Picture`, a group's item
+  list, or a `List OF DrawItem` containing one to be sendable, that has to be designed
+  in deliberately, which means auditing `Image`'s record tail and setting `live_slots`
+  rather than flipping `sendable`. Raised by mfb-76, 2026-08-31; the rule code is
+  `-0137`, not the `-0138` first reported.
+
+  Note this does **not** obstruct plan-116-G's design: the group table is process-global
+  storage read by the graphics thread, which is not a thread *data plane* transfer in
+  the `thread::start` sense the rule governs. Whether the type system agrees is exactly
+  what Phase 1's audit must settle.
 - **`.ai/canvas-threading.md` §7's gate already defers the OS-side free** past any
   in-flight frame. So "close on group free" composes with it: the group's close sets
   the closed flag, and the existing gate frees the backing. This letter should add
@@ -283,12 +314,22 @@ Commit: —
 
 ## Open Decisions
 
-- **Does `Picture` migrate from `ImageRef` to `RES Image`, and is that this letter's
-  job or a separate one?** plan-114 retires the *rule*; it does not change `canvas`.
-  Recommend: if `Picture` still holds an `ImageRef` when plan-114 lands, make the
-  migration **Phase 1.5 of this letter**, because ownership is meaningless without it —
-  but re-estimate the letter's effort at that point, since migrating `Picture` touches
-  every `Picture[` site and the scene deep copy.
+- **`Picture` must migrate from `ImageRef` to `RES Image`, and it is nobody's job
+  yet.** No longer conditional: plan-114 provably does not touch `canvas`
+  (`grep -rln 'canvas' planning/plan-114-*.md` → no files), so the migration will still
+  be outstanding when plan-114 completes. Two options, and this needs deciding **before**
+  this letter is scheduled rather than during it:
+  - *(recommended)* a **separate lettered plan** between plan-116-H and this one,
+    because the migration is a breaking `canvas` API change on its own terms — it
+    touches every `Picture[` site, the scene deep copy, `canvas::imageRef`, and
+    `.ai/canvas-threading.md` §7's "a `Picture` carries a value handle, so presenting a
+    stale one draws nothing rather than raising", which stops being true. Bundling that
+    into an ownership letter hides a second breaking change behind the first.
+  - as Phase 1.5 of this letter, which keeps the letter count down but makes this
+    letter x-large and puts two independent breaking changes behind one acceptance gate.
+
+  Either way **re-estimate before starting**: this letter is written as medium on the
+  assumption the migration is not in it.
 - **Is a group-owned resource a "transfer"?** Genuinely open; Phase 1 answers it with
   an audit. Recommend assuming **yes** until the audit says otherwise, because the
   buffer is process-global and read by a second thread, which is the shape `sendable`
