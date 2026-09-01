@@ -375,7 +375,53 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 (Phase 1) — both grammar sites located, and they can share one entry point.**
+
+| What | Site | Shape today |
+|---|---|---|
+| Record field type | `src/ast/items.rs:362`, in `parse_type_field` | `let type_name = self.parse_type_name()?;` — no `RES` handling at all |
+| Collection element `RES` | `src/ast/expr.rs:775`, in `parse_type_name_inner`'s `List` arm | `let element_res = name.eq_ignore_ascii_case("List") && self.match_keyword(Keyword::Res); let arg = self.parse_type_name()?; let arg = self.parse_optional_element_state(arg, element_res)?;` then a `"RES "` prefix |
+
+The element arm is the pattern to reuse verbatim: **match the marker → parse the
+type name → `parse_optional_element_state` → prefix `"RES "`**. That last call is
+what already folds a ` STATE T` clause into the element's own type string, which
+is why letter E's `STATE`-on-a-field work is a matter of *reaching* it rather
+than writing anything new. `parse_optional_element_state` takes the
+`element_res` flag, so it also already enforces "a `STATE` clause is only
+meaningful on a `RES` element".
+
+The `Set` arm at `expr.rs:794` is the precedent for the *opposite* decision — it
+explicitly rejects `RES` with a targeted message rather than falling through —
+and is worth reading before writing the field arm, because it shows the house
+style for refusing a marker in a position that cannot carry it.
+
+**C2 (Phase 1) — §2's measured grammar behaviour re-confirmed against the
+current binary.** Both rows still hold exactly as the plan recorded them
+(measured on a scratch project with `mfb build -ast -ir`):
+
+```
+handle AS RES fs::File
+  → 1-102-0003 MFB_PARSE_INVALID_IDENTIFIER: identifier is invalid
+handle AS fs::File
+  → 2-203-0084 TYPE_RESOURCE_FIELD_FORBIDDEN: a record field cannot be a resource
+```
+
+Note the second message's *summary* differs from the one §2 quotes ("Record `Test`
+field `a` is resource `fs.File`; records cannot own resources"): that longer text
+is the emitted **detail** line, while `a record field cannot be a resource` is the
+rule-table summary. Both are still present; §2 simply quoted the detail. No
+correction to the plan's substance, recorded so the next reader does not think the
+message changed under them.
+
+**The `STATE`-clause measurement (§2's UNVERIFIED row) is deliberately deferred to
+the point where it is measurable.** It asks what
+`handle AS RES fs::File STATE Cursor` does "with the grammar change stubbed in
+locally". Until the field arm exists, the answer is unconditionally
+`MFB_PARSE_INVALID_IDENTIFIER` at the `RES` token — the same as the row above,
+and it tells us nothing about the `STATE` clause. It is measured in Phase 2, once
+the arm is in place, and the answer sets that phase's `STATE`-rejection task.
+
+<!-- Further corrections filled in during execution. -->
 
 ## Summary
 
