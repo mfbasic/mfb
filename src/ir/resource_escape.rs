@@ -133,18 +133,56 @@ struct Analyzer {
     /// bare one, so the bug-291 rejection does not pile onto a program already
     /// rejected for the missing `RES` marker.
     decl_type: HashMap<String, crate::types::ParameterType>,
+    /// Record types that carry a `RES` field, so the bug-291 ordering gate can
+    /// tell a container that can actually own a resource from one that cannot.
+    /// See [`analyze_function_with`] for why a type name alone cannot answer it.
+    res_field_records: HashSet<crate::types::ParameterType>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
 }
 
 /// Analyze a function body, returning per-`RES`-binding ownership decisions.
+///
+/// Equivalent to [`analyze_function_with`] with no record-type knowledge, i.e.
+/// the collection rules only.
+///
+/// `#[cfg(test)]`: **production always has the type table** (`ir::lower` passes
+/// `TypeIndex::res_field_record_types`), and a caller that silently dropped it
+/// would lose the record half of the bug-291 ordering gate — the failure mode
+/// being a double close with no diagnostic. Keeping this convenience entry point
+/// out of non-test builds means that mistake cannot be made by accident; the
+/// tests that predate records use it because for them the empty set is the
+/// truth, not a shortcut.
+#[cfg(test)]
 pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
+    analyze_function_with(function, &HashSet::new())
+}
+
+/// [`analyze_function`], plus the set of record types that carry a `RES` field.
+///
+/// plan-114-C: the bug-291 ordering gate skips a returned container that cannot
+/// actually own a resource, so that it does not pile a `FloatBlocked` rejection
+/// onto a program already refused for a missing `RES` marker. For a collection
+/// that test is structural — `is_res_marked_resource_collection` reads
+/// `List OF RES T` straight off the type. For a **record** it is not:
+/// `Named("Holder")` does not reveal whether `Holder` has a `RES` field, so
+/// without this set the gate would fall through to `ResOwner::Local` and
+/// silently reproduce the exact bug-291 miscompile (the callee closes the
+/// handle, then the caller's adopted list closes it again).
+///
+/// Empty is the safe default: it means "no record can own a resource", which is
+/// what the `#[cfg(test)]` callers and the pre-record world both assume.
+pub fn analyze_function_with(
+    function: &HirFunction,
+    res_field_records: &HashSet<crate::types::ParameterType>,
+) -> FunctionEscape {
     let mut analyzer = Analyzer {
         res_names: HashSet::new(),
         decl_depth: HashMap::new(),
         decl_order: HashMap::new(),
         decl_type: HashMap::new(),
+        res_field_records: res_field_records.clone(),
         res_depth: HashMap::new(),
         routings: Vec::new(),
         next_order: 0,
@@ -449,15 +487,20 @@ impl Analyzer {
                     {
                         continue;
                     }
-                    // Only a RES-marked collection can own a resource at all. A
+                    // Only a container that can actually own a resource counts. A
                     // bare `List OF File` is already rejected for the missing
                     // marker, and telling its author to reorder declarations
                     // would be advice that does not fix their program.
-                    if !self
-                        .decl_type
-                        .get(collection)
-                        .is_some_and(|type_| is_res_marked_resource_collection(type_))
-                    {
+                    //
+                    // plan-114-C: a record qualifies the same way, but its type
+                    // name does not reveal whether it has a `RES` field, so the
+                    // record case is decided by the table threaded in through
+                    // `analyze_function_with`. Without it the gate would fall
+                    // through to `Local` and silently reproduce bug-291.
+                    if !self.decl_type.get(collection).is_some_and(|type_| {
+                        is_res_marked_resource_collection(type_)
+                            || self.res_field_records.contains(type_)
+                    }) {
                         continue;
                     }
                     blocked_by_order = Some(collection.clone());
@@ -811,6 +854,93 @@ mod tests {
         ]));
         // `f` reaches `outer`, the outermost container that references it.
         assert_eq!(result.owner("f"), ResOwner::Float("outer".to_string()));
+    }
+
+    /// bug-291's record twin: a RETURNED record declared *after* the resource it
+    /// carries cannot honour the float (its owned-list does not exist yet when
+    /// the resource is produced), so it must be reported rather than degraded.
+    ///
+    /// This is the case that needs the type table. Degrading it to `Local` is a
+    /// silent miscompile — the callee closes the handle at its own scope while
+    /// the returned record still carries it, and the caller's adopted list
+    /// closes it a second time.
+    #[test]
+    fn a_returned_record_declared_after_its_resource_is_blocked() {
+        let body = vec![
+            res("f", open()),
+            holder("h", false, construct("f")),
+            HirStatement::Return {
+                value: Some(ident("h")),
+                line: 1,
+            },
+        ];
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+
+        let blocked = analyze_function_with(&func(body.clone()), &records);
+        assert_eq!(
+            blocked.owner("f"),
+            ResOwner::FloatBlocked("h".to_string()),
+            "a returned record declared after its resource must be reported, \
+             not degraded to Local"
+        );
+
+        // And the reason the table is needed at all: with no record-type
+        // knowledge the very same program degrades to `Local`, which is the
+        // bug-291 double close. This half is what makes the test prove the
+        // threading, not just the gate.
+        let unaware = analyze_function_with(&func(body), &HashSet::new());
+        assert_eq!(
+            unaware.owner("f"),
+            ResOwner::Local,
+            "without the record table the gate cannot see the container — this \
+             is why ir::lower must pass TypeIndex::res_field_record_types"
+        );
+    }
+
+    /// The guard on the guard: a returned record with NO `RES` field must not be
+    /// blocked. Reporting an ordering problem for a container that cannot own a
+    /// resource would be advice that does not fix the program — the same reason
+    /// a bare `List OF File` is skipped.
+    #[test]
+    fn a_returned_record_without_a_res_field_is_not_blocked() {
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                holder("h", false, construct("unrelated")),
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &HashSet::new(),
+        );
+        assert_eq!(result.owner("f"), ResOwner::Local);
+    }
+
+    /// A record declared BEFORE its resource and returned floats normally — the
+    /// ordering gate must not fire just because a record is involved.
+    #[test]
+    fn a_returned_record_declared_before_its_resource_floats() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        let result = analyze_function_with(
+            &func(vec![
+                holder("h", true, construct("nothing")),
+                res("f", open()),
+                HirStatement::Assign {
+                    name: "h".to_string(),
+                    value: with_update("h", "f"),
+                    line: 1,
+                },
+                HirStatement::Return {
+                    value: Some(ident("h")),
+                    line: 1,
+                },
+            ]),
+            &records,
+        );
+        assert_eq!(result.owner("f"), ResOwner::Float("h".to_string()));
     }
 
     #[test]

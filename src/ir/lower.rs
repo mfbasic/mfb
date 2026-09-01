@@ -552,9 +552,16 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
             line: function.line as u32,
             column: 1,
         },
-        resource_owners: crate::ir::resource_escape::analyze_function(function)
-            .owners()
-            .clone(),
+        // plan-114-C: the escape analysis needs to know which record types carry
+        // a `RES` field, because a record's type name alone cannot say. Without
+        // it the bug-291 ordering gate cannot recognise a returned
+        // resource-carrying record and degrades it to `Local` — a double close.
+        resource_owners: crate::ir::resource_escape::analyze_function_with(
+            function,
+            &context.type_index.res_field_record_types(),
+        )
+        .owners()
+        .clone(),
     }
 }
 
@@ -4589,6 +4596,28 @@ struct TypeIndex {
 }
 
 impl TypeIndex {
+    /// Record types with at least one `RES`-marked field (plan-114-C).
+    ///
+    /// The resource escape analysis needs this because a record binding's
+    /// declared type is a bare nominal — `Named("Holder")` cannot say whether
+    /// `Holder` owns a resource, the way `List OF RES File` says it structurally.
+    ///
+    /// Only a **direct** `RES` field counts, not one reached through a nested
+    /// record. A resource inside a nested record floats to *that* record's
+    /// binding, so the outer type is not the container the ordering gate is
+    /// asking about.
+    fn res_field_record_types(&self) -> HashSet<ParameterType> {
+        self.records
+            .iter()
+            .filter(|(_, fields)| {
+                fields
+                    .iter()
+                    .any(|field| matches!(field.type_, ParameterType::Res(_)))
+            })
+            .map(|(type_, _)| type_.clone())
+            .collect()
+    }
+
     fn new(hir: &HirProject, imported_types: &[ImportedTypeDef]) -> Self {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();

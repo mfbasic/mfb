@@ -439,7 +439,7 @@ Scheme*).
 | `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | **reserved — retired by plan-74 (a resource union may carry a uniform STATE); never emitted, never recycled** |
 | `2-203-0129` | `TYPE_STATE_MISMATCH` | error | a resource's STATE type is fixed at its owning binding and every other declaration of it must agree |
 | `2-203-0130` | `NATIVE_BIND_STATE_INVALID` | error | a BIND STATE must name the native function's stateful resource return and an OUT CSTRUCT slot whose record is the resource's STATE type |
-| `2-203-0131` | `TYPE_RESOURCE_RETURN_ORDER` | error | a collection that carries a returned resource must be declared before that resource |
+| `2-203-0131` | `TYPE_RESOURCE_RETURN_ORDER` | error | a container that carries a returned resource must be declared before that resource |
 | `2-203-0132` | `NATIVE_BUFFER_INVALID` | error | a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte |
 | `2-203-0133` | `TYPE_STATE_OPAQUE_NARROWING` | error | an opaque resource STATE cannot be narrowed to a concrete STATE type |
 | `2-203-0134` | `RESOURCE_SHADOWS_BUILTIN` | error | **reserved — retired by package-qualified built-in resources (a bare user `RESOURCE File` no longer shadows `fs::File`); never emitted, never recycled** |

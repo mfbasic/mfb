@@ -337,7 +337,7 @@ fn collect_diagnostics_with(
                 env.emit(
                     "TYPE_RESOURCE_RETURN_ORDER",
                     format!(
-                        "resource `{name}` is returned inside collection `{collection}`, but \
+                        "resource `{name}` is returned inside `{collection}`, but \
                          `{collection}` is declared after it, so it cannot take ownership; \
                          declare `{collection}` before `{name}`"
                     ),

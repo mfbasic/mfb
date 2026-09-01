@@ -247,30 +247,54 @@ comment at `builder_control.rs:684-694`.
 
 Cheapest work that can change the shape of Phases 2–3. Do it before writing code.
 
-- [ ] Read `setup_owned_list` and the exit drain
+- [x] Read `setup_owned_list` and the exit drain
       (`src/codegen/cleanup/owned/builder_owned_cleanup.rs`,
       `src/codegen/resource/cleanup/builder_resource_cleanup.rs`) and record in
       Corrections exactly what they read from `type_`. If either is
       collection-specific, that becomes a Phase 3 task with named scope.
-- [ ] Read the `solve()` ordering gate (`src/ir/resource_escape.rs:~440-480`,
+      **Answered in Corrections C1**: `emit_owned_list_push` and
+      `emit_owned_list_drain` read *nothing* from `type_`; `setup_owned_list`
+      reads it through exactly one call, `collection_resource_drop`, which hard
+      errors for a non-collection. That one call IS the named Phase 3 task.
+- [x] Read the `solve()` ordering gate (`src/ir/resource_escape.rs:~440-480`,
       around the `FloatBlocked` insertion at `:473`) and `decl_type`'s use
       (`:~128-134`), and decide the Open Decision below: does the record ordering
       rule need a resource-record-type set threaded into `analyze_function`?
-- [ ] Record both answers in Corrections. Do not proceed on an assumption.
+      **Answered in Corrections C2: yes.** `is_res_marked_resource_collection`
+      is a two-arm structural match that returns `false` for any `Named`, so a
+      returned record would `continue` past the `blocked_by_order` assignment and
+      land in `None => ResOwner::Local` — the exact bug-291 silent miscompile.
+- [x] Record both answers in Corrections. Do not proceed on an assumption.
 
 Acceptance: both UNVERIFIED rows in §2 are answered with the function read and the
-answer written down; the Open Decision is closed.
-Commit: —
+answer written down; the Open Decision is closed. **MET** — C1 and C2.
+Commit: c0d26ac5d (letter B's Phase 1 commit carried C1/C2, which were answered
+while waiting on letter A's test run)
 
 ### Phase 2 — Scan arms and ordering (analysis only)
 
-- [ ] Add the `Constructor` and `WithUpdate` arms to `scan_collection_expr` per §4.1.
-- [ ] Extend the ordering gate so a returned record declared after the resource it
+- [x] Add the `Constructor` and `WithUpdate` arms to `scan_collection_expr` per §4.1.
+      Both arms read the real field names checked against `src/hir/mod.rs:462-470`:
+      `Constructor { type_, arguments: Vec<HirConstructorArg> }` (whose args are
+      `Positional(expr)` **or** `Named { value, .. }` — both routed) and
+      `WithUpdate { target, updates: Vec<HirRecordUpdate> }`.
+- [x] Extend the ordering gate so a returned record declared after the resource it
       carries yields `ResOwner::FloatBlocked(<record>)`, per Phase 1's answer.
-- [ ] Verify `TYPE_RESOURCE_RETURN_ORDER`'s message (`src/ir/verify/mod.rs:336-340`)
+      Done by threading a `res_field_records` set in through a new
+      `analyze_function_with`; `ir::lower` supplies it from
+      `TypeIndex::res_field_record_types()`. The old no-table `analyze_function`
+      survives as a `#[cfg(test)]` entry point only — production must not be able
+      to drop the table by accident, because the failure mode is a silent double
+      close.
+- [x] Verify `TYPE_RESOURCE_RETURN_ORDER`'s message (`src/ir/verify/mod.rs:336-340`)
       reads correctly when the container is a record; adjust the wording if it says
       "collection", and update `src/rules/table.rs:1027`'s message only if it does.
-- [ ] Tests in `src/ir/resource_escape.rs`'s test module, mirroring the existing
+      **It did, in both places.** The emitted detail said "is returned inside
+      collection `xs`" and the rule summary said "a collection that carries…".
+      Both are now container-neutral ("is returned inside `xs`", "a container
+      that carries…"), the spec's rule-code row is synced, and the single
+      affected golden was regenerated — diff is exactly those two lines.
+- [x] Tests in `src/ir/resource_escape.rs`'s test module, mirroring the existing
       collection cases at `:615` and `:638`:
       - `MUT h AS Holder = …; WHILE { RES f = …; h = WITH h { handle := f } }` → `f`
         floats to `h`;
@@ -279,11 +303,22 @@ Commit: —
         `FloatBlocked("h")`;
       - `LET xs = [Holder[handle := f]]` → `f` floats to `xs` (nesting via `scan_element`);
       - a record with no resource argument → no routing at all (regression guard).
+      All five landed, plus four beyond the plan: positional-vs-named constructor
+      args route identically; `WITH` carries the target's existing contents; a
+      returned record with no `RES` field is *not* blocked; and a returned record
+      declared *before* its resource still floats normally. The `FloatBlocked`
+      test also asserts the no-table case degrades to `Local`, which is what
+      proves the threading rather than just the gate.
 
 Acceptance: the five analysis tests pass; every pre-existing test in
 `src/ir/resource_escape.rs` and `src/ir/tests.rs` passes **unmodified**;
 `scripts/artifact-gate.sh target/release/mfb all` → `diffs=0`.
-Commit: —
+**MET on the first two**: `cargo test --bin mfb resource_escape` → 14 passed,
+0 failed, and all five pre-existing collection tests are untouched. The gate is
+re-run in Phase 3 (this phase changes a diagnostic message, so it is
+`test-accept`, not the artifact gate, that can see the one intended golden
+change).
+Commit: PHASE2HASH
 
 ### Phase 3 — Codegen: owned-list on a record binding, drain, return transfer, alias (largest blast radius)
 
