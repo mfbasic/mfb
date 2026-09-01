@@ -384,12 +384,14 @@ impl CodeBuilder<'_> {
                 {
                     self.deactivate_resource_cleanup(name);
                 }
-                // Returning a `List OF RES File` transfers its owned-list to the
-                // caller: drop this scope's drain so the resources are not closed
-                // here (§15.6).
+                // Returning a `List OF RES File` — or, since plan-114-C, a record
+                // with a `RES` field — transfers its owned-list to the caller:
+                // drop this scope's drain so the resources are not closed here
+                // (§15.6). Draining instead would close the handle the caller is
+                // about to adopt, and the caller would close it again.
                 if result
                     .as_ref()
-                    .is_some_and(|result| Self::is_res_marked_resource_collection(&result.type_))
+                    .is_some_and(|result| self.is_resource_owning_container(&result.type_))
                 {
                     self.deactivate_owned_list(name);
                 }

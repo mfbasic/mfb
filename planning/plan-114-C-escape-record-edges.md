@@ -318,7 +318,7 @@ Acceptance: the five analysis tests pass; every pre-existing test in
 re-run in Phase 3 (this phase changes a diagnostic message, so it is
 `test-accept`, not the artifact gate, that can see the one intended golden
 change).
-Commit: PHASE2HASH
+Commit: ca90a1927
 
 ### Phase 3 — Codegen: owned-list on a record binding, drain, return transfer, alias (largest blast radius)
 

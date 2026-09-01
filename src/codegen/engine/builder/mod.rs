@@ -266,9 +266,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// close obligation lives (its own scope, an outer collection's owned-list,
     /// or out via a returned collection).
     pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
-    /// Collection binding names that own a runtime owned-list (some resource
-    /// floats up to their scope).
-    pub(crate) owner_collections: HashSet<String>,
+    /// Container binding names that own a runtime owned-list (some resource
+    /// floats up to their scope). A container is a `List`/`Map` or, since
+    /// plan-114-C, a record with a `RES` field — the set is built generically
+    /// from the `ResOwner::Float(name)` decisions and reads nothing about the
+    /// container's representation, which is why a record binding needs no new
+    /// runtime structure.
+    pub(crate) owner_containers: HashSet<String>,
     /// Live owned-lists: collection binding name -> head-pointer stack slot.
     pub(crate) owned_list_heads: HashMap<String, usize>,
     /// Stack slots to zero at function entry: owned freeable-flat locals and
