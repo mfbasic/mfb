@@ -55,7 +55,7 @@ below is written against the world where these hold.
 - `2-203-0084 TYPE_RESOURCE_FIELD_FORBIDDEN` is **reserved, not deleted** and never
   emitted.
 - A record carrying a resource is not comparable, cannot be a `Map` key, and cannot
-  cross a thread data plane (`2-203-0137`, from letter A) — each proven by a
+  cross a thread data plane (`2-203-0138`, from letter A) — each proven by a
   fixture, not asserted.
 - Runtime proof: one close per opened handle, over 200 iterations, with the handle
   used through a record copy after the original binding.
@@ -131,7 +131,7 @@ accordingly rather than deleting it.
 - **Thread rejection already handles a `RES` field — no work needed.** Read
   `record_fields_sendable` (`src/ir/verify/resources.rs:474-482`): it recurses
   through `is_thread_sendable` on every field type, and `ParameterType::Res(_) => false`
-  (`:439`). Letter A turns that into `2-203-0137`. The existing test
+  (`:439`). Letter A turns that into `2-203-0138`. The existing test
   `rejects_unsendable_resource_plane_state_payload` (`src/ir/verify/tests.rs:7975`)
   is the precedent — it already refuses a record whose field is `List OF RES fs.File`.
 - **There is no print/serialize surface to gate.** Built a scratch project calling
@@ -285,7 +285,7 @@ Commit: —
 - [ ] Rewrite `src/docs/spec/language/15_resource-management.md:40` — the ban
       sentence becomes the rule: a record field holds a copy of the one handle
       pointer, owns nothing, and is governed by the same `RES` marker and float
-      rules as a collection slot (§15.6); cross-reference `2-203-0137`. Fix the
+      rules as a collection slot (§15.6); cross-reference `2-203-0138`. Fix the
       `TYPE_RESOURCE_FIELD_FORBIDDEN` mention in
       `src/docs/spec/language/05_bindings-and-scope.md`.
 - [ ] New fixture `tests/rt-behavior/resources/record-res-field-rt/` — the runtime
@@ -296,7 +296,7 @@ Commit: —
 - [ ] New fixtures for the three rejections that must survive:
       `record-res-field-map-key-invalid` (record with a `RES` field as a `Map` key →
       `TYPE_REQUIRES_COMPARABLE`), `record-res-field-compare-invalid` (`=` on two
-      such records), `record-res-field-thread-plane-invalid` (→ `2-203-0137`).
+      such records), `record-res-field-thread-plane-invalid` (→ `2-203-0138`).
 - [ ] Baseline fixture for the `.mfp` case: a package exporting a record with a
       `RES` field, with a golden capturing whatever happens today. Letter E owns
       making it work; this records the starting point so letter E's delta is
@@ -349,7 +349,7 @@ Commit: —
 - **Should a record with a `RES` field be a legal `STATE T` payload?**
   `is_copyable` says yes today (§2), and `TYPE_STATE_INVALID` requires copyable +
   defaultable. Recommendation: leave it legal — a `STATE` payload is deep-copied on
-  `thread::transfer`, but letter A's `2-203-0137` already refuses that plane
+  `thread::transfer`, but letter A's `2-203-0138` already refuses that plane
   (`rejects_unsendable_resource_plane_state_payload` is the existing proof), so the
   dangerous path is closed and the in-thread case is sound. Add a fixture either
   way so the answer is recorded rather than latent.

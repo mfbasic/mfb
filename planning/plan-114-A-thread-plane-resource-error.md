@@ -17,7 +17,7 @@ rather than scope within it.
 
 Behavioral outcome: a program that puts a resource — bare, `RES`-marked in a
 collection element/map value, or (after letter D) a `RES` record field — on any
-thread data plane fails with `2-203-0137 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
+thread data plane fails with `2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
 naming the resource and the plane, and `TYPE_THREAD_NOT_SENDABLE` keeps firing
 unchanged for every non-resource unsendable type (`Func`, `ThreadHandle`).
 
@@ -36,10 +36,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree clean; release `mfb` built | `git status --porcelain` → empty; `ls -la target/release/mfb` | MET (2026-08-30) |
-| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-30) |
-| `2-203-0137` is unused | `grep -c '"2-203-0137"' src/rules/table.rs` → `0` | MET (2026-08-30) |
-| bug-463 fixed (a `RES` collection on a thread message plane parses) | `ls bugs/completed/bug-463-*` → one match | NOT MET |
+| Working tree clean; release `mfb` built | `git status --porcelain` → empty; `ls -la target/release/mfb` | MET (2026-08-31, worktree `P-114`) |
+| No other artifact-gate / test-accept running | `pgrep -f '[a]rtifact-gate\|[t]est-accept'` → no output | MET (2026-08-31) |
+| A free `2-203-NNNN` code exists for the new rule | `grep -c '"2-203-0138"' src/rules/table.rs` → `0` | MET (2026-08-31) — see Corrections C1: `2-203-0137` was taken by bug-457, so this letter allocates **`2-203-0138`** |
+| bug-463 fixed (a `RES` collection on a thread message plane parses) | `ls bugs/completed/bug-463-*` → one match | MET (2026-08-31) — `bugs/completed/bug-463-thread-plane-res-collection-parse.md` |
 
 If bug-463 is not fixed, this letter cannot start, full stop: without it
 `Thread OF List OF RES fs::File TO Integer` never reaches the sendability check,
@@ -54,7 +54,7 @@ Everything below is written against the world where these hold.
 
 - A resource reaching a thread **data** plane (message type, output type, or a
   `thread::send`/`receive`/`start`/`waitFor` call's plane argument) emits
-  `2-203-0137 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` with a message naming the
+  `2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` with a message naming the
   resource type, the plane it was found on, and the resource-plane remedy.
 - The rule fires for all three shapes: a bare resource nominal (`Thread OF fs::File TO Integer`),
   a `RES`-marked collection element/map value (`List OF RES fs::File`), and a
@@ -100,8 +100,17 @@ already makes `rejects_unsendable_resource_plane_state_payload`
 (`src/ir/verify/tests.rs:7975`, bug-301 G4) work: a record whose field is
 `List OF RES fs.File` is refused as a resource-plane `STATE` payload.
 
-`require_thread_sendable` is called from **11 sites, all in one file** — so a
-single change to the emitter reaches every plane.
+`require_thread_sendable` is called from **11 sites, all in one file**. Six of
+them are data planes, three are the resource plane, and two are the resource
+plane's `STATE` payload (which is data) — see **Corrections C3** for the
+site-by-site table. The emitter therefore takes an explicit `Plane` argument
+rather than re-labelling unconditionally.
+
+Two further data-plane rejections do **not** flow through `require_thread_sendable`
+at all: the hand-written bare-resource blocks at `:530-540` (declared message
+plane) and `:629-639` (`thread::send`). They are what actually reject
+`Thread OF fs::File TO Integer`, because `fs::File` is registered thread-sendable
+so the cause walk returns "sendable" for it — see **Corrections C4**.
 
 ### Measured populations
 
@@ -111,15 +120,18 @@ single change to the emitter reaches every plane.
 | Existing `TYPE_THREAD_NOT_SENDABLE` assertions in unit tests | 9 | `grep -rn "TYPE_THREAD_NOT_SENDABLE" src/ir/verify/tests.rs \| wc -l` → `9` |
 | Golden `build.log` files naming `TYPE_THREAD_NOT_SENDABLE` | 2 | `grep -rln "TYPE_THREAD_NOT_SENDABLE" tests/` → `tests/syntax/threads/func_thread_send_invalid/golden/build.log`, `tests/syntax/threads/func_thread_start_invalid/golden/build.log` |
 | `tests/syntax/threads` fixtures | 31 | `ls tests/syntax/threads \| wc -l` → `31` |
-| Highest allocated `2-203-NNNN` rule code | `2-203-0136` | `grep -oE '"2-203-[0-9]{4}"' src/rules/table.rs \| sort -u \| tail -1` → `"2-203-0136"` |
+| Highest allocated `2-203-NNNN` rule code | `2-203-0137` | `grep -oE '"2-203-[0-9]{4}"' src/rules/table.rs \| sort -u \| tail -1` → `"2-203-0137"` (re-measured 2026-08-31; was `0136` when authored — see Corrections C1) |
 
 ### Verified properties
 
-- **A single emitter reaches every plane.** Read `require_thread_sendable`
-  (`src/ir/verify/resources.rs:486-496`) and all 11 call sites (`:528`, `:529`,
-  `:544`, `:548`, `:598`, `:608`, `:610`, `:615`, `:620`, `:643`, `:657`): every
-  one passes a `context` string and the type, and none emits a rule itself. So
-  splitting the emitter by cause needs no call-site edits.
+- **~~A single emitter reaches every plane.~~ FALSE — corrected in C3/C4.** All 11
+  call sites (`:528`, `:529`, `:544`, `:548`, `:598`, `:608`, `:610`, `:615`,
+  `:620`, `:643`, `:657`) do pass a `context` string and the type and none emits a
+  rule itself — but they do not all name a *data* plane (three name the resource
+  plane, C3), and two separate bespoke blocks emit the bare-resource data-plane
+  rejection without going through the emitter at all (C4). Splitting the emitter by
+  cause therefore **does** need call-site edits: a `Plane` argument at all 11, and
+  a rule swap in the two bespoke blocks.
 - **The record-field descent already exists and is tested.** Read
   `record_fields_sendable` (`:474-482`) — it recurses through `is_thread_sendable`
   on every field type — and `rejects_unsendable_resource_plane_state_payload`
@@ -174,11 +186,11 @@ Rejected alternatives:
 
 ### 4.1 The new rule
 
-Append to `src/rules/table.rs` (after `2-203-0136`):
+Append to `src/rules/table.rs` (after `2-203-0137`):
 
 ```rust
 Rule {
-    code: "2-203-0137",
+    code: "2-203-0138",
     name: "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
     severity: Severity::Error,
     message: "a resource cannot cross the thread data plane",
@@ -215,6 +227,12 @@ arm, returning `Some(Unsendable::Resource(t))` at `:439` (`Res(_)`) and at `:450
 `Some` from their children, left to right, so the reported leaf is deterministic.
 `is_thread_sendable` becomes a one-line wrapper.
 
+Per **Corrections C3**, `require_thread_sendable` additionally takes a
+`Plane { Data, Resource }`. `Unsendable::Resource` maps to `2-203-0138` only on
+`Plane::Data`; on `Plane::Resource` — and for `Unsendable::Other` on either — it
+keeps `2-203-0063`. The cause walk itself is plane-independent; only the emitter
+reads the plane.
+
 ### 4.3 What this letter does NOT touch
 
 `type_prefix_len` / `ParameterType::parse` (bug-463) and
@@ -223,7 +241,7 @@ letter changes only which rule `require_thread_sendable` emits.
 
 ## Compatibility / Format Impact
 
-- **New diagnostic code `2-203-0137`.** Additive; `2-203-0063` keeps its code,
+- **New diagnostic code `2-203-0138`.** Additive; `2-203-0063` keeps its code,
   name, severity, and message.
 - **Golden `build.log` churn:** the two fixtures listed in §2 change *only* if
   their unsendable cause is a resource. Check before regenerating — read each
@@ -245,15 +263,19 @@ parse and left behind `tests/syntax/threads/thread-res-collection-plane-invalid/
 with a `TYPE_THREAD_NOT_SENDABLE` golden. This phase confirms that starting point
 and nothing more.
 
-- [ ] Re-run bug-463's contrast matrix (its "Failing Reproduction" section) against
+- [x] Re-run bug-463's contrast matrix (its "Failing Reproduction" section) against
       the current binary and confirm every row still matches its column. If any row
       regressed, that is a bug-463 regression — reopen it, do not work around it here.
-- [ ] Confirm `tests/syntax/threads/thread-res-collection-plane-invalid/golden/build.log`
-      shows `2-203-0063 TYPE_THREAD_NOT_SENDABLE`. Phase 3 re-goldens it to `2-203-0137`.
+      **All 22 rows match** — measured 2026-08-31 with `target/release/mfb build -ast -ir`
+      over a one-parameter scratch project per row; full table in Corrections C2.
+- [x] Confirm `tests/syntax/threads/thread-res-collection-plane-invalid/golden/build.log`
+      shows `2-203-0063 TYPE_THREAD_NOT_SENDABLE`. Phase 3 re-goldens it to `2-203-0138`.
+      Confirmed: all three of its `FUNC`s (`viaList`, `viaMap`, `viaWorker`) report
+      `2-203-0063`.
 
 Acceptance: every contrast-matrix row matches, and the fixture golden reads
-`TYPE_THREAD_NOT_SENDABLE`.
-Commit: —
+`TYPE_THREAD_NOT_SENDABLE`. **MET** (see Corrections C2).
+Commit: (recorded in the next commit)
 
 ### Phase 2 — Cause walk (no behavior change)
 
@@ -275,14 +297,14 @@ Commit: —
 
 ### Phase 3 — Emit the dedicated rule
 
-- [ ] Add `2-203-0137 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` to `src/rules/table.rs` per §4.1.
+- [ ] Add `2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED` to `src/rules/table.rs` per §4.1.
 - [ ] Split `require_thread_sendable` to emit by cause (§4.1 message shape).
 - [ ] Add the row to `src/docs/spec/diagnostics/01_rule-codes.md` (the table around
       `:446`, in code order) and cross-reference it from
       `src/docs/spec/language/15_resource-management.md` §15.6 where "Sharing a
       resource collection across threads remains out of scope" is stated, and from
       `src/docs/spec/language/16_threads.md` at the data-plane/`RES`-plane split.
-- [ ] Update the Phase 1 fixture golden to `2-203-0137`.
+- [ ] Update the Phase 1 fixture golden to `2-203-0138`.
 - [ ] Check the two existing golden `build.log`s (§2) and regenerate **only** those
       whose cause is a resource. If a `Func`/`ThreadHandle` fixture churns, stop
       and fix the cause walk.
@@ -291,15 +313,15 @@ Commit: —
 
 Acceptance: a source program putting a resource on any of the three plane shapes
 (bare nominal, `RES` collection element, resource nested in a record field) fails
-with `2-203-0137` naming the resource; a `Func`-planed program still fails with
-`2-203-0063`. `mfb man`/spec rule table lists `2-203-0137`.
+with `2-203-0138` naming the resource; a `Func`-planed program still fails with
+`2-203-0063`. `mfb man`/spec rule table lists `2-203-0138`.
 Commit: —
 
 ## Validation Plan
 
 - Tests: `src/ir/verify/tests.rs` (cause-walk unit tests + the re-labelled rule
   assertions); `tests/syntax/threads/thread-res-collection-plane-invalid/` — the
-  source-level negative fixture bug-463 created, re-goldened here to `2-203-0137`.
+  source-level negative fixture bug-463 created, re-goldened here to `2-203-0138`.
 - Coverage check: `src/ir/verify/resources.rs` is reached by `cargo test --bin mfb`;
   confirm the new `thread_unsendable_cause` arms are covered with
   `scripts/coverage.sh` per `.ai/build-tooling.md` (measure with `--bin mfb`).
@@ -326,12 +348,123 @@ Commit: —
 - **Does the bare-resource case belong here?** A bare `Thread OF fs::File TO Integer`
   where `fs::File` *is* registered thread-sendable is accepted today by
   `is_resource_sendable` (`:450`). Recommendation: leave that acceptance exactly as
-  is; `2-203-0137` fires only where `is_thread_sendable` already said no. Changing
+  is; `2-203-0138` fires only where `is_thread_sendable` already said no. Changing
   which programs are accepted is out of scope for this letter (§1 non-goals).
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**C1 — the new rule is `2-203-0138`, not `2-203-0137` (rule-code drift).**
+The plan was authored on 2026-08-30 against a table whose highest allocated
+`2-203` code was `2-203-0136`. Between authoring and execution, bug-457 allocated
+`2-203-0137` to `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`:
+
+```
+$ grep -oE '"2-203-[0-9]{4}"' src/rules/table.rs | sort -u | tail -1
+"2-203-0137"
+$ git log --oneline -1 -S'TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL' -- src/rules/table.rs
+5d02f6931 bug-457: an inline TRAP now covers fallible calls NESTED in its expression
+$ grep -c '"2-203-0138"' src/rules/table.rs
+0
+```
+
+This is a drifted number, not a blocked design — nothing about the cause walk or
+the diagnostic depends on which code is free. `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`
+is therefore allocated **`2-203-0138`**, and the prerequisite row is restated as
+"a free `2-203-NNNN` code exists" so it cannot rot the same way again. Letters D
+and E, which cross-reference the code, were updated in the same commit.
+
+**C2 — bug-463's contrast matrix re-measured, all 22 rows match (Phase 1).**
+Measured 2026-08-31 against `target/release/mfb` built at `213803f96`, one
+`FUNC f(x AS <T>)` parameter per row in an otherwise identical scratch project,
+`mfb build -ast -ir`. (A first attempt reported `SYMBOL_DUPLICATE_TOP_LEVEL` on
+*every* row: the harness declared a `TYPE Pair`, which collides with a builtin
+prelude type, and the prelude diagnostic masked each row's real answer. The
+harness was fixed to anchor on diagnostics located in the fixture's own
+`src/main.mfb` and to record the exit code — the failure mode
+`diagnostic-harness-must-record-exit-and-unlocated-errors` warns about.)
+
+| Type spelling | bug-463 "After" | Measured 2026-08-31 |
+|---|---|---|
+| `List OF RES fs::File` | works | accepted ✓ |
+| `Map OF String TO RES fs::File` | works | accepted ✓ |
+| `Map OF String TO List OF RES fs::File` | works | accepted ✓ |
+| `List OF List OF RES fs::File` | works | accepted ✓ |
+| `Thread OF Integer TO Integer` | works | accepted ✓ |
+| `Thread OF List OF Integer TO Integer` | works | accepted ✓ |
+| `Thread OF Integer RES fs::File TO Integer` | works | accepted ✓ |
+| `Thread OF Integer TO List OF RES fs::File` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Thread OF List OF RES fs::File TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Thread OF Map OF String TO RES fs::File TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `ThreadWorker OF List OF RES fs::File TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Thread OF List OF RES fs::File STATE Cursor TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Thread OF List OF RES fs::File RES fs::File TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Map OF Thread OF List OF RES fs::File TO Integer TO Integer` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | `2-203-0056` ✓ |
+| `Thread OF Set OF Integer TO Integer` | accepted | accepted ✓ |
+| `Thread OF List OF Set OF Integer TO Integer` | accepted | accepted ✓ |
+| `Thread OF Map OF Set OF Integer TO Integer TO Integer` | accepted | accepted ✓ |
+| `Thread OF <user generic> OF Integer, String TO Integer` | accepted | accepted ✓ |
+| `Thread OF FUNC(Integer) AS String TO Integer` | `TYPE_THREAD_NOT_SENDABLE` | `2-203-0063` ✓ |
+| `Thread OF Map OF RES fs::File TO Integer TO Integer` (Map **key**) | `MFB_PARSE_INVALID_IDENTIFIER` | `1-102-0003` ✓ |
+| `Thread OF MapEntry OF String TO Integer TO Integer` | unchanged (accepted) | accepted ✓ |
+| `Thread OF Result OF Integer TO Integer` | `TYPE_RESULT_NOT_USER_VISIBLE` | `2-203-0070` ✓ |
+
+No bug-463 regression. The scratch harness was deleted after measuring —
+bug-463's own regression tests (`src/types.rs::type_prefix_len_measures_every_parse_constructor`
+and siblings) are the standing guard.
+
+**C3 — §2's "a single change to the emitter reaches every plane" is FALSE: 5 of
+the 11 call sites are the RESOURCE plane, not a data plane.**
+The plan assumed every `require_thread_sendable` call site is a data plane, so
+that re-labelling the emitter by cause would be safe everywhere. Reading all 11
+sites shows three of them pass the resource plane's own type:
+
+| Site | Context string | Plane |
+|---|---|---|
+| `resources.rs:528` | `Thread message type` | data |
+| `resources.rs:529` | `Thread output type` | data |
+| `resources.rs:544` | `Thread resource type` | **resource** |
+| `resources.rs:548` | `Thread resource STATE type` | data (the payload is deep-copied data riding the RES plane) |
+| `resources.rs:598` | ``Call to `X` input`` | data |
+| `resources.rs:608` | ``Call to `X` message type`` | data |
+| `resources.rs:610` | ``Call to `X` resource type`` | **resource** |
+| `resources.rs:615` | ``Call to `X` output type`` | data |
+| `resources.rs:620` | ``Call to `X` message type`` (`thread.send`) | data |
+| `resources.rs:643` | ``Call to `X` resource STATE type`` | data (payload, as `:548`) |
+| `resources.rs:657` | ``Call to `X` resource type`` | **resource** |
+
+On the resource plane the `Resource` cause means something entirely different —
+"this resource type is not registered thread-sendable" — and §4.1's message
+("declare `RES {resource}` on the thread and move it with `thread::transfer`")
+would tell the user to put the resource on the plane it is already on. So
+`require_thread_sendable` takes an explicit `Plane` argument: it emits
+`2-203-0138` only for a `Resource` cause on a **data** plane, and keeps
+`2-203-0063 TYPE_THREAD_NOT_SENDABLE` for every cause on the resource plane and
+for the `Other` cause everywhere. The two `STATE`-payload sites are classified
+**data**, which is what makes the plan's third required shape (a resource nested
+in a record field, `rejects_unsendable_resource_plane_state_payload`) emit the
+new rule as §1 requires.
+
+**C4 — the bare-resource-on-a-data-plane case does NOT flow through the cause
+walk; it has two bespoke emitters that §2 never mentions.**
+§1 requires `Thread OF fs::File TO Integer` to emit the new rule, and §2 claims
+cause (3) — "a bare resource nominal … false unless the resource type is
+registered thread-sendable" — delivers it. Measured: `fs::File` **is** registered
+thread-sendable (`src/codegen/builtins/fs/mod.rs:165`, `sendable: true`; also
+`tcp`, `tls`, `udp`), so `is_thread_sendable(fs.File)` returns `true` and
+`require_thread_sendable` emits nothing for it. The rejection actually comes from
+two hand-written blocks that the plan's §2 walk-through omits:
+
+- `resources.rs:530-540` — the declared `Thread OF <resource> TO …` message plane;
+- `resources.rs:629-639` — `thread::send` whose message type is a resource.
+
+Both already state exactly the `2-203-0138` remedy in prose ("the data channel is
+resource-free — declare it on the resource plane" / "use `thread::transfer`"), so
+both are converted to emit `2-203-0138`. To honour §3's rejected alternative
+"*Emit both rules* — two errors for one cause", each bespoke block and its
+neighbouring `require_thread_sendable` are made **mutually exclusive**: when the
+plane type is itself a bare resource the bespoke plane rule fires alone. For a
+*non-sendable* bare resource on a message plane this reduces two diagnostics to
+one; the set of rejected programs is unchanged, which is §1's non-goal.
 
 ## Summary
 

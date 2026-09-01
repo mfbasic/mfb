@@ -68,7 +68,7 @@ below is written against the world where these hold.
 - No change to the resource-record header, `RESOURCE_OFFSET_STATE`, or the STATE
   rebuild path (`NirOp::StateAssign`).
 - No thread-plane change: a `STATE` payload still rides the resource plane, and a
-  record carrying a resource still cannot cross the data plane (`2-203-0137`).
+  record carrying a resource still cannot cross the data plane (`2-203-0138`).
 
 ## 2. Current State
 
