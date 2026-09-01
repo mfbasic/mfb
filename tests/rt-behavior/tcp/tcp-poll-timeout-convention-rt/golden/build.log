@@ -9,4 +9,4 @@ $ tests/rt-behavior/tcp/tcp-poll-timeout-convention-rt/build/tcp_poll_timeout_co
 immediate FALSE
 omit TRUE
 neg invalid
-[exit 138]
+[exit 0]

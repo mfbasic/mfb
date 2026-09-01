@@ -162,13 +162,21 @@ impl TypeTable {
                 strings.intern("message");
                 TYPE_ERROR
             }
-            t if t.is_named("TermColor") => {
+            // Both spellings (bug-483). `term`'s registry rows state the contract
+            // these two arms implement — "their wire ids stay the reserved
+            // high-band `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE`, name-keyed in
+            // `binary_repr::sections`" — and bug-480 Phase 4b started delivering
+            // `term.TermColor` from every member signature. Matching the bare leaf
+            // alone dropped those through to the opaque zero-field fallback below,
+            // so a package exporting a `term::TermColor` encoded a record with no
+            // `r`/`g`/`b` at all.
+            t if t.is_builtin_named("term", "TermColor") => {
                 strings.intern("r");
                 strings.intern("g");
                 strings.intern("b");
                 TYPE_TERM_COLOR
             }
-            t if t.is_named("TermSize") => {
+            t if t.is_builtin_named("term", "TermSize") => {
                 strings.intern("columns");
                 strings.intern("rows");
                 TYPE_TERM_SIZE

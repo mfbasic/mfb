@@ -1998,7 +1998,7 @@ impl CodeBuilder<'_> {
             2 => args
                 .first()
                 .and_then(|arg| self.static_type_name(arg))
-                .is_some_and(|type_| type_.is_named("Address")),
+                .is_some_and(|type_| type_.is_builtin_named("net", "Address")),
             _ => false,
         }
     }
@@ -2294,7 +2294,7 @@ impl CodeBuilder<'_> {
                 if args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| type_.is_named("Address"))
+                    .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "net.pingAddr"
                 } else {
@@ -2360,7 +2360,7 @@ impl CodeBuilder<'_> {
                 if args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| type_.is_named("Address"))
+                    .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "tls.connectAddr"
                 } else {

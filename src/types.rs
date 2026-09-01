@@ -696,6 +696,37 @@ impl ParameterType {
         matches!(self, ParameterType::Named(sym) if sym.resolve() == name)
     }
 
+    /// Whether this type is the built-in value type `leaf` declared by
+    /// `package`, under **either** spelling the compiler can be holding.
+    ///
+    /// bug-480 Phase 4b made a builtin value type's declared identity
+    /// package-qualified — but only where the registry rewrites it.
+    /// `Registry::qualify_value_type_references` rewrites *signature* types (a
+    /// member's parameters and return), so `tcp::localAddress` returns
+    /// `net.Address`; it deliberately leaves record *field* types bare so the
+    /// injected companion source stays parseable, so `udp::Datagram`'s `from`
+    /// field is still `Address`. Both spellings therefore reach any nominal
+    /// question asked about that record.
+    ///
+    /// Asking `is_named` with one spelling answers `false` for every value that
+    /// arrived by the other route — silently, since a nominal miss is not a
+    /// compile error. That is bug-483: the record-layout predicate stopped
+    /// recognising `net.Address` and its readers dereferenced a pointer field as
+    /// a block-relative offset, and the read-only-record rule stopped refusing a
+    /// user-written `net::Address[…]`. Use this, not `is_named`, for any
+    /// question about a built-in value type.
+    pub(crate) fn is_builtin_named(&self, package: &str, leaf: &str) -> bool {
+        let ParameterType::Named(sym) = self else {
+            return false;
+        };
+        let name = sym.resolve();
+        name == leaf
+            || name
+                .strip_prefix(package)
+                .and_then(|rest| rest.strip_prefix('.'))
+                == Some(leaf)
+    }
+
     /// The parameter type's formatted name.
     pub(crate) fn name(&self) -> Cow<'static, str> {
         match self {
@@ -1229,6 +1260,33 @@ fn thread_body_len(rest: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// bug-483: `is_builtin_named` answers the same for a builtin value type
+    /// whichever spelling the compiler is holding — the qualified id a member
+    /// SIGNATURE carries, and the bare leaf a record FIELD type and the injected
+    /// companion source still carry.
+    #[test]
+    fn is_builtin_named_accepts_both_spellings() {
+        for spelling in ["Address", "net.Address"] {
+            assert!(
+                ParameterType::declared(spelling).is_builtin_named("net", "Address"),
+                "`{spelling}` must answer to net's `Address`"
+            );
+        }
+        // A different package's same-leaf type is NOT it. bug-481 was precisely
+        // that a flat namespace let `http::Stream` and `process::Stream` collide;
+        // this helper must not reintroduce the collision through the back door.
+        assert!(
+            !ParameterType::declared("http.Address").is_builtin_named("net", "Address"),
+            "a leaf owned by another package must not match"
+        );
+        // Near-misses on the prefix boundary.
+        assert!(!ParameterType::declared("subnet.Address").is_builtin_named("net", "Address"));
+        assert!(!ParameterType::declared("netAddress").is_builtin_named("net", "Address"));
+        assert!(!ParameterType::declared("Addressed").is_builtin_named("net", "Address"));
+        // Not a nominal at all.
+        assert!(!ParameterType::String.is_builtin_named("net", "Address"));
+    }
 
     /// Round-trip a thread-type spelling through `parse` → `name` and assert it is
     /// byte-identical — the core `ThreadHandle` guarantee (nested threads,

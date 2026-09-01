@@ -599,8 +599,8 @@ impl CodeBuilder<'_> {
     /// layout so that machinery — and field reads of values it produces — stay on
     /// the pointer layout consistently (plan-02 Phase 2):
     ///   - `Error`/`ErrorLoc`: the fallible-call ABI, trap materialization, `FAIL`.
-    ///   - `Address`/`Datagram`/`DatagramText`: the `net::` socket helpers
-    ///     (`emit_address_from_sockaddr`, etc.).
+    ///   - `net::Address`/`udp::Datagram`/`audio::AudioDevice`: the socket and
+    ///     audio-device helpers (`emit_address_from_sockaddr`, etc.).
     ///
     /// Every other record inlines its `String` fields.
     pub(crate) fn is_pointer_string_record(&self, type_: &ParameterType) -> bool {
@@ -2640,11 +2640,24 @@ pub(crate) fn byte_list_block_kind() -> usize {
 
 /// The built-in helper-constructed records whose `String`/sub-record fields are
 /// kept as **pointers** to separate allocations rather than inlined into the data
-/// region (spec §Record "excluded"). The socket helpers build `net::` `Address`/
-/// `Datagram`/`DatagramText` that way, and audio builds `AudioDevice`.
+/// region (spec §Record "excluded"). The socket helpers build `net::Address` and
+/// `udp::Datagram` that way, and audio builds `audio::AudioDevice`.
+///
+/// The membership question goes through `is_builtin_named`, which accepts both
+/// the bare leaf and the package-qualified id, and **both are load-bearing**
+/// (bug-483). A *signature* type — a member's parameter or return, rewritten by
+/// `Registry::qualify_value_type_references` — arrives as `net.Address`; a record
+/// *field* type does not, because that pass deliberately leaves field types bare
+/// so the injected companion source stays parseable, so `udp::Datagram`'s `from`
+/// field arrives as `Address`. Matching only the bare leaf silently reclassified
+/// every qualified reference as an ordinary inlined-`String` record, and its
+/// readers then took the slot the socket helper had written an absolute pointer
+/// into as a block-relative offset — a wild pointer, and a `SIGSEGV` the moment
+/// anything touched `.host`.
 pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::Named(name)
-        if matches!(name.resolve(), "Address" | "Datagram" | "DatagramText" | "AudioDevice"))
+    type_.is_builtin_named("net", "Address")
+        || type_.is_builtin_named("udp", "Datagram")
+        || type_.is_builtin_named("audio", "AudioDevice")
 }
 
 /// True when `field_type` occupies a record slot as a pointer to a separate
@@ -2966,6 +2979,86 @@ pub(crate) fn thread_copy_symbol(type_: &ParameterType) -> String {
         hash = hash.wrapping_mul(1099511628211);
     }
     format!("_mfb_thread_copy_{sanitized}_{hash:016x}")
+}
+
+#[cfg(test)]
+mod pointer_string_record_tests {
+    use super::*;
+    use crate::codegen::registry::registry;
+
+    /// The three helper-built records, in both spellings the compiler can hand
+    /// this predicate.
+    ///
+    /// bug-483: a *signature* type (a member's parameter or return) is rewritten
+    /// to the package-qualified id by `Registry::qualify_value_type_references`,
+    /// while a record *field* type is deliberately left bare so the injected
+    /// companion source stays parseable. Both spellings therefore reach
+    /// `is_pointer_string_record` for the same record, and both must answer the
+    /// same — a disagreement silently reclassifies the record's layout, and its
+    /// readers then dereference an absolute pointer as a block-relative offset.
+    const POINTER_STRING: &[(&str, &str)] = &[
+        ("net", "Address"),
+        ("udp", "Datagram"),
+        ("audio", "AudioDevice"),
+    ];
+
+    #[test]
+    fn both_spellings_of_a_pointer_string_record_agree() {
+        for (package, leaf) in POINTER_STRING {
+            let qualified = format!("{package}.{leaf}");
+            assert!(
+                is_pointer_string_record(&ParameterType::declared(leaf)),
+                "bare `{leaf}` must classify as a pointer-string record"
+            );
+            assert!(
+                is_pointer_string_record(&ParameterType::declared(&qualified)),
+                "qualified `{qualified}` must classify as a pointer-string record: \
+                 a member signature returning it carries the qualified spelling, \
+                 and missing it inlines the record's String fields while the \
+                 runtime helper writes pointers (bug-483)"
+            );
+        }
+    }
+
+    /// The names above are the ones the registry actually declares. A record
+    /// renamed or moved to another package would otherwise leave this predicate
+    /// matching a name nothing produces — the same silent miss as bug-483, just
+    /// arrived at from the other side.
+    #[test]
+    fn every_pointer_string_record_is_declared_where_it_claims() {
+        for (package, leaf) in POINTER_STRING {
+            let pkg = registry()
+                .packages()
+                .iter()
+                .find(|p| p.import_name() == *package)
+                .unwrap_or_else(|| panic!("registry has no `{package}` package"));
+            assert!(
+                pkg.records().iter().any(|r| r.name == *leaf),
+                "`{package}` no longer declares a `{leaf}` record; \
+                 `is_pointer_string_record` is matching a dead name"
+            );
+        }
+    }
+
+    /// The predicate must not answer true for anything else — it is a
+    /// hand-maintained exception list, and a stray match would put an ordinary
+    /// record's inlined `String` fields on the pointer layout.
+    #[test]
+    fn no_other_declared_record_is_pointer_string() {
+        for pkg in registry().packages() {
+            for record in pkg.records() {
+                let qualified = format!("{}.{}", pkg.import_name(), record.name);
+                let expected = POINTER_STRING
+                    .iter()
+                    .any(|(p, l)| *p == pkg.import_name() && *l == record.name);
+                assert_eq!(
+                    is_pointer_string_record(&ParameterType::declared(&qualified)),
+                    expected,
+                    "`{qualified}` classified unexpectedly"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

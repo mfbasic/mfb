@@ -362,3 +362,62 @@ fn only_syntax_goldens_may_pin_a_compiler_diagnostic() {
         offenders.join("\n")
     );
 }
+
+// The runtime twin of the guard above (bug-483).
+//
+// `only_syntax_goldens_may_pin_a_compiler_diagnostic` catches a fixture that
+// stopped BUILDING. This catches one that stopped RUNNING: a golden whose
+// recorded exit status is a fatal signal. The failure mode is identical — the
+// harness compares one crash against another and reports PASS, so every
+// assertion below the crash silently stops being checked.
+//
+// bug-483 is why this exists. A record-layout regression made `net::Address`'s
+// String fields unreadable, and the goldens for 34 fixtures were regenerated
+// while it was live. Each recorded a crash, and each then passed. Between them
+// they covered `net::lookup`, `net::ping`, and nearly all of `tcp`/`udp`'s
+// surface — `func_net_ping_valid` alone had 13 assertions below its crash line.
+//
+// Worse than merely dead: they are flaky-by-crash. The same bad pointer lands as
+// SIGSEGV or SIGBUS depending on where it points, so a fixture pinning one
+// signal fails intermittently when it hits the other, and a run may die earlier
+// than the golden did and lose trailing output. A single acceptance run reported
+// 9 of the 34; this check finds all of them, deterministically, without running
+// anything.
+//
+// A behaviour fixture has no legitimate reason to end in a signal: a raise is an
+// `Error:` line with a controlled non-zero exit, which this deliberately allows.
+
+/// The shell-recorded exit statuses that mean the process died on a fatal
+/// signal: 128 + signum, for the signals a miscompile actually produces.
+const CRASH_EXITS: &[(&str, &str)] = &[
+    ("[exit 132]", "SIGILL"),
+    ("[exit 134]", "SIGABRT"),
+    ("[exit 136]", "SIGFPE"),
+    ("[exit 138]", "SIGBUS"),
+    ("[exit 139]", "SIGSEGV"),
+];
+
+#[test]
+fn no_golden_pins_a_fatal_signal() {
+    let tests_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut offenders: Vec<String> = Vec::new();
+
+    for (path, rel) in golden_build_logs(&tests_root) {
+        let src = std::fs::read_to_string(&path).expect("read golden build.log");
+        for (n, line) in src.lines().enumerate() {
+            if let Some((_, signal)) = CRASH_EXITS.iter().find(|(exit, _)| line.trim() == *exit) {
+                offenders.push(format!("  tests/{rel}:{} — {line} ({signal})", n + 1));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "bug-483: a golden build.log records a fatal-signal exit. The fixture \
+         crashes, so every assertion after that point is unchecked and the \
+         harness still reports PASS -- and because the signal depends on where \
+         the bad pointer lands, it fails intermittently rather than honestly. \
+         Fix the crash; do NOT rebaseline the golden onto it. Offenders:\n{}",
+        offenders.join("\n")
+    );
+}
