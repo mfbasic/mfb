@@ -1,27 +1,30 @@
 IMPORT thread
-IMPORT self
 
-' PUBLIC (not EXPORT). plan-115-A: this IS a valid entry now. `self::` no longer
-' requires EXPORT -- it is just a spelling of the bare name, and requiring EXPORT
-' here would make `self::hiddenWorker` stricter than `hiddenWorker`. The
-' `spawnHidden` call below therefore compiles; only `spawnPlain` is rejected.
+' plan-115: ISOLATED is the sole marker for a thread entry, and a package names
+' its own entries by their bare name. This fixture pins what is STILL rejected
+' after that widening, inside a package project.
+'
+' PUBLIC (not EXPORT), ISOLATED. Valid -- visibility is irrelevant (plan-115-A),
+' and `spawnHidden` below therefore compiles. It is kept as the negative control:
+' if a future change re-introduced a visibility requirement, this call would
+' start erroring and the golden would catch it.
 ISOLATED FUNC hiddenWorker(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 
-' EXPORT but not ISOLATED. Still rejected, and it is what this fixture now pins:
-' ISOLATED is the sole marker, so dropping the visibility condition did not make
-' every self:: name an entry.
+' EXPORT but not ISOLATED. Still rejected, and it is the one rejection this
+' fixture now pins: dropping the visibility condition did not make every
+' package-local name an entry.
 EXPORT FUNC plainWorker(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 
 EXPORT FUNC spawnHidden AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(self::hiddenWorker, "hi")
+  LET t AS Thread OF String TO Integer = thread::start(hiddenWorker, "hi")
   RETURN thread::waitFor(t)
 END FUNC
 
 EXPORT FUNC spawnPlain AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(self::plainWorker, "hi")
+  LET t AS Thread OF String TO Integer = thread::start(plainWorker, "hi")
   RETURN thread::waitFor(t)
 END FUNC

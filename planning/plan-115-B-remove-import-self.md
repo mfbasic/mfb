@@ -1,6 +1,6 @@
 # plan-115-B: Remove `IMPORT self`
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Effort: medium (1h–2h)
 Depends on: plan-115-A
 
@@ -45,11 +45,15 @@ Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-115-A is complete and archived | `ls planning/plan-115-A-*.md` → no matches (moved to `planning/completed/`) | **NOT MET** (measured 2026-09-01: → `planning/plan-115-A-unified-thread-entry.md`; A has not started — its own bug-482 prerequisite is NOT MET) |
+| plan-115-A is complete and archived | `ls planning/plan-115-A-*.md` → no matches (moved to `planning/completed/`) | **MET** (2026-09-01: A landed in `a6d193d82`/`dc896ffcc`/`86637b1c6`, gates green, archived; `ls planning/plan-115-A-*.md` → `no matches found`) |
 
 If A is not complete, this letter cannot start, full stop — removing `self::`
 without bare-entry support breaks the 8 call sites measured below with no
 replacement spelling.
+
+**Re-measured 2026-09-01, all three rows MET:** `ls bugs/bug-480-*.md` →
+`no matches found`; `ls bugs/bug-482-*.md` → `no matches found` (fixed by this
+run in `d5c073312`); `ls planning/plan-115-A-*.md` → `no matches found`.
 
 ## 1. Goal
 
@@ -179,32 +183,53 @@ re-baselined.
 Provably neutral under A's rules and independently landable: the compiler still
 accepts `IMPORT self`, so this phase can land and be verified on its own.
 
-- [ ] Verify `LET self = 1` compiles today (a throwaway project). Record the
+- [x] Verify `LET self = 1` compiles today (a throwaway project). Record the
       result — it establishes whether this letter *restores* `self` as an
-      identifier or it was never taken.
-- [ ] `tests/syntax/threads/func_thread_start_self_valid/src/lib.mfb` — delete the
+      identifier or it was never taken. **It was never taken.** Measured at
+      `/tmp/selfid` on the letter-A binary — a project declaring
+      `FUNC self(x AS Integer) AS Integer` *and* `LET self AS Integer = 1` builds
+      with **exit 0**. So `self` is already an ordinary identifier everywhere
+      except the import-root position; this letter removes the last place it was
+      special, and does not "restore" anything. (The plan's Verified-properties
+      table listed this row as UNVERIFIED; it is now measured.)
+- [x] `tests/syntax/threads/func_thread_start_self_valid/src/lib.mfb` — delete the
       `IMPORT self` line, rewrite `thread::start(self::echoText, …)` as
       `thread::start(echoText, …)`.
-- [ ] `tests/syntax/threads/func_thread_start_self_http_fanout/src/lib.mfb` — same
+- [x] `tests/syntax/threads/func_thread_start_self_http_fanout/src/lib.mfb` — same
       for the 3 `self::fetchStatus` sites; update the two REM lines that explain
       the `self::` mechanism.
-- [ ] `tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb` — convert
+- [x] `tests/syntax/threads/func_thread_start_self_invalid/src/lib.mfb` — convert
       both sites. **Re-derive what this fixture still rejects.** It pins
       `self::hiddenWorker` and `self::plainWorker`; under A, a non-`EXPORT`
       isolated function is now *valid*, so at least one of its two cases has
       stopped being an error. Keep only the cases that are still rejections
       (e.g. non-`ISOLATED` entry) and regenerate `golden/build.log`.
-- [ ] `tools/thread-package-sources/self_fanout_workers/src/lib.mfb` — delete
+      **Re-derived:** `hiddenWorker` (`PUBLIC ISOLATED`) is now valid and
+      `spawnHidden` compiles — kept deliberately as a negative control, so that
+      re-introducing a visibility requirement would red this golden. The one
+      surviving rejection is `plainWorker` (`EXPORT`, not `ISOLATED`), which is
+      what the fixture now pins.
+- [x] `tools/thread-package-sources/self_fanout_workers/src/lib.mfb` — delete
       `IMPORT self`, rewrite the two `thread::start(self::bump, …)` sites, and
       update the leading REM block (it explains the `self` specifier).
-- [ ] Regenerate goldens for the three converted syntax fixtures via
-      `scripts/sync-goldens.sh` (never hand-edit a `build.log`).
+- [x] Regenerate goldens for the three converted syntax fixtures via
+      `scripts/sync-goldens.sh` (never hand-edit a `build.log`). Synced 7 golden
+      files across 3 tests.
 
 Acceptance: `grep -rn "thread::start(self::" --include="*.mfb" tests/ examples/ tools/`
 → 0 hits. All 34 syntax thread fixtures pass. `.ncodesum` for the converted
 fixtures is unchanged (the conversion is name-identical after lowering); `.ir`
 diffs are line-number-only and reviewed as such.
-Commit: —
+
+**Verified:** `grep -rn "thread::start(self::" …` → **0**. The `.ir` diffs were
+reviewed rather than accepted blind, and are line-number-only: the emitted
+`functionRef` name is byte-identical across the change (`"name": "echoText"`
+before and after; the fanout's diff mentions only `a`/`b`/`c`/`fetchStatus`/
+`r`/`url`/`w`, the same set on both sides), which is the plan's
+lowering-neutrality claim measured rather than assumed. The three converted
+fixtures pass.
+
+Commit: (recorded in the next commit)
 
 ### Phase 2 — Regenerate `self_fanout_workers.mfp` and prove the rt fixture (largest blast radius)
 

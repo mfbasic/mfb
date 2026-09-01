@@ -4,8 +4,7 @@
   {
     "path": "src/lib.mfb",
     "imports": [
-    { "module": "thread", "line": 1 },
-    { "module": "self", "line": 2 }
+    { "module": "thread", "line": 1 }
     ],
     "items": [
     {
@@ -13,14 +12,14 @@
       "visibility": "export",
       "isolated": true,
       "name": "echoText",
-      "line": 4,
+      "line": 3,
       "params": [
-      { "name": "worker", "type": "ThreadWorker OF String TO Integer", "default": null, "line": 4 },
-      { "name": "seed", "type": "String", "default": null, "line": 4 }
+      { "name": "worker", "type": "ThreadWorker OF String TO Integer", "default": null, "line": 3 },
+      { "name": "seed", "type": "String", "default": null, "line": 3 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 5 }
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 4 }
       ]
     },
     {
@@ -28,13 +27,13 @@
       "visibility": "export",
       "isolated": false,
       "name": "spawn",
-      "line": 8,
+      "line": 7,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "self.echoText" }, { "kind": "string", "value": "hi" }] }, "line": 9 },
-      { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 10 }
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "echoText" }, { "kind": "string", "value": "hi" }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 9 }
       ]
     }
     ]
