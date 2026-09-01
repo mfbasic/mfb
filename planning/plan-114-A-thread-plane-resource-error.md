@@ -631,8 +631,74 @@ This letter is a diagnostics change, so byte-identity being untouched is the
 expected result and not the interesting one; it is recorded because §3 asked for
 it explicitly. **The gate that can actually see this letter's change is
 `test-accept.sh`, which compares diagnostic prose** — the artifact gate is blind
-to it. That run is still outstanding at this point, blocked on the shared lock
-(another session is mid-`cargo test --release`); it is not skipped.
+to it. That run is reported in C9.
+
+**C9 — `test-accept.sh` full run: 1330 tests ran, 0 mismatches in the 638
+`tests/syntax/**` fixtures; the 9 that do mismatch are bug-483 goldens pinning a
+crash.**
+
+```
+$ bash scripts/test-accept.sh target/release/mfb /tmp/plan114a-scratch
+acceptance tests failed: 13 mismatch(es) (1330 test(s) ran)
+ACCEPT_EXIT=1
+```
+
+The `1330 test(s) ran` count matters — a silently-skipped tier is the failure
+mode `test-accept-acceptance-eof-subtests-preexisting` warns about, and
+`find tests -name project.json | wc -l` also gives `1330`, so nothing was skipped.
+
+**This letter's own tier is clean.** All 638 `tests/syntax/**` fixtures pass,
+including the re-goldened `threads/thread-res-collection-plane-invalid` and the
+two unchanged canaries. That is the tier a diagnostics change can move, and it is
+the reason this run was required at all.
+
+The 13 mismatches fall in 9 fixtures, all `rt-behavior/tcp` and `rt-behavior/udp`:
+
+    tcp/bug109_write_timeout          tcp/tcp-accept-timeout-convention-rt
+    tcp/func_tcp_close_valid          tcp/tcp-connect-timeout-convention-rt
+    tcp/func_tcp_readText_valid       udp/func_udp_endpoints_valid
+    tcp/func_tcp_setReadTimeout_valid udp/func_udp_poll_valid
+    tcp/func_tcp_stream_valid
+
+All nine are bug-483, and they are a category worth naming because it is *not*
+the `.ncodesum` one: these are **runtime-output goldens that pin the crash**, and
+`artifact-gate.sh` cannot see them because it never executes a binary. The
+committed golden for `udp/func_udp_endpoints_valid` reads, in full:
+
+```
+host=
+ephemeral=TRUE
+timeouts set
+readNegRejected=TRUE
+writeNegRejected=TRUE
+closed
+[exit 138]
+```
+
+`host=` is **empty** and `[exit 138]` is SIGBUS (128+10) — the golden is a
+snapshot of the miscompile, baselined the same way the `.ncodesum`s were (last
+touched by `47fcb65b5`, a bug-480 branch merge). It is the runtime twin of
+`golden-pinning-a-build-failure-is-a-dead-fixture`.
+
+They mismatch rather than passing silently because **the crash signal is
+nondeterministic**: across the nine, 5 goldens say `138` and 4 say `139`
+(SIGSEGV, 128+11), with the actuals going the other way, and several runs died
+*earlier* than the golden did and lost the trailing output entirely. Same bad
+pointer, different mapping per run. So these fixtures flake with no code change
+at all.
+
+**Deliberately not regenerated.** Re-goldening now would re-pin a crash with
+today's signal — the exact "never edit a test to pass" failure. The correct fix is
+bug-483's: restore the layout so `host=` carries a real value and the programs
+exit 0, *then* regenerate, at which point these goldens become meaningful for the
+first time since the regression. Reported to the session working bug-483, which
+had found the 30 `.ncodesum` goldens but not these 9.
+
+**Attribution.** This letter touches `src/ir/verify/resources.rs`,
+`src/rules/table.rs`, two spec files, `src/ir/verify/tests.rs` and one syntax
+golden. None of that can reach `tcp`/`udp` runtime output or change a crash
+signal, and C7 already reproduced the same empty-`.host`-then-crash in a program
+with no thread, no resource plane and no record field.
 
 ## Summary
 
