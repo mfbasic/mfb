@@ -1,0 +1,461 @@
+# plan-116-F: Gradient fills
+
+Last updated: 2026-08-31
+Effort: large (3h–1d)
+Depends on: plan-116-E
+
+Every item's interior is currently one flat `Color` (`Paint.fill`). This letter adds a
+gradient as an alternative interior:
+
+```
+canvas::GradientKind        ' enum: Linear (the zero) | Radial
+canvas::GradientStop
+    offset AS Float         ' 0.0..1.0 along the gradient
+    color  AS Color
+canvas::Gradient
+    kind  AS GradientKind
+    from  AS Point          ' Linear: the axis start.  Radial: the centre.
+    to    AS Point          ' Linear: the axis end.    Radial: a point on the outer circle.
+    stops AS List OF GradientStop
+```
+
+plus `fillGradient AS Gradient` on `canvas::Paint`.
+
+Behavioral outcome: an item whose `paint.fillGradient` carries two or more stops fills
+with that gradient — linear along `from`→`to`, or radial outward from `from` to the
+circle through `to` — antialiased at the shape's edge exactly as a flat fill is, and
+identically on the software, Metal and Vulkan paths. An item whose `fillGradient` has
+fewer than two stops fills with `paint.fill`, exactly as today.
+
+References:
+
+- `src/codegen/builtins/canvas/mod.rs:424` — the `Paint` record and its
+  "every field's zero value is that field's no-op" rule.
+- `src/codegen/builtins/canvas/func_fill_stroke.rs:43` — the **only** `Paint[…]`
+  construction site in the tree.
+- `src/codegen/builtins/canvas/helper_geometry.rs:314` — `__canvas_polygonEdges`, the
+  precedent for a variable-length geometry tail.
+- `src/codegen/runtime/canvas/mod.rs:216` — the Vulkan storage buffer and its
+  one-buffer-per-frame, offset-per-item rule.
+- `src/docs/spec/app/06_canvas.md` §"Rendering conventions" — linear-light
+  compositing.
+
+## Prerequisites
+
+See plan-116-A §Prerequisites for the three environment gates.
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-116-E complete and archived | `ls planning/completed/plan-116-E-*` → one match | NOT MET |
+
+If plan-116-E is not complete, this letter cannot start, full stop. E is the last
+letter before this one to grow the header and the item block, and E also establishes
+the amended `DrawItem` frozen-set language this letter's docs build on.
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.**
+> Re-run every command before you continue and again before you stop.
+
+## 1. Goal
+
+- Three new exported types (`GradientKind`, `GradientStop`, `Gradient`) and one new
+  `Paint` field (`fillGradient`).
+- Linear and radial gradients fill any `DrawItem` that has an interior, with stops
+  interpolated in linear light.
+- A `Gradient` with fewer than two stops is a no-op: the item fills with `paint.fill`,
+  byte-identically to today.
+- The gradient is evaluated in **surface pixel coordinates**, so it composes with
+  `Paint.transform` the same way the shape does.
+
+### Non-goals (explicit constraints)
+
+- **No stroke gradient.** `paint.stroke` stays a flat `Color`. A gradient stroke is a
+  second, independent payload per item and was not asked for.
+- **No gradient on `Text`.** A glyph is drawn from a cached coverage bitmap
+  (`helper_items.rs`, the `GEO_KIND_TEXT` arm) and has no distance field; a gradient
+  there is a different code path. `Text` keeps its flat fill. Say so in the docs.
+- **No conic/sweep gradient.** Two kinds, as specified.
+- **No colour-space option.** One interpolation space, chosen and documented (§4.3).
+- **`paint.fill` is not removed** and remains the fallback.
+- **No existing golden may move.**
+
+## 2. Current State
+
+### `Paint`, and how cheap it is to extend
+
+`Paint` has six fields (`mod.rs:424-471`). MFBASIC named construction requires every
+field, so a seventh breaks every literal — but there is exactly **one** literal in the
+tree:
+
+```
+$ grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . | grep -v '/target/'
+```
+returns 7 rows, of which **6 are prose** in doc strings (`func_fill_stroke.rs:22`,
+`mod.rs:431`, `helper_paint_defaults.rs:5`, `func_stroke.rs:22`, `func_fill.rs:23`,
+`func_rgba.rs:23`) and **1 is code**: `func_fill_stroke.rs:43`. `canvas::fill` and
+`canvas::stroke` both delegate to `__canvas_fillStroke`
+(`func_fill.rs:43`, `func_stroke.rs:43`), so the entire `Paint` construction surface
+is that one line plus the three default helpers in `helper_paint_defaults.rs`.
+
+This is why adding a `Paint` field is a **medium** change and adding a `DrawItem`
+field (plan-116-D) was not.
+
+### The variable-length-payload precedent
+
+A polygon's edges are exactly this problem, already solved three ways:
+
+- **Software** — the geometry cache's tail. `__canvas_polygonHeader`
+  (`helper_geometry.rs:277`) sets header slot 1 to `HEADER + count * 5` and
+  `__canvas_polygonEdges` (`:314`) appends five floats per edge after the header.
+- **Vulkan** — one storage buffer for the whole frame, each item carrying its start
+  index in `ITEM_ARC_EDGE_BASE` (`runtime/canvas/mod.rs:274`), because a command buffer
+  is recorded once and rebinding per item would give every polygon the last one's data.
+- **Metal** — `setFragmentBytes:` copies each item's payload into the command buffer,
+  so its base is always zero, and the payload is capped at 4 KiB (`MAX_EDGES`).
+
+Gradient stops take the identical shape, and this letter reuses all three mechanisms
+rather than inventing a fourth.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| `Paint[` rows in the tree | 7 | `grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` |
+| …that are **code**, not prose | 1 (`func_fill_stroke.rs:43`) | read all 7 rows |
+| `Paint` fields today | 6 | `mod.rs:424-471` |
+| Paint default helpers | 3 (`__canvas_transparent`, `…noTransform`, `…noClip`) | `helper_paint_defaults.rs:37-39` |
+| `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
+| Vulkan buffer regions today | 2 (edges, then glyph coverage) | `runtime/canvas/mod.rs:245` (`VULKAN_GLYPH_BASE_WORDS`) |
+
+### Verified properties
+
+- **`__canvas_fillStroke` is the sole `Paint` constructor.** Read
+  `func_fill.rs:42-44` and `func_stroke.rs:42-44`: both `RETURN
+  __canvas_fillStroke(…)`. So one line changes and all three public constructors
+  follow.
+- **The geometry cache hashes the whole header and tail.**
+  `__canvas_hashGeometry(geo, offset, count)` (`helper_geometry.rs:109`) walks
+  `count` slots from `offset`, and header slot 1 is the total length — so a gradient
+  carried in the tail participates in the cache key automatically, and two items
+  differing only in a stop colour get different cache entries. **Verified by reading
+  `__canvas_headerMatches` (`:489`), which compares only the fixed header** — so the
+  tail's contribution comes through the hash, and a hash collision falls back to a
+  confirmation compare of the header alone. That is a real gap for gradients: two
+  gradients with identical headers and different stops would collide. §4.2 addresses
+  it.
+- **UNVERIFIED: whether stop interpolation in linear light matches what a designer
+  expects.** It is the choice consistent with `06_canvas.md`'s compositing rule, but
+  the two spaces differ visibly on a black→white ramp. §4.3 decides and documents;
+  Phase 3's reference image is what makes the choice inspectable.
+
+## 3. Design Overview
+
+Five pieces:
+
+1. **The three types and the `Paint` field** — registry data, one constructor line,
+   one new default helper.
+2. **The stop payload** — carried in the geometry tail (software), the Vulkan buffer's
+   third region, and Metal's per-item bytes. §4.2.
+3. **The gradient evaluation** — a parameter `t` from the pixel position, then a stop
+   lookup and a lerp. §4.3.
+4. **The cache-key fix** — the header-only confirmation compare must not let two
+   different gradients share an entry. §4.2.
+5. **All three renderers.**
+
+**Where the correctness risk concentrates:** the geometry cache. Every other letter
+added fields the header compare already covered; this one adds a *tail* whose contents
+are not compared. A collision there is not a wrong pixel, it is an item drawn with
+another item's gradient — intermittently, depending on hash values. §4.2 fixes it by
+extending the confirmation compare to the tail, and Phase 2 tests it directly with two
+deliberately-colliding gradients.
+
+**Where the design uncertainty concentrates:** the interpolation space (§4.3) and the
+per-item stop cap on Metal. Both are settled in Phase 1 before renderers change.
+
+**Byte-identity is NOT this letter's gate.** **Expected NOT to diff:** every existing
+golden, since every existing scene has an empty `fillGradient`. **Expected to diff:**
+`.ncodesum` on every canvas-emitting target, both `.spv` blobs, `mfb man canvas types`,
+and `mfb man canvas fill`/`stroke`/`fillStroke` (whose rendered signatures gain the
+field).
+
+### Rejected alternatives
+
+- **A `Gradient` resource (`RES`) holding a compiled ramp.** Rejected: `Paint` is a
+  flat value threaded through items (`mod.rs:424`, and `06_canvas.md` §"Paint is a
+  value"), and a record field cannot hold a resource today
+  (`TYPE_RESOURCE_FIELD_FORBIDDEN`, `src/rules/table.rs:993`, live). It would also make
+  a scene retain something, which `func_present.rs`'s DESC promises it never does.
+- **Pre-bake the ramp to a 256-entry texture on the CPU.** Rejected: it quantises the
+  gradient to 256 steps, which is visible as banding on a large area, and it would need
+  a sampler on both GPU backends where neither has one today
+  (`.ai/canvas-threading.md`: `Picture` "draws nothing until it has an atlas").
+  Evaluating the stops per pixel is exact and needs no new binding on Metal.
+- **A fourth region in the Vulkan buffer with its own binding.** Rejected for the
+  reason already recorded at `runtime/canvas/mod.rs:245` for glyph coverage: a second
+  buffer would need its own allocation, memory-type search, descriptor binding and
+  upload, for data with exactly the same lifetime and access pattern. One buffer,
+  three regions, one binding.
+
+## 4. Detailed Design
+
+### 4.1 The types and the no-op
+
+```
+GradientKind : enum { Linear (zero), Radial }
+GradientStop : { offset AS Float, color AS Color }
+Gradient     : { kind AS GradientKind, from AS Point, to AS Point,
+                 stops AS List OF GradientStop }
+Paint        : … + fillGradient AS Gradient
+```
+
+New default helper `__canvas_noGradient()` in `helper_paint_defaults.rs`, returning
+`Gradient[kind := GradientKind.Linear, from := Point[0,0], to := Point[0,0], stops := []]`
+— the all-zero value, with an empty stop list. `__canvas_fillStroke` names it, which is
+the one code line that changes.
+
+**The no-op rule: fewer than two stops means no gradient.** One stop is a flat colour a
+user should express with `fill`, and zero stops has no colour at all. Both fall back to
+`paint.fill`. This keeps `Paint`'s zero-is-no-op invariant exactly.
+
+Stops are used **in the order given**, with `offset` clamped to `0.0..1.0` and to the
+previous stop's offset (monotonic). Sorting them would be a silent reinterpretation of
+what the program asked for; clamping is visible and predictable. Document it.
+
+### 4.2 Carrying the stops, and the cache key
+
+**Header** (42 slots after plan-116-E) grows to **48**:
+
+| Slot | Meaning |
+|---|---|
+| 42 | stop count (0 = no gradient) |
+| 43 | gradient kind (0 Linear, 1 Radial) |
+| 44–45 | `from.x`, `from.y` |
+| 46–47 | `to.x`, `to.y` |
+
+**Tail**: five floats per stop — `offset, r, g, b, a` — appended after any existing
+tail. Header slot 1 (total length) accounts for both, as
+`__canvas_polygonHeader:298` already does for edges.
+
+A `Polygon` with a gradient therefore has two tails. **Order matters and must be
+fixed**: edges first, then stops, with the stop base derivable as
+`HEADER_SLOTS + edgeCount * EDGE_SLOTS`. Write it that way in one helper so no reader
+computes it independently.
+
+**The cache-key fix.** `__canvas_headerMatches` (`helper_geometry.rs:489`) compares
+only the fixed header — so two gradients whose headers agree (same count, kind, from,
+to) but whose *stop colours* differ would be confirmed as the same entry. Today no kind
+has a tail whose content is invisible to the header: a polygon's tail is derived
+entirely from its points, and its point count is in the header, but its *coordinates*
+are not — **so this gap already exists for polygons**, and gradients would widen it.
+
+Extend `__canvas_headerMatches` to compare the **whole** stored geometry — header and
+tail — against the candidate, using the length in slot 1. It is a compare over a few
+dozen floats on a cache *hit path* that already reads them, and it closes the polygon
+gap at the same time. Note this as a real (pre-existing, latent) bug found while
+planning; it is fixed here rather than filed, per `AGENTS.md`'s "never leave a bug you
+found".
+
+**Item block.** The gradient's scalars take one new `ivec4` (kind + count) and one for
+`from`/`to` in 16.16 — block reaches **224** bytes. The stops ride:
+
+- **Vulkan** — a third region of the shared buffer, after glyph coverage. New constant
+  `VULKAN_GRADIENT_BASE_WORDS`, and a per-item start index in a free block word,
+  mirroring `ITEM_ARC_EDGE_BASE` exactly.
+- **Metal** — a third `setFragmentBytes:` binding, capped like `MAX_EDGES` /
+  `METAL_MAX_GLYPH_SAMPLES`. New constant `METAL_MAX_GRADIENT_STOPS`; recommend **64**
+  (64 × 5 floats × 4 bytes = 1280 bytes, well inside the 4 KiB payload).
+  `__canvas_metalRenderable` **declines** an item past it rather than truncating —
+  a truncated gradient is a different gradient, the same reasoning
+  `runtime/canvas/mod.rs:255` gives for polygons.
+- **Vulkan** caps the **frame**, not the item — `VULKAN_MAX_FRAME_GRADIENT_STOPS` —
+  and `__canvas_vulkanRenderable` sums the scene's stops against it, exactly as it
+  already sums polygon edges. The two predicates decline different things, which
+  `.ai/canvas-threading.md` §10 establishes as correct and deliberate.
+
+### 4.3 Evaluating the gradient
+
+Per pixel, in surface coordinates:
+
+- **Linear** — `t = dot(p - from, to - from) / |to - from|²`, clamped to `0..1`. A
+  zero-length axis (`from == to`) yields `t = 0`, so the first stop's colour fills —
+  defined, not a divide by zero.
+- **Radial** — `t = |p - from| / |to - from|`, clamped to `0..1`. Same zero-length
+  rule.
+
+Then walk the stops for the bracketing pair and lerp. A linear walk is `O(stops)` per
+pixel; with the caps in §4.2 that is bounded, and it matches how
+`__canvas_edgeDistance` already walks edges per pixel.
+
+**Interpolation space: linear light.** The stop colours are sRGB-encoded bytes; decode
+each through the existing `__CANVAS_SRGB` table (`helper_color.rs:23`), lerp in linear,
+and hand the linear value to the same blend the flat fill uses. This is the choice
+consistent with `06_canvas.md` §"Rendering conventions" — *"Compositing happens in
+linear light"* — and with both shaders' `srgbToLinear`. It is also the choice that
+makes a black→white ramp look uniformly bright rather than dark-heavy.
+
+Recorded as a decision because sRGB-space interpolation is what several drawing APIs do
+and a user may expect it; the difference is large enough to see. Phase 3's reference
+image is what makes it inspectable.
+
+**Coverage is unchanged.** The gradient replaces the fill *colour*; the shape's signed
+distance, its coverage, and the stroke are untouched. That is what keeps a gradient-
+filled ellipse's edge identical to a flat-filled one's.
+
+## Compatibility / Format Impact
+
+- **BREAKING: `canvas::Paint` gains a seventh required field.** Every user
+  `Paint[…]` literal stops compiling. In-tree the cost is one line
+  (`func_fill_stroke.rs:43`), because `canvas::fill`/`stroke`/`fillStroke` are the
+  documented way to build one (`06_canvas.md`: *"a `Paint` is built with
+  `canvas::fill`, `canvas::stroke` or `canvas::fillStroke` and refined with `WITH`"*)
+  — so most user code is unaffected.
+- **Three new exported types**; `mfb man canvas types` grows.
+- **No existing scene changes** — every existing `Paint` gets an empty `fillGradient`.
+- **`HEADER_SLOTS` 42 → 48**, **`ITEM_BLOCK_SIZE` 192 → 224** — internal.
+- **`.ncodesum` churn**; both `.spv` blobs regenerate.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick in the same commit as the
+> work; `- [~]` for partial with a one-line remainder; fill `Commit:` on landing.
+> **An unticked box means NOT DONE.**
+
+### Phase 1 — The types, the `Paint` field, and the no-op path
+
+The whole breaking surface change, with nothing yet reading it.
+
+- [ ] Add `GradientKind`, `GradientStop` and `Gradient` to `mod.rs`.
+- [ ] Add `fillGradient AS Gradient` to `Paint`, **last** in the prop list.
+- [ ] Add `__canvas_noGradient()` to `helper_paint_defaults.rs`; name it in
+      `__canvas_fillStroke` (`func_fill_stroke.rs:43`).
+- [ ] Header slots 42–47 written by `__canvas_paintHeader`; `HEADER_SLOTS` → 48;
+      every `__CANVAS_GEO_HEADER` reader updated.
+- [ ] Tests: `tests/cli_canvas_package.rs` builds a `Gradient` and a `Paint` carrying
+      one; `mfb man canvas types` lists all three new types.
+
+Acceptance: `cargo test --no-fail-fast` green, **every** canvas golden byte-identical,
+`scripts/man-run-examples.sh canvas --run` passes. Nothing reads the gradient yet.
+Commit: —
+
+### Phase 2 — The tail, and the cache-key fix
+
+The correctness-critical piece, landed before any pixel depends on it.
+
+- [ ] Append the stop tail (five floats per stop) after any existing tail; one helper
+      computes the stop base as `HEADER_SLOTS + edgeCount * EDGE_SLOTS` and **every**
+      reader calls it.
+- [ ] Extend `__canvas_headerMatches` (`helper_geometry.rs:489`) to compare the whole
+      stored geometry using the length in slot 1, closing the latent polygon gap
+      described in §4.2.
+- [ ] Tests: two polygons with identical headers and different point coordinates must
+      get different cache entries (the pre-existing gap — assert it is closed); two
+      gradients with identical headers and different stop colours likewise.
+
+Acceptance: the two cache-collision cases pass, every existing golden is
+byte-identical, and `MFB_CANVAS_STATS`'s `entries=`/`floats=` counters show the
+expected entry count for a scene with two near-identical polygons.
+Commit: —
+
+### Phase 3 — Software evaluation, and the reference image
+
+- [ ] `__canvas_gradientColor(offset, t)` in `helper_color.rs`: the stop walk and the
+      linear-light lerp per §4.3.
+- [ ] `__canvas_drawGeometry`: when the stop count is ≥ 2, compute `t` per pixel and
+      take the fill colour from the gradient instead of slots 8–11. Hoist the
+      has-gradient test outside the pixel loop, as plan-116-B did for blend.
+- [ ] New reference image `tests/golden/canvas/gradients.png`: a linear ramp, a radial
+      ramp, a multi-stop ramp, and a black→white ramp (the case that makes the
+      interpolation-space choice inspectable).
+- [ ] Tests: `tests/rt_canvas_rasteriser.rs` — a two-stop linear gradient (assert the
+      colour at `t = 0`, `0.5`, `1.0`); a radial gradient (assert centre and rim); a
+      zero-stop gradient (byte-identical to `paint.fill`); a one-stop gradient (same);
+      a zero-length axis (first stop's colour everywhere); offsets out of order
+      (clamped monotonically, per §4.1).
+
+Acceptance: the six cases pass, `gradients.png` is committed, and every pre-existing
+golden is byte-identical.
+Commit: —
+
+### Phase 4 — Metal and Vulkan
+
+- [ ] Vulkan: a third buffer region, `VULKAN_GRADIENT_BASE_WORDS`, a per-item start
+      index, and the frame-total cap in `__canvas_vulkanRenderable`.
+- [ ] Metal: a third `setFragmentBytes:` binding, `METAL_MAX_GRADIENT_STOPS = 64`, and
+      the per-item decline in `__canvas_metalRenderable`.
+- [ ] The stop walk and linear-light lerp in MSL and GLSL; `scripts/regen-spirv.sh`.
+- [ ] Tests: both GPUs match the oracle on `gradients.png` within
+      `Tolerance::GPU_DEFAULT`; a scene with 65 stops **declines to software** on Metal
+      (assert via `MFB_CANVAS_STATS`, not by pixel equality — a declined frame equals
+      the oracle by construction, which is the false pass).
+
+Acceptance: `gradients.png` matches on both GPUs within `Tolerance::GPU_DEFAULT` with
+`metalReady=TRUE`/`vulkanReady=TRUE`, and the over-cap scene is provably declined
+rather than truncated.
+Commit: —
+
+### Phase 5 — Docs and gates
+
+- [ ] `mod.rs` — the three types, their props, and `Paint.fillGradient`. State the
+      fewer-than-two-stops no-op, the offset clamping, that stops are **not** sorted,
+      that interpolation is in linear light, and that `Text` has no gradient fill.
+- [ ] `src/docs/spec/app/06_canvas.md` — a gradient subsection under §"Rendering
+      conventions" with the two `t` formulas and the interpolation space.
+- [ ] A worked example on `canvas::fill` or `canvas::fillStroke` showing a gradient;
+      both are already in `MEMBERS`
+      (`sed -n 23,37p tests/cli_canvas_man_examples_compile.rs`).
+- [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
+      `scripts/man-run-examples.sh canvas --run` passes.
+- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+
+Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
+`scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs.
+Commit: —
+
+## Validation Plan
+
+- **Tests:** `tests/rt_canvas_rasteriser.rs` (6 gradient cases + 2 cache cases),
+  `tests/rt_canvas_golden.rs` (+`gradients.png`), `tests/rt_canvas_metal.rs`,
+  `tests/cli_canvas_package.rs`. Negative cases: zero stops; one stop; zero-length
+  axis; out-of-order offsets; over-cap stop count on each backend.
+- **Coverage check:** the evaluation is MFBASIC source in emitted programs, invisible
+  to `cargo llvm-cov --bin mfb`. Confirm the has-gradient and no-gradient arms, both
+  kinds, and the clamped-offset path are each exercised by a distinct assertion.
+- **Runtime proof:** render `gradients.png`'s scene software / Metal / Vulkan and
+  diff; separately, render a zero-stop gradient beside a flat fill and diff them
+  against each other.
+- **Doc sync:** `src/docs/spec/app/06_canvas.md`; the three type descriptions and
+  `Paint.fillGradient` in `mod.rs`.
+- **Acceptance:** `cargo test --no-fail-fast`, `scripts/test-accept.sh`,
+  `scripts/artifact-gate.sh all`, `rustup run 1.96.0 cargo fmt --all &&
+  (cd repository && rustup run 1.96.0 cargo fmt)`.
+
+## Open Decisions
+
+- **Interpolation in linear light (§4.3).** Recommended, for consistency with
+  `06_canvas.md`'s compositing rule and both shaders' `srgbToLinear`. The alternative
+  (sRGB-space) is what some drawing APIs do and the difference is visible on a
+  black→white ramp — which is why that ramp is in `gradients.png`. Decide by looking
+  at the image, then document the choice; do not leave it implicit.
+- **Stops are used in order, offsets clamped monotonically, never sorted (§4.1).**
+  Recommended: sorting silently reinterprets the program's request.
+- **`METAL_MAX_GRADIENT_STOPS = 64` (§4.2).** Recommended as a starting value.
+  Raise only with a measured payload figure.
+- **Extending `__canvas_headerMatches` to the whole tail (§4.2)** costs a longer
+  compare on every cache hit. Recommended anyway — it fixes a latent polygon
+  mis-cache. If profiling shows it matters, the alternative is to fold the tail into
+  a second hash word, not to leave the compare partial.
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+## Summary
+
+The visible feature is small — one `t`, one lerp — and the risk is somewhere else
+entirely: the geometry cache's confirmation compare only ever looked at the fixed
+header, which is sound for every kind that exists today but silently wrong the moment
+two items share a header and differ in their tail. Planning this letter surfaced that
+the gap is **already reachable with polygons**, so Phase 2 closes it before any
+gradient depends on it. The other decision worth a second look is the interpolation
+space; it is settled here in favour of linear light for consistency, and
+`gradients.png`'s black→white ramp exists so a human can check that call. Untouched:
+strokes, `Text` fills, and every existing scene.
