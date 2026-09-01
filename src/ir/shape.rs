@@ -2220,8 +2220,7 @@ impl<'a> Walker<'a> {
         self.call_typed_unknown = true;
         self.emit(
             "TYPE_CALL_ARGUMENT_MISMATCH",
-            "thread.start entry point must name an ISOLATED FUNC."
-                .to_string(),
+            "thread.start entry point must name an ISOLATED FUNC.".to_string(),
             line,
         );
     }

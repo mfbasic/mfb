@@ -238,7 +238,7 @@ ISOLATED FUNC of a package you imported". `scripts/man-census.sh --memory-scope`
 reports 0 unclassified hits in `thread` (the 8 it does report are all `canvas`
 and pre-existing — see Corrections).
 
-Commit: (recorded in the next commit)
+Commit: `cb3052515`
 
 ### Phase 2 — Collapse `examples/network-server` (largest blast radius)
 
@@ -314,7 +314,7 @@ moved, so "same output as before" is a comparison, not an assertion.
   pre-letters binary) and 2× `linux-riscv64` (`rv64 jal displacement … exceeds
   ±1 MiB`, tracked as `bugs/bug-453`).
 
-Commit: (recorded in the next commit)
+Commit: `ad1436d31`
 
 ## Validation Plan
 
@@ -336,6 +336,31 @@ Commit: (recorded in the next commit)
   `scripts/test-accept.sh`; `scripts/build-examples.sh`.
   No `artifact-gate` run is needed — no compiler code changes — but run it once
   at the end to confirm that claim rather than assume it.
+
+## Final gate results (2026-09-01)
+
+| Gate | Result |
+| --- | --- |
+| `scripts/test-accept.sh` | **passed, 1346 ran, 0 mismatches** |
+| `cargo test --no-fail-fast` | **exit 0**, 87 suites, 0 failed |
+| `cargo check --all-targets` | clean |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | **1325 tests, 1487 builds, 1823 goldens checked, 0 diffs** |
+| `scripts/build-examples.sh` | `network-server` builds for all 6 targets; 7 failures, all pre-existing (see Corrections) |
+| `mfb build examples/network-server` | one command, `[exit 0]` |
+| `--tcp --thread` / `--tls --thread` runtime | full sessions, matching the pre-collapse baselines |
+
+The artifact gate was run "once at the end to confirm that claim rather than
+assume it", as the plan's Validation Plan asks. **0 diffs** confirms this letter
+changed no compiler behavior — its only `src/` edits are Markdown spec pages and
+two `&'static str` doc fields.
+
+**One flake, root-caused rather than re-baselined.** An earlier full acceptance
+run reported 2 mismatches, both `missing actual` for
+`rt-behavior/tcp/tcp-readtimeout-convention-rt`. That run was launched
+*concurrently with `cargo test`*, and the harness bounds each fixture with
+`run_with_watchdog`; a timeout under CPU contention produces exactly that shape.
+Re-run uncontended the fixture passes, and the clean full run above is green.
+Not a regression, and nothing was regenerated to make it pass.
 
 ## Open Decisions
 

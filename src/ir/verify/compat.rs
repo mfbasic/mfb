@@ -451,7 +451,8 @@ impl TypeEnv {
                 );
                 if !entry_is_isolated_ref {
                     if !self.source_path.get() {
-                        self.emit_argument_mismatch("thread.start entry point must name an ISOLATED FUNC.".to_string(),
+                        self.emit_argument_mismatch(
+                            "thread.start entry point must name an ISOLATED FUNC.".to_string(),
                         );
                     }
                     return;
