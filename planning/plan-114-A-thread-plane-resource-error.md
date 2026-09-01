@@ -601,6 +601,34 @@ Not fixed here: bug-483 is already filed, already root-caused, and already fixed
 on another branch. Re-fixing it in this worktree would duplicate and conflict with
 landed work. Letter B rebases onto it (see plan-114-B Corrections C1).
 
+**C8 — `artifact-gate.sh all` is already green, and it ran INSIDE the `cargo test`
+above rather than needing a separate invocation.**
+The Validation Plan lists `scripts/artifact-gate.sh target/release/mfb all` →
+`diffs=0` as a separate step. It is not separate: `tests/golden.rs` is a one-test
+suite whose entire body shells out to `scripts/artifact-gate.sh <mfb> all`
+(`tests/golden.rs:19-50`). In the run recorded in C7 it reported:
+
+```
+     Running tests/golden.rs (target/debug/deps/golden-33ce10c9a21268dc)
+test result: ok. 1 passed; 0 failed; ... finished in 226.64s
+```
+
+so the tree-wide byte-identity sweep passed with **diffs=0**, as this letter's
+§3 requires. Two things make that reading safe rather than assumed:
+
+- `golden.rs` special-cases exit **98** (`artifact-gate.sh`'s "a rival run holds
+  the lock" refusal) with its own panic, precisely because a 0.2s refusal is
+  otherwise indistinguishable from a clean pass. It did not fire, so the gate
+  genuinely ran.
+- The per-fixture `PASSED byte-identity/…` lines are in the log, 0 `FAILED`.
+
+This letter is a diagnostics change, so byte-identity being untouched is the
+expected result and not the interesting one; it is recorded because §3 asked for
+it explicitly. **The gate that can actually see this letter's change is
+`test-accept.sh`, which compares diagnostic prose** — the artifact gate is blind
+to it. That run is still outstanding at this point, blocked on the shared lock
+(another session is mid-`cargo test --release`); it is not skipped.
+
 ## Summary
 
 The engineering risk is one thing only: a cause walk that disagrees with
