@@ -693,6 +693,26 @@ Commit: 8e9236305
   codegen-neutral — it is evidence the gate never hashed this code. B–J all touch the
   same emitters and will all see the same misleading 0. The instruments that genuinely
   cover this code are `scripts/test-canvas-vulkan.sh` and the `rt_canvas_*` suites.
+- **C8 (2026-09-01, Phase 3 gates) — two cleanups the plan did not list, both found by
+  running the gates rather than by reading the diff.**
+  1. `SEL_SET_VERTEX_BYTES` and the non-instanced `SEL_DRAW_PRIMITIVES` had no
+     emission site left after Phase 2, but were still declared *and* still listed in
+     `metal_data_objects()`. That list is not inert: every entry is a C string emitted
+     into every canvas binary and registered with the ObjC runtime at startup, so an
+     unsent selector costs bytes and a `sel_registerName` call in each program. Both
+     deleted.
+  2. The Linux axis surfaced three **pre-existing** dead-code / unused-import warnings
+     in `tests/cli_canvas_package.rs` and `tests/cli_app_canvas_mode.rs` — items
+     consumed only by `#[cfg(target_os = "macos")]` tests, therefore dead on every other
+     host and invisible from a macOS development host. Each given the same gate as its
+     consumer. Not introduced by this letter, but in its blast radius, and every
+     remaining letter of plan-116 runs these same suites — so leaving them would make
+     the Linux axis permanently noisy for the work that follows.
+- **C9 (2026-09-01, bookkeeping).** This document lost its `## Summary` heading to an
+  edit during execution, which left the closing paragraph reading as part of
+  Corrections. Restored.
+
+## Summary
 
 The real engineering risk is the instance index reaching the fragment stage correctly
 on both languages: get it wrong and every item draws with a neighbour's parameters,
