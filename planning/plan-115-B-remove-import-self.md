@@ -45,7 +45,7 @@ Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-115-A is complete and archived | `ls planning/plan-115-A-*.md` → no matches (moved to `planning/completed/`) | NOT MET |
+| plan-115-A is complete and archived | `ls planning/plan-115-A-*.md` → no matches (moved to `planning/completed/`) | **NOT MET** (measured 2026-09-01: → `planning/plan-115-A-unified-thread-entry.md`; A has not started — its own bug-482 prerequisite is NOT MET) |
 
 If A is not complete, this letter cannot start, full stop — removing `self::`
 without bare-entry support breaks the 8 call sites measured below with no

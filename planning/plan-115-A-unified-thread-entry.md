@@ -43,8 +43,8 @@ dependency to negotiate.** Letters B and C point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-480 (package name resolution) is fixed and archived | `ls bugs/bug-480-*.md` → no matches (moved to `bugs/completed/`) | **NOT MET** (Open, x-large, four phases) |
-| bug-482 (`thread::start` input sendability never fires) is fixed and archived | `ls bugs/bug-482-*.md` → no matches (moved to `bugs/completed/`) | **NOT MET** (Open, filed 2026-08-31) |
+| bug-480 (package name resolution) is fixed and archived | `ls bugs/bug-480-*.md` → no matches (moved to `bugs/completed/`) | **MET** (measured 2026-09-01: `ls bugs/bug-480-*.md` → `no matches found`; `ls bugs/completed/ | grep 480` → `bug-480-package-name-resolution.md`) |
+| bug-482 (`thread::start` input sendability never fires) is fixed and archived | `ls bugs/bug-482-*.md` → no matches (moved to `bugs/completed/`) | **NOT MET** (measured 2026-09-01: `ls bugs/bug-482-*.md` → `bugs/bug-482-thread-start-input-sendability-check-never-fires.md`, still Open; and the defect is live in source — the `imported_entry` early-return the bug names is verbatim present at `src/ir/verify/resources.rs:691-696`, found by `grep -rn "imported_entry" src/`) |
 
 **Why bug-480 gates this plan.** bug-480 Defect B is that an imported package's
 value types resolve *without* their required prefix while the correctly prefixed

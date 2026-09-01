@@ -37,7 +37,7 @@ See `plan-115-A-unified-thread-entry.md` § Prerequisites — bug-480 and bug-48
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-115-B is complete and archived | `ls planning/plan-115-B-*.md` → no matches (moved to `planning/completed/`) | NOT MET |
+| plan-115-B is complete and archived | `ls planning/plan-115-B-*.md` → no matches (moved to `planning/completed/`) | **NOT MET** (measured 2026-09-01: → `planning/plan-115-B-remove-import-self.md`; B is blocked on A, which is blocked on bug-482) |
 
 If B is not complete, this letter cannot start, full stop — the example collapse
 depends on the executable being able to host its own `ISOLATED FUNC` entries (A)
