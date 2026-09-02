@@ -64,7 +64,6 @@ static void run_ilist(const char *group, const char *pfx) {
   ROW("append", { IL *l = il_new(4); for (int i = 0; i < 1000; i++) il_push(l, i); checksum = l->n; il_free(l); });
   ROW("append_batch", { IL *l = il_new(4); for (int b = 0; b < 100; b++) for (int i = 0; i < 10; i++) il_push(l, i); checksum = l->n; il_free(l); });
   ROW("prepend", { IL *l = il_new(4); for (int i = 0; i < 1000; i++) il_ins(l, 0, i); checksum = l->n; il_free(l); });
-  ROW("insert", { IL *l = il_new(4); for (int i = 0; i < 1000; i++) il_ins(l, l->n / 2, i); checksum = l->n; il_free(l); });
   ROW("copy", { long long a = 0; for (int k = 0; k < 1000; k++) { IL *c = il_new(base->n); for (int i = 0; i < base->n; i++) il_push(c, base->a[i]); a += c->n; il_free(c); } checksum = a; });
   ROW("distinct", { IL *d = il_new(5000); for (int i = 0; i < 5000; i++) il_push(d, i % 1000); checksum = uniq_ll(d->a, d->n); il_free(d); });
   ROW("groupby", { IL *g = il_new(2000); for (int i = 0; i < 2000; i++) il_push(g, i % 100); checksum = uniq_ll(g->a, g->n); il_free(g); });
@@ -92,6 +91,9 @@ static void run_ilist(const char *group, const char *pfx) {
   ROW("forEach", { long long a = 0; for (int k = 0; k < 200; k++) for (int i = 0; i < base->n; i++) a += base->a[i]; checksum = a; });
   ROW("get", { long long a = 0; for (int k = 0; k < 100; k++) for (int i = 0; i < 1000; i++) a += base->a[i]; checksum = a; });
   ROW("getOr", { long long a = 0; for (int k = 0; k < 100; k++) for (int i = 0; i < 1000; i++) a += base->a[i]; checksum = a; });
+  /* insert accumulates like append/prepend, but gen_list.py's OP_ORDER emits it
+   * here (alphabetically, between getOr and mid) — keep the row order in step. */
+  ROW("insert", { IL *l = il_new(4); for (int i = 0; i < 1000; i++) il_ins(l, l->n / 2, i); checksum = l->n; il_free(l); });
   ROW("mid", { long long a = 0; for (int k = 0; k < 500; k++) a += 500; checksum = a; });
   ROW("partition", { long long a = 0; for (int k = 0; k < 200; k++) { int c = 0; for (int i = 0; i < base->n; i++) if (base->a[i] % 2 == 0) c++; a += c; } checksum = a; });
   ROW("reduce", { long long a = 0; for (int k = 0; k < 500; k++) { long long s = 0; for (int i = 0; i < base->n; i++) s += base->a[i]; a += s; } checksum = a; });
@@ -120,7 +122,6 @@ static void run_slist(const char *group, const char *pfx) {
   ROW("append", { SL *l = sl_new(4); for (int i = 0; i < 1000; i++) { snprintf(b, sizeof b, "s%d", i); sl_push(l, b); } checksum = l->n; sl_free(l); });
   ROW("append_batch", { SL *l = sl_new(4); for (int bb = 0; bb < 100; bb++) for (int i = 0; i < 10; i++) { snprintf(b, sizeof b, "a%d", i); sl_push(l, b); } checksum = l->n; sl_free(l); });
   ROW("prepend", { SL *l = sl_new(4); for (int i = 0; i < 1000; i++) { snprintf(b, sizeof b, "s%d", i); sl_ins(l, 0, b); } checksum = l->n; sl_free(l); });
-  ROW("insert", { SL *l = sl_new(4); for (int i = 0; i < 1000; i++) { snprintf(b, sizeof b, "m%d", i); sl_ins(l, l->n / 2, b); } checksum = l->n; sl_free(l); });
   ROW("copy", { long long a = 0; for (int k = 0; k < 1000; k++) { SL *c = sl_new(base->n); for (int i = 0; i < base->n; i++) sl_push(c, base->a[i]); a += c->n; sl_free(c); } checksum = a; });
   ROW("distinct", { SL *d = sl_new(5000); for (int i = 0; i < 5000; i++) { snprintf(b, sizeof b, "d%d", i % 1000); sl_push(d, b); } checksum = uniq_str(d->a, d->n); sl_free(d); });
   ROW("groupby", { SL *g = sl_new(2000); for (int i = 0; i < 2000; i++) { snprintf(b, sizeof b, "s%d", i); sl_push(g, b); } long long *lens = malloc(sizeof(long long) * g->n); for (int i = 0; i < g->n; i++) lens[i] = (long long)strlen(g->a[i]); checksum = uniq_ll(lens, g->n); free(lens); sl_free(g); });
@@ -148,6 +149,9 @@ static void run_slist(const char *group, const char *pfx) {
   ROW("forEach", { long long a = 0; for (int k = 0; k < 200; k++) for (int i = 0; i < base->n; i++) a += (long long)strlen(base->a[i]); checksum = a; });
   ROW("get", { long long a = 0; for (int k = 0; k < 100; k++) for (int i = 0; i < 1000; i++) a += (long long)strlen(base->a[i]); checksum = a; });
   ROW("getOr", { long long a = 0; for (int k = 0; k < 100; k++) for (int i = 0; i < 1000; i++) a += (long long)strlen(base->a[i]); checksum = a; });
+  /* insert accumulates like append/prepend, but gen_list.py's OP_ORDER emits it
+   * here (alphabetically, between getOr and mid) — keep the row order in step. */
+  ROW("insert", { SL *l = sl_new(4); for (int i = 0; i < 1000; i++) { snprintf(b, sizeof b, "m%d", i); sl_ins(l, l->n / 2, b); } checksum = l->n; sl_free(l); });
   ROW("mid", { long long a = 0; for (int k = 0; k < 500; k++) a += 500; checksum = a; });
   ROW("partition", { long long a = 0; for (int k = 0; k < 200; k++) { int c = 0; for (int i = 0; i < base->n; i++) if (strlen(base->a[i]) <= 2) c++; a += c; } checksum = a; });
   ROW("reduce", { long long a = 0; for (int k = 0; k < 500; k++) { long long s = 0; for (int i = 0; i < base->n; i++) s += (long long)strlen(base->a[i]); a += s; } checksum = a; });

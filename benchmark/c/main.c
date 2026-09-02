@@ -42,7 +42,6 @@
 #include "scalarbench.h"
 #include "serializebench.h"
 #include "setmatrix.h"
-#include "setopsbench.h"
 #include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
@@ -713,8 +712,6 @@ int main(int argc, char **argv) {
   run_mapmatrix_group();
 
   run_mapchurn_group();
-
-  run_setops_group();
 
   run_setmatrix_group();
 

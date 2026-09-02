@@ -111,9 +111,11 @@ held in a plain `MUT` local, a record field (fields before + after the set), or 
 `Set`-in-record/`STATE` mutation rebuilds and re-inlines the whole set on every
 step, so the `add`/`remove` rows show the bug-430 O(n²) against the plain baseline.
 Each row folds set sizes into an integer checksum that matches across all three
-containers (the matrix's correctness proof); unlike the former bundled `set`
-group, these rows are mfb-internal with no C/Python peer, and the set-producing
-algebra rows run at a reduced size (arena-churn caveat below).
+containers (the matrix's correctness proof); the plain `Fixed`/`Dynamic` rows are
+peered by `setmatrix.c` / `setmatrix.py`, the Record/State rows are mfb-internal
+with no C/Python peer, and the set-producing algebra rows run at a reduced size
+(arena-churn caveat below). The old bundled `set` group (`build`/`ops`) that this
+matrix replaced is gone from all three languages.
 
 Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
 transients stay in the arena quick bins and whose per-call cost is flat across the

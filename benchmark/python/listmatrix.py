@@ -114,13 +114,6 @@ def run_all(run, now_ns_fn, record_fn):
             return len(xs)
         emit("prepend", op_prepend)
 
-        def op_insert():
-            xs = []
-            for i in range(1000):
-                xs.insert(len(xs) // 2, el(ty, i))
-            return len(xs)
-        emit("insert", op_insert)
-
         # --- read-only ---------------------------------------------------
         emit("copy", lambda: sum(len(list(base1k)) for _ in range(1000)))
 
@@ -199,6 +192,17 @@ def run_all(run, now_ns_fn, record_fn):
 
         emit("get", lambda: sum(g_len(base1k[i]) for _ in range(100) for i in range(1000)))
         emit("getOr", lambda: sum(g_len(base1k[i]) for _ in range(100) for i in range(1000)))
+
+        # insert accumulates like append/prepend, but gen_list.py's OP_ORDER
+        # emits it here (alphabetically, between getOr and mid), so the row
+        # order matches mfb's table.
+        def op_insert():
+            xs = []
+            for i in range(1000):
+                xs.insert(len(xs) // 2, el(ty, i))
+            return len(xs)
+        emit("insert", op_insert)
+
         emit("mid", lambda: sum(len(base1k[250:750]) for _ in range(500)))
 
         def op_partition():
