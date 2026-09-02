@@ -439,7 +439,7 @@ compiles and renders **0 lit pixels of 576000** — the kind falls through to th
 `1.0e6` default exactly as intended. `rt_canvas_golden` 10/10 with
 `git status --short tests/golden/canvas/` empty, `cli_canvas_package` 7/7,
 `draw_item_variant_set_is_frozen` and its two sibling iterating tests green.
-Commit: —
+Commit: b979761a1
 
 ### Phase 3 — The software SDF, and the circle equivalence
 
