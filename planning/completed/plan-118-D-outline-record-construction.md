@@ -160,7 +160,8 @@ diffs — the key change is `-vv`-only).
 
 MET: census table in §2; the tally is `-vv`-only, and `artifact-gate.sh all` was
 0 diffs at this point.
-Commit: —
+Commit: 7f4b1e2f8 (phases 1 and 2 landed together — the census instrument and
+its consumer are one change)
 
 ### Phase 2 — synthesis + site rewrite
 
@@ -229,7 +230,7 @@ Windows path is therefore covered only by cross-compilation and its
 `.ncodesum` goldens (regenerated, gate 0 diffs), not by a native run. Recorded
 rather than assumed; `.ai/remote_systems.md` and `scripts/test-winapp.sh` are
 where the run belongs when the box is back.
-Commit: —
+Commit: 7f4b1e2f8
 
 ## Validation Plan
 
@@ -241,9 +242,15 @@ Commit: —
 
 ## Open Decisions
 
-- Threshold value (≥ 3 sites recommended) — finalized by Phase 1's census.
-- Whether union wrap (`val:UnionWrap`, 15,352 instrs — small) rides along —
-  recommended: no; not worth the seam.
+- ~~Threshold value~~ — **DECIDED: ≥ 3 sites**, and the census shows the choice
+  is nearly free: 34 of the 59 types clear it and carry 99 % of the cost, while
+  the top two alone are 95 %. Any threshold between 2 and ~30 gives essentially
+  the same module.
+- ~~Whether union wrap rides along~~ — **DECIDED: no.** `val:UnionWrap` is
+  15,352 instructions over 77 sites, 0.13 % of the module and 1.1 % of the
+  constructor category; the union arm is a different shape (a tag plus a
+  fixed-size payload sized across every variant) and would need its own helper
+  contract for a rounding error's worth of instructions.
 
 ## Corrections
 
