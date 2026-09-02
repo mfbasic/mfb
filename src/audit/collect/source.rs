@@ -2,13 +2,19 @@ use super::*;
 
 pub(super) fn collect_source(
     ast: &ast::AstProject,
-) -> (Vec<FlowFunction>, Vec<PermissionEntry>, Vec<ResourceEntry>) {
+) -> (
+    Vec<FlowFunction>,
+    Vec<PermissionEntry>,
+    Vec<ResourceEntry>,
+    Vec<RelaxedTrustEntry>,
+) {
     let fallible = fallible_functions(ast);
     let aliases = link_aliases(ast);
 
     let mut flow = Vec::new();
     let mut permissions = Vec::new();
     let mut resources = Vec::new();
+    let mut relaxed_trust = Vec::new();
 
     for file in &ast.files {
         // Skip compiler-injected package source (bug-279). `parse_project`
@@ -35,41 +41,49 @@ pub(super) fn collect_source(
 
             let mut calls = Vec::new();
             {
-                let mut visit = |callee: &str, line: usize, in_trap: bool| {
-                    // Where this call's error actually goes (bug-280). The label
-                    // used to be chosen from the *function's* trap alone, so a
-                    // call fully recovered by an inline `TRAP … RECOVER` was
-                    // reported as `return` — auto-propagates to the caller — which
-                    // is the opposite of what happens.
-                    let propagation = if in_trap || has_trap {
-                        "trap"
-                    } else {
-                        "return"
+                let mut visit =
+                    |callee: &str, line: usize, in_trap: bool, arguments: &[CallArg]| {
+                        // Where this call's error actually goes (bug-280). The label
+                        // used to be chosen from the *function's* trap alone, so a
+                        // call fully recovered by an inline `TRAP … RECOVER` was
+                        // reported as `return` — auto-propagates to the caller — which
+                        // is the opposite of what happens.
+                        let propagation = if in_trap || has_trap {
+                            "trap"
+                        } else {
+                            "return"
+                        };
+                        let capability = builtin_capability(callee, &aliases);
+                        if let Some(capability) = capability {
+                            permissions.push(PermissionEntry {
+                                capability: capability.to_string(),
+                                package: package_of(callee).to_string(),
+                                function: callee.to_string(),
+                                path: file.path.clone(),
+                                line,
+                                kind: if capability == "native" {
+                                    "native".to_string()
+                                } else {
+                                    "standard".to_string()
+                                },
+                            });
+                        }
+                        if relaxes_certificate_trust(callee, arguments) {
+                            relaxed_trust.push(RelaxedTrustEntry {
+                                function: callee.to_string(),
+                                path: file.path.clone(),
+                                line,
+                            });
+                        }
+                        if is_fallible_call(callee, &fallible.names) {
+                            calls.push(CallSite {
+                                callee: callee.to_string(),
+                                line,
+                                propagation: propagation.to_string(),
+                                capability: capability.map(str::to_string),
+                            });
+                        }
                     };
-                    let capability = builtin_capability(callee, &aliases);
-                    if let Some(capability) = capability {
-                        permissions.push(PermissionEntry {
-                            capability: capability.to_string(),
-                            package: package_of(callee).to_string(),
-                            function: callee.to_string(),
-                            path: file.path.clone(),
-                            line,
-                            kind: if capability == "native" {
-                                "native".to_string()
-                            } else {
-                                "standard".to_string()
-                            },
-                        });
-                    }
-                    if is_fallible_call(callee, &fallible.names) {
-                        calls.push(CallSite {
-                            callee: callee.to_string(),
-                            line,
-                            propagation: propagation.to_string(),
-                            capability: capability.map(str::to_string),
-                        });
-                    }
-                };
                 walk_statements(&function.body, false, &mut visit);
                 if let Some(trap) = &function.trap {
                     walk_statements(&trap.body, false, &mut visit);
@@ -128,7 +142,7 @@ pub(super) fn collect_source(
             .then(a.name.cmp(&b.name))
     });
 
-    (flow, permissions, resources)
+    (flow, permissions, resources, relaxed_trust)
 }
 
 /// The callee of a resource-acquiring value: a bare call, or the call wrapped in an
@@ -270,7 +284,11 @@ fn collect_trapped_handlers<'a>(expression: &'a Expression, out: &mut Vec<&'a [S
 }
 
 /// Visits every statement and reports each call expression's callee and line.
-fn walk_statements(body: &[Statement], in_trap: bool, visit: &mut impl FnMut(&str, usize, bool)) {
+fn walk_statements(
+    body: &[Statement],
+    in_trap: bool,
+    visit: &mut impl FnMut(&str, usize, bool, &[CallArg]),
+) {
     for statement in body {
         match statement {
             Statement::Let { value, line, .. } => {
@@ -375,7 +393,7 @@ fn walk_expression(
     expression: &Expression,
     line: usize,
     in_trap: bool,
-    visit: &mut impl FnMut(&str, usize, bool),
+    visit: &mut impl FnMut(&str, usize, bool, &[CallArg]),
 ) {
     match expression {
         Expression::Call {
@@ -389,7 +407,7 @@ fn walk_expression(
                     }
                 }
             }
-            visit(callee, line, in_trap);
+            visit(callee, line, in_trap, arguments);
         }
         Expression::Binary { left, right, .. } => {
             walk_expression(left, line, in_trap, visit);
@@ -539,7 +557,7 @@ fn block_escapes(body: &[Statement], fallible: &HashSet<String>) -> bool {
     // the function, so it must not make the function fallible (bug-280).
     // Previously every fallible call counted regardless, so a fully-recovered
     // call marked its function — and transitively every caller — fallible.
-    let mut check = |callee: &str, _line: usize, in_trap: bool| {
+    let mut check = |callee: &str, _line: usize, in_trap: bool, _arguments: &[CallArg]| {
         if !in_trap && is_fallible_call(callee, fallible) {
             escapes = true;
         }
@@ -643,6 +661,32 @@ fn statements_contain_return_value(body: &[Statement]) -> bool {
 
 fn package_of(callee: &str) -> &str {
     callee.split('.').next().unwrap_or(callee)
+}
+
+/// bug-477: does this `tls::connect` call relax certificate trust?
+///
+/// `mfb audit` exists so a reviewer can see a program's security-relevant
+/// behaviour without reading it, and `allowSelfSigned := TRUE` is exactly that
+/// kind of behaviour — it is the one argument in the language that reduces
+/// transport trust. Reported per call site.
+///
+/// Only a *literal* `TRUE` is reported. A value computed at runtime cannot be
+/// resolved here, and guessing would either under-report (silent, the bad
+/// direction) or invent findings; a reviewer chasing a relaxed connection is
+/// better served by an honest "these are the call sites that hard-code it".
+/// Both overloads are covered because the argument is matched by NAME, which is
+/// how it binds in each (the two forms do not share a positional layout).
+fn relaxes_certificate_trust(callee: &str, arguments: &[CallArg]) -> bool {
+    if package_of(callee) != "tls" || !callee.ends_with(".connect") {
+        return false;
+    }
+    arguments.iter().any(|argument| match argument {
+        CallArg::Named { name, value, .. } => {
+            name == "allowSelfSigned" && matches!(value, Expression::Boolean(true))
+        }
+        // The 5th positional of the host/port form, 4th of the `Address` form.
+        CallArg::Positional(_) => false,
+    })
 }
 
 /// The host capability a call discloses, or `None` for a pure call.
@@ -931,7 +975,7 @@ mod tests {
     fn callee_qualified_name_uses_dot_separator() {
         // Sanity: the collector matches `fs.open`, and `fs::open` parses to it.
         let ast = project("FUNC f()\n  LET h = fs::open(\"p\")\nEND FUNC\n");
-        let (_, _, resources) = collect_source(&ast);
+        let (_, _, resources, ..) = collect_source(&ast);
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].resource_type, "fs.File");
         assert_eq!(resources[0].close_op, "fs.close");
@@ -953,7 +997,7 @@ mod tests {
             "  LET x = parse(\"f.txt\")\n",
             "END SUB\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let at = |line: usize| {
             flow.iter()
                 .find(|entry| entry.line == line)
@@ -990,7 +1034,7 @@ mod tests {
             "  sql::open(\":memory:\")\n",
             "END FUNC\n",
         );
-        let (_, permissions, _) = collect_source(&project(source));
+        let (_, permissions, _, ..) = collect_source(&project(source));
         let disclosed = permissions
             .iter()
             .map(|permission| (permission.capability.as_str(), permission.function.as_str()))
@@ -1015,6 +1059,28 @@ mod tests {
         assert_eq!(native.package, "sql");
     }
 
+    // bug-477: `mfb audit` must surface a relaxed-trust connection, and must not
+    // invent one. The negative half matters as much as the positive: reporting a
+    // FALSE (or omitted) call would train reviewers to ignore the finding.
+    #[test]
+    fn relaxed_trust_is_reported_only_when_the_flag_is_literally_true() {
+        let source = concat!(
+            "FUNC f()\n",
+            "  RES a = tls::connect(\"h\", 443, 1000, \"h\", allowSelfSigned := TRUE)\n",
+            "  RES b = tls::connect(\"h\", 443, 1000, \"h\", allowSelfSigned := FALSE)\n",
+            "  RES c = tls::connect(\"h\", 443)\n",
+            "END FUNC\n",
+        );
+        let (_, _, _, relaxed) = collect_source(&project(source));
+        assert_eq!(
+            relaxed.len(),
+            1,
+            "exactly the TRUE call site is a relaxed-trust finding; FALSE and the \
+             omitted form are ordinary verified connections"
+        );
+        assert_eq!(relaxed[0].line, 2);
+    }
+
     #[test]
     fn permissions_are_collected_and_deduplicated() {
         let source = concat!(
@@ -1025,7 +1091,7 @@ mod tests {
             "  LET t = thread::start(worker)\n",
             "END FUNC\n",
         );
-        let (_, permissions, _) = collect_source(&project(source));
+        let (_, permissions, _, ..) = collect_source(&project(source));
         let caps: Vec<&str> = permissions.iter().map(|p| p.capability.as_str()).collect();
         assert!(caps.contains(&"terminal"));
         assert!(caps.contains(&"filesystem"));
@@ -1055,7 +1121,7 @@ mod tests {
             "  LOOP UNTIL n < 0\n",
             "END FUNC\n",
         );
-        let (_, _, resources) = collect_source(&project(source));
+        let (_, _, resources, ..) = collect_source(&project(source));
         let types: Vec<&str> = resources.iter().map(|r| r.resource_type.as_str()).collect();
         assert!(types.contains(&"fs.File"));
         // plan-110-E: the stream producers are tcp's, and the audit names them
@@ -1080,7 +1146,7 @@ mod tests {
             "  END MATCH\n",
             "END FUNC\n",
         );
-        let (_, _, resources) = collect_source(&project(source));
+        let (_, _, resources, ..) = collect_source(&project(source));
         assert_eq!(resources.len(), 1);
     }
 
@@ -1094,7 +1160,7 @@ mod tests {
             "  END TRAP\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let f = flow.iter().find(|f| f.function == "f").unwrap();
         assert_eq!(f.trap.as_ref().unwrap().classification, "propagates");
     }
@@ -1109,7 +1175,7 @@ mod tests {
             "  END TRAP\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let f = flow.iter().find(|f| f.function == "f").unwrap();
         assert_eq!(f.trap.as_ref().unwrap().classification, "fails");
     }
@@ -1124,7 +1190,7 @@ mod tests {
             "  END TRAP\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let f = flow.iter().find(|f| f.function == "f").unwrap();
         assert_eq!(f.trap.as_ref().unwrap().classification, "returns value");
     }
@@ -1139,7 +1205,7 @@ mod tests {
             "  END TRAP\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let f = flow.iter().find(|f| f.function == "f").unwrap();
         assert_eq!(f.trap.as_ref().unwrap().classification, "recovers");
     }
@@ -1154,7 +1220,7 @@ mod tests {
             "  RETURN reader()\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         let reader = flow.iter().find(|f| f.function == "reader").unwrap();
         let caller = flow.iter().find(|f| f.function == "caller").unwrap();
         // `reader` calls a fallible builtin; `caller` calls fallible `reader`.
@@ -1169,7 +1235,7 @@ mod tests {
             "  FAIL error(1, \"x\")\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         assert!(flow.iter().find(|f| f.function == "boom").unwrap().fallible);
     }
 
@@ -1201,7 +1267,7 @@ mod tests {
             "  RETURN 0\n",
             "END FUNC\n",
         );
-        let (flow, permissions, _) = collect_source(&project(source));
+        let (flow, permissions, _, ..) = collect_source(&project(source));
         assert!(flow.iter().any(|f| f.function == "f"));
         assert!(permissions.iter().any(|p| p.capability == "filesystem"));
     }
@@ -1220,7 +1286,7 @@ mod tests {
             "  END MATCH\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         // The case body raises via a fallible builtin, so `f` is fallible.
         assert!(flow.iter().find(|f| f.function == "f").unwrap().fallible);
     }
@@ -1246,7 +1312,7 @@ mod tests {
             "  END TRAP\n",
             "END FUNC\n",
         );
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         assert!(flow.iter().find(|f| f.function == "boom").unwrap().fallible);
         let classified = flow.iter().find(|f| f.function == "classified").unwrap();
         assert_eq!(
@@ -1257,7 +1323,7 @@ mod tests {
 
     /// Classify the trap of the first function in `source`.
     fn trap_classification(source: &str) -> String {
-        let (flow, _, _) = collect_source(&project(source));
+        let (flow, _, _, ..) = collect_source(&project(source));
         flow.iter()
             .find_map(|f| f.trap.as_ref().map(|t| t.classification.clone()))
             .expect("a trap")
@@ -1380,7 +1446,7 @@ mod tests {
             "  RETURN 0\n",
             "END FUNC\n",
         );
-        let (flow, permissions, _) = collect_source(&project(source));
+        let (flow, permissions, _, ..) = collect_source(&project(source));
         assert!(flow.iter().any(|f| f.function == "f"));
         assert!(permissions.iter().any(|p| p.capability == "filesystem"));
     }

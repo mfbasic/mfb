@@ -19,7 +19,7 @@ mod source;
 use dependencies::{collect_dependencies, collect_packages};
 use findings::{
     dependency_findings, lockfile_findings, package_findings, permission_findings,
-    resource_findings, sort_findings,
+    relaxed_trust_findings, resource_findings, sort_findings,
 };
 use lockfile::collect_lockfile;
 use project::{collect_libraries, collect_native_links, collect_native_resources, project_summary};
@@ -40,7 +40,7 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
     let project = project_summary(inputs);
     let dependencies = collect_dependencies(inputs.project_dir, inputs.manifest);
     let packages = collect_packages(inputs.project_dir, inputs.manifest);
-    let (source_flow, permissions, resources) = collect_source(inputs.ast);
+    let (source_flow, permissions, resources, relaxed_trust) = collect_source(inputs.ast);
     let native_links = collect_native_links(&project.name, inputs.ast);
     let native_resources = collect_native_resources(&project.name, inputs.ast);
     let lockfile = collect_lockfile(inputs.project_dir, inputs.manifest, inputs.locked);
@@ -57,6 +57,7 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
     );
     resource_findings(&resources, &mut findings);
     permission_findings(&permissions, &mut findings);
+    relaxed_trust_findings(&relaxed_trust, &mut findings);
     sort_findings(&mut findings);
 
     AuditReport {

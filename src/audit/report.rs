@@ -181,6 +181,18 @@ pub struct PermissionEntry {
     pub kind: String,
 }
 
+/// bug-477: one `tls::connect(..., allowSelfSigned := TRUE)` call site.
+///
+/// Reported as its own finding rather than folded into the `network`
+/// capability, because "this program opens sockets" and "this program will
+/// accept a certificate no one vouched for" are different facts and a reviewer
+/// needs the second one by itself.
+pub struct RelaxedTrustEntry {
+    pub function: String,
+    pub path: String,
+    pub line: usize,
+}
+
 pub struct Finding {
     pub code: String,
     pub category: String,

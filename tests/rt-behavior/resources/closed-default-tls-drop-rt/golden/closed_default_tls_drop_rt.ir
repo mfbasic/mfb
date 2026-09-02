@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF tls.Socket", "value": { "kind": "callResult", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF tls.Socket", "value": { "kind": "callResult", "type": "tls.Socket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
     { "op": "bind", "line": 19, "mutable": true, "name": "$trap_val1", "type": "tls.Socket", "value": null },
     {
       "op": "if",

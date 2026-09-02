@@ -72,6 +72,24 @@ pub(crate) const RTLD_NOW: &str = "2";
 
 // OpenSSL constants (stable across 1.1.1 and 3.x).
 pub(crate) const SSL_VERIFY_PEER: &str = "1";
+// bug-477 `allowSelfSigned`. The three X509_V_ERR_* codes that mean "the chain is
+// fine but I do not trust its root", and NOTHING else. Stable across 1.1.1 and 3.x.
+pub(crate) const X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT: &str = "18";
+pub(crate) const X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN: &str = "19";
+pub(crate) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: &str = "20";
+/// The emitted `SSL_set_verify` callback (bug-477), and the writable global
+/// holding the two `X509_STORE_CTX` accessors it calls.
+///
+/// The callback takes no user pointer, so it cannot receive per-call `dlsym`
+/// results the way a Network.framework block receives captures. The two function
+/// pointers therefore live in a process-global slot pair, written during
+/// `connect` (where the library handle is in hand) and read by the callback.
+/// Safe under concurrent connects: every writer stores the same two
+/// process-wide constants.
+pub(crate) const TLS_VERIFY_CB: &str = "_mfb_tls_verify_cb";
+pub(crate) const TLS_VERIFY_FNS: &str = "_mfb_tls_verify_fns";
+pub(crate) const VFN_GET_ERROR: usize = 0;
+pub(crate) const VFN_SET_ERROR: usize = 8;
 pub(crate) const SSL_CTRL_SET_TLSEXT_HOSTNAME: &str = "55";
 pub(crate) const TLSEXT_NAMETYPE_HOST_NAME: &str = "0";
 pub(crate) const SSL_CTRL_SET_MIN_PROTO_VERSION: &str = "123";
@@ -94,6 +112,11 @@ pub(crate) const TLS_SYMBOLS: &[&str] = &[
     "SSL_ctrl",
     "SSL_connect",
     "SSL_get_verify_result",
+    // bug-477: read/clear the current error inside the verify callback, so the
+    // three trust-anchor codes can be forgiven while verification CONTINUES into
+    // the hostname and validity-date checks.
+    "X509_STORE_CTX_get_error",
+    "X509_STORE_CTX_set_error",
     "SSL_read",
     // plan-110-D: classify a failed `SSL_read`. A read that hit the socket's
     // SO_RCVTIMEO surfaces as SSL_ERROR_WANT_READ/WRITE with the session intact,
@@ -160,7 +183,139 @@ pub(crate) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
             value: hex_encode_cstring(name),
         });
     }
+    // bug-477: the two `X509_STORE_CTX` accessors the emitted verify callback
+    // calls. A `raw` object is writable (read-only `constant`s are partitioned
+    // ahead of the page boundary, `engine/types/types.rs`), which this needs —
+    // `connect` fills the slots after `dlsym` and the callback reads them.
+    objects.push(CodeDataObject {
+        symbol: TLS_VERIFY_FNS.to_string(),
+        kind: "raw".to_string(),
+        layout: "struct { void *X509_STORE_CTX_get_error; void *X509_STORE_CTX_set_error }"
+            .to_string(),
+        align: 8,
+        size: 16,
+        value: "0".repeat(32),
+    });
     objects
+}
+
+/// The `SSL_set_verify` callback bug-477 installs when `allowSelfSigned` is set:
+///
+/// ```c
+/// int cb(int preverify_ok, X509_STORE_CTX *ctx) {
+///     if (preverify_ok) return 1;
+///     int err = X509_STORE_CTX_get_error(ctx);
+///     if (err == 18 || err == 19 || err == 20) {   /* untrusted root only */
+///         X509_STORE_CTX_set_error(ctx, X509_V_OK);
+///         return 1;                                 /* keep verifying */
+///     }
+///     return 0;                                     /* abort the handshake */
+/// }
+/// ```
+///
+/// **Why a callback and not `SSL_VERIFY_NONE`.** The bug document proposed
+/// dropping to `SSL_VERIFY_NONE` and widening the post-handshake
+/// `SSL_get_verify_result` comparison to accept 18/19/20. That is unsafe, and it
+/// was measured so: with a NULL callback the store's default `verify_cb` returns
+/// `ok` (0) at the first error, so `X509_verify_cert` stops inside `build_chain`
+/// and `check_id` — the hostname check — never runs. A self-signed certificate
+/// then reports 18 whether its name matches or not, and accepting 18 accepts a
+/// MITM certificate. Returning 1 from here instead lets verification CONTINUE, so
+/// the name and validity-date checks still run and still fail the handshake.
+///
+/// A happy consequence: because the callback resets the error to `X509_V_OK`, the
+/// post-handshake `SSL_get_verify_result == 0` check needs no change at all.
+///
+/// Written with the arch-neutral `abi` tokens, so the one body serves
+/// linux-aarch64, linux-x86_64 and linux-riscv64. Note `c_return(0)` — not
+/// `return_register()` — for the callback's own result: OpenSSL reads the **C**
+/// return register, which on x86-64 SysV is `rax` while `return_register()` is
+/// `rdi` (`.ai/arch-abi.md`).
+pub(crate) fn tls_verify_callback_function() -> CodeFunction {
+    let accept = format!("{TLS_VERIFY_CB}_accept");
+    let clear = format!("{TLS_VERIFY_CB}_clear");
+    let reject = format!("{TLS_VERIFY_CB}_reject");
+    let done = format!("{TLS_VERIFY_CB}_done");
+    // A standalone trampoline runs BELOW the register allocator, so this must be
+    // a physical scratch token, never a `%vN` (which reaches the backend as
+    // "unknown register"). SCRATCH is caller-saved, which is right: every use
+    // here is re-materialised after the call that would clobber it.
+    let v = abi::SCRATCH[0];
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(32),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        // preverify_ok != 0 -> nothing to forgive.
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_ne(&accept),
+        // Keep `ctx` across both calls; it is c_arg(1) on entry and c_arg(0) after.
+        abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 8),
+    ];
+    // err = X509_STORE_CTX_get_error(ctx)
+    let mut relocations = Vec::new();
+    emit_data_address(
+        TLS_VERIFY_CB,
+        v,
+        TLS_VERIFY_FNS,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(v, v, VFN_GET_ERROR),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8),
+        abi::branch_link_register(v),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), 16),
+    ]);
+    for code in [
+        X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT,
+        X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN,
+        X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
+    ] {
+        instructions.extend([
+            abi::load_u64(v, abi::stack_pointer(), 16),
+            abi::compare_immediate(v, code),
+            abi::branch_eq(&clear),
+        ]);
+    }
+    instructions.push(abi::branch(&reject));
+    // X509_STORE_CTX_set_error(ctx, X509_V_OK) then accept, so verification
+    // continues into check_id (hostname) and the validity dates.
+    instructions.push(abi::label(&clear));
+    emit_data_address(
+        TLS_VERIFY_CB,
+        v,
+        TLS_VERIFY_FNS,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(v, v, VFN_SET_ERROR),
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::branch_link_register(v),
+        abi::label(&accept),
+        abi::move_immediate(abi::c_return(0), "Integer", "1"),
+        abi::branch(&done),
+        abi::label(&reject),
+        abi::move_immediate(abi::c_return(0), "Integer", "0"),
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(32),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: format!("runtime.{TLS_VERIFY_CB}"),
+        symbol: TLS_VERIFY_CB.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 32,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
 }
 
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly
@@ -417,6 +572,27 @@ pub(crate) fn lower_tls_connect_helper(
 /// the same layout `net`/`tcp`/`udp` build — which shifts the two optional
 /// arguments down one register. Everything after this is identical, so the
 /// Address form is a pure re-staging, not a second connect implementation.
+/// `allow_off` receives `allowSelfSigned` (bug-477).
+///
+/// **x86-64 argument-bank hazard.** The host form takes the flag at `c_arg(4)`,
+/// the fifth slot, which the two x86 ABIs realize to *different* registers and
+/// neither of which is a C argument register on its own ABI
+/// (`src/arch/x86_64/select.rs`):
+///
+/// ```text
+/// CALL_ARGS       = [rdi, rsi, rdx, rcx, r8,  r9,  rax, rbp]   // SysV
+/// CALL_ARGS_WIN64 = [rcx, rdx, r8,  r9,  rdi, rsi, rax, rbp]   // Win64
+/// ```
+///
+/// So index 4 is `r8` on SysV and `rdi` on Win64 — where `rdi` is *non-volatile*
+/// in the Win64 C ABI and is simultaneously `c_arg(0)` on SysV. That is why every
+/// incoming argument is spilled to the frame **here, before anything else runs**:
+/// the first foreign call a backend makes would otherwise stage `c_arg(0)` over
+/// the still-live flag on exactly one of the two ABIs, and the result is a *wrong
+/// value* rather than a crash, which byte-identity cannot see. On AArch64/RISC-V
+/// index 4 is plainly `x4`/`a4` and no hazard exists, which is precisely why a
+/// Mac-only test run cannot catch this class (`.ai/arch-abi.md`, "Three x86-64
+/// foreign-call traps").
 pub(crate) fn connect_arg_prologue(
     address: bool,
     scratch: &str,
@@ -424,6 +600,7 @@ pub(crate) fn connect_arg_prologue(
     port_off: usize,
     timeout_off: usize,
     sname_off: usize,
+    allow_off: usize,
 ) -> Vec<CodeInstruction> {
     if address {
         vec![
@@ -433,6 +610,7 @@ pub(crate) fn connect_arg_prologue(
             abi::store_u64(scratch, abi::stack_pointer(), port_off),
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), timeout_off),
             abi::store_u64(abi::c_arg(2), abi::stack_pointer(), sname_off),
+            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), allow_off),
         ]
     } else {
         vec![
@@ -440,6 +618,7 @@ pub(crate) fn connect_arg_prologue(
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), port_off),
             abi::store_u64(abi::c_arg(2), abi::stack_pointer(), timeout_off),
             abi::store_u64(abi::c_arg(3), abi::stack_pointer(), sname_off),
+            abi::store_u64(abi::c_arg(4), abi::stack_pointer(), allow_off),
         ]
     }
 }
@@ -811,4 +990,62 @@ pub(crate) fn lower_tls_close_listener_helper(
 
 pub(crate) fn macos_tls_data_objects(server: bool) -> Vec<CodeDataObject> {
     macos::data_objects(server)
+}
+
+#[cfg(test)]
+mod verify_callback_tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+
+    /// bug-477: the callback must forgive EXACTLY the three trust-anchor codes.
+    ///
+    /// The failure this pins is not hypothetical — it is the design the bug
+    /// document originally specified. Widening this set (or, worse, returning 1
+    /// unconditionally) turns `allowSelfSigned` from "do not require a trusted
+    /// root" into "do not verify", and no positive fixture can tell the two
+    /// apart: a self-signed certificate is accepted either way.
+    #[test]
+    fn forgives_only_the_three_trust_anchor_codes() {
+        let f = tls_verify_callback_function();
+        let compared: Vec<String> = f
+            .instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::CmpImm)
+            .filter_map(|i| i.get("rhs").map(|v| v.to_string()))
+            .collect();
+        assert_eq!(
+            compared,
+            vec![
+                "0".to_string(), // the preverify_ok fast path
+                X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT.to_string(),
+                X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN.to_string(),
+                X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY.to_string(),
+            ],
+            "bug-477: the verify callback must test preverify_ok and then exactly \
+             X509_V_ERR 18/19/20 — a hostname mismatch (62) and an expiry (9/10) \
+             must fall through to the reject path"
+        );
+    }
+
+    /// The callback returns its result in the **C** return register, which on
+    /// x86-64 SysV is `rax` while `return_register()` is `rdi`. Writing the wrong
+    /// one is silent and would leave OpenSSL reading a garbage verdict — the same
+    /// class as the Win64 `c_result` bug recorded in `.ai/arch-abi.md`.
+    #[test]
+    fn returns_its_verdict_in_the_c_return_register() {
+        let f = tls_verify_callback_function();
+        let verdicts: Vec<String> = f
+            .instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::MovImm)
+            .filter(|i| i.get("dst").as_deref() == Some(&abi::c_return(0).to_string()[..]))
+            .filter_map(|i| i.get("value").map(|v| v.to_string()))
+            .collect();
+        assert_eq!(
+            verdicts,
+            vec!["1".to_string(), "0".to_string()],
+            "bug-477: the callback must write 1 (continue) and 0 (abort) into the C \
+             return register, not the MFB one"
+        );
+    }
 }

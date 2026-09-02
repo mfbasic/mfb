@@ -402,7 +402,7 @@ pub(crate) fn lower_tls_listen_macos(
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
-    const FRAME_SIZE: usize = 448;
+    const FRAME_SIZE: usize = 480;
     const HOST: usize = 8;
     const PORT: usize = 16;
     const CERT: usize = 24;
@@ -435,10 +435,21 @@ pub(crate) fn lower_tls_listen_macos(
     const LISTENER: usize = 240;
     const QUEUE: usize = 248;
     const LCTX: usize = 256;
-    const CFGBLOCK: usize = 264; // 264..328: the identity-config block literal
-    const SBLOCK: usize = 328; // 328..368: state-changed block literal
-    const CBLOCK: usize = 368; // 368..408: new-connection block literal
-    const WAITFN: usize = 408;
+    // bug-477 grew the shared configure block from 64 to 88 bytes (its invoke
+    // gained the verify-block install), so everything after it moves up 24. The
+    // server does NOT use the verify block -- it is client-side certificate
+    // verification -- but it shares CFG_INVOKE and CFG_DESC_SYMBOL, so its block
+    // must be the same SIZE and its unused captures must be explicitly zeroed:
+    // the invoke null-checks CFG_CAP_VBLOCK, and stack garbage there would be
+    // read as a block pointer and called.
+    const CFGBLOCK: usize = 264; // 264..352: the identity-config block literal
+    const SBLOCK: usize = 352; // 352..392: state-changed block literal
+    const CBLOCK: usize = 392; // 392..432: new-connection block literal
+    const WAITFN: usize = 432;
+
+    // bug-477: the shared configure block must not run into the next literal.
+    const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= SBLOCK);
+    const _: () = assert!(WAITFN + 8 <= FRAME_SIZE);
 
     let cert_fail = format!("{symbol}_cert_fail");
     let read_fail_fd = format!("{symbol}_read_fail_fd");
@@ -749,6 +760,16 @@ pub(crate) fn lower_tls_listen_macos(
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_RELEASEFN),
+        // bug-477: the server installs no verify block. NULL is what tells the
+        // shared invoke to skip that step; leaving stack garbage here would have
+        // it call a wild pointer.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_VBLOCK),
+        abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            CFGBLOCK + CFG_CAP_SETVERIFYFN,
+        ),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_QUEUE),
     ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(

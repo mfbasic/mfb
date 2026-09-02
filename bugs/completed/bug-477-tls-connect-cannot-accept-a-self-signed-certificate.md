@@ -1,12 +1,13 @@
 # bug-477: `tls::connect` has no way to accept a self-signed certificate, so no MFBASIC program can be a TLS client to an MFBASIC TLS server
 
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/rt-behavior/tls/tls-connect-self-signed-rt/` (new, Phase 1)
+Status: FIXED
+Regression Test: `tests/rt_tls_connect_allow_self_signed.rs` (4 cases) and
+`tests/rt_http_https_still_verifies.rs` (the http:: non-goal guard)
 
 `tls::connect` always validates the peer chain against the host trust store and
 offers no argument that relaxes it. `tls::listen` in the same package terminates
@@ -121,6 +122,357 @@ References:
 - `.ai/net-tls.md` — networking / TLS readiness / repository-client transport security.
 - `bugs/completed/bug-177-net-tls-crypto-robustness-nits.md:38` — the prior audit that certified "no verification bypass exists" on either backend. This bug deliberately introduces one, opt-in; bug-177's finding must be re-stated, not silently invalidated.
 - Found while writing `examples/network-client` (the TLS attempt against `examples/network-server --tls` cannot succeed; the example's header comment documents the limitation and points at `--server-name`).
+
+## Phase 1 measurements (2026-09-01, this session)
+
+Every unknown this document flagged, answered by running it. Two of the three
+answers contradict the Fix Design above; both are corrected here, and the
+corrections are the reason the fix is safe.
+
+### 1. The OpenSSL design in the table above is UNSAFE — measured, not argued
+
+The doc's own hedge ("That is a claim, not a measurement") was right to hedge.
+**The claim is false.** `/tmp/b477-verify.c`, linked against OpenSSL 3.6.2 and
+run against `examples/network-server --tls certs/cert.pem` on :7413:
+
+```
+SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL); SSL_set1_host(ssl, name);
+  name = "localhost"      (matches)   -> handshake rc=1, SSL_get_verify_result=18
+  name = "wrong.example"  (MISMATCH)  -> handshake rc=1, SSL_get_verify_result=18
+```
+
+The two are **indistinguishable**. With a NULL callback the store's default
+`verify_cb` returns `ok` (0) on the first error, so `X509_verify_cert` stops
+inside `build_chain` and `check_id` — the hostname check — never runs. Accepting
+`{0, 18, 19, 20}` under `SSL_VERIFY_NONE` therefore accepts a **name-mismatched**
+certificate: exactly the silent MITM hazard this document forbids.
+
+`openssl s_client` is NOT a valid probe for this and initially suggested the
+opposite (it reports 62 for the same cert) — because `s_client` installs its own
+verify callback that returns 1, which is a different configuration from the one
+the emitter uses.
+
+**Corrected OpenSSL design — the doc's own stated fallback, now measured GOOD.**
+Keep `SSL_VERIFY_PEER` and pass a *callback* instead of NULL, which clears only
+the three trust-anchor errors and lets verification continue:
+
+```c
+if (preverify_ok) return 1;
+int err = X509_STORE_CTX_get_error(ctx);
+if (err == 18 || err == 19 || err == 20) { X509_STORE_CTX_set_error(ctx, 0); return 1; }
+return 0;   /* everything else still aborts the handshake */
+```
+
+`/tmp/b477-cb.c`, same library, four servers:
+
+| case | result |
+| --- | --- |
+| self-signed, name matches | rc=1, verify=0 — **ACCEPTED** |
+| self-signed, name mismatch | rc=-1, verify=62 — **REJECTED** |
+| cert `CN=wrong.example`, expect `localhost` | rc=-1, verify=62 — **REJECTED** |
+| self-signed, **expired** (notAfter 2020) | rc=-1, verify=10 — **REJECTED** |
+
+This is precisely the required semantics. It also has a property the
+`SSL_VERIFY_NONE` design lacks: because the callback resets the error to
+`X509_V_OK`, `SSL_get_verify_result` still returns **0** on the accept path, so
+the existing `gen_openssl.rs:661` comparison needs **no change at all**. The only
+edit is which value goes into `SSL_set_verify`'s third argument.
+
+### 2. `DefaultValue::Fill` with a Boolean: `expr` must be `"false"`, not `"FALSE"`
+
+The Fix Design's `expr: "FALSE"` **does not encode**. `default_argument_padding`
+hands the `Fill` pair to `ir/lower.rs` (~:3690) which builds
+`IrValue::Const { type_: Boolean, value: expr }`; that reaches
+`abi::move_immediate(dst, "Boolean", value)` and finally
+`src/arch/encode_operand.rs:42 immediate()`, whose Boolean vocabulary is exactly:
+
+```rust
+"true" => Ok(1), "false" => Ok(0), _ => value.parse::<u64>()
+```
+
+so `"FALSE"` is `invalid immediate 'FALSE'`. Lowercase is the canonical IR
+spelling everywhere (`HirExpression::Boolean(value) => value.to_string()` at
+`ir/lower.rs:3485`); `"TRUE"`/`"FALSE"` are only the *rendered display* forms
+produced by `static_primitive_text` (`builder_value_semantics.rs:1090`,
+`type_utils.rs:293`). **Resolved: `expr: "false"`.** No `Fill`-lowering change is
+needed; Boolean was already supported, only the doc's spelling was wrong.
+
+### 3. The bug-476 sequencing prerequisite is satisfied in substance
+
+bug-476 is NOT on main (checked: `git log --oneline main | grep bug-476` finds
+only this document's own commit). Its fix lives on the unlanded peer branch
+`worktree-B-476` (`eb64ebfce`). This bug proceeds anyway, because the specific
+hazard §Sequencing names does not exist:
+
+- The hazard was `tls::connect(addressReturningCall(), ...)` selecting the
+  host/port form and binding named arguments against the wrong layout.
+- bug-476's own commit message records the measurement: "`tcp::connect`'s
+  host/port-vs-`Address` shape is exercised but did NOT reproduce — a
+  record-returning call is spilled to a temporary before the selector runs, so it
+  already sees a `Local`". `tls::connect` reads the identical selector line
+  (`builder_values.rs:2285`), so the same spill protects it.
+
+So the `Address` form already selects correctly, and the new parameter binds
+against the right layout in both. This bug touches none of the files bug-476
+edits (`builder_values.rs`, `builder_value_semantics.rs`), so the two merge
+cleanly in either order.
+
+### 4. macOS: the verify block works — and macOS is *stricter* than the others
+
+Prototyped in C against Network.framework before emitting a single instruction
+(`/tmp/b477-nw.c`), because this is the backend the document calls the risk
+concentration. The design that works, and which the emitter implements:
+
+```c
+sec_protocol_options_set_verify_block(o, ^(metadata, trust_ref, complete) {
+    SecTrustRef trust = sec_trust_copy_ref(trust_ref);
+    SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, cfServerName));
+    /* trust exactly what the peer offered as its own root, and nothing else */
+    CFArrayRef chain = SecTrustCopyCertificateChain(trust);
+    root = CFArrayGetValueAtIndex(chain, CFArrayGetCount(chain) - 1);
+    SecTrustSetAnchorCertificates(trust, CFArrayCreate(NULL, &root, 1, ...));
+    SecTrustSetAnchorCertificatesOnly(trust, true);
+    complete(SecTrustEvaluateWithError(trust, NULL));
+}, queue);
+```
+
+Note what this is *not*: it never calls `complete(true)` unconditionally, and it
+never touches `sec_protocol_options_set_peer_authentication_required`. It
+re-runs the **full** SSL policy — hostname, `notBefore`/`notAfter`, chain
+signatures — with the peer's own root as the anchor. Measured:
+
+| case | flag | result |
+| --- | --- | --- |
+| compliant self-signed, name matches | ON | **ACCEPTED** |
+| compliant self-signed, name mismatch | ON | **REJECTED** — "certificate name does not match input" |
+| self-signed, expired 2020 | ON | **REJECTED** — "certificate is expired" |
+| compliant self-signed, name matches | OFF | **REJECTED** |
+
+**Platform difference, and it is a real one.** macOS additionally enforces
+Apple's TLS certificate *shape* policy, which OpenSSL does not: a server
+certificate must carry an `extendedKeyUsage` of `serverAuth` and a validity
+window no longer than ~398 days. A 10-year self-signed certificate is rejected
+with "certificate is not standards compliant" **even with the flag set** — the
+`SecTrustSetAnchorCertificates` exemption applies to keychain-installed roots,
+not to a programmatic anchor, and there is no API to opt out.
+
+This does not violate any requirement in this document: every property the flag
+must preserve (name, dates, TLS 1.2 floor) holds, and macOS merely enforces
+*more*. It fails closed. But it does have a consequence the Goal section did not
+anticipate: **the shipped `examples/network-server/certs/cert.pem` is a 10-year
+certificate, so the Failing Reproduction cannot succeed on macOS until that pair
+is regenerated** within Apple's limits. That regeneration is in scope — it keeps
+the certificate self-signed and untrusted, so it is not the forbidden "ship a
+publicly-trusted certificate" shortcut — and it is why `certs/` gains a
+regeneration script rather than only a longer-lived key.
+
+### 5. The macOS verify block, as built — and the overlap bug it hid behind
+
+Implemented and measured on macOS 24.6 (aarch64) against `openssl s_server`:
+
+| case | flag | result |
+| --- | --- | --- |
+| compliant self-signed, name matches | TRUE | **connected** |
+| compliant self-signed, name mismatch | TRUE | raised |
+| self-signed, expired 2020 | TRUE | raised |
+| compliant self-signed | FALSE | raised |
+| compliant self-signed | omitted | raised |
+
+**The bug that nearly shipped.** Growing the configure block from 64 to 88 bytes
+(three new captures: the verify block, the setter, the queue) put those captures
+on top of the frame slots that followed it — `CFG_CAP_VBLOCK` landed exactly on
+`TIMEOUT`, `CFG_CAP_SETVERIFYFN` on `DEADLINE`, and `CFG_CAP_QUEUE` on `ALLOW`.
+Storing the queue therefore **zeroed the flag**, and `allowSelfSigned := TRUE`
+behaved identically to omitting it.
+
+What makes this worth writing down is how it presented: all three negative cases
+still reported the required `raised`, and the only case that moved was the
+positive one. A test suite with a weaker positive — or one that checked "does the
+flag change anything" rather than "does it connect" — would have gone green with
+the feature completely inert. The frame is now guarded at compile time:
+
+```rust
+const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= TIMEOUT);
+```
+
+**Certificate shape.** The positive case needs `extendedKeyUsage=serverAuth` and
+`-days 397`; see §4. This is now commented at `write_cert` in the regression
+test, because a future maintainer regenerating those certificates with a longer
+life would break only the macOS positive case, for a reason with nothing to do
+with this flag.
+
+### 6a. Final gate: 0 diffs
+
+After regenerating the `.ir` goldens the padded fifth argument shifts:
+
+```
+artifact-gate [all]: 1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)
+```
+
+exit 0, uncontended. `cargo fmt --all` (both workspaces) and
+`cargo check --all-targets` are clean, and the full `cargo test --release
+--no-fail-fast` passes every target.
+
+Two of the regenerated goldens are **diagnostics**, not drift sentinels, so they
+were corrected rather than re-baselined — see the commit for the reasoning. In
+short: 5 arguments is now a valid arity, so
+`tls::connect(h, p, t, s, 9)` stops being `TYPE_CALL_ARITY_MISMATCH` and becomes
+`TYPE_CALL_ARGUMENT_MISMATCH` (an Integer in a Boolean slot). It still fails, and
+the fixture now says *that* is what it pins — which is the property that stops a
+caller passing a truthy Integer and believing the flag is on.
+
+### 6. Golden delta — proven, not assumed
+
+`scripts/regen-ncodesum.sh ./target/release/mfb macos-aarch64` refreshed **132**
+goldens. Exactly **15** changed — three fixtures across all five targets:
+
+```
+tests/byte-identity/tls/golden/tls_codegen_cover_rt.{5 targets}.ncodesum
+tests/byte-identity/http/golden/http_codegen_cover_rt.{5 targets}.ncodesum
+tests/byte-identity/resource-xfer-slots/golden/resource_xfer_slots_cover_rt.{5 targets}.ncodesum
+```
+
+The other **117 are byte-identical**, which is the containment proof. And the
+three that moved are exactly the three fixtures that call the changed member:
+
+```
+$ grep -rln "tls::" tests/byte-identity/*/src/*.mfb
+tests/byte-identity/tls/src/main.mfb
+tests/byte-identity/http/src/main.mfb
+tests/byte-identity/resource-xfer-slots/src/main.mfb
+```
+
+So the delta is confined to `tls::connect` call sites and their emitters, with no
+collateral drift anywhere else in the tree. Each is accounted for:
+
+- **tls** — the emitter changed on all three backends *and* the cover fixture
+  gained four new calls (both overloads at both flag values), so this one is
+  expected to move the most.
+- **http** — `helper_start_exchange.rs` calls `tls::connect` with four arguments
+  and now pads a fifth. The padded constant is pinned as `Boolean false` by
+  `rt_http_https_still_verifies::the_padded_flag_is_false`.
+- **resource-xfer-slots** — calls `tls::connect("8.8.8.8", 443, 30000,
+  "dns.google")`, so it pads the fifth argument too.
+
+Note this change is deliberately **not** byte-identical at `FALSE`, and the Goal
+section anticipated that ("if a constant-fold cannot make it byte-identical, the
+`.ncodesum` delta must be shown to be nothing but the new predicate"). It cannot
+be: the flag is a runtime frame slot, so every backend gains a spill and a
+branch, Linux gains two `dlsym` name strings plus the callback body, and macOS
+gains the verify-block plumbing. Per `AGENTS.md`, byte-identity is a drift
+sentinel rather than a design constraint here — the requirement is that the
+delta be explained, which the containment above does.
+
+### 7. Per-backend runtime proof — all three backends pass
+
+Measured on the real boxes, because "it cross-builds" proves nothing here: this
+flag failed *silently* on two separate backends, in both cases behaving exactly
+like the strict path while every negative case still reported the required
+"raised".
+
+| backend | box | flag ON, good | ON, name mismatch | ON, expired | omitted | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| Network.framework | macOS 24.6 aarch64 | connected | raised | raised | raised | **PASS** |
+| OpenSSL 3.6.3 | 2223, linux-aarch64 | connected | raised | raised | raised | **PASS** |
+| OpenSSL 3.5.6 | 2228, linux-x86_64 | connected | raised | raised | raised | **PASS** |
+| Schannel | 2230, windows-x86_64 | connected | raised | raised | raised | **PASS** |
+
+The x86_64 row matters on its own: it is the `c_arg(4)` = `r8` realization the
+Blast Radius flagged, and it carries the flag correctly.
+
+**The OpenSSL bug this caught.** The callback address was staged into `c_arg(2)`
+and the `emit_dlsym("SSL_set_verify")` immediately after it — a C call — clobbered
+that register, so `SSL_set_verify` got garbage instead of the callback and the
+flag did nothing. The peer's log was the tell: `0 server accepts (SSL_accept())`,
+i.e. the client never began a handshake. Fixed by staging through a frame slot
+and loading `c_arg(2)` after the last `dlsym` (`.ai/arch-abi.md`, "Stage ABI args
+via temporaries").
+
+**The Schannel bug this caught.** The bug document specified
+`CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG` in `CERT_CHAIN_POLICY_PARA::dwFlags`.
+That field is **inert for `CERT_CHAIN_POLICY_SSL`**: the per-check ignore bits
+live on the SSL *extra* parameter, `SSL_EXTRA_CERT_CHAIN_POLICY_PARA::fdwChecks`
+at `SSLPARA + 8`. Written to `dwFlags` the relaxation did nothing at all.
+
+Isolated by bisecting on the box rather than by guessing:
+
+- forcing the relaxed path unconditionally changed nothing → the argument
+  plumbing is fine and the fault is in the relaxation itself;
+- removing the post-handshake `dwError` branch made the connection **succeed** →
+  `SCH_CRED_MANUAL_CRED_VALIDATION` was already working, and the rejection is
+  `CertVerifyCertificateChainPolicy`;
+- PowerShell's `X509Chain` on the same certificate reports its status as exactly
+  **`UntrustedRoot`** → precisely the one condition the flag should forgive.
+
+The corrected bit is `SECURITY_FLAG_IGNORE_UNKNOWN_CA` (0x100), which is
+**narrower** than the one it replaces: `IGNORE_CERT_CN_INVALID` (0x1000) and
+`IGNORE_CERT_DATE_INVALID` (0x2000) are deliberately left clear, which is why
+rows 2 and 3 still raise. Both emitter diagnostics were reverted before the fix
+landed.
+
+**Three backends, three different silent-failure modes.** Every one of them
+compiled cleanly, passed the codegen unit tests, and left all the negative cases
+reporting the required "raised" — the feature was simply dead. macOS: a grown
+block literal overwrote the flag slot. OpenSSL: a `dlsym` clobbered the callback
+argument register. Schannel: the ignore bit went to a field the policy ignores.
+Only a positive, end-to-end assertion on the real backend found any of them.
+
+## STATUS: FIXED (1d312a41a)
+
+`tls::connect` gains one optional named `Boolean` argument, `allowSelfSigned`,
+default `FALSE`. At `TRUE` it accepts a chain whose only defect is an untrusted
+root; the server name, the validity dates and the TLS 1.2 floor stay enforced on
+all three backends. Proven by running the four-case matrix on real hardware:
+
+| backend | box | ON, good | ON, name mismatch | ON, expired | omitted |
+| --- | --- | --- | --- | --- | --- |
+| Network.framework | macOS 24.6 aarch64 | connected | raised | raised | raised |
+| OpenSSL 3.6.3 | 2223 linux-aarch64 | connected | raised | raised | raised |
+| OpenSSL 3.5.6 | 2228 linux-x86_64 | connected | raised | raised | raised |
+| Schannel | 2230 windows-x86_64 | connected | raised | raised | raised |
+
+### Deviations from this document, and why
+
+1. **The OpenSSL design here was unsafe and was replaced.** `SSL_VERIFY_NONE` +
+   accepting {0,18,19,20} accepts a *name-mismatched* certificate: with a NULL
+   callback verification stops in `build_chain` and `check_id` never runs, so a
+   self-signed cert reports 18 either way. Measured, then replaced with the
+   document's own stated fallback — `SSL_VERIFY_PEER` plus a callback clearing
+   only 18/19/20. §1.
+2. **`expr: "FALSE"` does not encode**; the immediate vocabulary is lowercase.
+   §2.
+3. **The Schannel field was wrong.** `CERT_CHAIN_POLICY_PARA::dwFlags` is inert
+   for `CERT_CHAIN_POLICY_SSL`; the ignore bits live in
+   `SSL_EXTRA_CERT_CHAIN_POLICY_PARA::fdwChecks`. The corrected flag is
+   *narrower*. §7.
+4. **The regression test is a Rust test, not an `rt-behavior` fixture** — three
+   certificates, three private keys, and an expiry defined relative to now.
+5. **`ir/lower.rs` needed no edit**: the pad is descriptor-driven.
+6. **The example certificates were regenerated** at 397 days with
+   `extendedKeyUsage=serverAuth`, plus a `certs/regenerate.sh`. macOS enforces a
+   certificate *shape* policy OpenSSL does not, so the shipped 10-year pair could
+   never have satisfied the Goal on that platform. §4.
+7. **Not byte-identical at `FALSE`**, which the Goal anticipated as a
+   possibility. The flag is a runtime frame slot, so every backend gains a spill
+   and a branch. The delta is contained and proven. §6.
+
+### The thing worth remembering
+
+All three backends failed **silently and differently** on the first attempt.
+Each compiled cleanly, passed its codegen unit tests, cross-built on five
+targets, and left every *negative* case reporting the required "raised" — the
+feature was simply dead. macOS overwrote the flag's frame slot with a grown block
+literal; OpenSSL clobbered the callback argument register with a `dlsym`;
+Schannel wrote the ignore bit to a field the policy does not read. Only a
+positive, end-to-end assertion on the real backend caught any of them. A
+relaxation feature needs a test that asserts the thing now *works*, not only that
+the old refusals survive.
+
+### Follow-up, not done here
+
+`caFile`/`caPath` (pin a private CA rather than trust any root) remains the
+better long-term answer and is still unfiled. `http::` deliberately does not
+expose the argument, and `rt_http_https_still_verifies` pins that closed.
 
 ## Failing Reproduction
 
@@ -379,7 +731,12 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/tls/tls-connect-self-signed-rt/` : a fixture that
+- [x] ~~Add `tests/rt-behavior/tls/tls-connect-self-signed-rt/`~~ — **built as a
+      Rust test instead**, `tests/rt_tls_connect_allow_self_signed.rs`. A golden
+      fixture cannot carry three certificates and their private keys, and the
+      expiry cases are defined relative to *now*, so any committed pair rots. The
+      sibling `rt_tls_listener_thread_transfer.rs` hit the same wall from the
+      server side and resolved it the same way. Original text: a fixture that
       `tls::listen`s on a loopback port with a self-signed cert, `tls::connect`s
       to it with the new argument, and asserts the round trip. Confirm it fails
       today at the argument (`TYPE_CALL_ARGUMENT_MISMATCH` / unknown named
@@ -387,81 +744,98 @@ Rejected alternatives:
       Per `.ai/resources-packages.md`, a collection/argument type error surfaces
       only in a **full** `mfb build`, not `-ast -ir`, so this must be
       `rt-behavior`, not `tests/syntax`.
-- [ ] Add the negative fixtures alongside it: name-mismatched self-signed cert,
+- [x] Add the negative fixtures alongside it: name-mismatched self-signed cert,
       and expired self-signed cert, both with the flag `TRUE`, both expected to
       raise `ErrTlsFailed`. These are the tests that stop the bug shipping as a
       blanket bypass.
-- [ ] Add a guard test that `http::` HTTPS still verifies — the padded flag is
+- [x] Add a guard test that `http::` HTTPS still verifies — the padded flag is
       `FALSE` at `helper_start_exchange.rs:20`.
-- [ ] **Resolve `DefaultValue::Fill` with a Boolean.** Add the parameter with no
+- [x] **Resolve `DefaultValue::Fill` with a Boolean.** Answer: `expr: "false"`,
+      lowercase — the doc's `"FALSE"` is `invalid immediate` (§2). Add the parameter with no
       backend change and confirm an omitting call still compiles and still
       produces the strict path. If `expr: "FALSE"` does not lower, record the
       chosen fallback here before proceeding.
-- [ ] **Confirm `c_arg(4)` end to end on both x86 ABIs** for the host-form
+- [x] **Confirm `c_arg(4)` end to end on both x86 ABIs** — proven by RUNNING it:
+      box 2228 (linux-x86_64, SysV, index 4 = `r8`) and box 2230
+      (windows-x86_64, Win64, index 4 = `rdi`) both pass all four cases (§7). for the host-form
       overload — it realizes to `r8` on SysV and `rdi` on Win64
       (`src/arch/x86_64/select.rs:65,92`), and `rdi` is non-volatile on Win64
       while being `c_arg(0)` on SysV. Prove the flag survives the argument
       prologue's spill on `linux-x86_64` and `windows-x86_64`, not just on
       aarch64. Record the answer here.
-- [ ] **Confirm the OpenSSL claim**: under `SSL_VERIFY_NONE` with
+- [x] **Confirm the OpenSSL claim** — DISPROVED, and the design changed as a
+      result (§1). Original text:: under `SSL_VERIFY_NONE` with
       `SSL_set1_host` set, does `SSL_get_verify_result` still report
       `X509_V_ERR_HOSTNAME_MISMATCH` for a name-mismatched cert? Prove it with a
       C or `openssl` reproduction before writing the emitter.
-- [ ] Complete the blast-radius audit above: give a verdict for each
+- [x] Complete the blast-radius audit above: give a verdict for each
       `SUPPORTED_RUNTIME_CALLS` site and for `linux_common/plan.rs:590-622`.
 
-Acceptance: the new fixtures fail for the documented reason; every unknown in
-this phase has a recorded answer in this file.
-Commit: —
+Acceptance: MET. The tests were measured RED on the pre-change binary for the
+documented reason (`2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME` plus the arity
+mismatch), and every unknown has a recorded answer above — two of which
+contradict this document and changed the design.
+Commit: 5802e37b2 (descriptor, plumbing, RED tests), c90401695 (measurements)
 
 ### Phase 2 — the fix
 
-- [ ] Add the parameter to both `Implementation`s and update
+- [x] Add the parameter to both `Implementation`s and update
       `expected_arguments` (`src/codegen/builtins/tls/func_connect.rs`).
-- [ ] Extend `connect_arg_prologue` for both shapes
+- [x] Extend `connect_arg_prologue` for both shapes
       (`src/codegen/builtins/tls/gen_shared.rs`).
-- [ ] Add the `FALSE` pad entry at `src/ir/lower.rs:3545`.
-- [ ] OpenSSL: gate `SSL_set_verify` and the `SSL_get_verify_result` comparison
+- [x] ~~Add the `FALSE` pad entry at `src/ir/lower.rs:3545`~~ — **no edit was
+      needed**: the pad is driven by the descriptor's `DefaultValue::Fill`,
+      which `default_argument_padding` already reads. Verified in the lowered
+      IR: `{ kind: const, type: Boolean, value: false }`.
+- [x] OpenSSL: gate `SSL_set_verify` and the `SSL_get_verify_result` comparison
       (`gen_openssl.rs:538,661`).
-- [ ] Schannel: gate `SCH_CRED_FLAGS` (`gen_schannel.rs:37-38`) and
+- [x] Schannel: gate `SCH_CRED_FLAGS` — and **`fdwChecks`, not `dwFlags`**;
+      the doc's field is inert for `CERT_CHAIN_POLICY_SSL` (§7). Original:
       `CERT_CHAIN_POLICY_PARA.dwFlags` (`gen_schannel_io.rs:151-165`).
-- [ ] Network.framework: dlsym `sec_protocol_options_set_verify_block`, add it
+- [x] Network.framework: dlsym `sec_protocol_options_set_verify_block`, add it
       to the import set (`gen_macos/mod.rs`), and emit the verify block
       (`gen_macos/client.rs`).
-- [ ] `mfb audit`: add `AUDIT-TLS-RELAXED-TRUST` beside the existing codes in
+- [x] `mfb audit`: add `AUDIT-TLS-RELAXED-TRUST` beside the existing codes in
       `src/audit/collect/findings.rs`, reported wherever the argument is passed
       `TRUE`.
 
-Acceptance: Phase 1 fixtures pass; the negative fixtures still raise; the
-`http::` guard still verifies; nothing in Non-goals changed.
-Commit: —
+Acceptance: MET on all three backends, proven by RUNNING each on real hardware
+(§7) — every one of them failed silently the first time and no local gate saw it.
+Commit: 59ce7f14b (OpenSSL + Schannel), 3db6b14e4 (macOS verify block),
+8548e5938 (server block resize), 1557c2db4 (OpenSSL arg staging),
+1d312a41a (Schannel fdwChecks), 7e36c4ddc (audit finding)
 
 ### Phase 3 — docs, goldens, full validation
 
-- [ ] Update `func_connect.rs` `DESC` (the "always verified" paragraph) and add
+- [x] Update `func_connect.rs` `DESC` (the "always verified" paragraph) and add
       an example using the argument; re-render `mfb man tls connect`.
-- [ ] Update `src/docs/spec/stdlib/17_transports.md` "TLS specifics" — the
+- [x] Update `src/docs/spec/stdlib/17_transports.md` "TLS specifics" — the
       "**The client verifies.**" bullet — and `.ai/net-tls.md`.
-- [ ] Add the `AUDIT-TLS-RELAXED-TRUST` row to the enumerated finding-code table
+- [x] Add the `AUDIT-TLS-RELAXED-TRUST` row to the enumerated finding-code table
       at `src/docs/spec/tooling/04_audit-format.md:207-209`. The code is only
       half-added if it exists in `findings.rs` but not in that table.
-- [ ] Update `examples/network-client/src/main.mfb`: its header comment
+- [x] Update `examples/network-client/src/main.mfb`: its header comment
       currently documents the limitation and points at `--server-name`. Replace
       that with the new argument, behind an explicit opt-in flag
       (`--allow-self-signed`), so the example still defaults to verifying.
-- [ ] Extend `tests/byte-identity/tls/src/main.mfb` to cover the new argument in
+- [x] Extend `tests/byte-identity/tls/src/main.mfb` to cover the new argument in
       both overloads (per `.ai/testing-gates.md`, a `codegen_cover` fixture that
       does not mention a member never hashes it).
-- [ ] Regenerate the 5 `tls` `.ncodesum` goldens + any `http` drift via
+- [x] Regenerate the 5 `tls` `.ncodesum` goldens + any `http` drift via
       `scripts/regen-ncodesum.sh`; **diff and prove** the delta is only the new
       predicate and the argument spill.
-- [ ] `artifact-gate.sh all` to 0 diffs; full `cargo test --no-fail-fast`;
+- [x] `artifact-gate.sh all` to 0 diffs; full `cargo test --no-fail-fast`;
       `cargo check --all-targets`; `test-accept.sh`.
-- [ ] Re-run the reproduction on macOS, Linux and Windows.
+- [x] Re-run the reproduction on macOS, Linux and Windows.
 
-Acceptance: full suite green; golden delta is exactly the intended change; the
-reproduction passes on every row of the matrix.
-Commit: —
+Acceptance: MET. `artifact-gate all` 0 diffs / 1823 goldens; `test-accept.sh`
+1346 passed; full `cargo test --release --no-fail-fast` green; `cargo fmt --all`
+(both workspaces) and `cargo check --all-targets` clean. The golden delta is one
+appended `Boolean false` per call, verified by diff. The reproduction prints its
+documented Expected output on macOS, and the four-case matrix passes on
+linux-aarch64, linux-x86_64 and windows-x86_64.
+Commit: 7e36c4ddc (docs/example/certs), 93bc0db34 + 169334a53 (goldens),
+41bfdf3aa (gate record)
 
 ## Validation Plan
 

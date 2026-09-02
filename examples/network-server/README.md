@@ -90,9 +90,30 @@ peer, so there is no per-connection handle to hand over.
 ## Certificates
 
 `certs/cert.pem` and `certs/key.pem` are a self-signed `CN=localhost` pair
-(SANs `DNS:localhost`, `IP:127.0.0.1`) for local use. Note that
-`examples/network-client`'s TLS attempt against them is *expected* to fail:
-`tls::connect` always verifies against the system trust store and has no way to
-accept a self-signed certificate — see
-[`bug-477`](../../bugs/bug-477-tls-connect-cannot-accept-a-self-signed-certificate.md).
-`openssl s_client -CAfile certs/cert.pem` drives the server fine.
+(SANs `DNS:localhost`, `IP:127.0.0.1`) for local use.
+
+Being self-signed, they are not in any machine's trust store, so a client has to
+be told to accept them. `examples/network-client` does that with an explicit
+opt-in:
+
+```sh
+./build/network-client.out --port 7413 --server-name localhost --allow-self-signed
+```
+
+Without that flag the TLS attempt fails, which is the correct default —
+`tls::connect` verifies against the system trust store. The flag relaxes the
+trust anchor and nothing else: the certificate must still match `--server-name`
+and must still be in date. `openssl s_client -CAfile certs/cert.pem` also drives
+the server fine.
+
+**The pair expires**, and re-generating it is one command:
+
+```sh
+certs/regenerate.sh
+```
+
+It is deliberately short-lived (397 days) because macOS refuses a TLS server
+certificate whose validity window exceeds ~398 days, or which lacks an
+`serverAuth` extended key usage, as "not standards compliant" — regardless of
+what the client trusts. A longer-lived pair works on Linux and Windows and fails
+on macOS only, which is a confusing way to discover the rule.
