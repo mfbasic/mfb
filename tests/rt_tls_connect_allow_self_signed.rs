@@ -115,6 +115,13 @@ impl Peer {
 /// The expired case is pinned to a fixed 2019–2020 window rather than a negative
 /// `-days`, so the certificate is unambiguously expired no matter when the suite
 /// runs and the test never becomes time-dependent.
+///
+/// **`-days 397` and `extendedKeyUsage=serverAuth` are load-bearing on macOS.**
+/// Apple enforces a certificate *shape* policy that OpenSSL does not: a TLS
+/// server certificate must carry `serverAuth` and a validity window under ~398
+/// days, or `SecTrustEvaluateWithError` rejects it as "not standards compliant"
+/// no matter what the anchors are. A 10-year certificate here would fail the
+/// positive case on macOS for a reason that has nothing to do with this bug.
 fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
     let cert = root.join("cert.pem");
     let key = root.join("key.pem");
@@ -132,6 +139,8 @@ fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
         peer.subject().to_string(),
         "-addext".to_string(),
         peer.san().to_string(),
+        "-addext".to_string(),
+        "extendedKeyUsage=serverAuth".to_string(),
     ];
     match peer {
         Peer::Expired => args.extend([
@@ -140,7 +149,7 @@ fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
             "-not_after".to_string(),
             "20200101000000Z".to_string(),
         ]),
-        _ => args.extend(["-days".to_string(), "3650".to_string()]),
+        _ => args.extend(["-days".to_string(), "397".to_string()]),
     }
     let status = Command::new("openssl")
         .args(&args)

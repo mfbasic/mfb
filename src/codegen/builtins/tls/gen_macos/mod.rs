@@ -187,7 +187,9 @@ const LCTX_SIZE: &str = "192"; // 64 + 16*8
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
 const BLK_ISA: usize = 0;
 const BLK_FLAGS: usize = 8;
-const BLK_INVOKE: usize = 16;
+// bug-477: the verify block invokes the completion block it is handed, and a
+// block invocation reads the target's `invoke` pointer at this offset.
+pub(crate) const BLK_INVOKE: usize = 16;
 const BLK_DESC: usize = 24;
 pub(crate) const BLK_CAP: usize = 32;
 
@@ -199,6 +201,75 @@ pub(crate) const CFG_CAP_SNAME: usize = 32;
 pub(crate) const CFG_CAP_COPYFN: usize = 40;
 pub(crate) const CFG_CAP_SETFN: usize = 48;
 pub(crate) const CFG_CAP_RELEASEFN: usize = 56;
+// bug-477: three more captures so the configure block can also install the
+// verify block. `CFG_CAP_VBLOCK` is NULL when `allowSelfSigned` is off, and
+// `CFG_CAP_SNAME` is independently NULL when `serverName` is empty — the two
+// decisions are separate, because the flag may be set with no `serverName` (the
+// name then defaults to `host`, as on the other two backends). Total size 88.
+pub(crate) const CFG_CAP_VBLOCK: usize = 64;
+pub(crate) const CFG_CAP_SETVERIFYFN: usize = 72;
+pub(crate) const CFG_CAP_QUEUE: usize = 80;
+pub(crate) const CFG_BLOCK_SIZE: usize = 88;
+
+// --- bug-477 `allowSelfSigned` (client-side verify block) -------------------
+//
+// The block Network.framework calls to decide the peer's chain. It captures only
+// the server-name C string (block size 40, the same shape as the state/send/recv
+// blocks); the framework entry points it calls live in a process-global slot
+// table instead, because there are thirteen of them and a block capture list
+// that long would need its own descriptor size.
+//
+// The block runs on the connection's dispatch queue — a DIFFERENT thread from
+// the MFB worker — so it must not touch arena state (which is per-thread). It
+// does not: it reads the global table, calls C, and invokes the completion block.
+pub(crate) const VERIFY_INVOKE: &str = "_mfb_tls_nw_verify_invoke";
+pub(crate) const VERIFY_FNS_SYMBOL: &str = "_mfb_tls_verify_fns";
+pub(crate) const VERIFY_CAP_SNAME: usize = 32;
+
+/// Slot offsets into [`VERIFY_FNS_SYMBOL`], in the order [`VERIFY_FN_NAMES`]
+/// lists them.
+pub(crate) const VFN_SLOT_BYTES: usize = 8;
+pub(crate) const VERIFY_FNS_SIZE: usize = VERIFY_FN_NAMES.len() * VFN_SLOT_BYTES;
+
+/// Every entry point the verify block calls, resolved once during `connect` and
+/// published to the global table. Order defines the slot offsets.
+///
+/// `sec_trust_copy_ref` is Network.framework; the `Sec*` are Security.framework;
+/// the `CF*` are CoreFoundation. `kCFTypeArrayCallBacks` is a DATA symbol (the
+/// callbacks struct), not a function — the block passes its address to
+/// `CFArrayCreate`, so it is resolved and stored the same way.
+pub(crate) const VERIFY_FN_NAMES: &[(&str, Framework)] = &[
+    ("sec_trust_copy_ref", Framework::Network),
+    ("CFStringCreateWithCString", Framework::CoreFoundation),
+    ("SecPolicyCreateSSL", Framework::Security),
+    ("SecTrustSetPolicies", Framework::Security),
+    ("SecTrustCopyCertificateChain", Framework::Security),
+    ("CFArrayGetCount", Framework::CoreFoundation),
+    ("CFArrayGetValueAtIndex", Framework::CoreFoundation),
+    ("CFArrayCreate", Framework::CoreFoundation),
+    ("SecTrustSetAnchorCertificates", Framework::Security),
+    ("SecTrustSetAnchorCertificatesOnly", Framework::Security),
+    ("SecTrustEvaluateWithError", Framework::Security),
+    ("CFRelease", Framework::CoreFoundation),
+    ("kCFTypeArrayCallBacks", Framework::CoreFoundation),
+];
+
+/// Which dlopen handle a [`VERIFY_FN_NAMES`] entry is resolved from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Framework {
+    Network,
+    Security,
+    CoreFoundation,
+}
+
+/// Slot offset of `name` in the global table.
+pub(crate) fn verify_fn_slot(name: &str) -> usize {
+    VERIFY_FN_NAMES
+        .iter()
+        .position(|(candidate, _)| *candidate == name)
+        .map(|index| index * VFN_SLOT_BYTES)
+        .unwrap_or_else(|| panic!("bug-477: `{name}` is not a verify-block entry point"))
+}
 
 const SYMBOLS: &[&str] = &[
     "nw_endpoint_create_host",
@@ -225,6 +296,11 @@ const SYMBOLS: &[&str] = &[
     "_nw_content_context_default_message",
     "nw_tls_copy_sec_protocol_options",
     "sec_protocol_options_set_tls_server_name",
+    // bug-477 `allowSelfSigned`: installs the client verify block. Listed
+    // unconditionally (like `nw_listener_get_port` above) because the configure
+    // block captures the resolved pointer whether or not this call passes the
+    // flag — a NULL capture is what turns it off, not a missing symbol.
+    "sec_protocol_options_set_verify_block",
     // plan-110-D: the endpoint queries behind `tls::localAddress` /
     // `tls::remoteAddress`. Network.framework owns the socket and exposes no fd,
     // so these are how macOS answers what Linux/Windows answer with
@@ -302,15 +378,39 @@ pub(crate) fn data_objects(server: bool) -> Vec<CodeDataObject> {
         CodeDataObject {
             symbol: CFG_DESC_SYMBOL.to_string(),
             kind: "raw".to_string(),
-            layout: "Block_descriptor { u64 reserved=0; u64 size=64 }".to_string(),
+            layout: "Block_descriptor { u64 reserved=0; u64 size=88 }".to_string(),
             align: 8,
             size: 16,
-            // reserved = 0, size = 64 (0x40), little-endian u64s
-            value: "00000000000000004000000000000000".to_string(),
+            // reserved = 0, size = 88 (0x58), little-endian u64s (bug-477 added
+            // the verify-block / set-verify-fn / queue captures)
+            value: "00000000000000005800000000000000".to_string(),
         },
     ];
     for name in SYMBOLS {
         objects.push(raw_cstr(&sym_data_symbol(name), name));
+    }
+    // bug-477: the verify block's entry-point table, and the two frameworks the
+    // client now needs for it. Security/CoreFoundation used to be server-only
+    // (`sec_identity_create` and the PEM import); the client verify block calls
+    // `Sec*`/`CF*` too, so their library names and symbol names move onto the
+    // unconditional path. A `raw` object is writable, which the table needs —
+    // `connect` fills it after `dlsym`, the block reads it.
+    objects.push(CodeDataObject {
+        symbol: VERIFY_FNS_SYMBOL.to_string(),
+        kind: "raw".to_string(),
+        layout: "void *[13] — the verify block's resolved entry points".to_string(),
+        align: 8,
+        size: VERIFY_FNS_SIZE,
+        value: "0".repeat(VERIFY_FNS_SIZE * 2),
+    });
+    for (name, _) in VERIFY_FN_NAMES {
+        if !SYMBOLS.contains(name) {
+            objects.push(raw_cstr(&sym_data_symbol(name), name));
+        }
+    }
+    if !server {
+        objects.push(raw_cstr(MACSEC_SYMBOL, MACSEC));
+        objects.push(raw_cstr(MACCF_SYMBOL, MACCF));
     }
     if server {
         objects.push(raw_cstr(MACSEC_SYMBOL, MACSEC));

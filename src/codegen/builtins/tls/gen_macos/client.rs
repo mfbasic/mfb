@@ -12,7 +12,7 @@ pub(crate) fn lower_tls_connect_macos(
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
-    const FRAME_SIZE: usize = 288;
+    const FRAME_SIZE: usize = 384;
     const HOST: usize = 8;
     const PORT: usize = 16;
     const HANDLE: usize = 24;
@@ -31,10 +31,19 @@ pub(crate) fn lower_tls_connect_macos(
     const SNAME: usize = 176; // serverName String ptr (arg x3)
     const SNICSTR: usize = 184; // serverName as a C string
     const TLSCFG: usize = 192; // chosen configure-TLS block pointer
-    const CFGBLOCK: usize = 200; // 200..264: the SNI-config block literal
-    const TIMEOUT: usize = 264; // timeoutMs (arg x2)
-    const DEADLINE: usize = 272; // dispatch_time deadline for the wait
-    const ALLOW: usize = 280; // bug-477: allowSelfSigned (0/1)
+    // bug-477 grew this block from 64 to 88 bytes (three more captures), so
+    // everything after it moved up 24. Getting this wrong is silent and total:
+    // at the old offsets `CFG_CAP_QUEUE` landed exactly on `ALLOW`, so storing
+    // the queue zeroed the flag and the verify block was never installed —
+    // `allowSelfSigned := TRUE` behaved identically to omitting it.
+    const CFGBLOCK: usize = 200; // 200..288: the configure block literal
+    const TIMEOUT: usize = 288; // timeoutMs (arg x2)
+    const DEADLINE: usize = 296; // dispatch_time deadline for the wait
+    const ALLOW: usize = 304; // bug-477: allowSelfSigned (0/1)
+    const SECH: usize = 312; // bug-477: Security.framework handle
+    const CFH: usize = 320; // bug-477: CoreFoundation handle
+    const VBLOCK: usize = 328; // bug-477: 328..368, the verify block literal
+    const VNAME: usize = 368; // bug-477: the name the verify block validates against
 
     let wait_loop = format!("{symbol}_wait");
     let ready = format!("{symbol}_ready");
@@ -48,8 +57,16 @@ pub(crate) fn lower_tls_connect_macos(
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let sni_default = format!("{symbol}_sni_default");
+    let have_sname = format!("{symbol}_have_sname");
+    let sname_done = format!("{symbol}_sname_done");
+    let verify_done = format!("{symbol}_verify_done");
     let done = format!("{symbol}_done");
 
+    // bug-477: the configure block literal must not run into the next frame
+    // slot. This is the exact overlap that made the flag read 0.
+    const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= TIMEOUT);
+    const _: () = assert!(VBLOCK + 40 <= VNAME);
+    const _: () = assert!(VNAME + 8 <= FRAME_SIZE);
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
@@ -146,6 +163,38 @@ pub(crate) fn lower_tls_connect_macos(
         abi::branch_eq(&net_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
     ]);
+    // bug-477: the queue is created HERE, before the parameters, because the
+    // configure block runs synchronously inside `nw_parameters_create_secure_tcp`
+    // and `sec_protocol_options_set_verify_block` needs a queue to hand the
+    // verify block. It used to be created after the parameters; nothing else
+    // depends on the ordering (it needs only the Network.framework handle).
+    // queue = dispatch_queue_create("mfb.tls", NULL)
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "dispatch_queue_create",
+        FNPTR,
+        &load_fail,
+    )?;
+    emit_data_address(
+        symbol,
+        abi::return_register(),
+        QLABEL_SYMBOL,
+        &mut ins,
+        &mut rel,
+    );
+    ins.extend([
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
+        abi::branch_link_register(&v9),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), QUEUE),
+    ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(
         &mut EmitCtx {
@@ -164,14 +213,26 @@ pub(crate) fn lower_tls_connect_macos(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::load_u64(&v9, &v9, 0),
         abi::store_u64(&v9, abi::stack_pointer(), CFG),
-        // The configure-TLS block defaults to the system default. A non-empty
-        // serverName swaps in a custom block that overrides the SNI /
-        // certificate-validation name (empty => the endpoint host is used).
+        // The configure-TLS block defaults to the system default. The custom
+        // block replaces it when EITHER a non-empty serverName overrides the SNI
+        // / certificate-validation name, OR (bug-477) allowSelfSigned needs a
+        // verify block installed. The two are independent: the flag may be set
+        // with no serverName, in which case the name stays the endpoint host.
         abi::store_u64(&v9, abi::stack_pointer(), TLSCFG),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), SNICSTR),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_VBLOCK),
+        // The verify block validates against serverName when given, else host.
+        abi::load_u64(&v9, abi::stack_pointer(), HOSTCSTR),
+        abi::store_u64(&v9, abi::stack_pointer(), VNAME),
         abi::load_u64(&v9, abi::stack_pointer(), SNAME),
         abi::load_u64(&v10, &v9, 0),
         abi::compare_immediate(&v10, "0"),
+        abi::branch_ne(&have_sname),
+        abi::load_u64(&v10, abi::stack_pointer(), ALLOW),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&sni_default),
+        abi::branch(&sname_done),
+        abi::label(&have_sname),
     ]);
     // serverName given: copy it to a C string and build a configure block
     // whose invoke calls sec_protocol_options_set_tls_server_name. The block
@@ -187,6 +248,13 @@ pub(crate) fn lower_tls_connect_macos(
         &mut rel,
         &mut vregs,
     );
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), SNICSTR),
+        abi::store_u64(&v9, abi::stack_pointer(), VNAME),
+        // Both paths rejoin BEFORE the block literal is built: a flag-only call
+        // has no serverName but still needs the custom configure block.
+        abi::label(&sname_done),
+    ]);
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -218,6 +286,8 @@ pub(crate) fn lower_tls_connect_macos(
         CFGBLOCK + BLK_DESC,
     ));
     ins.extend([
+        // NULL here means "do not call set_tls_server_name", which is exactly the
+        // empty-serverName contract; the invoke null-checks it (bug-477).
         abi::load_u64(&v9, abi::stack_pointer(), SNICSTR),
         abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
     ]);
@@ -273,6 +343,114 @@ pub(crate) fn lower_tls_connect_macos(
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_RELEASEFN),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETVERIFYFN),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_QUEUE),
+    ]);
+    // bug-477 `allowSelfSigned`: build the verify block and hand the configure
+    // block everything it needs to install it. Skipped entirely when the flag is
+    // off, so a strict connection performs no extra dlopen and carries a NULL
+    // CFG_CAP_VBLOCK — which the invoke reads as "leave verification alone".
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), ALLOW),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_eq(&verify_done),
+    ]);
+    // Security.framework and CoreFoundation. These used to be opened only by the
+    // server path (identity import); the client verify block calls `Sec*`/`CF*`
+    // too, so it opens them itself rather than depending on that path having run.
+    for (lib, slot) in [(MACSEC_SYMBOL, SECH), (MACCF_SYMBOL, CFH)] {
+        emit_dlopen_at(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
+            lib,
+            slot,
+            &load_fail,
+        )?;
+    }
+    // Publish every entry point the verify block calls. It runs on the dispatch
+    // queue — a different thread — so it cannot re-`dlsym`; it reads this global
+    // table instead. Every connect writes the same process-wide constants.
+    for (name, framework) in VERIFY_FN_NAMES {
+        let handle = match framework {
+            Framework::Network => HANDLE,
+            Framework::Security => SECH,
+            Framework::CoreFoundation => CFH,
+        };
+        dlsym(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut ins,
+                relocations: &mut rel,
+            },
+            handle,
+            name,
+            FNPTR,
+            &load_fail,
+        )?;
+        emit_data_address(symbol, &v10, VERIFY_FNS_SYMBOL, &mut ins, &mut rel);
+        ins.extend([
+            abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
+            abi::store_u64(&v9, &v10, verify_fn_slot(name)),
+        ]);
+    }
+    // The verify block literal: one capture, the name to validate against.
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "_NSConcreteStackBlock",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
+        abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + BLK_ISA),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), VBLOCK + BLK_FLAGS),
+    ]);
+    emit_data_address(symbol, &v9, VERIFY_INVOKE, &mut ins, &mut rel);
+    ins.push(abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + BLK_INVOKE));
+    // DESC_SYMBOL is the size-40 descriptor: 32-byte header + one capture.
+    emit_data_address(symbol, &v9, DESC_SYMBOL, &mut ins, &mut rel);
+    ins.push(abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + BLK_DESC));
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), VNAME),
+        abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + VERIFY_CAP_SNAME),
+    ]);
+    dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        },
+        HANDLE,
+        "sec_protocol_options_set_verify_block",
+        FNPTR,
+        &load_fail,
+    )?;
+    ins.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
+        abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETVERIFYFN),
+        abi::load_u64(&v9, abi::stack_pointer(), QUEUE),
+        abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_QUEUE),
+        abi::add_immediate(&v9, abi::stack_pointer(), VBLOCK),
+        abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_VBLOCK),
+    ]);
+    ins.push(abi::label(&verify_done));
+    ins.extend([
         // tlscfg = &block
         abi::add_immediate(&v9, abi::stack_pointer(), CFGBLOCK),
         abi::store_u64(&v9, abi::stack_pointer(), TLSCFG),
@@ -348,33 +526,6 @@ pub(crate) fn lower_tls_connect_macos(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
-    ]);
-    // queue = dispatch_queue_create("mfb.tls", NULL)
-    dlsym(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut ins,
-            relocations: &mut rel,
-        },
-        HANDLE,
-        "dispatch_queue_create",
-        FNPTR,
-        &load_fail,
-    )?;
-    emit_data_address(
-        symbol,
-        abi::return_register(),
-        QLABEL_SYMBOL,
-        &mut ins,
-        &mut rel,
-    );
-    ins.extend([
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-        abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
-        abi::branch_link_register(&v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), QUEUE),
     ]);
     // ctx->sem = dispatch_semaphore_create(0)
     dlsym(
