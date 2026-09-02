@@ -530,7 +530,7 @@ Commit: eae8d47a0
       worked example).
 - [x] `.ai/resources-packages.md`: record that the ctype vocabulary is a
       `ParameterType` variant and that CSTRUCT-named slots remain `Named`.
-- [ ] Move `planning/plan-113-ctype-in-parametertype.md` to `planning/completed/`.
+- [x] Move `planning/plan-113-ctype-in-parametertype.md` to `planning/completed/`.
 
 Acceptance: `mfb spec language native-libraries` renders the corrected prose;
 no dangling citation to `abi_slot_ctype_is_known`
@@ -823,6 +823,42 @@ tests/rt-behavior/native/native-struct-cstring-rt/golden/native_struct_cstring_r
 All matched. The `libsnd` fixtures are the end-to-end case the plan asks for:
 they load a real `libsndfile`, marshal an `SF_INFO` `CSTRUCT` in and out, and
 compare printed output.
+
+### C11 — post-merge re-verification (main had advanced)
+
+`main` moved from `ee12c1bf7` to `955ae8779` while this plan ran — plan-115-A/B/C
+landed (`ISOLATED` orthogonal to visibility, `IMPORT self` removed, the
+threading spec/examples rewrite). Per the follow-plan discipline, `main` was
+merged into `worktree-P-113` (`6b74f495c`, **clean, no conflicts**) and every
+gate re-run against the merged tree:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1325 tests, 1487 build(s), **1823** golden(s) checked, **0 diff(s)**`, EXIT=0 |
+| `cargo test --no-fail-fast` | 4368 passed, 0 failed |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1346** test(s) ran)`, EXIT=0, 0 `mismatch:` lines |
+
+The golden count rose 1819 → 1823, the gate fixture count 1324 → 1325 and the
+acceptance count 1345 → 1346: those are plan-115's four new goldens and its new
+fixture, not churn from this plan. Zero diffs and zero mismatches either way.
+
+**One failure needed classification and was NOT a regression.** The first
+post-merge `cargo test` run reported `test artifact_gate_all ... FAILED` in
+`0.19s`. That is the contended-gate signature, and `tests/golden.rs:39` says so
+itself:
+
+```
+Another artifact-gate (pid 43330) is running.
+panicked at tests/golden.rs:39:9:
+artifact-gate.sh could not START: another gate run holds the lock. This is NOT a
+golden regression -- nothing was checked.
+```
+
+Three peer sessions were running gates on the same machine. Re-run uncontended,
+`cargo test --test golden` → `artifact-gate [all]: 1325 tests, 1487 build(s),
+1823 golden(s) checked, 0 diff(s)` / `test artifact_gate_all ... ok`, so the
+post-merge suite is 4368 of 4368.
 
 ### C9 — the re-measured census (Phase 4)
 
