@@ -585,9 +585,18 @@ mac + RELEASE). Measured, three of the four combinations directly:
 Both dimensions of the uncovered corner (linux, DEBUG) are therefore covered
 individually. Beyond that, the parts of this change that are actually
 platform-specific are proved *on* Linux by stronger instruments than a unit test:
-`scripts/test-canvas-vulkan.sh` runs the real Linux binary against a real ICD (12/12
-ok, `vulkanReady=TRUE`), and `scripts/artifact-gate.sh all` cross-builds every Linux,
-Windows and riscv64 target from this host (1819 goldens, 0 diffs).
+
+- `scripts/test-canvas-vulkan.sh target/release/mfb` on **box 2228 (Ubuntu x86_64,
+  glibc)** — 12/12 ok, `vulkanReady=TRUE`, `gpuSelected=TRUE`, `worst=1`.
+- `scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
+  on **box 2227 (Alpine x86_64, musl)** — 12/12 ok, and **identical numbers**
+  (`worst=1 differing=0.4373%` / `0.0573%` / `0.0000%`). Both libc worlds the project
+  supports, so the new buffer path is not depending on anything glibc-specific. Note
+  2227 has a Vulkan loader but no usable ICD of its own — `--icd auto` provisions a
+  user-local lavapipe, which is why the first attempt there reported
+  `vulkanReady=FALSE` and *skipped* rather than passing vacuously.
+- `scripts/artifact-gate.sh all` cross-builds every Linux, Windows and riscv64 target
+  from this host (1823 goldens, 0 diffs).
 Commit: 8e9236305
 
 ## Validation Plan
