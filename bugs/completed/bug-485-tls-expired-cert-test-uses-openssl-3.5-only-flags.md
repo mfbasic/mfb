@@ -14,7 +14,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Other (test infrastructure — a security-negative guard that cannot run)
 
-Status: Open
+Status: Closed
 Regression Test: `tests/rt_tls_connect_allow_self_signed.rs`
 
 `tests/rt_tls_connect_allow_self_signed.rs:write_cert` builds the expired peer
@@ -51,6 +51,41 @@ References:
   neither axis, which is precisely how this shipped.
 - Sibling: `tests/rt_tls_listener_thread_transfer.rs:write_cert` — same
   generate-the-identity-at-run-time approach, `-days` only.
+
+## STATUS: FIXED (5ef612abe, merged to main as 46b093442)
+
+Both sub-issues landed in one commit; no production code changed.
+
+**A** — `write_cert`'s `Peer::Expired` arm now builds a CSR and self-signs it with
+`openssl ca -batch -selfsign -startdate 190101000000Z -enddate 200101000000Z`,
+SAN and `serverAuth` EKU supplied through the generated config's
+`x509_extensions` section. The in-date arm's argv is unchanged.
+
+**B** — `start_peer` now reads `s_server`'s captured stderr on an early exit and
+fails immediately when the CLI rejected an *argument*, instead of retrying ten
+ports and reporting `lost the bind on ten consecutive ports`.
+
+Also added: `run_openssl` (captures `.output()` so an unsupported option is never
+again mistaken for a broken install) and `assert_expired_cert_shape` (reads the
+certificate back and pins SAN + EKU + `x509 -checkend 0`, so the expiry guard
+cannot pass by being rejected for its name instead).
+
+**Deviations from the plan above**, both reverted after being tried and measured:
+
+1. *Probe `s_server` for `-naccept` and omit it where unsupported.* It made
+   LibreSSL start and yielded `3 passed; 1 failed` — but the peer wedges after
+   the readiness probe, so all three passes were vacuous. Strictly worse than the
+   four loud failures it replaced. Reverted; see Non-goals.
+2. *Add explicit `basicConstraints=critical,CA:TRUE` to the in-date certs.* The
+   hypothesis that this explained `accepts_a_self_signed_peer` failing on
+   LibreSSL was **disproved** by test — the case still failed with it present.
+   Reverted rather than keep an unmotivated change.
+
+**Verification.** Full `cargo test --no-fail-fast` on the merged tree: every
+`test result:` line `ok`, `0` occurrences of `FAILED`, exit 0 — including this
+file's `4 passed; 0 failed`. Per-axis results are in Phase 3. The one row not
+directly executed is CI's own OpenSSL 3.0.13; it is bracketed by measurement
+above and below, and stays unchecked there until the next CI run confirms it.
 
 ## Failing Reproduction
 
