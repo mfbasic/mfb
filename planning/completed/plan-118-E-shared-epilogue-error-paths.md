@@ -177,16 +177,27 @@ don't exist in the code plan).
 
 ### Phase 1 — re-census + feasibility read (no behavior change)
 
-- [ ] Re-run the attribution over `tests/acceptance` post-D; update §2's table.
-- [ ] Read `emit_return_exit_inner` + scope machinery; answer the
+- [x] Re-run the attribution over `tests/acceptance` post-D; update §2's table.
+      — and it moved the letter: `op:Return` 2,007,382 → **134,581**.
+- [x] Read `emit_return_exit_inner` + scope machinery; answer the
       nested-prefix question (§2 UNVERIFIED); record the answer and, if scopes
-      can diverge, the revised block-per-scope-set design here.
-- [ ] Census the error-staging emit helpers (all `make_error_result` emitters)
-      and the per-function distinct-error-kind distribution.
+      can diverge, the revised block-per-scope-set design here. — **they
+      diverge**; see §2 Verified properties and Corrections 2 for the revised
+      design.
+- [x] Census the error-staging emit helpers (all `make_error_result` emitters)
+      and the per-function distinct-error-kind distribution. — 183 sites, 171 via
+      `raise_error_bare`, all funnelling into `emit_error_register_return`; the
+      cost is the 174-instruction park that follows the staging, not the staging
+      itself. The error-kind distribution is moot (Open Decisions): the
+      repeating shape is not keyed by kind.
 
 Acceptance: this doc's §2 updated with post-D numbers and the verified scope
 model; no source change beyond `-vv` keys (artifact-gate 0 diffs).
-Commit: —
+
+MET — §2 rewritten with the post-D numbers and the answered scope question; this
+phase changed no source at all.
+Commit: 0e5bd7cac (all three phases landed together: phase 1 is measurement, and
+phases 2 and 3 share one mechanism, one golden regeneration and one test file)
 
 ### Phase 2 — shared error-staging blocks (smaller blast radius first)
 
@@ -230,7 +241,7 @@ Error text, codes and locations are unchanged everywhere:
 `toString_invalid_encoding` fixture still reports `Error: 7-702-0004` /
 "Text encoding or decoding failed." / exit 255, on the host and on both remote
 boxes.
-Commit: —
+Commit: 0e5bd7cac
 
 ### Phase 3 — chained cleanup epilogue
 
@@ -285,7 +296,7 @@ Remote-box proof, output compared byte-for-byte against the host goldens —
 (riscv64 musl)**. 2230 (Win11) is down — `Connection refused`, retried across
 the whole letter — so Windows is covered by cross-compilation and its
 regenerated `.ncodesum` goldens only.
-Commit: —
+Commit: 0e5bd7cac
 
 ## Validation Plan
 
@@ -299,8 +310,12 @@ Commit: —
 
 ## Open Decisions
 
-- Error-staging blocks per (kind) vs per (kind × trap-target) — decided by
-  Phase 1's census of functions mixing trapped and untrapped fallible ops.
+- ~~Error-staging blocks per (kind) vs per (kind × trap-target)~~ — **the
+  question dissolved.** It presumes the repeating shape is the staging and that
+  it must be keyed by error kind and exit destination. Neither holds
+  (Corrections 1): the staging is per-site data that stays per-site, and the
+  174-instruction park after it is keyed by *nothing* — so it is one function
+  per module, and there is no kind or trap-target key to choose between.
 
 ## Corrections
 
