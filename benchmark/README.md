@@ -164,6 +164,13 @@ on comparable hardware.
 outliers. Use a higher `--run` (e.g. 50+) when you care about the stats
 columns; a single-sample run leaves `median == average`.
 
+## Ranking
+
+`benchmark/RANKING.md` defines a per-row grade (S/A/B/C/D/F on `mfb -O1` vs
+`c -O0`), a CPython cross-check, and a cluster score for ordering optimisation
+work. `./benchmark/rank.py` computes it from any run's logs; with no arguments
+it reports on `benchmark/baseline`.
+
 ## Work equivalence
 
 Every row is required to do the same *observable* work in every language, so a
