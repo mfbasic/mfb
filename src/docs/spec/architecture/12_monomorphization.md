@@ -168,25 +168,33 @@ when a type cannot be determined locally.
 |------------|---------------|
 | string / number / boolean literal | `String` / `Integer` or `Float` (by `.`) / `Boolean` |
 | `NOTHING` | `Nothing` |
-| identifier | `context.locals` then `context.function_types` |
+| identifier | `context.locals`, then the function types, then the globals |
 | constructor | `Error`, `Ok`→`Result OF Unknown`, or a known record name |
 | list literal | `List OF <first element>` else `List OF Unknown` |
 | map literal | `Map OF <key> TO <value>` |
 | member access | the record field's declared type |
-| call | the callee's recorded return type (`function_returns`) |
+| call | the callee's recorded return type (overlay, then `function_returns`) |
 | lambda | `FUNC(params) AS <body type>`; assignment-bodied → `AS Nothing` |
 | binary | `Boolean` for comparisons/logicals, `String` for `&`, else numeric promotion |
 | unary | `Boolean` for `NOT`, else the operand type |
 | trapped | the inner expression's type |
 
-The `FunctionContext` carries `locals`, `function_returns`, `function_types`,
-`record_fields`, and `enclosing_return`. It is seeded by `function_context` from
-every concrete function and record, then extended as statements are lowered:
-`LET` records the bound type, `FOR` promotes the loop variable's numeric type,
-`FOR EACH` strips `List OF`/`Map OF` to the element/entry type, match-`Union`
-patterns and lambda params bind their declared types, and the `RETURN` slot is
-typed by `enclosing_return`. A newly-mangled callee is added to the context
-(`add_function_to_context`) so a later inference sees its return type.
+The `FunctionContext` splits into two halves. The program-wide tables —
+`function_returns`, `function_types`, `record_fields`, `globals` — live in a
+`SharedTables` seeded once per lowered function by `function_context` from every
+concrete function, record, and explicitly-typed top-level binding; the context
+holds it behind an `Rc` and never copies it. The per-scope half is `locals`,
+`enclosing_return`, and an overlay (`added_returns`/`added_types`). Every scope
+boundary — both `IF` arms, each `MATCH` case, a loop body, a lambda, a trap
+handler — clones the context, so only the per-scope half is duplicated.
+
+The context is extended as statements are lowered: `LET` records the bound type,
+`FOR` promotes the loop variable's numeric type, `FOR EACH` strips `List
+OF`/`Map OF` to the element/entry type, match-`Union` patterns and lambda params
+bind their declared types, and the `RETURN` slot is typed by `enclosing_return`.
+A newly-mangled callee is added to the overlay (`add_function_to_context`) so a
+later inference in that scope sees its return type; lookups consult the overlay
+before the shared table.
 
 ## Overload resolution
 

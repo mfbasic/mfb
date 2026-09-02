@@ -50,11 +50,12 @@ References:
 ## Prerequisites
 
 Everything below is written against current `main` (`f4be5ea25` at plan time).
+Re-measured at execution time against `main` = `00dbc5102` (2026-09-01).
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `-vv` compile profiler exists (baseline instrument) | `grep -n 'fn span' src/trace.rs → src/trace.rs:209` | MET |
-| No other in-flight plan owns `src/monomorph/` | `ls planning/plan-11[0-9]* planning/plan-1[2-9]* 2>/dev/null` → only this plan touches monomorph | MET |
+| The `-vv` compile profiler exists (baseline instrument) | `grep -n 'fn span' src/trace.rs` → `209:pub(crate) fn span(name: &'static str) -> Span` | MET (re-run 2026-09-01) |
+| No other in-flight plan owns `src/monomorph/` | `grep -ln 'src/monomorph' planning/plan-11[0-9]*.md planning/plan-1[2-9]*.md` → only `planning/plan-117-monomorph-context-sharing.md` (the plan-118/119 families added since plan time do not touch it) | MET (re-run 2026-09-01) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -296,21 +297,21 @@ internals is updated to match (task below).
 Delivers the measured 15× monomorphize win as a provably-neutral representation
 change; safe to land alone (Phase 2 is severable cleanup).
 
-- [ ] `src/monomorph/mod.rs`: add `SharedTables`; re-shape `FunctionContext`
+- [x] `src/monomorph/mod.rs`: add `SharedTables`; re-shape `FunctionContext`
       per §4 (locals + `Rc<SharedTables>` + `added_returns`/`added_types` +
       `enclosing_return`); replace the manual `Clone` impl with `#[derive(Clone)]`;
       add the two overlay-first accessors.
-- [ ] `src/monomorph/lower.rs`: rebuild `function_context()` to fill a
+- [x] `src/monomorph/lower.rs`: rebuild `function_context()` to fill a
       `SharedTables` and `Rc`-wrap it; re-point `add_function_to_context` at the
       overlay; migrate the 6 read sites (§4 list). No other line changes.
-- [ ] Spec sync: `src/docs/spec/architecture/12_monomorphization.md:182-189` —
+- [x] Spec sync: `src/docs/spec/architecture/12_monomorphization.md:182-189` —
       describe the shared-tables/overlay split where it currently describes the
       six-field context and `add_function_to_context`'s insert.
-- [ ] Tests: no new tests — the 63 existing `monomorph` unit tests
+- [x] Tests: no new tests — the 63 existing `monomorph` unit tests
       (`cargo test monomorph`) pin instantiation/overload/unification behavior,
       and the gate below pins output identity. (A perf assertion would be a
       flaky timing test; the `-vv` measurement in Acceptance is the perf proof.)
-- [ ] Run `rustup run 1.96.0 cargo check --all-targets` (test-target warnings)
+- [x] Run `rustup run 1.96.0 cargo check --all-targets` (test-target warnings)
       and the fmt pair (`rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`).
 
 Acceptance: (1) `rustup run 1.96.0 cargo test --no-fail-fast` fully green;
@@ -323,6 +324,17 @@ gate uncontended, `exit=98` means refused/contended, re-run); (4)
 `cd tests/acceptance && ../../target/release/mfb test -vv` shows the
 `monomorphize` span at ≤ 2,000 ms on the measurement box (baseline 18,698.8 ms),
 i.e. under 3 % share.
+
+Measured (2026-09-01, this worktree, macOS arm64):
+(1) `rustup run 1.96.0 cargo test --no-fail-fast` → 90 suites, 4391 passed, 0
+    failed (`grep -a "test result" | grep -av " 0 failed"` → empty);
+(2) `./scripts/test-accept.sh target/release/mfb /tmp/p117-accept-actual` →
+    `acceptance tests passed (1346 test(s) ran)`, exit 0;
+(3) `./scripts/artifact-gate.sh target/release/mfb all` →
+    `1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)`, exit 0;
+(4) `cd tests/acceptance && ../../target/release/mfb test -vv` →
+    `monomorphize 1207.3ms 1207.3ms 1 2.2%` (resolve 1495.2ms total),
+    `Tests: 732  Pass: 732  Fail: 0`.
 Commit: —
 
 ### Phase 2 — Delete the per-function snapshot (live lookups)
@@ -388,7 +400,31 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+- **Golden count: 1,780 → 1,823.** The plan's Phase 1/2 acceptance says
+  "0 diffs over all 1,780 goldens". The gate now checks 1,823:
+  `./scripts/artifact-gate.sh target/release/mfb all` →
+  `artifact-gate [all]: 1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)`.
+  The corpus grew between plan authoring (`f4be5ea25`) and execution
+  (`00dbc5102`); no scope derived from the old number, and the acceptance
+  criterion (0 diffs) is unaffected.
+- **Base commit: `f4be5ea25` → `00dbc5102`.** The plan was written against
+  `f4be5ea25`; execution forked `worktree-P-117` from `main` at `00dbc5102`.
+  Both prerequisite rows were re-measured at that base and are still MET (see
+  Prerequisites). The two plan families added since (plan-118, plan-119) do not
+  touch `src/monomorph/` — `grep -ln 'src/monomorph' planning/plan-11[0-9]*.md
+  planning/plan-1[2-9]*.md` returns only this plan.
+- **Spec sync widened beyond `:182-189`.** The two `expression_type` table rows
+  at `12_monomorphization.md:171` (identifier) and `:176` (call) named
+  `context.function_types` / `function_returns` directly, so they went stale with
+  the same edit. Both were corrected in Phase 1; the identifier row had also been
+  silently wrong before this plan (it omitted the `globals` fallback that
+  `lower.rs`'s Identifier arm has had since bug-103).
+- **Baseline not re-measured on this box.** The plan's 18,698.8 ms baseline comes
+  from the spike box; building a HEAD-of-`main` release binary purely to restate a
+  ratio was not done. Phase 1's acceptance criterion is an *absolute* threshold
+  (≤ 2,000 ms / under 3 %), and the measurement satisfies it directly:
+  `monomorphize 1207.3ms 1207.3ms 1 2.2%`, with the enclosing `resolve` phase at
+  1495.2 ms against the plan's 19,002 ms baseline for the same span.
 
 ## Summary
 

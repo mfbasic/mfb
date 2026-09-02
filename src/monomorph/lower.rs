@@ -1521,7 +1521,7 @@ impl<'a> Monomorphizer<'a> {
                 let field_types = concrete_type
                     .clone()
                     .or_else(|| Some(ParameterType::declared(&type_name)))
-                    .and_then(|type_| context.record_fields.get(&type_).cloned());
+                    .and_then(|type_| context.shared.record_fields.get(&type_).cloned());
                 let lowered_args = arguments
                     .iter()
                     .enumerate()
@@ -1943,15 +1943,15 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn function_context(&self) -> FunctionContext {
-        let mut context = FunctionContext::default();
+        let mut shared = SharedTables::default();
         for (name, function) in &self.concrete_functions {
             let (returns, signature) = function_signature_types(function);
-            context.function_returns.insert(name.clone(), returns);
-            context.function_types.insert(name.clone(), signature);
+            shared.function_returns.insert(name.clone(), returns);
+            shared.function_types.insert(name.clone(), signature);
         }
         for (type_, type_decl) in &self.concrete_types {
             if matches!(type_decl.kind, TypeDeclKind::Type) {
-                context
+                shared
                     .record_fields
                     .insert(type_.clone(), type_decl.fields.clone());
             }
@@ -1961,13 +1961,18 @@ impl<'a> Monomorphizer<'a> {
         for item in self.source.files.iter().flat_map(|file| &file.items) {
             if let HirItem::Binding(binding) = item {
                 if binding.explicit_type {
-                    context
+                    shared
                         .globals
                         .insert(binding.name.clone(), binding.type_.clone());
                 }
             }
         }
-        context
+        // plan-117: the four tables above never vary per scope, so they are shared
+        // by `Rc` and a nested-scope clone copies only `locals` + the overlay.
+        FunctionContext {
+            shared: std::rc::Rc::new(shared),
+            ..FunctionContext::default()
+        }
     }
 
     fn add_function_to_context(&self, name: &str, context: &mut FunctionContext) {
@@ -1975,8 +1980,11 @@ impl<'a> Monomorphizer<'a> {
             return;
         };
         let (returns, signature) = function_signature_types(function);
-        context.function_returns.insert(name.to_string(), returns);
-        context.function_types.insert(name.to_string(), signature);
+        // plan-117: into the scope-local overlay, which `function_return` /
+        // `function_type` consult before the shared table — the same overwrite the
+        // old single-map insert performed.
+        context.added_returns.insert(name.to_string(), returns);
+        context.added_types.insert(name.to_string(), signature);
     }
 
     /// The return type of a builtin/package call, using the same per-package
@@ -2031,8 +2039,8 @@ impl<'a> Monomorphizer<'a> {
                 .locals
                 .get(value)
                 .cloned()
-                .or_else(|| context.function_types.get(value).cloned())
-                .or_else(|| context.globals.get(value).cloned()),
+                .or_else(|| context.function_type(value).cloned())
+                .or_else(|| context.shared.globals.get(value).cloned()),
             // plan-111-B: `Error`/`Ok` are nominals, and the record table is
             // keyed by the type.
             HirExpression::Constructor { type_, .. } => {
@@ -2040,7 +2048,7 @@ impl<'a> Monomorphizer<'a> {
                     Some(ParameterType::named("Error"))
                 } else if type_.is_named("Ok") {
                     Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown)))
-                } else if context.record_fields.contains_key(type_) {
+                } else if context.shared.record_fields.contains_key(type_) {
                     Some(type_.clone())
                 } else {
                     None
@@ -2067,6 +2075,7 @@ impl<'a> Monomorphizer<'a> {
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
                 context
+                    .shared
                     .record_fields
                     .get(&target_type)?
                     .iter()
@@ -2076,8 +2085,7 @@ impl<'a> Monomorphizer<'a> {
             HirExpression::Call {
                 callee, arguments, ..
             } => context
-                .function_returns
-                .get(callee)
+                .function_return(callee)
                 .cloned()
                 .or_else(|| self.builtin_call_return_type(callee, arguments, context)),
             HirExpression::Lambda {

@@ -102,17 +102,16 @@ struct ImportedOverload {
     qualified_name: String,
 }
 
-#[derive(Default)]
-/// The type environment monomorph's `expression_type` oracle consults while a
-/// body is lowered.
+/// The program-wide, per-function-immutable half of a [`FunctionContext`]: built
+/// once per lowered function by `function_context`, then shared — never cloned —
+/// by every nested scope.
 ///
-/// Every value is a [`ParameterType`] (plan-106-A): the *keys* stay `String`
-/// because they are NAMES (locals, functions, record types), not types. Before
-/// plan-106-A each of these was `HashMap<String, String>` and the engine
-/// inferred over rendered spellings — the plan-102 staging residue this letter
-/// retires.
-struct FunctionContext {
-    locals: HashMap<String, ParameterType>,
+/// Splitting these four tables out is what makes a scope clone cheap (plan-117).
+/// Nothing here varies per scope: `record_fields` and `globals` are written only
+/// while this struct is built, and `function_returns`/`function_types` are
+/// written there plus, mid-body, into the [`FunctionContext`] overlay.
+#[derive(Default)]
+struct SharedTables {
     function_returns: HashMap<String, ParameterType>,
     function_types: HashMap<String, ParameterType>,
     /// plan-111-B: keyed by the record TYPE.
@@ -122,22 +121,49 @@ struct FunctionContext {
     /// overloaded call taking that global infers its type instead of being falsely
     /// rejected (bug-103).
     globals: HashMap<String, ParameterType>,
+}
+
+/// The type environment monomorph's `expression_type` oracle consults while a
+/// body is lowered.
+///
+/// Every value is a [`ParameterType`] (plan-106-A): the *keys* stay `String`
+/// because they are NAMES (locals, functions, record types), not types. Before
+/// plan-106-A each of these was `HashMap<String, String>` and the engine
+/// inferred over rendered spellings — the plan-102 staging residue this letter
+/// retires.
+///
+/// Every scope boundary in body lowering (both `IF` arms, each `MATCH` case,
+/// every loop body, lambda and trap handler) clones this, so only genuinely
+/// per-scope state lives here; the program-wide tables sit behind the
+/// [`SharedTables`] `Rc` (plan-117).
+#[derive(Default, Clone)]
+struct FunctionContext {
+    locals: HashMap<String, ParameterType>,
+    shared: std::rc::Rc<SharedTables>,
+    /// Mid-body additions from `add_function_to_context`. Consulted BEFORE
+    /// `shared`, which reproduces the overwrite the old single-map insert
+    /// performed, and stays scope-local exactly as it did then.
+    added_returns: HashMap<String, ParameterType>,
+    added_types: HashMap<String, ParameterType>,
     /// Declared return type of the function whose body is being lowered. Supplies
     /// the expected (contextual) type for a `RETURN` operand so a return-type
     /// overload set resolves there (plan-01-overload.md §F.2).
     enclosing_return: Option<ParameterType>,
 }
 
-impl Clone for FunctionContext {
-    fn clone(&self) -> Self {
-        Self {
-            locals: self.locals.clone(),
-            function_returns: self.function_returns.clone(),
-            function_types: self.function_types.clone(),
-            record_fields: self.record_fields.clone(),
-            globals: self.globals.clone(),
-            enclosing_return: self.enclosing_return.clone(),
-        }
+impl FunctionContext {
+    /// The declared return type of `name`, overlay first (see `added_returns`).
+    fn function_return(&self, name: &str) -> Option<&ParameterType> {
+        self.added_returns
+            .get(name)
+            .or_else(|| self.shared.function_returns.get(name))
+    }
+
+    /// The signature type of `name`, overlay first (see `added_types`).
+    fn function_type(&self, name: &str) -> Option<&ParameterType> {
+        self.added_types
+            .get(name)
+            .or_else(|| self.shared.function_types.get(name))
     }
 }
 
