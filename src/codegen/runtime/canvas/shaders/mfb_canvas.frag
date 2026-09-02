@@ -24,6 +24,8 @@ struct ItemBlock {
     ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
     ivec4 surface; // width, height, blendMode, unused
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
+    ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

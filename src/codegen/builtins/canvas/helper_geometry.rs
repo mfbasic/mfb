@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 27-float header carrying the
+//! draws. Generation turns one into the other: a fixed 34-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 27-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 34-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 27 float compares
+//! is worse than a common slow one, and the confirmation costs 34 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 27
+r#"LET __CANVAS_GEO_HEADER AS Integer = 34
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
@@ -118,7 +118,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 27 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 34 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -200,6 +200,16 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
     blend = 3.0
   END IF
   out = collections::set(out, 26, blend)
+  ' plan-116-C: the transform, INVERTED once here rather than per pixel in each of
+  ' three renderers. `__canvas_invertTransform` is also the only place that knows an
+  ' all-zero `Transform` means the identity, and the only place that decides what a
+  ' singular one does.
+  LET inv AS List OF Float = __canvas_invertTransform(paint.transform)
+  MUT ti AS Integer = 0
+  WHILE ti < 7
+    out = collections::set(out, 27 + ti, collections::getOr(inv, ti, 0.0))
+    ti = ti + 1
+  END WHILE
   RETURN out
 END FUNC
 

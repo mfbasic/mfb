@@ -199,9 +199,24 @@ rather than six. Header becomes **34** slots.
 **as raw IEEE-754 float32 bits** (the shaders decode with `intBitsToFloat` /
 `as_type<float>`), plus the flag and one spare. Not 16.16: a transform that scales
 an item up by 100× has inverse terms near `0.01`, which 16.16 holds to only ~4
-significant digits — a measured-precision cliff there is avoidable for free by not
-quantising at all, and float32 is exactly what the shader arithmetic uses anyway.
-The header slots are already floats, so the CPU side needs no conversion either.
+significant digits — about ¾ of a pixel of positional error at the far edge of such an
+item.
+
+**The last sentence of this paragraph used to read "The header slots are already
+floats, so the CPU side needs no conversion either." That is false, and it is the one
+thing that made float32 look free — see Correction C3.** A `Float` is an IEEE *double*,
+and the assemblers this compiler emits through have no double→single convert and no
+32-bit float store (`emit_store_f32_from_integer`'s doc in `vulkan.rs` records the same
+gap: it exists precisely because of it, and says outright that it is *not* a general
+double-to-float).
+
+So the narrowing is done **once, in MFBASIC**, by `__canvas_float32Bits`, and the header
+carries the six terms as whole-number bit patterns that both emitters copy straight
+through. One implementation an ordinary test can check against known IEEE-754 patterns,
+rather than two hand-rolled ones in generated machine code where the only symptom of an
+error is a wrong picture. It is arithmetic rather than bit-twiddling because `bits::`
+takes `Integer` and never `Float`, so there is no reinterpret to borrow; the three
+fields are assembled by addition, which is exact because they do not overlap.
 
 ### 4.2 The distance correction
 
@@ -360,7 +375,7 @@ identity     sqrt(|det|)   3.19/255   d/||grad||   3.19/255
 30deg shear  sqrt(|det|)  18.18/255   d/||grad||   9.71/255
 measurement floor 3.19/255
 ```
-Commit: —PLACEHOLDER
+Commit: ba2240639
 
 ### Phase 2 — Carry the inverse; identity path unchanged
 
@@ -484,6 +499,27 @@ Commit: —
 
 ## Corrections
 
+- **C3 (2026-09-01, Phase 2) — §4.1's "the CPU side needs no conversion either" is
+  false, and float32 is not free.** A `Float` is an IEEE **double**; the item block
+  needs **binary32**; and the assemblers have no double→single convert and no 32-bit
+  float store. `vulkan.rs`'s `emit_store_f32_from_integer` exists because of that exact
+  gap and its own doc says it is deliberately *not* a general double-to-float — no
+  rounding, no denormals, no zero case — "which is why it is spelled as a private helper
+  for this one use rather than an `abi::` primitive that would invite the general one".
+  Taking §4.1 at its word would have meant writing that general conversion twice, in two
+  different code-emission APIs, where a mistake shows up as a wrong picture rather than
+  a failed assertion.
+  Resolved by narrowing **once in MFBASIC** (`__canvas_float32Bits`) and carrying bit
+  patterns in the header, so both emitters do nothing but `toInt` and `store_u32`.
+  Validated against `struct.pack('>f')` over 16 values spanning the range a real inverse
+  produces — `1.0`, `-1.0`, `0.0`, `0.01`, `100.0`, `-0.866025403784`,
+  `0.5773502691896`, `1e-6`, `1e6`, `3.14159265358979`, `65536.0`, `-0.0001`,
+  `123456.75` and three others — **0 mismatches**, including the sign bit and the
+  round-carries-into-the-exponent case.
+  The extremes are documented rather than discovered: too large saturates to the largest
+  finite float, too small flushes to zero. Neither is reachable from a non-singular
+  transform, and both beat handing an infinity to a distance field, which poisons a
+  whole frame rather than one item.
 - **C2 (2026-09-01, Phase 1) — §4.2's recommended correction was measured and
   rejected.** The section recommended `s = sqrt(|det M|)` "computed once on the CPU and
   carried as a 35th header slot", and required Phase 1 to measure it before anything was

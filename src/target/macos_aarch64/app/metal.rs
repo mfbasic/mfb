@@ -118,7 +118,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 131072;\n",
+    "constant int METAL_EDGE_BASE = 163840;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -129,7 +129,9 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
     "  int surfacePad;\n",
-    "  int4 clip;\n", // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
+    "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value

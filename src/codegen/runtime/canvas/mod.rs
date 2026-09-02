@@ -320,7 +320,7 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 128;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 160;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -371,6 +371,21 @@ pub(crate) const ITEM_SURFACE_BLEND: usize = 8;
 /// A zero-area rectangle means **unclipped** and is recognised by `x0 >= x1 || y0 >=
 /// y1`, the same test the geometry header uses, so the two agree by construction.
 pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
+/// The inverted transform, as **raw IEEE-754 `float32` bits** in two `ivec4`s
+/// (plan-116-C): `ia, ib, ic, id` at 128 and `itx, ity, hasTransform, unused` at 144.
+///
+/// **Not 16.16, unlike every other geometric field in the block.** An item scaled up
+/// 100× has inverse terms near `0.01`, which 16.16 holds to about four significant
+/// digits — a precision cliff exactly where a transform is doing the most work. Float32
+/// has no such cliff, costs the same four bytes, needs no conversion on the CPU side
+/// (the header slots are already `Float`), and is what the shader arithmetic uses
+/// anyway. The shaders decode with `intBitsToFloat` / `as_type<float>`.
+///
+/// `hasTransform` is a whole 0 or 1, not a float bit pattern: it is compared, never
+/// arithmetic.
+pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
+/// The word inside the second transform `ivec4` holding the `hasTransform` flag.
+pub(crate) const ITEM_TRANSFORM_FLAG: usize = 24;
 
 /// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
 /// item block, so both backends have to test for it by hand.
@@ -411,7 +426,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 27-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 34-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -441,6 +456,32 @@ pub(crate) const HEADER_CLIP_X0: usize = 22;
 pub(crate) const HEADER_CLIP_Y0: usize = 23;
 pub(crate) const HEADER_CLIP_X1: usize = 24;
 pub(crate) const HEADER_CLIP_Y1: usize = 25;
+/// The item's transform, **already inverted**, as `ia, ib, ic, id, itx, ity`
+/// (plan-116-C).
+///
+/// Applied as `x' = ia*x + ic*y + itx`, `y' = ib*x + id*y + ity` — the same convention
+/// `canvas::Transform` documents for the forward matrix.
+///
+/// Inverted **once, on the CPU, at header-build time**, because the renderers need
+/// `T⁻¹` and nothing else: a shape is drawn by evaluating its distance field at the
+/// inverse-mapped query point. Inverting per pixel, or per frame in each of three
+/// renderers, would be the same arithmetic done between 1 and 10^6 times more often —
+/// and would be three places for the all-zero-means-identity rule to live.
+/// `__canvas_invertTransform` is that single place.
+pub(crate) const HEADER_TRANSFORM_IA: usize = 27;
+pub(crate) const HEADER_TRANSFORM_IB: usize = 28;
+pub(crate) const HEADER_TRANSFORM_IC: usize = 29;
+pub(crate) const HEADER_TRANSFORM_ID: usize = 30;
+pub(crate) const HEADER_TRANSFORM_ITX: usize = 31;
+pub(crate) const HEADER_TRANSFORM_ITY: usize = 32;
+/// 1 when the item carries a transform that is not the identity, 0 otherwise
+/// (plan-116-C).
+///
+/// A flag rather than six compares, because the per-pixel gate is what an *untransformed*
+/// item pays — and that is every item in every scene written before this letter. It is
+/// also what gates the two extra distance evaluations the gradient correction needs
+/// (`ITEM_OFFSET_TRANSFORM`), which are the real cost.
+pub(crate) const HEADER_HAS_TRANSFORM: usize = 33;
 /// The item's `BlendMode`, as the enum tag 0..3 (plan-116-B).
 ///
 /// `BlendMode.Normal` is 0, so an unset `Paint.blend` is the source-over behaviour
@@ -453,7 +494,7 @@ pub(crate) const HEADER_BLEND: usize = 26;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 27;
+pub(crate) const HEADER_SLOTS: usize = 34;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.
