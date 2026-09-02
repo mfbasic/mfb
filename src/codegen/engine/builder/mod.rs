@@ -2603,7 +2603,6 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     }
 }
 
-/// Resolve every logical `LINK` library this module names to the concrete
 /// The thunk symbol a resource's registered `CLOSE BY` op resolves to, or `None`
 /// when the name routes to nothing in this module.
 ///
@@ -2635,6 +2634,7 @@ pub(crate) fn resolve_closer_symbol(
     function_symbols.get(rest).cloned()
 }
 
+/// Resolve every logical `LINK` library this module names to the concrete
 /// `source` the declaring binding declared for this build's `(os, arch, libc)`
 /// (plan-46-C §4.2).
 ///
