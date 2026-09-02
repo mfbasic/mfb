@@ -85,14 +85,20 @@ fn the_padded_flag_is_false() {
     let ir = fs::read_to_string(&ir_path).expect("read the lowered IR");
 
     // Every tls.connect the http package lowers, with its argument list.
-    let calls: Vec<&str> = ir.match_indices("\"target\": \"tls.connect\"").map(|(i, _)| &ir[i..]).collect();
+    let calls: Vec<&str> = ir
+        .match_indices("\"target\": \"tls.connect\"")
+        .map(|(i, _)| &ir[i..])
+        .collect();
     assert!(
         !calls.is_empty(),
         "bug-477: http::read(https://…) must still lower a tls.connect — if this \
          fires, the HTTPS path moved and this guard is watching nothing"
     );
     for call in calls {
-        let args = &call[..call.find("] }").map(|e| e + 3).unwrap_or(call.len().min(2000))];
+        let args = &call[..call
+            .find("] }")
+            .map(|e| e + 3)
+            .unwrap_or(call.len().min(2000))];
         assert!(
             args.contains(r#"{ "kind": "const", "type": "Boolean", "value": "false" }"#),
             "bug-477 non-goal: http::'s HTTPS path must pad allowSelfSigned as \
@@ -126,12 +132,23 @@ fn https_to_a_self_signed_peer_still_fails() {
     assert!(
         Command::new("openssl")
             .args([
-                "req", "-x509", "-newkey", "rsa:2048",
-                "-keyout", key.to_str().unwrap(),
-                "-out", cert.to_str().unwrap(),
-                "-days", "397", "-nodes", "-subj", "/CN=localhost",
-                "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
-                "-addext", "extendedKeyUsage=serverAuth",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                key.to_str().unwrap(),
+                "-out",
+                cert.to_str().unwrap(),
+                "-days",
+                "397",
+                "-nodes",
+                "-subj",
+                "/CN=localhost",
+                "-addext",
+                "subjectAltName=DNS:localhost,IP:127.0.0.1",
+                "-addext",
+                "extendedKeyUsage=serverAuth",
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -147,10 +164,17 @@ fn https_to_a_self_signed_peer_still_fails() {
         .port();
     let mut server = Command::new("openssl")
         .args([
-            "s_server", "-quiet", "-accept", &port.to_string(),
-            "-cert", cert.to_str().unwrap(),
-            "-key", key.to_str().unwrap(),
-            "-naccept", "2", "-www",
+            "s_server",
+            "-quiet",
+            "-accept",
+            &port.to_string(),
+            "-cert",
+            cert.to_str().unwrap(),
+            "-key",
+            key.to_str().unwrap(),
+            "-naccept",
+            "2",
+            "-www",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

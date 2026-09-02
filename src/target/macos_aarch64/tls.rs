@@ -12,11 +12,11 @@
 
 use crate::arch::aarch64::abi;
 use crate::codegen::builtins::tls::gen_macos::{
-    BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_QUEUE, CFG_CAP_RELEASEFN, CFG_CAP_SETFN,
-    CFG_CAP_SETVERIFYFN, CFG_CAP_SNAME, CFG_CAP_VBLOCK, CFG_INVOKE,
-    BLK_INVOKE, CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE,
-    LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE, SEND_INVOKE,
-    STATE_INVOKE, VERIFY_CAP_SNAME, VERIFY_FNS_SYMBOL, VERIFY_INVOKE, verify_fn_slot,
+    verify_fn_slot, BLK_CAP, BLK_INVOKE, CFG_CAP_COPYFN, CFG_CAP_QUEUE, CFG_CAP_RELEASEFN,
+    CFG_CAP_SETFN, CFG_CAP_SETVERIFYFN, CFG_CAP_SNAME, CFG_CAP_VBLOCK, CFG_INVOKE, CTX_ERROR,
+    CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL, CTX_STATE, LCONN_INVOKE,
+    LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_POLL_INVOKE, SEND_INVOKE, STATE_INVOKE,
+    VERIFY_CAP_SNAME, VERIFY_FNS_SYMBOL, VERIFY_INVOKE,
 };
 use crate::codegen::engine::types::CodeFrame;
 use crate::codegen::engine::types::CodeFunction;
@@ -277,13 +277,21 @@ fn verify_invoke_function() -> CodeFunction {
         &mut relocations,
     );
     let call = |ins: &mut Vec<_>, name: &str| {
-        ins.push(abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], verify_fn_slot(name)));
+        ins.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::LOCAL[0],
+            verify_fn_slot(name),
+        ));
         ins.push(abi::branch_link_register(abi::SCRATCH[0]));
     };
     // t = sec_trust_copy_ref(trust)
     ins.push(abi::move_register(abi::c_arg(0), abi::LOCAL[2]));
     call(&mut ins, "sec_trust_copy_ref");
-    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), TRUST));
+    ins.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        TRUST,
+    ));
     // n = CFStringCreateWithCString(NULL, sname, kCFStringEncodingUTF8)
     ins.extend([
         abi::move_immediate(abi::c_arg(0), "Integer", "0"),
@@ -299,7 +307,11 @@ fn verify_invoke_function() -> CodeFunction {
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NAME),
     ]);
     call(&mut ins, "SecPolicyCreateSSL");
-    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), POLICY));
+    ins.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        POLICY,
+    ));
     // SecTrustSetPolicies(t, p)
     ins.extend([
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), TRUST),
@@ -335,10 +347,18 @@ fn verify_invoke_function() -> CodeFunction {
         abi::move_immediate(abi::c_arg(0), "Integer", "0"),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ROOT),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-        abi::load_u64(abi::c_arg(3), abi::LOCAL[0], verify_fn_slot("kCFTypeArrayCallBacks")),
+        abi::load_u64(
+            abi::c_arg(3),
+            abi::LOCAL[0],
+            verify_fn_slot("kCFTypeArrayCallBacks"),
+        ),
     ]);
     call(&mut ins, "CFArrayCreate");
-    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), ANCHORS));
+    ins.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        ANCHORS,
+    ));
     // SecTrustSetAnchorCertificates(t, anchors)
     ins.extend([
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), TRUST),

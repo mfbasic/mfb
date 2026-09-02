@@ -210,10 +210,7 @@ pub(super) fn resource_findings(resources: &[ResourceEntry], findings: &mut Vec<
     }
 }
 
-pub(super) fn relaxed_trust_findings(
-    entries: &[RelaxedTrustEntry],
-    findings: &mut Vec<Finding>,
-) {
+pub(super) fn relaxed_trust_findings(entries: &[RelaxedTrustEntry], findings: &mut Vec<Finding>) {
     for entry in entries {
         findings.push(Finding {
             code: "AUDIT-TLS-RELAXED-TRUST".to_string(),

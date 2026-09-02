@@ -31,11 +31,11 @@ pub(crate) fn lower_tls_connect_macos(
     const SNAME: usize = 176; // serverName String ptr (arg x3)
     const SNICSTR: usize = 184; // serverName as a C string
     const TLSCFG: usize = 192; // chosen configure-TLS block pointer
-    // bug-477 grew this block from 64 to 88 bytes (three more captures), so
-    // everything after it moved up 24. Getting this wrong is silent and total:
-    // at the old offsets `CFG_CAP_QUEUE` landed exactly on `ALLOW`, so storing
-    // the queue zeroed the flag and the verify block was never installed —
-    // `allowSelfSigned := TRUE` behaved identically to omitting it.
+                               // bug-477 grew this block from 64 to 88 bytes (three more captures), so
+                               // everything after it moved up 24. Getting this wrong is silent and total:
+                               // at the old offsets `CFG_CAP_QUEUE` landed exactly on `ALLOW`, so storing
+                               // the queue zeroed the flag and the verify block was never installed —
+                               // `allowSelfSigned := TRUE` behaved identically to omitting it.
     const CFGBLOCK: usize = 200; // 200..288: the configure block literal
     const TIMEOUT: usize = 288; // timeoutMs (arg x2)
     const DEADLINE: usize = 296; // dispatch_time deadline for the wait
@@ -343,7 +343,11 @@ pub(crate) fn lower_tls_connect_macos(
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::store_u64(&v9, abi::stack_pointer(), CFGBLOCK + CFG_CAP_RELEASEFN),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETVERIFYFN),
+        abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            CFGBLOCK + CFG_CAP_SETVERIFYFN,
+        ),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_QUEUE),
     ]);
     // bug-477 `allowSelfSigned`: build the verify block and hand the configure
@@ -420,7 +424,11 @@ pub(crate) fn lower_tls_connect_macos(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), VBLOCK + BLK_FLAGS),
     ]);
     emit_data_address(symbol, &v9, VERIFY_INVOKE, &mut ins, &mut rel);
-    ins.push(abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + BLK_INVOKE));
+    ins.push(abi::store_u64(
+        &v9,
+        abi::stack_pointer(),
+        VBLOCK + BLK_INVOKE,
+    ));
     // DESC_SYMBOL is the size-40 descriptor: 32-byte header + one capture.
     emit_data_address(symbol, &v9, DESC_SYMBOL, &mut ins, &mut rel);
     ins.push(abi::store_u64(&v9, abi::stack_pointer(), VBLOCK + BLK_DESC));

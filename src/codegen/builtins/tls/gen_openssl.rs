@@ -575,7 +575,13 @@ pub(crate) fn lower_tls_connect_openssl(
                 FNPTR_OFFSET,
                 &load_fail,
             )?;
-            emit_data_address(symbol, &v10, TLS_VERIFY_FNS, &mut instructions, &mut relocations);
+            emit_data_address(
+                symbol,
+                &v10,
+                TLS_VERIFY_FNS,
+                &mut instructions,
+                &mut relocations,
+            );
             instructions.extend([
                 abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
                 abi::store_u64(&v9, &v10, slot),

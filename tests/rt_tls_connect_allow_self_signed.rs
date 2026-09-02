@@ -157,7 +157,10 @@ fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
         .stderr(Stdio::null())
         .status()
         .expect("run openssl req");
-    assert!(status.success(), "openssl failed to generate a self-signed cert");
+    assert!(
+        status.success(),
+        "openssl failed to generate a self-signed cert"
+    );
     (cert, key)
 }
 
@@ -219,7 +222,10 @@ fn build_client(root: &Path, port: u16, allow: Option<bool>) -> PathBuf {
     .expect("write project.json");
 
     let arg = match allow {
-        Some(value) => format!(", allowSelfSigned := {}", if value { "TRUE" } else { "FALSE" }),
+        Some(value) => format!(
+            ", allowSelfSigned := {}",
+            if value { "TRUE" } else { "FALSE" }
+        ),
         None => String::new(),
     };
     // An inline `TRAP` on the `RES` binding reduces the outcome to one stable

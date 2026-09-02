@@ -253,7 +253,13 @@ pub(crate) fn tls_verify_callback_function() -> CodeFunction {
     ];
     // err = X509_STORE_CTX_get_error(ctx)
     let mut relocations = Vec::new();
-    emit_data_address(TLS_VERIFY_CB, v, TLS_VERIFY_FNS, &mut instructions, &mut relocations);
+    emit_data_address(
+        TLS_VERIFY_CB,
+        v,
+        TLS_VERIFY_FNS,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::load_u64(v, v, VFN_GET_ERROR),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8),
@@ -275,7 +281,13 @@ pub(crate) fn tls_verify_callback_function() -> CodeFunction {
     // X509_STORE_CTX_set_error(ctx, X509_V_OK) then accept, so verification
     // continues into check_id (hostname) and the validity dates.
     instructions.push(abi::label(&clear));
-    emit_data_address(TLS_VERIFY_CB, v, TLS_VERIFY_FNS, &mut instructions, &mut relocations);
+    emit_data_address(
+        TLS_VERIFY_CB,
+        v,
+        TLS_VERIFY_FNS,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::load_u64(v, v, VFN_SET_ERROR),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8),
