@@ -2287,6 +2287,19 @@ pub(crate) fn lower_module_for_platform(
         data_objects.extend(unicode_runtime_data_objects(None));
     }
 
+    // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a
+    // runtime decimal exponent. Same relocation gate as the unicode tables, and
+    // for the same reason — it is 10 KiB, and a program that never converts text
+    // to a Float should not carry it.
+    let uses_powers_of_ten = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to == crate::codegen::string::format::float_parse_table::POWERS_OF_TEN_SYMBOL
+        })
+    });
+    if uses_powers_of_ten {
+        data_objects.push(crate::codegen::memory::data::powers_of_ten_data_object());
+    }
+
     // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted
     // functions already round-trip through the neutral MIR at their
     // pre-allocation seam (`run_register_allocation`); the helpers do not pass

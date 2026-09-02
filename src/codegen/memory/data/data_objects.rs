@@ -921,6 +921,21 @@ pub(crate) fn unicode_runtime_data_objects(
     objects
 }
 
+/// The Eisel–Lemire powers-of-ten table behind `_mfb_rt_string_to_float`
+/// (plan-120-F). Emitted only when some generated function relocates against
+/// it, the same reference-gated rule the unicode tables use — a program that
+/// never converts a String to a Float should not carry 10 KiB of rodata.
+pub(crate) fn powers_of_ten_data_object() -> CodeDataObject {
+    use crate::codegen::string::format::float_parse_table;
+    raw_data_object(
+        float_parse_table::POWERS_OF_TEN_SYMBOL,
+        "128-bit normalized powers of ten, 16 bytes each (lo, hi), indexed by q - Q_MIN",
+        float_parse_table::ENTRY_COUNT * 16,
+        float_parse_table::powers_of_ten_hex(),
+        16,
+    )
+}
+
 fn raw_data_object(
     symbol: &str,
     layout: &str,
