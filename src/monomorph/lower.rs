@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Remove every occurrence of `qualifier` in `input` that begins a type-name
 /// token — at position 0 or immediately after a non-identifier byte — leaving
@@ -1774,6 +1775,10 @@ impl<'a> Monomorphizer<'a> {
     fn leaf_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
         match type_ {
             ParameterType::Named(name) | ParameterType::Var(name) => Some(*name),
+            // plan-113: same reason as `helpers::leaf_param_symbol` — a C ABI
+            // spelling is a bare token, so a template parameter may be named
+            // with one and used to be a `Named` here.
+            ParameterType::C(ctype) => Some(crate::intern::Symbol::intern(ctype.name())),
             _ => None,
         }
     }
@@ -2108,26 +2113,25 @@ impl<'a> Monomorphizer<'a> {
                 right,
                 ..
             } => {
-                if matches!(
-                    operator.as_str(),
-                    "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-                ) {
+                if operator.is_comparison()
+                    || matches!(operator, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+                {
                     return Some(ParameterType::Boolean);
                 }
-                if operator == "&" {
+                if *operator == BinaryOp::Concat {
                     return Some(ParameterType::String);
                 }
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
                 Some(
-                    numeric::typed_binary_result_type(operator, &left, &right)
+                    numeric::typed_binary_result_type(*operator, &left, &right)
                         .unwrap_or(ParameterType::Integer),
                 )
             }
             HirExpression::Unary {
                 operator, operand, ..
             } => {
-                if operator == "NOT" {
+                if *operator == UnaryOp::Not {
                     Some(ParameterType::Boolean)
                 } else {
                     self.expression_type(operand, context)

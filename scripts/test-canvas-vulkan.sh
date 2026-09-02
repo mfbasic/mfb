@@ -122,8 +122,25 @@ SUB main()
   LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]], paint := canvas::fill(canvas::rgb(200, 0, 200))]
   LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(canvas::rgb(0, 180, 180), canvas::rgb(20, 20, 20), 6.0)]
-  LET label AS canvas::DrawItem = canvas::Text[x := 300.0, y := 560.0, text := "AAAA", font := canvas::fontRef(face), size := 90.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label]
+  ' TRANSLUCENT, deliberately (plan-116-A). The fixture glyph is an axis-aligned opaque
+  ' square, so its coverage is binary -- and compositing an opaque square over itself is
+  ' idempotent, which means a renderer that drew every glyph TWICE produced a
+  ' byte-identical frame and no assertion here could see it. At alpha 160 a second
+  ' composite is arithmetically different from one, so a duplicated glyph draw becomes a
+  ' pixel difference against the oracle. That is what makes `tail` below a real gate.
+  LET label AS canvas::DrawItem = canvas::Text[x := 300.0, y := 560.0, text := "AAAA", font := canvas::fontRef(face), size := 90.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 160))]
+  ' plan-116-A: a shape AFTER the glyph run, and the scene's only reason for it.
+  '
+  ' The item block now rides a per-frame buffer indexed by instance, and consecutive
+  ' non-text items are drawn as ONE instanced call. A glyph run ends that run, and the
+  ' next run has to restart at the cursor the glyphs advanced to. With the label last,
+  ' the final flush is always empty, so a renderer that forgot to move the run base past
+  ' the glyphs would still pass -- and would then redraw every glyph quad as a shape the
+  ' moment any scene put a shape after its text. Sat clear of the label's band (row 545)
+  ' and of `faint`/`tri`, so the existing lit-pixel and diff assertions keep meaning what
+  ' they meant.
+  LET tail AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 180.0, radius := 40.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

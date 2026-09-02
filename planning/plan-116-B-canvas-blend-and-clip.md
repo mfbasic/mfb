@@ -331,6 +331,21 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
       `__canvas_headerMatches` at `:489`, and both GPU emitters' `HEADER_SLOTS` uses.
       Grep for `HEADER_SLOTS` and `__CANVAS_GEO_HEADER` and fix all hits; a missed one
       reads a polygon's first edge as a header slot.
+      **Measured 2026-09-01, before starting**: `grep -rn "__CANVAS_GEO_HEADER"
+      src/codegen/builtins/canvas/` → **22** sites, `grep -rn "HEADER_SLOTS" src/` →
+      **9**. Both larger than the five this task names — but nearly all of them go
+      through the *symbol*, so they follow the one definition. The literal `22` appears
+      only at `helper_geometry.rs:53` (the definition) and in four doc comments
+      (`:4`, `:36`, `:39`, `:121`), which must be updated too or they will lie.
+- [ ] **Pin `HEADER_SLOTS` == `__CANVAS_GEO_HEADER` with a unit test, before changing
+      either.** They are the same number spelled once in Rust and once in MFBASIC with
+      no compiler between them, and **no test currently relates them** (`grep -rn
+      "HEADER_SLOTS" src/ | grep -i test` → no matches, 2026-09-01). That is precisely
+      the drift `the_two_gpu_edge_budgets_match_the_emitters` guards for the GPU caps,
+      and this task is the one that changes both spellings — so a half-applied edit is
+      the single most likely way to produce this letter's worst failure, the one this
+      phase's acceptance calls out: a polygon's first edge read as a header slot.
+      Use the same `declared("…")` helper `helper_render.rs`'s tests already use.
 - [ ] `__canvas_paintHeader` writes the resolved clip and the blend tag into slots
       22–26 from the `Paint` it is already given.
 - [ ] `ITEM_BLOCK_SIZE` 112 → 128; add the clip `ivec4` and the blend word; extend the

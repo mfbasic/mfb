@@ -44,6 +44,7 @@
 
 use super::{IrField, IrFunction, IrOp, IrProject, IrType, IrValue};
 use crate::codegen::builtins;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -1063,14 +1064,27 @@ impl TypeEnv {
 /// type, but only when both operands agree — a mixed or unknown pair is left
 /// underived so no valid program is rejected.
 fn derived_binary_type(
-    op: &str,
+    op: BinaryOp,
     left: Option<&ParameterType>,
     right: Option<&ParameterType>,
 ) -> Option<ParameterType> {
     match op {
-        "AND" | "OR" | "XOR" | "<" | ">" | "<=" | ">=" | "=" | "<>" => Some(ParameterType::Boolean),
-        "&" => Some(ParameterType::String),
-        "+" | "-" | "*" | "/" | "MOD" | "^" => match (left, right) {
+        BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Xor
+        | BinaryOp::Less
+        | BinaryOp::Greater
+        | BinaryOp::LessEqual
+        | BinaryOp::GreaterEqual
+        | BinaryOp::Equal
+        | BinaryOp::NotEqual => Some(ParameterType::Boolean),
+        BinaryOp::Concat => Some(ParameterType::String),
+        BinaryOp::Add
+        | BinaryOp::Subtract
+        | BinaryOp::Multiply
+        | BinaryOp::Divide
+        | BinaryOp::Mod
+        | BinaryOp::Power => match (left, right) {
             // Money's dimensional algebra is not the "same type in, same type out"
             // heuristic (`M / M → Float`, `M * k → Money`), so consult the lattice
             // whenever a Money operand is present (plan-29-A §4.2).
@@ -1087,17 +1101,22 @@ fn derived_binary_type(
             (Some(left), Some(right)) if left == right => Some(left.clone()),
             _ => None,
         },
-        _ => None,
+        // `DIV` is deliberately absent from the arithmetic group above and has
+        // always derived no type here; keeping it explicit rather than in a
+        // catch-all is what makes that visible.
+        BinaryOp::IntDiv => None,
     }
 }
 
 /// The result type a unary operator produces from its operand type: `NOT` is
 /// always `Boolean`, and negation preserves its operand's numeric type.
-fn derived_unary_type(op: &str, operand: Option<&ParameterType>) -> Option<ParameterType> {
+fn derived_unary_type(op: UnaryOp, operand: Option<&ParameterType>) -> Option<ParameterType> {
     match op {
-        "NOT" => Some(ParameterType::Boolean),
-        "-" => operand.cloned(),
-        _ => None,
+        UnaryOp::Not => Some(ParameterType::Boolean),
+        UnaryOp::Negate => operand.cloned(),
+        // `SIZEOF` folds to an integer during LINK lowering and never reaches a
+        // verified IR node; it derived nothing through the catch-all before.
+        UnaryOp::SizeOf => None,
     }
 }
 
@@ -1136,7 +1155,9 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
         {
             value.parse::<f64>().is_ok_and(|n| n == 0.0)
         }
-        IrValue::Unary { op, operand, .. } if op == "-" => numeric_literal_is_zero(operand),
+        IrValue::Unary { op, operand, .. } if *op == UnaryOp::Negate => {
+            numeric_literal_is_zero(operand)
+        }
         _ => false,
     }
 }
@@ -1193,7 +1214,7 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
         {
             value.parse::<i128>().ok()
         }
-        IrValue::Unary { op, operand, .. } if op == "-" => {
+        IrValue::Unary { op, operand, .. } if *op == UnaryOp::Negate => {
             // `wrapping_neg` so a negated `i128::MIN` operand does not
             // overflow-panic in debug. Wrapping preserves the release-build
             // behavior exactly (`-i128::MIN` wraps back to `i128::MIN`), which

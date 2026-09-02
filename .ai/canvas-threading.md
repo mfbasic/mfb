@@ -285,16 +285,71 @@ shape: it renders into an image and reads it back so the frame leaves through
 is what lets it be tested on a box with no display server — and no reachable Linux box has
 one.
 
-**The two predicates are not the same predicate.** `__canvas_metalRenderable` declines a
-*polygon* past `MAX_EDGES`, because Metal's edges cross as a `setFragmentBytes:` payload,
-which is per-item and small. `__canvas_vulkanRenderable` has no per-item limit at all — the
-edges live in a descriptor-bound storage buffer — but it declines a *frame* whose polygons
-sum past `VULKAN_MAX_FRAME_EDGES`, because one buffer serves the whole frame. That
-asymmetry is forced by the APIs: a Vulkan command buffer is recorded once and executed
-once, so rewriting or re-binding one buffer per item would give every polygon the *last*
-one's edges. Each polygon instead takes a slice and carries its start index in the item
-block (`ITEM_ARC_EDGE_BASE`), which is a push constant and so genuinely per-item. A scene
-can therefore be GPU-renderable on one backend and not the other, and that is correct.
+### The per-item parameter block travels in a buffer, on both backends
+
+Since plan-116-A the item block is **not** a per-draw value. It lives in a per-frame
+buffer of `ITEM_BLOCK_SIZE`-byte records — `…_VULKAN_ITEM_BUFFER` on one side,
+`…_MTL_ITEM_BUFFER` on the other — written once per item at a cursor and read back by
+the shaders through the instance index. A run of consecutive non-text items is then one
+instanced draw rather than N draws.
+
+Two properties of the old transport had to go, and only one of them is the obvious one.
+A push constant (or a `setVertexBytes:`) is per-*draw*, so it could describe exactly one
+item — which forced one draw call per item — and it pinned the block under Vulkan's
+*guaranteed* 128-byte push-constant range, which is the only guaranteed value and so the
+only one a portable design may assume. The block was at 112 of those 128 bytes, and it is
+what every later letter of plan-116 widens.
+
+**The instance index includes the base on both languages.** Vulkan's `gl_InstanceIndex`
+includes `firstInstance` and MSL's `[[instance_id]]` includes `baseInstance`, so each
+shader indexes the buffer with that one value and adds nothing. Do not "fix" this by
+adding a separate `[[base_instance]]` on the Metal side: that double-counts, and the
+symptom is not a compile error but a scene in which `baseInstance = 0` draws perfectly
+and every non-zero base draws *nothing* (2×base indexes past the published blocks into
+zeroed buffer, giving a degenerate quad). A scene with no text is one run starting at 0,
+so every GPU test that predates plan-116-A passes straight through that bug.
+
+`gl_InstanceIndex`/`[[instance_id]]` reaches the fragment stage as a **flat** varying,
+because neither builtin exists there. Flat, not interpolated: the value is an index, and
+interpolating an index across a quad yields a plausible picture drawn from the wrong
+blocks rather than a failure.
+
+**Glyph runs are still N draws, not N instances.** A text item was never one draw
+(`GEO_KIND_TEXT`), and folding it into the instancing scheme is a change of shape rather
+than of transport. Each glyph still publishes its own block and is drawn at its own
+index, and the per-glyph coverage bitmap is the one per-draw payload left anywhere on
+either backend — it never has to survive an instanced run, so it did not have to move.
+
+A consequence worth knowing before adding anything per-item: **an instanced run cannot
+rebind a per-item side payload between its instances.** Anything that varies per item
+must therefore be a region of a frame buffer reached by an index carried in the block,
+not a payload. That is what forced Metal's polygon edges to move (below), and it is the
+shape any future per-item payload has to take.
+
+**The two predicates are still not the same predicate, but they differ less than they
+did.** Both now decline a *frame* whose polygons sum past their edge cap
+(`VULKAN_MAX_FRAME_EDGES` / `METAL_MAX_FRAME_EDGES`, both 16384) and a frame with more
+drawn *quads* than `CANVAS_MAX_FRAME_ITEMS`. What still differs:
+
+* `__canvas_metalRenderable` additionally declines a single *polygon* past `MAX_EDGES`.
+  Nothing forces that any more — Metal's edges used to cross as a `setFragmentBytes:`
+  payload, which was per-item and small, and plan-116-A moved them into a region of the
+  frame buffer exactly where Vulkan's have always lived, so Metal's edge base
+  (`ITEM_ARC_EDGE_BASE`) is now a real per-item value instead of always zero. The
+  per-item cap is kept **by policy**: decline parity with what Metal declined before was
+  that letter's gate. Unifying the two caps is later work, to be taken deliberately.
+* The glyph caps differ in *shape*: Metal's is per glyph (`METAL_MAX_GLYPH_SAMPLES`,
+  its bitmap still rides `setFragmentBytes:`), Vulkan's is a frame total
+  (`VULKAN_MAX_FRAME_GLYPH_SAMPLES`, its bitmaps ride the shared buffer).
+
+A scene can therefore still be GPU-renderable on one backend and not the other, and that
+is correct. The reason a frame buffer needs a per-item *index* at all is unchanged and
+worth restating: a command buffer is recorded once and executed once, so rewriting — or
+re-binding — one buffer per item would give every item the *last* one's data.
+
+Metal scenes whose polygons sum past 16384 edges are the one class that plan-116-A newly
+declines to software. Software is the oracle, so the picture is at least as correct;
+truncating instead would draw a *different shape*.
 
 ## 11. Test affordances
 

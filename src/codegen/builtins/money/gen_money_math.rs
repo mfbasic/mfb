@@ -19,6 +19,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
+use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
@@ -100,7 +101,7 @@ impl CodeBuilder<'_> {
     /// dimensionally-invalid pairing, so only valid operand shapes arrive here.
     pub(crate) fn emit_money_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<Operand>,
@@ -110,11 +111,11 @@ impl CodeBuilder<'_> {
         let dst = dst.into();
         match op {
             // `M ± M` and `M MOD M` are exact integer ops on the raw i64.
-            "+" | "-" | "MOD" => {
+            BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Mod => {
                 self.emit_integer_binary(op, left, right, dst.clone(), false)?;
                 Ok(dst.render())
             }
-            "*" => {
+            BinaryOp::Multiply => {
                 // Commutative: identify the Money operand and the scalar factor.
                 let (money, scalar) = if l_money {
                     (left, right)
@@ -123,12 +124,26 @@ impl CodeBuilder<'_> {
                 };
                 self.emit_money_multiply(money, scalar, dst)
             }
-            "/" if l_money && r_money => self.emit_money_ratio(left, right),
-            "/" => self.emit_money_divide_scalar(left, right, dst),
+            BinaryOp::Divide if l_money && r_money => self.emit_money_ratio(left, right),
+            BinaryOp::Divide => self.emit_money_divide_scalar(left, right, dst),
             // `DIV` is the explicit Float escape: promote both operands to f64.
-            "DIV" => self.emit_money_div_to_float(left, right),
-            other => Err(format!(
-                "native code plan cannot lower Money operator '{other}'"
+            BinaryOp::IntDiv => self.emit_money_div_to_float(left, right),
+            // `^` has no Money form and the comparison / logical / concat
+            // operators never reach the Money arithmetic emitter; plan-29-A's
+            // dimensional check rejects each before lowering.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat
+            | BinaryOp::Power => Err(format!(
+                "native code plan cannot lower Money operator '{}'",
+                op.name()
             )),
         }
     }

@@ -151,6 +151,17 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   RETURN offsets
 END FUNC
 
+' The frame's item buffer holds one block per drawn QUAD, and both backends index it by
+' instance -- so this is the one cap that is neither Metal's nor Vulkan's, it is the
+' shared transport's (plan-116-A, `CANVAS_MAX_FRAME_ITEMS`). A shape is one quad; a glyph
+' run is one per glyph, because each glyph is its own quad with its own block.
+'
+' Counting the run's whole glyph count over-estimates by the glyphs whose cache entry the
+' eviction pass dropped -- those draw nothing and take no block. Over-estimating declines
+' a hair early, which is the safe direction: under-estimating would let the emitter write
+' past the mapping.
+LET __CANVAS_MAX_FRAME_ITEMS AS Integer = 4096
+
 LET __CANVAS_METAL_MAX_EDGES AS Integer = 256
 
 LET __CANVAS_METAL_MAX_GLYPH_SAMPLES AS Integer = 4096
@@ -177,21 +188,41 @@ FUNC __canvas_runLargestGlyph(offset AS Integer) AS Integer
   RETURN worst
 END FUNC
 
+LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
+  MUT total AS Integer = 0
+  MUT quads AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
         RETURN FALSE
       END IF
+      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    ELSE
+      quads = quads + 1
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
+      ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
+      ' frame buffer, so this one is no longer forced by the transport -- but declining
+      ' the same scenes Metal declined before is that letter's gate, and unifying the
+      ' two backends' caps is later work, taken deliberately or not at all.
       IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0)) > __CANVAS_METAL_MAX_EDGES THEN
         RETURN FALSE
       END IF
+      total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
-  RETURN TRUE
+  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
+  ' The FRAME cap, new in plan-116-A and the one scene class Metal newly declines: its
+  ' edges used to ride an unbounded per-item `setFragmentBytes:` payload copied into the
+  ' command buffer, and they now take a slice of one region that serves the whole frame,
+  ' exactly as Vulkan's always have. Software is the oracle, so a declined scene is at
+  ' least as correct -- truncating it would draw a DIFFERENT shape.
+  RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
 FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height AS Integer) AS Boolean
@@ -232,15 +263,22 @@ END FUNC
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
+  MUT quads AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
+      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    ELSE
+      quads = quads + 1
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
   NEXT
+  IF quads > __CANVAS_MAX_FRAME_ITEMS THEN
+    RETURN FALSE
+  END IF
   IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
     RETURN FALSE
   END IF
@@ -403,8 +441,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
-        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+        CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES,
+        METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES, VULKAN_MAX_FRAME_EDGES,
+        VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
@@ -422,13 +461,33 @@ mod tests {
     /// The predicates are written in MFBASIC and the emitters in Rust, so the limits
     /// exist twice — with no compiler between them. Drift is not a style problem: if
     /// the MFBASIC cap ever exceeds the Rust one, the predicate admits a scene the
-    /// emitter's buffer cannot hold, and Metal's is a *stack* buffer.
+    /// emitter's buffer cannot hold.
+    ///
+    /// Since plan-116-A every one of these caps guards a *heap* buffer written through
+    /// a mapped pointer (the frame buffer), where Metal's edges used to be a stack
+    /// array. That makes drift worse rather than better: a stack overrun tends to fault
+    /// near the frame that caused it, and a write past a mapped GPU buffer lands in
+    /// whatever the driver happened to put next.
     #[test]
     fn the_two_gpu_edge_budgets_match_the_emitters() {
         assert_eq!(declared("__CANVAS_METAL_MAX_EDGES"), MAX_EDGES);
         assert_eq!(
             declared("__CANVAS_VULKAN_MAX_FRAME_EDGES"),
             VULKAN_MAX_FRAME_EDGES
+        );
+        assert_eq!(
+            declared("__CANVAS_METAL_MAX_FRAME_EDGES"),
+            METAL_MAX_FRAME_EDGES,
+            "the predicate admits a frame whose polygon edges the Metal frame buffer's \
+             edge region cannot hold",
+        );
+        assert_eq!(
+            declared("__CANVAS_MAX_FRAME_ITEMS"),
+            CANVAS_MAX_FRAME_ITEMS,
+            "the predicate admits a frame with more drawn quads than the item buffer \
+             has blocks — on BOTH backends, since they share this one. The emitters \
+             stop publishing at capacity, so the surplus items would silently not be \
+             drawn",
         );
         assert_eq!(
             declared("__CANVAS_VULKAN_MAX_GLYPH_SAMPLES"),
@@ -444,9 +503,20 @@ mod tests {
     }
 
     /// The predicates read the geometry header by slot. `offset + 20` is
-    /// `HEADER_AUX0` — the polygon's edge count — and a renumbered header would leave
-    /// them summing an arc's start angle instead, which is a plausible-looking number
-    /// rather than an error.
+    /// `HEADER_AUX0` — the polygon's edge count, and for a glyph run its glyph count —
+    /// and a renumbered header would leave them summing an arc's start angle instead,
+    /// which is a plausible-looking number rather than an error.
+    ///
+    /// The count is a census, so it moves whenever the predicates gain or lose a read;
+    /// it went 4 → 7 in plan-116-A. Enumerated so the next reader can tell a legitimate
+    /// growth from a slot that drifted:
+    ///
+    /// | | Metal | Vulkan |
+    /// |---|---|---|
+    /// | the glyph-run walk (`__canvas_runLargestGlyph` / `__canvas_runSamples`) | 1 | 1 |
+    /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
+    /// | the frame edge sum | 1 (new) | 1 |
+    /// | the frame quad count, a glyph run's glyphs | 1 (new) | 1 (new) |
     #[test]
     fn the_predicates_read_the_edge_count_slot() {
         assert_eq!(HEADER_AUX0, 20);
@@ -454,8 +524,9 @@ mod tests {
             RENDER_METAL
                 .matches(&format!("offset + {HEADER_AUX0}"))
                 .count(),
-            4,
-            "the two edge sums and both glyph-run walks should all read HEADER_AUX0"
+            7,
+            "every glyph-run walk, edge sum, edge decline and quad count in both \
+             predicates should read HEADER_AUX0"
         );
     }
 

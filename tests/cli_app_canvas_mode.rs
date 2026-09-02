@@ -14,7 +14,10 @@
 mod common;
 use common::temp_project;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+// `Path` is only named by the headless bundle runners, which are macOS-only.
+#[cfg(target_os = "macos")]
+use std::path::Path;
 use std::process::Command;
 
 /// Sets `Canvas`, reads it back, then leaves via `None` — exit 0 only if every
@@ -40,6 +43,7 @@ const CANVAS_ROUNDTRIP_SOURCE: &str = "IMPORT app\n\
 
 /// The three variants must compare distinct — a wrong discriminant would make two
 /// of them alias and this returns non-zero.
+#[cfg(target_os = "macos")]
 const CANVAS_DISTINCT_SOURCE: &str = "IMPORT app\n\
      FUNC main() AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\

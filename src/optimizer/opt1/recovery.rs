@@ -41,6 +41,8 @@ use crate::target::shared::nir::{NirModule, NirOp};
 
 use super::dce::pure_non_trapping;
 use super::plans::shape::{match_guards, nested_bodies, own_values};
+#[cfg(test)]
+use crate::operators::BinaryOp;
 
 /// Apply the row to the whole module. Self-guarded on its catalog level (3).
 pub(crate) fn simplify(module: &mut NirModule) {
@@ -170,7 +172,7 @@ mod tests {
     fn arithmetic_keeps_the_handler() {
         let mut module = test_module(vec![function(vec![
             NirOp::Return {
-                value: Some(binary("+", int_const("1"), int_const("2"))),
+                value: Some(binary(BinaryOp::Add, int_const("1"), int_const("2"))),
             },
             trap(),
         ])]);

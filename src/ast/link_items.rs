@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::UnaryOp;
 
 impl<'a> FileParser<'a> {
     pub(super) fn parse_link_block(&mut self) -> Option<LinkBlock> {
@@ -250,7 +251,7 @@ impl<'a> FileParser<'a> {
                 let (error_line, error_column) = (self.previous().line, self.previous().start);
                 if let Some(expr) = self.parse_expression() {
                     success_on = Some(Expression::Unary {
-                        operator: "NOT".to_string(),
+                        operator: UnaryOp::Not,
                         operand: Box::new(expr),
                         line: error_line,
                         column: error_column,
@@ -679,7 +680,7 @@ impl<'a> FileParser<'a> {
             return Some(ConstPin {
                 slot,
                 value: Expression::Unary {
-                    operator: "SIZEOF".to_string(),
+                    operator: UnaryOp::SizeOf,
                     operand: Box::new(Expression::Identifier(name)),
                     line: line2,
                     column: col,

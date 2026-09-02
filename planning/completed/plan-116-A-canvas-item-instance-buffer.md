@@ -64,9 +64,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh` (ships GLSL to box 2228, compiles against a dpkg-extracted glslang — its own header documents this) | MET (2026-09-01: box 2228 reachable; the script needs no preinstalled glslang) |
-| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --test rt_canvas_metal -- --no-fail-fast` | MET (2026-09-01: in the default local suite on this host; re-run at Phase 2 start) |
-| A Vulkan-capable Linux box (ICD present, not just loader) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh` end to end | MET (2026-09-01: 7 ICDs on 2228 including `lvp_icd.json` — lavapipe, a software ICD, so `vulkanReady` does not depend on GPU hardware); run the script before relying on it |
+| A Linux box with `glslang-tools` reachable for SPIR-V regen | `scripts/regen-spirv.sh` (ships GLSL to box 2228, compiles against a dpkg-extracted glslang — its own header documents this) | **MET** (re-measured 2026-09-01 at execution start: ran end to end, "Glslang Version: 11:15.2.0", vert→2540 B, frag→14676 B, and `git status --short src/codegen/runtime/canvas/shaders/` was **empty** — the checked-in blobs reproduce byte-identically, so the regen path is trustworthy for a real GLSL edit) |
+| The Metal box (macOS host) can run `tests/rt_canvas_metal.rs` | `cargo test --release --test rt_canvas_metal --no-fail-fast` | **MET** (re-measured 2026-09-01: `3 passed; 0 failed` in 66.64s. NOTE: the command as first written put `--no-fail-fast` after `--`, which the test binary rejects with "Unrecognized option"; it is a cargo flag. Command corrected here — see Corrections C2) |
+| A Vulkan-capable Linux box (ICD present, not just loader) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh target/release/mfb` end to end | **MET** (re-measured 2026-09-01: 7 ICDs on 2228 incl. `lvp_icd.json`; the harness ran end to end — `vulkanReady=TRUE`, `gpuSelected=TRUE`, all 12 checks ok, "canvas Vulkan runtime tests passed") |
 
 Everything below is written against the world where these hold. The SPIR-V one is
 hard: the `.spv` blobs are checked in and there is no build-time shader compiler
@@ -285,7 +285,9 @@ fragment float4 mfbFragment(VOut in [[stage_in]], …)
 
 The fragment stage needs the same index, so `VOut` gains a flat-interpolated
 `uint iid [[flat]]` passed from the vertex stage. That is the standard way to get an
-instance id into a fragment shader in MSL and it costs one varying.
+instance id into a fragment shader in MSL and it costs one varying. (The vertex stage
+takes `[[instance_id]]` only — **not** the `[[base_instance]]` the sketch below also
+lists; see Correction C5.)
 
 Vulkan (`mfb_canvas.vert` / `.frag`): the push-constant block becomes
 
@@ -309,8 +311,15 @@ reported stride and record the number in `ITEM_BLOCK_SIZE`'s doc comment.
   or at the end of the scene; there is still exactly one pipeline. Polygons ride
   inside runs, their edges reached through the edge region. The selector string at
   `metal.rs:314-316` gains its instanced sibling
-  `drawPrimitives:vertexStart:vertexCount:instanceCount:`.
+  `drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:` — corrected
+  from the `…:instanceCount:` form first written here, because a run that begins
+  partway through the item buffer has to name where it starts.
 - Vulkan: `vkCmdDraw(cmd, 4, instanceCount, 0, firstInstance)`.
+
+**Both languages' instance index includes the base** — Vulkan's `gl_InstanceIndex`
+and MSL's `[[instance_id]]` alike — so each shader indexes the buffer with that one
+value and adds nothing. This paragraph originally claimed the opposite for MSL; see
+Correction C5 for the measurement that disproved it.
 
 Glyph runs stay N draws, not N instances, in this letter — a text item is already
 "not one draw" (`runtime/canvas/mod.rs`, `GEO_KIND_TEXT` doc) and folding it into the
@@ -349,21 +358,41 @@ per-glyph path with the item block read from the buffer at its own index.
 Vulkan first because its shader change is compiled by a tool with reflection output,
 so the stride question gets a measured answer rather than an assumed one.
 
-- [ ] Add `CANVAS_MAX_FRAME_ITEMS` and the three `…_VULKAN_ITEM_*` graphics-state
+- [x] Add `CANVAS_MAX_FRAME_ITEMS` and the three `…_VULKAN_ITEM_*` graphics-state
       slots to `src/codegen/runtime/canvas/mod.rs`; grow `GRAPHICS_STATE_SIZE`.
-- [ ] Allocate, bind and persistently map the item buffer in `vulkan.rs` beside the
+      Slots at 656/664/672, `GRAPHICS_STATE_SIZE` 656 → 680; `CANVAS_MAX_FRAME_ITEMS`
+      4096 with `CANVAS_ITEM_BUFFER_BYTES` derived from it and `ITEM_BLOCK_SIZE`.
+- [x] Allocate, bind and persistently map the item buffer in `vulkan.rs` beside the
       edge buffer's creation; add it as `binding = 1` on the existing set layout.
-- [ ] Rewrite `mfb_canvas.vert`/`.frag` to read `itemBuf.items[gl_InstanceIndex]`,
+      The set layout now takes a 2-element binding array (binding 1 is
+      VERTEX|FRAGMENT), the pool asks for 2 storage-buffer descriptors, and one
+      `vkUpdateDescriptorSets` with a 2-element write array points both.
+- [x] Rewrite `mfb_canvas.vert`/`.frag` to read `itemBuf.items[gl_InstanceIndex]`,
       passing the index to the fragment stage as a `flat` varying.
-- [ ] Run `scripts/regen-spirv.sh` and **record glslang's reported array stride for
+      Spelled `itemBuf.blocks[...]`; `flat` varying at `location = 0` (the
+      vertex-output namespace was empty). In the fragment stage `item` stays a
+      **private global** assigned on `main`'s first line, so `shapeDistance` and
+      `glyphCoverage` — which read `item` directly — needed no change at all.
+- [x] Run `scripts/regen-spirv.sh` and **record glslang's reported array stride for
       the item struct** in `ITEM_BLOCK_SIZE`'s doc comment. If it is not 112, pad to
       the reported value and say so here in Corrections.
-- [ ] Convert the Vulkan shape emitter to write the buffer and issue
+      **Measured 112**, no padding needed: `glslangValidator -V -q mfb_canvas.vert`
+      reports `topLevelArrayStride 112` with members at 0/16/32/48/64/80/96, matching
+      every `ITEM_OFFSET_*` one for one. Recorded in the doc comment.
+- [x] Convert the Vulkan shape emitter to write the buffer and issue
       `vkCmdDraw(…, instanceCount, …)`.
-- [ ] Add the frame-item-count check to `__canvas_vulkanRenderable`
+      New `emit_item_publish` (block → buffer at the cursor) and `emit_run_flush`
+      (one instanced draw per run of consecutive non-text items). The pipeline
+      layout's push-constant range is gone entirely (`rangeCount` 0), and
+      `vkCmdPushConstants` is no longer resolved anywhere.
+- [x] Add the frame-item-count check to `__canvas_vulkanRenderable`
       (`helper_render.rs`), declining past `CANVAS_MAX_FRAME_ITEMS`.
-- [ ] Tests: extend `tests/rt_canvas_golden.rs` with a Vulkan-vs-oracle exact-match
+      Sums *quads*: 1 per non-text item, the glyph count per text run.
+- [x] Tests: extend `tests/rt_canvas_golden.rs` with a Vulkan-vs-oracle exact-match
       case over the existing smiley scene; keep `tests/rt_canvas_damage.rs` green.
+      Landed in `scripts/test-canvas-vulkan.sh` instead — see **Correction C3**, the
+      Vulkan path cannot run under `cargo test` on the macOS host. `rt_canvas_damage.rs`
+      re-run green (4 passed).
 
 Acceptance: on a Vulkan-capable Linux box, `MFB_CANVAS_GPU=1` renders the smiley
 scene to a frame **byte-identical** to the one the same commit's software oracle
@@ -371,61 +400,218 @@ produces for it, and `MFB_CANVAS_STATS` reports `vulkanReady=TRUE` (proving the 
 path actually ran — a frame identical to the oracle on a box where Vulkan declined is
 the false pass `.ai/canvas-threading.md` §10 and the GPU-backend memory both warn
 about).
-Commit: —
+
+**MET** (box 2228, `scripts/test-canvas-vulkan.sh target/release/mfb`): all 12 checks
+`ok`, `vulkanReady=TRUE gpuSelected=TRUE`, GPU-vs-oracle `worst=1 differing=0.4373%`
+— every channel within one step, the same agreement class the pre-change baseline had
+(`worst=1 differing=0.0335%`; the differing-pixel count moved because the fixture
+scene itself gained a translucent label and a trailing circle, see C4). Proof the GPU
+path ran and not a false pass: the vertex SPIR-V now contains `gl_InstanceIndex`,
+`vItem` and `ItemBlock` and **no push constant** (`strings mfb_canvas.vert.spv`), so a
+frame that matches the oracle can only have come from the buffer being written and
+indexed correctly.
+Commit: 5a4bb72f2
 
 ### Phase 2 — Metal to the same mechanism
 
-- [ ] Add `GRAPHICS_OFFSET_MTL_ITEM_BUFFER`; create the buffer with the device in
+- [x] Add `GRAPHICS_OFFSET_MTL_ITEM_BUFFER`; create the buffer with the device in
       `_mfb_macapp_metal_init`, sized for `CANVAS_MAX_FRAME_ITEMS` blocks plus the
       `METAL_MAX_FRAME_EDGES` × 16-byte edge region.
-- [ ] Convert the Metal edge payload (`metal.rs:1017`) to writes into the edge
+      Plus `GRAPHICS_OFFSET_MTL_ITEM_CONTENTS` — an unplanned but necessary second
+      slot, caching `[buffer contents]` so the frame path writes through a pointer
+      instead of sending a message per item. `GRAPHICS_STATE_SIZE` 680 → 696.
+- [x] Convert the Metal edge payload (`metal.rs:1017`) to writes into the edge
       region, storing each polygon's first-edge index in `ITEM_ARC_EDGE_BASE`;
       delete the edge-base-is-always-zero comment at `runtime/canvas/mod.rs`
       (`ITEM_OFFSET_ARC`) and rewrite it for the shared shape.
-- [ ] Add the frame-total edge sum to `__canvas_metalRenderable`
+      `emit_edge_buffer` now runs **after** `emit_item_block` (which writes all four
+      words of `ITEM_OFFSET_ARC` and would overwrite the base), matching Vulkan's
+      order. The `MAX_EDGES * 16` stack staging area is gone with the payload, so
+      `DRAW_FRAME` shrinks by 4 KiB.
+- [x] Add the frame-total edge sum to `__canvas_metalRenderable`
       (`METAL_MAX_FRAME_EDGES`), keeping the per-item `MAX_EDGES` decline
       unchanged.
-- [ ] Rewrite `METAL_SHADER_SOURCE` to take `constant MfbItem *items [[buffer(0)]]`
+- [x] Rewrite `METAL_SHADER_SOURCE` to take `constant MfbItem *items [[buffer(0)]]`
       with `[[instance_id]]`, and add the flat `iid` varying to `VOut`.
-- [ ] Replace the 9 `setVertexBytes:`/`setFragmentBytes:` item-block sites with buffer
+      `VOut` gained `uint item [[flat]]`. See **Correction C5**: the plan also called
+      for `[[base_instance]]` to be added to `[[instance_id]]`, and that is wrong —
+      MSL's `[[instance_id]]` already includes it.
+- [x] Replace the 9 `setVertexBytes:`/`setFragmentBytes:` item-block sites with buffer
       writes; add the `drawPrimitives:vertexStart:vertexCount:instanceCount:`
       selector and use it.
-- [ ] Add the frame-item-count check to `__canvas_metalRenderable`.
-- [ ] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case, plus a
+      The classified sites from §2, not "9": both item-block setter loops and the
+      per-item edge send are gone; the two per-glyph coverage sends stay (non-goal).
+      The selector taken is the `…:baseInstance:` form — a run needs to name where in
+      the buffer it starts.
+- [x] Add the frame-item-count check to `__canvas_metalRenderable`.
+- [x] Tests: `tests/rt_canvas_metal.rs` gains the same exact-match case, plus a
       polygon scene (edges through the region) and the negative case: a scene
       summing past `METAL_MAX_FRAME_EDGES` declines (assert via
       `MFB_CANVAS_STATS`, never by pixel equality).
+      `PRIMITIVES` gained a **second** polygon — with one, the edge base is still 0 and
+      a base that was never written would pass. New
+      `a_frame_whose_polygons_together_overflow_the_edge_region_falls_back` (200 rings
+      × 200 edges = 40,000, each ring inside the per-item cap so only the *sum* is
+      over). Asserted by **exact pixel equality against the software oracle** rather
+      than via `MFB_CANVAS_STATS` — see **Correction C6**, the stats route is the
+      weaker instrument here. Added
+      `a_shape_after_a_glyph_run_matches_the_software_oracle` to
+      `tests/rt_canvas_font.rs` (which owns the font fixture); it is the test that
+      caught C5.
 
 Acceptance: on the macOS host, `cargo test --test rt_canvas_metal -- --no-fail-fast`
 passes and the Metal frame for the smiley scene matches the oracle at least as
 closely as it did at this letter's base commit (record both pixel-difference counts
 in the commit message; the number must not increase).
-Commit: —
+
+**MET.** `cargo test --release --test rt_canvas_metal --no-fail-fast` → 4 passed,
+0 failed (and `rt_canvas_font` 10 passed, `rt_canvas_golden` 5, `rt_canvas_damage` 4,
+`rt_canvas_rasteriser` 10, `rt_canvas_graphics_thread` 8,
+`rt_canvas_present_deep_copy` 4, `rt_canvas_image_decode` 9). The pixel-difference
+count was measured **like for like** — the same one-polygon primitive scene rendered
+GPU-vs-oracle under a temporary `compare_exact` probe, run in this worktree and again
+in a detached `git worktree` at the base commit ee12c1bf7:
+
+| | differing pixels | max channel delta | first differing |
+|---|---|---|---|
+| base ee12c1bf7 | 80 | 1 | (225, 17) |
+| this letter | 80 | 1 | (225, 17) |
+
+Identical, not merely non-increasing. (The probe was removed afterwards; the scene had
+to be held fixed across both runs because Phase 2 adds a second polygon to
+`PRIMITIVES`, which changes the count for reasons unrelated to the transport.)
+Commit: bc9b2e5e7
 
 ### Phase 3 — Lift the 128-byte ceiling in the contract, and prove the whole suite
 
-- [ ] Rewrite `ITEM_BLOCK_SIZE`'s doc comment in
+- [x] Rewrite `ITEM_BLOCK_SIZE`'s doc comment in
       `src/codegen/runtime/canvas/mod.rs`: the bound is now the buffer, not the
       push-constant range. Say what the new bound is and what enforces it.
-- [ ] Update the unit test at `vulkan.rs:5018` that pins the block against the
+      **Landed in Phase 1** beside the test that gates it. The new bound is capacity —
+      `CANVAS_MAX_FRAME_ITEMS` records must fit `CANVAS_ITEM_BUFFER_BYTES`, which is
+      *defined from* this constant and so cannot fall out of step — and what still
+      constrains the value is two-language agreement, gated by
+      `the_item_block_matches_the_std430_stride` and by glslang's measured
+      `topLevelArrayStride 112`.
+- [x] Update the unit test at `vulkan.rs:5018` that pins the block against the
       guaranteed push-constant range — it is now asserting a constraint that no longer
       applies. Replace it with one pinning the block against the *buffer stride*
       glslang reports, so the two-language agreement stays gated.
-- [ ] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
+      **Landed in Phase 1**, not here: the doc comments Phase 1 wrote cite it by name,
+      and leaving a test asserting a dead constraint across two phases would have been
+      a dangling citation. `the_push_constant_block_fits_the_guaranteed_range` →
+      `the_item_block_matches_the_std430_stride`, which pins `ITEM_BLOCK_SIZE % 16 == 0`
+      (std430 rounds an `ivec4` struct's array stride up to 16, so stride == size
+      exactly when the size is a multiple of 16) and the buffer-capacity identity.
+- [x] Update `.ai/canvas-threading.md` §10 to describe the buffer transport. It
       currently explains the predicate asymmetry by Metal's edges crossing as a
       per-item `setFragmentBytes:` payload — after this letter both backends carry
       edges in a frame buffer, Metal is frame-capped too, and only the per-item
       `MAX_EDGES` decline (kept by policy, §Non-goals) and the per-glyph vs
       per-frame glyph caps still differ. Rewrite the section to say exactly that.
-- [ ] Run `scripts/regen-ncodesum.sh` and prove every `.ncodesum` diff is this
-      letter's.
-- [ ] Tests: full `cargo test --no-fail-fast`.
+      Written as a new subsection covering what the two predicates now share and the
+      two ways they still differ, plus the three traps a later letter would otherwise
+      rediscover: the instance index includes the base on **both** languages (C5), the
+      index must reach the fragment stage **flat**, and **an instanced run cannot
+      rebind a per-item side payload** — so anything per-item must become a buffer
+      region reached by an index, never a payload.
+- [x] ~~Run `scripts/regen-ncodesum.sh` and prove every `.ncodesum` diff is this
+      letter's.~~ — **moot: there is no diff to attribute, and the reason is that
+      these goldens cannot see this code.** Measured, not assumed:
+      `scripts/artifact-gate.sh target/release/mfb all` → "1324 tests, 1486 build(s),
+      1819 golden(s) checked, **0 diff(s)**", and
+      `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/` → **no matches**, so
+      none of the 132 `.ncodesum` fixtures builds a program that emits the canvas
+      runtime at all. Positive confirmation rather than an absence:
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → "132 golden(s) refreshed,
+      0 missing" and `git status --short tests/byte-identity/` came back **empty**,
+      i.e. every regenerated hash equals the committed one. The plan's §Compatibility
+      prediction of "`.ncodesum` churn on every target that emits the canvas runtime"
+      was miscalibrated — no fixture does. Recorded as **Correction C7**, because a
+      green byte-identity gate here means "never hashed your code", not "your change
+      is byte-neutral", and a later letter must not read it as coverage.
+- [x] Tests: full `cargo test --no-fail-fast`.
 
 Acceptance: `cargo test --no-fail-fast` is green on the macOS host **and** on the
 Linux CI axis (`.ai` memory: CI is linux + DEBUG, local gates are mac + RELEASE — a
 green local run proves neither axis alone), `scripts/artifact-gate.sh all` reports 0
 diffs, and `tests/golden/canvas/smiley.png` is unchanged on disk.
-Commit: —
+
+**MET on the macOS host:**
+
+- `cargo test --release --no-fail-fast` — 71 test binaries. Two failures, both
+  resolved: `the_predicates_read_the_edge_count_slot` (a HEADER_AUX0 census that this
+  letter legitimately grew 4 → 7; updated and re-run green) and `artifact_gate_all`,
+  which refused to start because another gate run held the lock — its own message says
+  "This is NOT a golden regression -- nothing was checked". Re-run uncontended:
+  `cargo test --release --test golden` → ok, 408.58s.
+- `scripts/artifact-gate.sh target/release/mfb all` → 1324 tests, 1486 builds,
+  **1819 goldens, 0 diffs**.
+- `bash scripts/test-accept.sh target/release/mfb /tmp/p116-accept` → "acceptance tests
+  passed (**1345** test(s) ran)" — the full population, not a silently-filtered subset.
+- `git status --short tests/golden/canvas/` → empty; `smiley.png` unchanged.
+
+**Re-run after merging `main` (§5), which is the version that counts.** All of the
+above were re-measured on the merged tree, and two of them moved for reasons that are
+not this letter's:
+
+- `cargo test --release --no-fail-fast` → **87 test binaries, 0 failures**, artifact
+  gate included (no lock contention this time).
+- `scripts/artifact-gate.sh target/release/mfb all` → 1325 tests, 1487 builds,
+  **1823 goldens, 0 diffs**. The golden count rose 1819 → 1823 because `main` brought
+  four new plan-115 fixtures.
+- `bash scripts/test-accept.sh …` → "acceptance tests passed (**1346** test(s) ran)";
+  1345 → 1346 for the same reason.
+- `scripts/test-canvas-vulkan.sh target/release/mfb` → 12/12 ok, `vulkanReady=TRUE`,
+  `worst=1`.
+
+One flake, identified rather than waved through: an earlier acceptance run reported
+`2 mismatch(es)`, both "missing actual" for
+`rt-behavior/tcp/func_tcp_close_valid` — a TCP fixture that binds a real port, failing
+while peer sessions were running their own suites (load average 12). Re-run alone:
+"acceptance tests passed (1 test(s) ran)"; re-run in full on a quieter machine: 1346
+passed. Nothing in this letter touches TCP, and the whole-suite re-run is the evidence,
+not the isolated one.
+
+**The two axes, and how each is covered.** The criterion names one command but two
+independent axes — OS and profile (`.ai` memory: CI is linux + DEBUG, local gates are
+mac + RELEASE). Measured, three of the four combinations directly:
+
+| | DEBUG | RELEASE |
+|---|---|---|
+| **macOS** | `cargo test --no-fail-fast --bin mfb` → **3697 passed, 0 failed** (714.90s). Load-bearing rather than redundant: the `debug_assert_eq!(ITEM_BLOCK_SIZE % 8, 0)` guards this letter added to *both* emitters' `emit_item_publish` are compiled out of a release build and only execute here. | the full 87-binary run above |
+| **Linux** | not run directly | **3688 passed, 0 failed** (2718.14s) on box 2228 — the `--bin mfb` unit tests, run in release. Includes every canvas unit test and both this letter's new ones: `codegen::runtime::canvas::vulkan::tests::the_item_block_matches_the_std430_stride` and `target::macos_aarch64::app::metal::tests::the_metal_shader_edge_base_matches_the_buffer_layout` — the Metal module is declared unconditionally (`src/target.rs:16`), so its tests do run on a Linux host. |
+
+Both dimensions of the uncovered corner (linux, DEBUG) are therefore covered
+individually.
+
+**What the Linux column is and is not.** It is the 3688 `--bin mfb` unit tests, not
+the whole workspace. The full `cargo test --release --workspace` was started on 2228
+and abandoned deliberately after ~3 hours: that box is the *only* one with a Rust
+toolchain and it has **one core** (2223 has 8 and 2227 has 4, neither has cargo), the
+`mfb` crate alone took 41 CPU-minutes to compile there, and ~40 further test binaries
+remained to link and run. Cross-building the test binaries on this host is not
+available either — only `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` targets are
+installed and there is no Linux linker. Rather than block on that, the already-built
+`mfb-6d42ed99fb884eda` executable was run directly, which is the highest-value single
+Linux target: it carries every compiler-side test, and the compiler side is where all
+of this letter's Rust lives. The *integration* binaries it skips are covered on Linux
+by other instruments — `scripts/test-canvas-vulkan.sh` for canvas runtime behaviour on
+two libc worlds, and `scripts/artifact-gate.sh all` for Linux-target codegen. Beyond that, the parts of this change that are actually
+platform-specific are proved *on* Linux by stronger instruments than a unit test:
+
+- `scripts/test-canvas-vulkan.sh target/release/mfb` on **box 2228 (Ubuntu x86_64,
+  glibc)** — 12/12 ok, `vulkanReady=TRUE`, `gpuSelected=TRUE`, `worst=1`.
+- `scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
+  on **box 2227 (Alpine x86_64, musl)** — 12/12 ok, and **identical numbers**
+  (`worst=1 differing=0.4373%` / `0.0573%` / `0.0000%`). Both libc worlds the project
+  supports, so the new buffer path is not depending on anything glibc-specific. Note
+  2227 has a Vulkan loader but no usable ICD of its own — `--icd auto` provisions a
+  user-local lavapipe, which is why the first attempt there reported
+  `vulkanReady=FALSE` and *skipped* rather than passing vacuously.
+- `scripts/artifact-gate.sh all` cross-builds every Linux, Windows and riscv64 target
+  from this host (1823 goldens, 0 diffs).
+Commit: 8e9236305
 
 ## Validation Plan
 
@@ -441,6 +627,18 @@ Commit: —
   code reached only when a canvas program is built. Confirm the new lines are in the
   denominator with `cargo llvm-cov --bin mfb` per `.ai` memory — a green
   `cargo test` here can mean the emitter never ran.
+
+  **Satisfied by something stronger than a coverage percentage, so `llvm-cov` was not
+  run.** The concern this check exists for is "the emitter never ran". Here that is
+  excluded by construction rather than by measurement: the new emitter code is the
+  *only* path by which an item block reaches either shader — the push-constant and
+  `setVertexBytes:` routes are deleted, not bypassed — so a canvas program that renders
+  its scene at all has necessarily executed it. `rt_canvas_metal`,
+  `rt_canvas_font` and `scripts/test-canvas-vulkan.sh` each build a canvas program and
+  then assert its *rendered pixels* match the software oracle, with
+  `metalReady=TRUE` / `vulkanReady=TRUE` proving the GPU path was taken. A line-coverage
+  number would say the emitter was entered; those tests say what it emitted was
+  correct.
 - **Runtime proof:** `MFB_CANVAS_GPU=1 MFB_CANVAS_DUMP=/tmp/f.rgba` on the smiley
   scene, on both a Metal host and a Vulkan box, diffed byte-for-byte against the
   software dump of the same scene.
@@ -474,6 +672,102 @@ Commit: —
   region moved into this letter; effort re-estimated large → x-large. The "9 call
   sites" population was also a miscount (it counted selector-constant declarations
   and comments); replaced with the classified emission sites in §2.
+- **C2 (2026-09-01, execution — Prerequisites gate).** The Metal prerequisite's
+  command was written `cargo test --test rt_canvas_metal -- --no-fail-fast`, which
+  fails immediately: `--no-fail-fast` is a **cargo** flag, and placing it after `--`
+  hands it to the test binary, which answers `error: Unrecognized option:
+  'no-fail-fast'`. Corrected in the table to
+  `cargo test --release --test rt_canvas_metal --no-fail-fast`. The `--release` is
+  also load-bearing on this repo (auto-memory: tests run the RELEASE `mfb` binary).
+- **C3 (2026-09-01, Phase 1).** Phase 1's test task said to extend
+  `tests/rt_canvas_golden.rs` with "a Vulkan-vs-oracle exact-match case". That test
+  file cannot host one: it runs on the development host, which is macOS, and the
+  Vulkan path does not exist there — `render()` builds and runs the app locally with
+  no `MFB_CANVAS_GPU`, so the case would have silently measured the *software* path
+  against itself on every machine anyone runs `cargo test` on. The oracle-vs-GPU
+  comparison already has a home that runs on real hardware,
+  `scripts/test-canvas-vulkan.sh`, and it is the stronger instrument for the reason
+  its own header gives: it renders the same program twice on the box and diffs the two
+  frames, so it cannot go stale the way a checked-in reference can. The case landed
+  there. `tests/rt_canvas_golden.rs` is unchanged and still green (5 passed), and
+  `tests/rt_canvas_damage.rs` is green (4 passed).
+- **C4 (2026-09-01, Phase 1) — the plan's fixture could not have caught the bug it
+  needed to.** The Vulkan harness's scene ended with its `Text` item, so the final run
+  flush was always empty and "shapes drawn after a glyph run" — the one ordering the
+  new run-accumulation logic can get wrong — went untested. Adding a trailing circle
+  was not enough on its own: with the post-glyph run-base reset deliberately removed,
+  the suite still reported **`ok ... worst=1 differing=0.0530%`**, byte-identical to
+  the correct build. Root cause, and the reason it is worth recording: the fixture
+  glyph is a deliberately axis-aligned opaque square (the script's own comment says so),
+  its coverage is therefore binary, and **compositing an opaque square over itself is
+  idempotent** — so a renderer drawing every glyph twice produced an identical frame.
+  The label is now translucent (`rgba(220, 40, 160, 160)`), which makes a second
+  composite arithmetically different from one. Re-verified as a real RED/GREEN gate:
+  with the reset removed the harness fails `worst=27 differing=0.4983%
+  first-beyond-tolerance=(309, 533, 'b31e81ff', 'ce2595ff')` — inside the glyph band —
+  and with it restored, `worst=1`. The general lesson, which applies to every later
+  letter of this plan: an opaque fixture cannot detect a duplicated draw.
+- **C5 (2026-09-01, Phase 2) — §4.2's claim about Metal's instance id is false.** The
+  plan said MSL's `[[instance_id]]` does not include the draw's base instance, unlike
+  Vulkan's `gl_InstanceIndex`, and §4.3 followed that to a design where the shader adds
+  `[[base_instance]]`. Implemented as written, it double-counts: index = base + base.
+  The symptom was sharply diagnostic rather than vague — **`baseInstance = 0` drew
+  perfectly and every non-zero base drew nothing at all**, because 2×base indexed past
+  the scene's published blocks into zeroed buffer, giving a degenerate all-zero quad.
+  So `rt_canvas_metal`'s shape scenes all passed (a scene with no text is one run with
+  base 0) while `text_on_the_gpu_matches_the_software_oracle` failed with the GPU black
+  where the oracle had text, and the new trailing-shape test failed at the trailing
+  circle. Measured fix: index with `[[instance_id]]` alone; all 10 `rt_canvas_font`
+  tests then pass. **Metal and Vulkan agree here** — both include the base — which is
+  the happier outcome, and the `[[base_instance]]` parameter is deleted rather than
+  left unused. The plan's §4.2/§4.3 text is corrected accordingly.
+  Worth noting for later letters: this was caught only because Phase 2 added a test
+  with a *non-zero* base. Every pre-existing GPU test used base 0.
+- **C6 (2026-09-01, Phase 2).** Phase 2's test task said the over-cap decline must be
+  asserted "via `MFB_CANVAS_STATS`, never by pixel equality". That is backwards for
+  this particular case and the existing sibling test already knew it:
+  `an_unsupported_scene_falls_back_to_the_software_renderer` asserts **exact pixel
+  equality** with the software oracle, and its doc says why — the fallback runs the
+  identical software renderer on the identical scene, so byte equality is available and
+  is the strongest available claim. A stats flag is strictly weaker here: a renderer
+  that silently *truncated* at `METAL_MAX_FRAME_EDGES` rather than declining would still
+  report `gpuSelected=TRUE` and pass a stats assertion, which is exactly the failure the
+  cap exists to prevent. The new test therefore mirrors its sibling and compares pixels.
+  (The plan's instruction is right in general — a decline must never be asserted by
+  pixel equality when the fallback might render *nothing*, since two blank frames match
+  — which is why the test also asserts the software frame is non-empty first.)
+- **C7 (2026-09-01, Phase 3) — §Compatibility predicted `.ncodesum` churn; there is
+  none, and the reason matters more than the fact.** The section said "`.ncodesum`
+  churn is expected on every target that emits the canvas runtime, because the Vulkan
+  emitter and the Metal emitter both change instruction sequences". Both emitters did
+  change, substantially. But `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/`
+  returns **no matches**: not one of the 132 `.ncodesum` fixtures builds a program that
+  emits the canvas runtime, so none of them can observe a canvas codegen change at all.
+  `scripts/artifact-gate.sh target/release/mfb all` reports 0 diffs over 1819 goldens,
+  and a full `bash scripts/regen-ncodesum.sh target/release/mfb` (132 refreshed) leaves
+  `git status --short tests/byte-identity/` empty.
+  **The trap for later letters:** that green gate is *not* evidence this change is
+  codegen-neutral — it is evidence the gate never hashed this code. B–J all touch the
+  same emitters and will all see the same misleading 0. The instruments that genuinely
+  cover this code are `scripts/test-canvas-vulkan.sh` and the `rt_canvas_*` suites.
+- **C8 (2026-09-01, Phase 3 gates) — two cleanups the plan did not list, both found by
+  running the gates rather than by reading the diff.**
+  1. `SEL_SET_VERTEX_BYTES` and the non-instanced `SEL_DRAW_PRIMITIVES` had no
+     emission site left after Phase 2, but were still declared *and* still listed in
+     `metal_data_objects()`. That list is not inert: every entry is a C string emitted
+     into every canvas binary and registered with the ObjC runtime at startup, so an
+     unsent selector costs bytes and a `sel_registerName` call in each program. Both
+     deleted.
+  2. The Linux axis surfaced three **pre-existing** dead-code / unused-import warnings
+     in `tests/cli_canvas_package.rs` and `tests/cli_app_canvas_mode.rs` — items
+     consumed only by `#[cfg(target_os = "macos")]` tests, therefore dead on every other
+     host and invisible from a macOS development host. Each given the same gate as its
+     consumer. Not introduced by this letter, but in its blast radius, and every
+     remaining letter of plan-116 runs these same suites — so leaving them would make
+     the Linux axis permanently noisy for the work that follows.
+- **C9 (2026-09-01, bookkeeping).** This document lost its `## Summary` heading to an
+  edit during execution, which left the closing paragraph reading as part of
+  Corrections. Restored.
 
 ## Summary
 

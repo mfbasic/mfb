@@ -33,7 +33,8 @@ all, until the stream is readable or the child exits.
 Calling `poll` after `process::detach` raises `ErrResourceClosed`, because
 detaching ends the handle. The stream is inspected
 only; nothing is read, so a `TRUE` result leaves the bytes in place for the next
-read.
+read. Output that `process::waitFor` had to read ahead to keep the child moving
+counts as readable here too — it is still yours to read.
 
 `ms` is the wait bound in milliseconds. `0` is a non-blocking check that returns the
 stream's current readiness immediately; a positive value waits up to that long; a
@@ -153,6 +154,8 @@ pub(crate) fn lower_process_poll_helper_posix(
     let fd = v.next();
     let n = v.next();
     let from = v.next();
+    let spill = v.next();
+    let t0 = v.next();
     let closed_l = format!("{symbol}_closed");
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
@@ -176,15 +179,23 @@ pub(crate) fn lower_process_poll_helper_posix(
             abi::compare_immediate(&from, "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(&fd, &file, PROC_STDOUT_R),
+            abi::load_u64(&spill, &file, PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(&fd, &file, PROC_STDERR_R),
+            abi::load_u64(&spill, &file, PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(&fd, &file, PROC_STDOUT_R));
+        instructions.extend([
+            abi::load_u64(&fd, &file, PROC_STDOUT_R),
+            abi::load_u64(&spill, &file, PROC_STDOUT_BUF),
+        ]);
     }
     let mut relocations = Vec::new();
+    // bug-475: bytes `waitFor` had to move out of the pipe are readable now, even
+    // though the fd they came from may already be at EOF.
+    emit_spill_pending(symbol, "poll", &spill, &n, &t0, &ready, &mut instructions);
     instructions.extend([
         abi::store_u32(&fd, abi::stack_pointer(), POLLFD_SLOT),
         abi::move_immediate(&n, "Integer", "1"), // POLLIN
@@ -269,20 +280,32 @@ pub(crate) fn lower_process_poll_helper_win(
             abi::compare_immediate(abi::mfb_arg(1), "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            PROC_STDOUT_R,
-        ));
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
+        ]);
     }
+    instructions.push(abi::store_u64(abi::mfb_arg(1), sp, FD));
+    // bug-475: bytes `waitFor` had to move out of the pipe are readable now, even
+    // though the pipe they came from may already be broken.
+    emit_spill_pending(
+        symbol,
+        "poll",
+        abi::mfb_arg(2),
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+        &ready,
+        &mut instructions,
+    );
     instructions.extend([
-        abi::store_u64(abi::mfb_arg(1), sp, FD),
         // deadline = GetTickCount64() + ms
     ]);
     platform.emit_external_call(

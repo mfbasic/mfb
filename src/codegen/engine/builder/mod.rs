@@ -3,7 +3,7 @@ use crate::codegen::io::stdin::lower_stdin_recompute_base;
 use crate::codegen::io::stdin::lower_stdin_subscribe;
 use crate::codegen::io::stdin::lower_stdin_unsubscribe;
 use crate::codegen::io::stdin::stdin_log_data_object;
-use crate::types::ParameterType;
+use crate::types::{CAbiType, ParameterType};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -1530,6 +1530,24 @@ pub(crate) fn lower_module_for_platform(
             )?,
         );
     }
+    // bug-474: `process::detach` reaps its one child on a dedicated thread whose
+    // start routine is `_mfb_rt_process_reaper`, so that helper must be emitted
+    // wherever `process.detach` is (the detach body takes its address). It replaced
+    // a process-wide `signal(SIGCHLD, SIG_IGN)`, which auto-reaped EVERY child and
+    // left `process::waitFor` on an unrelated handle reporting `0`. Windows
+    // `detach` only closes handles, so it has no reaper.
+    if platform.family() != PlatformFamily::Windows
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_detach")
+    {
+        code_functions.push(
+            crate::codegen::builtins::process::lower_process_reaper_helper(
+                &platform_imports,
+                platform,
+            )?,
+        );
+    }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
             uses_term,
@@ -1807,14 +1825,14 @@ pub(crate) fn lower_module_for_platform(
     // a test failure.
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         let returns_c_string = matches!(&function.result, Some(crate::ir::IrLinkExpr::Var(name)) if *name == function.abi_return_name)
-            && function.abi_return_ctype == "CPtr"
+            && function.abi_return_ctype.is_c_abi(CAbiType::Ptr)
             && matches!(function.return_type, ParameterType::String);
         let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
             module
                 .link_cstructs
                 .iter()
-                .find(|c| c.alias == function.alias && c.name == slot.ctype)
-                .is_some_and(|c| c.fields.iter().any(|f| f.ctype == "CString"))
+                .find(|c| c.alias == function.alias && slot.ctype.is_named(&c.name))
+                .is_some_and(|c| c.fields.iter().any(|f| f.ctype.is_c_abi(CAbiType::Str)))
         });
         returns_c_string || struct_has_cstring_field
     });

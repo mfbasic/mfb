@@ -15,7 +15,7 @@ Reference for the MFB compiler's test/golden/gate harness — the codegen artifa
 - **Per-target fixture counts (not uniform):** each of the four Unix targets carries all 24 fixtures; `windows-x86_64` carries **21** — `os` (`os.resourcePath`), `process` (`process.shell`), and `link-const-pins` (native lib `c`, no Windows locator) use runtime surface the Windows backend does not support, so no `windows-x86_64.ncodesum` exists for them (they are execution-non-buildable there, not just skipped). Adding a `<pkg>.<target>.ncodesum` under `golden/` is what makes the gate build+sum that target for that fixture — the target list per fixture is derived from the golden filenames (`artifact-gate.sh`), so a missing golden silently drops that target. `thread` gained its `windows-x86_64` golden once the `thread.*` Windows import set declared the stdin-broadcast heap/console symbols (it drives the same stdin log as `io.input`).
 - `.ncodesum` is an **artifact-gate-ONLY** signal: `test-accept.sh` does NOT read it (it only adds `-ncode` when a `.ncode` golden is present). The `.ncodesum` hash is a change-SENTINEL — it says *something* moved, not *what*; localize with stash → `mfb build -ncode` → diff.
 - Gotcha: `mfb build -ncode` writes `$pkg.ncode` (no target infix); the golden is `$pkg.<target>.ncode`. The gate maps infix-less actual → infixed golden.
-- Green means "nothing *covered* changed" — NOT 100%. NOT covered (record before trusting green for a site): `app` (app-mode only, non-cross-compilable — covered by `syntax/app/*`), `testing` (TCASE-only), `errorCode` (constants, no code symbols), any compiler-internal path not reached by a builtin call, and `tests/acceptance/**` (no `golden/` dir → the harness runs `mfb test` and compares nothing; do NOT add a golden there — presence of `golden/` is a mode switch and that project declares no `entry`). A real false negative: `strings::graphemeAt` lived only in `tests/acceptance/`; 0 diffs across 1217 goldens while a real `mul` operand-order change existed. Before trusting the gate for a site, confirm it's reachable from a test that owns a `golden/`; where it isn't, add a `tests/rt-behavior/**` fixture, or build a scratch project + `mfb build -ncode` and diff against the pre-change compiler (`git show <commit>^:<path>` — and CHECK THE BUILD SUCCEEDED; a failed build silently reuses the old binary and fakes a match).
+- Green means "nothing *covered* changed" — NOT 100%. NOT covered (record before trusting green for a site): `app` (app-mode only, non-cross-compilable — covered by `syntax/app/*`), **`canvas`** (measured 2026-09-01, plan-116-A: `grep -rln "IMPORT canvas\|IMPORT app" tests/byte-identity/` → **no matches**, so not one of the 132 `.ncodesum` fixtures builds a program that emits the canvas runtime, and NO canvas codegen change can move a single hash — plan-116-A rewrote both GPU emitters and both shaders and the gate reported 0 diffs over 1823 goldens. Every letter of plan-116 will see the same misleading 0; the instruments that genuinely cover that code are `scripts/test-canvas-vulkan.sh` and the `rt_canvas_*` suites), `testing` (TCASE-only), `errorCode` (constants, no code symbols), any compiler-internal path not reached by a builtin call, and `tests/acceptance/**` (no `golden/` dir → the harness runs `mfb test` and compares nothing; do NOT add a golden there — presence of `golden/` is a mode switch and that project declares no `entry`). A real false negative: `strings::graphemeAt` lived only in `tests/acceptance/`; 0 diffs across 1217 goldens while a real `mul` operand-order change existed. Before trusting the gate for a site, confirm it's reachable from a test that owns a `golden/`; where it isn't, add a `tests/rt-behavior/**` fixture, or build a scratch project + `mfb build -ncode` and diff against the pre-change compiler (`git show <commit>^:<path>` — and CHECK THE BUILD SUCCEEDED; a failed build silently reuses the old binary and fakes a match).
 
 ### Broadly-emitted changes break goldens BEYOND byte-identity/
 The `byte-identity/<pkg>` fixtures are a per-package SMOKE test, not the whole golden surface. `syntax/**` and `rt-behavior/**` also carry `.ir` host dumps and `.app.ncode`/`.ncodesum` native goldens the gate checks. A change to a broadly-emitted path breaks those too, and a per-phase check that only regenerates `byte-identity/` MISSES them — the full gate is the only authoritative finder. `sync-goldens.sh` refreshes `.ir`/`.ast`/`build.log` for byte-identity + rt-behavior but SKIPS `syntax/**` and does NOT refresh target-infixed `.ncodesum` or `.app.ncode` — regen those by hand (`mfb build -q -ncode [-target T] [--app]` then `cp`/`shasum` into `golden/`). Rule: after any shared-codegen change, run the FULL gate once before merge and regenerate every fixture it flags, tree-wide.
@@ -142,6 +142,26 @@ exact-coverage AA — so a diff means the rendering changed, which is a behaviou
 claim and falls under AGENTS.md's four-question rule. The reference is regenerated
 with `MFB_UPDATE_CANVAS_GOLDEN=1` only after the *reference* has been proven wrong,
 and the commit says what proved it.
+
+### An OPAQUE fixture cannot detect a duplicated draw
+
+Compositing an opaque source over itself is idempotent, so a renderer that draws an
+item **twice** produces a byte-identical frame and every pixel assertion passes. The
+canvas fixture font makes this concrete and easy to walk into: its glyph is a
+deliberately axis-aligned square, so its coverage is binary (0 or 255) and a
+double-composited glyph is indistinguishable from a single one.
+
+Measured, plan-116-A: with the post-glyph run-base reset deliberately removed — a bug
+that redraws every glyph quad — `scripts/test-canvas-vulkan.sh` still reported
+`ok ... worst=1 differing=0.0530%`, byte-identical to the correct build. Making the
+same label **translucent** (`rgba(220, 40, 160, 160)`) turned it into a real gate:
+bug present → `worst=27 differing=0.4983%` inside the glyph band; bug absent →
+`worst=1`.
+
+So: any scene meant to catch a **draw-count** or **draw-order** error needs a
+translucent source, and ideally one item drawn *after* the thing whose ordering is
+under test — with the text last, a trailing run flush is always empty and the
+ordering is never exercised at all.
 
 Two comparators, in `tests/common/canvas_image.rs`:
 

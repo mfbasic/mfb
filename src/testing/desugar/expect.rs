@@ -1,6 +1,7 @@
 use super::*;
 use crate::hir::build::*;
 use crate::hir::{HirCallArg, HirExpression, HirStatement};
+use crate::operators::BinaryOp;
 
 /// The value expression of a HIR call argument (positional or named).
 fn hir_call_arg_value(argument: &HirCallArg) -> &HirExpression {
@@ -66,7 +67,7 @@ fn expand_eq(
     };
     let actual_name = format!("$expect_a{uid}");
     let expected_name = format!("$expect_e{uid}");
-    let equal = binary(ident(&actual_name), "=", ident(&expected_name));
+    let equal = binary(ident(&actual_name), BinaryOp::Equal, ident(&expected_name));
     if negate {
         // expectNQ: fail when the two are equal.
         let detail = concat(vec![
@@ -153,8 +154,12 @@ fn expand_trap(
             statements.push(if_then(
                 binary(
                     ident(&trapped),
-                    "AND",
-                    binary(ident(&code_name), "<>", ident(&code_name_expected)),
+                    BinaryOp::And,
+                    binary(
+                        ident(&code_name),
+                        BinaryOp::NotEqual,
+                        ident(&code_name_expected),
+                    ),
                 ),
                 vec![fail_test(mismatch_detail, line)],
                 line,

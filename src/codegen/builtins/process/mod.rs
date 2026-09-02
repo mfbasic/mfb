@@ -37,6 +37,11 @@ mod gen_windows;
 // through its own per-member `Body::abi_function` body in its `func_*.rs`
 // (`func_*.rs` → `gen_{unix,windows}`).
 pub(crate) use gen_shared::lower_process_drop_helper;
+
+// bug-474: the pthread start routine `process::detach` hands each detached child
+// to. Not a runtime call either — the code builder emits it alongside the detach
+// helper (see `builder/mod.rs`), so it is reached by name from there.
+pub(crate) use gen_unix::lower_process_reaper_helper;
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;
@@ -146,7 +151,10 @@ The lifecycle queries read cached state: `process::pid` returns the child pid,
 `process::isRunning` polls without blocking, `process::waitFor` blocks for exit
 and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
 `isRunning` cache the exit status the first time they observe it, so `waitFor` is
-idempotent and `didSignal` can report the death cause after the fact."#;
+idempotent and `didSignal` can report the death cause after the fact. `waitFor`
+also keeps reading the child's output while it waits, so a child that writes more
+than the pipe can hold still finishes; that output is held for you and comes back
+from the next `process::receive`/`process::receiveBytes`."#;
 
 /// Register the `process` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
