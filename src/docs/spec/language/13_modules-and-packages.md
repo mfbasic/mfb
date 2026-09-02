@@ -30,8 +30,8 @@ cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] (`RESOURCE` was missing from this list, which led bug-288 to propose rejecting `PRIVATE RESOURCE` outright even though resource visibility is modelled and lowered; a `PRIVATE` resource is file-local exactly as a `PRIVATE TYPE` is.) Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
-Only project-visible top-level `FUNC` declarations may use `ISOLATED` — i.e.
-`PUBLIC` (the default) or `EXPORT`, not `PRIVATE`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
+Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
+`PRIVATE`, `PUBLIC` (the default) or `EXPORT`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
@@ -70,7 +70,6 @@ Rules:
   - It governs the **head of a path**, not its members. `u.host` needs no prefix
     on `host`, and `net::PingStatus.Ok` prefixes the enum, not `Ok`.
   - Inside a package, its own members are local, so they are written bare.
-    `IMPORT self` stays optional.
 
   A bare imported type is refused with `SYMBOL_UNKNOWN_TYPE`; two packages may
   therefore export the same leaf name without colliding (`http::Stream` and
@@ -132,21 +131,6 @@ compiler resolves the first identifier in the import using this order: [[src/res
    import is a compile-time error (`IMPORT_PACKAGE_NOT_INSTALLED`).
 [[src/resolver/packages.rs:resolve_imported_package]]
 
-The reserved specifier `self` is recognized before this resolution order: it is
-not probed against the package store. `IMPORT self` (or `IMPORT self AS alias`)
-binds a name to the **current** package's own exported interface — exactly the
-`EXPORT` API an external importer would see, and nothing more: `self::name`
-resolves only to `EXPORT` declarations, never to `PUBLIC` (the default) or
-`PRIVATE` ones. Its purpose is intra-package thread fan-out: `self` lets a package
-name its own exported `ISOLATED FUNC` as a `thread::start` entry point
-(`thread::start(self::worker, …)`) without splitting cohesive logic across two
-packages (see `./mfb spec language threads`). `self` is special only in the
-import-root position; it is not a general reserved identifier. Because an
-executable has no exported interface, `IMPORT self` in a `kind: "executable"`
-project is a compile-time error (`IMPORT_SELF_IN_EXECUTABLE`); aliasing another
-import onto the reserved binding (`IMPORT other AS self`) is a
-`SYMBOL_DUPLICATE_IMPORT`. [[src/resolver/packages.rs:resolve_imported_package]]
-
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The
 compiler does not implicitly import undeclared packages from this directory.
@@ -183,7 +167,9 @@ An installed `packages/<name>.mfp` always wins over the sources beside it. A
 package may not be part of its own dependency
 graph.[[src/manifest/package.rs:resolved_package_file]]
 
-An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
+An **isolated function** is a top-level `FUNC` declared with `ISOLATED`, at any visibility. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of the project that *declares* it — the package for an imported entry, the current project for a local one. Starting isolated functions from the same project multiple times creates multiple independent instances; their top-level `MUT` bindings are initialized from their declarations and are not shared with each other, with the parent, or with an importing package.
+
+That per-project instance is provided by **name resolution**, not by partitioning the globals: the worker's arena re-initializes the whole program's writable globals, and it is scoping that keeps a worker from naming anything outside its declaring project and that project's imports. See `./mfb spec language threads` for the full statement of the rule and its consequences.
 
 ## See Also
 

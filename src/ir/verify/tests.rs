@@ -38,6 +38,17 @@ fn expect_rule(project: &IrProject, rule: &str) {
     );
 }
 
+/// Assert `project` yields NO diagnostic with `rule`. Weaker than `expect_clean`
+/// on purpose: it pins that one specific rule stopped firing without also
+/// asserting the project is diagnostic-free, so it survives unrelated rules.
+fn expect_no_rule(project: &IrProject, rule: &str) {
+    let got = rules(project);
+    assert!(
+        !got.iter().any(|r| r == rule),
+        "expected no {rule}, got {got:?}"
+    );
+}
+
 fn ret(value: IrValue) -> IrOp {
     IrOp::Return {
         value: Some(value),
@@ -7845,12 +7856,19 @@ fn truncated_thread_spelling_still_counts_as_a_thread() {
 // decoded IR, where no the former source checker ever ran.
 // ---------------------------------------------------------------------------
 
+/// plan-115-A: `ISOLATED` is orthogonal to visibility, so a `PRIVATE ISOLATED
+/// FUNC` is well-formed. This is the converted twin of the former
+/// `rejects_private_isolated_func`, which pinned the bug-227 restriction that
+/// plan-115-A deliberately lifts (an entry no longer has to be reachable from
+/// another package, so "project-visible" has no surviving rationale). The
+/// declaration-form half of the rule is still pinned by `rejects_isolated_sub`
+/// below — that pairing is the point: only the visibility half was lifted.
 #[test]
-fn rejects_private_isolated_func() {
+fn accepts_private_isolated_func() {
     let mut f = func("w", vec![], vec![ret(int_const("0"))]);
     f.isolated = true;
     f.visibility = "private".to_string();
-    expect_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
 }
 
 #[test]

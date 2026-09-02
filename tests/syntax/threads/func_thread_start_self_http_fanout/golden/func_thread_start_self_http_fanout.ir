@@ -170,32 +170,32 @@
   "functions": [
   {
     "name": "fetchStatus",
-    "line": 11,
+    "line": 12,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "w", "line": 11, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
-    { "name": "url", "line": 11, "type": "String", "default": null }
+    { "name": "w", "line": 12, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
+    { "name": "url", "line": 12, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "r", "type": "http.Response", "value": { "kind": "call", "type": "http.Response", "target": "#http_read", "args": [{ "kind": "call", "type": "net.Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "url" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
-    { "op": "return", "line": 13, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "status" } }
+    { "op": "bind", "line": 13, "mutable": false, "name": "r", "type": "http.Response", "value": { "kind": "call", "type": "http.Response", "target": "#http_read", "args": [{ "kind": "call", "type": "net.Url", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "url" }] }, { "kind": "map", "type": "Map OF String TO String", "entries": [] }, { "kind": "const", "type": "String", "value": "GET" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "status" } }
     ]
   },
   {
     "name": "fanout",
-    "line": 16,
+    "line": 17,
     "visibility": "export",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 17, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://a.example/" }] } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://b.example/" }] } },
-    { "op": "bind", "line": 19, "mutable": false, "name": "c", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://c.example/" }] } },
-    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "c" }] } } }
+    { "op": "bind", "line": 18, "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://a.example/" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://b.example/" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "c", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fetchStatus", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "http://c.example/" }] } },
+    { "op": "return", "line": 21, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "b" }] } }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "c" }] } } }
     ]
   },
   {

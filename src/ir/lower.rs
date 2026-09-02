@@ -3133,15 +3133,6 @@ fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
         return name.to_string();
     };
     // `IMPORT self` binds the current package's own exported interface, so a
-    // `self::worker` reference resolves to the current package's *own* function,
-    // which lives in `function_types` under its bare name (never a prefixed
-    // imported-package key). Canonicalize `self.worker` to bare `worker` so the
-    // `Identifier` lowering finds it in `function_types` and emits a `FunctionRef`
-    // to the already-compiled `_mfb_fn_worker` symbol, rather than a dangling
-    // `Local` (plan-81-import-self.md §4.4).
-    if package == crate::ast::SELF_IMPORT {
-        return rest.to_string();
-    }
     format!("{package}.{rest}")
 }
 

@@ -885,3 +885,125 @@ pub(crate) fn emit_poll_wait(
     ]);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// `_mfb_rt_process_reaper` (bug-474) — the pthread start routine `process::detach`
+// spawns to reap exactly ONE detached child.
+// ---------------------------------------------------------------------------
+
+/// `void *_mfb_rt_process_reaper(void *pid)` — `waitpid(pid, NULL, 0); return NULL;`.
+///
+/// `detach` used to arrange the child's cleanup by flipping the **process-wide**
+/// `SIGCHLD` disposition to `SIG_IGN`, which tells the kernel to auto-reap *every*
+/// child of the program. Any later `waitpid` then failed with `ECHILD`, and
+/// `process::waitFor` reads `ECHILD` as "already reaped" and returns the handle's
+/// cached exit code — `0` for a child nobody had waited on. One `detach` therefore
+/// silently zeroed the exit status of every other child (bug-474). Reaping on a
+/// per-pid thread keeps the disposition untouched, so `waitFor` on a handle that was
+/// never detached still reports the child's real status.
+///
+/// The child pid arrives **by value** in the C first-argument register, never a
+/// pointer to the `Process` record: the record's arena block may be reclaimed at the
+/// detaching scope's exit while this thread is still blocked in `waitpid`.
+///
+/// **Callee-saved registers.** pthread IS the caller of a start routine and keeps its
+/// own live state in the callee-saved bank, so clobbering one aborts at *thread exit*
+/// (`_pthread_terminate` PAC failure / libmalloc in `_pthread_tsd_cleanup`) with none
+/// of this code in the backtrace. The body DOES use one: `pid` is live across
+/// `waitpid`, so the allocator colors it callee-saved (`x21` on macos/linux-aarch64,
+/// `r12` on linux-x86_64) — and `finalize_vreg_helper`'s frame builder saves and
+/// restores exactly the registers the allocator used (`calleeSaved: ["x21","lr"]` in
+/// the dump), which is what makes that safe. The one register it must NOT touch is
+/// `ARENA_STATE_REGISTER` (`x19`), and that is reserved from allocation, so it cannot.
+/// This is the difference from `lower_thread_trampoline`, which hand-manages its frame
+/// (and therefore has to save `x19`/`x20`/the closure register itself).
+///
+/// **Stack alignment.** A start routine is entered by a foreign `call` on x86-64
+/// (glibc `start_thread`, musl's dispatch), i.e. at `sp % 16 == 8`, and a downstream
+/// call from a frame that assumed `sp % 16 == 0` faults on libc's first `movaps` to a
+/// stack local. This body needs no manual bias because `finalize_frame` already adds
+/// the per-arch one — `frame_call_padding()` is 8 on x86-64 and 0 on AArch64/RISC-V
+/// (`vreg_frame.rs`), which is why the emitted `stackSize` is 24 on linux-x86_64 and
+/// 16 elsewhere. The trampoline hand-rolls the same `+8` only because it bypasses this
+/// frame builder.
+///
+/// **Arena.** Arena state is per-thread and a spawned thread gets its own zeroed copy,
+/// so a reaper must not allocate, free, or read through `x19`. It does not: the whole
+/// body is register moves, `waitpid`, the errno accessor, and a return.
+///
+/// **Stack size.** `detach` passes a NULL `pthread_attr_t` rather than the explicit
+/// 8 MiB `thread::start` and the graphics thread set, because the reason those need it
+/// does not apply here: they run arbitrary MFB code, whose frames are routinely
+/// hundreds of KiB. This thread runs no MFB code at all. Its own frame is 16 bytes (24
+/// on linux-x86_64, the `stackSize` in the dump) plus libc's `waitpid`/errno frames,
+/// against a 512 KiB macOS / 128 KiB musl default — four orders of magnitude of
+/// headroom, and fixed, since the body cannot grow without editing this function.
+/// Taking the default also keeps the per-detach cost small, which matters because the
+/// thread count scales with the number of *live* detached children (`func_detach.rs`).
+pub(crate) fn lower_process_reaper_helper(
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
+    const EINTR: &str = "4";
+    let symbol = PROCESS_REAPER_SYMBOL;
+    let mut v = Vregs::new();
+    let pid = v.next();
+    let ret = v.next();
+    let errno = v.next();
+    let wait_loop = format!("{symbol}_wait");
+    let interrupted = format!("{symbol}_interrupted");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&pid, abi::c_arg(0)),
+        // waitpid(pid, NULL, 0) — block until this one child exits, then reap it.
+        // The status is discarded: nothing can observe a detached child's exit
+        // (its handle is closed), so there is nowhere to cache it.
+        abi::label(&wait_loop),
+        abi::move_register(abi::c_arg(0), &pid),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+    ];
+    let mut relocations = Vec::new();
+    platform.emit_external_call(
+        "waitpid",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // Retry on EINTR. Signal dispositions and delivery are process-wide, so ANY
+    // signal the program takes while this thread sits in `waitpid` returns
+    // `-1`/`EINTR` here — and a `waitpid` that returns without reaping leaves
+    // exactly the zombie this thread exists to prevent, intermittently. Any other
+    // failure (`ECHILD`: something else already reaped the child) is terminal, so
+    // the loop exits rather than spinning.
+    instructions.extend([
+        abi::sign_extend_word(&ret, abi::c_return(0)),
+        abi::compare_immediate(&ret, "0"),
+        abi::branch_lt(&interrupted),
+        abi::branch(&done),
+        abi::label(&interrupted),
+    ]);
+    platform.emit_errno(
+        symbol,
+        errno.as_str().into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(&errno, EINTR),
+        abi::branch_eq(&wait_loop),
+        abi::label(&done),
+        abi::move_immediate(abi::c_return(0), "Integer", "0"),
+        abi::return_(),
+    ]);
+    Ok(finalize_vreg_helper(
+        "process.reaper",
+        symbol,
+        "Integer",
+        instructions,
+        relocations,
+    ))
+}

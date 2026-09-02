@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-package-fanout-rt
+uses self_fanout_workers - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-package-fanout-rt/thread_package_fanout_rt.ast
+Wrote IR to tests/rt-behavior/threads/thread-package-fanout-rt/thread_package_fanout_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-package-fanout-rt
+uses self_fanout_workers - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-package-fanout-rt/build/thread_package_fanout_rt.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-package-fanout-rt/build/thread_package_fanout_rt.out
+a=107 b=207 parent=7
+main_counter=7
+[exit 0]

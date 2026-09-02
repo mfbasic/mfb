@@ -1,11 +1,10 @@
 IMPORT thread
-IMPORT self
 
 EXPORT ISOLATED FUNC echoText(worker AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 
 EXPORT FUNC spawn AS Integer
-  LET t AS Thread OF String TO Integer = thread::start(self::echoText, "hi")
+  LET t AS Thread OF String TO Integer = thread::start(echoText, "hi")
   RETURN thread::waitFor(t)
 END FUNC
