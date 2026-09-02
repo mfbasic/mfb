@@ -34,6 +34,7 @@ pub(crate) fn lower_tls_connect_macos(
     const CFGBLOCK: usize = 200; // 200..264: the SNI-config block literal
     const TIMEOUT: usize = 264; // timeoutMs (arg x2)
     const DEADLINE: usize = 272; // dispatch_time deadline for the wait
+    const ALLOW: usize = 280; // bug-477: allowSelfSigned (0/1)
 
     let wait_loop = format!("{symbol}_wait");
     let ready = format!("{symbol}_ready");
@@ -51,11 +52,11 @@ pub(crate) fn lower_tls_connect_macos(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
-    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
-    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     ins.extend(
         crate::codegen::builtins::tls::gen_shared::connect_arg_prologue(
-            address, &v9, HOST, PORT, TIMEOUT, SNAME,
+            address, &v9, HOST, PORT, TIMEOUT, SNAME, ALLOW,
         ),
     );
     {

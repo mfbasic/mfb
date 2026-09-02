@@ -417,6 +417,27 @@ pub(crate) fn lower_tls_connect_helper(
 /// the same layout `net`/`tcp`/`udp` build — which shifts the two optional
 /// arguments down one register. Everything after this is identical, so the
 /// Address form is a pure re-staging, not a second connect implementation.
+/// `allow_off` receives `allowSelfSigned` (bug-477).
+///
+/// **x86-64 argument-bank hazard.** The host form takes the flag at `c_arg(4)`,
+/// the fifth slot, which the two x86 ABIs realize to *different* registers and
+/// neither of which is a C argument register on its own ABI
+/// (`src/arch/x86_64/select.rs`):
+///
+/// ```text
+/// CALL_ARGS       = [rdi, rsi, rdx, rcx, r8,  r9,  rax, rbp]   // SysV
+/// CALL_ARGS_WIN64 = [rcx, rdx, r8,  r9,  rdi, rsi, rax, rbp]   // Win64
+/// ```
+///
+/// So index 4 is `r8` on SysV and `rdi` on Win64 — where `rdi` is *non-volatile*
+/// in the Win64 C ABI and is simultaneously `c_arg(0)` on SysV. That is why every
+/// incoming argument is spilled to the frame **here, before anything else runs**:
+/// the first foreign call a backend makes would otherwise stage `c_arg(0)` over
+/// the still-live flag on exactly one of the two ABIs, and the result is a *wrong
+/// value* rather than a crash, which byte-identity cannot see. On AArch64/RISC-V
+/// index 4 is plainly `x4`/`a4` and no hazard exists, which is precisely why a
+/// Mac-only test run cannot catch this class (`.ai/arch-abi.md`, "Three x86-64
+/// foreign-call traps").
 pub(crate) fn connect_arg_prologue(
     address: bool,
     scratch: &str,
@@ -424,6 +445,7 @@ pub(crate) fn connect_arg_prologue(
     port_off: usize,
     timeout_off: usize,
     sname_off: usize,
+    allow_off: usize,
 ) -> Vec<CodeInstruction> {
     if address {
         vec![
@@ -433,6 +455,7 @@ pub(crate) fn connect_arg_prologue(
             abi::store_u64(scratch, abi::stack_pointer(), port_off),
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), timeout_off),
             abi::store_u64(abi::c_arg(2), abi::stack_pointer(), sname_off),
+            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), allow_off),
         ]
     } else {
         vec![
@@ -440,6 +463,7 @@ pub(crate) fn connect_arg_prologue(
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), port_off),
             abi::store_u64(abi::c_arg(2), abi::stack_pointer(), timeout_off),
             abi::store_u64(abi::c_arg(3), abi::stack_pointer(), sname_off),
+            abi::store_u64(abi::c_arg(4), abi::stack_pointer(), allow_off),
         ]
     }
 }

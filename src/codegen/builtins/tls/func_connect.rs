@@ -106,7 +106,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("String, Integer, Integer, String or Address, Integer, String"),
+        expected_arguments: Some(
+            "String, Integer, Integer, String, Boolean or Address, Integer, String, Boolean",
+        ),
         internal_only: false,
         implementations: vec![
             Implementation {
@@ -127,6 +129,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     timeout_param(),
                     server_name_param(false),
+                    allow_self_signed_param(),
                 ],
                 return_type: ret(),
                 errors: vec![],
@@ -146,6 +149,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     timeout_param(),
                     server_name_param(true),
+                    allow_self_signed_param(),
                 ],
                 return_type: ret(),
                 errors: vec![],
@@ -167,6 +171,30 @@ fn timeout_param() -> Parameter {
         default: DefaultValue::Fill {
             type_name: ParameterType::Integer,
             expr: super::SENTINEL,
+        },
+    }
+}
+
+/// The shared optional `allowSelfSigned` parameter (bug-477).
+///
+/// **The default must stay `FALSE`, and the spelling must stay lowercase.** The
+/// `Fill` reaches `ir/lower.rs` as `IrValue::Const { type_: Boolean, value: expr }`
+/// and ends at `arch/encode_operand.rs::immediate`, whose Boolean vocabulary is
+/// exactly `"true"`/`"false"` — `"FALSE"` is `invalid immediate` (the uppercase
+/// spelling is only the *rendered* display form). And the value matters far
+/// beyond this member: `http::`'s HTTPS path reaches `tls::connect` through
+/// `helper_start_exchange.rs` with this argument padded, so a pad of anything but
+/// `false` silently turns every HTTPS client in the language into a MITM target,
+/// with no compile error and no golden diff to catch it.
+fn allow_self_signed_param() -> Parameter {
+    Parameter {
+        name: "allowSelfSigned",
+        desc: "Optional. When TRUE, accept a certificate chain that fails validation only because its root is not in the host trust store — a self-signed certificate, or one issued by a private CA. The server name, the validity dates and the TLS 1.2 floor are still enforced. Defaults to FALSE, which requires a chain the host already trusts.",
+        aliases: &[],
+        ty: ParameterType::Boolean,
+        default: DefaultValue::Fill {
+            type_name: ParameterType::Boolean,
+            expr: "false",
         },
     }
 }

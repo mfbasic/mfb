@@ -266,10 +266,13 @@ pub(crate) fn lower_tls_connect(
     const REC: usize = 128; // resource record ptr
     const HSTV: usize = 240; // plan-73-D: handshake SO_*TIMEO DWORD-ms scratch
     const HSTOF: usize = 248; // plan-73-D: 1 if the handshake recv timed out (WSAETIMEDOUT)
+    // bug-477: allowSelfSigned (0/1). HSTOF ended at 0x100, so the frame grows
+    // by one 16-byte step to keep the 16-byte stack alignment Win64 requires.
+    const ALLOW: usize = 256;
     // The SCHANNEL_CRED, SecBuffers, SecBufferDescs, attrs and expiry all live in
     // the arena STATE block (st::SC_CRED/OUTBUF/OUTDESC/INBUF/INDESC/ATTRS/EXPIRY),
     // so their pointers are absolute and survive sspi_call_ext's sub_sp (see there).
-    const FRAME_SIZE: usize = 0x100;
+    const FRAME_SIZE: usize = 0x110;
 
     let fail = format!("{symbol}_fail");
     // Socket-level (TCP connect / WSAPoll / getsockopt) failures are network
@@ -291,10 +294,10 @@ pub(crate) fn lower_tls_connect(
 
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
-    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
-    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     ins.extend(super::gen_shared::connect_arg_prologue(
-        address, &v9, HOST, PORT, TIMEOUT, SNAME,
+        address, &v9, HOST, PORT, TIMEOUT, SNAME, ALLOW,
     ));
     ins.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE),

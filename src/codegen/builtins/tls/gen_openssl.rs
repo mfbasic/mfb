@@ -47,6 +47,7 @@ pub(crate) fn lower_tls_connect_openssl(
     const SOLEN_OFFSET: usize = 176; // getsockopt option length
     const TIMEVAL_OFFSET: usize = 184; // 184..200: tv_sec (8) + tv_usec (8)
     const HSTOFLAG: usize = 200; // plan-73-D: 1 if the handshake recv timed out (SO_*TIMEO)
+    const ALLOW: usize = 208; // bug-477: allowSelfSigned (0/1)
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let net_fail = format!("{symbol}_net_fail");
@@ -70,8 +71,8 @@ pub(crate) fn lower_tls_connect_openssl(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
-    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
-    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     instructions.extend(super::gen_shared::connect_arg_prologue(
         address,
         &v9,
@@ -79,6 +80,7 @@ pub(crate) fn lower_tls_connect_openssl(
         PORT_OFFSET,
         TIMEOUT_OFFSET,
         SNAME_OFFSET,
+        ALLOW,
     ));
     instructions.extend([
         // Sentinel-initialise the fd (-1) and the SSL/SSL_CTX slots (0) so the
