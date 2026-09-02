@@ -262,8 +262,33 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
 /// depend on the surface, so a resize must not tear it down.
 pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_BUFFER: usize = 680;
 pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_CONTENTS: usize = 688;
+/// The **three non-`Normal` pipelines**, one per remaining `BlendMode`, on each
+/// backend (plan-116-B).
+///
+/// A blend mode is per-*pipeline* state on both APIs, not per-draw — it is baked into
+/// `VkPipelineColorBlendAttachmentState` and into `MTLRenderPipelineDescriptor`'s
+/// colour attachment — so "per-item blend" means four pipelines selected per draw, not
+/// a shader branch. All four differ *only* in their blend factors; they share one
+/// vertex function, one fragment function and one layout.
+///
+/// **Four contiguous slots each, indexed by the `BlendMode` tag directly** — entry 0
+/// is `Normal`. Contiguous and 0-based so the frame path computes the handle's address
+/// as `base + mode * 8` with no branch and no `mode - 1` correction; a four-way branch
+/// per mode change is the kind of arithmetic that is right for three of the four cases.
+///
+/// `Normal`'s handle is *also* stored in `…_VULKAN_PIPELINE` / `…_MTL_PIPELINE`, which
+/// stay exactly what they were. That is not redundancy for its own sake: those slots
+/// are what the readiness checks test for non-zero, and what an ordinary scene binds
+/// once at frame start, so leaving them untouched keeps "the pipeline built" meaning
+/// what it has always meant.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES: usize = 696;
+pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE_MODES: usize = 728;
+/// How many blend modes there are, and therefore how many pipelines each backend
+/// builds. Spelled again in MFBASIC as the `BlendMode` variant count; the emitters and
+/// the header agree through `HEADER_BLEND`'s 0..3 range.
+pub(crate) const BLEND_MODE_COUNT: usize = 4;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 696;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///

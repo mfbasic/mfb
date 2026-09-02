@@ -54,17 +54,18 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
     GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
     GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
-    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
-    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
-    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
-    HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1,
-    HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
-    HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES,
-    VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES, GRAPHICS_OFFSET_VULKAN_QUEUE,
+    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
+    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
+    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1,
+    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
+    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT,
+    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
+    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -256,6 +257,15 @@ const FRONT_FACE_CCW: &str = "0";
 /// uses.
 const BLEND_FACTOR_ONE: &str = "1";
 const BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: &str = "7";
+/// `VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR` (3) and `VK_BLEND_FACTOR_DST_COLOR` (4) —
+/// the two extra factors plan-116-B's `Screen` and `Multiply` pipelines need.
+///
+/// From `VkBlendFactor`: 0 ZERO, 1 ONE, 2 SRC_COLOR, 3 ONE_MINUS_SRC_COLOR,
+/// 4 DST_COLOR, 5 ONE_MINUS_DST_COLOR, 6 SRC_ALPHA, 7 ONE_MINUS_SRC_ALPHA. Worth
+/// spelling out: `DST_COLOR` is 4, and mistaking it for one of the alpha factors
+/// would produce a picture that still looked like a blend.
+const BLEND_FACTOR_ONE_MINUS_SRC_COLOR: &str = "3";
+const BLEND_FACTOR_DST_COLOR: &str = "4";
 /// `VK_BLEND_OP_ADD`, and the full `VK_COLOR_COMPONENT_*_BIT` mask.
 const BLEND_OP_ADD: &str = "0";
 const COLOR_COMPONENT_RGBA: &str = "15";
@@ -2036,27 +2046,9 @@ fn emit_vulkan_pipeline(
             (MULTISAMPLE_SAMPLES, Field::U32(SAMPLE_COUNT_1)),
         ],
     );
-    emit_struct(
-        builder,
-        off_blend_attachment,
-        BLEND_ATTACHMENT_SIZE,
-        &[
-            (BLEND_ENABLE, Field::U32("1")),
-            (BLEND_SRC_COLOR, Field::U32(BLEND_FACTOR_ONE)),
-            (
-                BLEND_DST_COLOR,
-                Field::U32(BLEND_FACTOR_ONE_MINUS_SRC_ALPHA),
-            ),
-            (BLEND_COLOR_OP, Field::U32(BLEND_OP_ADD)),
-            (BLEND_SRC_ALPHA, Field::U32(BLEND_FACTOR_ONE)),
-            (
-                BLEND_DST_ALPHA,
-                Field::U32(BLEND_FACTOR_ONE_MINUS_SRC_ALPHA),
-            ),
-            (BLEND_ALPHA_OP, Field::U32(BLEND_OP_ADD)),
-            (BLEND_WRITE_MASK, Field::U32(COLOR_COMPONENT_RGBA)),
-        ],
-    );
+    // The blend attachment is filled per MODE inside the pipeline loop below
+    // (plan-116-B); everything else about the four pipelines is identical, so only
+    // this struct and the destination state slot vary.
     emit_struct(
         builder,
         off_blend_info,
@@ -2091,84 +2083,153 @@ fn emit_vulkan_pipeline(
         ],
     );
 
-    emit_struct(
-        builder,
-        off_pipeline_info,
-        PIPELINE_INFO_SIZE,
-        &[
-            (0, Field::U32(ST_GRAPHICS_PIPELINE_CREATE_INFO)),
-            (PIPELINE_STAGE_COUNT, Field::U32("2")),
-            (PIPELINE_STAGES, Field::Addr(off_stages)),
-            (PIPELINE_VERTEX_INPUT, Field::Addr(off_vertex_input)),
-            (PIPELINE_INPUT_ASSEMBLY, Field::Addr(off_input_assembly)),
-            (PIPELINE_VIEWPORT, Field::Addr(off_viewport_info)),
-            (PIPELINE_RASTER, Field::Addr(off_raster)),
-            (PIPELINE_MULTISAMPLE, Field::Addr(off_multisample)),
-            (PIPELINE_COLOR_BLEND, Field::Addr(off_blend_info)),
-            (PIPELINE_DYNAMIC, Field::Addr(off_dynamic_info)),
-        ],
-    );
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_pipeline_info + PIPELINE_LAYOUT,
-    ));
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_pipeline_info + PIPELINE_RENDER_PASS,
-    ));
+    // --- one pipeline per blend mode (plan-116-B) ----------------------------------
+    // A blend mode is per-PIPELINE state on this API: it lives in
+    // `VkPipelineColorBlendAttachmentState`, which is baked into the pipeline. So
+    // "per-item blend" means four pipelines chosen per draw, not a shader branch.
+    //
+    // The factor pairs, on a PREMULTIPLIED source against an sRGB attachment (so the
+    // hardware blends in linear, which is where the oracle defines the modes):
+    //
+    //   Normal    One / OneMinusSrcAlpha    S + D(1-a)
+    //   Multiply  DstColor / OneMinusSrcAlpha    S·D + D(1-a)  = D + a(Cs·D - D)
+    //   Screen    One / OneMinusSrcColor    S + D(1-S)    = D + a·Cs(1-D)
+    //   Add       One / One                 S + D
+    //
+    // Each expands to exactly the oracle's equation for that mode — worked through in
+    // the plan's §2 and confirmed by the reference image, not assumed.
+    for (mode, src_factor, dst_factor, slot) in [
+        (
+            0usize,
+            BLEND_FACTOR_ONE,
+            BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
+        ),
+        (
+            1,
+            BLEND_FACTOR_DST_COLOR,
+            BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES + 8,
+        ),
+        (
+            2,
+            BLEND_FACTOR_ONE,
+            BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES + 16,
+        ),
+        (
+            3,
+            BLEND_FACTOR_ONE,
+            BLEND_FACTOR_ONE,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES + 24,
+        ),
+    ] {
+        // The alpha channel keeps `One`/`OneMinusSrcAlpha` for every mode. The modes
+        // are defined on COLOUR; the surface's alpha is written 255 everywhere by the
+        // oracle, and a mode that also rewrote alpha would make the two disagree about
+        // a channel neither is trying to blend.
+        emit_struct(
+            builder,
+            off_blend_attachment,
+            BLEND_ATTACHMENT_SIZE,
+            &[
+                (BLEND_ENABLE, Field::U32("1")),
+                (BLEND_SRC_COLOR, Field::U32(src_factor)),
+                (BLEND_DST_COLOR, Field::U32(dst_factor)),
+                (BLEND_COLOR_OP, Field::U32(BLEND_OP_ADD)),
+                (BLEND_SRC_ALPHA, Field::U32(BLEND_FACTOR_ONE)),
+                (
+                    BLEND_DST_ALPHA,
+                    Field::U32(BLEND_FACTOR_ONE_MINUS_SRC_ALPHA),
+                ),
+                (BLEND_ALPHA_OP, Field::U32(BLEND_OP_ADD)),
+                (BLEND_WRITE_MASK, Field::U32(COLOR_COMPONENT_RGBA)),
+            ],
+        );
+        emit_struct(
+            builder,
+            off_pipeline_info,
+            PIPELINE_INFO_SIZE,
+            &[
+                (0, Field::U32(ST_GRAPHICS_PIPELINE_CREATE_INFO)),
+                (PIPELINE_STAGE_COUNT, Field::U32("2")),
+                (PIPELINE_STAGES, Field::Addr(off_stages)),
+                (PIPELINE_VERTEX_INPUT, Field::Addr(off_vertex_input)),
+                (PIPELINE_INPUT_ASSEMBLY, Field::Addr(off_input_assembly)),
+                (PIPELINE_VIEWPORT, Field::Addr(off_viewport_info)),
+                (PIPELINE_RASTER, Field::Addr(off_raster)),
+                (PIPELINE_MULTISAMPLE, Field::Addr(off_multisample)),
+                (PIPELINE_COLOR_BLEND, Field::Addr(off_blend_info)),
+                (PIPELINE_DYNAMIC, Field::Addr(off_dynamic_info)),
+            ],
+        );
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+            abi::SCRATCH[0],
+        );
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_pipeline_info + PIPELINE_LAYOUT,
+        ));
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+            abi::SCRATCH[0],
+        );
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_pipeline_info + PIPELINE_RENDER_PASS,
+        ));
 
-    emit_dlsym(
-        builder,
-        platform,
-        platform_imports,
-        "vkCreateGraphicsPipelines",
-        off_handle,
-        off_fn,
-        unavailable,
-    )?;
-    emit_state_load(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_DEVICE,
-        abi::c_arg(0),
-    );
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // no cache
-    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // one pipeline
-    builder.emit(abi::add_immediate(
-        abi::c_arg(3),
-        abi::stack_pointer(),
-        off_pipeline_info,
-    ));
-    emit_int_arg(builder, platform, 4, "0");
-    emit_addr_arg(builder, platform, 5, off_out);
-    emit_call_fn(builder, off_fn);
-    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
-    builder.emit(abi::branch_ne(unavailable));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_out,
-    ));
-    emit_state_store(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_PIPELINE,
-        abi::SCRATCH[0],
-    );
+        emit_dlsym(
+            builder,
+            platform,
+            platform_imports,
+            "vkCreateGraphicsPipelines",
+            off_handle,
+            off_fn,
+            unavailable,
+        )?;
+        emit_state_load(
+            builder,
+            off_state,
+            GRAPHICS_OFFSET_VULKAN_DEVICE,
+            abi::c_arg(0),
+        );
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // no cache
+        builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1")); // one pipeline
+        builder.emit(abi::add_immediate(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            off_pipeline_info,
+        ));
+        emit_int_arg(builder, platform, 4, "0");
+        emit_addr_arg(builder, platform, 5, off_out);
+        emit_call_fn(builder, off_fn);
+        builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+        builder.emit(abi::branch_ne(unavailable));
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_out,
+        ));
+        emit_state_store(builder, off_state, slot, abi::SCRATCH[0]);
+        // `Normal` lands in the legacy slot too — see `…_PIPELINE_MODES`' doc. The
+        // readiness check and the once-per-frame bind both read that one.
+        if mode == 0 {
+            emit_state_store(
+                builder,
+                off_state,
+                GRAPHICS_OFFSET_VULKAN_PIPELINE,
+                abi::SCRATCH[0],
+            );
+        }
+    }
     Ok(())
 }
 
@@ -3631,6 +3692,117 @@ fn emit_item_publish(
     ));
 }
 
+/// Publish this item's block — as **two** records when the fragment shader's
+/// stroke-over-fill composition would not equal the oracle's two sequential blends.
+///
+/// The shaders compose stroke over fill *in the shader* and hand the hardware one
+/// source, and `mfb_canvas.frag` states the identity that rests on: it equals the
+/// oracle's two writes because `over` is associative. **That is `Normal`-only.** The
+/// oracle applies the mode twice per pixel — fill into the surface, then stroke into
+/// the result — and `M(M(D, fill), stroke) = M(D, over(stroke, fill))` holds for
+/// `over` and for none of `Multiply`, `Screen` or `Add` wherever the stroke band
+/// covers filled pixels.
+///
+/// So an item that is non-`Normal` **and** both fills and strokes becomes two adjacent
+/// records: the first with `strokeHalf` zeroed (fill only), the second with the fill
+/// alpha zeroed (stroke only), in that order. Each then reaches the fixed-function
+/// unit as a single source, and paint order is exactly the oracle's. The fragment
+/// shader needs no change for it — a zero `strokeHalf` skips the stroke arm and a zero
+/// fill alpha premultiplies to nothing.
+///
+/// Everything else stays one record: `Normal` items, fill-only items and stroke-only
+/// items all take the single-publish path they had.
+fn emit_split_or_publish(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_item_cursor: usize,
+    off_item_mode: usize,
+    off_saved_stroke: usize,
+    full: &str,
+) {
+    let single = builder.label("vk_publish_single");
+    let done = builder.label("vk_publish_done");
+
+    // Split only when the mode is not Normal...
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item_mode,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_eq(&single));
+    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16)...
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 8,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_le(&single));
+    // ...and actually fills (fill alpha > 0). A `Line` or an `Arc` reaches here with
+    // its stroke colour already moved into the fill slots and `strokeHalf` negative
+    // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_FILL + 12,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_le(&single));
+
+    // Record one: the fill, with the stroke switched off.
+    //
+    // `strokeHalf` is parked on the STACK, not in a scratch register.
+    // `emit_item_publish` uses `SCRATCH[0..3]` — `SCRATCH[1]` is its target pointer —
+    // so a register saved across it comes back holding a mapped address. Measured
+    // rather than reasoned about: doing exactly that gave record two a `strokeHalf` of
+    // whatever the buffer pointer was, i.e. an enormous stroke band, and the Vulkan
+    // harness reported `worst=215` with the GPU painting stroke pixels the oracle
+    // never touched.
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 8,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_saved_stroke,
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 8,
+    ));
+    emit_item_publish(builder, off_state, off_item, off_item_cursor, full);
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_saved_stroke,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 8,
+    ));
+
+    // Record two: the stroke, with the fill made fully transparent.
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_FILL + 12,
+    ));
+    emit_item_publish(builder, off_state, off_item, off_item_cursor, full);
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&single));
+    emit_item_publish(builder, off_state, off_item, off_item_cursor, full);
+    builder.emit(abi::label(&done));
+}
+
 /// Draw every quad published since the last flush as **one instanced draw**, and start
 /// a new run.
 ///
@@ -4275,6 +4447,13 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_item_cursor = builder.allocate_stack_object("vk_item_cursor", 8);
     let off_run_start = builder.allocate_stack_object("vk_run_start", 8);
     let off_run_count = builder.allocate_stack_object("vk_run_count", 8);
+    // The blend mode currently bound, and this item's. A mode change ends the
+    // instanced run exactly as a glyph run does, which is what keeps paint order
+    // exact: items batch only while they are adjacent AND share a mode (plan-116-B).
+    let off_bound_mode = builder.allocate_stack_object("vk_bound_mode", 8);
+    let off_item_mode = builder.allocate_stack_object("vk_item_mode", 8);
+    let off_pipe_fn = builder.allocate_stack_object("vk_pipe_fn", 8);
+    let off_saved_stroke = builder.allocate_stack_object("vk_saved_stroke", 8);
     let off_header = builder.allocate_stack_object("vk_header", 8);
     // The glyph cache, and the frame's running cursor into the buffer's glyph region.
     let off_glyph_meta = builder.allocate_stack_object("vk_glyph_meta", 8);
@@ -4640,6 +4819,18 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_draw_fn,
         &unavailable,
     )?;
+    // `vkCmdBindPipeline`, resolved once for the same reason: it is now called per RUN
+    // rather than once per frame, and a scene that alternates blend modes would put a
+    // `dlsym` between every pair of items.
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkCmdBindPipeline",
+        off_handle,
+        off_pipe_fn,
+        &unavailable,
+    )?;
 
     // --- one quad per item --------------------------------------------------------
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
@@ -4671,6 +4862,14 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_run_start,
+    ));
+    // `Normal` is what the once-per-frame bind above left bound, so the frame starts
+    // knowing that. An all-`Normal` scene therefore issues exactly the one
+    // `vkCmdBindPipeline` it always did.
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_bound_mode,
     ));
     builder.emit(abi::label(&item_head));
     builder.emit(abi::load_u64(
@@ -4723,6 +4922,117 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_header,
     ));
+    // --- the blend mode, before the kind fork so a glyph run takes it too -----------
+    // A mode change ends the instanced run and binds that mode's pipeline. Ending the
+    // run is what preserves paint order: the items already published draw under the
+    // pipeline they were recorded with, and only then does the next one take over.
+    // Batching is therefore ADJACENT-run only — a scene that alternates modes issues
+    // more binds and one that groups them issues few, but neither reorders anything.
+    {
+        let same_mode = builder.label("vk_same_mode");
+        builder.emit(abi::load_double(
+            abi::FP_SCRATCH[1],
+            abi::SCRATCH[0],
+            HEADER_BLEND * 8,
+        ));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item_mode,
+        ));
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::stack_pointer(),
+            off_bound_mode,
+        ));
+        builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[2]));
+        builder.emit(abi::branch_eq(&same_mode));
+
+        emit_run_flush(
+            builder,
+            platform,
+            off_cmd_handle,
+            off_draw_fn,
+            off_item_cursor,
+            off_run_start,
+            off_run_count,
+        );
+        // handle = *(state + …_PIPELINE_MODES + mode * 8). Contiguous and 0-based, so
+        // this is a shift and an add rather than a four-way branch.
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_item_mode,
+        ));
+        builder.emit(abi::shift_left_immediate(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            3,
+        ));
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_state,
+        ));
+        builder.emit(abi::add_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+            abi::SCRATCH[0],
+        ));
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
+        ));
+        // Parked, then staged from memory: `load_selector`-free though this is, the
+        // argument staging below still runs through the C bank that aliases SCRATCH on
+        // x86-64 (`.ai/arch-abi.md`).
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_run_count,
+        ));
+        builder.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            off_cmd_handle,
+        ));
+        builder.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            PIPELINE_BIND_POINT_GRAPHICS,
+        ));
+        builder.emit(abi::load_u64(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            off_run_count,
+        ));
+        emit_call_fn(builder, off_pipe_fn);
+
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_item_mode,
+        ));
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_bound_mode,
+        ));
+        builder.emit(abi::label(&same_mode));
+        // The header address was in SCRATCH[0] on entry and the block above used it;
+        // restore it before the kind fork reads it.
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_header,
+        ));
+    }
+
     // A glyph run is not one draw, so it forks before the item block is built: the
     // block a glyph needs describes the *glyph*, not the run.
     builder.emit(abi::load_double(
@@ -4741,7 +5051,15 @@ pub(crate) fn emit_vulkan_draw_scene(
     emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
     // Published, not drawn. The draw happens at the end of the run this item joins —
     // which is what makes consecutive shapes one instanced `vkCmdDraw` instead of N.
-    emit_item_publish(builder, off_state, off_item, off_item_cursor, &item_next);
+    emit_split_or_publish(
+        builder,
+        off_state,
+        off_item,
+        off_item_cursor,
+        off_item_mode,
+        off_saved_stroke,
+        &item_next,
+    );
     builder.emit(abi::branch(&item_next));
 
     // A glyph run ends the instanced run: its quads are N draws rather than N
