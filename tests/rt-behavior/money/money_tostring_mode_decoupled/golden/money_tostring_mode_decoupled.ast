@@ -21,7 +21,7 @@
       { "kind": "binding", "mutable": false, "name": "v", "type": "Money", "value": { "kind": "number", "value": "0.125" }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 10 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "2" }] }] }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Banker" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Banker" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "2" }] }] }] }, "line": 14 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }

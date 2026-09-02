@@ -24,7 +24,7 @@ The socket stays open — you still close it — and the returned value is an or
 `net::Address` independent of the socket.
 
 **A file that uses the returned address must `IMPORT net` as well as `tcp`.**
-Imports are not transitive and packages cannot re-export types, so `Address` is
+Imports are not transitive and packages cannot re-export types, so `net::Address` is
 nameable only where `net` is imported."#;
 
 const EX: &str = r#"Log who connected:

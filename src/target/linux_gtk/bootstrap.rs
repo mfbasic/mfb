@@ -3,6 +3,8 @@
 //! append/finish helpers (plan-11 split, pure relocation).
 
 use super::*;
+use crate::codegen::memory::data::push_symbol_address;
+use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_FRAMES, GRAPHICS_STATE_SYMBOL};
 
 /// Maximum number of bytes `g_unichar_to_utf8` may write for one code point (the
 /// GLib UTF-8 encoder emits up to 6 bytes). Used as the safety margin for the
@@ -35,16 +37,82 @@ pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
     asm.finish(MAIN_SYMBOL, "Nothing")
 }
 
+/// Drive one scripted resize in a headless run, when `MFB_CANVAS_RESIZE_W`/`_H` say so.
+///
+/// A resize is a *window* event, and headless has no window — so without this the
+/// handshake could be implemented and never executed on Linux, because no reachable
+/// box has a display server. It calls the same `_mfb_gtkapp_canvas_resize` GTK would,
+/// with the same argument shape, so what runs here is the production path and not a
+/// stand-in for it.
+///
+/// It waits for a first completed frame before resizing, by polling the graphics
+/// state's frame counter. That is the whole point of the test: resizing before any
+/// frame exists would build the render target once at the new size and prove nothing,
+/// whereas resizing after one forces the tear-down-and-rebuild the Vulkan backend has
+/// for it. `MFB_CANVAS_DUMP` overwrites, so the file left behind is the *second*
+/// frame, and its length is `newWidth * newHeight * 4`.
+///
+/// This runs on the thread that would otherwise sit in `pause()` forever, which is the
+/// right one: it is the main thread, and publishing the size is the main thread's job.
+fn emit_headless_scripted_resize(asm: &mut Asm) {
+    let park = "headless_park";
+    let wait = "headless_resize_wait";
+    let ready = "headless_resize_ready";
+
+    asm.local_address(abi::c_arg(0), STR_RESIZE_W_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(park));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+
+    asm.local_address(abi::c_arg(0), STR_RESIZE_H_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(park));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0)));
+
+    // Poll until the render loop has completed a frame at the original size.
+    asm.push(abi::label(wait));
+    push_symbol_address(
+        GTK_MAIN_SYMBOL,
+        GRAPHICS_STATE_SYMBOL,
+        abi::LOCAL[2],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "20000"));
+    asm.call_external("usleep");
+    asm.push(abi::branch(wait));
+
+    asm.push(abi::label(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // the area, unused
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // user data
+    asm.call_internal(CANVAS_RESIZE_SYMBOL);
+}
+
 /// `int _mfb_gtkapp_main(int argc, char **argv, char **envp)` — the real C main
 /// invoked by `__libc_start_main` after runtime + library init. Creates the
 /// GtkApplication, wires the `activate` signal, and runs the GTK main loop; the
 /// loop owns the process until the window closes (plan-05 §6.1). Returns 0 so
 /// `__libc_start_main` exits cleanly.
-pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
+pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
-    // lr@0, argc@8, argv@16.
+    // lr@0, argc@8, argv@16, headless pthread_t@24.
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(32));
+    asm.push(abi::subtract_stack(48));
     asm.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -58,6 +126,44 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
     asm.store_state(abi::c_arg(0), ST_ARGC);
     asm.store_state(abi::c_arg(1), ST_ARGV);
 
+    // plan-98-F: the headless gate, the Linux twin of `MFB_MACAPP_HEADLESS` and
+    // `MFB_WINAPP_HEADLESS`.
+    //
+    // It has to be structurally different from macOS's, and the difference is the
+    // point. macOS builds its window and merely skips showing it, keeping the AppKit
+    // run loop; GTK cannot get that far — `gtk_init` fails outright with "Failed to
+    // open display" when there is no display server, so `activate` never fires and
+    // the worker, which is spawned from `activate`, never starts. So headless skips
+    // GTK **entirely**: spawn the worker here and park. The program then runs with no
+    // window, no main loop and no display, which is what makes canvas testable on a
+    // box that has none — and until this existed, Linux was the only one of the three
+    // platforms where it was not.
+    //
+    // Nothing downstream needs a new flag to notice. The finish helper already exits
+    // the process when `ST_TEXT_BUFFER` is null (there is no transcript to write a
+    // status line into), and the canvas blit gates on `ST_CANVAS_AREA`, which stays
+    // null because no window was ever built. Both are the states headless naturally
+    // leaves behind, rather than a mode the code has to be told about.
+    asm.local_address(abi::c_arg(0), STR_HEADLESS_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq("gtk_path"));
+    // pthread_create(&thread@sp+24, NULL, _mfb_gtkapp_worker, NULL), then park.
+    // The worker owns termination: its finish helper `_exit`s with the program's
+    // code, so this thread never has to wake up.
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 24));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_external("pthread_create");
+    if uses_canvas {
+        emit_headless_scripted_resize(&mut asm);
+    }
+    asm.push(abi::label("headless_park"));
+    asm.call_external("pause");
+    asm.push(abi::branch("headless_park"));
+
+    asm.push(abi::label("gtk_path"));
     // Disable the a11y + IM layers before GTK initializes (they crash in
     // g_variant_new_string on transcript inserts): setenv("GTK_A11Y","none",1) and
     // setenv("GTK_IM_MODULE","none",1).
@@ -132,7 +238,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
     asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
     asm.call_external("pipe");
     asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
-    asm.store_state("x11", ST_PIPE_WRITE_FD);
+    asm.store_state(abi::SCRATCH[2], ST_PIPE_WRITE_FD);
 
     // Make the pipe write end non-blocking (bug-114): if the worker stops
     // draining stdin the 64 KiB pipe fills, and a blocking write() in the key
@@ -162,7 +268,7 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
     // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
     // value because store_state materializes the state base into x9.
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_PIPE_READ_FD);
+    asm.store_state(abi::SCRATCH[1], ST_PIPE_READ_FD);
 }
 
 pub(super) fn emit_activate_handler(
@@ -301,7 +407,7 @@ pub(super) fn emit_activate_handler(
         asm.call_external("g_application_hold");
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
-        asm.store_state("x10", ST_HELD);
+        asm.store_state(abi::SCRATCH[1], ST_HELD);
         // plan-98-A Phase 4: wire the input pipe here too. A `None`-default program
         // is exactly one that references `app::setMode`, so it is the only kind that
         // can reach `Console` or `Canvas` through the reconcile — and in both the
@@ -473,7 +579,7 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
     // survives on its ref_sink reference for the next entry.
     asm.call_external("gtk_window_set_child");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_CANVAS_SURFACE);
+    asm.store_state(abi::SCRATCH[1], ST_CANVAS_SURFACE);
     asm.push(abi::label(&done));
 }
 
@@ -549,7 +655,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_release");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&release_skip));
     asm.push(abi::branch(&done));
 
@@ -588,6 +694,19 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user data
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy notify
         asm.call_external("gtk_drawing_area_set_draw_func");
+        // plan-98-F Phase 2: track the live window size. `canvas::surfaceWidth` reads
+        // the graphics state, and until now nothing on Linux ever wrote it — so the
+        // surface stayed at its default no matter how the window was dragged, and the
+        // Vulkan renderer's resize path could never be reached. Installed with the
+        // draw func and gated the same way, for the same reason.
+        //   g_signal_connect_data(canvasArea, "resize", on_resize, NULL, NULL, 0)
+        asm.load_state(abi::c_arg(0), ST_CANVAS_AREA);
+        asm.local_address(abi::c_arg(1), STR_RESIZE.0);
+        asm.local_address(abi::c_arg(2), CANVAS_RESIZE_SYMBOL);
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+        asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+        asm.call_external("g_signal_connect_data");
     }
     asm.push(abi::label(&canvas_have_area));
     // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.
@@ -597,7 +716,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     // Clear the io-routing buffer: canvas mode has no transcript, so `io::` writes
     // degrade to the fd sink (stdout), matching the mode's I/O contract.
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.store_state(abi::SCRATCH[1], ST_TEXT_BUFFER);
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.call_external("gtk_window_present");
     // Read the native surface handle. Must come *after* `gtk_window_present`: an
@@ -613,7 +732,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_release");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&canvas_release_skip));
     asm.push(abi::branch(&done));
 
@@ -630,7 +749,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.push(abi::label(&hide_skip));
     // clear the io-routing buffer → the write helper falls back to the fd (stdout)
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
-    asm.store_state("x10", ST_TEXT_BUFFER);
+    asm.store_state(abi::SCRATCH[1], ST_TEXT_BUFFER);
     // hold the application so it survives with no visible window (if not already).
     asm.load_state(abi::c_arg(0), ST_HELD);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
@@ -638,7 +757,7 @@ pub(super) fn emit_reconcile_idle_helper(uses_canvas: bool) -> Result<CodeFuncti
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_hold");
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
-    asm.store_state("x10", ST_HELD);
+    asm.store_state(abi::SCRATCH[1], ST_HELD);
     asm.push(abi::label(&hold_skip));
 
     asm.push(abi::label(&done));
@@ -706,7 +825,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // keyval
 
     // Raw mode delivers the keystroke immediately, bypassing the line buffer.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_RAW));
     asm.push(abi::branch_eq("raw"));
 
@@ -740,7 +859,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq("ignore"));
     asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 24)); // unichar
                                                                           // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
-    asm.load_state("x9", ST_LINE_LEN);
+    asm.load_state(abi::SCRATCH[0], ST_LINE_LEN);
     // bug-50: cap the fixed 1024-byte line buffer. If the pending line can no
     // longer hold another maximum-width (6-byte) UTF-8 encoding, drop the key via
     // the existing `ignore` path so the g_unichar_to_utf8 store below never writes
@@ -749,12 +868,12 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // which a full 6-byte encode still lands inside the buffer; compare unsigned
     // (a line length is never negative) and branch when strictly higher.
     asm.push(abi::compare_immediate(
-        "x9",
+        abi::SCRATCH[0],
         &(LINE_BUF_CAP - MAX_UTF8_LEN).to_string(),
     ));
     asm.push(abi::branch_hi("ignore"));
     asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 8)); // oldlen
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -775,18 +894,18 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
         abi::SCRATCH[0],
         abi::c_return(0),
     ));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
         ST_LINE_LEN,
     ));
     // Echo into the transcript only in LINE_ECHO mode.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -805,7 +924,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // Commit: write line + '\n' to the pipe; echo '\n' in LINE_ECHO; clear buffer.
     asm.push(abi::label("commit"));
     asm.load_state(abi::c_arg(0), ST_PIPE_WRITE_FD);
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::c_arg(1),
         abi::SCRATCH[1],
@@ -825,7 +944,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     asm.call_external("write");
     asm.push(abi::label("commit_echo"));
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("commit_clear"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
@@ -834,7 +953,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.call_internal(APPEND_SYMBOL);
     asm.push(abi::label("commit_clear"));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
@@ -849,10 +968,10 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // (`(b & 0xC0) == 0x80`) to the lead byte, so the whole character is dropped:
     //   do { len--; } while (len > 0 && (line_buf[len] & 0xC0) == 0x80);
     asm.push(abi::label("backspace"));
-    asm.load_state("x9", ST_LINE_LEN); // x9 = len
+    asm.load_state(abi::SCRATCH[0], ST_LINE_LEN); // x9 = len
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("ignore"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::add_immediate(
         abi::SCRATCH[2],
         abi::SCRATCH[1],
@@ -877,7 +996,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::compare_immediate(abi::SCRATCH[3], "128")); // == 0x80 -> continuation byte
     asm.push(abi::branch_eq("bs_scan")); // keep scanning back to the lead byte
     asm.push(abi::label("bs_done"));
-    asm.local_address("x10", STATE_SYMBOL);
+    asm.local_address(abi::SCRATCH[1], STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::SCRATCH[1],
@@ -886,7 +1005,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // In LINE_ECHO mode, erase the just-removed glyph from the transcript so the
     // display matches the committed line. `_mfb_gtkapp_delete_last_char` removes one
     // whole code point (GtkTextIter char-granular), matching the buffer scan above.
-    asm.load_state("x9", ST_INPUT_MODE);
+    asm.load_state(abi::SCRATCH[0], ST_INPUT_MODE);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
@@ -964,7 +1083,15 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
 
     // Headless (no transcript): terminate the process with the exit code.
-    asm.load_state("x9", ST_TEXT_BUFFER);
+    // Both spellings must be the SAME one. `%scratch0` realizes to `x9`, so a load
+    // into raw `abi::SCRATCH[0]` and a compare of `abi::SCRATCH[0]` are one register on
+    // AArch64 — but the x86-64 app wrap renames each *distinct token string* to its
+    // own vreg, so there the load and the compare were two different registers and
+    // this branch tested an uninitialized one. Headless then took the GUI arm,
+    // formatted the exit code into a chunk it had not allocated, and faulted on the
+    // byte store. Invisible until the entry's call-parity bug (fixed alongside this)
+    // stopped killing every Linux x86-64 app program before it could get here.
+    asm.load_state(abi::SCRATCH[0], ST_TEXT_BUFFER);
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne("fin_gui"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -996,7 +1123,7 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
         abi::LOCAL[1],
         16 + prefix_len,
     )); // digit write ptr
-    emit_format_exit_code(&mut asm, "x19", "x13");
+    emit_format_exit_code(&mut asm, abi::LOCAL[0], abi::SCRATCH[4]);
     asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "10"));
     asm.push(abi::store_u8(abi::SCRATCH[5], abi::SCRATCH[4], 0)); // trailing '\n'
     asm.push(abi::add_immediate(abi::SCRATCH[4], abi::SCRATCH[4], 1));
@@ -1303,6 +1430,17 @@ pub(super) fn emit_canvas_blit_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[1], abi::mfb_arg(1))); // width
     asm.push(abi::move_register(abi::LOCAL[2], abi::mfb_arg(2))); // height
 
+    // No drawing area, no blit. Headless (`MFB_GTKAPP_HEADLESS`) there is no window
+    // and no main loop, so the `g_idle_add` below would hand a malloc'd frame to a
+    // queue nothing drains — one leaked surface per frame. This is the same check
+    // the macOS blit makes against its app delegate, and it means a headless run
+    // builds nothing rather than building a frame it immediately has to drop.
+    // `MFB_CANVAS_DUMP` still sees the frame: the dump is written by
+    // `__canvas_presentSurface`, before and independently of this call.
+    asm.load_state(abi::SCRATCH[0], ST_CANVAS_AREA);
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&no_memory));
+
     // bytes = width * height * 4; block = malloc(bytes + 16)
     asm.push(abi::multiply_registers(
         abi::LOCAL[3],
@@ -1412,6 +1550,66 @@ pub(super) fn emit_canvas_commit_helper() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(32));
     asm.push(abi::return_());
     asm.finish(CANVAS_COMMIT_SYMBOL, "Boolean")
+}
+
+/// `void _mfb_gtkapp_canvas_resize(GtkDrawingArea *area, int width /*x1*/,
+/// int height /*x2*/, gpointer user_data)` — the canvas drawing area's `resize`
+/// signal handler.
+///
+/// The Linux twin of macOS's `_mfb_macapp_canvas_set_frame_size`, and the piece that
+/// was missing: `canvas::surfaceWidth`/`surfaceHeight` read the graphics state
+/// precisely so a resize is visible to the renderer without the program doing
+/// anything, but nothing on this platform ever wrote it. A GTK canvas program
+/// therefore rendered at the default size forever, and the Vulkan backend's
+/// tear-down-and-rebuild path could not be reached at all.
+///
+/// Publish, then signal. Publishing without signalling would leave the new size
+/// sitting unread until something else happened to want a frame — and a resize is
+/// usually the only thing that changed, so nothing else would.
+///
+/// Zero dimensions are ignored. GTK emits `resize` during initial allocation, before
+/// the widget has a size, and a zero-sized surface would have the renderer allocate a
+/// zero-byte image.
+pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(CANVAS_RESIZE_SYMBOL);
+    let done = format!("{CANVAS_RESIZE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    // Park the two signal arguments: `emit_publish_surface_size` needs a base register
+    // of its own and `canvas::signalRedraw` is a call, so neither can hold them.
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // width
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(2))); // height
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_le(&done));
+
+    crate::codegen::runtime::canvas::emit_publish_surface_size(
+        CANVAS_RESIZE_SYMBOL,
+        abi::LOCAL[2],
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.call_internal(CANVAS_SIGNAL_REDRAW_SYMBOL);
+
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+    asm.finish(CANVAS_RESIZE_SYMBOL, "Nothing")
 }
 
 /// plan-98-C Phase 3 (GTK main loop): the `GtkDrawingAreaDrawFunc`.
@@ -1524,7 +1722,7 @@ mod tests {
                 let cmp = &pair[0];
                 let br = &pair[1];
                 cmp.op == CodeOp::CmpImm
-                    && cmp.get("lhs").as_deref() == Some("x9")
+                    && cmp.get("lhs").as_deref() == Some(abi::SCRATCH[0])
                     && cmp.get("rhs").as_deref() == Some(expected_bound.as_str())
                     && br.op == CodeOp::BranchHi
                     && br.get("target").as_deref() == Some("ignore")
@@ -1544,7 +1742,7 @@ mod tests {
             CodeOp::LdrU64,
             "guard must follow the ST_LINE_LEN load"
         );
-        assert_eq!(ldr.get("dst").as_deref(), Some("x9"));
+        assert_eq!(ldr.get("dst").as_deref(), Some(abi::SCRATCH[0]));
         assert_eq!(
             ldr.get("offset").as_deref(),
             Some(ST_LINE_LEN.to_string().as_str())

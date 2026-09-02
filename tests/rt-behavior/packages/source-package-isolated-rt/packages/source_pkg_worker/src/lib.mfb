@@ -1,0 +1,11 @@
+EXPORT FUNC scale(n AS Integer) AS Integer
+  RETURN n * 7
+END FUNC
+
+REM The isolated thread entry. `ISOLATED` runs it in a fresh instance of this
+REM package (spec language modules-and-packages), so it is the export kind whose
+REM signature the importer most needs: `thread::start` type-checks the entry
+REM against the plane types written at the call site.
+EXPORT ISOLATED FUNC multiply(w AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN scale(seed)
+END FUNC

@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 
 impl TypeEnv {
     // 3. Value walk: literal ranges and const-literal bounds
@@ -103,12 +104,16 @@ impl TypeEnv {
             IrValue::ResultIsOk { value } | IrValue::ResultError { value } => {
                 self.check_value_depth(value, locals, depth + 1);
             }
+            IrValue::Checked { value, .. } => {
+                self.check_value_depth(value, locals, depth + 1);
+                self.check_checked_has_no_call(value);
+            }
             IrValue::Unary { op, operand, .. } => {
                 self.check_value_depth(operand, locals, depth + 1);
-                self.check_unary_operand(op, operand, locals);
+                self.check_unary_operand(*op, operand, locals);
                 self.check_operator_result_type(
                     value,
-                    derived_unary_type(op, self.infer_type(operand, locals).as_ref()),
+                    derived_unary_type(*op, self.infer_type(operand, locals).as_ref()),
                 );
             }
             IrValue::Binary {
@@ -116,11 +121,11 @@ impl TypeEnv {
             } => {
                 self.check_value_depth(left, locals, depth + 1);
                 self.check_value_depth(right, locals, depth + 1);
-                self.check_binary_operands(op, left, right, locals);
+                self.check_binary_operands(*op, left, right, locals);
                 self.check_operator_result_type(
                     value,
                     derived_binary_type(
-                        op,
+                        *op,
                         self.infer_type(left, locals).as_ref(),
                         self.infer_type(right, locals).as_ref(),
                     ),
@@ -298,6 +303,37 @@ impl TypeEnv {
         }
     }
 
+    /// Reject a `Checked` node that wraps a call (bug-471).
+    ///
+    /// `Checked` means "evaluate this value with its domain-error exits captured";
+    /// codegen implements it by running the inner lowering under a
+    /// `raw_result_capture`, which only `emit_error_register_return` consults. A
+    /// *call* inside it does not raise through that seam — it auto-propagates from
+    /// its own call site — so its error would slip past the capture and past the
+    /// handler the `Checked` exists to feed, which is exactly the escape class
+    /// bug-457/bug-471 close. `ir::lower` never builds this shape (it lifts every
+    /// call out of the trapped expression before wrapping what is left), so this
+    /// only rejects a crafted `.mfp`.
+    pub(super) fn check_checked_has_no_call(&self, value: &IrValue) {
+        let mut offender = None;
+        crate::ir::value::visit_value(value, &mut |node| {
+            if offender.is_none() {
+                if let IrValue::Call { target, .. } | IrValue::CallResult { target, .. } = node {
+                    offender = Some(target.clone());
+                }
+            }
+        });
+        if let Some(target) = offender {
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "Checked wraps a call to `{target}`; a call's error does not join the capture, \
+                     so it must be lifted out before the value is checked"
+                ),
+            );
+        }
+    }
+
     /// Reconcile a `ResultValue`'s success-type annotation against the element
     /// type of the `Result` its `value` actually carries. `infer_type` trusts
     /// this `type_` (`mod.rs`), so a crafted `.mfp` could annotate `Account` on a
@@ -426,7 +462,7 @@ impl TypeEnv {
             IrValue::Const { type_, value } if numeric(type_) => {
                 self.check_const_literal(expected, value)
             }
-            IrValue::Unary { op, operand, .. } if op == "-" => {
+            IrValue::Unary { op, operand, .. } if *op == UnaryOp::Negate => {
                 if let IrValue::Const { type_, value } = operand.as_ref() {
                     if numeric(type_) {
                         self.check_negated_const_literal(expected, value);
@@ -615,9 +651,15 @@ impl TypeEnv {
         else {
             return;
         };
+        // bug-480 Phase 4b: the enum arrives package-qualified (`crypto.Hash`),
+        // but a registry enum row still carries the bare member id it declares
+        // (`Hash`) -- `name` is a `&'static str` descriptor literal. Strip the
+        // qualifier for the lookup, or every builtin enum advisory silently stops
+        // firing: `crypto::Hash.SHA1` lost its CRYPTO_SHA1_INSECURE warning.
+        let member_id = enum_name.rsplit_once('.').map_or(enum_name, |(_, id)| id);
         if let Some(advisory) = crate::codegen::registry::registry().enum_variant_advisory(
             import_name,
-            enum_name,
+            member_id,
             member,
         ) {
             self.emit(advisory.rule, advisory.detail.to_string());
@@ -766,7 +808,7 @@ impl TypeEnv {
     /// `is_numeric(Unknown) == true`), so no valid program is ever rejected.
     pub(super) fn check_binary_operands(
         &self,
-        op: &str,
+        op: BinaryOp,
         left: &IrValue,
         right: &IrValue,
         locals: &HashMap<String, ParameterType>,
@@ -814,10 +856,11 @@ impl TypeEnv {
         // String (plan-41-A). Both operands must be Scalar (Unknown permissive).
         let scalar =
             |t: &ParameterType| matches!(t, ParameterType::Unknown) || t.is_named("Scalar");
+        let spelling = op.name();
         let ok = match op {
-            "AND" | "OR" | "XOR" => boolean(&lt) && boolean(&rt),
-            "&" => string(&lt) && string(&rt),
-            "<" | ">" | "<=" | ">=" => {
+            BinaryOp::And | BinaryOp::Or | BinaryOp::Xor => boolean(&lt) && boolean(&rt),
+            BinaryOp::Concat => string(&lt) && string(&rt),
+            BinaryOp::Less | BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual => {
                 (numeric(&lt) && numeric(&rt))
                     || (string(&lt) && string(&rt))
                     || (scalar(&lt) && scalar(&rt))
@@ -826,7 +869,7 @@ impl TypeEnv {
             // operands must be compatible AND comparable. A crafted comparison
             // of non-comparable values (collections, functions, resources,
             // unions) would mislead codegen's comparison lowering.
-            "=" | "<>" => {
+            BinaryOp::Equal | BinaryOp::NotEqual => {
                 if numeric(&lt) && numeric(&rt) {
                     true
                 } else if self.compatible(&lt, &rt) || self.compatible(&rt, &lt) {
@@ -838,10 +881,16 @@ impl TypeEnv {
                 }
             }
             // Everything else is arithmetic / bitwise: numeric operands only.
-            _ => numeric(&lt) && numeric(&rt),
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => numeric(&lt) && numeric(&rt),
         };
         if !ok {
-            if matches!(op, "=" | "<>") {
+            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
                 // Compatible-but-not-comparable is a comparability failure;
                 // incompatible operands are an operator mismatch.
                 let rule = if self.compatible(&lt, &rt) || self.compatible(&rt, &lt) {
@@ -853,21 +902,32 @@ impl TypeEnv {
                 self.emit(
                     rule,
                     format!(
-                        "Operator `{op}` requires compatible comparable operands, got {lt} and {rt}."
+                        "Operator `{spelling}` requires compatible comparable operands, got {lt} and {rt}."
                     ),
                 );
                 return;
             }
             let requirement = match op {
-                "AND" | "OR" | "XOR" => "Boolean operands",
-                "&" => "String operands",
-                "<" | ">" | "<=" | ">=" => "numeric or String operands",
-                _ => "numeric operands",
+                BinaryOp::And | BinaryOp::Or | BinaryOp::Xor => "Boolean operands",
+                BinaryOp::Concat => "String operands",
+                BinaryOp::Less
+                | BinaryOp::Greater
+                | BinaryOp::LessEqual
+                | BinaryOp::GreaterEqual => "numeric or String operands",
+                BinaryOp::Equal
+                | BinaryOp::NotEqual
+                | BinaryOp::Add
+                | BinaryOp::Subtract
+                | BinaryOp::Multiply
+                | BinaryOp::Divide
+                | BinaryOp::Mod
+                | BinaryOp::IntDiv
+                | BinaryOp::Power => "numeric operands",
             };
             let (lt, rt) = (lt.name(), rt.name());
             self.emit(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
-                format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
+                format!("Operator `{spelling}` requires {requirement}, got {lt} and {rt}."),
             );
         }
     }
@@ -877,17 +937,23 @@ impl TypeEnv {
     /// scalar scaling, `M/M` ratio, `M MOD M`, and Money-only comparison are
     /// accepted; every other pairing emits `TYPE_MONEY_OPERATION_INVALID` with a
     /// message that explains *why*.
-    pub(super) fn check_money_operands(&self, op: &str, lt: &ParameterType, rt: &ParameterType) {
+    pub(super) fn check_money_operands(
+        &self,
+        op: BinaryOp,
+        lt: &ParameterType,
+        rt: &ParameterType,
+    ) {
         let l_money = matches!(lt, ParameterType::Money);
         let r_money = matches!(rt, ParameterType::Money);
         let (lt, rt) = (lt.name(), rt.name());
-        if matches!(op, "=" | "<>" | "<" | ">" | "<=" | ">=") {
+        let spelling = op.name();
+        if op.is_comparison() {
             // Money compares only with Money (both operands, both directions).
             if l_money != r_money {
                 self.emit(
                     "TYPE_MONEY_OPERATION_INVALID",
                     format!(
-                        "Operator `{op}` requires both operands to be Money; got {lt} and {rt}. Compare a Money only with a Money (use `toMoney(...)` to convert)."
+                        "Operator `{spelling}` requires both operands to be Money; got {lt} and {rt}. Compare a Money only with a Money (use `toMoney(...)` to convert)."
                     ),
                 );
             }
@@ -898,19 +964,21 @@ impl TypeEnv {
         }
         // Craft an explanation for the specific invalid pairing.
         let reason = match op {
-            "+" | "-" | "MOD" => {
+            BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Mod => {
                 "requires both operands to be Money (a Money and a non-Money value cannot be combined)"
             }
-            "*" if l_money && r_money => "cannot multiply two Money values (money² is not Money)",
-            "/" if r_money && !l_money => {
+            BinaryOp::Multiply if l_money && r_money => {
+                "cannot multiply two Money values (money² is not Money)"
+            }
+            BinaryOp::Divide if r_money && !l_money => {
                 "cannot divide a non-Money value by a Money value"
             }
-            "^" => "does not support exponentiation of a Money value",
+            BinaryOp::Power => "does not support exponentiation of a Money value",
             _ => "is not valid for Money operands",
         };
         self.emit(
             "TYPE_MONEY_OPERATION_INVALID",
-            format!("Operator `{op}` {reason}; got {lt} and {rt}."),
+            format!("Operator `{spelling}` {reason}; got {lt} and {rt}."),
         );
     }
 

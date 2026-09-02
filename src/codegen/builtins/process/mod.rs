@@ -37,6 +37,11 @@ mod gen_windows;
 // through its own per-member `Body::abi_function` body in its `func_*.rs`
 // (`func_*.rs` → `gen_{unix,windows}`).
 pub(crate) use gen_shared::lower_process_drop_helper;
+
+// bug-474: the pthread start routine `process::detach` hands each detached child
+// to. Not a runtime call either — the code builder emits it alongside the detach
+// helper (see `builder/mod.rs`), so it is reached by name from there.
+pub(crate) use gen_unix::lower_process_reaper_helper;
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;
@@ -123,19 +128,19 @@ reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
 consumer loops until that error is raised.
 
 
-The `Signal` enum is a four-bucket cross-platform vocabulary used both to
+The `process::Signal` enum is a four-bucket cross-platform vocabulary used both to
 *deliver* a signal with `process::signal` and to *observe* how a terminated
 child died with `process::didSignal`:
 
-| `Signal` | Sent on Unix | Sent on Windows | Read back when the child died from |
+| `process::Signal` | Sent on Unix | Sent on Windows | Read back when the child died from |
 |---|---|---|---|
-| `Signal.None` | nothing (a no-op) | nothing (a no-op) | a normal exit, or still running |
-| `Signal.Kill` | `SIGKILL` | `TerminateProcess` | `SIGKILL` |
-| `Signal.Terminate` | `SIGTERM` | `TerminateProcess` | `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT` |
-| `Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
+| `process::Signal.None` | nothing (a no-op) | nothing (a no-op) | a normal exit, or still running |
+| `process::Signal.Kill` | `SIGKILL` | `TerminateProcess` | `SIGKILL` |
+| `process::Signal.Terminate` | `SIGTERM` | `TerminateProcess` | `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT` |
+| `process::Signal.Error` | `SIGABRT` | `TerminateProcess` | `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS` |
 
 Windows has no signals, so every delivered signal is the same forced
-termination there and `didSignal` reports `Signal.None` for every child. On
+termination there and `didSignal` reports `process::Signal.None` for every child. On
 Unix the buckets are lossy in the read direction: several signals map to one
 bucket, so `didSignal` tells you the *kind* of death, not which signal caused
 it.
@@ -146,7 +151,10 @@ The lifecycle queries read cached state: `process::pid` returns the child pid,
 `process::isRunning` polls without blocking, `process::waitFor` blocks for exit
 and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
 `isRunning` cache the exit status the first time they observe it, so `waitFor` is
-idempotent and `didSignal` can report the death cause after the fact."#;
+idempotent and `didSignal` can report the death cause after the fact. `waitFor`
+also keeps reading the child's output while it waits, so a child that writes more
+than the pipe can hold still finishes; that output is held for you and comes back
+from the next `process::receive`/`process::receiveBytes`."#;
 
 /// Register the `process` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -259,7 +267,7 @@ mod tests {
         assert!(!registry().is_builtin_type("Process"));
         assert_eq!(
             registry().qualified_builtin_type("process.Process"),
-            Some("Process".to_string())
+            Some("process.Process".to_string())
         );
     }
 
@@ -305,7 +313,7 @@ mod tests {
             registry::call_return_type_typed("process.didSignal")
                 .map(|t| t.name().into_owned())
                 .as_deref(),
-            Some("Signal")
+            Some("process.Signal")
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
         // the trailing-optional streaming forms, and the single-signature queries.

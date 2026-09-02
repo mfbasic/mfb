@@ -26,7 +26,7 @@ const DESC: &str = r#"`process::receive` reads one line from a child's output st
 `String`, **including** the trailing newline. It reads until it sees a `'\n'`,
 never over-reading past the line boundary, so successive calls return successive
 lines. Without a `from` argument it reads the child's standard output; pass a
-`Stream` value to choose standard output or standard error explicitly.
+`process::Stream` value to choose standard output or standard error explicitly.
 
 
 
@@ -64,7 +64,7 @@ IMPORT io
 
 FUNC main AS Integer
   RES sh = process::shell("echo oops 1>&2")
-  io::print(process::receive(sh, Stream.StdErr))
+  io::print(process::receive(sh, process::Stream.StdErr))
   RETURN 0
 END FUNC
 ```"#;
@@ -140,6 +140,7 @@ pub(crate) fn lower_process_receive_helper_posix(
     const LINEP: usize = 8; // accumulator pointer (for the result build)
     const N: usize = 16; // accumulated length
     const STR: usize = 24; // built String ptr
+    const SPILL: usize = 32; // this stream's waitFor spill block (bug-475), or 0
     const CAP: usize = 1048576; // 1 MiB max line
     const EINTR: &str = "4";
 
@@ -147,6 +148,7 @@ pub(crate) fn lower_process_receive_helper_posix(
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
     let read_loop = format!("{symbol}_read_loop");
+    let fd_read = format!("{symbol}_fd_read");
     let read_fail = format!("{symbol}_read_fail");
     let got_byte = format!("{symbol}_got_byte");
     let eof_check = format!("{symbol}_eof_check");
@@ -162,26 +164,36 @@ pub(crate) fn lower_process_receive_helper_posix(
     let reg10 = vregs.next();
     let reg11 = vregs.next();
     let reg12 = vregs.next();
+    let reg13 = vregs.next();
 
     let mut instructions = vec![
         abi::load_u64(&reg9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&reg9, "0"),
         abi::branch_ne(&closed),
     ];
+    // The selected stream's fd *and* its spill block (bug-475): `waitFor` may have
+    // had to move the child's output out of the pipe to keep the child running,
+    // and those bytes come before anything the fd still holds.
     if with_from {
         instructions.extend([
             abi::compare_immediate(abi::c_arg(1), "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(&reg9, abi::return_register(), PROC_STDERR_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R));
+        instructions.extend([
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg10, abi::return_register(), PROC_STDOUT_BUF),
+        ]);
     }
     instructions.extend([
+        abi::store_u64(&reg10, abi::stack_pointer(), SPILL),
         abi::store_u64(&reg9, abi::stack_pointer(), FD),
         // Accumulator buffer.
         abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
@@ -192,8 +204,19 @@ pub(crate) fn lower_process_receive_helper_posix(
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), LINEP),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), N),
-        // read one byte into acc[filled].
+        // read one byte into acc[filled] — from the spill block if it still has
+        // one, otherwise from the fd.
         abi::label(&read_loop),
+        abi::load_u64(&reg9, abi::stack_pointer(), SPILL),
+        abi::load_u64(&reg10, abi::stack_pointer(), LINEP),
+        abi::load_u64(&reg11, abi::stack_pointer(), N),
+        abi::add_registers(&reg12, &reg10, &reg11),
+    ]);
+    emit_spill_take_byte(&reg9, &reg13, &reg10, &reg11, &fd_read, &mut instructions);
+    instructions.extend([
+        abi::store_u8(&reg13, &reg12, 0),
+        abi::branch(&got_byte),
+        abi::label(&fd_read),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), FD),
         abi::load_u64(&reg9, abi::stack_pointer(), LINEP),
         abi::load_u64(&reg10, abi::stack_pointer(), N),
@@ -307,6 +330,7 @@ pub(crate) fn lower_process_receive_helper_win(
     const STR: usize = 0x50;
     const I: usize = 0x58;
     const FROM: usize = 0x60;
+    const SPILL: usize = 0x68; // this stream's waitFor spill block (bug-475), or 0
     const FRAME: usize = 0x70;
     const CAP: usize = 1048576; // 1 MiB max line
     let sp = abi::stack_pointer();
@@ -316,6 +340,8 @@ pub(crate) fn lower_process_receive_helper_win(
     let use_stderr = format!("{symbol}_use_stderr");
     let sel_done = format!("{symbol}_sel_done");
     let read_loop = format!("{symbol}_read_loop");
+    let fd_read = format!("{symbol}_fd_read");
+    let got_byte = format!("{symbol}_got_byte");
     let eof = format!("{symbol}_eof");
     let build = format!("{symbol}_build");
     let copy_loop = format!("{symbol}_copy_loop");
@@ -335,25 +361,30 @@ pub(crate) fn lower_process_receive_helper_win(
         abi::compare_immediate(abi::mfb_arg(1), "0"),
         abi::branch_ne(&closed_l),
     ]);
+    // The selected stream's handle *and* its spill block (bug-475): `waitFor` may
+    // have had to move the child's output out of the pipe to keep the child
+    // running, and those bytes come before anything the pipe still holds.
     if with_from {
         instructions.extend([
             abi::load_u64(abi::mfb_arg(1), sp, FROM),
             abi::compare_immediate(abi::mfb_arg(1), "0"),
             abi::branch_ne(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
             abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDERR_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDERR_BUF),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64(
-            abi::mfb_arg(1),
-            abi::mfb_arg(0),
-            PROC_STDOUT_R,
-        ));
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDOUT_R),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), PROC_STDOUT_BUF),
+        ]);
     }
     instructions.extend([
+        abi::store_u64(abi::mfb_arg(2), sp, SPILL),
         abi::store_u64(abi::mfb_arg(1), sp, FD),
         // accumulator = arena_alloc(CAP, 1)
         abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
@@ -363,7 +394,28 @@ pub(crate) fn lower_process_receive_helper_win(
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), sp, ACC),
         abi::store_u64(abi::ZERO, sp, N),
+        // Take the byte from the spill block if it still has one; only then does
+        // this touch the pipe.
         abi::label(&read_loop),
+        abi::load_u64(abi::mfb_arg(1), sp, ACC),
+        abi::load_u64(abi::mfb_arg(2), sp, N),
+        abi::add_registers(abi::mfb_arg(1), abi::mfb_arg(1), abi::mfb_arg(2)),
+        abi::store_u64(abi::mfb_arg(1), sp, I),
+        abi::load_u64(abi::mfb_arg(0), sp, SPILL),
+    ]);
+    emit_spill_take_byte(
+        abi::mfb_arg(0),
+        abi::mfb_arg(1),
+        abi::mfb_arg(2),
+        abi::mfb_arg(3),
+        &fd_read,
+        &mut instructions,
+    );
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(2), sp, I),
+        abi::store_u8(abi::mfb_arg(1), abi::mfb_arg(2), 0),
+        abi::branch(&got_byte),
+        abi::label(&fd_read),
         // ReadFile(fd, acc + n, 1, &nread, NULL)
         abi::load_u64(abi::mfb_arg(0), sp, FD),
         abi::load_u64(abi::mfb_arg(1), sp, ACC),
@@ -388,6 +440,7 @@ pub(crate) fn lower_process_receive_helper_win(
         abi::compare_immediate(abi::mfb_arg(0), "0"),
         abi::branch_eq(&eof),
         // got a byte: n += 1; check for '\n' or a full line.
+        abi::label(&got_byte),
         abi::load_u64(abi::mfb_arg(0), sp, ACC),
         abi::load_u64(abi::mfb_arg(1), sp, N),
         abi::add_registers(abi::mfb_arg(2), abi::mfb_arg(0), abi::mfb_arg(1)),

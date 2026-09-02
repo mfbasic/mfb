@@ -147,7 +147,7 @@ pub(crate) fn register(r: &mut Registry) {
             // fixed (X448=5).
             EnumVariant {
                 name: "X448",
-                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `KeyConvert.Ed448ToX448` derives one from an Ed448 pair; the `Ed448_*` suites of `crypto::encrypt`/`crypto::decrypt` do that conversion internally.",
+                description: "X448 (Curve448 ECDH, RFC 7748) key-agreement key pair (56-byte keys) — not a signing key; use it with `crypto::exchange`. `crypto::KeyConvert.Ed448ToX448` derives one from an Ed448 pair; the `Ed448_*` suites of `crypto::encrypt`/`crypto::decrypt` do that conversion internally.",
                 advisory: None,
             },
             // Ed448 (plan-109-D): appended after X448 (Ed448=6).
@@ -197,7 +197,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "SHA-1 (FIPS 180-4, 160-bit digest). Not collision-resistant: every source use reports the `CRYPTO_SHA1_INSECURE` warning; select it only for legacy interoperability, never for new designs.",
                 advisory: Some(EnumAdvisory {
                     rule: "CRYPTO_SHA1_INSECURE",
-                    detail: "`Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.",
+                    detail: "`crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.",
                 }),
             },
             EnumVariant {
@@ -1011,13 +1011,13 @@ mod tests {
 
     #[test]
     fn builtin_types_recognized() {
-        for t in ["Sealed", "KeyPair"] {
+        for t in ["crypto.Sealed", "crypto.KeyPair"] {
             assert!(registry().is_builtin_type(t), "{t}");
         }
         assert!(!registry().is_builtin_type("Nope"));
         assert_eq!(
             registry().qualified_builtin_type("crypto.Sealed"),
-            Some("Sealed".to_string())
+            Some("crypto.Sealed".to_string())
         );
     }
 
@@ -1033,20 +1033,23 @@ mod tests {
         // The unified `hash(Hash, data)`: the `List OF Byte` overload is a native
         // AbiFunction (no source rewrite), the `String` overload rewrites to the
         // `__crypto_hashText` UTF-8 shim.
-        assert_eq!(sel("crypto.hash", &["Hash", "List OF Byte"]), None);
+        assert_eq!(sel("crypto.hash", &["crypto.Hash", "List OF Byte"]), None);
         assert_eq!(
-            sel("crypto.hash", &["Hash", "String"]),
+            sel("crypto.hash", &["crypto.Hash", "String"]),
             Some("__crypto_hashText")
         );
         // The unified `hmac(Hash, key, data)` selects on `data` (arg index 2): the
         // `String` form rewrites to the `__crypto_hmacText` UTF-8 shim, the
         // `List OF Byte` form to the hash-generic `__crypto_hmac` core.
         assert_eq!(
-            sel("crypto.hmac", &["Hash", "List OF Byte", "String"]),
+            sel("crypto.hmac", &["crypto.Hash", "List OF Byte", "String"]),
             Some("__crypto_hmacText")
         );
         assert_eq!(
-            sel("crypto.hmac", &["Hash", "List OF Byte", "List OF Byte"]),
+            sel(
+                "crypto.hmac",
+                &["crypto.Hash", "List OF Byte", "List OF Byte"]
+            ),
             Some("__crypto_hmac")
         );
         // The unified `pbkdf2(Hash, password, …)` has a single `List OF Byte`
@@ -1054,7 +1057,13 @@ mod tests {
         assert_eq!(
             sel(
                 "crypto.pbkdf2",
-                &["Hash", "List OF Byte", "List OF Byte", "Integer", "Integer"]
+                &[
+                    "crypto.Hash",
+                    "List OF Byte",
+                    "List OF Byte",
+                    "Integer",
+                    "Integer"
+                ]
             ),
             Some("__crypto_pbkdf2")
         );
@@ -1085,7 +1094,7 @@ mod tests {
         assert_eq!(
             sel(
                 "crypto.sign",
-                &["Certificate", "List OF Byte", "List OF Byte"]
+                &["crypto.Certificate", "List OF Byte", "List OF Byte"]
             ),
             None
         );
@@ -1098,38 +1107,38 @@ mod tests {
             registry::resolve_call(call, &types, false)
         };
         assert_eq!(
-            r("crypto.hash", &["Hash", "List OF Byte"]),
+            r("crypto.hash", &["crypto.Hash", "List OF Byte"]),
             Some("List OF Byte".into())
         );
         assert_eq!(
-            r("crypto.hash", &["Hash", "String"]),
+            r("crypto.hash", &["crypto.Hash", "String"]),
             Some("List OF Byte".into())
         );
-        assert_eq!(r("crypto.hash", &["Hash", "Integer"]), None);
+        assert_eq!(r("crypto.hash", &["crypto.Hash", "Integer"]), None);
         assert_eq!(
             r(
                 "crypto.seal",
                 &[
-                    "SymmetricCipher",
+                    "crypto.SymmetricCipher",
                     "List OF Byte",
                     "List OF Byte",
                     "List OF Byte"
                 ]
             ),
-            Some("Sealed".into())
+            Some("crypto.Sealed".into())
         );
         assert_eq!(
             r(
                 "crypto.seal",
                 &[
-                    "SymmetricCipher",
+                    "crypto.SymmetricCipher",
                     "List OF Byte",
                     "List OF Byte",
                     "List OF Byte",
                     "List OF Byte"
                 ]
             ),
-            Some("Sealed".into())
+            Some("crypto.Sealed".into())
         );
         assert_eq!(r("crypto.uuid4", &[]), Some("String".into()));
         assert_eq!(r("crypto.uuid7", &[]), Some("String".into()));
@@ -1146,7 +1155,7 @@ mod tests {
             r(
                 "crypto.verify",
                 &[
-                    "Certificate",
+                    "crypto.Certificate",
                     "List OF Byte",
                     "List OF Byte",
                     "List OF Byte"

@@ -41,6 +41,7 @@ use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
 use super::local_rewrites::{scopes_type_is, Scopes};
+use crate::operators::BinaryOp;
 
 /// Try the row's rewrites at one node (children already rewritten). Returns
 /// whether a rewrite fired, for the driver's `mfb build -v` fire count.
@@ -51,30 +52,30 @@ pub(super) fn rewrite_value(value: &mut NirValue, scopes: &Scopes) -> bool {
     else {
         return false;
     };
-    match op.as_str() {
-        "*" => {
+    match *op {
+        BinaryOp::Multiply => {
             // x * 2 → x + x (and mirrored).
             if let Some(const_type) = two_const(right) {
                 if scopes_type_is(left, &const_type, scopes) {
-                    *op = "+".to_string();
+                    *op = BinaryOp::Add;
                     **right = (**left).clone();
                     return true;
                 }
             }
             if let Some(const_type) = two_const(left) {
                 if scopes_type_is(right, &const_type, scopes) {
-                    *op = "+".to_string();
+                    *op = BinaryOp::Add;
                     **left = (**right).clone();
                     return true;
                 }
             }
             false
         }
-        "^" => {
+        BinaryOp::Power => {
             // x ^ 2 → x * x. Exponent-side only: `2 ^ x` has no cheap form.
             if let Some(const_type) = two_const(right) {
                 if scopes_type_is(left, &const_type, scopes) {
-                    *op = "*".to_string();
+                    *op = BinaryOp::Multiply;
                     **right = (**left).clone();
                     return true;
                 }
@@ -114,8 +115,8 @@ mod tests {
     fn multiply_by_two_becomes_add() {
         let scopes = int_scope("x");
         for value in [
-            binary("*", local("x"), int_const("2")),
-            binary("*", int_const("2"), local("x")),
+            binary(BinaryOp::Multiply, local("x"), int_const("2")),
+            binary(BinaryOp::Multiply, int_const("2"), local("x")),
         ] {
             assert_eq!(reduced(value, &scopes), "(local(x) + local(x))");
         }
@@ -123,14 +124,14 @@ mod tests {
         let mut scopes = Scopes::new();
         scopes.insert("b".to_string(), ParameterType::Byte);
         let byte_two = typed_const(ParameterType::Byte, "2");
-        let value = binary("*", local("b"), byte_two);
+        let value = binary(BinaryOp::Multiply, local("b"), byte_two);
         assert_eq!(reduced(value, &scopes), "(local(b) + local(b))");
     }
 
     #[test]
     fn square_becomes_multiply() {
         let scopes = int_scope("x");
-        let value = binary("^", local("x"), int_const("2"));
+        let value = binary(BinaryOp::Power, local("x"), int_const("2"));
         assert_eq!(reduced(value, &scopes), "(local(x) * local(x))");
     }
 
@@ -145,11 +146,15 @@ mod tests {
             loc: crate::target::shared::nir::NirSourceLoc::default(),
         };
         for value in [
-            binary("*", call.clone(), int_const("2")),
-            binary("^", call, int_const("2")),
+            binary(BinaryOp::Multiply, call.clone(), int_const("2")),
+            binary(BinaryOp::Power, call, int_const("2")),
             // Nested arithmetic is pure but would double the checked work —
             // and its type is unknown to the scope walk anyway.
-            binary("*", binary("+", local("x"), local("x")), int_const("2")),
+            binary(
+                BinaryOp::Multiply,
+                binary(BinaryOp::Add, local("x"), local("x")),
+                int_const("2"),
+            ),
         ] {
             let rendered = shape(&value);
             assert_eq!(reduced(value, &scopes), rendered);
@@ -165,11 +170,15 @@ mod tests {
         scopes.insert("b".to_string(), ParameterType::Byte);
         scopes.insert("x".to_string(), ParameterType::Integer);
         for value in [
-            binary("*", local("b"), int_const("2")),
-            binary("*", local("x"), int_const("3")),
-            binary("^", local("x"), int_const("3")),
-            binary("^", int_const("2"), local("x")),
-            binary("*", local("f"), typed_const(ParameterType::Float, "2.0")),
+            binary(BinaryOp::Multiply, local("b"), int_const("2")),
+            binary(BinaryOp::Multiply, local("x"), int_const("3")),
+            binary(BinaryOp::Power, local("x"), int_const("3")),
+            binary(BinaryOp::Power, int_const("2"), local("x")),
+            binary(
+                BinaryOp::Multiply,
+                local("f"),
+                typed_const(ParameterType::Float, "2.0"),
+            ),
         ] {
             let rendered = shape(&value);
             assert_eq!(reduced(value, &scopes), rendered);

@@ -100,7 +100,16 @@ pub(crate) const LISTENER_TYPE_ID: &str = "tcp.Listener";
 /// `net::Address` as this package refers to it. Endpoints are the shared `net`
 /// record, not a tcp-local copy.
 pub(crate) fn address() -> ParameterType {
-    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE)
+    // `ADDRESS_TYPE_ID` (`net.Address`), not the bare `ADDRESS_TYPE` — the spelling
+    // `udp::address()` already uses. bug-480 Phase 4b qualified the registry rows and
+    // updated udp; tcp was missed, so `tcp::connect`'s declared parameter and
+    // `remoteAddress`/`localAddress`'s declared return type disagreed with the row they
+    // name, which is what `tcp_endpoints_use_the_shared_net_address_record` compares.
+    //
+    // Measured, so it is not overstated: a user program that passes a `net::Address` to
+    // `tcp::connect` compiles either way — resolution tolerates both spellings here — so
+    // this was a latent inconsistency between the two transports, not a shipped break.
+    ParameterType::named(crate::codegen::builtins::net::ADDRESS_TYPE_ID)
 }
 
 pub(crate) fn socket() -> ParameterType {
@@ -125,7 +134,7 @@ be handed straight to `tcp::connect`, and `tcp::localAddress` /
 
 **A file that reads those addresses' fields must `IMPORT net` as well as `tcp`.**
 Imports are not transitive and a package cannot re-export another's types (see
-`mfb spec language modules-and-packages`), so `Address` is only nameable in a
+`mfb spec language modules-and-packages`), so `net::Address` is only nameable in a
 file that imports the package declaring it. Passing the whole value on still
 works without it — `tcp::connect(bound)` compiles — but `bound.host` and
 `bound.port` are refused there. Only the address-valued members are affected:
@@ -219,11 +228,11 @@ mod tests {
         // Qualified lookup resolves both handles...
         assert_eq!(
             registry().qualified_builtin_type(super::SOCKET_TYPE_ID),
-            Some(super::SOCKET_TYPE.to_string())
+            Some(super::SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
             registry().qualified_builtin_type(super::LISTENER_TYPE_ID),
-            Some(super::LISTENER_TYPE.to_string())
+            Some(super::LISTENER_TYPE_ID.to_string())
         );
         // ...and they are recognized as builtin resources with tcp's own close op,
         // not net's. If these ever came back as `net.close`, a tcp socket would be

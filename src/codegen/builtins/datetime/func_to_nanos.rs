@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Return the whole nanoseconds between the Unix epoch and an `Instant`."#;
+const INTRO: &str =
+    r#"Return the whole nanoseconds between the Unix epoch and a `datetime::Instant`."#;
 const DESC: &str = r#"`datetime::toNanos` collapses the absolute point `at` into a single `Integer`
 count of whole nanoseconds measured from the Unix epoch
 (`1970-01-01T00:00:00Z`). Instants before the epoch yield negative counts, the
@@ -12,7 +13,7 @@ epoch itself yields `0`, and instants after the epoch yield positive counts.
 
 The result is computed as `at.seconds * 1000000000 + at.nanos`: the
 seconds-since-epoch field is scaled to nanoseconds and the sub-second `nanos`
-field is added in directly. Because a normalized `Instant` already holds its
+field is added in directly. Because a normalized `datetime::Instant` already holds its
 `nanos` field at full nanosecond resolution (`0..999999999`), the conversion is
 exact and discards nothing — no truncation or rounding occurs in either
 direction.

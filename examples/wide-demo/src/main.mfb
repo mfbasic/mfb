@@ -47,7 +47,7 @@ FUNC main() AS Integer
   ' line. Rows: title at 1, blank at 2, body at 3.., blank, then the bottom border.
   LET right AS Integer = maxWidth + 2
   LET bottom AS Integer = count + 3
-  term::drawBox(LineStyle.Light, 0, 0, right, bottom)
+  term::drawBox(term::LineStyle.Light, 0, 0, right, bottom)
 
   ' Walk the list once: index 0 is the centered yellow title, the rest are the blue
   ' body lines, one per row starting two rows below the top border.
@@ -63,7 +63,7 @@ FUNC main() AS Integer
   NEXT
 
   ' A vertical divider proves wide glyphs to its left never bleed past their cells.
-  term::drawVLine(LineStyle.Light, 1, 3, count + 1)
+  term::drawVLine(term::LineStyle.Light, 1, 3, count + 1)
   term::drawGlyph(1, 3, 9532)   ' ┼ where the divider meets nothing (decorative)
 
   term::drawText(1, bottom + 2, "Press any key to continue.")

@@ -293,12 +293,6 @@ pub(super) const RULES: &[Rule] = &[
         message: "internal: two source file paths produced the same file-scope hash",
     },
     Rule {
-        code: "2-201-0019",
-        name: "IMPORT_SELF_IN_EXECUTABLE",
-        severity: Severity::Error,
-        message: "IMPORT self is only valid in a package project",
-    },
-    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,
@@ -726,14 +720,29 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "inline TRAP requires a fallible call",
     },
-    // bug-457: the one nested-call shape the inline-TRAP desugar cannot cover.
-    // Lifting a call out of a short-circuited operand would evaluate it
-    // unconditionally, so it is reported instead of silently escaping.
+    // bug-457/bug-471: the one nested shape the inline-TRAP desugar cannot cover.
+    // Lifting a fallible call — or a raising operator — out of a short-circuited
+    // operand would evaluate it unconditionally, so it is reported instead of
+    // silently escaping. The name keeps `_CALL` from bug-457: renaming a shipped
+    // rule breaks every diagnostic filter keyed on it, and the widening is in the
+    // message, not the identity.
     Rule {
         code: "2-203-0137",
         name: "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
         severity: Severity::Error,
-        message: "inline TRAP cannot cover a fallible call in a short-circuited operand",
+        message: "inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand",
+    },
+    // plan-114-A: a resource that reaches a thread's DATA plane is a plane
+    // mix-up with a specific remedy — declare it on the `RES` plane and move it
+    // with `thread::transfer`/`thread::accept` (§15.6, §16). It is split out of
+    // 2-203-0063 TYPE_THREAD_NOT_SENDABLE, which still reports every genuinely
+    // unsendable type (`Func`, `ThreadHandle`) and every rejection on the
+    // resource plane itself, where no plane remedy exists to point at.
+    Rule {
+        code: "2-203-0138",
+        name: "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+        severity: Severity::Error,
+        message: "a resource cannot cross the thread data plane",
     },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
@@ -809,7 +818,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0113",
         name: "TYPE_ISOLATED_NOT_VISIBLE",
         severity: Severity::Error,
-        message: "ISOLATED function must be a project-visible FUNC declaration",
+        message: "ISOLATED function must be a top-level FUNC declaration",
     },
     Rule {
         code: "2-203-0114",
@@ -985,6 +994,17 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "RES binds only resource types",
     },
+    // RESERVED, no longer emitted. plan-114-D retired this: a record field may
+    // now hold a resource, and is governed by the same two rules a collection
+    // element is — `2-203-0082 TYPE_RESOURCE_REQUIRES_RES` for a bare resource
+    // field, `2-203-0083 TYPE_RES_REQUIRES_RESOURCE` for `RES` on a non-resource.
+    // The ban's original justification (that such a field would mislead the
+    // layout and drop lowering) was retired by plan-114-B, which lays a resource
+    // field out as an ordinary 8-byte handle slot.
+    //
+    // Kept rather than deleted so the code is never recycled for a different
+    // meaning — the convention `2-203-0086` and `RESOURCE_SHADOWS_BUILTIN`
+    // already set.
     Rule {
         code: "2-203-0084",
         name: "TYPE_RESOURCE_FIELD_FORBIDDEN",
@@ -1041,7 +1061,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0131",
         name: "TYPE_RESOURCE_RETURN_ORDER",
         severity: Severity::Error,
-        message: "a collection that carries a returned resource must be declared before that resource",
+        message: "a container that carries a returned resource must be declared before that resource",
     },
     Rule {
         code: "2-203-0130",

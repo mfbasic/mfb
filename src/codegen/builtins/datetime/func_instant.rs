@@ -33,8 +33,9 @@ r#"FUNC __datetime_instant5(days AS Integer, hours AS Integer, mins AS Integer, 
   RETURN __datetime_normInstant(days * 86400 + hours * 3600 + mins * 60 + seconds, nanos)
 END FUNC"#;
 
-const INTRO: &str = r#"Build an `Instant` from seconds, nanoseconds, or larger time components."#;
-const DESC: &str = r#"`datetime::instant` builds an `Instant` on the UTC timeline (the Unix epoch,
+const INTRO: &str =
+    r#"Build a `datetime::Instant` from seconds, nanoseconds, or larger time components."#;
+const DESC: &str = r#"`datetime::instant` builds a `datetime::Instant` on the UTC timeline (the Unix epoch,
 without leap seconds) at a given offset after `1970-01-01T00:00:00Z`. The result
 carries whole seconds since the epoch in its `seconds` field and a sub-second
 remainder in its `nanos` field, normalized into the range `0 .. 999_999_999`.
@@ -63,37 +64,37 @@ explicitly; the component forms carry no defaults.
  The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
 day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
-To shift an existing `Instant` by a span rather than build one from scratch, use
-`datetime::add` or `datetime::subtract` with a `Duration`. `instant` is pure: the
-same arguments always yield the same `Instant`, and it has no side effects."#;
-const EX: &str = r#"Build an `Instant` from a whole-second epoch offset:
+To shift an existing `datetime::Instant` by a span rather than build one from scratch, use
+`datetime::add` or `datetime::subtract` with a `datetime::Duration`. `instant` is pure: the
+same arguments always yield the same `datetime::Instant`, and it has no side effects."#;
+const EX: &str = r#"Build a `datetime::Instant` from a whole-second epoch offset:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::instant(1_700_000_000)
+  LET t AS datetime::Instant = datetime::instant(1_700_000_000)
 END SUB
 ```
 
-Build an `Instant` with a sub-second adjustment that normalizes into the `seconds`
+Build a `datetime::Instant` with a sub-second adjustment that normalizes into the `seconds`
 field:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::instant(10, 1_500_000_000)
+  LET t AS datetime::Instant = datetime::instant(10, 1_500_000_000)
 END SUB
 ```
 
-Build an `Instant` from day, hour, minute, second, and nanosecond components:
+Build a `datetime::Instant` from day, hour, minute, second, and nanosecond components:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::instant(1, 2, 3, 4, 0)
+  LET t AS datetime::Instant = datetime::instant(1, 2, 3, 4, 0)
 END SUB
 ```"#;
 

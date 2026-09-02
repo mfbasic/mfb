@@ -12,7 +12,7 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Open a streaming reader over UTF-8 CSV text."#;
 
-const DESC: &str = r#"`csv::parseStream` returns a `CsvReader` — a value holding the decoded input and a
+const DESC: &str = r#"`csv::parseStream` returns a `csv::CsvReader` — a value holding the decoded input and a
 scan cursor — without parsing any rows yet. Each subsequent `csv::readRow` parses
 exactly one record and returns it with the reader advanced, so a document is
 processed one row at a time and the whole `List OF List OF String` grid is never
@@ -35,7 +35,7 @@ IMPORT collections
 IMPORT io
 
 SUB main()
-  MUT row AS CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
+  MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
   WHILE row.done = FALSE
     io::print(collections::get(row.fields, 0))
     row = csv::readRow(row.reader)

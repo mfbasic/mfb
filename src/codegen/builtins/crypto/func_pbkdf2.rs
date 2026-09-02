@@ -19,7 +19,7 @@ by `type` — a `crypto::Hash`: `SHA1`, `SHA2_224`/`SHA2_256`/`SHA2_384`/`SHA2_5
 or `SHA3_224`/`SHA3_256`/`SHA3_384`/`SHA3_512`. The result is returned as a raw
 `List OF Byte` of exactly `length`
 bytes. This one call is the package's single PBKDF2 surface. (PBKDF2-HMAC-SHA1 is
-the RFC 8018 / WPA2 legacy profile; `Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
+the RFC 8018 / WPA2 legacy profile; `crypto::Hash.SHA1` reports the `CRYPTO_SHA1_INSECURE`
 advisory, so select it only for compatibility with an existing deployment.)
 
 PBKDF2 applies the underlying HMAC `iterations` times per output block, chaining the
@@ -53,7 +53,7 @@ with `crypto::constantTimeEqual`.
 HMAC of the selected hash. The derivation is computed in-process by a portable
 MFBASIC software core over the `bits` package — no platform cryptographic library is
 called — so the output is **byte-identical on macOS, Linux, and Windows** (and across
-aarch64/x86-64). The core is hash-generic over the `Hash` enum, so a future `Hash`
+aarch64/x86-64). The core is hash-generic over the `crypto::Hash` enum, so a future `crypto::Hash`
 variant is supported without new code."#;
 const EX: &str = r#"Derive a 32-byte key from a password:
 
@@ -67,7 +67,7 @@ SUB main()
   LET salt AS List OF Byte = crypto::randomBytes(16)
   ' 10000 keeps this example quick. Use at least 600000 for a real password —
   ' the whole point of pbkdf2 is that it is slow to attack.
-  LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA2_256, password, salt, 10000, 32)
+  LET key AS List OF Byte = crypto::pbkdf2(crypto::Hash.SHA2_256, password, salt, 10000, 32)
   io::print(toString(len(key)) & " bytes")
 END SUB
 ```"#;

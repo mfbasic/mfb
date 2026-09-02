@@ -1,6 +1,5 @@
 use crate::ast::{
     AstProject, DocBlock, DocHeaderKind, FunctionKind, ResourceDecl, TypeDeclKind, Visibility,
-    SELF_IMPORT,
 };
 use crate::binary_repr;
 use crate::codegen::builtins;
@@ -8,11 +7,12 @@ use crate::hir::{
     HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchPattern, HirProject,
     HirStatement, HirTopLevelBinding, HirTypeDecl, HirTypeField,
 };
+use crate::manifest::package::{resolved_package_file, source_dependency, SourceDependency};
 use crate::rules;
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
@@ -24,27 +24,35 @@ const BUILTIN_TYPES: &[&str] = &[
     "Fixed",
     "Float",
     "Integer",
-    "Json",
     "Money",
     "Nothing",
     "Result",
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
-    crate::codegen::builtins::term::TERM_COLOR_TYPE,
-    crate::codegen::builtins::term::TERM_SIZE_TYPE,
-    crate::codegen::builtins::net::ADDRESS_TYPE,
+    // bug-484: every entry below is a PACKAGE-QUALIFIED id, and that is the whole
+    // point of the list. It seeds the resolver's known-type set, so a bare leaf
+    // here makes that name resolvable from ANY file with no `pkg::` prefix —
+    // against the governing rule, and silently, because resolution simply
+    // succeeds. Six entries used to be bare (`Address`, `Datagram`, `TermColor`,
+    // `TermSize`, `AudioDevice`, `Json`), which is why `AS Address` compiled from
+    // a consumer while the sibling `AS Url` — same package, same kind, but absent
+    // from this list — was correctly refused.
+    crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
+    crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
+    crate::codegen::builtins::net::ADDRESS_TYPE_ID,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
     // entirely — a datagram's encoding is not something the network reports.
     crate::codegen::builtins::tcp::SOCKET_TYPE_ID,
     crate::codegen::builtins::tcp::LISTENER_TYPE_ID,
     crate::codegen::builtins::udp::SOCKET_TYPE_ID,
-    crate::codegen::builtins::udp::DATAGRAM_TYPE,
+    crate::codegen::builtins::udp::DATAGRAM_TYPE_ID,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID,
     crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE_ID,
-    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE,
+    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE_ID,
+    crate::codegen::builtins::json::JSON_TYPE_ID,
     crate::codegen::builtins::process::PROCESS_TYPE_ID,
 ];
 
@@ -241,25 +249,33 @@ fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
 /// Whether `type_name` is a raw C ABI type (mirrors the former source checker's `is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
 fn is_c_abi_type(type_: &crate::types::ParameterType) -> bool {
-    // plan-111-B: every C ABI spelling is a nominal (none has a variant), so
-    // this is the same list asked of the interned `Symbol` the `Named` holds.
-    let crate::types::ParameterType::Named(name) = type_ else {
-        return false;
-    };
+    use crate::types::CAbiType;
+    // plan-113: every C ABI spelling is now a `ParameterType::C`, so this asks
+    // the variant instead of the interned `Symbol` a `Named` used to hold.
+    //
+    // **This is 12 of the 16 on purpose, and must NOT become
+    // `type_.c_abi().is_some()`.** `CBool`, `CByte` and `CVoid` are excluded per
+    // `17_native-libraries.md:94` ("it does **not** include `CBool`, `CByte`, or
+    // `CVoid`"), and `CBuffer` with them. Widening this widens what
+    // `NATIVE_CPTR_ESCAPE` rejects from a wrapper's MFBASIC-facing signature —
+    // a silent behaviour change, since the obvious conversion still compiles.
+    // `is_c_abi_type_recognizes_and_rejects` asserts all four negatives.
     matches!(
-        name.resolve(),
-        "CPtr"
-            | "CString"
-            | "CInt8"
-            | "CInt16"
-            | "CInt32"
-            | "CInt64"
-            | "CUInt8"
-            | "CUInt16"
-            | "CUInt32"
-            | "CUInt64"
-            | "CFloat"
-            | "CDouble"
+        type_.c_abi(),
+        Some(
+            CAbiType::Ptr
+                | CAbiType::Str
+                | CAbiType::Int8
+                | CAbiType::Int16
+                | CAbiType::Int32
+                | CAbiType::Int64
+                | CAbiType::UInt8
+                | CAbiType::UInt16
+                | CAbiType::UInt32
+                | CAbiType::UInt64
+                | CAbiType::Float
+                | CAbiType::Double
+        )
     )
 }
 
@@ -286,12 +302,15 @@ struct Resolver<'a> {
     /// keyed by name. Members are resolved as `alias::func` qualified names
     /// (plan-link-update.md §5b).
     link_functions: HashMap<String, HashMap<String, LinkFnSig>>,
+    /// Every name an imported non-builtin package exports, keyed by PACKAGE name
+    /// (not by import binding — several bindings may name one package).
+    ///
+    /// Present only for a package whose interface was read successfully, which is
+    /// what makes the membership test safe to reject on: a package that could not
+    /// be read has already been reported, and an absent entry means "no positive
+    /// knowledge", never "exports nothing" (bug-480).
+    package_exports: HashMap<String, HashSet<String>>,
     active_template_params: HashSet<String>,
-    /// Whether this project is `kind: "package"`. Gates the reserved `IMPORT self`
-    /// specifier: only a package has an exported interface to import, so
-    /// `IMPORT self` in an executable is `IMPORT_SELF_IN_EXECUTABLE`
-    /// (plan-81-import-self.md §4.3).
-    is_package: bool,
     had_error: bool,
 }
 
@@ -356,16 +375,8 @@ impl<'a> Resolver<'a> {
                 .map(|name| crate::types::ParameterType::declared(name))
                 .collect(),
             link_functions: HashMap::new(),
+            package_exports: HashMap::new(),
             active_template_params: HashSet::new(),
-            // Non-panicking kind read: `manifest::project_kind` asserts a
-            // validated `kind`, but `Resolver::new` also runs from paths with an
-            // empty/partial manifest (doc validation, unit tests). Absent kind →
-            // treat as non-package, so `IMPORT self` there is rejected, not a panic.
-            is_package: manifest
-                .get("kind")
-                .and_then(|value| value.get::<String>())
-                .map(|kind| kind == "package")
-                .unwrap_or(false),
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);
@@ -851,20 +862,38 @@ mod tests {
 
     #[test]
     fn is_c_abi_type_recognizes_and_rejects() {
+        // plan-113: these go through `parse`, not `named`. A source-written
+        // `CPtr` is a `ParameterType::C` now, and `named("CPtr")` is a nominal
+        // that merely *spells* one — a value the compiler no longer mints for a
+        // C ABI type, so asserting over it would test an unreachable shape.
         for t in [
             "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
             "CUInt32", "CUInt64", "CFloat", "CDouble",
         ] {
             assert!(
-                is_c_abi_type(&crate::types::ParameterType::named(t)),
+                is_c_abi_type(&crate::types::ParameterType::parse(t)),
                 "{t} should be a C ABI type"
             );
         }
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named(
+        // The 12-of-16 list is DELIBERATE (§3 Risk 2 of plan-113): `CBool`,
+        // `CByte` and `CVoid` are excluded per `17_native-libraries.md:94`, and
+        // `CBuffer` with them. Rewriting the predicate as
+        // `type_.c_abi().is_some()` compiles and silently adds these four to
+        // what `NATIVE_CPTR_ESCAPE` rejects; these four assertions are the only
+        // thing that catches it.
+        for t in ["CBool", "CByte", "CVoid", "CBuffer"] {
+            assert!(
+                !is_c_abi_type(&crate::types::ParameterType::parse(t)),
+                "{t} must NOT be a C ABI type for NATIVE_CPTR_ESCAPE"
+            );
+        }
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse(
             "Integer"
         )));
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named("CPtrX")));
-        assert!(!is_c_abi_type(&crate::types::ParameterType::named("")));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse("CPtrX")));
+        assert!(!is_c_abi_type(&crate::types::ParameterType::parse("")));
+        // A nominal that merely spells a C type is not one.
+        assert!(!is_c_abi_type(&crate::types::ParameterType::named("CPtr")));
     }
 
     #[test]

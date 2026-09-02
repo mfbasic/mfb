@@ -29,6 +29,9 @@
 //! zeroed), so the mutex and condition code below is written once and works on all
 //! three families.
 
+pub(crate) mod metal;
+pub(crate) mod vulkan;
+
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
@@ -116,12 +119,464 @@ pub(crate) const GRAPHICS_OFFSET_SYNC: usize = 216;
 /// exactly what it saw before this existed.
 pub(crate) const GRAPHICS_OFFSET_WIDTH: usize = 224;
 pub(crate) const GRAPHICS_OFFSET_HEIGHT: usize = 232;
+/// Non-zero when the Metal renderer is selected (plan-98-E).
+///
+/// **Opt-in, not the default.** The software path is the *oracle* the GPU backends
+/// are measured against (plan-98-A invariant 7), and its goldens are exact-match; a
+/// GPU frame only matches within a tolerance. Making Metal the default would turn
+/// every exact-match golden into a tolerance test and destroy the reference they are
+/// compared to. `MFB_CANVAS_GPU=1` selects it; plan-98-E's own tests set it.
+pub(crate) const GRAPHICS_OFFSET_GPU: usize = 296;
 /// Scratch for the `pthread_attr_t` the spawn configures. 64 bytes covers macOS
 /// (64) and musl/glibc (56). It lives here rather than on the spawner's stack
 /// because there is exactly one spawn and the block is already process-global.
-pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 240;
+pub(crate) const GRAPHICS_OFFSET_ATTR: usize = 304;
+/// The Metal device, command queue and render pipeline state (plan-98-E Phase 1),
+/// and the `MTLBuffer`-backed offscreen texture the renderer draws into.
+///
+/// They live in the graphics-state block rather than in the macOS app module's own
+/// storage for the reason §2 of `.ai/canvas-threading.md` gives for everything else
+/// here: the graphics thread creates them, uses them, and is the only thread that
+/// may, and the arena is per-thread — so a process-global word is the only place
+/// they can be kept where the thread that made them will find them again.
+///
+/// `GRAPHICS_OFFSET_MTL_READY` is the "tried already" flag, distinct from
+/// `PIPELINE` being non-zero: a machine with no Metal device must not re-run the
+/// device probe and the shader compile on every frame just because they failed.
+pub(crate) const GRAPHICS_OFFSET_MTL_READY: usize = 368;
+pub(crate) const GRAPHICS_OFFSET_MTL_DEVICE: usize = 376;
+pub(crate) const GRAPHICS_OFFSET_MTL_QUEUE: usize = 384;
+pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE: usize = 392;
+/// The offscreen render target, and the dimensions it was created for.
+///
+/// The renderer draws into a texture rather than straight to a drawable so that the
+/// finished frame goes back through the *same* `canvas::blitSurface` the software
+/// path uses. That is what makes the two comparable at all — the tolerance
+/// comparator reads an RGBA8 buffer, and a frame that only ever existed inside a
+/// `CAMetalLayer` is not one. plan-98-E Phase 2 adds the direct-to-drawable present
+/// alongside it.
+///
+/// A resize creates a new texture and releases the old one, which is why the
+/// dimensions are kept here rather than re-read from the texture: comparing two
+/// words is cheaper than two message sends, every frame.
+pub(crate) const GRAPHICS_OFFSET_MTL_TEXTURE: usize = 400;
+pub(crate) const GRAPHICS_OFFSET_MTL_TEX_WIDTH: usize = 408;
+pub(crate) const GRAPHICS_OFFSET_MTL_TEX_HEIGHT: usize = 416;
+/// The Vulkan renderer's device layer (plan-98-F).
+///
+/// Same reasoning as the Metal slots above: the graphics thread creates these, uses
+/// them, and is the only thread that may — and the arena is per-thread, so a
+/// process-global word is the only place they survive.
+///
+/// `VULKAN_READY` is tri-state (0 untried, 1 built, 2 failed) rather than "is the
+/// device non-zero", so a machine with no ICD pays the `dlopen` and the enumeration
+/// once instead of per frame.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READY: usize = 424;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_LIB: usize = 432;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_INSTANCE: usize = 440;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PHYSICAL: usize = 448;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DEVICE: usize = 456;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE: usize = 464;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY: usize = 472;
+/// The pipeline the renderer records against, built once with its layout and render
+/// pass. Viewport and scissor are dynamic state, so a resize reuses all three.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT: usize = 480;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_RENDER_PASS: usize = 488;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE: usize = 496;
+/// The offscreen render target and the readback path, plus the dimensions they were
+/// built for — a resize rebuilds them, as the Metal path rebuilds its texture.
+///
+/// `VULKAN_MAPPED` is the readback buffer's persistently-mapped pointer. Vulkan
+/// allows a `HOST_VISIBLE` allocation to stay mapped for its lifetime, so mapping
+/// once and keeping the pointer avoids a map/unmap pair per frame.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE: usize = 504;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY: usize = 512;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW: usize = 520;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER: usize = 528;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READ_BUFFER: usize = 536;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_READ_MEMORY: usize = 544;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_MAPPED: usize = 552;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_TEX_WIDTH: usize = 560;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT: usize = 568;
+/// The command pool and the single command buffer the frame is recorded into.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_POOL: usize = 576;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER: usize = 584;
+/// The polygon edge buffer and the descriptor machinery that binds it.
+///
+/// A polygon carries an unbounded number of edges and the guaranteed push-constant
+/// range is 128 bytes, which the 112-byte item block already fills — so the edges
+/// need a storage buffer, and a storage buffer needs a descriptor set. This is the
+/// only reason the Vulkan pipeline has one; every other kind rides the push
+/// constants alone.
+///
+/// The buffer is host-visible and stays mapped, exactly like the readback buffer:
+/// it is rewritten every frame, so a map/unmap pair per frame would cost more than
+/// the writes. It is created once with the device rather than with the target,
+/// because its size does not depend on the surface.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SET_LAYOUT: usize = 592;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DESC_POOL: usize = 600;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_DESC_SET: usize = 608;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER: usize = 616;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY: usize = 624;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED: usize = 632;
+/// How many times the platform has published a **different** surface size.
+///
+/// A counter, not a flag, and that is what makes `canvas::didResize` lock-free. Only
+/// the main thread writes this and only the worker writes `…_RESIZES_SEEN`, so the two
+/// never race for the same word — where a single read-and-clear flag would lose a
+/// resize that landed between a reader's load and its store, on a path whose whole
+/// purpose is to report edges.
+pub(crate) const GRAPHICS_OFFSET_RESIZES: usize = 640;
+/// The value `canvas::didResize` last reported. The worker owns this word.
+pub(crate) const GRAPHICS_OFFSET_RESIZES_SEEN: usize = 648;
+/// The per-frame **item buffer**: one `ITEM_BLOCK_SIZE` record per drawn quad, indexed
+/// by `gl_InstanceIndex`, plus the memory backing it and its persistent mapping.
+///
+/// This is the transport that replaced the push constants (plan-116-A). A push
+/// constant is a per-*draw* value, so it could only ever describe one item, which
+/// forced one draw call per item and — far more importantly — pinned the item block
+/// under Vulkan's guaranteed 128-byte range. The buffer has neither property: the
+/// whole frame's items are written once, a run of them is drawn with a single
+/// instanced `vkCmdDraw`, and the block's size is bounded by
+/// `CANVAS_ITEM_BUFFER_BYTES` rather than by a device limit.
+///
+/// Host-visible and mapped for its lifetime, created with the *device* and not with
+/// the target, exactly like `…_VULKAN_EDGE_*` above — its size does not depend on the
+/// surface, so a resize must not tear it down.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER: usize = 656;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY: usize = 664;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
+/// Metal's frame buffer — the same transport, one `MTLBuffer` instead of a Vulkan
+/// buffer plus a descriptor (plan-116-A).
+///
+/// It carries **two regions**: the item blocks from byte 0, then the polygon edges
+/// from `METAL_EDGE_BASE_WORDS`. Before this, Metal's edges rode a per-item
+/// `setFragmentBytes:` payload, which an instanced draw cannot rebind between
+/// instances — so every polygon would have ended the instanced run, and letters F and
+/// H would each have rediscovered the same conflict. Both backends now carry edges the
+/// same way.
+///
+/// `…_CONTENTS` caches `[buffer contents]` so the frame path writes through a plain
+/// pointer instead of sending a message per item, mirroring the Vulkan side's
+/// persistent mapping. Created with the *device*, not the target: its size does not
+/// depend on the surface, so a resize must not tear it down.
+pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_BUFFER: usize = 680;
+pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_CONTENTS: usize = 688;
+/// The **three non-`Normal` pipelines**, one per remaining `BlendMode`, on each
+/// backend (plan-116-B).
+///
+/// A blend mode is per-*pipeline* state on both APIs, not per-draw — it is baked into
+/// `VkPipelineColorBlendAttachmentState` and into `MTLRenderPipelineDescriptor`'s
+/// colour attachment — so "per-item blend" means four pipelines selected per draw, not
+/// a shader branch. All four differ *only* in their blend factors; they share one
+/// vertex function, one fragment function and one layout.
+///
+/// **Four contiguous slots each, indexed by the `BlendMode` tag directly** — entry 0
+/// is `Normal`. Contiguous and 0-based so the frame path computes the handle's address
+/// as `base + mode * 8` with no branch and no `mode - 1` correction; a four-way branch
+/// per mode change is the kind of arithmetic that is right for three of the four cases.
+///
+/// `Normal`'s handle is *also* stored in `…_VULKAN_PIPELINE` / `…_MTL_PIPELINE`, which
+/// stay exactly what they were. That is not redundancy for its own sake: those slots
+/// are what the readiness checks test for non-zero, and what an ordinary scene binds
+/// once at frame start, so leaving them untouched keeps "the pipeline built" meaning
+/// what it has always meant.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES: usize = 696;
+pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE_MODES: usize = 728;
+/// How many blend modes there are, and therefore how many pipelines each backend
+/// builds. Spelled again in MFBASIC as the `BlendMode` variant count; the emitters and
+/// the header agree through `HEADER_BLEND`'s 0..3 range.
+pub(crate) const BLEND_MODE_COUNT: usize = 4;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 304;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
+
+/// The per-item parameter block both GPU backends push to their shaders.
+///
+/// **One contract, two emitters.** The block is byte-identical between the Metal
+/// pipeline (an MSL `constant MfbItem&`) and the Vulkan one (a GLSL push-constant
+/// block) — glslang's reflection reports exactly these offsets and this size — so
+/// the shaders agree by construction rather than by two hand-maintained layouts
+/// staying in step. Each backend emits the *stores* in its own IR flavour; the
+/// *layout* is here, once.
+///
+/// Six `ivec4`s and a seventh holding the surface size. Every member is an `ivec4` so
+/// the two shading languages' packing rules cannot disagree.
+///
+/// **The bound is the item buffer, not a push-constant range** (plan-116-A). Until
+/// then the block rode `vkCmdPushConstants` / `setVertexBytes:` and 112 was chosen to
+/// fit Vulkan's *guaranteed* 128-byte range — a hard ceiling, and the only guaranteed
+/// one, so widening the block past it would have made the feature set depend on the
+/// device. It now travels in `…_VULKAN_ITEM_BUFFER` (Metal:
+/// `…_MTL_ITEM_BUFFER`), one record per drawn quad indexed by instance, so the only
+/// limit left is capacity: `CANVAS_MAX_FRAME_ITEMS` records must fit
+/// `CANVAS_ITEM_BUFFER_BYTES`, which is defined *from* this constant and therefore
+/// cannot fall out of step.
+///
+/// What still constrains the value is **agreement between the two shading languages**,
+/// and that is gated rather than trusted: glslang's reflection for the GLSL
+/// `ItemBlock` reports `topLevelArrayStride 128` with members at
+/// 0/16/32/48/64/80/96/112 (`glslangValidator -V -q mfb_canvas.vert`, re-measured
+/// 2026-09-01 when plan-116-B added the clip `ivec4`), matching the
+/// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
+/// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
+/// so std430's stride stays equal to the size, then re-running that reflection.
+pub(crate) const ITEM_BLOCK_SIZE: usize = 128;
+/// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
+pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
+/// The shape parameters `p0..p3`, 16.16.
+pub(crate) const ITEM_OFFSET_SHAPE: usize = 16;
+/// Fill and stroke `RGBA`, whole 0–255 values.
+pub(crate) const ITEM_OFFSET_FILL: usize = 32;
+pub(crate) const ITEM_OFFSET_STROKE: usize = 48;
+/// `kind`, `radius` (16.16), `strokeHalf` (16.16), `edgeCount`.
+pub(crate) const ITEM_OFFSET_MISC: usize = 64;
+/// The arc's `startAngle`, `endAngle` (16.16 radians), then the polygon's first-edge
+/// index into the Vulkan edge buffer, then one unused word.
+///
+/// Slots 2 and 3 are per-kind the same way `HEADER_AUX0` is: an arc never reads the
+/// edge base and a polygon never reads the angles, so one `ivec4` carries both rather
+/// than each taking its own. Both backends carry the edge base since plan-116-A: each
+/// polygon takes a slice of one buffer that serves the whole frame, and this is where
+/// the offset travels.
+pub(crate) const ITEM_OFFSET_ARC: usize = 80;
+/// The word inside `ITEM_OFFSET_ARC` holding the polygon's first-edge index.
+///
+/// For a glyph (`GEO_KIND_TEXT`) the same word holds the first-*sample* index into the
+/// buffer's glyph region, for exactly the same reason: Vulkan records one buffer for the
+/// frame, so a per-draw offset is the only way each glyph can see its own bitmap.
+pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
+/// The word inside `ITEM_OFFSET_ARC` holding a glyph's bitmap height.
+///
+/// A glyph reads neither arc angle, so `arc.x` carries the height beside `misc.w`'s
+/// width — the same per-kind reuse the arc/polygon pair already makes of this block.
+pub(crate) const ITEM_ARC_GLYPH_HEIGHT: usize = 0;
+/// The surface's width and height, in whole pixels, then the blend mode.
+pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
+/// The word inside `ITEM_OFFSET_SURFACE` holding the `BlendMode` tag, 0..3
+/// (plan-116-B).
+///
+/// It lands here rather than in a new `ivec4` because plan-116-A's audit found this
+/// word free — the surface size needs two of the four, and the block is declared as a
+/// full `ivec4` on both sides precisely so trailing padding cannot differ between the
+/// languages. Using the space costs nothing and keeps the block one `ivec4` narrower.
+pub(crate) const ITEM_SURFACE_BLEND: usize = 8;
+/// The item's clip rectangle, resolved to `x0, y0, x1, y1` in 16.16 fixed point
+/// (plan-116-B).
+///
+/// The `ivec4` that took the block from 112 to 128 bytes — which the push-constant
+/// transport could not have afforded, since 128 is the whole guaranteed range and the
+/// pipeline layout would have had nothing left. plan-116-A moved the block into a
+/// buffer for exactly this.
+///
+/// A zero-area rectangle means **unclipped** and is recognised by `x0 >= x1 || y0 >=
+/// y1`, the same test the geometry header uses, so the two agree by construction.
+pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
+
+/// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
+/// item block, so both backends have to test for it by hand.
+///
+/// The rest of the dispatch happens inside the shaders, which read `misc.x`; this is
+/// here because the *emitters* branch on it too, to decide whether to build an edge
+/// payload at all. Spelled once so a renumbering in `helper_geometry.rs`'s
+/// `__CANVAS_GEO_POLYGON` cannot leave two backends disagreeing with the source of
+/// truth in different ways.
+pub(crate) const GEO_KIND_POLYGON: &str = "4";
+
+/// `__CANVAS_GEO_TEXT` — a glyph run, the other kind whose payload does not fit in the
+/// item block, and the only one that is not *one* draw.
+///
+/// A run's tail is `(cacheEntry, penX, penY)` per glyph, and each glyph is its own quad
+/// with its own coverage bitmap, so a text item becomes N draws rather than one. Both
+/// emitters therefore branch on this before they build an item block at all.
+pub(crate) const GEO_KIND_TEXT: &str = "6";
+/// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
+pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
+/// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.
+///
+/// `x0`/`y0` are the bitmap's offset from the pen, which is what lets the same bitmap
+/// serve the same glyph wherever it lands; `covStart` indexes `__CANVAS_GLYPH_COV`.
+pub(crate) const GLYPH_META_SLOTS: usize = 5;
+pub(crate) const GLYPH_META_X0: usize = 0;
+pub(crate) const GLYPH_META_Y0: usize = 1;
+pub(crate) const GLYPH_META_W: usize = 2;
+pub(crate) const GLYPH_META_H: usize = 3;
+pub(crate) const GLYPH_META_START: usize = 4;
+
+/// 16.16 fixed point: the scale both shaders divide positions by.
+///
+/// Positions narrow to fixed point on the CPU because the geometry header is
+/// `Float` (IEEE double), neither shading language has a double, and the AArch64
+/// assembler has no double→single convert and no 32-bit FP store. 16.16 covers
+/// ±32768 px at 1/65536 px — finer than `float`'s own resolution above 512 px, over
+/// a coordinate space a few thousand pixels wide.
+pub(crate) const FIXED_POINT_SCALE: &str = "65536";
+
+/// Slots of `__canvas_headerFor`'s fixed 27-float geometry header that the GPU
+/// backends read. The software rasteriser indexes the same layout.
+pub(crate) const HEADER_KIND: usize = 0;
+pub(crate) const HEADER_SHAPE: usize = 2;
+pub(crate) const HEADER_RADIUS: usize = 6;
+pub(crate) const HEADER_STROKE_HALF: usize = 7;
+pub(crate) const HEADER_FILL_R: usize = 8;
+pub(crate) const HEADER_STROKE_R: usize = 12;
+pub(crate) const HEADER_BOUNDS: usize = 16;
+/// Slot 20 is the polygon's edge count *and* the arc's start angle — the header
+/// reuses it per kind, and so does the item block. Writing both unconditionally is
+/// cheaper than branching and can never be wrong: a shader reads only the one its
+/// `kind` selects.
+pub(crate) const HEADER_AUX0: usize = 20;
+pub(crate) const HEADER_AUX1: usize = 21;
+/// The item's clip rectangle, **resolved** to `x0, y0, x1, y1` in surface pixels
+/// (plan-116-B).
+///
+/// Resolved rather than `x/y/w/h` so neither the rasteriser nor either shader repeats
+/// the addition — the clip is tested once per covered pixel on the boundary and once
+/// per item everywhere else, and `x + w` is not a term worth recomputing there.
+///
+/// A zero-area clip means **no clipping**, which is what an unset `Paint.clip` reads
+/// as (`canvas::Paint.clip`'s description). It is stored as four zeros and recognised
+/// by `x0 >= x1 OR y0 >= y1` — a test that also catches a caller passing a negative
+/// extent, which `Bounds` cannot forbid.
+pub(crate) const HEADER_CLIP_X0: usize = 22;
+pub(crate) const HEADER_CLIP_Y0: usize = 23;
+pub(crate) const HEADER_CLIP_X1: usize = 24;
+pub(crate) const HEADER_CLIP_Y1: usize = 25;
+/// The item's `BlendMode`, as the enum tag 0..3 (plan-116-B).
+///
+/// `BlendMode.Normal` is 0, so an unset `Paint.blend` is the source-over behaviour
+/// every scene had before this field was read — the zero value is the no-op, the same
+/// rule the rest of `Paint` follows.
+pub(crate) const HEADER_BLEND: usize = 26;
+/// The fixed header length in slots — where a polygon's edge tail begins.
+///
+/// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry.rs`), with no
+/// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
+/// is what keeps them equal. Changing this without changing that one makes a polygon's
+/// first edge coordinate read as a header field.
+pub(crate) const HEADER_SLOTS: usize = 27;
+/// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
+pub(crate) const EDGE_SLOTS: usize = 5;
+/// The most edges one polygon may carry on the **Metal** path.
+///
+/// `setFragmentBytes:` copies into the command buffer and is small, so Metal's edges
+/// ride a bounded payload sized at compile time. `__canvas_metalRenderable` declines
+/// a polygon past this rather than truncating it, because a truncated polygon
+/// renders as a *different shape* and would read as a geometry bug.
+pub(crate) const MAX_EDGES: usize = 256;
+
+/// The most edges one **frame** may carry on the Vulkan path.
+///
+/// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
+/// push constants — so the real constraint is the buffer, and it is a whole-frame
+/// one: every polygon in the scene takes a slice. `__canvas_vulkanRenderable` sums
+/// the scene's polygon edges against this and declines the frame to software if the
+/// total does not fit, so the emitter's own bound check is unreachable.
+///
+/// 16384 edges is 256 KiB. It is generous rather than tuned: the fragment shader
+/// walks every edge of a polygon per covered pixel, so a scene anywhere near this
+/// bound is already too slow to want, on either backend.
+pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 16384;
+/// Four 16.16 words per edge — the two endpoints.
+pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
+
+/// The most **item blocks** one frame may carry — the capacity of the item buffer.
+///
+/// A *drawn quad*, not a scene item: every non-text item takes one block, and a glyph
+/// run takes one per glyph, because each glyph is its own quad with its own block
+/// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
+/// number this bounds.
+///
+/// 4096 blocks is 448 KiB at the current `ITEM_BLOCK_SIZE`, and it grows with the
+/// block — which is the point: later letters widen the block, and the buffer absorbs
+/// that where the 128-byte push-constant range could not.
+///
+/// Both `*Renderable` predicates sum a frame's quads against this and decline the
+/// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
+/// already has and for the same reason: a truncated scene is a *different scene*, and
+/// software is the oracle, so declining is never worse than drawing.
+pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+/// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
+pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
+
+/// The most edges one **frame** may carry on the Metal path, mirroring
+/// `VULKAN_MAX_FRAME_EDGES` (plan-116-A).
+///
+/// Metal's edges used to ride a per-item `setFragmentBytes:` payload, which is copied
+/// into the command buffer at record time — so the cap was per *item* (`MAX_EDGES`)
+/// and there was no frame total at all. An instanced draw cannot rebind that payload
+/// between instances, so the edges moved into a region of the frame buffer, exactly
+/// where Vulkan has always kept them, and the cap became a frame total to match.
+///
+/// **This is the one scene class that newly declines to software**: a Metal scene
+/// whose polygon edges sum past 16384. It previously rendered on the GPU through the
+/// unbounded per-item payload. Software is the oracle, so the picture is at least as
+/// correct. The per-item `MAX_EDGES` decline is deliberately kept beside this one —
+/// unifying the two caps is later work, taken deliberately or not at all.
+pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
+/// Where Metal's edge region starts inside the frame buffer, in 32-bit words.
+///
+/// The item blocks come first, so this is simply past them. The shader adds it to each
+/// polygon's `ITEM_ARC_EDGE_BASE` rather than reading a separately-offset binding,
+/// which is the same shape `VULKAN_GLYPH_BASE_WORDS` already uses — and it sidesteps
+/// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
+/// offset. `the_metal_shader_edge_base_matches_the_buffer_layout` pins the number
+/// against the copy inside the MSL string.
+pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
+/// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each).
+pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES + METAL_MAX_FRAME_EDGES * 16;
+
+/// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
+///
+/// Glyph bitmaps ride the same buffer as the edges, in a region after them, for the
+/// reason a second buffer would have to be justified rather than assumed: it would need
+/// its own allocation, its own memory-type search, its own descriptor binding and its
+/// own upload, to hold data with exactly the edges' lifetime and exactly their access
+/// pattern. One buffer, two regions, one binding.
+///
+/// One sample per 32-bit word rather than four packed per word. That wastes three
+/// quarters of the region and buys a shader arm with no shifting and no masking, in the
+/// only place where a packing mistake would be invisible — a wrongly unpacked coverage
+/// byte still produces a glyph, just a wrong one. A megabyte of samples is 4 MiB of
+/// buffer, which is nothing on any device that has a Vulkan driver at all.
+pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
+/// Where the glyph region starts, in 32-bit words — i.e. immediately after the edges.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
+/// The whole shared buffer: edges, then glyph coverage.
+pub(crate) const VULKAN_BUFFER_BYTES: usize =
+    VULKAN_EDGE_BYTES + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+
+/// The most coverage samples one glyph may carry on the **Metal** path.
+///
+/// Metal's glyph bitmap rides `setFragmentBytes:` exactly as its edges do, so the bound
+/// is the same 4 KiB payload and it is per glyph rather than per frame. That is about a
+/// 64x64 bitmap, which is a glyph at roughly 200 px. `__canvas_metalRenderable` declines
+/// a scene containing a bigger one rather than clipping it, for the reason it declines
+/// an over-long polygon: a clipped glyph is a *different glyph*, and would read as a
+/// rasteriser bug rather than as a backend limit.
+pub(crate) const METAL_MAX_GLYPH_SAMPLES: usize = 4096;
+
+/// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none
+/// elsewhere. It sits at the BOTTOM of the frame, so the saves above it are out of reach
+/// of a callee that spills its register arguments into it.
+pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
+    usize::from(windows) * 32
+}
+
+/// The graphics trampoline's frame size, split out from the emitter so the alignment
+/// invariant it exists to satisfy can be asserted directly (bug-479).
+///
+/// **Every x86-64 thread entry is reached by a `call`** — `_pthread_start` on Unix and
+/// `BaseThreadInitThunk` on Windows alike — so the routine begins at `rsp % 16 == 8`.
+/// A callee must in turn be entered at `rsp % 16 == 8`, which means `rsp % 16 == 0`
+/// immediately before the `call`. This trampoline only subtracts (it pushes nothing), so
+/// the frame itself has to carry the odd 8: `frame % 16 == 8` is the whole requirement.
+///
+/// AArch64 needs no such thing — the entry `sp` is 16-aligned and the return address
+/// arrives in `lr` rather than on the stack.
+pub(crate) fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+    let realign = usize::from(arch == "x86_64") * 8;
+    32 + realign + graphics_trampoline_shadow(windows)
+}
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
@@ -170,12 +625,62 @@ pub(crate) fn emit_graphics_trampoline(
     let from = GRAPHICS_TRAMPOLINE_SYMBOL;
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
+    // **The x86-64 stack realign.** Every x86-64 thread library reaches a
+    // start-routine through a `call`, so the routine begins at `sp % 16 == 8` — the
+    // return address has been pushed and nothing has re-aligned. A frame that is a
+    // multiple of 16 therefore leaves every call this trampoline makes misaligned,
+    // and the first callee that uses an aligned SSE store faults. It does not fault
+    // here: it faults far away, inside `calloc` under `g_idle_add`, as heap
+    // corruption in a thread whose own frames are all correct.
+    //
+    // `lower_thread_trampoline` has carried this same +8 since bug-408, box-proven on
+    // both libcs (glibc 2228: the 88-byte frame runs, the 80-byte frame SIGSEGVs 5/5;
+    // musl 2227: 88 runs, 96 SIGSEGVs 5/5). The graphics thread is a second
+    // start-routine and needs it for exactly the same reason — it did not have it,
+    // which is why canvas mode segfaulted on Linux from the moment plan-98-D moved
+    // rendering onto a thread. AArch64 takes no realign: `pthread_create` enters with
+    // a 16-aligned `sp` and the return address in `lr`.
+    //
+    // **Windows takes the realign too — measured, not assumed.** This comment used to
+    // claim `BaseThreadInitThunk` enters a `CreateThread` start routine ALREADY
+    // 16-aligned, and skipped the `+8` on that basis. It is false: the thunk reaches
+    // the start routine through an ordinary `call`, so the routine begins at
+    // `rsp % 16 == 8` exactly like `_pthread_start`.
+    //
+    // The skew is invisible until something on the graphics thread calls a Win32
+    // function that cares. `SleepConditionVariableSRW` cares, because ntdll builds its
+    // wait block on the caller's stack and tags the pointer in the block's low 4 bits
+    // (`and rdx,0FFFFFFFFFFFFFFF0h` at `RtlSleepConditionVariableSRW+0x13d`). Eight
+    // bytes out, that mask yields a pointer into the middle of the block, the wait-list
+    // walk below it loads a NULL `Next`, and `mov [rcx+10h],rax` faults with `rcx=0` —
+    // with every argument correct, on the very first wait. That is bug-479.
+    //
+    // Measured on box 2230 with a breakpoint on `ntdll!RtlAcquireSRWLockExclusive`
+    // printing `@rsp` per thread, both acquiring the SAME canvas mutex:
+    //
+    //     worker   t=1728  rsp=0x332de68  -> % 16 == 8   correct
+    //     graphics t=1a28  rsp=0x3b2fd30  -> % 16 == 0   skewed
+    //
+    // The worker is right because its entry pushes a register before its frame; this
+    // trampoline only subtracts, so the frame itself has to carry the odd 8. And
+    // because a body's alignment is its caller's call site, the skew was inherited by
+    // every Win32 call the render loop ever made (bug-478 is the same mistake in
+    // `win_x86_64/app/mod.rs`).
+    //
+    // Windows also needs the callee's **shadow space**: 32 bytes at the bottom of this
+    // frame that any callee may spill its register arguments into. The shared
+    // `finalize_frame` reserves it for every *allocated* function
+    // (`outgoing_args_base_offset`), but this trampoline is hand-built and gets none —
+    // so without it the saves below sit exactly where a callee is entitled to write.
+    let windows = platform.family() == PlatformFamily::Windows;
+    let shadow = graphics_trampoline_shadow(windows);
+    let frame = graphics_trampoline_frame(platform.arch(), windows);
     instructions.push(abi::label("entry"));
-    instructions.push(abi::subtract_stack(32));
+    instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
-        0,
+        shadow,
     ));
     // **Save the arena register.** It is callee-saved, and the caller here is
     // `_pthread_start`, which has its own live state in it — clobbering it corrupts
@@ -187,7 +692,7 @@ pub(crate) fn emit_graphics_trampoline(
     instructions.push(abi::store_u64(
         ARENA_STATE_REGISTER,
         abi::stack_pointer(),
-        8,
+        shadow + 8,
     ));
     // Pin the child arena state. Every MFB global access on this thread — including
     // the geometry cache and the sRGB table — is addressed off it.
@@ -212,9 +717,17 @@ pub(crate) fn emit_graphics_trampoline(
     // return, and parking made the shutdown join wait forever on a thread that
     // was spinning two instructions away from finishing.
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    instructions.push(abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8));
-    instructions.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    instructions.push(abi::add_stack(32));
+    instructions.push(abi::load_u64(
+        ARENA_STATE_REGISTER,
+        abi::stack_pointer(),
+        shadow + 8,
+    ));
+    instructions.push(abi::load_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        shadow,
+    ));
+    instructions.push(abi::add_stack(frame));
     instructions.push(abi::return_());
 
     let _ = (platform_imports, platform);
@@ -234,7 +747,7 @@ pub(crate) fn emit_graphics_trampoline(
 }
 
 /// Load the graphics-state block's address into `dst`.
-fn state_base(
+pub(crate) fn state_base(
     from: &str,
     dst: &str,
     ins: &mut Vec<CodeInstruction>,
@@ -670,11 +1183,24 @@ fn emit_graphics_spawn(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     if platform.family() == PlatformFamily::Windows {
-        // CreateThread(NULL, 0, entry, arg, 0, NULL) — six arguments, the last two on
-        // the stack. The handle is dropped: nothing joins the graphics thread, and the
-        // process exit tears it down.
+        // CreateThread(NULL, 8 MiB, entry, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL).
+        //
+        // **The stack size is not optional**, for the reason the pthread arm below
+        // spells out: `dwStackSize = 0` takes the PE header's default, which is 1 MiB,
+        // and the renderer is not a 1 MiB kind of code — `thread::start` asks for 8 MiB
+        // on POSIX and the graphics thread runs the same sort of frames. macOS learned
+        // this the hard way with a 512 KiB pthread default, where the render *completed*
+        // and the thread then died at exit inside libmalloc.
+        //
+        // `STACK_SIZE_PARAM_IS_A_RESERVATION` (0x00010000) makes the number a
+        // *reservation* rather than a commit, so the cost is address space rather than
+        // RSS — the same trade the pthread arm makes.
         instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
-        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+        instructions.push(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &(8 * 1024 * 1024).to_string(),
+        ));
         push_symbol_address(
             symbol,
             GRAPHICS_TRAMPOLINE_SYMBOL,
@@ -683,8 +1209,21 @@ fn emit_graphics_spawn(
             relocations,
         );
         instructions.push(abi::move_register(abi::c_arg(3), &scratch.arena));
-        instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
-        instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28));
+        // `outgoing_stack_arg_store`, **not** a raw `[sp+0x20]` store. This seam is
+        // emitted into an allocated function, and `finalize_frame` shifts every
+        // sp-relative access in the body by the frame it builds — so a hand-written
+        // `[sp+0x20]` does not stay at `rsp+0x20`, and `CreateThread` reads whatever
+        // is really there for `dwCreationFlags` and `lpThreadId`. The second of those
+        // is an OUT pointer, so a garbage value is not a wrong flag, it is a wild
+        // write. The sentinel base is the only spelling the finalizer accounts for:
+        // it both places the store correctly and grows the outgoing area to fit it.
+        instructions.push(abi::move_immediate(
+            &scratch.scratch,
+            "Integer",
+            "65536", // STACK_SIZE_PARAM_IS_A_RESERVATION
+        ));
+        instructions.push(abi::outgoing_stack_arg_store(&scratch.scratch, 0)); // dwCreationFlags
+        instructions.push(abi::outgoing_stack_arg_store(abi::ZERO, 1)); // lpThreadId
         instructions.push(abi::branch_link("CreateThread"));
         relocations.push(external_branch(symbol, "CreateThread", platform_imports)?);
         // Keep the handle: shutdown waits on it, and losing it would leave the join
@@ -992,7 +1531,176 @@ pub(crate) fn emit_publish_surface_size(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let unchanged = format!("{symbol}_resize_same");
     state_base(symbol, base, instructions, relocations);
+    // Count the resize only when the size actually changed. Every platform re-publishes
+    // on events that are not resizes — AppKit sends `setFrameSize:` with the size it
+    // already has, and the headless scripted resize does the same — and
+    // `canvas::didResize` promises the program a *change*, not an event.
+    //
+    // The compare reads the old values before the stores overwrite them, and uses the
+    // scratch the caller already gave us rather than a fifth register: this runs in a
+    // platform resize callback, where the register budget is whatever the caller had.
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
+    instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
+    instructions.push(abi::branch_ne(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
+    instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
+    instructions.push(abi::branch_eq(&unchanged));
+    instructions.push(abi::label(&format!("{symbol}_resize_changed")));
+    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_RESIZES));
+    instructions.push(abi::add_immediate(SCRATCH_RESIZE, SCRATCH_RESIZE, 1));
+    instructions.push(abi::store_u64(
+        SCRATCH_RESIZE,
+        base,
+        GRAPHICS_OFFSET_RESIZES,
+    ));
+    instructions.push(abi::label(&unchanged));
     instructions.push(abi::store_u64(width, base, GRAPHICS_OFFSET_WIDTH));
     instructions.push(abi::store_u64(height, base, GRAPHICS_OFFSET_HEIGHT));
+}
+
+/// The one scratch register `emit_publish_surface_size` needs for its compare.
+///
+/// Named here rather than taken as a parameter because every caller is a hand-written
+/// platform resize callback that already spells its own registers, and adding a fifth
+/// argument to all of them to pass a register they all have spare is churn. `SCRATCH[5]`
+/// is above the four each caller stages its own values in.
+const SCRATCH_RESIZE: &str = abi::SCRATCH[5];
+
+/// `canvas::didResize()` — has the surface changed size since this was last asked?
+///
+/// Read-and-acknowledge: the worker compares the platform's resize counter against the
+/// value it last reported and, if they differ, records the new one and answers TRUE. So
+/// the answer is TRUE exactly once per resize however many resizes happened in between,
+/// and no lock is involved — the two words have one writer each.
+pub(crate) fn emit_did_resize(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let same = format!("{symbol}_resize_seen");
+    let done = format!("{symbol}_resize_done");
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES,
+    ));
+    instructions.push(abi::load_u64(
+        &scratch.arena,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES_SEEN,
+    ));
+    instructions.push(abi::compare_registers(&scratch.scratch, &scratch.arena));
+    instructions.push(abi::branch_eq(&same));
+    instructions.push(abi::store_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_RESIZES_SEEN,
+    ));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+    instructions.push(abi::branch(&done));
+    instructions.push(abi::label(&same));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    instructions.push(abi::label(&done));
+}
+
+/// `canvas::setGpuMode(on)` — record whether a GPU renderer was asked for.
+///
+/// Read from MFBASIC at first present, next to `setSyncMode`, for the same reason:
+/// the environment is portably readable there.
+pub(crate) fn emit_set_gpu_mode(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    value: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(value, &scratch.base, GRAPHICS_OFFSET_GPU));
+}
+
+/// `canvas::useGpu()` — did the program ask for a GPU renderer?
+///
+/// The flag and nothing else, on every target. It used to hard-return FALSE off
+/// macOS, back when it was named `useMetal` and meant "is Metal selected"; by the
+/// time a second backend existed that early return silently made `MFB_CANVAS_GPU=1`
+/// a no-op on Linux (plan-98-F Correction 4). "Was a GPU asked for" and "is one
+/// usable here" are different questions, and `canvas::metalReady` /
+/// `canvas::vulkanReady` answer the second.
+pub(crate) fn emit_use_gpu(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_GPU,
+    ));
+    instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{graphics_trampoline_frame, graphics_trampoline_shadow};
+
+    /// bug-479. The graphics thread ran eight bytes out of alignment on Windows for as
+    /// long as canvas mode existed there, because this frame skipped the x86-64 realign
+    /// on the (false) premise that `BaseThreadInitThunk` enters a start routine already
+    /// 16-aligned. Nothing noticed until `SleepConditionVariableSRW`, which builds its
+    /// wait block on the caller's stack and tags the pointer in its low 4 bits — eight
+    /// bytes out, ntdll walked a garbage list and faulted with every argument correct.
+    ///
+    /// The invariant is the same on every x86-64 OS, which is the point: a thread entry
+    /// is reached by a `call`, so `rsp % 16 == 8` on arrival, and a frame of `8 (mod 16)`
+    /// is what puts the next `call` back on an aligned boundary.
+    #[test]
+    fn every_x86_64_graphics_trampoline_frame_realigns_the_stack() {
+        for windows in [false, true] {
+            let frame = graphics_trampoline_frame("x86_64", windows);
+            assert_eq!(
+                frame % 16,
+                8,
+                "x86_64 (windows={windows}) trampoline frame {frame} leaves every call \
+                 the render loop makes misaligned by 8"
+            );
+        }
+    }
+
+    /// AArch64 is entered with a 16-aligned `sp` and the return address in `lr`, so it
+    /// takes no realign — asserted so a future "just make it uniform" does not silently
+    /// skew the Mac and the Linux arm64 boxes to fix Windows.
+    #[test]
+    fn aarch64_takes_no_realign() {
+        assert_eq!(graphics_trampoline_frame("aarch64", false) % 16, 0);
+    }
+
+    /// The saves must sit ABOVE the shadow space, or a callee spilling its register
+    /// arguments overwrites the saved return address and arena pointer. The emitter
+    /// stores at `shadow` and `shadow + 8`, so the frame has to hold both beyond it.
+    #[test]
+    fn the_frame_holds_both_saves_above_the_shadow_space() {
+        for (arch, windows) in [("x86_64", true), ("x86_64", false), ("aarch64", false)] {
+            let frame = graphics_trampoline_frame(arch, windows);
+            let shadow = graphics_trampoline_shadow(windows);
+            assert!(
+                frame >= shadow + 16,
+                "{arch} (windows={windows}): frame {frame} cannot hold the two saves at \
+                 {shadow} and {} above its {shadow}-byte shadow space",
+                shadow + 8
+            );
+        }
+    }
+
+    /// Windows owes its callees 32 bytes; nothing else does.
+    #[test]
+    fn only_windows_reserves_shadow_space() {
+        assert_eq!(graphics_trampoline_shadow(true), 32);
+        assert_eq!(graphics_trampoline_shadow(false), 0);
+    }
 }

@@ -5,9 +5,9 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `Color` from red, green, blue and alpha components."#;
+const INTRO: &str = r#"Build a `canvas::Color` from red, green, blue and alpha components."#;
 
-const DESC: &str = r#"`rgba` builds a `Color` from four components, each clamped to `0`..`255`. It is
+const DESC: &str = r#"`rgba` builds a `canvas::Color` from four components, each clamped to `0`..`255`. It is
 the general form of `canvas::rgb`, which is the same call with `alpha` fixed at
 `255`.
 
@@ -19,11 +19,11 @@ worth stopping the program for.
 
 `alpha` is straight (not premultiplied): `0` is fully transparent and `255` fully
 opaque, and the colour's red/green/blue are unaffected by it. The all-zero
-`Color` is therefore fully transparent, which is what makes it the no-op default
-for a `Paint` channel — `Paint[fill := c]` leaves the stroke transparent because
-an unset `Color` field is exactly `rgba(0, 0, 0, 0)`.
+`canvas::Color` is therefore fully transparent, which is what makes it the no-op default
+for a `canvas::Paint` channel — `canvas::Paint[fill := c]` leaves the stroke transparent because
+an unset `canvas::Color` field is exactly `rgba(0, 0, 0, 0)`.
 
-Unlike the rest of `canvas`, `rgb` and `rgba` do **not** require `Mode.Canvas`.
+Unlike the rest of `canvas`, `rgb` and `rgba` do **not** require `app::Mode.Canvas`.
 They touch no surface — they only build a value — so a program is free to compute
 a palette before it ever presents anything."#;
 
@@ -33,7 +33,7 @@ const EX: &str = r#"A half-transparent red:
 IMPORT canvas
 
 SUB main()
-  LET wash AS Color = canvas::rgba(255, 0, 0, 128)
+  LET wash AS canvas::Color = canvas::rgba(255, 0, 0, 128)
 END SUB
 ```
 
@@ -45,7 +45,7 @@ IMPORT io
 
 SUB main()
   ' 300 clamps to 255, -20 clamps to 0.
-  LET c AS Color = canvas::rgba(300, -20, 128, 255)
+  LET c AS canvas::Color = canvas::rgba(300, -20, 128, 255)
   io::print(toString(c.red) & " " & toString(c.green))
 END SUB
 ```"#;

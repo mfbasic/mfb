@@ -749,6 +749,11 @@ impl ToJson for IrValue {
                     args
                 )
             }
+            IrValue::Checked { type_, value } => format!(
+                "{{ \"kind\": \"checked\", \"type\": {}, \"value\": {} }}",
+                json_string(&type_.name()),
+                value.to_json(0)
+            ),
             IrValue::Constructor { type_, args } => {
                 let args = args
                     .iter()
@@ -870,7 +875,7 @@ impl ToJson for IrValue {
                 format!(
                     "{{ \"kind\": \"binary\", \"type\": {}, \"op\": {}, \"left\": {}, \"right\": {} }}",
                     json_string(&type_.name()),
-                    json_string(op),
+                    json_string(op.name()),
                     left.to_json(0),
                     right.to_json(0)
                 )
@@ -881,7 +886,7 @@ impl ToJson for IrValue {
                 format!(
                     "{{ \"kind\": \"unary\", \"type\": {}, \"op\": {}, \"operand\": {} }}",
                     json_string(&type_.name()),
-                    json_string(op),
+                    json_string(op.name()),
                     operand.to_json(0)
                 )
             }

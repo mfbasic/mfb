@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/functions/private_isolated_func_valid
+Wrote AST to tests/syntax/functions/private_isolated_func_valid/private_isolated_func_valid.ast
+Wrote IR to tests/syntax/functions/private_isolated_func_valid/private_isolated_func_valid.ir
+[exit 0]

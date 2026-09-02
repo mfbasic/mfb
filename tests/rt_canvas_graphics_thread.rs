@@ -20,6 +20,11 @@ use std::process::Command;
 /// the deterministic one for per-present claims, the default one for the claim that
 /// a program does not *need* to wait.
 fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
+    run_with(name, source, sync, false)
+}
+
+/// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
+fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
     let build = Command::new(common::mfb_exe())
         .arg("build")
@@ -42,6 +47,9 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
         .env("MFB_CANVAS_STATS", &stats);
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
+    }
+    if metal {
+        command.env("MFB_CANVAS_GPU", "1");
     }
     let run = command
         .output()
@@ -87,11 +95,12 @@ fn app_binary(project: &Path, name: &str) -> PathBuf {
 fn program(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
-         app::setMode(Mode.Canvas)\n{body}END SUB\n"
+         app::setMode(app::Mode.Canvas)\n{body}END SUB\n"
     )
 }
 
-const ONE_BOX: &str = "  LET box AS DrawItem = Rectangle[x := 10.0, y := 10.0, w := 50.0, \
+const ONE_BOX: &str =
+    "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
                        h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.
@@ -201,10 +210,10 @@ fn an_identical_re_present_draws_no_second_frame() {
 fn sync_mode_gives_one_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS DrawItem = Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
          canvas::present([box, two])\n  \
-         LET three AS DrawItem = Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
          paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
@@ -213,5 +222,134 @@ fn sync_mode_gives_one_frame_per_changed_present() {
         frames.len(),
         3,
         "sync mode must give each changed present its own frame: {frames:?}",
+    );
+}
+
+/// D's frame counter, driven through the Metal renderer, still advances once per
+/// changed present — and only after the GPU has finished the frame.
+///
+/// This is plan-98-E Phase 3's claim (Correction 12). The counter *is*
+/// `lastCompletedFrame`: `__canvas_renderLoop` calls `canvas::frameDone()` after
+/// `__canvas_renderFrame()` returns, and on the Metal path that return is behind
+/// `[commandBuffer waitUntilCompleted]` — the GPU has finished before the counter can
+/// move. Every consumer D built on it (the scene ring's retirement gate,
+/// `MFB_CANVAS_SYNC`) therefore sees GPU-completion ordering with no change of its
+/// own, which is exactly what "renderer-swappable frame-completion signal" was
+/// supposed to buy.
+///
+/// Counting frames is what makes that observable from outside: a counter that moved
+/// early would produce more frames than presents, and one that never moved would hang
+/// the sync wait.
+#[test]
+fn the_metal_path_gives_one_completed_frame_per_changed_present() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let body = format!(
+        "{ONE_BOX}  canvas::present([box])\n  \
+         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         canvas::present([box, two])\n  \
+         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
+         paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+         canvas::present([box, two, three])\n  io::print(\"done\")\n"
+    );
+    let (out, frames) = run_with("canvas_gfx_sync_metal", &program(&body), true, true);
+    if !frames
+        .last()
+        .is_some_and(|line| line.contains("metalReady=TRUE"))
+    {
+        return; // no Metal device on this host
+    }
+    assert!(
+        out.contains("done"),
+        "the program must run to completion: {out}"
+    );
+    assert_eq!(
+        frames.len(),
+        3,
+        "each changed present must produce exactly one completed Metal frame: {frames:?}",
+    );
+}
+
+/// The scene ring's frame skip survives the Metal renderer.
+///
+/// The skip is decided in `canvas::present` on the *worker*, so it should be
+/// renderer-independent — but "should be" is the claim under test. If the Metal path
+/// advanced the frame counter differently the retirement gate would drain at a
+/// different rate, and three identical presents would stop collapsing to one frame.
+#[test]
+fn an_identical_re_present_draws_no_second_metal_frame() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let (_, frames) = run_with(
+        "canvas_gfx_skip_metal",
+        &program(&format!(
+            "{ONE_BOX}  canvas::present([box])\n  canvas::present([box])\n  \
+             canvas::present([box])\n  io::print(\"done\")\n"
+        )),
+        true,
+        true,
+    );
+    if !frames
+        .last()
+        .is_some_and(|line| line.contains("metalReady=TRUE"))
+    {
+        return;
+    }
+    assert_eq!(
+        frames.len(),
+        1,
+        "three identical presents must publish — and draw — once on Metal too: \
+         {frames:?}",
+    );
+}
+
+/// The renderer seam reports a real Metal device, and selecting it is opt-in.
+///
+/// This is plan-98-E's first checkable claim, and it is deliberately about the
+/// *plumbing* rather than about pixels: `metal=TRUE` means `Metal.framework`'s
+/// install name resolved, its import-table row bound, and
+/// `MTLCreateSystemDefaultDevice` returned a device. Every later piece of the Metal
+/// backend rests on those three, and a failure in any of them is far cheaper to read
+/// here than as a blank window several hundred lines later.
+///
+/// `gpuSelected` must be FALSE by default. The software renderer is the oracle the
+/// GPU path is measured against (plan-98-A invariant 7) and its goldens are
+/// exact-match; if selecting Metal were the default, every one of those goldens would
+/// silently become a tolerance test against a reference that no longer exists.
+#[test]
+fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
+    let source = program(&format!(
+        "{ONE_BOX}  canvas::present([box])\n  io::print(\"done\")\n"
+    ));
+    let field = |lines: &[String], name: &str| -> String {
+        lines
+            .first()
+            .and_then(|l| {
+                l.split_whitespace()
+                    .find_map(|f| f.strip_prefix(name).map(str::to_string))
+            })
+            .unwrap_or_else(|| panic!("no {name} field in {lines:?}"))
+    };
+
+    let (_, default_run) = run_with("canvas_metal_default", &source, true, false);
+    assert_eq!(
+        field(&default_run, "metal="),
+        "TRUE",
+        "MTLCreateSystemDefaultDevice must bind and return a device on this host",
+    );
+    assert_eq!(
+        field(&default_run, "gpuSelected="),
+        "FALSE",
+        "the software renderer must stay the default — it is the exact-match oracle",
+    );
+
+    let (_, selected) = run_with("canvas_metal_selected", &source, true, true);
+    assert_eq!(
+        field(&selected, "gpuSelected="),
+        "TRUE",
+        "MFB_CANVAS_GPU must select the Metal renderer",
     );
 }

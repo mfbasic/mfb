@@ -111,3 +111,29 @@ changes for collection-layout work:
 - **`refined_list_literal_type` builds `ListOf(Box::new(element))`
   structurally** — it no longer `format!("List OF {element}")`s and the caller
   no longer parses the spelling back.
+
+## `global = append(global, f(...))` is a use-after-free when `f` can reassign the global
+
+Writing
+
+```
+__CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))
+```
+
+resolves the `append`'s list operand against the global *as it was before the call*, and
+`__canvas_glyphEntry` reassigns that global (its eviction pass replaces the list). The
+append then writes into the block eviction just released. The symptom is not a wrong
+value: the process **stops**, with the faulting thread simply gone — on the canvas
+graphics thread that reads as a hang at 0% CPU with the worker parked in
+`_pthread_cond_wait`, and `sample <pid>` shows three threads where there should be four
+(the same signature as any unhandled raise on that thread — see `.ai/canvas-threading.md`).
+
+Bind the call's result to a local first, then append:
+
+```
+LET entry AS Integer = __canvas_glyphEntry(...)
+__CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
+```
+
+The rule generalises to any `global = <op>(global, f(...))` where `f` can reach the same
+global — including indirectly, several frames down. Sequence the call, then the write.

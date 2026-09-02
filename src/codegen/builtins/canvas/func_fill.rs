@@ -5,9 +5,10 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Build a `Paint` that fills an item with one colour and draws no outline."#;
+const INTRO: &str =
+    r#"Build a `canvas::Paint` that fills an item with one colour and draws no outline."#;
 
-const DESC: &str = r#"`fill` is the common case: a solid shape with no outline. Every other `Paint`
+const DESC: &str = r#"`fill` is the common case: a solid shape with no outline. Every other `canvas::Paint`
 field is left at its no-op value — a transparent stroke, zero stroke width,
 `Normal` blend, the identity transform, and no clip.
 
@@ -19,8 +20,8 @@ LET spun AS Paint = WITH canvas::fill(red) { transform := tilt }
 ```
 
 These constructors exist because MFBASIC named construction requires **every**
-field — `Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all six `Paint` fields."#;
+field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
+without them every item would have to spell out all six `canvas::Paint` fields."#;
 
 const EX: &str = r#"A solid yellow disc:
 
@@ -29,9 +30,9 @@ IMPORT app
 IMPORT canvas
 
 SUB main()
-  app::setMode(Mode.Canvas)
-  LET yellow AS Color = canvas::rgb(255, 255, 0)
-  LET face AS DrawItem = Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
+  app::setMode(app::Mode.Canvas)
+  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   canvas::present([face])
 END SUB
 ```"#;

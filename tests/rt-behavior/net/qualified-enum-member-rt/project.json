@@ -1,0 +1,10 @@
+{
+  "name": "qualified_enum_member_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-480 Defect B1: an imported enum's member written with its import prefix (`net::PingStatus.Ok`) must resolve in every expression position, not escape to `NIR local reference ... does not resolve`.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

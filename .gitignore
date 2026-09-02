@@ -7,6 +7,12 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
+# `mfb build -ncode` writes its dump next to the fixture it built, so a golden
+# refresh (`scripts/regen-ncodesum.sh`) litters `tests/byte-identity/<pkg>/` with
+# scratch dumps. Only the copies under a `golden/` directory are goldens.
+*.ncode
+!tests/**/golden/*.ncode
+
 # Build output. Every build emits into its project's `build/` directory
 # (plan-46-D §4.1): `build/<name>.out`, `build/<name>.app`, and the `vendor/`
 # copies an RPATH-bearing build points at. Unanchored, so it covers every
@@ -44,3 +50,12 @@ examples/**/*.lock
 # scripts/snap-macos.py: auto-created venv + its default capture artifact.
 .venv-macos/
 /macos_screenshot.png
+
+# Native code-plan dumps. The regen scripts (sync-goldens.sh / regen-ncodesum.sh)
+# leave a scratch <fixture>.ncode next to every fixture; a codegen_cover one is
+# hundreds of MB (one pretty-printed JSON line per machine instruction), and a
+# blanket 'git add -A tests/' has swept them into a branch twice, blowing
+# GitHub's 100 MB hard limit on push. Only the sibling golden/ copies are real
+# fixtures; the drift sentinel that IS tracked is the 65-byte .ncodesum.
+*.ncode
+!**/golden/*.ncode

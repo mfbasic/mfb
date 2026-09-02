@@ -20,6 +20,8 @@ use crate::target::shared::nir::{NirMatchPattern, NirModule, NirOp, NirValue};
 use crate::types::ParameterType;
 
 use super::{algebraic, constant_folding, strength};
+#[cfg(test)]
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Run every enabled Opt1 local-rewrite row over the whole module.
 pub(crate) fn apply(module: &mut NirModule) {
@@ -228,7 +230,8 @@ impl Rows {
             | NirValue::UnionExtract { value, .. }
             | NirValue::ResultIsOk { value }
             | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => self.rewrite_value(value, scopes),
+            | NirValue::ResultError { value }
+            | NirValue::Checked { value, .. } => self.rewrite_value(value, scopes),
             NirValue::WithUpdate {
                 target, updates, ..
             } => {
@@ -323,6 +326,7 @@ pub(super) fn scopes_type_is(value: &NirValue, expected: &ParameterType, scopes:
         | NirValue::ResultIsOk { .. }
         | NirValue::ResultValue { .. }
         | NirValue::ResultError { .. }
+        | NirValue::Checked { .. }
         | NirValue::WithUpdate { .. }
         | NirValue::ListLiteral { .. }
         | NirValue::SetLiteral { .. }
@@ -355,21 +359,21 @@ pub(super) mod testutil {
     }
 
     pub(in crate::optimizer::opt1) fn binary(
-        op: &str,
+        op: BinaryOp,
         left: NirValue,
         right: NirValue,
     ) -> NirValue {
         NirValue::Binary {
-            op: op.to_string(),
+            op,
             left: Box::new(left),
             right: Box::new(right),
             loc: NirSourceLoc::default(),
         }
     }
 
-    pub(in crate::optimizer::opt1) fn unary(op: &str, operand: NirValue) -> NirValue {
+    pub(in crate::optimizer::opt1) fn unary(op: UnaryOp, operand: NirValue) -> NirValue {
         NirValue::Unary {
-            op: op.to_string(),
+            op,
             operand: Box::new(operand),
             loc: NirSourceLoc::default(),
         }
@@ -382,8 +386,10 @@ pub(super) mod testutil {
             NirValue::Local(name) => format!("local({name})"),
             NirValue::Binary {
                 op, left, right, ..
-            } => format!("({} {op} {})", shape(left), shape(right)),
-            NirValue::Unary { op, operand, .. } => format!("({op} {})", shape(operand)),
+            } => format!("({} {} {})", shape(left), op.name(), shape(right)),
+            NirValue::Unary { op, operand, .. } => {
+                format!("({} {})", op.name(), shape(operand))
+            }
             _ => "other".to_string(),
         }
     }
@@ -457,7 +463,11 @@ mod tests {
                     value: Some(int_const("5")),
                 },
                 NirOp::Eval {
-                    value: binary("*", binary("+", int_const("1"), int_const("1")), local("x")),
+                    value: binary(
+                        BinaryOp::Multiply,
+                        binary(BinaryOp::Add, int_const("1"), int_const("1")),
+                        local("x"),
+                    ),
                 },
             ],
             1,
@@ -481,7 +491,11 @@ mod tests {
                     value: Some(int_const("5")),
                 },
                 NirOp::Eval {
-                    value: binary("*", binary("*", local("x"), int_const("1")), int_const("2")),
+                    value: binary(
+                        BinaryOp::Multiply,
+                        binary(BinaryOp::Multiply, local("x"), int_const("1")),
+                        int_const("2"),
+                    ),
                 },
             ],
             1,
@@ -515,14 +529,14 @@ mod tests {
                         },
                         // Inner x is Float: the Integer identity must not fire.
                         NirOp::Eval {
-                            value: binary("+", local("x"), int_const("0")),
+                            value: binary(BinaryOp::Add, local("x"), int_const("0")),
                         },
                     ],
                     else_body: vec![],
                 },
                 // Outer x is Integer again: the identity fires.
                 NirOp::Eval {
-                    value: binary("+", local("x"), int_const("0")),
+                    value: binary(BinaryOp::Add, local("x"), int_const("0")),
                 },
             ],
             1,
@@ -554,9 +568,9 @@ mod tests {
                 },
                 NirOp::Return {
                     value: Some(binary(
-                        "+",
-                        binary("*", local("x"), int_const("1")),
-                        binary("*", local("x"), int_const("2")),
+                        BinaryOp::Add,
+                        binary(BinaryOp::Multiply, local("x"), int_const("1")),
+                        binary(BinaryOp::Multiply, local("x"), int_const("2")),
                     )),
                 },
             ]

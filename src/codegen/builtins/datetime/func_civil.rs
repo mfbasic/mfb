@@ -3,14 +3,14 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Build a zoned `DateTime` from a civil `Date`, `Time`, and `Zone`."#;
-const DESC: &str = r#"`datetime::civil` builds a `DateTime` by reading a calendar `date` and a
+const INTRO: &str = r#"Build a zoned `datetime::DateTime` from a civil `datetime::Date`, `datetime::Time`, and `datetime::Zone`."#;
+const DESC: &str = r#"`datetime::civil` builds a `datetime::DateTime` by reading a calendar `date` and a
 wall-clock `time` as a local time in `zone`, resolving the UTC offset that
 applies to that local moment, and returning the canonical projection of the
-resulting `Instant` back through `zone`. Because the result is the projection of
-a concrete `Instant`, it round-trips: `datetime::resolve` on the returned
-`DateTime` recovers the same `Instant`, and that `Instant` projected through
-`zone` with `datetime::inZone` reproduces the same `DateTime` fields.
+resulting `datetime::Instant` back through `zone`. Because the result is the projection of
+a concrete `datetime::Instant`, it round-trips: `datetime::resolve` on the returned
+`datetime::DateTime` recovers the same `datetime::Instant`, and that `datetime::Instant` projected through
+`zone` with `datetime::inZone` reproduces the same `datetime::DateTime` fields.
 
 
 The `year`, `month`, and `day` of `date` and the `hour`, `minute`, and `second`
@@ -32,31 +32,31 @@ named local time occurs twice) takes the earlier, pre-transition offset.
 
 
 The sub-second `nanos` of `time` are carried through unchanged into the
-resulting `Instant` and `DateTime`; only the whole-second civil fields
+resulting `datetime::Instant` and `datetime::DateTime`; only the whole-second civil fields
 participate in offset resolution. `civil` is pure: beyond what `zone` itself
 resolves it reads no host state and has no side effects."#;
-const EX: &str = r#"Combine a date and time into a `DateTime` in the local zone:
+const EX: &str = r#"Combine a date and time into a `datetime::DateTime` in the local zone:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 6, 26)
-  LET tm AS Time = datetime::time(9, 30)
-  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+  LET d AS datetime::Date = datetime::date(2026, 6, 26)
+  LET tm AS datetime::Time = datetime::time(9, 30)
+  LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::local())
 END SUB
 ```
 
-Build a `DateTime` in UTC and recover its `Instant`:
+Build a `datetime::DateTime` in UTC and recover its `datetime::Instant`:
 
 ```
 IMPORT datetime
 
 SUB main()
-  LET d AS Date = datetime::date(2026, 1, 1)
-  LET tm AS Time = datetime::time(0, 0)
-  LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
-  LET at AS Instant = datetime::resolve(dt)
+  LET d AS datetime::Date = datetime::date(2026, 1, 1)
+  LET tm AS datetime::Time = datetime::time(0, 0)
+  LET dt AS datetime::DateTime = datetime::civil(d, tm, datetime::utc())
+  LET at AS datetime::Instant = datetime::resolve(dt)
 END SUB
 ```"#;
 

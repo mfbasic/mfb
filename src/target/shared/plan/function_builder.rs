@@ -315,7 +315,8 @@ impl FunctionPlanBuilder<'_> {
             | NirValue::UnionExtract { value, .. }
             | NirValue::ResultIsOk { value }
             | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => {
+            | NirValue::ResultError { value }
+            | NirValue::Checked { value, .. } => {
                 self.lower_value(value)?;
             }
             NirValue::WithUpdate {
@@ -546,6 +547,9 @@ pub(super) fn describe_value(value: &NirValue) -> String {
         NirValue::ResultError { value } => {
             format!("resultError ({})", describe_value(value))
         }
+        NirValue::Checked { type_, value } => {
+            format!("checked {type_} ({})", describe_value(value))
+        }
         NirValue::WithUpdate {
             type_,
             target,
@@ -592,11 +596,13 @@ pub(super) fn describe_value(value: &NirValue) -> String {
             format!(
                 "({} {} {})",
                 describe_value(left),
-                op,
+                op.name(),
                 describe_value(right)
             )
         }
-        NirValue::Unary { op, operand, .. } => format!("({op} {})", describe_value(operand)),
+        NirValue::Unary { op, operand, .. } => {
+            format!("({} {})", op.name(), describe_value(operand))
+        }
     }
 }
 

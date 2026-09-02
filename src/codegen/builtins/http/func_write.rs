@@ -7,7 +7,7 @@ const INTRO: &str =
     r#"Perform one blocking HTTP/1.1 request that carries a body and return the response."#;
 
 const DESC: &str = r#"`write` performs exactly one blocking HTTP/1.1 request that carries a **body**
-and returns the reply as an `http::Response` value. It opens a fresh connection
+and returns the reply as a `http::Response` value. It opens a fresh connection
 to `url.host` on `url.port` — plaintext through the `tcp` package for an `http://`
 URL, TLS through the `tls` package for an `https://` URL — writes the request
 line, headers, and body, reads the response to end of stream, closes the
@@ -35,7 +35,7 @@ cannot smuggle extra headers or a second request line.
 The request target is `url.path` (an empty path is normalized to `/`) followed by
 `?` and `url.query` when a query is present; the URL fragment is never sent.
 
-The returned `Response` exposes `status` (Integer), `reason` (String, `""` when
+The returned `http::Response` exposes `status` (Integer), `reason` (String, `""` when
 omitted), `httpVersion` (String, e.g. `"1.1"`), `headers` (a `Map OF String TO
 String`), `body` (a `List OF Byte`), and `ok` (Boolean, `TRUE` only when `status`
 is in `200..299`). Header field names in `headers` are lowercased and duplicates
@@ -101,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named("Url")),
+                super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named(crate::codegen::builtins::net::URL_TYPE_ID)),
                 super::req("body", "The request payload, sent verbatim as UTF-8 bytes. Its byte length becomes the generated `Content-Length` header.", &[], ParameterType::String),
                 super::fill("headers", "Optional request headers. Names matching `Host`/`User-Agent`/`Accept` override the defaults case-insensitively; others are appended. `Content-Length` and `Connection` entries are dropped (both are forced). No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `POST`.", ParameterType::String, "POST"),

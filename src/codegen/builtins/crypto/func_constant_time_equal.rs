@@ -58,8 +58,8 @@ IMPORT io
 SUB main()
   LET key AS List OF Byte = crypto::randomBytes(32)
   LET message AS List OF Byte = strings::toBytes("payload")
-  LET received AS List OF Byte = crypto::hmac(Hash.SHA2_256, key, message)
-  LET expected AS List OF Byte = crypto::hmac(Hash.SHA2_256, key, message)
+  LET received AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, key, message)
+  LET expected AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, key, message)
   IF crypto::constantTimeEqual(expected, received) THEN
     io::print("authentic")
   ELSE

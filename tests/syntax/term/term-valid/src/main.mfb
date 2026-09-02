@@ -3,13 +3,13 @@
 ' void ops are exercised directly in main. Compile-only: the fixture is never run.
 IMPORT term
 
-FUNC usegetForeground AS TermColor
-  LET c AS TermColor = term::getForeground()
+FUNC usegetForeground AS term::TermColor
+  LET c AS term::TermColor = term::getForeground()
   RETURN c
 END FUNC
 
-FUNC usegetBackground AS TermColor
-  LET c AS TermColor = term::getBackground()
+FUNC usegetBackground AS term::TermColor
+  LET c AS term::TermColor = term::getBackground()
   RETURN c
 END FUNC
 
@@ -26,8 +26,8 @@ FUNC useisOn AS Boolean
 END FUNC
 
 FUNC useTerminalSize AS Integer
-  LET a AS TermSize = term::terminalSize()
-  MUT b AS TermSize = term::terminalSize()
+  LET a AS term::TermSize = term::terminalSize()
+  MUT b AS term::TermSize = term::terminalSize()
   b = a
   RETURN a.rows + a.columns + b.rows + b.columns
 END FUNC

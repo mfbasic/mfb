@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "source_package_isolated_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "source_pkg_worker.scale", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }] }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "source_pkg_worker.multiply", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/record-res-field-state-write-rt
+Wrote AST to tests/rt-behavior/resources/record-res-field-state-write-rt/record_res_field_state_write_rt.ast
+Wrote IR to tests/rt-behavior/resources/record-res-field-state-write-rt/record_res_field_state_write_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/record-res-field-state-write-rt
+Wrote executable to tests/rt-behavior/resources/record-res-field-state-write-rt/build/record_res_field_state_write_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/record-res-field-state-write-rt/build/record_res_field_state_write_rt.out
+wrote via rebind, read via record: 5
+200 alias-write cycles completed
+[exit 0]

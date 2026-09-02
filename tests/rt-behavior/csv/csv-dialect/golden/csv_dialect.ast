@@ -29,7 +29,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tsvcols=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "tsv" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 20 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "default=" }, "right": { "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "p,q" }, { "kind": "string", "value": "r" }] }] }] } }] }, "line": 23 },
       { "kind": "binding", "mutable": true, "name": "streamed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
-      { "kind": "binding", "mutable": true, "name": "row", "type": "CsvRow", "value": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "call", "callee": "csv.parseStream", "arguments": [{ "kind": "string", "value": "x;'y;z';w" }, { "kind": "string", "value": ";" }, { "kind": "string", "value": "'" }] }] }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "row", "type": "csv.CsvRow", "value": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "call", "callee": "csv.parseStream", "arguments": [{ "kind": "string", "value": "x;'y;z';w" }, { "kind": "string", "value": ";" }, { "kind": "string", "value": "'" }] }] }, "line": 27 },
       {
         "kind": "while",
         "loop": "while",

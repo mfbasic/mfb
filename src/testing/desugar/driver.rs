@@ -1,5 +1,6 @@
 use super::*;
 use crate::ast::build::*;
+use crate::operators::BinaryOp;
 
 /// One line-emitting step in the driver's streamed report, in declaration order.
 /// The flat step list carries the tree shape as per-step indentation so nested
@@ -134,7 +135,7 @@ fn build_entry(chunk_names: &[String], total: i64, coverage: bool) -> Function {
     for name in chunk_names {
         body.push(assign(
             "#failed",
-            binary(ident("#failed"), "+", call(name, Vec::new())),
+            binary(ident("#failed"), BinaryOp::Add, call(name, Vec::new())),
         ));
     }
     body.push(print_line(str_lit(String::new())));
@@ -146,7 +147,7 @@ fn build_entry(chunk_names: &[String], total: i64, coverage: bool) -> Function {
         });
     }
     body.push(if_then(
-        binary(ident("#failed"), ">", num(0)),
+        binary(ident("#failed"), BinaryOp::Greater, num(0)),
         vec![ret(num(1))],
         0,
     ));
@@ -185,10 +186,14 @@ fn case_call(sub_name: &str, description: &str, indent: usize, coverage: bool) -
     let detail_indent = indent + 2;
     let mut handler = vec![
         assign("#ok", boolean(false)),
-        assign("#failed", binary(ident("#failed"), "+", num(1))),
+        assign("#failed", binary(ident("#failed"), BinaryOp::Add, num(1))),
         print_line(str_lit(format!("{pad}* [F] {description}"))),
         if_else(
-            binary(member(ident("#e"), "code"), "=", num(TEST_ABORT_CODE)),
+            binary(
+                member(ident("#e"), "code"),
+                BinaryOp::Equal,
+                num(TEST_ABORT_CODE),
+            ),
             vec![print_line(assertion_detail(detail_indent))],
             vec![print_line(runtime_detail(detail_indent))],
             0,
@@ -259,7 +264,7 @@ fn error_location() -> Expression {
 fn summary_line(total: i64) -> Expression {
     concat(vec![
         str_lit(format!("Tests: {total}  Pass: ")),
-        to_string(binary(num(total), "-", ident("#failed"))),
+        to_string(binary(num(total), BinaryOp::Subtract, ident("#failed"))),
         str_lit("  Fail: ".to_string()),
         to_string(ident("#failed")),
     ])

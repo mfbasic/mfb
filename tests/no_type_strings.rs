@@ -261,10 +261,16 @@ const TYPE_PARAM_NAMES: &[&str] = &[
     "scrutinee_type",
     // plan-111-D Correction D1. The list was hand-seeded and missed these; a
     // sweep for `*type*: &str` across `src/` found them all at once. Deliberately
-    // NOT added: `ctype` / `socktype` / `abi_return_ctype` (the C FFI type
-    // vocabulary — `CInt8`, `CBool`, a genuinely different grammar, LINK's, not
-    // MFBASIC's) and `type_code` (a numeric collection type-code rendered as a
-    // string immediate, not a type name).
+    // NOT added: `socktype` and `type_code` (a numeric collection type-code
+    // rendered as a string immediate, not a type name).
+    //
+    // plan-113 CORRECTED this list's other exclusion. `ctype` / `param_ctype` /
+    // `return_ctype` / `abi_return_ctype` were held out as "a genuinely
+    // different grammar, LINK's, not MFBASIC's". That is no longer true: a C ABI
+    // type is a `ParameterType::C`, parsed and rendered by the one grammar. They
+    // are gated by the dedicated `c_type_strings` class rather than added here,
+    // because that class also has to see the SPELLINGS and to exempt `src/ast/`
+    // (the name world) for the carrier half only.
     "record_type",
     "result_type",
     "payload_type",
@@ -788,6 +794,87 @@ fn string_keyed_type_maps(rel: &str, src: &str) -> Vec<Hit> {
     out
 }
 
+/// The C ABI type vocabulary's carrier names (plan-113).
+///
+/// These used to be *excluded* from [`TYPE_PARAM_NAMES`] on the reasoning that a
+/// ctype was "a genuinely different grammar, LINK's, not MFBASIC's". plan-113
+/// made that false: a C ABI type is a [`ParameterType::C`], parsed and rendered
+/// by the one grammar in `src/types.rs`, so the vocabulary belongs under this
+/// gate like every other type name.
+const C_CARRIER_NAMES: &[&str] = &["ctype", "param_ctype", "return_ctype", "abi_return_ctype"];
+
+/// The 16 C ABI spellings. A literal outside `src/types.rs` is a decision made
+/// by comparing a spelling — the thing this whole gate exists to forbid.
+const C_SPELLINGS: &[&str] = &[
+    "CPtr", "CString", "CBuffer", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
+    "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
+];
+
+/// 9 — the C FFI vocabulary carried as text after the AST, in either of the two
+/// shapes plan-113 removed:
+///
+///  * a carrier typed `String` / `Option<String>` / `&str` — the field or
+///    parameter that let a ctype travel as a spelling; and
+///  * a bare C spelling literal — the compare or match arm that decided on one.
+///
+/// `src/ast/**` is exempt for the first shape and not the second: the AST is the
+/// NAME world by construction (it holds no `ParameterType` at all), and
+/// `hir::elaborate_link_block` is the sanctioned boundary where its spellings
+/// become types. It may carry a `ctype: String`; it may not decide anything by
+/// comparing one.
+///
+/// `src/types.rs` is exempt from both as the grammar file, via the same
+/// `is_grammar_file` check every other class uses — it is skipped before this
+/// scanner runs.
+fn c_type_strings(rel: &str, src: &str) -> Vec<Hit> {
+    let mut out = Vec::new();
+    let in_ast = rel.starts_with("src/ast/");
+    for (n, line) in code_lines(src) {
+        let bytes = line.as_bytes();
+        if !in_ast {
+            for name in C_CARRIER_NAMES {
+                for start in word_start_matches(line, name) {
+                    let mut i = skip_spaces(bytes, start + name.len());
+                    if bytes.get(i) != Some(&b':') {
+                        continue;
+                    }
+                    i = skip_spaces(bytes, i + 1);
+                    let rest = &line[i..];
+                    // `String`, `Option<String>`, `&str`, `&'a str`.
+                    let textual = rest.starts_with("String")
+                        || rest.starts_with("Option<String>")
+                        || rest
+                            .strip_prefix('&')
+                            .map(|after| {
+                                let after = match after.strip_prefix('\'') {
+                                    Some(lt) => lt
+                                        .trim_start_matches(|c: char| c.is_ascii_lowercase())
+                                        .strip_prefix(' ')
+                                        .unwrap_or(after),
+                                    None => after,
+                                };
+                                after.starts_with("str")
+                                    && !after.as_bytes().get(3).copied().is_some_and(is_word_byte)
+                            })
+                            .unwrap_or(false);
+                    if textual {
+                        out.push(hit(n, format!("{name}: text")));
+                    }
+                }
+            }
+        }
+        for spelling in C_SPELLINGS {
+            let mut from = 0usize;
+            let needle = format!("\"{spelling}\"");
+            while let Some(at) = line[from..].find(&needle) {
+                out.push(hit(n, format!("\"{spelling}\"")));
+                from += at + needle.len();
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Budgets
 // ---------------------------------------------------------------------------
@@ -847,7 +934,13 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //     `binary_repr/sections.rs` held 19 spelling match arms until letter G,
     //     in a file that was already a boundary.
     ("declared_sites", "binary_repr", 5),
-    ("declared_sites", "codegen", 50),
+    // 50 -> 52: bug-480 Phase 4b made a builtin value type's declared identity
+    // package-qualified (`json.JsonNull`), so `alias_bare_builtin_type_names` in
+    // `validation.rs` registers the bare spelling alongside it for the five LOOKUP
+    // tables that are keyed by a declared name. Those two are declared-NAME
+    // boundaries in the exact sense this class enumerates -- a name crossing into
+    // the type domain at a table key -- not a decision made below the AST.
+    ("declared_sites", "codegen", 52),
     ("declared_sites", "ir", 47),
     ("declared_sites", "manifest", 1),
     ("declared_sites", "monomorph", 8),
@@ -874,6 +967,9 @@ const CLASSES: &[&str] = &[
     "hand_rolled_grammar",
     "format_type_construction",
     "string_keyed_type_maps",
+    // plan-113. Hard zero, no budget row: the C vocabulary was converted whole,
+    // so there is no remainder to enumerate.
+    "c_type_strings",
 ];
 
 /// Live counts and offenders, keyed by `(class, bucket)`.
@@ -924,6 +1020,10 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
         record("spelling_match_arms", spelling_match_arms(&src));
         record("spelling_compares", spelling_compares(&src));
         record("string_keyed_type_maps", string_keyed_type_maps(&rel, &src));
+        // plan-113: a DECISION class, so it is not exempt in a boundary file
+        // either — `ir/binary.rs` may parse and render a ctype, and does, but it
+        // may not compare one.
+        record("c_type_strings", c_type_strings(&rel, &src));
     }
     out
 }
@@ -1030,6 +1130,66 @@ fn scanners_fire_on_their_own_needles() {
             .len(),
         2,
         "two calls on one line are two sites, not one line"
+    );
+
+    // plan-113 — the C FFI vocabulary, both shapes.
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", "    pub(crate) ctype: String,").len(),
+        1,
+        "c_type_strings must count a `ctype: String` carrier"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", "fn f(abi_return_ctype: &'a str) {}").len(),
+        1,
+        "…and a `&'a str` one"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", "    param_ctype: Option<String>,").len(),
+        1,
+        "…and an `Option<String>` one"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", "    pub(crate) ctype: ParameterType,").len(),
+        0,
+        "the typed carrier is the conversion's DESTINATION, not a violation"
+    );
+    assert_eq!(
+        c_type_strings("src/ast/types.rs", "    pub ctype: String,").len(),
+        0,
+        "`src/ast/**` is the NAME world and may carry a spelling; \
+         `hir::elaborate_link_block` is where it becomes a type"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", r#"if slot.ctype == "CInt32" {"#).len(),
+        1,
+        "a spelling compare is caught by the LITERAL half; the carrier half needs \
+         a `name:` declaration, which a compare does not have"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", r#"    ctype: String, // was "CInt32""#).len(),
+        2,
+        "both halves fire on one line — and note `code_lines` only drops a line \
+         that STARTS with `//`, so a trailing comment is still scanned"
+    );
+    assert_eq!(
+        c_type_strings("src/ast/link_items.rs", r#"matches!(c, "CPtr" | "CVoid")"#).len(),
+        2,
+        "the `src/ast/**` exemption covers the CARRIER half only — a spelling \
+         DECISION is forbidden there too"
+    );
+    assert_eq!(
+        c_type_strings(
+            "src/ir/link.rs",
+            r#"// a crafted `ctype: "CVoid"` is rejected"#
+        )
+        .len(),
+        0,
+        "a comment is not code (`code_lines` strips them)"
+    );
+    assert_eq!(
+        c_type_strings("src/ir/link.rs", r#"let s = "CInt32is not a spelling";"#).len(),
+        0,
+        "the literal must be the WHOLE quoted string"
     );
 
     assert_eq!(

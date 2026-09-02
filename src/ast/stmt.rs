@@ -649,7 +649,14 @@ impl<'a> FileParser<'a> {
             return None;
         }
         let saved = self.current;
+        // bug-480 Defect B1: a union CASE names a TYPE, so the qualified spelling
+        // is normalized exactly as a type annotation's is. `parse_qualified_name`
+        // deliberately does not normalize (it also serves qualified function and
+        // constant references), so the rewrite is applied here. Without it
+        // `CASE json::JsonBool(b)` was not recognized as a variant at all: the
+        // MATCH read as covering nothing and reported every variant uncovered.
         let name = self.parse_qualified_name("")?;
+        let name = self.normalize_qualified_builtin_type(name);
         if self.check_kind(&TokenKind::LParen) {
             Some(name)
         } else {

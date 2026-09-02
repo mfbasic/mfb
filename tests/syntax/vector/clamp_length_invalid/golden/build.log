@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/vector/clamp_length_invalid
    6 |   LET a AS vector::Fixed2 = vector::clamp_length(vector::Fixed2[toFixed(1.0),toFixed(2.0)], 2.0)
      | ^
 tests/syntax/vector/clamp_length_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `vector.clamp_length` has argument type(s) (Fixed2, Float), expected a vector and a scalar max of the vector's element type.
+               Call to `vector.clamp_length` has argument type(s) (vector.Fixed2, Float), expected a vector and a scalar max of the vector's element type.
    4 | 
    5 | FUNC main AS Integer
    6 |   LET a AS vector::Fixed2 = vector::clamp_length(vector::Fixed2[toFixed(1.0),toFixed(2.0)], 2.0)

@@ -23,11 +23,11 @@ happens to round a `Float`.
 
 How the remainder settles depends on the mode installed by `money::setRounding`. A
 remainder that is not an exact half always goes to the nearer value, under either
-mode. At an exact half, `Rounding.Commercial` (the default) rounds away from zero
-and `Rounding.Banker` rounds to even — that is, it increments only when the
+mode. At an exact half, `money::Rounding.Commercial` (the default) rounds away from zero
+and `money::Rounding.Banker` rounds to even — that is, it increments only when the
 truncated quotient is odd. Negative amounts round symmetrically: the magnitude is
 settled and the sign reapplied, so `money::round(-0.125m, 2)` under
-`Rounding.Commercial` is `-0.13`.
+`money::Rounding.Commercial` is `-0.13`.
 
 `decimals` must be in `0` through `5` inclusive; anything outside that range fails
 with `ErrInvalidArgument`. The bounds are not arbitrary: `Money` is scaled to
@@ -64,9 +64,9 @@ IMPORT money
 IMPORT io
 
 SUB main
-  money::setRounding(Rounding.Commercial)
+  money::setRounding(money::Rounding.Commercial)
   io::print(toString(money::round(0.125m, 2)))
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Banker)
   io::print(toString(money::round(0.125m, 2)))
 END SUB
 ```"#;

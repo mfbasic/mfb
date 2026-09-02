@@ -1,0 +1,39 @@
+' plan-114-D: a record carrying a resource cannot cross a thread's DATA plane.
+'
+' This is letter A's rule reached through the shape letter D made expressible.
+' `record_fields_sendable` recurses through every field type and
+' `ParameterType::Res(_)` blocks, so the cause walk reports the FIELD as the
+' offending leaf -- not `Holder` -- and the message names the resource and the
+' remedy (`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`).
+'
+' Before letter D this rule was only reachable for a record whose field was a
+' `RES` COLLECTION (rejects_unsendable_resource_plane_state_payload's shape).
+' A directly `RES`-marked field is the case that could not previously be
+' written, which is why it needs its own fixture rather than riding on that one.
+'
+' The resource plane is deliberately NOT exercised here: it keeps
+' `2-203-0063 TYPE_THREAD_NOT_SENDABLE`, and conflating the two is the mistake
+' letter A's Correction C3 exists to prevent.
+IMPORT fs
+IMPORT io
+IMPORT thread
+
+TYPE Holder
+  handle AS RES fs::File
+END TYPE
+
+' The message plane: a data plane, so the resource inside `Holder` is a plane
+' mix-up with a nameable remedy.
+FUNC viaMessage(t AS Thread OF Holder TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+' The output plane is a data plane too, and must report identically.
+FUNC viaOutput(t AS Thread OF Integer TO Holder) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC

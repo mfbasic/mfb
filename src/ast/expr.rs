@@ -1,5 +1,6 @@
 use super::pipeline::{contains_placeholder, substitute_placeholder};
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Maximum expression-nesting depth. Recursive-descent parsing turns each nesting
 /// level into native stack frames, so an unbounded input (e.g. ~100k nested `(`,
@@ -16,6 +17,101 @@ const MAX_EXPR_DEPTH: usize = 256;
 const MAX_TYPE_DEPTH: usize = 256;
 
 impl<'a> FileParser<'a> {
+    /// Normalize a package-qualified built-in name to the spelling the rest of
+    /// the compiler declares it under.
+    ///
+    /// A package-qualified built-in *value* type (`net::Url`, `http::Response`,
+    /// `net::PingStatus`, `json::JsonBool`) becomes its bare internal id, so
+    /// every downstream stage sees one spelling (plan-03-http.md §A.1/§B.2). A
+    /// package-qualified **resource** (`process::Process`) instead KEEPS its
+    /// qualified identity — resources are package-scoped so a user
+    /// `TYPE Process` no longer collides (plan-97 / bug-441).
+    ///
+    /// This is the single decision procedure for that rewrite. It was inlined in
+    /// `parse_type_base_name` alone, which is why the qualified spelling
+    /// resolved in a type ANNOTATION and nowhere else; bug-480 Defect B1 shares
+    /// it with the two expression positions — a qualified identifier (the head
+    /// of `net::PingStatus.Ok`) and a union `CASE` pattern
+    /// (`CASE json::JsonBool(b)`). A name the registry does not resolve as a
+    /// builtin type — a function, a constant, or a user package's type — is
+    /// returned unchanged.
+    ///
+    /// The qualifier is the import BINDING, so `IMPORT net AS n` makes
+    /// `n::PingStatus` mean the same type as `net::PingStatus`; the binding is
+    /// resolved to its package before the registry is asked.
+    pub(super) fn normalize_qualified_builtin_type(&self, qualified: String) -> String {
+        // Fast path: a name with no qualifier can never be a package-qualified
+        // type, and both registry probes below intern a `Symbol` from the name
+        // before they can say so. This runs on every identifier expression in
+        // every program, so the bare case must not pay for that.
+        //
+        // The one exception is a built-in package's own injected companion, where
+        // a BARE name may still be one of that package's value types: its members
+        // are local to it, so the rule says it writes them without a prefix. The
+        // declared identity is package-qualified all the same (bug-480 Phase 4b),
+        // so the prefix is supplied here rather than hand-written into every
+        // `builtins/<pkg>.mfb`.
+        let Some((binding, leaf)) = qualified.split_once('.') else {
+            return self.qualify_own_builtin_type(qualified);
+        };
+        // `binding` is what the author wrote; the registry is keyed by package.
+        // An unknown binding is left alone — it may be a LINK alias, an imported
+        // user package, or simply undeclared, all of which are diagnosed later
+        // by name resolution, which reports them far better than a parser can.
+        let resolved = match self.import_bindings.get(binding) {
+            Some(package) if package != binding => format!("{package}.{leaf}"),
+            _ => qualified.clone(),
+        };
+        if crate::codegen::builtins::is_qualified_builtin_resource(&resolved) {
+            return resolved;
+        }
+        crate::codegen::builtins::qualified_builtin_type(&resolved).unwrap_or(qualified)
+    }
+
+    /// Inside `builtins/<pkg>.mfb`, qualify a BARE name that `<pkg>` declares as
+    /// one of its own value types; leave everything else alone.
+    ///
+    /// This is what lets the injected companion keep writing its own types the
+    /// way the governing rule says a local name is written — unprefixed — while
+    /// the namespace it lands in is package-scoped. User source gets no such
+    /// treatment: a bare imported type there is exactly what Phase 4b refuses.
+    pub(super) fn qualify_own_builtin_type(&self, name: String) -> String {
+        if self.builtin_package.is_none() {
+            return name;
+        }
+        let resolves = |candidate: &str| {
+            crate::codegen::builtins::is_qualified_builtin_resource(candidate)
+                || crate::codegen::builtins::qualified_builtin_type(candidate).is_some()
+        };
+        // The owning package first: its own members are what an injected companion
+        // names most, and it must win over an import when both declare the leaf.
+        if let Some(package) = self.builtin_package.as_deref() {
+            let candidate = format!("{package}.{name}");
+            if resolves(&candidate) {
+                return candidate;
+            }
+        }
+        // Then the packages this file IMPORTS. A cross-package helper chunk -- the
+        // `term`<->`astrings` bridge is the one in tree -- is authored as `term`'s
+        // source but names `astrings`' types, and names them bare because that is how
+        // the rule reads inside a package that imports them. Resolving through the
+        // import list qualifies those without hand-editing the chunk.
+        let mut candidates: Vec<String> = self
+            .import_bindings
+            .values()
+            .map(|package| format!("{package}.{name}"))
+            .filter(|candidate| resolves(candidate))
+            .collect();
+        candidates.sort();
+        candidates.dedup();
+        // Exactly one owner, or nothing: an ambiguous leaf is left bare rather than
+        // guessed at.
+        match candidates.as_slice() {
+            [only] => only.clone(),
+            _ => name,
+        }
+    }
+
     /// Enter one expression-nesting level, reporting and returning `false` when
     /// the maximum depth is exceeded. On the `false` path the counter is already
     /// rewound, so the caller must simply bail (`return None`); otherwise it must
@@ -70,19 +166,17 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_or(&mut self) -> Option<Expression> {
         let mut expression = self.parse_and()?;
         while self.match_any_keywords(&[Keyword::Or, Keyword::Xor]) {
-            let operator = match self.previous().kind {
-                TokenKind::Keyword(Keyword::Or) => "OR",
-                TokenKind::Keyword(Keyword::Xor) => "XOR",
-                // coverage:off — the preceding match_any_keywords guarantees the
-                // previous token is OR or XOR.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any_keywords guarantees the
+            // previous token is OR or XOR, both of which spell an operator.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_and()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -98,7 +192,7 @@ impl<'a> FileParser<'a> {
             let right = self.parse_not()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "AND".to_string(),
+                operator: BinaryOp::And,
                 right: Box::new(right),
                 line,
                 column,
@@ -117,7 +211,7 @@ impl<'a> FileParser<'a> {
             self.leave_expr();
             let operand = operand?;
             return Some(Expression::Unary {
-                operator: "NOT".to_string(),
+                operator: UnaryOp::Not,
                 operand: Box::new(operand),
                 line,
                 column,
@@ -136,23 +230,17 @@ impl<'a> FileParser<'a> {
             TokenKind::Greater,
             TokenKind::GreaterEqual,
         ]) {
-            let operator = match self.previous().kind {
-                TokenKind::Equal => "=",
-                TokenKind::NotEqual => "<>",
-                TokenKind::Less => "<",
-                TokenKind::LessEqual => "<=",
-                TokenKind::Greater => ">",
-                TokenKind::GreaterEqual => ">=",
-                // coverage:off — the preceding match_any guarantees a comparison
-                // operator token here.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any guarantees a comparison
+            // operator token here.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_concat()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -168,7 +256,7 @@ impl<'a> FileParser<'a> {
             let right = self.parse_addition()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "&".to_string(),
+                operator: BinaryOp::Concat,
                 right: Box::new(right),
                 line,
                 column,
@@ -180,18 +268,16 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_addition(&mut self) -> Option<Expression> {
         let mut expression = self.parse_multiplication()?;
         while self.match_any(&[TokenKind::Plus, TokenKind::Minus]) {
-            let operator = match self.previous().kind {
-                TokenKind::Plus => "+",
-                TokenKind::Minus => "-",
-                // coverage:off — the preceding match_any guarantees `+` or `-`.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any guarantees `+` or `-`.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_multiplication()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -205,21 +291,17 @@ impl<'a> FileParser<'a> {
         while self.match_any(&[TokenKind::Star, TokenKind::Slash])
             || self.match_any_keywords(&[Keyword::Mod, Keyword::Div])
         {
-            let operator = match self.previous().kind {
-                TokenKind::Star => "*",
-                TokenKind::Slash => "/",
-                TokenKind::Keyword(Keyword::Mod) => "MOD",
-                TokenKind::Keyword(Keyword::Div) => "DIV",
-                // coverage:off — the preceding match guards guarantee `*`, `/`,
-                // MOD, or DIV here.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match guards guarantee `*`, `/`,
+            // MOD, or DIV here.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -240,7 +322,7 @@ impl<'a> FileParser<'a> {
             let right = right?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "^".to_string(),
+                operator: BinaryOp::Power,
                 right: Box::new(right),
                 line,
                 column,
@@ -259,7 +341,7 @@ impl<'a> FileParser<'a> {
             self.leave_expr();
             let operand = operand?;
             return Some(Expression::Unary {
-                operator: "-".to_string(),
+                operator: UnaryOp::Negate,
                 operand: Box::new(operand),
                 line,
                 column,
@@ -348,10 +430,11 @@ impl<'a> FileParser<'a> {
                 let type_name = match expression {
                     // A package-qualified built-in type used as a constructor
                     // (`http::Response[...]`) normalizes to its bare id, matching
-                    // the type-position rule (plan-03-http.md §A.1/§B.2).
-                    Expression::Identifier(value) => {
-                        crate::codegen::builtins::qualified_builtin_type(&value).unwrap_or(value)
-                    }
+                    // the type-position rule (plan-03-http.md §A.1/§B.2). The
+                    // identifier arm already normalized it, so this is idempotent
+                    // and stays only to cover a constructor head that reached here
+                    // by some other route.
+                    Expression::Identifier(value) => self.normalize_qualified_builtin_type(value),
                     _ => {
                         let token = self.previous().clone();
                         self.report(
@@ -516,8 +599,23 @@ impl<'a> FileParser<'a> {
                     let element_type = self.parse_type_name()?;
                     return self.parse_set_literal(element_type);
                 }
+                // bug-480 Defect B1. A package-qualified name in an EXPRESSION
+                // position gets the same normalization the type and constructor
+                // positions have had since plan-03-http. Without it, the head of
+                // `net::PingStatus.Ok` stayed spelled `net.PingStatus` while the
+                // enum is declared bare, so every `enums` lookup missed, the
+                // expression typed as nothing, and the unresolved name escaped
+                // the front end to be reported by NIR as
+                // `NIR local reference 'net.PingStatus' does not resolve` — no
+                // file, no line, no code.
+                //
+                // Only a name the registry resolves as a builtin value type is
+                // rewritten, so a qualified FUNCTION (`net::toUrl` as a value)
+                // or CONSTANT (`math::pi`) is left exactly as it was.
                 let name = self.finish_qualified_name(value)?;
-                Some(Expression::Identifier(name))
+                Some(Expression::Identifier(
+                    self.normalize_qualified_builtin_type(name),
+                ))
             }
             TokenKind::LParen => {
                 let expression = self.parse_expression();
@@ -894,19 +992,8 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        // A package-qualified built-in *value* type (`net::Url`, `http::Response`) is
-        // normalized to its bare internal id at parse time, so every downstream stage
-        // sees only bare ids (plan-03-http.md §A.1/§B.2). A package-qualified
-        // **resource** (`process::Process`) instead KEEPS its qualified identity —
-        // resources are package-scoped so a user `TYPE Process` no longer collides
-        // (plan-97).
-        self.finish_qualified_name(name).map(|qualified| {
-            if crate::codegen::builtins::is_qualified_builtin_resource(&qualified) {
-                qualified
-            } else {
-                crate::codegen::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
-            }
-        })
+        let qualified = self.finish_qualified_name(name)?;
+        Some(self.normalize_qualified_builtin_type(qualified))
     }
 
     pub(super) fn parse_list_literal(&mut self) -> Option<Expression> {

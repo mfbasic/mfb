@@ -1,0 +1,54 @@
+' plan-114-D's runtime proof: a record field holds a COPY of the one handle
+' pointer, and the close obligation floats to the record binding's scope.
+'
+' Two assertions, and neither is visible to a compile-time check:
+'
+' 1. THE POST-COPY USE. Copying a `Holder` copies the 8-byte handle slot; it
+'    must alias the same resource, not duplicate or invalidate it. So the test
+'    is to copy the record and then WRITE THROUGH THE COPY'S HANDLE. With no
+'    post-copy use the program exits 0 while having released the handle early --
+'    exactly the trap tests/rt-behavior/resources/res-rebind-alias-runtime
+'    documents in its own header, one container-kind over.
+'
+' 2. THE LOOP. 200 open/scope-exit cycles. If the drain is MISSED the process
+'    runs out of file descriptors; if it fires TWICE the second close raises
+'    `7-703-0004`. Only running it can tell -- the count is the assertion, and a
+'    single iteration would pass under either bug.
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  label  AS String
+  handle AS RES fs::File
+END TYPE
+
+' The float: `f` is produced here and placed into a record declared in the same
+' scope, so ownership floats to `h` and is drained once at this function's exit.
+' Returning nothing means the caller adopts nothing.
+FUNC useThroughACopy(path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path, "w")
+  LET h = Holder["first", f]
+
+  ' The copy. `g` is a second Holder value carrying the SAME handle pointer.
+  LET g = WITH h { label := "copy" }
+
+  ' The assertion: write through the COPY, after the copy was taken. If copying
+  ' the record had duplicated or released the resource, this would fail.
+  fs::writeAll(g.handle, "written through the copy")
+END FUNC
+
+FUNC main AS Integer
+  useThroughACopy("target/record-res-field-rt.txt")
+  io::print("post-copy write succeeded")
+
+  ' 200 iterations. A missed drain exhausts fds long before this completes; a
+  ' double drain raises on the second close.
+  MUT i AS Integer = 0
+  WHILE i < 200
+    useThroughACopy("target/record-res-field-rt-loop.txt")
+    i = i + 1
+  END WHILE
+  io::print("200 open/close cycles completed")
+
+  RETURN 0
+END FUNC

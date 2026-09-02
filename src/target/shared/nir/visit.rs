@@ -20,6 +20,8 @@
 //! it into every other analysis.
 
 use super::{NirMatchPattern, NirOp, NirValue};
+#[cfg(test)]
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// A recursive traversal over the NIR tree with complete default recursion.
 ///
@@ -155,7 +157,8 @@ pub(crate) fn walk_value<V: NirVisitor + ?Sized>(visitor: &mut V, value: &NirVal
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => visitor.visit_value(value),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => visitor.visit_value(value),
         NirValue::WithUpdate {
             target, updates, ..
         } => {
@@ -224,6 +227,7 @@ mod tests {
             NirValue::ResultIsOk { .. } => "ResultIsOk",
             NirValue::ResultValue { .. } => "ResultValue",
             NirValue::ResultError { .. } => "ResultError",
+            NirValue::Checked { .. } => "Checked",
             NirValue::WithUpdate { .. } => "WithUpdate",
             NirValue::ListLiteral { .. } => "ListLiteral",
             NirValue::SetLiteral { .. } => "SetLiteral",
@@ -337,13 +341,13 @@ mod tests {
                 member: "m".to_string(),
             },
             NirValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: boxed(local("binary_left")),
                 right: boxed(local("binary_right")),
                 loc: NirSourceLoc::default(),
             },
             NirValue::Unary {
-                op: "-".to_string(),
+                op: UnaryOp::Negate,
                 operand: boxed(local("unary_child")),
                 loc: NirSourceLoc::default(),
             },

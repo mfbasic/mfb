@@ -42,10 +42,10 @@ FUNC inRangeStable AS Integer
 END FUNC
 
 REM The error propagates through the higher-level consumers unchanged: `toLocal`
-REM (and `offsetAt` for the local zone) pass a far-future `Instant`'s seconds to
+REM (and `offsetAt` for the local zone) pass a far-future `datetime::Instant`'s seconds to
 REM `localOffset`, so the same `ErrInvalidArgument` surfaces here.
 FUNC downstreamToLocal AS Integer
-  LET dt AS DateTime = datetime::toLocal(datetime::instant(9223372036854775807))
+  LET dt AS datetime::DateTime = datetime::toLocal(datetime::instant(9223372036854775807))
   io::print("LEAKED downstream reached")
   RETURN -1
   TRAP(err)

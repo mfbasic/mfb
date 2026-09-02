@@ -4,12 +4,12 @@ IMPORT money
 
 FUNC main() AS Integer
   ' setRounding(mode AS Rounding) — both enum members
-  money::setRounding(Rounding.Commercial)
-  money::setRounding(Rounding.Banker)
+  money::setRounding(money::Rounding.Commercial)
+  money::setRounding(money::Rounding.Banker)
 
   ' getRounding() AS Rounding
-  LET mode AS Rounding = money::getRounding()
-  IF mode = Rounding.Banker THEN
+  LET mode AS money::Rounding = money::getRounding()
+  IF mode = money::Rounding.Banker THEN
     io::print("banker")
   END IF
 

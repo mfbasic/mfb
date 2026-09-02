@@ -60,10 +60,10 @@ back and forth while it runs, hands open resources across, and collects the
 result when it finishes.
 
 A thread runs an `ISOLATED FUNC` — a function declared so that it shares nothing
-with whoever started it. It gets its own copy of its package's top-level state,
-so two threads running the same function never see each other's variables. The
-entry point takes the worker's own handle as its first argument and one value of
-your choosing as its second:
+with whoever started it. It gets its own copy of the top-level state of the
+project that declares it, so two threads running the same function never see
+each other's variables. The entry point takes the worker's own handle as its
+first argument and one value of your choosing as its second:
 
 ```
 EXPORT ISOLATED FUNC parseFile(worker AS ThreadWorker OF String TO Integer, path AS String) AS Integer

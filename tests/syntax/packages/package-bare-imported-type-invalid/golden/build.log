@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/packages/package-bare-imported-type-invalid
+  35 | 
+  36 | TYPE TestBareA
+  37 |     addr AS Address         ' Should fail (not defined)
+     | ^
+tests/syntax/packages/package-bare-imported-type-invalid/src/main.mfb:37 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Address` is not a built-in or top-level project type.
+  43 | 
+  44 | TYPE TestBareC
+  45 |     s AS RES Socket         ' Should fail (not defined) — bare means LOCAL, and
+     | ^
+tests/syntax/packages/package-bare-imported-type-invalid/src/main.mfb:45 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Socket` is not a built-in or top-level project type.
+  56 | 
+  57 | TYPE TestBareE
+  58 |     s AS RES Listener       ' Should fail (not defined) — bare means LOCAL, and
+     | ^
+tests/syntax/packages/package-bare-imported-type-invalid/src/main.mfb:58 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Listener` is not a built-in or top-level project type.
+[exit 1]

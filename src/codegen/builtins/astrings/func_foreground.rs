@@ -10,10 +10,10 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct a foreground-color `Attribute`."#;
+const INTRO: &str = r#"Construct a foreground-color `astrings::Attribute`."#;
 
-const DESC: &str = r#"`foreground` returns an `Attribute` wrapping the `AttrNumber` with `kind`
-`AttrTypeNumber.Foreground` and a `value` that packs the `(r, g, b)` channels into
+const DESC: &str = r#"`foreground` returns an `astrings::Attribute` wrapping the `astrings::AttrNumber` with `kind`
+`astrings::AttrTypeNumber.Foreground` and a `value` that packs the `(r, g, b)` channels into
 a single `0xRRGGBB` Integer — `r` in the high byte, `b` in the low byte. Each
 channel is a `Byte`, so the packing is lossless. Pass it to
 `astrings::addAttribute` to set the text foreground color over a scalar range;

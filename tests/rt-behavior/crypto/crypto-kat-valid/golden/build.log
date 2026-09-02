@@ -1,104 +1,104 @@
 $ mfb build -ast -ir tests/rt-behavior/crypto/crypto-kat-valid
   17 |   ' both the String and the List OF Byte overload. Each `Hash.SHA1` use reports
   18 |   ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:19 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
   18 |   ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
-  20 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
+  20 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:20 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
-  20 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
-  21 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
+  20 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "")))
+  21 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:21 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  21 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  21 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
   22 |   LET abcBytes AS List OF Byte = encoding::utf8Encode("abc")
-  23 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, abcBytes)))
+  23 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, abcBytes)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:23 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  27 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, jefe, "what do ya want for nothing?")))
-  28 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_512, jefe, "what do ya want for nothing?")))
-  29 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA1, jefe, "what do ya want for nothing?")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  27 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_256, jefe, "what do ya want for nothing?")))
+  28 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_512, jefe, "what do ya want for nothing?")))
+  29 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA1, jefe, "what do ya want for nothing?")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:29 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  35 |   io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA2_256, ikm, salt, info, 42)))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  35 |   io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, 42)))
   36 |   LET ikm1 AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b")
-  37 |   io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA1, ikm1, salt, info, 42)))
+  37 |   io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA1, ikm1, salt, info, 42)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:37 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  44 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_512, pw, sa, 1, 64)))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  44 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA2_512, pw, sa, 1, 64)))
   45 |   LET pw1 AS List OF Byte = encoding::utf8Encode("password")
-  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
+  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 1, 20)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:46 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
   45 |   LET pw1 AS List OF Byte = encoding::utf8Encode("password")
-  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
-  47 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 2, 20)))
+  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 1, 20)))
+  47 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 2, 20)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:47 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
 Wrote AST to tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid.ast
 Wrote IR to tests/rt-behavior/crypto/crypto-kat-valid/crypto-kat-valid.ir
 [exit 0]
 $ mfb build tests/rt-behavior/crypto/crypto-kat-valid
   17 |   ' both the String and the List OF Byte overload. Each `Hash.SHA1` use reports
   18 |   ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:19 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
   18 |   ' the non-fatal CRYPTO_SHA1_INSECURE advisory — pinned in build.log.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
-  20 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
+  20 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:20 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  19 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abc")))
-  20 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "")))
-  21 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  19 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abc")))
+  20 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "")))
+  21 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:21 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  21 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  21 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
   22 |   LET abcBytes AS List OF Byte = encoding::utf8Encode("abc")
-  23 |   io::print(encoding::hexEncode(crypto::hash(Hash.SHA1, abcBytes)))
+  23 |   io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA1, abcBytes)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:23 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  27 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_256, jefe, "what do ya want for nothing?")))
-  28 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA2_512, jefe, "what do ya want for nothing?")))
-  29 |   io::print(encoding::hexEncode(crypto::hmac(Hash.SHA1, jefe, "what do ya want for nothing?")))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  27 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_256, jefe, "what do ya want for nothing?")))
+  28 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA2_512, jefe, "what do ya want for nothing?")))
+  29 |   io::print(encoding::hexEncode(crypto::hmac(crypto::Hash.SHA1, jefe, "what do ya want for nothing?")))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:29 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  35 |   io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA2_256, ikm, salt, info, 42)))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  35 |   io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA2_256, ikm, salt, info, 42)))
   36 |   LET ikm1 AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b")
-  37 |   io::print(encoding::hexEncode(crypto::hkdf(Hash.SHA1, ikm1, salt, info, 42)))
+  37 |   io::print(encoding::hexEncode(crypto::hkdf(crypto::Hash.SHA1, ikm1, salt, info, 42)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:37 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
-  44 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA2_512, pw, sa, 1, 64)))
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
+  44 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA2_512, pw, sa, 1, 64)))
   45 |   LET pw1 AS List OF Byte = encoding::utf8Encode("password")
-  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
+  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 1, 20)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:46 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
   45 |   LET pw1 AS List OF Byte = encoding::utf8Encode("password")
-  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 1, 20)))
-  47 |   io::print(encoding::hexEncode(crypto::pbkdf2(Hash.SHA1, pw1, sa, 2, 20)))
+  46 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 1, 20)))
+  47 |   io::print(encoding::hexEncode(crypto::pbkdf2(crypto::Hash.SHA1, pw1, sa, 2, 20)))
      | ^
 tests/rt-behavior/crypto/crypto-kat-valid/src/main.mfb:47 warn[2-203-0136 CRYPTO_SHA1_INSECURE]: SHA-1 is not collision-resistant; use it only for legacy interoperability
-               `Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `Hash.SHA2_256` or stronger for new designs.
+               `crypto::Hash.SHA1` selects SHA-1, which is not collision-resistant (practical collisions since 2017). Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or stronger for new designs.
 Wrote executable to tests/rt-behavior/crypto/crypto-kat-valid/build/crypto-kat-valid.out
 [exit 0]
 $ tests/rt-behavior/crypto/crypto-kat-valid/build/crypto-kat-valid.out

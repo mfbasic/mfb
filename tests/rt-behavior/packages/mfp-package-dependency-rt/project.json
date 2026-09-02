@@ -1,0 +1,17 @@
+{
+  "name": "mfp_package_dependency_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-480 Defect A, the paired half: the SAME sources as source-package-dependency-rt, consumed as a compiled `.mfp` instead of a source directory. The two fixtures differ only in how the dependency is declared, so a divergence between the forms shows up as one of them failing.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "source_pkg_tiny",
+      "version": "=0.1.0",
+      "source": "file:packages/source_pkg_tiny.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

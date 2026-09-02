@@ -1,0 +1,22 @@
+' plan-114-D: a record field carries the SAME two `RES`-marker rules a collection
+' element does, because it is the same kind of slot -- one that may hold a handle
+' pointer (spec 15.6). This fixture pins the second of the pair.
+'
+' `RES` marks ownership of a RESOURCE. Putting it on a data type is not a
+' harmless decoration: it would claim the field holds a handle whose close
+' obligation floats to the record's scope, so the escape analysis would try to
+' drain an Integer as if it were a resource. Rejected with
+' TYPE_RES_REQUIRES_RESOURCE, exactly as `List OF RES Integer` is.
+'
+' The twin fixture resource-record-field-invalid pins the other direction: a
+' resource field with the marker MISSING.
+IMPORT io
+
+TYPE Holder
+  count AS RES Integer
+END TYPE
+
+FUNC main AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC

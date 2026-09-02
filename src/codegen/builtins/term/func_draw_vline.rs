@@ -15,7 +15,7 @@ const INTRO: &str = r#"Draw a vertical box-drawing line down a column of the sur
 
 const DESC: &str = r#"`term::drawVLine` stamps a vertical run of a box-drawing glyph into the retained
 surface: on column `col`, it fills every row from `rowA` to `rowB` with the
-vertical form of the chosen `LineStyle`. The glyph is drawn with the colours and
+vertical form of the chosen `term::LineStyle`. The glyph is drawn with the colours and
 attributes currently in effect (`term::setForeground`/`setBackground`/`setBold`/
 `setUnderline`), exactly as `io::write` stamps text, and — like every drawing call
 on this surface — it updates the surface only and appears on the next
@@ -30,10 +30,10 @@ edge becomes `rows-1`. If `col` is outside `0 .. columns-1`, or the clamped span
 covers no on-grid cell, the call draws nothing rather than clamping the line onto
 an edge. No error is raised for an out-of-range request.
 
-The `line` argument is a `LineStyle` enum value selecting the weight and pattern:
-`LineStyle.Light` (`│`), `LineStyle.Heavy` (`┃`), `LineStyle.LightDash` (`┆`),
-`LineStyle.HeavyDash` (`┇`), `LineStyle.LightDot` (`┊`), `LineStyle.HeavyDot`
-(`┋`), and `LineStyle.Double` (`║`). `term::drawHLine` draws the matching
+The `line` argument is a `term::LineStyle` enum value selecting the weight and pattern:
+`term::LineStyle.Light` (`│`), `term::LineStyle.Heavy` (`┃`), `term::LineStyle.LightDash` (`┆`),
+`term::LineStyle.HeavyDash` (`┇`), `term::LineStyle.LightDot` (`┊`), `term::LineStyle.HeavyDot`
+(`┋`), and `term::LineStyle.Double` (`║`). `term::drawHLine` draws the matching
 horizontal forms.
 
 Drawing a line does not move the cursor and does not change the current
@@ -51,8 +51,8 @@ IMPORT term
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
-  term::drawVLine(LineStyle.Double, 0, 0, size.rows - 1)
+  LET size AS term::TermSize = term::terminalSize()
+  term::drawVLine(term::LineStyle.Double, 0, 0, size.rows - 1)
   term::sync()
   term::off()
 END SUB
@@ -65,7 +65,7 @@ IMPORT term
 
 SUB main()
   term::on()
-  term::drawVLine(LineStyle.Light, 40, 0, 23)
+  term::drawVLine(term::LineStyle.Light, 40, 0, 23)
   term::sync()
   term::off()
 END SUB

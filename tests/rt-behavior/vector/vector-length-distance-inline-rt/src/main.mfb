@@ -9,29 +9,29 @@ IMPORT io
 ' bit-identity across 2D/3D/4D and a range of magnitudes (isqrt rounding edges).
 
 FUNC main AS Integer
-  LET a AS Integer2 = Integer2[3, 4]
+  LET a AS vector::Integer2 = vector::Integer2[3, 4]
   io::print("iLen2=" & toString(vector::length(a)))
-  LET b AS Integer3 = Integer3[2, 3, 6]
+  LET b AS vector::Integer3 = vector::Integer3[2, 3, 6]
   io::print("iLen3=" & toString(vector::length(b)))
-  LET c AS Integer4 = Integer4[1, 2, 2, 4]
+  LET c AS vector::Integer4 = vector::Integer4[1, 2, 2, 4]
   io::print("iLen4=" & toString(vector::length(c)))
-  LET d1 AS Integer2 = Integer2[0, 0]
-  LET d2 AS Integer2 = Integer2[6, 8]
+  LET d1 AS vector::Integer2 = vector::Integer2[0, 0]
+  LET d2 AS vector::Integer2 = vector::Integer2[6, 8]
   io::print("iDist=" & toString(vector::distance(d1, d2)))
   MUT acc AS Integer = 0
   FOR i = 1 TO 200
-    LET v AS Integer2 = Integer2[i, i + 1]
+    LET v AS vector::Integer2 = vector::Integer2[i, i + 1]
     acc = acc + vector::length(v)
   NEXT
   io::print("iAcc=" & toString(acc))
-  LET fa AS Fixed2 = Fixed2[3.0, 4.0]
+  LET fa AS vector::Fixed2 = vector::Fixed2[3.0, 4.0]
   io::print("fLen2=" & toString(vector::length(fa)))
-  LET fb AS Fixed3 = Fixed3[1.5, 2.5, 3.5]
+  LET fb AS vector::Fixed3 = vector::Fixed3[1.5, 2.5, 3.5]
   io::print("fLen3=" & toString(vector::length(fb)))
-  LET fc AS Fixed4 = Fixed4[1.0, 2.0, 2.0, 4.0]
+  LET fc AS vector::Fixed4 = vector::Fixed4[1.0, 2.0, 2.0, 4.0]
   io::print("fLen4=" & toString(vector::length(fc)))
-  LET fd1 AS Fixed2 = Fixed2[1.0, 1.0]
-  LET fd2 AS Fixed2 = Fixed2[4.0, 5.0]
+  LET fd1 AS vector::Fixed2 = vector::Fixed2[1.0, 1.0]
+  LET fd2 AS vector::Fixed2 = vector::Fixed2[4.0, 5.0]
   io::print("fDist=" & toString(vector::distance(fd1, fd2)))
   RETURN 0
 END FUNC

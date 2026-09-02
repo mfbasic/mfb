@@ -1,0 +1,12 @@
+{
+  "name": "thread_unsendable_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Worker package: ISOLATED entry points whose In parameter is NOT thread-sendable, for the bug-482 regression fixture.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:thread-unsendable-workers",
+  "identKey": "ed25519-public:test-thread-unsendable-workers-ident",
+  "identFingerprint": "sha256:test-thread-unsendable-workers-ident",
+  "signingFingerprint": "sha256:test-thread-unsendable-workers-signing"
+}

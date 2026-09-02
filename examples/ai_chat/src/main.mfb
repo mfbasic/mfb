@@ -200,20 +200,20 @@ END FUNC
 ' Read one String member out of a Json object path, or "" if it is absent or
 ' not a string. Enumerates every Json variant so the MATCH stays exhaustive.
 FUNC jsonStr(doc AS json::Json, path AS List OF String) AS String
-  LET absent AS json::Json = JsonNull[NOTHING]
+  LET absent AS json::Json = json::JsonNull[NOTHING]
   LET v AS json::Json = json::getOr(doc, path, absent)
   MATCH v
-    CASE JsonStr(s)
+    CASE json::JsonStr(s)
       RETURN s.value
-    CASE JsonNull(n)
+    CASE json::JsonNull(n)
       RETURN ""
-    CASE JsonBool(b)
+    CASE json::JsonBool(b)
       RETURN ""
-    CASE JsonNum(m)
+    CASE json::JsonNum(m)
       RETURN ""
-    CASE JsonArr(a)
+    CASE json::JsonArr(a)
       RETURN ""
-    CASE JsonObj(o)
+    CASE json::JsonObj(o)
       RETURN ""
   END MATCH
 END FUNC
@@ -221,23 +221,23 @@ END FUNC
 ' Read one Integer member out of a Json object path, or 0 if it is absent or not
 ' a number. JSON numbers are Float; toInt narrows (token counts are finite).
 FUNC jsonInt(doc AS json::Json, path AS List OF String) AS Integer
-  LET absent AS json::Json = JsonNull[NOTHING]
+  LET absent AS json::Json = json::JsonNull[NOTHING]
   LET v AS json::Json = json::getOr(doc, path, absent)
   MATCH v
-    CASE JsonNum(m)
+    CASE json::JsonNum(m)
       LET n AS Integer = toInt(m.value) TRAP(e)
         RECOVER 0
       END TRAP
       RETURN n
-    CASE JsonStr(s)
+    CASE json::JsonStr(s)
       RETURN 0
-    CASE JsonNull(nu)
+    CASE json::JsonNull(nu)
       RETURN 0
-    CASE JsonBool(b)
+    CASE json::JsonBool(b)
       RETURN 0
-    CASE JsonArr(a)
+    CASE json::JsonArr(a)
       RETURN 0
-    CASE JsonObj(o)
+    CASE json::JsonObj(o)
       RETURN 0
   END MATCH
 END FUNC
@@ -607,7 +607,7 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
   ELSE
     term::setForeground(90, 90, 110)
   END IF
-  term::drawBox(LineStyle.Light, 0, 0, w, panelBottom)
+  term::drawBox(term::LineStyle.Light, 0, 0, w, panelBottom)
   resetPen()
   term::setBold(TRUE)
   term::setForeground(150, 200, 255)
@@ -652,7 +652,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   ELSE
     term::setForeground(90, 90, 110)
   END IF
-  term::drawBox(LineStyle.Light, sidebarW(), 0, x1, panelBottom)
+  term::drawBox(term::LineStyle.Light, sidebarW(), 0, x1, panelBottom)
   resetPen()
 
   term::setBold(TRUE)
@@ -720,7 +720,7 @@ SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTo
   ELSE
     term::setForeground(90, 90, 110)
   END IF
-  term::drawBox(LineStyle.Light, 0, inputTop, cols - 1, inputTop + 2)
+  term::drawBox(term::LineStyle.Light, 0, inputTop, cols - 1, inputTop + 2)
   resetPen()
 
   MUT hint AS String = " Enter send   /help for commands   Tab focus   ^C quit "
@@ -798,7 +798,7 @@ SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS 
   NEXT
 
   term::setForeground(150, 170, 220)
-  term::drawBox(LineStyle.Double, bx, by, bx + w, bottom)
+  term::drawBox(term::LineStyle.Double, bx, by, bx + w, bottom)
   term::setBold(TRUE)
   term::setForeground(220, 228, 255)
   term::drawText(bx + 2, by, " " & title & " ")
@@ -1006,7 +1006,7 @@ FUNC main() AS Integer
   MUT running AS Boolean = TRUE
 
   DO WHILE running
-    LET size AS TermSize = term::terminalSize() TRAP(e)
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
       EXIT DO
     END TRAP
     frame = frame + 1
@@ -1115,7 +1115,7 @@ FUNC main() AS Integer
         ' terminate the child of the session being closed, if it is streaming
         IF collections::hasKey(kids, it.sessionId) THEN
           RES doomed = collections::get(kids, it.sessionId)
-          process::signal(doomed, Signal.Terminate)
+          process::signal(doomed, process::Signal.Terminate)
           LET dc AS Integer = process::waitFor(doomed)
           kids = collections::removeKey(kids, it.sessionId)
         END IF

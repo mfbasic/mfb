@@ -28,6 +28,8 @@ use super::plans::loops::{
     freshened_clone, invariant, loop_body_defined, op_count, scope_bind_names,
 };
 use super::plans::reads::NameUses;
+#[cfg(test)]
+use crate::operators::BinaryOp;
 
 /// Bodies above this size are not worth doubling.
 const BODY_CAP: usize = 64;
@@ -246,7 +248,10 @@ mod tests {
     /// inside each same-kind copy.
     #[test]
     fn invariant_if_splits_the_loop() {
-        let body = run(while_with_if(binary("<", local("p"), local("q"))), 3);
+        let body = run(
+            while_with_if(binary(BinaryOp::Less, local("p"), local("q"))),
+            3,
+        );
         let NirOp::If {
             then_body,
             else_body,
@@ -276,10 +281,16 @@ mod tests {
     /// So is a trap-capable condition (arithmetic can raise ErrOverflow).
     #[test]
     fn variant_or_trapping_conditions_stay() {
-        let variant = run(while_with_if(binary("<", local("pre"), local("q"))), 3);
+        let variant = run(
+            while_with_if(binary(BinaryOp::Less, local("pre"), local("q"))),
+            3,
+        );
         assert!(matches!(&variant[0], NirOp::While { .. }));
 
-        let trapping = run(while_with_if(binary("+", local("p"), local("q"))), 3);
+        let trapping = run(
+            while_with_if(binary(BinaryOp::Add, local("p"), local("q"))),
+            3,
+        );
         assert!(matches!(&trapping[0], NirOp::While { .. }));
     }
 
@@ -295,7 +306,7 @@ mod tests {
                 end: int_const("9"),
                 step: int_const("1"),
                 body: vec![NirOp::If {
-                    condition: binary("<", local("i"), local("q")),
+                    condition: binary(BinaryOp::Less, local("i"), local("q")),
                     then_body: vec![assign("a", local("x"))],
                     else_body: vec![],
                 }],
@@ -309,7 +320,10 @@ mod tests {
     /// The row is off at `-O2` (it is a Level-3 row).
     #[test]
     fn level_two_disables_the_row() {
-        let body = run(while_with_if(binary("<", local("p"), local("q"))), 2);
+        let body = run(
+            while_with_if(binary(BinaryOp::Less, local("p"), local("q"))),
+            2,
+        );
         assert!(matches!(&body[0], NirOp::While { .. }));
     }
 }

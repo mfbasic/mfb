@@ -756,11 +756,11 @@ fn hpke_boxes_interoperate_with_independent_implementation_both_ways() {
         let name = p.mfb_name;
         let curve = if p.kem_id == 0x0021 { "448" } else { "25519" };
         source.push_str(&format!(
-            "  io::print(\"open-{name}=\" & encoding::hexEncode(crypto::decrypt(AsymmetricCipher.{name}, seed{curve}, encoding::hexDecode(\"{}\"), aadIn)))\n",
+            "  io::print(\"open-{name}=\" & encoding::hexEncode(crypto::decrypt(crypto::AsymmetricCipher.{name}, seed{curve}, encoding::hexDecode(\"{}\"), aadIn)))\n",
             hex_encode(boxed)
         ));
         source.push_str(&format!(
-            "  io::print(\"seal-{name}=\" & encoding::hexEncode(crypto::encrypt(AsymmetricCipher.{name}, pub{curve}, ptOut, aadOut)))\n"
+            "  io::print(\"seal-{name}=\" & encoding::hexEncode(crypto::encrypt(crypto::AsymmetricCipher.{name}, pub{curve}, ptOut, aadOut)))\n"
         ));
     }
     source.push_str("END SUB\n");

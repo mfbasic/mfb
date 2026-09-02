@@ -122,7 +122,7 @@
       "name": "tryOpen",
       "line": 53,
       "params": [
-      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 53 },
+      { "name": "c", "type": "crypto.AsymmetricCipher", "default": null, "line": 53 },
       { "name": "seed", "type": "List OF Byte", "default": null, "line": 53 },
       { "name": "box", "type": "List OF Byte", "default": null, "line": 53 },
       { "name": "aad", "type": "List OF Byte", "default": null, "line": 53 }
@@ -147,7 +147,7 @@
       "name": "tryOpenLen",
       "line": 61,
       "params": [
-      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 61 },
+      { "name": "c", "type": "crypto.AsymmetricCipher", "default": null, "line": 61 },
       { "name": "seed", "type": "List OF Byte", "default": null, "line": 61 },
       { "name": "box", "type": "List OF Byte", "default": null, "line": 61 },
       { "name": "aad", "type": "List OF Byte", "default": null, "line": 61 }
@@ -172,7 +172,7 @@
       "name": "trySeal",
       "line": 69,
       "params": [
-      { "name": "c", "type": "AsymmetricCipher", "default": null, "line": 69 },
+      { "name": "c", "type": "crypto.AsymmetricCipher", "default": null, "line": 69 },
       { "name": "pub", "type": "List OF Byte", "default": null, "line": 69 },
       { "name": "data", "type": "List OF Byte", "default": null, "line": 69 }
       ],
@@ -203,8 +203,8 @@
       { "kind": "binding", "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a" }] }, "line": 79 },
       { "kind": "binding", "mutable": false, "name": "aad", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "Count-0" }] }, "line": 80 },
       { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 81 },
-      { "kind": "binding", "mutable": false, "name": "aes", "type": "AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, "line": 82 },
-      { "kind": "binding", "mutable": false, "name": "chacha", "type": "AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_CHACHA20POLY1305" }, "line": 83 },
+      { "kind": "binding", "mutable": false, "name": "aes", "type": "crypto.AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, "line": 82 },
+      { "kind": "binding", "mutable": false, "name": "chacha", "type": "crypto.AsymmetricCipher", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed25519_CHACHA20POLY1305" }, "line": 83 },
       { "kind": "binding", "mutable": false, "name": "indAes", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f890940fdcf0e3016ad953a04877686c920" }] }, "line": 84 },
       { "kind": "binding", "mutable": false, "name": "indChacha", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "d3e826a9e5c1e642b44f628eb2052cd8d020dd6cc50c54b65b4f9b5a142bb969b6141cbb64368c2082203d4441a4ddadeb6e4dca7512b5dad514181132cd0b13fe8745f9a41e36950df89d6a29" }] }, "line": 85 },
       { "kind": "binding", "mutable": false, "name": "indAesNoAad", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf44318b4e7fef3da1ed008893549594310057351928b05541418b3846130f89e167bb633f73c8793d87b63ab692eab8" }] }, "line": 86 },
@@ -232,7 +232,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-enc=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "number", "value": "3" }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 108 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-body=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "number", "value": "40" }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 109 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tamper-tag=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "flipBit", "arguments": [{ "kind": "identifier", "value": "boxAes" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "boxAes" }] }, "right": { "kind": "number", "value": "1" } }] }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 110 },
-      { "kind": "binding", "mutable": false, "name": "other", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Certificate" }, "member": "Ed25519" }] }, "line": 111 },
+      { "kind": "binding", "mutable": false, "name": "other", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }] }, "line": 111 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "wrong-recipient=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "other" }, "member": "privateKey" }, { "kind": "identifier", "value": "boxAes" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 112 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cross-suite=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "chacha" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "boxAes" }, { "kind": "identifier", "value": "aad" }] } }] }, "line": 113 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "short-47=" }, "right": { "kind": "call", "callee": "tryOpen", "arguments": [{ "kind": "identifier", "value": "aes" }, { "kind": "identifier", "value": "seed" }, { "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "boxEmpty" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "47" }] }, { "kind": "identifier", "value": "none" }] } }] }, "line": 114 },

@@ -1,0 +1,29 @@
+{
+  "project": "mfp_package_dependency_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "source_pkg_tiny", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "source_pkg_tiny.answer", "arguments": [] }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "source_pkg_tiny.greet", "arguments": [{ "kind": "string", "value": "world" }] }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

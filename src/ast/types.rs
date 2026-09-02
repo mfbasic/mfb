@@ -1,3 +1,5 @@
+use crate::operators::{BinaryOp, UnaryOp};
+
 #[derive(Clone, Debug)]
 pub struct AstProject {
     pub name: String,
@@ -15,12 +17,6 @@ pub struct AstFile {
     /// in the `.ast` dump (injected files are excluded from it).
     pub internal: bool,
 }
-
-/// The reserved import specifier that binds the current package's own exported
-/// interface, so `thread::start(self::worker, …)` can spawn a same-package
-/// exported ISOLATED FUNC (plan-81-import-self.md). `self` is special only in the
-/// import-root position; it is not a general reserved identifier.
-pub const SELF_IMPORT: &str = "self";
 
 #[derive(Clone, Debug)]
 pub struct Import {
@@ -740,14 +736,14 @@ pub enum Expression {
     Boolean(bool),
     Binary {
         left: Box<Expression>,
-        operator: String,
+        operator: BinaryOp,
         right: Box<Expression>,
         // Internal source location of the operator; not serialized to AST JSON.
         line: usize,
         column: usize,
     },
     Unary {
-        operator: String,
+        operator: UnaryOp,
         operand: Box<Expression>,
         // Internal source location of the operator; not serialized to AST JSON.
         line: usize,

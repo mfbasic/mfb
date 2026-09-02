@@ -6,9 +6,9 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct the underline flag `Attribute`."#;
+const INTRO: &str = r#"Construct the underline flag `astrings::Attribute`."#;
 
-const DESC: &str = r#"`underline` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Underline`. Pass
+const DESC: &str = r#"`underline` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Underline`. Pass
 it to `astrings::addAttribute` to mark a scalar range underlined. A flag attribute carries no value —
 a scalar is underlined when any covering span carries the underline flag."#;
 

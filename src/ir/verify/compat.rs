@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::UnaryOp;
 
 /// The builtin a lowered call targets, by the name the source wrote: the
 /// target itself when it is a builtin call, or — for a call lowering rewrote
@@ -430,14 +431,18 @@ impl TypeEnv {
 
         if crate::codegen::builtins::thread::is_thread_call(target) {
             if target == "thread.start" {
-                // The entry must be an exported ISOLATED FUNC of an imported
-                // package. The IR keeps only what survives lowering — a
-                // `FunctionRef` typed `ISOLATED FUNC` — which is a superset of
-                // the valid entries (a same-package `self::` export and a bare
-                // same-package function both canonicalize to the bare name), so
-                // the source path leaves the rejection to `ir::shape` and only
-                // the package path rejects here; a call whose entry fails even
-                // this test is not checked further, as the checker did not.
+                // The entry must name an ISOLATED FUNC (plan-115-A: that is the
+                // whole rule — provenance no longer matters, so an imported
+                // package's entry, a `self::` one and a bare local one are all
+                // valid). The IR keeps only what survives lowering — a
+                // `FunctionRef` typed `ISOLATED FUNC` — and all three spellings
+                // canonicalize to one bare `FunctionRef`, so this test is now
+                // EXACTLY the rule rather than a superset of it. The source path
+                // still leaves the rejection to `ir::shape`, which reports at the
+                // call's source line; only the package path (a crafted `.mfp`,
+                // where no source checker ran) rejects here. A call whose entry
+                // fails even this test is not checked further, as the checker
+                // did not.
                 let entry_is_isolated_ref = matches!(
                     args.first(),
                     Some(IrValue::FunctionRef {
@@ -447,7 +452,8 @@ impl TypeEnv {
                 );
                 if !entry_is_isolated_ref {
                     if !self.source_path.get() {
-                        self.emit_argument_mismatch("thread.start entry point must be an exported ISOLATED FUNC from an imported package.".to_string(),
+                        self.emit_argument_mismatch(
+                            "thread.start entry point must name an ISOLATED FUNC.".to_string(),
                         );
                     }
                     return;
@@ -612,7 +618,7 @@ impl TypeEnv {
         // Negated numeric literal into Fixed / Money (`-1`, `-1.25`).
         if matches!(expected, ParameterType::Fixed | ParameterType::Money) {
             if let IrValue::Unary { op, operand, .. } = value {
-                if op == "-"
+                if *op == UnaryOp::Negate
                     && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, ParameterType::Integer | ParameterType::Float))
                 {
                     return true;

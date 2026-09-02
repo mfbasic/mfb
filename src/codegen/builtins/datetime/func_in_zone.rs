@@ -3,23 +3,23 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Project an absolute `Instant` into a `Zone` to produce a civil `DateTime`."#;
+const INTRO: &str = r#"Project an absolute `datetime::Instant` into a `datetime::Zone` to produce a civil `datetime::DateTime`."#;
 const DESC: &str = r#"`datetime::inZone` is the primary "to civil time" call: it projects the absolute
 instant `at` through `zone`, yielding the calendar date and wall-clock time that
 an observer in that zone reads at that moment.
 
 It first resolves the effective UTC offset for `zone` at the instant `at` — the
 same quantity `datetime::offsetAt` returns: zero for a UTC zone
-(`ZoneKind.Utc`), the stored constant for a fixed-offset zone
-(`ZoneKind.FixedOffset`, built with `datetime::fixedOffset`), and the DST-correct
-host offset for a local zone (`ZoneKind.Local`, built with `datetime::local`).
+(`datetime::ZoneKind.Utc`), the stored constant for a fixed-offset zone
+(`datetime::ZoneKind.FixedOffset`, built with `datetime::fixedOffset`), and the DST-correct
+host offset for a local zone (`datetime::ZoneKind.Local`, built with `datetime::local`).
 It then applies that offset to the instant to get the local calendar date and
 wall-clock time, using the proleptic Gregorian calendar.
 
 
-The returned `DateTime` carries four things: the civil date, the civil time,
+The returned `datetime::DateTime` carries four things: the civil date, the civil time,
 `zone` itself, and the resolved offset. Because the offset is pinned onto the
-result, the `DateTime` round-trips back to the original instant via
+result, the `datetime::DateTime` round-trips back to the original instant via
 `datetime::resolve` with no further zone lookup. The instant's sub-second `nanos`
 field is preserved verbatim into the time's `nanos` field; only the `seconds`
 field participates in the offset and date/time computation, so an instant before
@@ -37,7 +37,7 @@ const EX: &str = r#"Project the current instant into UTC:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+  LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::utc())
 END SUB
 ```
 
@@ -47,8 +47,8 @@ Project an instant into a fixed +05:30 zone:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(5, 30)
-  LET dt AS DateTime = datetime::inZone(datetime::now(), z)
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
+  LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), z)
 END SUB
 ```
 
@@ -58,7 +58,7 @@ Project into the host's local zone, with DST applied for that instant:
 IMPORT datetime
 
 SUB main()
-  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::local())
+  LET dt AS datetime::DateTime = datetime::inZone(datetime::now(), datetime::local())
 END SUB
 ```"#;
 

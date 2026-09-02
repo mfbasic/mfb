@@ -34,6 +34,7 @@ use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
 use super::local_rewrites::{scopes_type_is, take, Scopes};
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Try the row's rewrites at one node (children already rewritten). Returns
 /// whether a rewrite fired, for the driver's `mfb build -v` fire count.
@@ -42,7 +43,7 @@ pub(super) fn rewrite_value(value: &mut NirValue, scopes: &Scopes) -> bool {
         NirValue::Binary {
             op, left, right, ..
         } => {
-            let survivor = match algebraic_survivor(op, left, right, scopes) {
+            let survivor = match algebraic_survivor(*op, left, right, scopes) {
                 Some(Survivor::Left) => left,
                 Some(Survivor::Right) => right,
                 None => return false,
@@ -50,7 +51,7 @@ pub(super) fn rewrite_value(value: &mut NirValue, scopes: &Scopes) -> bool {
             *value = take(survivor);
             true
         }
-        NirValue::Unary { op, operand, .. } if op == "NOT" => {
+        NirValue::Unary { op, operand, .. } if *op == UnaryOp::Not => {
             // NOT NOT x → x: NOT is Boolean-only (§11) and both negations
             // evaluate their operand, so peeling the pair preserves everything.
             if let NirValue::Unary {
@@ -59,7 +60,7 @@ pub(super) fn rewrite_value(value: &mut NirValue, scopes: &Scopes) -> bool {
                 ..
             } = operand.as_mut()
             {
-                if inner_op == "NOT" {
+                if *inner_op == UnaryOp::Not {
                     *value = take(inner);
                     return true;
                 }
@@ -77,7 +78,7 @@ enum Survivor {
 
 /// Which operand (if either) the whole binary expression can be replaced by.
 fn algebraic_survivor(
-    op: &str,
+    op: BinaryOp,
     left: &NirValue,
     right: &NirValue,
     scopes: &Scopes,
@@ -87,10 +88,14 @@ fn algebraic_survivor(
         // Boolean, so no scope lookup is needed; the surviving operand is
         // evaluated in the original too (TRUE short-circuits AND onward, FALSE
         // short-circuits OR onward, XOR always evaluates both).
-        "&" => two_sided(left, right, |v| is_string_const(v, "")),
-        "AND" => two_sided(left, right, |v| is_boolean_const(v, "true")),
-        "OR" | "XOR" => two_sided(left, right, |v| is_boolean_const(v, "false")),
-        "+" | "-" | "*" | "/" | "^" => {
+        BinaryOp::Concat => two_sided(left, right, |v| is_string_const(v, "")),
+        BinaryOp::And => two_sided(left, right, |v| is_boolean_const(v, "true")),
+        BinaryOp::Or | BinaryOp::Xor => two_sided(left, right, |v| is_boolean_const(v, "false")),
+        BinaryOp::Add
+        | BinaryOp::Subtract
+        | BinaryOp::Multiply
+        | BinaryOp::Divide
+        | BinaryOp::Power => {
             // Right-side identity first (covers the non-commutative ops), then
             // the mirrored constant for + and *.
             if let Some(const_type) = numeric_identity_const(op, right) {
@@ -98,7 +103,7 @@ fn algebraic_survivor(
                     return Some(Survivor::Left);
                 }
             }
-            if matches!(op, "+" | "*") {
+            if matches!(op, BinaryOp::Add | BinaryOp::Multiply) {
                 if let Some(const_type) = numeric_identity_const(op, left) {
                     if scopes_type_is(right, &const_type, scopes) {
                         return Some(Survivor::Right);
@@ -128,20 +133,26 @@ fn two_sided(
 /// If `value` is the identity constant for `op`, its type (which the surviving
 /// operand must then match exactly, so the §4.1 promoted result type is
 /// unchanged by dropping the operator).
-fn numeric_identity_const(op: &str, value: &NirValue) -> Option<ParameterType> {
+fn numeric_identity_const(op: BinaryOp, value: &NirValue) -> Option<ParameterType> {
     let NirValue::Const { type_, value } = value else {
         return None;
     };
     let matches = match (op, type_) {
-        ("+", ParameterType::Integer | ParameterType::Byte) => integer_text_is(value, 0),
-        ("-", ParameterType::Integer | ParameterType::Byte) => integer_text_is(value, 0),
+        (BinaryOp::Add, ParameterType::Integer | ParameterType::Byte) => integer_text_is(value, 0),
+        (BinaryOp::Subtract, ParameterType::Integer | ParameterType::Byte) => {
+            integer_text_is(value, 0)
+        }
         // `x - 0.0` is exact for every Float, including `-0.0` (unlike
         // `x + 0.0`); the subtrahend must be positive zero, since
         // `x - (-0.0)` is `x + 0.0`.
-        ("-", ParameterType::Float) => float_text_is_positive_zero(value),
-        ("*" | "/", ParameterType::Integer | ParameterType::Byte) => integer_text_is(value, 1),
-        ("*" | "/", ParameterType::Float) => float_text_is_one(value),
-        ("^", ParameterType::Integer | ParameterType::Byte) => integer_text_is(value, 1),
+        (BinaryOp::Subtract, ParameterType::Float) => float_text_is_positive_zero(value),
+        (BinaryOp::Multiply | BinaryOp::Divide, ParameterType::Integer | ParameterType::Byte) => {
+            integer_text_is(value, 1)
+        }
+        (BinaryOp::Multiply | BinaryOp::Divide, ParameterType::Float) => float_text_is_one(value),
+        (BinaryOp::Power, ParameterType::Integer | ParameterType::Byte) => {
+            integer_text_is(value, 1)
+        }
         _ => false,
     };
     matches.then(|| type_.clone())
@@ -184,13 +195,13 @@ mod tests {
     fn integer_identities_rewrite_to_the_operand() {
         let scopes = int_scope("x");
         for value in [
-            binary("+", local("x"), int_const("0")),
-            binary("+", int_const("0"), local("x")),
-            binary("-", local("x"), int_const("0")),
-            binary("*", local("x"), int_const("1")),
-            binary("*", int_const("1"), local("x")),
-            binary("/", local("x"), int_const("1")),
-            binary("^", local("x"), int_const("1")),
+            binary(BinaryOp::Add, local("x"), int_const("0")),
+            binary(BinaryOp::Add, int_const("0"), local("x")),
+            binary(BinaryOp::Subtract, local("x"), int_const("0")),
+            binary(BinaryOp::Multiply, local("x"), int_const("1")),
+            binary(BinaryOp::Multiply, int_const("1"), local("x")),
+            binary(BinaryOp::Divide, local("x"), int_const("1")),
+            binary(BinaryOp::Power, local("x"), int_const("1")),
         ] {
             assert_eq!(simplified(value, &scopes), "local(x)");
         }
@@ -202,7 +213,7 @@ mod tests {
         for (value, expected) in [
             (
                 binary(
-                    "AND",
+                    BinaryOp::And,
                     local("b"),
                     typed_const(ParameterType::Boolean, "true"),
                 ),
@@ -210,7 +221,7 @@ mod tests {
             ),
             (
                 binary(
-                    "AND",
+                    BinaryOp::And,
                     typed_const(ParameterType::Boolean, "true"),
                     local("b"),
                 ),
@@ -218,7 +229,7 @@ mod tests {
             ),
             (
                 binary(
-                    "OR",
+                    BinaryOp::Or,
                     local("b"),
                     typed_const(ParameterType::Boolean, "false"),
                 ),
@@ -226,21 +237,32 @@ mod tests {
             ),
             (
                 binary(
-                    "XOR",
+                    BinaryOp::Xor,
                     typed_const(ParameterType::Boolean, "false"),
                     local("b"),
                 ),
                 "local(b)",
             ),
             (
-                binary("&", local("s"), typed_const(ParameterType::String, "")),
+                binary(
+                    BinaryOp::Concat,
+                    local("s"),
+                    typed_const(ParameterType::String, ""),
+                ),
                 "local(s)",
             ),
             (
-                binary("&", typed_const(ParameterType::String, ""), local("s")),
+                binary(
+                    BinaryOp::Concat,
+                    typed_const(ParameterType::String, ""),
+                    local("s"),
+                ),
                 "local(s)",
             ),
-            (unary("NOT", unary("NOT", local("b"))), "local(b)"),
+            (
+                unary(UnaryOp::Not, unary(UnaryOp::Not, local("b"))),
+                "local(b)",
+            ),
         ] {
             assert_eq!(simplified(value, &scopes), expected);
         }
@@ -251,10 +273,26 @@ mod tests {
         let mut scopes = Scopes::new();
         scopes.insert("f".to_string(), ParameterType::Float);
         for value in [
-            binary("*", local("f"), typed_const(ParameterType::Float, "1.0")),
-            binary("*", typed_const(ParameterType::Float, "1.0"), local("f")),
-            binary("/", local("f"), typed_const(ParameterType::Float, "1.0")),
-            binary("-", local("f"), typed_const(ParameterType::Float, "0.0")),
+            binary(
+                BinaryOp::Multiply,
+                local("f"),
+                typed_const(ParameterType::Float, "1.0"),
+            ),
+            binary(
+                BinaryOp::Multiply,
+                typed_const(ParameterType::Float, "1.0"),
+                local("f"),
+            ),
+            binary(
+                BinaryOp::Divide,
+                local("f"),
+                typed_const(ParameterType::Float, "1.0"),
+            ),
+            binary(
+                BinaryOp::Subtract,
+                local("f"),
+                typed_const(ParameterType::Float, "0.0"),
+            ),
         ] {
             assert_eq!(simplified(value, &scopes), "local(f)");
         }
@@ -262,11 +300,19 @@ mod tests {
         // neither is an identity, so both stay.
         for (value, expected) in [
             (
-                binary("+", local("f"), typed_const(ParameterType::Float, "0.0")),
+                binary(
+                    BinaryOp::Add,
+                    local("f"),
+                    typed_const(ParameterType::Float, "0.0"),
+                ),
                 "(local(f) + const(0.0))",
             ),
             (
-                binary("^", local("f"), typed_const(ParameterType::Float, "1.0")),
+                binary(
+                    BinaryOp::Power,
+                    local("f"),
+                    typed_const(ParameterType::Float, "1.0"),
+                ),
                 "(local(f) ^ const(1.0))",
             ),
         ] {
@@ -281,17 +327,17 @@ mod tests {
     fn operand_dropping_shapes_are_never_rewritten() {
         let scopes = int_scope("x");
         for value in [
-            binary("*", local("x"), int_const("0")),
-            binary("MOD", local("x"), int_const("1")),
-            binary("-", int_const("0"), local("x")),
-            binary("^", int_const("1"), local("x")),
-            binary("DIV", local("x"), int_const("1")),
+            binary(BinaryOp::Multiply, local("x"), int_const("0")),
+            binary(BinaryOp::Mod, local("x"), int_const("1")),
+            binary(BinaryOp::Subtract, int_const("0"), local("x")),
+            binary(BinaryOp::Power, int_const("1"), local("x")),
+            binary(BinaryOp::IntDiv, local("x"), int_const("1")),
         ] {
             let rendered = shape(&value);
             assert_eq!(simplified(value, &scopes), rendered);
         }
         let false_and = binary(
-            "AND",
+            BinaryOp::And,
             typed_const(ParameterType::Boolean, "false"),
             local("b"),
         );
@@ -307,15 +353,15 @@ mod tests {
     fn promotion_changing_or_unknown_typed_operands_block_the_rewrite() {
         let mut scopes = Scopes::new();
         scopes.insert("b".to_string(), ParameterType::Byte);
-        let mixed = binary("+", local("b"), int_const("0"));
+        let mixed = binary(BinaryOp::Add, local("b"), int_const("0"));
         assert_eq!(simplified(mixed, &scopes), "(local(b) + const(0))");
 
-        let unknown = binary("+", local("nope"), int_const("0"));
+        let unknown = binary(BinaryOp::Add, local("nope"), int_const("0"));
         assert_eq!(simplified(unknown, &scopes), "(local(nope) + const(0))");
 
         // Same-type Byte identity still fires.
         let byte_zero = typed_const(ParameterType::Byte, "0");
-        let same = binary("+", local("b"), byte_zero);
+        let same = binary(BinaryOp::Add, local("b"), byte_zero);
         assert_eq!(simplified(same, &scopes), "local(b)");
     }
 }

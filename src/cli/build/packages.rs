@@ -87,12 +87,18 @@ pub(crate) fn verify_and_report_packages(
             .and_then(|value| value.get::<String>())
             .map(String::as_str);
 
-        let package_file = project_dir.join("packages").join(format!("{name}.mfp"));
-        if !package_file.is_file() {
+        // bug-480: the shared resolver, so a dependency declared by source
+        // directory — already compiled into this build's `build/packages/` cache
+        // by `build_source_dependencies` — is reported like any other. It is
+        // unsigned by construction and its source is local, so it is permitted
+        // without `--unsigned`; nothing here becomes laxer for a `.mfp`
+        // dependency, whose `packages/<name>.mfp` still wins the resolution.
+        let Some(package_file) = crate::manifest::package::resolved_package_file(project_dir, name)
+        else {
             // A missing dependency is reported by the later install check with a
             // more actionable message; do not emit a verification line for it.
             continue;
-        }
+        };
 
         let classification = classify_installed_package(&package_file, trust_anchor);
         println!("uses {name} - [{}]", classification.state.label());

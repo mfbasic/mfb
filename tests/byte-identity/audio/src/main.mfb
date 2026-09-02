@@ -43,8 +43,8 @@ FUNC main() AS Integer
   audio::close(spk2)
 
   ' render one AudioNote to mono s16le PCM
-  LET env = AudioEnvelope[2400, 4800, 31200, 9600, 12000]
-  LET note = AudioNote[440.0, 48000, env, 0.8]
+  LET env = audio::AudioEnvelope[2400, 4800, 31200, 9600, 12000]
+  LET note = audio::AudioNote[440.0, 48000, env, 0.8]
   LET tone = audio::render(note)
   io::print(toString(len(tone)))
 

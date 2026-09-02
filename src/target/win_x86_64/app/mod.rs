@@ -184,6 +184,23 @@ const FILE_FLAG_STDOUT_FD: usize = 11; // -(-11) STD_OUTPUT_HANDLE
 const FILE_FLAG_STDERR_FD: usize = 12; // -(-12) STD_ERROR_HANDLE
 const STD_INPUT_FD: usize = 10; // -(-10) STD_INPUT_HANDLE
 const WM_DESTROY: &str = "2";
+/// `WM_SIZE`. `lParam` carries the new **client** size: width in the low word,
+/// height in the high word.
+const WM_SIZE: &str = "5";
+/// The scripted-resize environment variables, and the wide buffer their values are
+/// read into. plan-98-F Phase 3's Windows twin of the GTK backend's
+/// `emit_headless_scripted_resize`: a resize is a *window* event and headless has no
+/// window, so without this the WM_SIZE arm below could be implemented and never
+/// executed on the one box that can run it.
+const RESIZE_W_ENV_SYM: &str = "_mfb_winapp_resize_w_env";
+const RESIZE_H_ENV_SYM: &str = "_mfb_winapp_resize_h_env";
+const RESIZE_BUF_SYM: &str = "_mfb_winapp_resize_buf";
+/// Wide chars in [`RESIZE_BUF_SYM`]. A surface dimension is at most five digits.
+const RESIZE_BUF_CHARS: usize = 16;
+/// `canvas::signalRedraw` — the scripted resize asks for the repaint the WM_SIZE it
+/// simulates would have asked for. Spelled here as the GTK backend spells it; the
+/// registry owns the name.
+const CANVAS_SIGNAL_REDRAW_SYMBOL: &str = "_mfb_rt_canvas_canvas_signalRedraw";
 const WM_CHAR: &str = "258"; // 0x0102
 const VK_RETURN: &str = "13"; // '\r' (WM_CHAR wParam on Enter)
 const GWLP_WNDPROC: usize = 4; // -(-4) the SetWindowLongPtrW index for the wndproc
@@ -353,9 +370,9 @@ pub(super) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_main(spec.initial_mode),
+        emit_main(spec.initial_mode, spec.uses_canvas),
         emit_worker(),
-        emit_wndproc(),
+        emit_wndproc(spec.uses_canvas),
         // plan-98-C Phase 3: the frame blit's worker side. Emitted unconditionally
         // like the wndproc it posts to — whether a program ever enters canvas mode is
         // a runtime question, not a static one.
@@ -369,7 +386,7 @@ pub(super) fn emit_app_program_entry(
 /// stack args [0x20..0x60], WNDCLASSEXW [0x60..0xB0], MSG [0xB0..0xE0],
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
-fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
+fn emit_main(initial_mode: PresentationMode, uses_canvas: bool) -> CodeFunction {
     const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
@@ -391,7 +408,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "GetModuleHandleW", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HINSTANCE,
     ));
@@ -407,7 +424,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_ne("headless_spawn"));
 
     // ---- GUI path: build + show the window (byte-equivalent to spike.rs) ----
@@ -495,11 +512,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ));
     load_addr(abi::mfb_arg(2), TITLE_SYM, from, &mut ins, &mut rel);
     call_external(from, "CreateWindowExW", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HWND,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HWND));
     // Stash the main HWND so the worker's finish helper can signal the UI thread.
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HWND));
     load_addr(abi::mfb_arg(1), MAIN_HWND_SYM, from, &mut ins, &mut rel);
@@ -535,7 +548,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     // Store the EDIT HWND into its writable global (load_addr writes ARG[1], not
     // the return register, so the fresh handle survives the address computation).
     load_addr(abi::mfb_arg(1), EDIT_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
     // plan-98-A Phase 3: the surviving copy. The reconcile zeroes EDIT_HWND_SYM
     // outside `Console` so `io::` writes degrade to the fd sink; without this second
     // global the control's handle would be lost on the first mode switch and
@@ -602,7 +615,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     load_addr(abi::mfb_arg(2), EDITPROC_SYMBOL, from, &mut ins, &mut rel); // &editproc
     call_external(from, "SetWindowLongPtrW", USER32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0)); // oldproc
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0)); // oldproc
 
     // CreateThread(NULL, 0, &worker, hwnd, 0, NULL)
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -613,7 +626,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // lpThreadId
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         WORKERH,
     ));
@@ -696,7 +709,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
     load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -717,7 +730,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
     call_external(from, "GetMessageW", USER32, &mut ins, &mut rel);
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_le("main_done")); // 0 = WM_QUIT, -1 = error
                                            // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
                                            // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
@@ -762,10 +775,89 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28));
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         WORKERH,
     ));
+    // ---- plan-98-F Phase 3: one scripted resize, when the env says so ----
+    //
+    // The Windows twin of the GTK backend's `emit_headless_scripted_resize`, and it
+    // exists for the same reason: a resize is a *window* event, headless has no window,
+    // and box 2230 is the only machine that can run this at all. Without it the WM_SIZE
+    // arm would be implemented and never executed.
+    //
+    // It waits for a first completed frame before resizing, which is the whole point —
+    // resizing before any frame exists would build the render target once at the new
+    // size and prove nothing, where resizing after one forces the tear-down-and-rebuild
+    // the Vulkan backend has for it. `MFB_CANVAS_DUMP` overwrites, so the file left
+    // behind is the second frame and its length is `newWidth * newHeight * 4`.
+    //
+    // This runs on the main thread, which is the right one: publishing the size is the
+    // main thread's job on all three backends. It calls the same publisher WM_SIZE
+    // calls, so what runs here is the production path and not a stand-in for it.
+    //
+    // Gated on `uses_canvas`, and it has to be: this block names the graphics-state
+    // symbol, and a program that never imports `canvas` does not emit that data
+    // object — an ungated reference fails the build with "relocation target
+    // `_mfb_rt_canvas_graphics` is not a data object or defined symbol".
+    if uses_canvas {
+        emit_parse_wide_env(
+            RESIZE_W_ENV_SYM,
+            abi::LOCAL[0],
+            "hl_rw",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        emit_parse_wide_env(
+            RESIZE_H_ENV_SYM,
+            abi::LOCAL[1],
+            "hl_rh",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        ins.push(abi::branch_le("headless_wait_worker"));
+        // Poll until the render loop has completed a frame at the original size.
+        ins.push(abi::label("headless_resize_wait"));
+        crate::codegen::runtime::canvas::state_base(from, abi::LOCAL[2], &mut ins, &mut rel);
+        // **`SCRATCH[7]`, and not `SCRATCH[0]`.** The x86 scratch pool is
+        // `POOL[(n - 9) % 11]` over `[rbx, rsi, rdi, r8, r9, r10, r11, r12, r13, rcx, rbp]`,
+        // so `SCRATCH[0]` (x9) and `LOCAL[1]` (x20) are BOTH `rbx` — loading the frame
+        // counter into `SCRATCH[0]` overwrote the parsed height, and since the loop only
+        // exits once the counter is non-zero, the height published was the frame count.
+        // It resized to 640x1 and dumped 2560 bytes. This is exactly the latent hazard
+        // `src/arch/x86_64/select.rs` records above its POOL — two architecture-neutral
+        // spellings that are distinct on AArch64 collapsing onto one x86 register.
+        // `SCRATCH[7]` is `r12`, callee-saved under Win64 and clear of `LOCAL[0..2]`
+        // (`rbp`/`rbx`/`rsi`).
+        ins.push(abi::load_u64(
+            abi::SCRATCH[7],
+            abi::LOCAL[2],
+            crate::codegen::runtime::canvas::GRAPHICS_OFFSET_FRAMES,
+        ));
+        ins.push(abi::compare_immediate(abi::SCRATCH[7], "0"));
+        ins.push(abi::branch_ne("headless_resize_ready"));
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "20"));
+        call_external(from, "Sleep", KERNEL32, &mut ins, &mut rel);
+        ins.push(abi::branch("headless_resize_wait"));
+
+        ins.push(abi::label("headless_resize_ready"));
+        crate::codegen::runtime::canvas::emit_publish_surface_size(
+            from,
+            abi::LOCAL[2],
+            abi::LOCAL[0],
+            abi::LOCAL[1],
+            &mut ins,
+            &mut rel,
+        );
+        call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+    }
+
+    ins.push(abi::label("headless_wait_worker"));
     // WaitForSingleObject(worker, INFINITE = 0xFFFFFFFF via 0 - 1).
     ins.push(abi::load_u64(
         abi::mfb_arg(0),
@@ -803,7 +895,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     ins.push(abi::branch_eq("main_exit"));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "13")); // WM_GETTEXT
@@ -818,13 +910,13 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
     call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "65535"));
     ins.push(abi::and_registers(
-        abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
+        abi::c_return(0),
         abi::mfb_arg(1),
     ));
     ins.push(abi::shift_left_immediate(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         1,
     ));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x68)); // nbytes
@@ -835,11 +927,7 @@ fn emit_main(initial_mode: PresentationMode) -> CodeFunction {
         FILE_FLAG_STDOUT_FD,
     ));
     call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        0x70,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 0x70));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70));
@@ -872,7 +960,21 @@ fn emit_worker() -> CodeFunction {
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(0x28));
+    // 0x20, not 0x28 — and the difference is the whole of bug-478's second half.
+    //
+    // A Windows thread start routine is entered with `rsp` **already** 16-byte
+    // aligned: `BaseThreadInitThunk` does not leave the ordinary `call`'s 8-byte
+    // skew. A function reached by a normal `call` does, which is why an ordinary
+    // prologue reserves an odd multiple of 8 and this one must not.
+    //
+    // The program body assumes `rsp % 16 == 0` throughout — every external-call
+    // emitter in `win_x86_64/code.rs` reserves a multiple of 16 on top of it — and
+    // `entry_stack_misaligned_on_entry` shaves the 8 the loader's own `call` leaves.
+    // So the body's alignment is exactly this call site's, and reserving 0x28 here
+    // handed the entire app-mode program a stack that was 8 bytes out for every
+    // Win32 call it would ever make. Measured: the same emitter frame that ran clean
+    // on the console path faulted on the worker, and vice versa.
+    ins.push(abi::subtract_stack(0x20));
     // No kernel argc/argv on a worker stack; the program body captures os::args
     // (if used) via GetCommandLineW itself (plan-66-B). Pass 0/0.
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
@@ -880,13 +982,61 @@ fn emit_worker() -> CodeFunction {
     call_internal(from, MACAPP_PROGRAM_SYMBOL, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "ExitThread", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::add_stack(0x28));
+    ins.push(abi::add_stack(0x20));
     ins.push(abi::return_());
     code_function("winapp.worker", WORKER_SYMBOL, ins, rel)
 }
 
+/// Read the decimal value of wide environment variable `name_sym` into `dst`, or 0
+/// when it is unset or does not start with a digit.
+///
+/// Emitted inline rather than as a callable symbol because it is wanted exactly twice,
+/// in one function, and a symbol would need registering with the plan. `GetEnvironment-
+/// VariableW` answers with the character count in the C result — 0 when absent — and
+/// writes UTF-16 into the shared buffer, so the digits are two bytes apart.
+fn emit_parse_wide_env(
+    name_sym: &str,
+    dst: &str,
+    tag: &str,
+    from: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    let loop_head = format!("{tag}_digit_head");
+    let done = format!("{tag}_digit_done");
+    load_addr(abi::mfb_arg(0), name_sym, from, ins, rel);
+    load_addr(abi::mfb_arg(1), RESIZE_BUF_SYM, from, ins, rel);
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        &RESIZE_BUF_CHARS.to_string(),
+    ));
+    call_external(from, "GetEnvironmentVariableW", KERNEL32, ins, rel);
+    ins.push(abi::move_immediate(dst, "Integer", "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+    ins.push(abi::branch_eq(&done)); // unset
+    load_addr(abi::SCRATCH[6], RESIZE_BUF_SYM, from, ins, rel);
+    ins.push(abi::label(&loop_head));
+    ins.push(abi::load_u16(abi::SCRATCH[7], abi::SCRATCH[6], 0));
+    ins.push(abi::compare_immediate(abi::SCRATCH[7], "48")); // '0'
+    ins.push(abi::branch_lt(&done));
+    ins.push(abi::compare_immediate(abi::SCRATCH[7], "57")); // '9'
+    ins.push(abi::branch_gt(&done));
+    ins.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "10"));
+    ins.push(abi::multiply_registers(dst, dst, abi::SCRATCH[8]));
+    ins.push(abi::subtract_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        48,
+    ));
+    ins.push(abi::add_registers(dst, dst, abi::SCRATCH[7]));
+    ins.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 2));
+    ins.push(abi::branch(&loop_head));
+    ins.push(abi::label(&done));
+}
+
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
-fn emit_wndproc() -> CodeFunction {
+fn emit_wndproc(uses_canvas: bool) -> CodeFunction {
     // Frame (plan-66-J-5 added the WM_PAINT TUI present; plan-98-C Phase 3 the
     // canvas present): shadow[0..0x20], outgoing stack args [0x20..0x60] —
     // `SetDIBitsToDevice` has 8 stack args, the widest call here — saved
@@ -946,11 +1096,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HDC,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HDC));
     // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack.
     ins.push(abi::move_immediate(
         abi::mfb_arg(2),
@@ -982,7 +1128,12 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    // A WNDPROC is a **C callback**: Windows reads its `LRESULT` from `rax`
+    // (`%retC`), not from the aligned MFB bank. The `DefWindowProcW` tail below
+    // gets this right by accident — it leaves `rax` untouched — but every handled
+    // arm was writing 0 into `rcx` and returning whatever the arm's last Win32
+    // call had left in `rax`.
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     // ---- plan-98-C Phase 3: WM_PAINT while a canvas surface is presented ----
@@ -1011,11 +1162,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HDC,
-    ));
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), HDC));
     // Build the BITMAPINFOHEADER: 40-byte size, the frame's width, a NEGATIVE
     // height (top-down rows — the rasteriser's row 0 is the top, and a DIB's
     // default bottom-up order would render the picture upside down), one plane,
@@ -1091,18 +1238,85 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
     ins.push(abi::label("wnd_check_destroy"));
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_DESTROY));
-    ins.push(abi::branch_ne("wnd_check_char"));
+    ins.push(abi::branch_ne("wnd_check_size"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
+
+    // ---- plan-98-F Phase 3: WM_SIZE publishes the new surface size ----
+    //
+    // Windows had no caller of `emit_publish_surface_size` at all, so the graphics
+    // thread never learned that the window had changed size: it kept rendering at the
+    // startup 900x640 whatever the user dragged the frame to. macOS publishes from
+    // `setFrameSize:` and GTK from its `notify::default-width` handler; this is the
+    // third.
+    //
+    // Gated on a live canvas surface, so in `Console`/`None` the message chains to
+    // `DefWindowProcW` exactly as before and nothing about the TUI path moves.
+    //
+    // `lParam`'s low word is the client width and its high word the client height —
+    // already the client area, so no `GetClientRect` and no frame arithmetic. Both are
+    // masked to 16 bits; `emit_publish_surface_size` itself ignores a repeat of the
+    // size it already holds, which matters because Windows sends `WM_SIZE` for moves
+    // and restores that change nothing.
+    //
+    // Arg registers are free to clobber here: every exit from this arm goes to
+    // `wnd_default`, which reloads all four from H0..H3.
+    ins.push(abi::label("wnd_check_size"));
+    // Gated on `uses_canvas` for the same reason the scripted resize in `_main` is:
+    // `emit_publish_surface_size` names the graphics-state data object, which a
+    // program that never imports `canvas` does not emit. The arm is inert anyway in
+    // that case — `CANVAS_HWND_SYM` would be 0 — so what the gate removes is a dead
+    // reference, not behaviour.
+    if uses_canvas {
+        ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_SIZE));
+        ins.push(abi::branch_ne("wnd_check_char"));
+        load_addr(abi::SCRATCH[0], CANVAS_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
+        ins.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        ins.push(abi::branch_eq("wnd_default")); // not in canvas mode → unchanged
+        ins.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), H3));
+        ins.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "65535"));
+        ins.push(abi::and_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+        )); // width  = LOWORD(lParam)
+        ins.push(abi::shift_right_immediate(
+            abi::SCRATCH[1],
+            abi::SCRATCH[1],
+            16,
+        ));
+        ins.push(abi::and_registers(
+            abi::SCRATCH[1],
+            abi::SCRATCH[1],
+            abi::SCRATCH[3],
+        )); // height = HIWORD(lParam)
+            // A minimised window reports 0x0. Publishing that would build a zero-sized render
+            // target; skip it and keep the last real size, which is what the other two
+            // backends' `> 0` guards do.
+        ins.push(abi::compare_immediate(abi::SCRATCH[2], "0"));
+        ins.push(abi::branch_le("wnd_default"));
+        ins.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+        ins.push(abi::branch_le("wnd_default"));
+        crate::codegen::runtime::canvas::emit_publish_surface_size(
+            from,
+            abi::SCRATCH[0],
+            abi::SCRATCH[2],
+            abi::SCRATCH[1],
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::branch("wnd_default"));
+    }
 
     // ---- plan-98-A Phase 4: WM_CHAR while a canvas surface is presented ----
     //
@@ -1164,7 +1378,7 @@ fn emit_wndproc() -> CodeFunction {
         PS,
     ));
     call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1199,7 +1413,7 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::branch_eq("wnd_blit_no_previous"));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), BLOCK));
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // flags
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BLOCK));
     call_external(from, "HeapFree", KERNEL32, &mut ins, &mut rel);
@@ -1211,7 +1425,7 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0")); // whole client
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // bErase FALSE
     call_external(from, "InvalidateRect", USER32, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
@@ -1313,7 +1527,7 @@ fn emit_wndproc() -> CodeFunction {
     call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
 
     ins.push(abi::label("wnd_reconcile_done"));
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     // default: DefWindowProcW(hwnd, msg, wParam, lParam) — reload the saved args.
@@ -1445,10 +1659,16 @@ fn emit_finish() -> CodeFunction {
     ins.push(abi::subtract_stack(0x28));
     load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+    // Headless has no window, and `PostMessageW(NULL, ...)` does not no-op: it posts
+    // to the *calling* thread's queue, creating one on a worker that is about to
+    // exit. Skip it — there is nothing to ask to quit.
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_eq("finish_no_window"));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_APP_QUIT));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
     call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("finish_no_window"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "ExitThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::branch_self());
@@ -1595,13 +1815,17 @@ pub(super) fn emit_app_io_write(
         "Integer",
         "4294967295",
     ));
+    // `c_return(0)`, not `return_register()`. The comment two lines up already says the
+    // length arrives in `rax`; the aligned MFB bank is `rcx` on Win64, so masking
+    // `return_register()` masked whatever the last call happened to leave there and the
+    // caret was set from it. Same family as bug-478.
     ins.push(abi::and_registers(
-        abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
+        abi::c_return(0),
         abi::mfb_arg(2),
     ));
-    ins.push(abi::move_register(abi::mfb_arg(2), abi::return_register()));
-    ins.push(abi::move_register(abi::mfb_arg(3), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(2), abi::c_return(0)));
+    ins.push(abi::move_register(abi::mfb_arg(3), abi::c_return(0)));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), EDITH));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", EM_SETSEL));
     call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
@@ -1645,7 +1869,7 @@ pub(super) fn emit_app_io_write(
     ));
     call_external(symbol, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HANDLE,
     ));
@@ -1748,9 +1972,10 @@ pub(super) fn emit_app_io_write(
             "Integer",
             "4294967295",
         ));
+        // The wide-char count is a C result (`rax`), not the aligned MFB bank.
         ins.push(abi::and_registers(
             abi::mfb_arg(0),
-            abi::return_register(),
+            abi::c_return(0),
             abi::mfb_arg(1),
         ));
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
@@ -2701,9 +2926,10 @@ fn emit_term_draw_text_at(
         "Integer",
         "4294967295",
     ));
+    // The wide-char count is a C result (`rax`), not the aligned MFB bank.
     ins.push(abi::and_registers(
         abi::mfb_arg(0),
-        abi::return_register(),
+        abi::c_return(0),
         abi::mfb_arg(1),
     ));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "32767"));
@@ -2907,15 +3133,22 @@ fn emit_term_on(
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     call_external(from, "GetDC", USER32, &mut ins, &mut rel);
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         HDC_SCREEN,
     ));
-    // memDC = CreateCompatibleDC(hdcScreen); store the global.
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    // memDC = CreateCompatibleDC(hdcScreen); store the global. Reloaded from the slot
+    // the line above just wrote rather than from a register: the HDC is a C result and
+    // `return_register()` is a different register on Win64, which is how this read the
+    // wrong handle (same family as bug-478).
+    ins.push(abi::load_u64(
+        abi::mfb_arg(0),
+        abi::stack_pointer(),
+        HDC_SCREEN,
+    ));
     call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(1), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
     // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
     ins.push(abi::load_u64(
         abi::mfb_arg(0),
@@ -2934,7 +3167,7 @@ fn emit_term_on(
     ));
     call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
     // SelectObject(memDC, bmp) — stage bmp (rax) into ARG[1] before loading memDC.
-    ins.push(abi::move_register(abi::mfb_arg(1), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(1), abi::c_return(0)));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
@@ -2976,8 +3209,8 @@ fn emit_term_on(
     call_external(from, "CreateFontW", GDI32, &mut ins, &mut rel);
     // cache the HFONT, then SelectObject(memDC, font).
     load_addr(abi::mfb_arg(1), TUI_FONT_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::return_register(), abi::mfb_arg(1), 0));
-    ins.push(abi::move_register(abi::mfb_arg(1), abi::return_register()));
+    ins.push(abi::store_u64(abi::c_return(0), abi::mfb_arg(1), 0));
+    ins.push(abi::move_register(abi::mfb_arg(1), abi::c_return(0)));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
@@ -3331,25 +3564,33 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
 
     // block = HeapAlloc(GetProcessHeap(), 0, bytes + 16)
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BYTES));
     ins.push(abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), 16));
     call_external(from, "HeapAlloc", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
     // Out of memory drops the frame rather than failing the call: a renderer that
     // killed the program because one frame could not be shown would be worse than
     // one that skips it, and the next frame re-renders the same scene.
     ins.push(abi::branch_eq("blit_done"));
+    // `c_return(0)`, not `return_register()`. `HeapAlloc` hands the block back in the C
+    // result (`rax`); the aligned MFB bank is `rcx` on Win64. The null check two lines
+    // up already reads `c_return(0)` — it is the *uses* that read the wrong one, which
+    // is the shape every member of this family has (bug-478).
+    //
+    // What it cost: the header stores wrote the width and height THROUGH the width, so
+    // the graphics thread faulted storing to address 900 on the first frame of every
+    // Windows canvas program (bug-479).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         BLOCK,
     ));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), WIDTH));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::return_register(), 0));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::c_return(0), 0));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HEIGHT));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::return_register(), 8));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::c_return(0), 8));
 
     // Swizzle-copy RGBA -> BGRX.
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), CURSOR));
@@ -3404,7 +3645,7 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     // frame buffer per present would be megabytes a second.
     ins.push(abi::label("blit_orphan"));
     call_external(from, "GetProcessHeap", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::move_register(abi::mfb_arg(0), abi::return_register()));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), BLOCK));
     call_external(from, "HeapFree", KERNEL32, &mut ins, &mut rel);
@@ -3563,6 +3804,16 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
         utf16z_data_object(HEADLESS_ENV_SYM, "MFB_WINAPP_HEADLESS"),
+        utf16z_data_object(RESIZE_W_ENV_SYM, "MFB_CANVAS_RESIZE_W"),
+        utf16z_data_object(RESIZE_H_ENV_SYM, "MFB_CANVAS_RESIZE_H"),
+        CodeDataObject {
+            symbol: RESIZE_BUF_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "UTF-16 scratch for one scripted-resize dimension".to_string(),
+            align: 2,
+            size: RESIZE_BUF_CHARS * 2,
+            value: "00".repeat(RESIZE_BUF_CHARS * 2),
+        },
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
         utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"),
         utf16z_data_object(CRLF_SYM, "\r\n"),
@@ -3653,6 +3904,44 @@ mod tests {
         assert!(
             symbols.contains(&WNDPROC_SYMBOL),
             "wndproc present: {symbols:?}"
+        );
+    }
+
+    /// The worker's frame is a multiple of 16, because a thread start routine is
+    /// entered already aligned.
+    ///
+    /// `BaseThreadInitThunk` does not leave the 8-byte skew an ordinary `call` does, so
+    /// the odd-multiple-of-8 frame that is right for a normal prologue is exactly wrong
+    /// here — and what it costs is not this function, it is *the whole program*: the
+    /// body's alignment is this call site's, and every Win32 call the program ever makes
+    /// inherits it. bug-478's second half was `0x28` here, which handed app mode a stack
+    /// 8 bytes out for its entire life. The console path was unaffected and green
+    /// throughout, which is why it survived four earlier Windows fixes.
+    #[test]
+    fn the_worker_frame_keeps_the_stack_16_byte_aligned() {
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).expect("app entry");
+        let worker = fns
+            .iter()
+            .find(|f| f.symbol == WORKER_SYMBOL)
+            .expect("worker present");
+        let reserved: usize = worker
+            .instructions
+            .iter()
+            .find(|ins| ins.op == crate::arch::ops::CodeOp::SubSp)
+            .and_then(|ins| ins.get("imm"))
+            .and_then(|v| v.parse().ok())
+            .expect("the worker reserves a frame");
+        assert!(
+            reserved >= 0x20,
+            "the worker reserves {reserved} bytes; Win64 needs 32 for the callee's \
+             shadow space"
+        );
+        assert_eq!(
+            reserved % 16,
+            0,
+            "the worker reserves {reserved} bytes, which is not a multiple of 16 — a \
+             thread start routine is entered ALREADY aligned, so an odd multiple of 8 \
+             here misaligns the whole program body (bug-478)"
         );
     }
 
@@ -4083,10 +4372,10 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            10,
-            "5 address loads — Canvas publishes, Console and None clear, WM_CHAR \
-             gates on it, WM_PAINT gates on it — each an adrp/add pair = 2 \
-             relocations"
+            12,
+            "6 address loads — Canvas publishes, Console and None clear, WM_CHAR \
+             gates on it, WM_PAINT gates on it, and WM_SIZE gates on it \
+             (plan-98-F Phase 3) — each an adrp/add pair = 2 relocations"
         );
     }
 

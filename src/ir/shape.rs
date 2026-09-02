@@ -28,8 +28,9 @@ use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
     HirProject, HirStatement,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::rules::PendingDiagnostic;
-use crate::types::ParameterType;
+use crate::types::{CAbiType, ParameterType};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -295,7 +296,9 @@ fn numeric_literal_type(expression: &HirExpression) -> Option<ParameterType> {
         }),
         HirExpression::Unary {
             operator, operand, ..
-        } if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => {
+        } if *operator == UnaryOp::Negate
+            && matches!(operand.as_ref(), HirExpression::Number(_)) =>
+        {
             numeric_literal_type(operand)
         }
         _ => None,
@@ -390,9 +393,13 @@ fn read_only_record(type_: &ParameterType) -> bool {
     if matches!(type_, ParameterType::MapEntryOf(..)) {
         return true;
     }
+    // Both spellings, via `is_builtin_named` — see `verify::read_only_record_type`,
+    // this rule's twin. bug-480 Phase 4b package-qualified builtin value types,
+    // and matching the bare leaf alone silently stopped recognising the very
+    // records this rule exists to protect (bug-483).
     crate::codegen::builtins::term::is_read_only_record(type_)
-        || type_.is_named(crate::codegen::builtins::net::ADDRESS_TYPE)
-        || type_.is_named(crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
+        || type_.is_builtin_named("net", crate::codegen::builtins::net::ADDRESS_TYPE)
+        || type_.is_builtin_named("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
 /// A CONST pin expression the compiler folds to an immediate (plan-50-G): an
@@ -405,12 +412,15 @@ fn link_const_foldable(expression: &crate::ast::Expression, cstructs: &[&str]) -
         Expression::Identifier(name) => name == "NOTHING",
         Expression::Unary {
             operator, operand, ..
-        } if operator == "SIZEOF" => {
-            matches!(operand.as_ref(), Expression::Identifier(name) if cstructs.contains(&name.as_str()))
-        }
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" || operator == "+" => link_const_foldable(operand, cstructs),
+        } => match operator {
+            UnaryOp::SizeOf => {
+                matches!(operand.as_ref(), Expression::Identifier(name) if cstructs.contains(&name.as_str()))
+            }
+            UnaryOp::Negate => link_const_foldable(operand, cstructs),
+            // A boolean negation is not a foldable integer constant; it reached
+            // the catch-all `false` before the operator became an enum.
+            UnaryOp::Not => false,
+        },
         _ => false,
     }
 }
@@ -429,7 +439,7 @@ fn is_bare_decimal_float(expression: &HirExpression) -> bool {
         }
         HirExpression::Unary {
             operator, operand, ..
-        } if operator == "-" => is_bare_decimal_float(operand),
+        } if *operator == UnaryOp::Negate => is_bare_decimal_float(operand),
         _ => false,
     }
 }
@@ -669,11 +679,17 @@ impl<'a> Walker<'a> {
         let mut ambiguous: HashSet<ParameterType> = HashSet::new();
         for package in crate::codegen::registry::registry().packages() {
             for record in package.records() {
-                // `named`, not `declared`: a registry record's name is a bare
-                // `&'static str` nominal the descriptor already built this way
-                // (`ParameterType::named(net::ADDRESS_TYPE)`), so this is a
-                // constructor call, not a grammar entry.
-                let type_ = ParameterType::named(record.name);
+                // bug-480 Phase 4b: a builtin record's DECLARED identity is
+                // package-qualified (`net.Address`), so that is the type a value
+                // of it now carries and the key this map must use. Keyed bare, the
+                // lookup missed and bug-466's gate silently stopped firing --
+                // `tcp::localAddress(s).port` became readable without
+                // `IMPORT net`.
+                //
+                // `named`, not `declared`: this is a constructor call from a
+                // `&'static str`, not a grammar entry.
+                let type_ =
+                    ParameterType::named(&format!("{}.{}", package.import_name(), record.name));
                 if shadowed.contains(&type_) {
                     continue;
                 }
@@ -737,19 +753,20 @@ impl<'a> Walker<'a> {
             self.file = file.path.clone();
             for import in &file.imports {
                 let package = import.package_name();
-                if package == crate::ast::SELF_IMPORT
-                    || builtins::is_builtin_import(package)
+                if builtins::is_builtin_import(package)
                     || !seen_packages.insert(package.to_string())
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_type_exports(&package_file) {
                     Ok(type_exports) => {
                         for export in &type_exports {
@@ -796,19 +813,20 @@ impl<'a> Walker<'a> {
             self.file = file.path.clone();
             for import in &file.imports {
                 let package = import.package_name();
-                if package == crate::ast::SELF_IMPORT
-                    || builtins::is_builtin_import(package)
+                if builtins::is_builtin_import(package)
                     || !seen_bindings.insert(import.binding_name().to_string())
                 {
                     continue;
                 }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
+                // bug-480: resolve the compiled interface through the shared
+                // resolver, so a dependency declared by source directory (whose
+                // `.mfp` this build compiled into `build/packages/`) is walked
+                // exactly like an installed one instead of being skipped.
+                let Some(package_file) =
+                    crate::manifest::package::resolved_package_file(self.project_dir, package)
+                else {
                     continue;
-                }
+                };
                 match crate::binary_repr::read_package_exports(&package_file) {
                     Ok(exports) => {
                         for export in &exports {
@@ -1091,9 +1109,9 @@ impl<'a> Walker<'a> {
             );
             let well_formed = free.slot == function.abi.return_name
                 && returns_the_c_value
-                && function.abi.return_ctype == "CPtr"
-                && free.param_ctype == "CPtr"
-                && free.return_ctype == "CVoid";
+                && function.abi.return_ctype.is_c_abi(CAbiType::Ptr)
+                && free.param_ctype.is_c_abi(CAbiType::Ptr)
+                && free.return_ctype.is_c_abi(CAbiType::Void);
             if !well_formed {
                 self.emit(
                     "NATIVE_FREE_INVALID",
@@ -1308,7 +1326,7 @@ impl<'a> Walker<'a> {
                         _ => success_type,
                     };
                     self.walk_expression(expression, locals);
-                    self.check_trap_short_circuit(expression, *trap_line);
+                    self.check_trap_short_circuit(expression, locals, *trap_line);
                     let trapped_type = self.type_of(expression, locals);
                     self.walk_handler(binding, handler, locals, trapped_type, *trap_line);
                     // The checker typed the binding by the trapped call.
@@ -1578,7 +1596,7 @@ impl<'a> Walker<'a> {
         } = value
         {
             self.walk_expression(expression, locals);
-            self.check_trap_short_circuit(expression, *line);
+            self.check_trap_short_circuit(expression, locals, *line);
             let trapped_type = self.type_of(expression, locals);
             self.walk_handler(binding, handler, locals, trapped_type, *line);
             return;
@@ -1601,15 +1619,20 @@ impl<'a> Walker<'a> {
     ///
     /// Lowering erases the evidence — the operand structure is gone by the time
     /// `ir::verify` sees the lifted chain — so the rule lives here.
-    fn check_trap_short_circuit(&mut self, expression: &HirExpression, line: usize) {
+    fn check_trap_short_circuit(
+        &mut self,
+        expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+        line: usize,
+    ) {
         let mut offender = None;
-        self.find_short_circuited_call(expression, false, &mut offender);
+        self.find_short_circuited_call(expression, locals, false, &mut offender);
         if let Some(callee) = offender {
             self.emit(
                 "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
                 format!(
                     "Inline TRAP cannot cover `{callee}`: AND/OR evaluate their right operand \
-                     only conditionally, so the call cannot be lifted ahead of the expression. \
+                     only conditionally, so it cannot be lifted ahead of the expression. \
                      Bind it to its own LET with a TRAP first, then use that value here."
                 ),
                 line,
@@ -1617,13 +1640,72 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Records the first fallible call reached through a short-circuited operand.
-    /// `conditional` is true once the walk has entered the right side of an
-    /// `AND`/`OR`; a lambda body is skipped because it runs at the callback's
-    /// call site, not in this expression.
+    /// Records a raising operator sitting in a short-circuited operand (bug-471).
+    ///
+    /// `lower_inline_trap` covers a raising operator by lifting it into its own
+    /// `Checked` bind ahead of the residual expression — the same lift, and the
+    /// same restriction, as a fallible call: an operand `AND`/`OR` evaluates only
+    /// conditionally cannot be hoisted, because hoisting evaluates it every time.
+    /// Reporting it is the alternative to letting the division-by-zero escape the
+    /// handler unnoticed, which is the whole of bug-471.
+    fn note_short_circuited_binary_operator(
+        &self,
+        expression: &HirExpression,
+        operator: BinaryOp,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        if super::fallible::operator_can_raise(operator, &type_) {
+            *offender = Some(operator.name().to_string());
+        }
+    }
+
+    /// The unary half of [`Self::note_short_circuited_binary_operator`]. Split
+    /// by arity because the raise-set is: before the operator became an enum
+    /// both arities shared one `&str` list in which `"-"` stood for subtraction
+    /// and negation at once, so which one a lookup meant depended on the caller.
+    fn note_short_circuited_unary_operator(
+        &self,
+        expression: &HirExpression,
+        operator: UnaryOp,
+        locals: &HashMap<String, ParameterType>,
+        conditional: bool,
+        offender: &mut Option<String>,
+    ) {
+        if offender.is_some() || !conditional {
+            return;
+        }
+        let type_ = self.type_of(expression, locals);
+        // The same exemption `lower::trap_hoist_kind` applies: a unary `-` over a
+        // numeric literal is the spelling of a negative literal and cannot raise,
+        // so `t AND -1 > 0` must not be reported. Kept in step with the lift by
+        // reading the one predicate both sides share.
+        if let HirExpression::Unary { operand, .. } = expression {
+            if matches!(operand.as_ref(), HirExpression::Number(_))
+                && super::fallible::is_total_literal_negation(operator, &type_)
+            {
+                return;
+            }
+        }
+        if super::fallible::unary_operator_can_raise(operator, &type_) {
+            *offender = Some(operator.name().to_string());
+        }
+    }
+
+    /// Records the first fallible call — or, since bug-471, raising **operator**
+    /// — reached through a short-circuited operand. `conditional` is true once
+    /// the walk has entered the right side of an `AND`/`OR`; a lambda body is
+    /// skipped because it runs at the callback's call site, not in this
+    /// expression.
     fn find_short_circuited_call(
         &self,
         expression: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
         conditional: bool,
         offender: &mut Option<String>,
     ) {
@@ -1643,12 +1725,33 @@ impl<'a> Walker<'a> {
                 right,
                 ..
             } => {
-                self.find_short_circuited_call(left, conditional, offender);
-                let short_circuit = lower::is_short_circuit_operator(operator);
-                self.find_short_circuited_call(right, conditional || short_circuit, offender);
+                self.find_short_circuited_call(left, locals, conditional, offender);
+                let short_circuit = lower::is_short_circuit_operator(*operator);
+                self.find_short_circuited_call(
+                    right,
+                    locals,
+                    conditional || short_circuit,
+                    offender,
+                );
+                self.note_short_circuited_binary_operator(
+                    expression,
+                    *operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
             }
-            HirExpression::Unary { operand, .. } => {
-                self.find_short_circuited_call(operand, conditional, offender)
+            HirExpression::Unary {
+                operand, operator, ..
+            } => {
+                self.find_short_circuited_call(operand, locals, conditional, offender);
+                self.note_short_circuited_unary_operator(
+                    expression,
+                    *operator,
+                    locals,
+                    conditional,
+                    offender,
+                );
             }
             HirExpression::Call {
                 callee, arguments, ..
@@ -1656,7 +1759,7 @@ impl<'a> Walker<'a> {
                 for argument in arguments {
                     match argument {
                         HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
-                            self.find_short_circuited_call(value, conditional, offender)
+                            self.find_short_circuited_call(value, locals, conditional, offender)
                         }
                     }
                 }
@@ -1674,35 +1777,35 @@ impl<'a> Walker<'a> {
                     match argument {
                         HirConstructorArg::Positional(value)
                         | HirConstructorArg::Named { value, .. } => {
-                            self.find_short_circuited_call(value, conditional, offender)
+                            self.find_short_circuited_call(value, locals, conditional, offender)
                         }
                     }
                 }
             }
             HirExpression::WithUpdate { target, updates } => {
-                self.find_short_circuited_call(target, conditional, offender);
+                self.find_short_circuited_call(target, locals, conditional, offender);
                 for update in updates {
-                    self.find_short_circuited_call(&update.value, conditional, offender);
+                    self.find_short_circuited_call(&update.value, locals, conditional, offender);
                 }
             }
             HirExpression::ListLiteral(values) => {
                 for value in values {
-                    self.find_short_circuited_call(value, conditional, offender);
+                    self.find_short_circuited_call(value, locals, conditional, offender);
                 }
             }
             HirExpression::SetLiteral { elements, .. } => {
                 for element in elements {
-                    self.find_short_circuited_call(element, conditional, offender);
+                    self.find_short_circuited_call(element, locals, conditional, offender);
                 }
             }
             HirExpression::MapLiteral { entries, .. } => {
                 for (key, value) in entries {
-                    self.find_short_circuited_call(key, conditional, offender);
-                    self.find_short_circuited_call(value, conditional, offender);
+                    self.find_short_circuited_call(key, locals, conditional, offender);
+                    self.find_short_circuited_call(value, locals, conditional, offender);
                 }
             }
             HirExpression::MemberAccess { target, .. } => {
-                self.find_short_circuited_call(target, conditional, offender)
+                self.find_short_circuited_call(target, locals, conditional, offender)
             }
             // A nested inline TRAP routes its own expression's errors to its own
             // handler, so nothing inside it escapes into this one.
@@ -1864,13 +1967,30 @@ impl<'a> Walker<'a> {
                     matches!(walker.type_of(value, locals), ParameterType::Float)
                         && is_bare_decimal_float(value)
                 };
-                let culprit = match operator.as_str() {
-                    "*" => {
+                let culprit = match operator {
+                    BinaryOp::Multiply => {
                         (money(self, left) && bare_float(self, right))
                             || (money(self, right) && bare_float(self, left))
                     }
-                    "/" => money(self, left) && bare_float(self, right),
-                    _ => false,
+                    BinaryOp::Divide => money(self, left) && bare_float(self, right),
+                    // Only a scaling operator can silently make Money inexact:
+                    // `+`/`-` require two Money operands and the rest are not
+                    // Money operators at all.
+                    BinaryOp::Or
+                    | BinaryOp::Xor
+                    | BinaryOp::And
+                    | BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+                    | BinaryOp::Concat
+                    | BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Mod
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Power => false,
                 };
                 if culprit {
                     self.emit(
@@ -2090,40 +2210,46 @@ impl<'a> Walker<'a> {
     }
 
     /// The canonical `package.member` spelling of a call target, through this
-    /// file's import bindings (`IMPORT self` binds the package's own exports
-    /// under their bare names) — lowering's `canonical_import_name`.
+    /// file's import bindings — lowering's `canonical_import_name`.
     fn canonical_callee(&self, callee: &str) -> String {
         let Some((binding, member)) = callee.split_once('.') else {
             return callee.to_string();
         };
         match self.context.current_imports.get(binding) {
-            Some(package) if package == crate::ast::SELF_IMPORT => member.to_string(),
             Some(package) => format!("{package}.{member}"),
             None => callee.to_string(),
         }
     }
 
-    /// Whether a `thread::start` entry argument names an exported ISOLATED
-    /// FUNC of an imported package — through an import binding (`pkg::f`, the
-    /// `.mfp`'s export table) or the package's own `self::` binding (an
-    /// `EXPORT ISOLATED FUNC` of this project). A bare project function is not
-    /// an import, whatever it declares. The checker resolved the NORMALIZED
-    /// first argument, so `entry` is that.
+    /// Whether a `thread::start` entry argument names an `ISOLATED FUNC` — that
+    /// is the whole rule (plan-115). Either one this project declares, named by
+    /// its bare identifier at any visibility, or an imported package's
+    /// `EXPORT ISOLATED FUNC` named through an import binding (`pkg::f`, the
+    /// `.mfp`'s export table). The checker resolved the NORMALIZED first
+    /// argument, so `entry` is that.
     fn thread_start_entry_valid(&self, entry: Option<&HirExpression>) -> bool {
         let Some(HirExpression::Identifier(name)) = entry else {
             return false;
         };
+        // plan-115-A: an UNQUALIFIED name is now a valid entry when this project
+        // declares it as an `ISOLATED FUNC`. This is the case the old predicate
+        // never even considered — it bailed at `split_once('.')` — and it is the
+        // whole point of the letter: `ISOLATED` is the sole marker, so an entry
+        // no longer has to be reached through an import.
+        //
+        // Deliberately NOT filtered by visibility. Phase 2 made `ISOLATED`
+        // orthogonal to visibility, and `PRIVATE` is file-local, so a `PRIVATE`
+        // entry is nameable exactly where it is nameable at all — the ordinary
+        // scoping rules already do that work, and re-checking it here would
+        // reject the file-local case this plan exists to allow. It is also
+        // kind-independent: the rule is the same in an executable and a package,
+        // which is why `is_package` is NOT threaded in (plan §Open Decisions).
         let Some((binding, member)) = name.split_once('.') else {
-            return false;
+            return self.functions.get(name).is_some_and(|function| {
+                function.isolated && function.kind == crate::ast::FunctionKind::Func
+            });
         };
         match self.context.current_imports.get(binding) {
-            Some(package) if package == crate::ast::SELF_IMPORT => {
-                self.functions.get(member).is_some_and(|function| {
-                    function.visibility == Visibility::Export
-                        && function.isolated
-                        && function.kind == crate::ast::FunctionKind::Func
-                })
-            }
             Some(package) => self
                 .imported_signatures
                 .get(&format!("{package}.{member}"))
@@ -2133,13 +2259,12 @@ impl<'a> Walker<'a> {
     }
 
     /// TYPE_CALL_ARGUMENT_MISMATCH, the `thread.start` entry form — a source
-    /// fact (`self::` vs a bare name both lower to one `FunctionRef`).
+    /// fact (a bare name and `pkg::name` both lower to one `FunctionRef`).
     fn report_thread_entry(&mut self, line: usize) {
         self.call_typed_unknown = true;
         self.emit(
             "TYPE_CALL_ARGUMENT_MISMATCH",
-            "thread.start entry point must be an exported ISOLATED FUNC from an imported package."
-                .to_string(),
+            "thread.start entry point must name an ISOLATED FUNC.".to_string(),
             line,
         );
     }
@@ -2706,7 +2831,11 @@ impl<'a> Walker<'a> {
                 HirExpression::Unary {
                     operator, operand, ..
                 },
-            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
+            ) if *operator == UnaryOp::Negate
+                && matches!(operand.as_ref(), HirExpression::Number(_)) =>
+            {
+                true
+            }
             (
                 ParameterType::ListOf(expected_element),
                 ParameterType::ListOf(_),
@@ -3215,8 +3344,14 @@ impl<'a> Walker<'a> {
                 right,
                 ..
             } if matches!(
-                operator.as_str(),
-                "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^"
+                operator,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Mod
+                    | BinaryOp::Power
             ) =>
             {
                 // A value-less (`SUB`) or untyped operand: the checker's
@@ -3234,7 +3369,7 @@ impl<'a> Walker<'a> {
                 if (left_money || right_money)
                     && crate::numeric::is_numeric(&left)
                     && crate::numeric::is_numeric(&right)
-                    && crate::numeric::typed_money_result_type(operator, left_money, right_money)
+                    && crate::numeric::typed_money_result_type(*operator, left_money, right_money)
                         .is_none()
                 {
                     return true;
@@ -3889,7 +4024,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_start_entry_must_be_imported_isolated_func() {
+    fn thread_start_entry_must_be_an_isolated_func() {
         let diagnostics = collect_diagnostics(
             Path::new("/proj"),
             &hir_from(
@@ -3905,9 +4040,68 @@ mod tests {
         assert_eq!(
             details,
             [
-                "thread.start entry point must be an exported ISOLATED FUNC from an imported package.",
+                "thread.start entry point must name an ISOLATED FUNC.",
                 "Initializer for binding `t` does not have a known type.",
             ]
+        );
+    }
+
+    /// plan-115-A: the positive half of the rule above. A bare, unqualified
+    /// `ISOLATED FUNC` of the current project is a valid entry — the case
+    /// `thread_start_entry_valid` never even considered before (it bailed at
+    /// `split_once('.')`). Added because the negative test alone cannot tell
+    /// "the rule narrowed to ISOLATED" from "the rule rejects every bare name",
+    /// which is exactly the regression this phase could introduce.
+    #[test]
+    fn thread_start_accepts_a_bare_local_isolated_func() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT thread\n\
+                 ISOLATED FUNC w(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer\n  \
+                 RETURN seed\n\
+                 END FUNC\n\
+                 FUNC main AS Integer\n  \
+                 LET t = thread::start(w, 1)\n  \
+                 RETURN 0\n\
+                 END FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert!(
+            details.is_empty(),
+            "a bare local ISOLATED FUNC must be a valid entry, got {details:?}"
+        );
+    }
+
+    /// plan-115-A: visibility is irrelevant to entry validity, so the `PRIVATE`
+    /// spelling of the test above must behave identically. Pinned separately
+    /// because `PRIVATE` is the visibility bug-227 rejected and this plan lifts.
+    #[test]
+    fn thread_start_accepts_a_bare_private_isolated_func() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT thread\n\
+                 PRIVATE ISOLATED FUNC w(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer\n  \
+                 RETURN seed\n\
+                 END FUNC\n\
+                 FUNC main AS Integer\n  \
+                 LET t = thread::start(w, 1)\n  \
+                 RETURN 0\n\
+                 END FUNC\n",
+            ),
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert!(
+            details.is_empty(),
+            "a bare PRIVATE ISOLATED FUNC must be a valid entry, got {details:?}"
         );
     }
 
@@ -3993,7 +4187,7 @@ mod tests {
         // TYPE_UNKNOWN_ENUM_MEMBER); the checker still typed the matched
         // `crypto::hash` overload by its declared return type, so the binding
         // does not cascade.
-        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
+        let src = "IMPORT crypto\nFUNC main AS Integer\n  LET a AS List OF Byte = crypto::hash(crypto::Hash.SHA224, \"abc\")\n  RETURN len(a)\nEND FUNC\n";
         assert_eq!(shape_codes(src), Vec::<String>::new());
     }
 

@@ -14,7 +14,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Fill a rectangular region with a block or shade glyph"#;
 
 const DESC: &str = r#"`term::fillRect` fills every cell of a rectangular region with a block or shade
-glyph chosen by the `FillStyle` enum, using the colours and attributes currently
+glyph chosen by the `term::FillStyle` enum, using the colours and attributes currently
 in effect. The two points `(x1, y1)` and `(x2, y2)` are **opposite corners** — `x`
 is the column and `y` is the row, both **zero-based** from the top-left — and may
 be given in any order. It is the region-filling counterpart to `term::clear`
@@ -27,7 +27,7 @@ fills only the on-screen part, and one entirely off the surface fills nothing. N
 error is raised for an out-of-range request. Filling does not move the shadow
 cursor.
 
-`FillStyle` selects the glyph: `Filled` (█, solid), `Light` (░), `Medium` (▒),
+`term::FillStyle` selects the glyph: `Filled` (█, solid), `Light` (░), `Medium` (▒),
 `Dark` (▓), and the two quadrant patterns `Checker` (▚) and `CheckerAlt` (▞). The
 shade variants read as translucent overlays at a glance; the solid block is opaque.
 The same surface renders identically on the console and in windowed app mode.
@@ -42,8 +42,8 @@ IMPORT term
 SUB main()
   term::on()
   term::setBackground(0, 0, 40)
-  term::fillRect(FillStyle.Filled, 2, 1, 30, 12)
-  term::fillRect(FillStyle.Light, 4, 3, 28, 5)
+  term::fillRect(term::FillStyle.Filled, 2, 1, 30, 12)
+  term::fillRect(term::FillStyle.Light, 4, 3, 28, 5)
   term::sync()
   term::off()
 END SUB
@@ -56,8 +56,8 @@ IMPORT term
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
-  term::fillRect(FillStyle.Medium, 0, 0, size.columns - 1, size.rows - 1)
+  LET size AS term::TermSize = term::terminalSize()
+  term::fillRect(term::FillStyle.Medium, 0, 0, size.columns - 1, size.rows - 1)
   term::sync()
   term::off()
 END SUB

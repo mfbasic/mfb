@@ -31,6 +31,12 @@ so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
 command sequencing (`;`, `&&`), quoting, and environment-variable expansion are all
 interpreted by the shell.
 
+**`process::shell` is Unix-only.** A program that calls it does not build for
+Windows: the compiler rejects it with `native backend does not support runtime
+call 'process.shell'`. Use `process::spawn` for anything that has to run on
+Windows too.
+
+
 Because the string is parsed by a shell, values interpolated into `cmd` are subject
 to shell word-splitting and metacharacter interpretation; build the command with
 care when any part comes from untrusted input. When you do not need a shell — you

@@ -56,6 +56,18 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Whether a type is a container whose scope-ownership of resources
+    /// transfers across a function boundary (§15.6) — a `RES`-marked collection,
+    /// or (plan-114-C) a record with a `RES` field.
+    ///
+    /// This is what the `RETURN` transfer keys on. Getting it wrong for records
+    /// is not a missing optimisation: a returned float-target record whose
+    /// owned-list is *drained* instead of transferred closes the handle the
+    /// caller is about to adopt, and the caller then closes it again.
+    pub(crate) fn is_resource_owning_container(&self, type_: &ParameterType) -> bool {
+        is_resource_owning_container(&self.type_model, type_)
+    }
+
     /// Push the resource record at `resource_slot` onto `collection`'s owned-list
     /// as a fresh `{record, next}` node (§15.6).
     pub(crate) fn emit_owned_list_push(
@@ -368,5 +380,124 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), object_slot));
         self.emit(abi::label(&skip));
         Ok(())
+    }
+}
+
+/// The `RES`-marked field types of a record, in declaration order (plan-114-C).
+///
+/// Only a **direct** `RES` field counts. A resource inside a nested record
+/// floats to *that* record's binding, so the outer record is not the container
+/// holding it.
+pub(crate) fn record_res_field_types(
+    model: &TypeModel,
+    type_: &ParameterType,
+) -> Vec<(String, ParameterType)> {
+    model
+        .record_fields
+        .get(type_)
+        .map(|fields| {
+            fields
+                .iter()
+                .filter_map(|(name, field_type)| match field_type {
+                    ParameterType::Res(inner) => Some((name.clone(), (**inner).clone())),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether a type is a container whose scope-ownership of resources transfers
+/// across a function boundary (§15.6) — a `RES`-marked collection, or
+/// (plan-114-C) a record with a `RES` field.
+///
+/// This is what the `RETURN` transfer keys on. Getting it wrong for records is
+/// not a missing optimisation: a returned float-target record whose owned-list
+/// is *drained* instead of transferred closes the handle the caller is about to
+/// adopt, and the caller then closes it again.
+pub(crate) fn is_resource_owning_container(model: &TypeModel, type_: &ParameterType) -> bool {
+    CodeBuilder::is_res_marked_resource_collection(type_)
+        || !record_res_field_types(model, type_).is_empty()
+}
+
+#[cfg(test)]
+mod record_container_tests {
+    use super::*;
+
+    fn model_with(fields: &[(&str, &str)]) -> (TypeModel, ParameterType) {
+        let mut model = TypeModel::empty();
+        let holder = ParameterType::declared("Holder");
+        model.record_fields.insert(
+            holder.clone(),
+            fields
+                .iter()
+                .map(|(n, t)| ((*n).to_string(), ParameterType::parse(t)))
+                .collect(),
+        );
+        (model, holder)
+    }
+
+    /// The `RETURN` transfer must fire for a record with a `RES` field, or the
+    /// callee drains the list and closes the handle the caller then adopts.
+    #[test]
+    fn a_record_with_a_res_field_is_a_resource_owning_container() {
+        let (model, holder) = model_with(&[("name", "String"), ("handle", "RES fs.File")]);
+        assert!(is_resource_owning_container(&model, &holder));
+    }
+
+    /// The guard on that: an ordinary record must NOT be treated as one, or a
+    /// plain returned record would skip a drain it needs.
+    #[test]
+    fn a_plain_record_is_not_a_resource_owning_container() {
+        let (model, holder) = model_with(&[("name", "String"), ("count", "Integer")]);
+        assert!(!is_resource_owning_container(&model, &holder));
+    }
+
+    /// A collection keeps answering as before — the record arm is additive.
+    #[test]
+    fn a_res_collection_is_still_a_resource_owning_container() {
+        let model = TypeModel::empty();
+        assert!(is_resource_owning_container(
+            &model,
+            &ParameterType::parse("List OF RES fs.File")
+        ));
+        assert!(!is_resource_owning_container(
+            &model,
+            &ParameterType::parse("List OF Integer")
+        ));
+    }
+
+    /// Only a DIRECT `RES` field counts: a resource inside a nested record
+    /// floats to that record's binding, not to the outer one.
+    #[test]
+    fn a_nested_record_field_does_not_make_the_outer_record_a_container() {
+        let mut model = TypeModel::empty();
+        model.record_fields.insert(
+            ParameterType::declared("Inner"),
+            vec![("handle".to_string(), ParameterType::parse("RES fs.File"))],
+        );
+        model.record_fields.insert(
+            ParameterType::declared("Outer"),
+            vec![("inner".to_string(), ParameterType::declared("Inner"))],
+        );
+        assert!(is_resource_owning_container(
+            &model,
+            &ParameterType::declared("Inner")
+        ));
+        assert!(!is_resource_owning_container(
+            &model,
+            &ParameterType::declared("Outer")
+        ));
+    }
+
+    /// The drop derivation reads the field's inner resource type, with the
+    /// `RES` marker stripped — that is what `resource_cleanup_symbol` needs.
+    #[test]
+    fn the_res_field_types_are_reported_marker_stripped() {
+        let (model, holder) = model_with(&[("name", "String"), ("handle", "RES fs.File")]);
+        assert_eq!(
+            record_res_field_types(&model, &holder),
+            vec![("handle".to_string(), ParameterType::declared("fs.File"))]
+        );
     }
 }

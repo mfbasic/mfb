@@ -31,19 +31,19 @@ r#"FUNC __datetime_fixedOffset2(hours AS Integer, mins AS Integer) AS Zone
   RETURN __datetime_fixedOffset1(total)
 END FUNC"#;
 
-const INTRO: &str = r#"Build a `Zone` with a constant UTC offset."#;
-const DESC: &str = r#"`datetime::fixedOffset` builds a `Zone` whose offset from UTC is a constant
+const INTRO: &str = r#"Build a `datetime::Zone` with a constant UTC offset."#;
+const DESC: &str = r#"`datetime::fixedOffset` builds a `datetime::Zone` whose offset from UTC is a constant
 value that does not vary with the instant being projected. Unlike
 `datetime::local`, whose offset is resolved against the host's configured time
 zone, and unlike `datetime::utc`, the canonical zero-offset zone, a
-fixed-offset `Zone` carries a single signed offset that applies to every
-`Instant` projected through it. The returned `Zone` has a zone kind of
-`ZoneKind::FixedOffset` and a label rendered in the form `+HH:MM` or `-HH:MM`.
+fixed-offset `datetime::Zone` carries a single signed offset that applies to every
+`datetime::Instant` projected through it. The returned `datetime::Zone` has a zone kind of
+`datetime::ZoneKind::FixedOffset` and a label rendered in the form `+HH:MM` or `-HH:MM`.
 
 
-A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
-human-readable civil fields of a `DateTime`. Projecting an `Instant` through a
-fixed-offset zone with `datetime::inZone` produces a `DateTime` whose year,
+A `datetime::Zone` is the bridge between the absolute UTC timeline (a `datetime::Instant`) and the
+human-readable civil fields of a `datetime::DateTime`. Projecting a `datetime::Instant` through a
+fixed-offset zone with `datetime::inZone` produces a `datetime::DateTime` whose year,
 month, day, and time fields are shifted from UTC by exactly the offset this
 function encodes: a positive offset places the civil fields ahead of UTC (east
 of the prime meridian), a negative offset places them behind UTC (west).
@@ -67,7 +67,7 @@ const EX: &str = r#"Build a zone five and a half hours behind UTC:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(-5, 30)
+  LET z AS datetime::Zone = datetime::fixedOffset(-5, 30)
 END SUB
 ```
 
@@ -77,7 +77,7 @@ Build the same zone from a raw second count:
 IMPORT datetime
 
 SUB main()
-  LET z AS Zone = datetime::fixedOffset(-19800)
+  LET z AS datetime::Zone = datetime::fixedOffset(-19800)
 END SUB
 ```
 
@@ -87,8 +87,8 @@ Project the current instant into a fixed `+09:00` zone:
 IMPORT datetime
 
 SUB main()
-  LET t AS Instant = datetime::now()
-  LET local AS DateTime = datetime::inZone(t, datetime::fixedOffset(9, 0))
+  LET t AS datetime::Instant = datetime::now()
+  LET local AS datetime::DateTime = datetime::inZone(t, datetime::fixedOffset(9, 0))
 END SUB
 ```"#;
 

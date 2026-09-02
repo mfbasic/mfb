@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use super::runtime;
 use super::runtime::RuntimeHelper;
+use crate::operators::{BinaryOp, UnaryOp};
 
 pub(crate) struct NirModule {
     pub(crate) target: String,
@@ -306,6 +307,14 @@ pub(crate) enum NirValue {
         args: Vec<NirValue>,
         loc: NirSourceLoc,
     },
+    /// Evaluate `value` with its domain-error exits captured, yielding a
+    /// `Result OF <type_>` (bug-471) — the operator twin of `CallResult`. See
+    /// [`crate::ir::value::IrValue::Checked`]; codegen lowers it by running
+    /// `value` under a `raw_result_capture`.
+    Checked {
+        type_: ParameterType,
+        value: Box<NirValue>,
+    },
     Constructor {
         type_: ParameterType,
         args: Vec<NirValue>,
@@ -351,13 +360,13 @@ pub(crate) enum NirValue {
         member: String,
     },
     Binary {
-        op: String,
+        op: BinaryOp,
         left: Box<NirValue>,
         right: Box<NirValue>,
         loc: NirSourceLoc,
     },
     Unary {
-        op: String,
+        op: UnaryOp,
         operand: Box<NirValue>,
         loc: NirSourceLoc,
     },

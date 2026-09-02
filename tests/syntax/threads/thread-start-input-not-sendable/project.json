@@ -1,0 +1,3 @@
+{
+  "name": "thread_start_input_not_sendable",
+"version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"packages":[{"name":"thread_unsendable_workers","version":"=0.1.0","source":"file:packages/thread_unsendable_workers.mfp"}],"entry":"main","targets":["native"]}

@@ -51,7 +51,7 @@ IMPORT term
 SUB main()
   term::on()
   term::drawText(2, 0, "My Application")
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::drawText(0, size.rows - 1, "Press q to quit")
   term::sync()
   term::off()

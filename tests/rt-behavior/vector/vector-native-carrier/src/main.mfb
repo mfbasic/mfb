@@ -8,11 +8,11 @@ IMPORT collections
 ' lazy carrier's results and memory behavior match the heap-record path.
 
 TYPE Particle
-  pos AS Float3
-  vel AS Float3
+  pos AS vector::Float3
+  vel AS vector::Float3
 END TYPE
 
-FUNC passThrough(v AS Float3) AS Float3
+FUNC passThrough(v AS vector::Float3) AS vector::Float3
   RETURN v
 END FUNC
 
@@ -23,38 +23,38 @@ END FUNC
 TESTING
   TGROUP "register-native vector carrier"
     TCASE "construction and member read"
-      LET a AS Float3 = Float3[1.0, 2.0, 3.0]
+      LET a AS vector::Float3 = vector::Float3[1.0, 2.0, 3.0]
       expectFloat(a.x, 1.0)
       expectFloat(a.z, 3.0)
     END TCASE
     TCASE "record field (owner boundary)"
-      LET p AS Particle = Particle[Float3[1.0, 2.0, 3.0], vector::scale(Float3[1.0, 1.0, 1.0], Float3[2.0, 2.0, 2.0])]
+      LET p AS Particle = Particle[vector::Float3[1.0, 2.0, 3.0], vector::scale(vector::Float3[1.0, 1.0, 1.0], vector::Float3[2.0, 2.0, 2.0])]
       expectFloat(p.pos.x, 1.0)
       expectFloat(p.vel.z, 2.0)
     END TCASE
     TCASE "collection element (append/get)"
-      MUT xs AS List OF Float3 = []
-      xs = collections::append(xs, Float3[7.0, 8.0, 9.0])
-      xs = collections::append(xs, vector::cross(Float3[1.0, 0.0, 0.0], Float3[0.0, 1.0, 0.0]))
+      MUT xs AS List OF vector::Float3 = []
+      xs = collections::append(xs, vector::Float3[7.0, 8.0, 9.0])
+      xs = collections::append(xs, vector::cross(vector::Float3[1.0, 0.0, 0.0], vector::Float3[0.0, 1.0, 0.0]))
       expectFloat(collections::get(xs, 0).y, 8.0)
       expectFloat(collections::get(xs, 1).z, 1.0)
       expectInteger(len(xs), 2)
     END TCASE
     TCASE "reassignment accumulator in a loop"
-      MUT acc AS Float3 = Float3[1.0, 1.0, 1.0]
+      MUT acc AS vector::Float3 = vector::Float3[1.0, 1.0, 1.0]
       MUT i AS Integer = 0
       WHILE i < 3
-        acc = vector::scale(acc, Float3[2.0, 2.0, 2.0])
+        acc = vector::scale(acc, vector::Float3[2.0, 2.0, 2.0])
         i = i + 1
       END WHILE
       expectFloat(acc.x, 8.0)
     END TCASE
     TCASE "argument and return boundaries"
-      LET r AS Float3 = passThrough(vector::scale(Float3[2.0, 3.0, 4.0], Float3[1.0, 1.0, 1.0]))
+      LET r AS vector::Float3 = passThrough(vector::scale(vector::Float3[2.0, 3.0, 4.0], vector::Float3[1.0, 1.0, 1.0]))
       expectFloat(r.y, 3.0)
     END TCASE
     TCASE "nested ops stay register-native"
-      LET n AS Float3 = vector::scale(vector::cross(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0]), Float3[2.0, 2.0, 2.0])
+      LET n AS vector::Float3 = vector::scale(vector::cross(vector::Float3[1.0, 2.0, 3.0], vector::Float3[4.0, 5.0, 6.0]), vector::Float3[2.0, 2.0, 2.0])
       expectFloat(n.x, -6.0)
     END TCASE
   END TGROUP

@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "private_isolated_func_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "#c2515768f1aa7dc6$w",
+    "line": 11,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 11, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "pub",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 18, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 19, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

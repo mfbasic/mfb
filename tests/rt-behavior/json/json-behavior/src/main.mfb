@@ -12,7 +12,7 @@ IMPORT encoding
 FUNC json_read_valid_run AS Integer
   LET path AS String = "target/json_read_valid.json"
   fs::writeText(path, "{ \"user\": { \"name\": \"Ada\" }, \"items\": [1, 2, 3] }")
-  LET value AS Json = json::parse(fs::readText(path))
+  LET value AS json::Json = json::parse(fs::readText(path))
   io::print(json::stringify(json::get(value, ["user", "name"])))
   io::print(json::stringify(json::get(value, ["items"])))
   fs::deleteFile(path)
@@ -23,7 +23,7 @@ END FUNC
 
 FUNC json_write_valid_run AS Integer
   LET path AS String = "target/json_write_valid.json"
-  LET value AS Json = JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"], "enabled" := JsonBool[TRUE] }]
+  LET value AS json::Json = json::JsonObj[Map OF String TO json::Json { "name" := json::JsonStr["Ada"], "enabled" := json::JsonBool[TRUE] }]
   LET text AS String = json::stringify(value)
   fs::writeText(path, text)
   io::print(fs::readText(path))
@@ -39,7 +39,7 @@ END FUNC
 ' the result parses back to the identical string.
 FUNC json_control_escape_run AS Integer
   LET raw AS String = encoding::utf8Decode([toByte(1), toByte(8), toByte(9), toByte(10), toByte(12), toByte(13), toByte(11), toByte(31), toByte(65)])
-  LET s AS String = json::stringify(JsonStr[raw])
+  LET s AS String = json::stringify(json::JsonStr[raw])
   io::print(s)
   io::print("roundtrip=" & toString(json::stringify(json::parse(s)) = s))
   RETURN 0

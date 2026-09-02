@@ -19,11 +19,11 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": null, "value": { "kind": "call", "callee": "process.spawn", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "sleep" }, { "kind": "string", "value": "30" }] }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "process.signal", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Signal" }, "member": "Terminate" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "process.signal", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Signal" }, "member": "Terminate" }] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "p" }] }] }] }, "line": 10 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "process.didSignal", "arguments": [{ "kind": "identifier", "value": "p" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Signal" }, "member": "Terminate" } },
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "process.didSignal", "arguments": [{ "kind": "identifier", "value": "p" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Signal" }, "member": "Terminate" } },
         "line": 11,
         "then": [
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "terminate" }] }, "line": 12 }
@@ -36,7 +36,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "process.waitFor", "arguments": [{ "kind": "identifier", "value": "q" }] }] }] }, "line": 18 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "process.didSignal", "arguments": [{ "kind": "identifier", "value": "q" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Signal" }, "member": "None" } },
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "process.didSignal", "arguments": [{ "kind": "identifier", "value": "q" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Signal" }, "member": "None" } },
         "line": 19,
         "then": [
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "none" }] }, "line": 20 }

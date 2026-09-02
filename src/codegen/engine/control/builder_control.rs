@@ -5,6 +5,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -637,7 +638,7 @@ impl CodeBuilder<'_> {
                         // A collection that owns resources floated up from inner
                         // blocks (§15.6) gets a runtime owned-list anchored at
                         // this scope; it is drained on every exit path.
-                        if self.owner_collections.contains(name) {
+                        if self.owner_containers.contains(name) {
                             self.setup_owned_list(name, type_)?;
                         } else if Self::is_res_marked_resource_collection(&type_)
                             && matches!(
@@ -1258,10 +1259,12 @@ impl CodeBuilder<'_> {
                         // the guarded local from the raw condition before it is
                         // lowered/shadowed, and mark it for the body below.
                         let strict_upper_name = match condition {
-                            NirValue::Binary { op, left, .. } if op == "<" => match left.as_ref() {
-                                NirValue::Local(n) => Some(n.clone()),
-                                _ => None,
-                            },
+                            NirValue::Binary { op, left, .. } if *op == BinaryOp::Less => {
+                                match left.as_ref() {
+                                    NirValue::Local(n) => Some(n.clone()),
+                                    _ => None,
+                                }
+                            }
                             _ => None,
                         };
                         let promoted = self.begin_loop_promotion(body, None)?;
@@ -1514,7 +1517,7 @@ impl CodeBuilder<'_> {
         else {
             return None;
         };
-        if op != "-" {
+        if *op != BinaryOp::Subtract {
             return None;
         }
         let NirValue::Const { type_, value } = right.as_ref() else {
@@ -1564,7 +1567,7 @@ impl CodeBuilder<'_> {
             Some(NirValue::Local(i)) => (i.as_str(), 1i64),
             Some(NirValue::Binary {
                 op, left, right, ..
-            }) if op == "+" => match (left.as_ref(), right.as_ref()) {
+            }) if *op == BinaryOp::Add => match (left.as_ref(), right.as_ref()) {
                 (NirValue::Local(i), NirValue::Const { type_, value })
                     if matches!(type_, ParameterType::Integer) && value == "1" =>
                 {
@@ -1627,17 +1630,17 @@ impl CodeBuilder<'_> {
         // can originate an overflow error and it carries the loop's location.
         let cmp = NirSourceLoc::default();
         let condition = NirValue::Binary {
-            op: "OR".to_string(),
+            op: BinaryOp::Or,
             left: Box::new(NirValue::Binary {
-                op: "AND".to_string(),
+                op: BinaryOp::And,
                 left: Box::new(NirValue::Binary {
-                    op: ">=".to_string(),
+                    op: BinaryOp::GreaterEqual,
                     left: Box::new(step.clone()),
                     right: Box::new(zero.clone()),
                     loc: cmp,
                 }),
                 right: Box::new(NirValue::Binary {
-                    op: "<=".to_string(),
+                    op: BinaryOp::LessEqual,
                     left: Box::new(iter.clone()),
                     right: Box::new(end.clone()),
                     loc: cmp,
@@ -1645,15 +1648,15 @@ impl CodeBuilder<'_> {
                 loc: cmp,
             }),
             right: Box::new(NirValue::Binary {
-                op: "AND".to_string(),
+                op: BinaryOp::And,
                 left: Box::new(NirValue::Binary {
-                    op: "<".to_string(),
+                    op: BinaryOp::Less,
                     left: Box::new(step.clone()),
                     right: Box::new(zero),
                     loc: cmp,
                 }),
                 right: Box::new(NirValue::Binary {
-                    op: ">=".to_string(),
+                    op: BinaryOp::GreaterEqual,
                     left: Box::new(iter.clone()),
                     right: Box::new(end.clone()),
                     loc: cmp,
@@ -1680,7 +1683,7 @@ impl CodeBuilder<'_> {
         self.loop_stack.pop();
         self.emit(abi::label(&continue_label));
         let increment_node = NirValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(iter),
             right: Box::new(step.clone()),
             loc,
@@ -1781,7 +1784,7 @@ impl CodeBuilder<'_> {
         for name in names {
             if self.address_taken_locals.contains(&name)
                 || self.promoted_float_locals.contains_key(&name)
-                || self.owner_collections.contains(&name)
+                || self.owner_containers.contains(&name)
             {
                 continue;
             }
@@ -2190,7 +2193,7 @@ pub(crate) fn string_self_append_operands<'v>(
     else {
         return None;
     };
-    if op != "&" {
+    if *op != BinaryOp::Concat {
         return None;
     }
     let mut operands = vec![right.as_ref()];
@@ -2203,7 +2206,7 @@ pub(crate) fn string_self_append_operands<'v>(
             }
             NirValue::Binary {
                 op, left, right, ..
-            } if op == "&" => {
+            } if *op == BinaryOp::Concat => {
                 operands.push(right.as_ref());
                 cursor = left.as_ref();
             }
@@ -2237,6 +2240,7 @@ pub(crate) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => nir_value_reads_local(value, name),
         NirValue::WithUpdate {
             target, updates, ..
@@ -2299,7 +2303,8 @@ fn nir_value_context(value: &NirValue) -> String {
         | NirValue::MapLiteral { type_, .. } => {
             format!("literal {type_}")
         }
-        NirValue::Unary { op, .. } | NirValue::Binary { op, .. } => format!("operator {op}"),
+        NirValue::Unary { op, .. } => format!("operator {}", op.name()),
+        NirValue::Binary { op, .. } => format!("operator {}", op.name()),
         NirValue::UnionWrap {
             union_type,
             member_type,
@@ -2309,6 +2314,7 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::ResultIsOk { .. } => "result is ok".to_string(),
         NirValue::ResultValue { .. } => "result value".to_string(),
         NirValue::ResultError { .. } => "result error".to_string(),
+        NirValue::Checked { type_, .. } => format!("checked {type_}"),
         NirValue::WithUpdate { type_, .. } => format!("with update {type_}"),
         NirValue::Capture { index, .. } => format!("capture {index}"),
     }

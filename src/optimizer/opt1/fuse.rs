@@ -43,6 +43,8 @@ use super::plans::loops::{
     statement_writes,
 };
 use super::plans::reads::NameUses;
+#[cfg(test)]
+use crate::operators::BinaryOp;
 
 /// Apply the fusion row to the whole module. Self-guarded on its catalog
 /// level (3); the fusion count feeds `optimizer::stats`.
@@ -396,8 +398,14 @@ mod tests {
     fn disjoint_pure_loops_fuse_in_chains() {
         let body = run(
             vec![
-                for_loop(vec![assign("a", binary("<", local("i"), local("p")))]),
-                for_loop(vec![assign("b", binary("<", local("i"), local("q")))]),
+                for_loop(vec![assign(
+                    "a",
+                    binary(BinaryOp::Less, local("i"), local("p")),
+                )]),
+                for_loop(vec![assign(
+                    "b",
+                    binary(BinaryOp::Less, local("i"), local("q")),
+                )]),
                 for_loop(vec![assign("c", local("i"))]),
             ],
             3,
@@ -424,7 +432,10 @@ mod tests {
 
         let trapping = run(
             vec![
-                for_loop(vec![assign("a", binary("+", local("i"), local("p")))]),
+                for_loop(vec![assign(
+                    "a",
+                    binary(BinaryOp::Add, local("i"), local("p")),
+                )]),
                 for_loop(vec![assign("b", local("i"))]),
             ],
             3,

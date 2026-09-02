@@ -96,14 +96,34 @@ mod gen_ping;
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
 /// id). Used for registry-internal lookups and by the code layer.
 pub(crate) const ADDRESS_TYPE: &str = "Address";
+
+/// The `Address` record's **package-qualified type identity** — what a value of it
+/// is spelled as once the value-type namespace is package-scoped (bug-480 Phase
+/// 4b), the same `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources.
+/// `ADDRESS_TYPE` stays the bare member id the registry row declares.
+pub(crate) const ADDRESS_TYPE_ID: &str = "net.Address";
 /// The `PingStatus` enum and `PingResult` record `net::ping` reports through
 /// (plan-110-A). `PingStatus`'s variant ORDER is its wire contract: a variant's
 /// ordinal is its declaration index, and `gen_ping` emits those ordinals directly.
 pub(crate) const PING_STATUS_TYPE: &str = "PingStatus";
 pub(crate) const PING_RESULT_TYPE: &str = "PingResult";
+
+/// `PingResult`'s package-qualified type identity (bug-480 Phase 4b), the
+/// `*_TYPE` / `*_TYPE_ID` split plan-97 established for resources. The bare
+/// constant stays the registry row's member id.
+///
+/// `cfg(test)`: the qualifier reaches `net::ping`'s signature through the
+/// registry's post-build `qualify_value_type_references` pass, not through a
+/// call site, so the only reader is `gen_ping`'s test asserting that pass ran.
+#[cfg(test)]
+pub(crate) const PING_RESULT_TYPE_ID: &str = "net.PingResult";
 /// The `Url` value record's name — registry-modeled (`add_record`, DOC
 /// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
+/// Its package-qualified identity. A consumer package's descriptor must name
+/// THIS, not the bare leaf: a bare leaf means "local to the referencing package"
+/// and `http` does not declare a `Url` (bug-484).
+pub(crate) const URL_TYPE_ID: &str = "net.Url";
 
 /// The internal source-companion (`package.mfb`) render target for the
 /// `toString(net::Url)` override — routed here by [`RegistryPackage::add_override`].
@@ -111,20 +131,20 @@ pub(crate) const URL_TO_STRING: &str = "__net_urlToString";
 
 const MODULE_INTRO: &str = r#"DNS lookup, ICMP echo, URL parsing, and the shared network address"#;
 const MODULE_DESC: &str = r#"The `net` package names hosts. `net::lookup` resolves a host name to a list of
-`Address` values, and `net::ping` sends one ICMP echo request and reports how the
+`net::Address` values, and `net::ping` sends one ICMP echo request and reports how the
 host answered. Nothing in this package opens a connection.
 
-`Address` is the shared endpoint record every transport speaks: an address from
+`net::Address` is the shared endpoint record every transport speaks: an address from
 `net::lookup`, from a received datagram's `from` field, or from a socket's local
 or remote address query can be handed straight to any of them. **A program that
-names an `Address` must `IMPORT net` as well as its transport** — imports are not
+names a `net::Address` must `IMPORT net` as well as its transport** — imports are not
 transitive and a package cannot re-export another's types.
 
 The transports live in their own packages: `tcp` for byte streams, `udp` for
 datagrams, `tls` for encrypted streams, and `http` for requests and responses.
 
 The package also parses and renders URLs: `net::toUrl` decomposes an absolute URL
-into a `Url` value record, `toString` renders it back, and `net::percentDecode` /
+into a `net::Url` value record, `toString` renders it back, and `net::percentDecode` /
 `net::parseQuery` decode request-target components.
 
 `net` has no handles to open or close — every call takes and returns ordinary values."#;

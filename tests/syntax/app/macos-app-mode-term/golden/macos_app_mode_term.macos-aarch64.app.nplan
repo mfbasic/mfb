@@ -63,6 +63,7 @@
   { "library": "CoreGraphics", "symbol": "_CGBitmapContextCreateImage", "requiredBy": "_main" },
   { "library": "CoreGraphics", "symbol": "_CGContextRelease", "requiredBy": "_main" },
   { "library": "CoreGraphics", "symbol": "_CGImageRelease", "requiredBy": "_main" },
+  { "library": "CoreGraphics", "symbol": "_CGColorCreateGenericRGB", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_init", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize", "requiredBy": "_main" },
@@ -90,15 +91,15 @@
     ],
     "localSlots": [
     { "name": "active", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -8, "mutable": false },
-    { "name": "fg", "storage": { "name": "TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
-    { "name": "bg", "storage": { "name": "TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "fg", "storage": { "name": "term.TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "bg", "storage": { "name": "term.TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
     { "name": "bold", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -32, "mutable": false },
     { "name": "underline", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -40, "mutable": false },
-    { "name": "size", "storage": { "name": "TermSize", "class": "reference", "size": 8, "align": 8 }, "offset": -48, "mutable": false }
+    { "name": "size", "storage": { "name": "term.TermSize", "class": "reference", "size": 8, "align": 8 }, "offset": -48, "mutable": false }
     ],
     "labels": [
     ],
-    "operations": ["eval runtimeCall term term.on()", "eval runtimeCall term term.clear()", "eval runtimeCall term term.setForeground(Byte(0), Byte(255), Byte(0))", "eval runtimeCall term term.setBackground(Byte(0), Byte(0), Byte(0))", "eval runtimeCall term term.setBold(Boolean(true))", "eval runtimeCall term term.setUnderline(Boolean(false))", "eval runtimeCall term term.showCursor()", "eval runtimeCall term term.hideCursor()", "eval runtimeCall term term.moveTo(Integer(2), Integer(4))", "eval runtimeCall io io.write(String(term))", "bind immutable active AS Boolean = runtimeCall term term.isOn()", "bind immutable fg AS TermColor = runtimeCall term term.getForeground()", "bind immutable bg AS TermColor = runtimeCall term term.getBackground()", "bind immutable bold AS Boolean = runtimeCall term term.getBold()", "bind immutable underline AS Boolean = runtimeCall term term.getUnderline()", "bind immutable size AS TermSize = runtimeCall term term.terminalSize()", "eval runtimeCall io io.print((((((call toString(local active) & call toString(fg.g)) & call toString(bg.r)) & call toString(local bold)) & call toString(local underline)) & call toString(size.columns)))", "eval runtimeCall term term.off()"],
+    "operations": ["eval runtimeCall term term.on()", "eval runtimeCall term term.clear()", "eval runtimeCall term term.setForeground(Byte(0), Byte(255), Byte(0))", "eval runtimeCall term term.setBackground(Byte(0), Byte(0), Byte(0))", "eval runtimeCall term term.setBold(Boolean(true))", "eval runtimeCall term term.setUnderline(Boolean(false))", "eval runtimeCall term term.showCursor()", "eval runtimeCall term term.hideCursor()", "eval runtimeCall term term.moveTo(Integer(2), Integer(4))", "eval runtimeCall io io.write(String(term))", "bind immutable active AS Boolean = runtimeCall term term.isOn()", "bind immutable fg AS term.TermColor = runtimeCall term term.getForeground()", "bind immutable bg AS term.TermColor = runtimeCall term term.getBackground()", "bind immutable bold AS Boolean = runtimeCall term term.getBold()", "bind immutable underline AS Boolean = runtimeCall term term.getUnderline()", "bind immutable size AS term.TermSize = runtimeCall term term.terminalSize()", "eval runtimeCall io io.print((((((call toString(local active) & call toString(fg.g)) & call toString(bg.r)) & call toString(local bold)) & call toString(local underline)) & call toString(size.columns)))", "eval runtimeCall term term.off()"],
     "calls": [
     { "target": "term.on", "symbol": "_mfb_rt_term_term_on", "kind": "runtime", "stringLiterals": [] },
     { "target": "term.clear", "symbol": "_mfb_rt_term_term_clear", "kind": "runtime", "stringLiterals": [] },

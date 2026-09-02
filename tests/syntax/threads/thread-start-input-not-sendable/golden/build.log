@@ -1,0 +1,27 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-start-input-not-sendable
+uses thread_unsendable_workers - [Unsigned]
+  16 |   ' A capturing lambda — the memory-safety case: its environment lives in
+  17 |   ' this thread's arena, and the worker would read it across the boundary.
+  18 |   LET a AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> captured + 1)
+     | ^
+tests/syntax/threads/thread-start-input-not-sendable/src/main.mfb:18 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.start` input requires a thread-sendable type, got `FUNC() AS Integer`.
+  20 |   ' A non-capturing lambda — no environment to dangle, but a function value
+  21 |   ' is still not sendable, so it is rejected for the same reason.
+  22 |   LET b AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, LAMBDA() -> 7)
+     | ^
+tests/syntax/threads/thread-start-input-not-sendable/src/main.mfb:22 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.start` input requires a thread-sendable type, got `FUNC() AS Integer`.
+  23 | 
+  24 |   ' A bare function value.
+  25 |   LET c AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesFunc, helper)
+     | ^
+tests/syntax/threads/thread-start-input-not-sendable/src/main.mfb:25 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.start` input requires a thread-sendable type, got `FUNC() AS Integer`.
+  26 | 
+  27 |   ' A thread handle: meaningful only on the thread that owns it.
+  28 |   LET d AS Thread OF Nothing TO Integer = thread::start(thread_unsendable_workers::takesHandle, a)
+     | ^
+tests/syntax/threads/thread-start-input-not-sendable/src/main.mfb:28 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.start` input requires a thread-sendable type, got `Thread OF Nothing TO Integer`.
+[exit 1]

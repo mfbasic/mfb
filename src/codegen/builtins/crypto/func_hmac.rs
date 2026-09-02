@@ -26,7 +26,7 @@ const DESC: &str = r#"`crypto::hmac(type, key, data)` computes the keyed-hash me
 and 28/32/48/64 for the 224/256/384/512-bit widths of SHA-2 or SHA-3. This one
 call is the package's single HMAC surface. (HMAC-SHA1
 remains cryptographically sound — HMAC does not rely on collision resistance — but
-`Hash.SHA1` still reports the `CRYPTO_SHA1_INSECURE` advisory; prefer `SHA2_256`
+`crypto::Hash.SHA1` still reports the `CRYPTO_SHA1_INSECURE` advisory; prefer `SHA2_256`
 unless a peer requires SHA-1.)
 
 A key of any length is accepted. Following the HMAC construction, a key longer than
@@ -53,7 +53,7 @@ check does not leak the position of the first differing byte through timing.
 layered over the selected hash. The MAC is computed in-process by a portable
 MFBASIC software core over the `bits` package — no platform cryptographic library is
 called — so the output is **byte-identical on macOS, Linux, and Windows** (and across
-aarch64/x86-64). The core is hash-generic over the `Hash` enum, so a future `Hash`
+aarch64/x86-64). The core is hash-generic over the `crypto::Hash` enum, so a future `crypto::Hash`
 variant is supported without new code."#;
 const EX: &str = r#"Authenticate a message under SHA-256 and print the MAC as hex:
 
@@ -66,7 +66,7 @@ IMPORT io
 SUB main()
   LET key AS List OF Byte = crypto::randomBytes(32)
   LET message AS List OF Byte = strings::toBytes("attack at dawn")
-  LET mac AS List OF Byte = crypto::hmac(Hash.SHA2_256, key, message)
+  LET mac AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_256, key, message)
   io::print(encoding::hexEncode(mac))
 END SUB
 ```
@@ -79,8 +79,8 @@ IMPORT io
 
 SUB main()
   LET key AS List OF Byte = crypto::randomBytes(64)
-  LET received AS List OF Byte = crypto::hmac(Hash.SHA2_512, key, "payload")
-  IF crypto::constantTimeEqual(received, crypto::hmac(Hash.SHA2_512, key, "payload")) THEN
+  LET received AS List OF Byte = crypto::hmac(crypto::Hash.SHA2_512, key, "payload")
+  IF crypto::constantTimeEqual(received, crypto::hmac(crypto::Hash.SHA2_512, key, "payload")) THEN
     io::print("authentic")
   ELSE
     io::print("tampered")

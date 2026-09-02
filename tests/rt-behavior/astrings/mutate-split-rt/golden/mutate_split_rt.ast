@@ -32,7 +32,7 @@
           "line": 11,
           "cases": [
           {
-            "pattern": { "kind": "union", "type": "AttrFlag", "binding": "f" },
+            "pattern": { "kind": "union", "type": "astrings.AttrFlag", "binding": "f" },
             "guard": null,
             "line": 12,
             "body": [
@@ -42,7 +42,7 @@
               "line": 13,
               "cases": [
               {
-                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "AttrTypeFlag" }, "member": "Bold" } },
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeFlag" }, "member": "Bold" } },
                 "guard": null,
                 "line": 14,
                 "body": [
@@ -98,7 +98,7 @@
           "line": 26,
           "cases": [
           {
-            "pattern": { "kind": "union", "type": "AttrNumber", "binding": "n" },
+            "pattern": { "kind": "union", "type": "astrings.AttrNumber", "binding": "n" },
             "guard": null,
             "line": 27,
             "body": [

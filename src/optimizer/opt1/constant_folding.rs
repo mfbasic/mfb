@@ -36,6 +36,7 @@ use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
 use super::local_rewrites::Scopes;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Try to fold one node (children already rewritten — so nested constant
 /// subtrees have collapsed by the time the parent is offered). Returns whether
@@ -44,8 +45,8 @@ pub(super) fn rewrite_value(value: &mut NirValue, _scopes: &Scopes) -> bool {
     let folded = match value {
         NirValue::Binary {
             op, left, right, ..
-        } => fold_binary(op, left, right),
-        NirValue::Unary { op, operand, .. } => fold_unary(op, operand),
+        } => fold_binary(*op, left, right),
+        NirValue::Unary { op, operand, .. } => fold_unary(*op, operand),
         _ => None,
     };
     match folded {
@@ -57,22 +58,22 @@ pub(super) fn rewrite_value(value: &mut NirValue, _scopes: &Scopes) -> bool {
     }
 }
 
-fn fold_unary(op: &str, operand: &NirValue) -> Option<NirValue> {
+fn fold_unary(op: UnaryOp, operand: &NirValue) -> Option<NirValue> {
     let NirValue::Const { type_, value } = operand else {
         return None;
     };
     match (op, type_) {
         // Byte has no negative values (`-b` traps for any nonzero b): no fold.
-        ("-", ParameterType::Integer) => {
+        (UnaryOp::Negate, ParameterType::Integer) => {
             let negated = value.parse::<i64>().ok()?.checked_neg()?;
             Some(integer_const(negated))
         }
-        ("NOT", ParameterType::Boolean) => Some(boolean_const(value != "true")),
+        (UnaryOp::Not, ParameterType::Boolean) => Some(boolean_const(value != "true")),
         _ => None,
     }
 }
 
-fn fold_binary(op: &str, left: &NirValue, right: &NirValue) -> Option<NirValue> {
+fn fold_binary(op: BinaryOp, left: &NirValue, right: &NirValue) -> Option<NirValue> {
     let (
         NirValue::Const {
             type_: left_type,
@@ -100,7 +101,7 @@ fn fold_binary(op: &str, left: &NirValue, right: &NirValue) -> Option<NirValue> 
     }
 }
 
-fn fold_integer(op: &str, left: &str, right: &str) -> Option<NirValue> {
+fn fold_integer(op: BinaryOp, left: &str, right: &str) -> Option<NirValue> {
     let a = left.parse::<i64>().ok()?;
     let b = right.parse::<i64>().ok()?;
     if let Some(verdict) = compare(op, &a, &b) {
@@ -110,12 +111,12 @@ fn fold_integer(op: &str, left: &str, right: &str) -> Option<NirValue> {
     // overflow, b == 0, MIN / -1, negative exponent) means no fold, keeping the
     // runtime trap where and how the source had it.
     let result = match op {
-        "+" => a.checked_add(b),
-        "-" => a.checked_sub(b),
-        "*" => a.checked_mul(b),
-        "/" => (b != 0).then(|| a.checked_div(b)).flatten(),
-        "MOD" => (b != 0).then(|| a.checked_rem(b)).flatten(),
-        "^" => (b >= 0)
+        BinaryOp::Add => a.checked_add(b),
+        BinaryOp::Subtract => a.checked_sub(b),
+        BinaryOp::Multiply => a.checked_mul(b),
+        BinaryOp::Divide => (b != 0).then(|| a.checked_div(b)).flatten(),
+        BinaryOp::Mod => (b != 0).then(|| a.checked_rem(b)).flatten(),
+        BinaryOp::Power => (b >= 0)
             .then(|| u32::try_from(b).ok())
             .flatten()
             .and_then(|exponent| a.checked_pow(exponent)),
@@ -124,7 +125,7 @@ fn fold_integer(op: &str, left: &str, right: &str) -> Option<NirValue> {
     Some(integer_const(result))
 }
 
-fn fold_byte(op: &str, left: &str, right: &str) -> Option<NirValue> {
+fn fold_byte(op: BinaryOp, left: &str, right: &str) -> Option<NirValue> {
     let a = left.parse::<u8>().ok()?;
     let b = right.parse::<u8>().ok()?;
     if let Some(verdict) = compare(op, &a, &b) {
@@ -135,12 +136,12 @@ fn fold_byte(op: &str, left: &str, right: &str) -> Option<NirValue> {
     // ErrUnderflow below for `-`), so there is no fold.
     let (a, b) = (i64::from(a), i64::from(b));
     let result = match op {
-        "+" => Some(a + b),
-        "-" => Some(a - b),
-        "*" => Some(a * b),
-        "/" => (b != 0).then(|| a / b),
-        "MOD" => (b != 0).then(|| a % b),
-        "^" => u32::try_from(b)
+        BinaryOp::Add => Some(a + b),
+        BinaryOp::Subtract => Some(a - b),
+        BinaryOp::Multiply => Some(a * b),
+        BinaryOp::Divide => (b != 0).then(|| a / b),
+        BinaryOp::Mod => (b != 0).then(|| a % b),
+        BinaryOp::Power => u32::try_from(b)
             .ok()
             .and_then(|exponent| a.checked_pow(exponent)),
         _ => None,
@@ -152,23 +153,23 @@ fn fold_byte(op: &str, left: &str, right: &str) -> Option<NirValue> {
     })
 }
 
-fn fold_boolean(op: &str, left: &str, right: &str) -> Option<NirValue> {
+fn fold_boolean(op: BinaryOp, left: &str, right: &str) -> Option<NirValue> {
     let a = left == "true";
     let b = right == "true";
     let result = match op {
-        "AND" => a && b,
-        "OR" => a || b,
-        "XOR" => a != b,
-        "=" => a == b,
-        "<>" => a != b,
+        BinaryOp::And => a && b,
+        BinaryOp::Or => a || b,
+        BinaryOp::Xor => a != b,
+        BinaryOp::Equal => a == b,
+        BinaryOp::NotEqual => a != b,
         // Boolean is comparable but not orderable (§4.11).
         _ => return None,
     };
     Some(boolean_const(result))
 }
 
-fn fold_string(op: &str, left: &str, right: &str) -> Option<NirValue> {
-    if op == "&" {
+fn fold_string(op: BinaryOp, left: &str, right: &str) -> Option<NirValue> {
+    if op == BinaryOp::Concat {
         return Some(NirValue::Const {
             type_: ParameterType::String,
             value: format!("{left}{right}"),
@@ -181,14 +182,14 @@ fn fold_string(op: &str, left: &str, right: &str) -> Option<NirValue> {
 
 /// The comparison verdict for an ordered, non-trapping domain, or `None` when
 /// `op` is not a comparison.
-fn compare<T: PartialOrd>(op: &str, a: &T, b: &T) -> Option<bool> {
+fn compare<T: PartialOrd>(op: BinaryOp, a: &T, b: &T) -> Option<bool> {
     match op {
-        "=" => Some(a == b),
-        "<>" => Some(a != b),
-        "<" => Some(a < b),
-        ">" => Some(a > b),
-        "<=" => Some(a <= b),
-        ">=" => Some(a >= b),
+        BinaryOp::Equal => Some(a == b),
+        BinaryOp::NotEqual => Some(a != b),
+        BinaryOp::Less => Some(a < b),
+        BinaryOp::Greater => Some(a > b),
+        BinaryOp::LessEqual => Some(a <= b),
+        BinaryOp::GreaterEqual => Some(a >= b),
         _ => None,
     }
 }
@@ -222,15 +223,36 @@ mod tests {
     fn integer_arithmetic_folds() {
         let scopes = Scopes::new();
         for (value, expected) in [
-            (binary("+", int_const("2"), int_const("3")), "const(5)"),
-            (binary("-", int_const("2"), int_const("5")), "const(-3)"),
-            (binary("*", int_const("7"), int_const("6")), "const(42)"),
-            (binary("/", int_const("7"), int_const("2")), "const(3)"),
-            (binary("/", int_const("-7"), int_const("2")), "const(-3)"),
-            (binary("MOD", int_const("-7"), int_const("2")), "const(-1)"),
-            (binary("^", int_const("3"), int_const("4")), "const(81)"),
-            (unary("-", int_const("5")), "const(-5)"),
-            (unary("-", int_const("-5")), "const(5)"),
+            (
+                binary(BinaryOp::Add, int_const("2"), int_const("3")),
+                "const(5)",
+            ),
+            (
+                binary(BinaryOp::Subtract, int_const("2"), int_const("5")),
+                "const(-3)",
+            ),
+            (
+                binary(BinaryOp::Multiply, int_const("7"), int_const("6")),
+                "const(42)",
+            ),
+            (
+                binary(BinaryOp::Divide, int_const("7"), int_const("2")),
+                "const(3)",
+            ),
+            (
+                binary(BinaryOp::Divide, int_const("-7"), int_const("2")),
+                "const(-3)",
+            ),
+            (
+                binary(BinaryOp::Mod, int_const("-7"), int_const("2")),
+                "const(-1)",
+            ),
+            (
+                binary(BinaryOp::Power, int_const("3"), int_const("4")),
+                "const(81)",
+            ),
+            (unary(UnaryOp::Negate, int_const("5")), "const(-5)"),
+            (unary(UnaryOp::Negate, int_const("-5")), "const(5)"),
         ] {
             assert_eq!(folded(value, &scopes), expected);
         }
@@ -245,17 +267,17 @@ mod tests {
         let max = i64::MAX.to_string();
         let min = i64::MIN.to_string();
         for value in [
-            binary("+", int_const(&max), int_const("1")),
-            binary("-", int_const(&min), int_const("1")),
-            binary("*", int_const(&max), int_const("2")),
-            binary("/", int_const("1"), int_const("0")),
-            binary("MOD", int_const("1"), int_const("0")),
-            binary("/", int_const(&min), int_const("-1")),
-            binary("MOD", int_const(&min), int_const("-1")),
-            binary("^", int_const("2"), int_const("-1")),
-            binary("^", int_const("2"), int_const("64")),
-            binary("UNKNOWN", int_const("2"), int_const("3")),
-            unary("-", int_const(&min)),
+            binary(BinaryOp::Add, int_const(&max), int_const("1")),
+            binary(BinaryOp::Subtract, int_const(&min), int_const("1")),
+            binary(BinaryOp::Multiply, int_const(&max), int_const("2")),
+            binary(BinaryOp::Divide, int_const("1"), int_const("0")),
+            binary(BinaryOp::Mod, int_const("1"), int_const("0")),
+            binary(BinaryOp::Divide, int_const(&min), int_const("-1")),
+            binary(BinaryOp::Mod, int_const(&min), int_const("-1")),
+            binary(BinaryOp::Power, int_const("2"), int_const("-1")),
+            binary(BinaryOp::Power, int_const("2"), int_const("64")),
+            binary(BinaryOp::IntDiv, int_const("2"), int_const("3")),
+            unary(UnaryOp::Negate, int_const(&min)),
         ] {
             let rendered = shape(&value);
             assert_eq!(folded(value, &scopes), rendered);
@@ -266,33 +288,33 @@ mod tests {
     fn byte_folds_only_inside_its_range() {
         let scopes = Scopes::new();
         let byte = |v: &str| typed_const(ParameterType::Byte, v);
-        let value = binary("+", byte("100"), byte("100"));
+        let value = binary(BinaryOp::Add, byte("100"), byte("100"));
         assert_eq!(folded(value, &scopes), "const(200)");
-        let value = binary("^", byte("3"), byte("5"));
+        let value = binary(BinaryOp::Power, byte("3"), byte("5"));
         assert_eq!(folded(value, &scopes), "const(243)");
         assert_eq!(
-            folded(binary("*", byte("6"), byte("7")), &scopes),
+            folded(binary(BinaryOp::Multiply, byte("6"), byte("7")), &scopes),
             "const(42)"
         );
         assert_eq!(
-            folded(binary("/", byte("9"), byte("2")), &scopes),
+            folded(binary(BinaryOp::Divide, byte("9"), byte("2")), &scopes),
             "const(4)"
         );
         assert_eq!(
-            folded(binary("MOD", byte("9"), byte("2")), &scopes),
+            folded(binary(BinaryOp::Mod, byte("9"), byte("2")), &scopes),
             "const(1)"
         );
         assert_eq!(
-            folded(binary("=", byte("9"), byte("9")), &scopes),
+            folded(binary(BinaryOp::Equal, byte("9"), byte("9")), &scopes),
             "const(true)"
         );
         // 200 + 100 = 300 and 5 - 9 = -4 both trap at runtime: no fold.
         for value in [
-            binary("+", byte("200"), byte("100")),
-            binary("-", byte("5"), byte("9")),
-            binary("/", byte("5"), byte("0")),
-            binary("UNKNOWN", byte("5"), byte("1")),
-            unary("-", byte("5")),
+            binary(BinaryOp::Add, byte("200"), byte("100")),
+            binary(BinaryOp::Subtract, byte("5"), byte("9")),
+            binary(BinaryOp::Divide, byte("5"), byte("0")),
+            binary(BinaryOp::IntDiv, byte("5"), byte("1")),
+            unary(UnaryOp::Negate, byte("5")),
         ] {
             let rendered = shape(&value);
             assert_eq!(folded(value, &scopes), rendered);
@@ -306,29 +328,47 @@ mod tests {
         let string = |v: &str| typed_const(ParameterType::String, v);
         for (value, expected) in [
             (
-                binary("AND", boolean("true"), boolean("false")),
+                binary(BinaryOp::And, boolean("true"), boolean("false")),
                 "const(false)",
             ),
             (
-                binary("OR", boolean("false"), boolean("true")),
+                binary(BinaryOp::Or, boolean("false"), boolean("true")),
                 "const(true)",
             ),
             (
-                binary("XOR", boolean("true"), boolean("true")),
+                binary(BinaryOp::Xor, boolean("true"), boolean("true")),
                 "const(false)",
             ),
-            (unary("NOT", boolean("true")), "const(false)"),
-            (binary("&", string("ab"), string("cd")), "const(abcd)"),
-            (binary("<", string("apple"), string("b")), "const(true)"),
-            (binary("=", string("a"), string("b")), "const(false)"),
-            (binary("<", int_const("2"), int_const("3")), "const(true)"),
-            (binary(">=", int_const("2"), int_const("3")), "const(false)"),
-            (binary("=", boolean("true"), boolean("true")), "const(true)"),
+            (unary(UnaryOp::Not, boolean("true")), "const(false)"),
+            (
+                binary(BinaryOp::Concat, string("ab"), string("cd")),
+                "const(abcd)",
+            ),
+            (
+                binary(BinaryOp::Less, string("apple"), string("b")),
+                "const(true)",
+            ),
+            (
+                binary(BinaryOp::Equal, string("a"), string("b")),
+                "const(false)",
+            ),
+            (
+                binary(BinaryOp::Less, int_const("2"), int_const("3")),
+                "const(true)",
+            ),
+            (
+                binary(BinaryOp::GreaterEqual, int_const("2"), int_const("3")),
+                "const(false)",
+            ),
+            (
+                binary(BinaryOp::Equal, boolean("true"), boolean("true")),
+                "const(true)",
+            ),
         ] {
             assert_eq!(folded(value, &scopes), expected);
         }
         // Boolean is comparable but not orderable: no `<` fold.
-        let unordered = binary("<", boolean("false"), boolean("true"));
+        let unordered = binary(BinaryOp::Less, boolean("false"), boolean("true"));
         let rendered = shape(&unordered);
         assert_eq!(folded(unordered, &scopes), rendered);
     }
@@ -340,16 +380,20 @@ mod tests {
         let scopes = Scopes::new();
         for value in [
             binary(
-                "+",
+                BinaryOp::Add,
                 typed_const(ParameterType::Float, "1.5"),
                 typed_const(ParameterType::Float, "2.5"),
             ),
             binary(
-                "<",
+                BinaryOp::Less,
                 typed_const(ParameterType::Float, "1.5"),
                 typed_const(ParameterType::Float, "2.5"),
             ),
-            binary("+", typed_const(ParameterType::Byte, "1"), int_const("2")),
+            binary(
+                BinaryOp::Add,
+                typed_const(ParameterType::Byte, "1"),
+                int_const("2"),
+            ),
         ] {
             let rendered = shape(&value);
             assert_eq!(folded(value, &scopes), rendered);

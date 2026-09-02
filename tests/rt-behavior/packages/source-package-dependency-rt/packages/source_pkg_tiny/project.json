@@ -1,0 +1,9 @@
+{
+  "name": "source_pkg_tiny",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-480 Defect A: the source-directory dependency consumed by `../../` -- a plain exported FUNC per return kind, no resources and no threads.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

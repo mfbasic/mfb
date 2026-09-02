@@ -1,0 +1,9 @@
+{
+  "name": "source_pkg_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-480 Defect A: the source-directory dependency consumed by `../../` -- one plain exported FUNC and one `EXPORT ISOLATED FUNC` thread entry.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

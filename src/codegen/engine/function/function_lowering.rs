@@ -605,6 +605,7 @@ fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. }
         | NirValue::Unary { operand: value, .. } => mark_vector_escaping_value(value, out),
         NirValue::Binary { left, right, .. } => {
             mark_vector_escaping_value(left, out);
@@ -896,7 +897,7 @@ pub(crate) fn lower_function(
         building_error_block: false,
         current_file: function.file.clone(),
         current_loc: NirSourceLoc::default(),
-        owner_collections: function
+        owner_containers: function
             .resource_owners
             .values()
             .filter_map(|owner| match owner {
@@ -1204,7 +1205,7 @@ pub(crate) fn lower_builtin_function_wrapper(
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),
-        owner_collections: HashSet::new(),
+        owner_containers: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
@@ -1373,7 +1374,7 @@ pub(crate) fn lower_abi_function_helper(
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),
-        owner_collections: HashSet::new(),
+        owner_containers: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
@@ -1516,7 +1517,7 @@ pub(crate) fn lower_thread_copy_function(
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),
-        owner_collections: HashSet::new(),
+        owner_containers: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),

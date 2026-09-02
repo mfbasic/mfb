@@ -1,0 +1,40 @@
+' bug-480 Defect B1, the union twin of `net/qualified-enum-member-rt`. The
+' prefixed spelling of an imported union VARIANT is what the governing rule
+' requires, and before the fix `CASE json::JsonBool` escaped the front end and
+' died in NIR with `error: NIR local reference 'json.JsonBool' does not resolve`.
+'
+' Both the pattern position and the constructor position are covered: a variant
+' name is one name, and it has to resolve the same way wherever it is written.
+IMPORT json
+IMPORT io
+
+FUNC describe(v AS json::Json) AS String
+  MATCH v
+    CASE json::JsonStr(s)
+      RETURN "str:" & s.value
+    CASE json::JsonNull(n)
+      RETURN "null"
+    CASE json::JsonBool(b)
+      RETURN "bool:" & toString(b.value)
+    CASE json::JsonNum(m)
+      RETURN "num:" & toString(m.value)
+    CASE json::JsonArr(a)
+      RETURN "arr"
+    CASE json::JsonObj(o)
+      RETURN "obj"
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  ' Constructor position, prefixed.
+  LET b AS json::Json = json::JsonBool[true]
+  io::print(describe(b))
+  LET n AS json::Json = json::JsonNull[NOTHING]
+  io::print(describe(n))
+  LET s AS json::Json = json::JsonStr["hi"]
+  io::print(describe(s))
+  ' Parsed value, so the CASE arms are reached from a real union at runtime.
+  io::print(describe(json::parse("false")))
+  io::print(describe(json::parse("[1]")))
+  RETURN 0
+END FUNC

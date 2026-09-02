@@ -1,0 +1,24 @@
+' plan-114-E: a `STATE T` clause on a record field is gated exactly as it is on a
+' binding (spec 15.5) -- `T` must be a copyable, defaultable DATA type. A
+' resource is none of those, so `STATE fs::File` is refused.
+'
+' THIS FIXTURE PINS A GAP THAT WAS REAL. The binding check lives behind an
+' `explicit_type` gate in ir/verify/ops.rs and never saw a field, so when
+' plan-114-D opened the grammar a field could declare a resource as its own state
+' payload and NOTHING rejected it -- all the way to codegen -- while a binding
+' with the identical clause had always been refused. Measured before the fix:
+' `mfb build -ast -ir` emitted no diagnostic at all.
+'
+' So this is not "verify the existing rule still applies". The rule had to be
+' routed to the field position, and this is what says it stays routed.
+IMPORT fs
+IMPORT io
+
+TYPE Holder
+  handle AS RES fs::File STATE fs::File
+END TYPE
+
+FUNC main AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC

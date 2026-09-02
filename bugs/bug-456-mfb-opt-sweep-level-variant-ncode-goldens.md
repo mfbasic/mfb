@@ -34,6 +34,7 @@ syntax/lexical/parser-hello-world/…macos-aarch64.ncode
 syntax/match/control-flow-match/…macos-aarch64.ncode
 ```
 
+
 ## Unresolved measurement, added 2026-08-31 (coordinator, pre-dispatch)
 
 **The dial-sensitive golden population is larger than the 7 this document
@@ -95,6 +96,46 @@ References:
   `MFB_OPT=3 test-accept` as the mandatory behavior sweep for new rows.
 - Found while landing the six Level-3 loop rows (2026-08-25): the sweep's
   useful signal (3 real bugs) sat among the 7 constants.
+
+### Answer to that measurement, from bug-471's sweep (2026-08-31)
+
+Run uncontended on the bug-471 worktree (main at `744c7c175` merged in), then
+re-run with a release compiler built from main's tip via `git archive` — the two
+report the **same 9 mismatches, name for name**, which is what dates them as
+noise rather than as bug-471's:
+
+```
+7 x .ncode   (the seven this document names)
+2 x .mir     rt-behavior/control-flow/control-flow-if/…macos-aarch64.mir
+             syntax/lexical/parser-hello-world/…macos-aarch64.mir
+0 x .nir     0 x .nplan     0 x .nobj
+```
+
+That settles the three possibilities above, differently per kind:
+
+* **Possibility 2 is ruled out for `.nir`/`.nplan`/`.nobj`/`.mir`.** The harness
+  *does* compare them — `ARTIFACT_NATIVE_KINDS` is `nir nplan nobj ncode mir`
+  and `test-accept.sh` moves and compares each kind whenever a golden exists
+  (`scripts/test-accept.sh:616`). `.mir` proves it by mismatching.
+* **Possibility 1 holds for `.nir`/`.nplan`/`.nobj`**: 21 + 21 + 18 goldens, none
+  drifting at `-O3`, including on the five `.ncode` fixtures that carry one. So
+  the surprising fact is real, and it is a fact about *where the dial's effect
+  first appears* — `.nir`/`.nplan`/`.nobj` are emitted upstream of the passes the
+  dial gates, while `.mir` and `.ncode` are downstream. That is the natural
+  boundary a derived predicate should encode.
+* **`.ncodesum` (140 files) is outside this sweep entirely** — a THIRD gap this
+  document does not name. It is not in `ARTIFACT_NATIVE_KINDS`; those goldens
+  live under `tests/byte-identity/*`, which `test-accept.sh` never executes
+  (`scripts/test-accept.sh:415`), and they are the artifact-gate's kind. The
+  gate has no `MFB_OPT` switch, so nothing compares an `.ncodesum` at `-O3` on
+  any path. Whether that is intended is a separate question, but a fix keyed to
+  "downstream of the dial" should say which harness owns each kind, or it will
+  look like it covered `.ncodesum` when no harness does.
+
+So the population to skip is `.ncode` + `.mir` **as measured**, and the derived
+predicate this document rightly asks for should be "emitted after the `-O`-gated
+passes", not a path list — the count moved from 7 to 9 the moment two fixtures
+gained a `.mir` golden.
 
 ## Failing Reproduction
 

@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -28,6 +29,13 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.setSyncMode",
             "canvas.surfaceWidth",
             "canvas.surfaceHeight",
+            "canvas.setGpuMode",
+            "canvas.useGpu",
+            "canvas.metalAvailable",
+            "canvas.vulkanReady",
+            "canvas.vulkanDrawScene",
+            "canvas.metalReady",
+            "canvas.metalDrawScene",
             "canvas.startGraphics",
             "canvas.signalRedraw",
             "canvas.waitForRedraw",
@@ -467,9 +475,17 @@ fn value_may_emit_float_arithmetic_error(
         } => {
             let result_type = static_nir_value_type(left, locals, fields)
                 .zip(static_nir_value_type(right, locals, fields))
-                .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type));
-            (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
-                && result_type == Some(ParameterType::Float))
+                .map(|(left_type, right_type)| promoted_binary_type(*op, &left_type, &right_type));
+            (matches!(
+                op,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Mod
+                    | BinaryOp::Power
+            ) && result_type == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
                 || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
@@ -483,7 +499,8 @@ fn value_may_emit_float_arithmetic_error(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_may_emit_float_arithmetic_error(value, locals, fields)
         }
         NirValue::WithUpdate {
@@ -505,7 +522,7 @@ fn value_may_emit_float_arithmetic_error(
             value_may_emit_float_arithmetic_error(target, locals, fields)
         }
         NirValue::Unary { op, operand, .. } => {
-            (op == "-"
+            (*op == UnaryOp::Negate
                 && static_nir_value_type(operand, locals, fields) == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(operand, locals, fields)
         }
@@ -589,7 +606,8 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => value_uses_call(value, target),
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => value_uses_call(value, target),
         NirValue::WithUpdate {
             target: updated,
             updates,
@@ -724,7 +742,8 @@ fn value_uses_type_name(value: &NirValue) -> bool {
             }
             NirValue::ResultIsOk { value }
             | NirValue::ResultValue { value }
-            | NirValue::ResultError { value } => value_uses_type_name(value),
+            | NirValue::ResultError { value }
+            | NirValue::Checked { value, .. } => value_uses_type_name(value),
             NirValue::WithUpdate {
                 target, updates, ..
             } => {
@@ -1009,7 +1028,8 @@ fn value_uses_unicode_runtime_tables(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_uses_unicode_runtime_tables(value, constants, types, fields)
         }
         NirValue::WithUpdate {
@@ -1090,7 +1110,8 @@ pub(crate) fn value_may_return_invalid_format(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             value_may_return_invalid_format(value, constants, types, fields)
         }
         NirValue::WithUpdate {
@@ -1114,7 +1135,7 @@ pub(crate) fn value_may_return_invalid_format(
         NirValue::Binary {
             op, left, right, ..
         } => {
-            binary_may_consume_float_into_exact(op, left, right, types, fields)
+            binary_may_consume_float_into_exact(*op, left, right, types, fields)
                 || value_may_return_invalid_format(left, constants, types, fields)
                 || value_may_return_invalid_format(right, constants, types, fields)
         }

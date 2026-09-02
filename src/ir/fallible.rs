@@ -33,6 +33,8 @@
 
 use crate::codegen::builtins;
 use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirItem, HirProject, HirStatement};
+use crate::operators::{BinaryOp, UnaryOp};
+use crate::types::ParameterType;
 use std::collections::HashSet;
 
 /// The project's fallibility verdicts, consulted by target name.
@@ -122,6 +124,108 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
     verdicts
 }
 
+/// The arithmetic operators (`mfb spec language operators` §11). Every one of
+/// them is *checked* on an integer-family result — the spec's "checked numeric
+/// failures from operators are ordinary failures and therefore auto-propagate
+/// unless handled by a `TRAP`" — so each is a raise site the inline-`TRAP`
+/// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`),
+/// comparison and string-concatenation operators produce no domain error and are
+/// deliberately absent.
+const ARITHMETIC_OPERATORS: [BinaryOp; 7] = [
+    BinaryOp::Add,
+    BinaryOp::Subtract,
+    BinaryOp::Multiply,
+    BinaryOp::Divide,
+    BinaryOp::IntDiv,
+    BinaryOp::Mod,
+    BinaryOp::Power,
+];
+
+/// The unary half of [`ARITHMETIC_OPERATORS`]: `-` is the only unary operator
+/// with a numeric domain, so the only one that can raise. `NOT` is
+/// `Boolean`-only and `SIZEOF` folds to a constant before lowering.
+const ARITHMETIC_UNARY_OPERATORS: [UnaryOp; 1] = [UnaryOp::Negate];
+
+/// Whether an operator node can raise a domain error while the expression it
+/// sits in is being evaluated (bug-471).
+///
+/// This is the operator twin of [`Fallibility::call_is_fallible`] and, like it,
+/// a deliberate **over-approximation**: it answers from the operator spelling
+/// and the node's own result type rather than arm-by-arm against
+/// `codegen::engine::operators`. A recogniser kept in lockstep with a per-arm
+/// census is exactly the shape that silently loses an arm when the census grows
+/// (`Money`'s dispatcher, `Byte`'s underflow, `Fixed`'s `MOD` divisor check are
+/// three separate code paths already), and here an over-approximation costs one
+/// redundant always-`Ok` check inside a trapped expression while an
+/// under-approximation is the miscompile this exists to close.
+///
+/// The result type is the discriminator because arithmetic only type-checks on
+/// numeric operands (`AND`/`OR` are `Boolean`-only, `&` is `String`-only — §11),
+/// so an arithmetic node's result type is numeric exactly when its operands
+/// were. `Float` counts: plan-17 moved `+`/`-`/`*`/`/`'s check from the operator
+/// to the observation boundary, but that boundary still sits *inside* the
+/// trapped expression (a `Float` overflow nested in a trapped call escaped the
+/// handler exactly like an integer one before this fix), and `MOD`/`^` raise
+/// `ErrFloatDomain` at the operator itself.
+pub(super) fn operator_can_raise(op: BinaryOp, result_type: &ParameterType) -> bool {
+    ARITHMETIC_OPERATORS.contains(&op)
+        && matches!(
+            result_type,
+            ParameterType::Byte
+                | ParameterType::Integer
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::Float
+        )
+}
+
+/// The one exemption to [`operator_can_raise`]: a unary `-` whose operand is a
+/// numeric **literal** is the spelling of a negative literal, not a computed
+/// negation, and cannot raise. Callers apply it only once they have established
+/// that the operand is a constant.
+///
+/// The parser produces `Unary(-, Const n)` for every negative numeric literal
+/// (unary `-` binds at the unary tier — `mfb spec language operators`), so this
+/// is by far the commonest operator inside a trapped expression: `f(-1) TRAP(e)`
+/// would otherwise pay a whole `Checked` + `Result` materialization to check a
+/// negation that provably succeeds.
+///
+/// Why it provably succeeds, per the codegen arm
+/// (`builder_numeric.rs:lower_numeric_unary_negation`):
+///
+/// * `Integer`/`Fixed`/`Money` negate through `emit_min_i64_negation_check`,
+///   which raises `ErrOverflow` only on exactly `i64::MIN`. `n` here is the
+///   *non-negative* half of a negative literal, and the one spelling that would
+///   produce `i64::MIN` — `-9223372036854775808` — never reaches this shape:
+///   lowering folds it to a single `Const "-9223372036854775808"` (measured by
+///   dumping its `-ir`, since `9223372036854775808` has no positive `Integer`
+///   representation to hold).
+/// * `Float` negation flips the sign bit and emits no check at all.
+/// * `Byte` is **excluded** rather than reasoned about: its negation raises
+///   `ErrUnderflow` for any non-zero operand. A negative literal types as
+///   `Integer` and is rejected against a `Byte` parameter
+///   (`TYPE_CALL_ARGUMENT_MISMATCH`), so the shape is unreachable from source —
+///   but "unreachable" is a weaker guarantee than "cannot raise", and this is
+///   the side of the line where being wrong is a miscompile.
+pub(super) fn is_total_literal_negation(op: UnaryOp, result_type: &ParameterType) -> bool {
+    op == UnaryOp::Negate && !matches!(result_type, ParameterType::Byte)
+}
+
+/// [`operator_can_raise`] for a unary node. Split from the binary form because
+/// the two arities are separate vocabularies: before the split both shared one
+/// `&str` list in which `"-"` stood for subtraction *and* negation at once.
+pub(super) fn unary_operator_can_raise(op: UnaryOp, result_type: &ParameterType) -> bool {
+    ARITHMETIC_UNARY_OPERATORS.contains(&op)
+        && matches!(
+            result_type,
+            ParameterType::Byte
+                | ParameterType::Integer
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::Float
+        )
+}
+
 /// Whether a block can let an error escape to the caller.
 fn block_escapes(body: &[HirStatement], verdicts: &Fallibility) -> bool {
     body.iter()
@@ -206,10 +310,35 @@ fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> boo
         | HirExpression::Scalar(_)
         | HirExpression::Boolean(_)
         | HirExpression::Identifier(_) => false,
-        HirExpression::Binary { left, right, .. } => {
-            expression_escapes(left, verdicts) || expression_escapes(right, verdicts)
+        // bug-471: a RAISING OPERATOR lets an error escape exactly as a failing
+        // call does — `FUNC fltDiv(a AS Float, b AS Float) AS Float / RETURN a / b`
+        // fails with `ErrFloatOverflow`, and every caller must be told so. Judged
+        // by the operator spelling alone: this walk has no types, and an
+        // arithmetic operator only type-checks on numeric operands, so the
+        // spelling already implies the type (`AND`/`OR`/`XOR` are `Boolean`-only,
+        // `&` is `String`-only, comparisons yield `Boolean` — none are listed).
+        //
+        // The `Unary` arm keeps the negative-literal exemption for the same
+        // reason `lower::trap_hoist_kind` does: `RETURN -1` must not make a
+        // function fallible. Its `Number` operand is the parser's spelling of the
+        // literal, not a computed negation
+        // (see `is_total_literal_negation`).
+        HirExpression::Binary {
+            left,
+            operator,
+            right,
+            ..
+        } => {
+            ARITHMETIC_OPERATORS.contains(operator)
+                || expression_escapes(left, verdicts)
+                || expression_escapes(right, verdicts)
         }
-        HirExpression::Unary { operand, .. } => expression_escapes(operand, verdicts),
+        HirExpression::Unary {
+            operand, operator, ..
+        } => {
+            (*operator == UnaryOp::Negate && !matches!(operand.as_ref(), HirExpression::Number(_)))
+                || expression_escapes(operand, verdicts)
+        }
         HirExpression::Call {
             callee, arguments, ..
         } => {

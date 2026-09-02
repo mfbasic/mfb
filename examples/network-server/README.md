@@ -5,31 +5,25 @@ connection on a worker thread. `examples/network-client` is the matching client.
 
 ## Building
 
-This example is **two projects**: the executable here, and the `connworker`
-package under [`worker/`](worker/). The package has to be built first and
-installed at `packages/connworker.mfp` before the executable will build:
+One project, one command:
 
 ```sh
-mfb build examples/network-server/worker
-mkdir -p examples/network-server/packages
-cp examples/network-server/worker/connworker.mfp examples/network-server/packages/
 mfb build examples/network-server
 ```
 
-`scripts/build-examples.sh` does exactly this before its per-target builds.
+The source is two files. [`src/main.mfb`](src/main.mfb) is the command line, the
+three transports and the single-threaded polling loop; [`src/wire.mfb`](src/wire.mfb)
+is the wire format (`counterText`, `hasBye`, the tick constants) plus the two
+`ISOLATED FUNC` worker entries that `--thread` runs. They are one project, so the
+helpers are `PUBLIC` and named without a prefix, and the single-threaded server
+and the workers share one wire format rather than two copies of it.
 
-The split is not organisational taste — it is forced by the language. A thread
-entry point must be an `EXPORT ISOLATED FUNC` of an *imported package*, and
-`IMPORT self` is rejected in an executable:
-
-```
-error[2-201-0019 IMPORT_SELF_IN_EXECUTABLE]: IMPORT self is only valid in a package project
-```
-
-so a program that spawns a worker needs a package to spawn it from. The wire
-helpers (`counterText`, `hasBye`, the tick constants) live there too, so the
-single-threaded server and the workers share one wire format rather than two
-copies of it.
+This example used to be **two** projects — the executable plus a `connworker`
+package — because a thread entry had to be an `EXPORT ISOLATED FUNC` reached
+through an import, and an executable had no way to name one of its own. That
+rule is gone: any `ISOLATED FUNC` is a thread entry, so `serveTcpConnections`
+lives beside the code that starts it and `thread::start(serveTcpConnections, …)`
+names it directly.
 
 ## Running
 

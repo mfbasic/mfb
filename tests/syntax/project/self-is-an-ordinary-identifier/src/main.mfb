@@ -1,0 +1,38 @@
+' plan-115-B guardrail: removing `IMPORT self` left `self` an ordinary
+' identifier, not a half-reserved word.
+'
+' `self` was only ever special in the import-root position -- it already worked
+' as a variable and a function name BEFORE the removal (measured while working
+' this letter). This fixture pins that it still does, in every position a plain
+' identifier may appear, so a future change cannot quietly re-reserve it.
+'
+' It replaces the three deleted fixtures import-self-package-valid,
+' import-self-alias and import-self-in-executable, plus a fourth the plan's
+' census missed, import-self-alias-conflict (`IMPORT io AS self`), which pinned
+' the SYMBOL_DUPLICATE_IMPORT guard this letter deletes. Each described a
+' feature that no longer exists.
+IMPORT io
+
+' As a top-level function name.
+FUNC self(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+
+' As a top-level binding name.
+MUT selfCount AS Integer = 0
+
+TYPE Holder
+  ' As a record field name.
+  self AS Integer
+END TYPE
+
+FUNC main AS Integer
+  ' As a local binding name.
+  LET self AS Integer = 21
+  ' As a record field, constructed and read back.
+  LET h AS Holder = Holder[7]
+  LET updated AS Holder = WITH h { self := 8 }
+  selfCount = self + updated.self
+  io::print("self=" & toString(self) & " field=" & toString(updated.self) & " count=" & toString(selfCount))
+  RETURN 0
+END FUNC

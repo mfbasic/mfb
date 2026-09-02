@@ -57,10 +57,10 @@ TESTING
         expectString(toString(0.00m), "0.00")
       END TCASE
       TCASE "toString presentation rounds half-away, independent of the mode"
-        money::setRounding(Rounding.Banker)
+        money::setRounding(money::Rounding.Banker)
         expectString(toString(0.125m), "0.13")
         expectString(toString(2.005m), "2.01")
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
         expectString(toString(0.125m), "0.13")
         expectString(toString(2.005m), "2.01")
       END TCASE
@@ -189,11 +189,11 @@ TESTING
         expectEqual(toMoney("123456789.12345"), 123456789.12345m)
         expectEqual(toMoney(".5"), 0.50000m)
         expectEqual(toMoney("007.50"), 7.50m)
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
         expectEqual(toMoney("1.234565"), 1.23457m)
-        money::setRounding(Rounding.Banker)
+        money::setRounding(money::Rounding.Banker)
         expectEqual(toMoney("1.234565"), 1.23456m)
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
       END TCASE
     END TGROUP
 
@@ -202,7 +202,7 @@ TESTING
     ' =================================================================
     TGROUP "money::round"
       TCASE "Commercial rounds ties away from zero (symmetric on sign)"
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
         expectEqual(money::round(0.125m, 2), 0.13m)
         expectEqual(money::round(-0.125m, 2), -0.13m)
         expectEqual(money::round(0.005m, 2), 0.01m)
@@ -211,16 +211,16 @@ TESTING
         expectEqual(money::round(-0.135m, 2), -0.14m)
       END TCASE
       TCASE "Banker rounds ties to even"
-        money::setRounding(Rounding.Banker)
+        money::setRounding(money::Rounding.Banker)
         expectEqual(money::round(0.125m, 2), 0.12m)
         expectEqual(money::round(0.135m, 2), 0.14m)
         expectEqual(money::round(0.245m, 2), 0.24m)
         expectEqual(money::round(2.5m, 0), 2.00m)
         expectEqual(money::round(3.5m, 0), 4.00m)
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
       END TCASE
       TCASE "settling at each decimal place 0..5"
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
         expectEqual(money::round(3.14159m, 0), 3.00m)
         expectEqual(money::round(1.2345m, 1), 1.20m)
         expectEqual(money::round(1.2345m, 3), 1.235m)
@@ -249,11 +249,11 @@ TESTING
     TGROUP "rounding mode governs arithmetic"
       TCASE "division of a Money by a scalar rounds under the mode"
         ' 1.00m / 64 = 0.015625 exactly; the 6th place is a true tie.
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
         expectEqual(1.00m / 64, 0.01563m)
-        money::setRounding(Rounding.Banker)
+        money::setRounding(money::Rounding.Banker)
         expectEqual(1.00m / 64, 0.01562m)
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
       END TCASE
     END TGROUP
 
@@ -262,10 +262,10 @@ TESTING
     ' =================================================================
     TGROUP "rounding mode state"
       TCASE "getRounding reflects the installed mode"
-        money::setRounding(Rounding.Banker)
-        expectEqual(money::getRounding() = Rounding.Banker, true)
-        money::setRounding(Rounding.Commercial)
-        expectEqual(money::getRounding() = Rounding.Commercial, true)
+        money::setRounding(money::Rounding.Banker)
+        expectEqual(money::getRounding() = money::Rounding.Banker, true)
+        money::setRounding(money::Rounding.Commercial)
+        expectEqual(money::getRounding() = money::Rounding.Commercial, true)
       END TCASE
     END TGROUP
 
@@ -291,10 +291,10 @@ TESTING
         expectInteger(math::ceil(-1.25m), -1)
       END TCASE
       TCASE "math::round(Money) is half-away and ignores the Money rounding mode"
-        money::setRounding(Rounding.Banker)
+        money::setRounding(money::Rounding.Banker)
         expectInteger(math::round(2.5m), 3)
         expectInteger(math::round(0.5m), 1)
-        money::setRounding(Rounding.Commercial)
+        money::setRounding(money::Rounding.Commercial)
       END TCASE
       TCASE "abs of the minimum value overflows"
         LET minm AS Money = -92233720368547.75808

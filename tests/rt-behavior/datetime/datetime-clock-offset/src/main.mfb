@@ -9,11 +9,11 @@ REM past 2020, localOffset is run-stable, and an out-of-range instant traps
 REM ErrInvalidArgument (bug-42 parity; the Windows path bound-checks the FILETIME
 REM arithmetic to match the libc localtime_r NULL contract).
 FUNC main AS Integer
-  LET m1 AS Duration = datetime::monotonic()
-  LET m2 AS Duration = datetime::monotonic()
-  LET d AS Duration = datetime::minus(m2, m1)
+  LET m1 AS datetime::Duration = datetime::monotonic()
+  LET m2 AS datetime::Duration = datetime::monotonic()
+  LET d AS datetime::Duration = datetime::minus(m2, m1)
   io::print("mono_nonneg=" & toString(d.seconds >= 0))
-  LET now AS Instant = datetime::now()
+  LET now AS datetime::Instant = datetime::now()
   io::print("now_recent=" & toString(now.seconds > 1577836800))
   LET a AS Integer = datetime::localOffset(0)
   LET b AS Integer = datetime::localOffset(0)

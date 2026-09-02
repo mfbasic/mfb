@@ -65,7 +65,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "udp.bind", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 34 },
-      { "kind": "binding", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "net.Address", "value": { "kind": "call", "callee": "udp.localAddress", "arguments": [{ "kind": "identifier", "value": "sock" }] }, "line": 35 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "host=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "host" } }] }, "line": 36 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ephemeral=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 37 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "udp.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "number", "value": "0" }] }, "line": 41 },

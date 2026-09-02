@@ -3,7 +3,7 @@ IMPORT datetime
 IMPORT errorCode
 
 FUNC badDate AS Integer
-  LET d AS Date = datetime::date(2026, 2, 29)
+  LET d AS datetime::Date = datetime::date(2026, 2, 29)
   RETURN d.day
   TRAP(err)
     io::print("badDate=" & toString(err.code = errorCode::ErrInvalidArgument))
@@ -12,7 +12,7 @@ FUNC badDate AS Integer
 END FUNC
 
 FUNC badMonth AS Integer
-  LET d AS Date = datetime::date(2026, 13, 1)
+  LET d AS datetime::Date = datetime::date(2026, 13, 1)
   RETURN d.month
   TRAP(err)
     io::print("badMonth=" & toString(err.code = errorCode::ErrInvalidArgument))
@@ -21,7 +21,7 @@ FUNC badMonth AS Integer
 END FUNC
 
 FUNC badHour AS Integer
-  LET t AS Time = datetime::time(24, 0, 0)
+  LET t AS datetime::Time = datetime::time(24, 0, 0)
   RETURN t.hour
   TRAP(err)
     io::print("badHour=" & toString(err.code = errorCode::ErrInvalidArgument))
@@ -30,7 +30,7 @@ FUNC badHour AS Integer
 END FUNC
 
 FUNC badOffset AS Integer
-  LET z AS Zone = datetime::fixedOffset(30, 0)
+  LET z AS datetime::Zone = datetime::fixedOffset(30, 0)
   RETURN z.offsetSeconds
   TRAP(err)
     io::print("badOffset=" & toString(err.code = errorCode::ErrInvalidArgument))
@@ -39,7 +39,7 @@ FUNC badOffset AS Integer
 END FUNC
 
 FUNC badParse AS Integer
-  LET dt AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+  LET dt AS datetime::DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
   RETURN dt.date.year
   TRAP(err)
     io::print("badParse=" & toString(err.code = errorCode::ErrInvalidFormat))
@@ -48,7 +48,7 @@ FUNC badParse AS Integer
 END FUNC
 
 FUNC badIso AS Integer
-  LET dt AS DateTime = datetime::parseIso("2026/06/25")
+  LET dt AS datetime::DateTime = datetime::parseIso("2026/06/25")
   RETURN dt.date.year
   TRAP(err)
     io::print("badIso=" & toString(err.code = errorCode::ErrInvalidFormat))

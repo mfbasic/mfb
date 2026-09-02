@@ -753,7 +753,7 @@ mod tests {
         // package) must not.
         assert_eq!(
             qualified_builtin_type("net.Url"),
-            Some(crate::codegen::builtins::net::URL_TYPE.to_string())
+            Some("net.Url".to_string())
         );
         // `Url` is a net type, not an io/csv type — these must be rejected.
         assert_eq!(qualified_builtin_type("io.Url"), None);
@@ -1081,10 +1081,7 @@ mod tests {
     fn qualified_builtin_type_cases() {
         // net.Url -> bare Url type id.
         let url = qualified_builtin_type("net.Url");
-        assert_eq!(
-            url.as_deref(),
-            Some(crate::codegen::builtins::net::URL_TYPE)
-        );
+        assert_eq!(url.as_deref(), Some("net.Url"));
         // Not a builtin package.
         assert_eq!(qualified_builtin_type("mymod.Thing"), None);
         // Builtin package, non-type member.

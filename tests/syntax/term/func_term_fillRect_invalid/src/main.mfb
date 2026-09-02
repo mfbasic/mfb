@@ -1,9 +1,9 @@
 IMPORT term
 
 FUNC main AS Integer
-  term::fillRect(FillStyle.Filled, 0, 0, 0)
+  term::fillRect(term::FillStyle.Filled, 0, 0, 0)
   term::fillRect(0, 0, 0, 0, 0)
-  term::fillRect(LineStyle.Light, 0, 0, 0, 0)
-  term::fillRect(FillStyle.Filled, "a", 0, 0, 0)
+  term::fillRect(term::LineStyle.Light, 0, 0, 0, 0)
+  term::fillRect(term::FillStyle.Filled, "a", 0, 0, 0)
   RETURN 0
 END FUNC

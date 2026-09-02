@@ -43,21 +43,21 @@ pub(crate) fn lower_get_mode(
     })
 }
 const INTRO: &str = r#"Read the presentation mode currently in effect for this `--app` program"#;
-const DESC: &str = r#"`app::getMode` returns the program's current presentation mode as a `Mode` value.
+const DESC: &str = r#"`app::getMode` returns the program's current presentation mode as an `app::Mode` value.
 It takes no arguments and always succeeds.
 
 The mode reported is the value most recently written by `app::setMode`, or — if
 the program has never called `app::setMode` — the statically decided initial mode.
-That initial mode is `Mode.Console` for a program that references `app::setMode`
-nowhere, and `Mode.None` for a program that references it anywhere (even on a
+That initial mode is `app::Mode.Console` for a program that references `app::setMode`
+nowhere, and `app::Mode.None` for a program that references it anywhere (even on a
 never-taken branch: the decision is a static, whole-program one, not a runtime
 flow analysis).
 
 Reading the mode is as cheap as reading a local variable, so a program may call
 `app::getMode` freely rather than caching the answer.
 
-The `Mode` enum is referenced bare, like every other builtin type: write
-`Mode.Console`, not `app::Mode.Console`."#;
+The `app::Mode` enum is referenced bare, like every other builtin type: write
+`app::Mode.Console`, not `app::Mode.Console`."#;
 const EX: &str = r#"Branch on the mode currently in effect:
 
 ```
@@ -65,7 +65,7 @@ IMPORT app
 IMPORT io
 
 SUB main
-  IF app::getMode() = Mode.None THEN
+  IF app::getMode() = app::Mode.None THEN
     io::print("running windowless")
   END IF
 END SUB

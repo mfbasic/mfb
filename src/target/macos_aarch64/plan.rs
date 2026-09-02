@@ -1,3 +1,8 @@
+use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
+use crate::target::macos_aarch64::app::{
+    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+    CLASS_MTL_TEXTURE_DESCRIPTOR,
+};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
 use crate::target::shared::runtime::{self, RuntimeHelperSpec};
@@ -128,6 +133,10 @@ impl plan::NativePlanPlatform for Platform {
             ("CoreGraphics", "_CGBitmapContextCreateImage"),
             ("CoreGraphics", "_CGContextRelease"),
             ("CoreGraphics", "_CGImageRelease"),
+            // The canvas layer's opaque-black background, built once at view
+            // construction so the surface is never the window showing through —
+            // before the first frame or anywhere a frame does not reach.
+            ("CoreGraphics", "_CGColorCreateGenericRGB"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),
@@ -705,6 +714,13 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.frameDone"
             | "canvas.syncFrame"
             | "canvas.setSyncMode"
+            | "canvas.setGpuMode"
+            | "canvas.metalAvailable"
+            | "canvas.vulkanReady"
+            | "canvas.vulkanDrawScene"
+            | "canvas.metalReady"
+            | "canvas.metalDrawScene"
+            | "canvas.useGpu"
             | "canvas.surfaceWidth"
             | "canvas.surfaceHeight" => [
                 "_pthread_create",
@@ -726,6 +742,36 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: symbol.to_string(),
                 required_by: required_by.clone(),
             })
+            .chain(
+                // plan-98-E: the Metal symbols. `MTLCreateSystemDefaultDevice` is
+                // a C entry point in Metal.framework, not a libSystem symbol, and
+                // the three `_OBJC_CLASS_$_MTL*` are read as external data by the
+                // pipeline setup and the frame renderer.
+                //
+                // They belong on this per-call arm rather than in `app_mode_imports`,
+                // and that is not a tidiness point: `app_mode_imports` is
+                // unconditional, so declaring them there made **every** macOS
+                // app-mode binary link Metal.framework — including a console-in-a-
+                // window program that never draws. Six app-mode goldens moved, which
+                // is how it was caught.
+                //
+                // Declared for the whole canvas-graphics set rather than per member:
+                // the merged table dedups, and scoping it tighter would mean
+                // re-deriving which member reaches which class every time the
+                // renderer grows.
+                [
+                    MTL_CREATE_DEVICE,
+                    CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+                    CLASS_MTL_TEXTURE_DESCRIPTOR,
+                    CLASS_MTL_RENDER_PASS_DESCRIPTOR,
+                ]
+                .into_iter()
+                .map(|symbol| PlatformImport {
+                    library: LIB_METAL.to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: required_by.clone(),
+                }),
+            )
             .collect(),
             "thread.start"
             | "thread.isRunning"
@@ -768,7 +814,7 @@ impl plan::NativePlanPlatform for Platform {
                 // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
                 // is harmless (the merged table dedups; unused imports are inert),
                 // so every process helper pulls the shared set.
-                [
+                let mut imports = [
                     "_pipe",
                     "_fork",
                     "_dup2",
@@ -794,7 +840,20 @@ impl plan::NativePlanPlatform for Platform {
                     symbol: symbol.to_string(),
                     required_by: required_by.clone(),
                 })
-                .collect()
+                .collect::<Vec<_>>();
+                // bug-474: `detach` alone spawns the per-child reaper thread
+                // (`_mfb_rt_process_reaper`), so only it pulls pthread — the rest of
+                // the package stays libc-only.
+                if call == "process.detach" {
+                    imports.extend(["_pthread_create", "_pthread_detach"].into_iter().map(
+                        |symbol| PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: symbol.to_string(),
+                            required_by: required_by.clone(),
+                        },
+                    ));
+                }
+                imports
             }
             // plan-110-B: `tcp` lowers through net's emitters, so it needs the same
             // libSystem symbols and the same errno accessor.

@@ -6,9 +6,9 @@ IMPORT io
 
 FUNC main AS Integer
   RES p = process::spawn(["sleep", "30"])
-  process::signal(p, Signal.Terminate)
+  process::signal(p, process::Signal.Terminate)
   io::print(toString(process::waitFor(p)))
-  IF process::didSignal(p) = Signal.Terminate THEN
+  IF process::didSignal(p) = process::Signal.Terminate THEN
     io::print("terminate")
   ELSE
     io::print("other")
@@ -16,7 +16,7 @@ FUNC main AS Integer
 
   RES q = process::spawn(["true"])
   io::print(toString(process::waitFor(q)))
-  IF process::didSignal(q) = Signal.None THEN
+  IF process::didSignal(q) = process::Signal.None THEN
     io::print("none")
   ELSE
     io::print("other")

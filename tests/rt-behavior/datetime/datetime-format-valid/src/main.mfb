@@ -2,8 +2,8 @@ IMPORT io
 IMPORT datetime
 
 FUNC main AS Integer
-  LET at AS Instant = datetime::instant(1782743400)
-  LET dt AS DateTime = datetime::inZone(at, datetime::fixedOffset(5, 30))
+  LET at AS datetime::Instant = datetime::instant(1782743400)
+  LET dt AS datetime::DateTime = datetime::inZone(at, datetime::fixedOffset(5, 30))
   io::print(datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z"))
   io::print(datetime::format(dt, "EEE, d MMM yyyy h:mm:ss a"))
   io::print(datetime::format(dt, "MMMM d, yyyy"))

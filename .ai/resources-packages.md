@@ -178,6 +178,46 @@ string halves (`resolve_call`, `call_return_type`, `argument_types`,
   round-trip property (`parse(k).name() == k`) does NOT catch it — the real
   question is whether the key you BUILD equals the key the LOOKUP passes.
 
+## The LINK C ABI vocabulary is a `ParameterType` variant (plan-113)
+
+A ctype (`CPtr`, `CInt32`, …) is **not** a `String` after the AST. It is
+`ParameterType::C(CAbiType)` — a closed 16-variant enum in `src/types.rs` —
+and the conversion happens at ONE place, `hir::elaborate_link_block`. Things
+that follow, and that a `grep` for `ctype` will not tell you:
+
+- **A `CSTRUCT`-named `ABI` slot stays a `Named`, deliberately.** The 16 are
+  closed; the slot namespace is NOT — a slot may name any `CSTRUCT` declared in
+  the same `LINK` alias, and six goldens do (`"ctype": "SfFileInfo"`). So
+  `slot.ctype.c_abi()` returning `None` means *either* "a CSTRUCT" *or* "a typo",
+  and the caller distinguishes them by looking the name up in
+  `project.link_cstructs` (`is_cstruct_slot` / `cstruct_of`, which now ask
+  `ctype.is_named(&c.name)`). Do not "simplify" a slot ctype to a `CAbiType`.
+- **The IR carriers are `ParameterType`, not `CAbiType`, and that is load
+  bearing.** `IrAbiSlot.ctype`, `IrCStructField.ctype` and
+  `IrLinkFunction.abi_return_ctype` decode from a crafted `.mfp` where the
+  spelling is attacker-controlled. `ParameterType::parse` is TOTAL, so an
+  unknown spelling decodes to a `Named` and is rejected by the existing
+  `NATIVE_ABI_UNKNOWN_CTYPE` check with its own message and location. Making the
+  decode fail instead would replace that diagnostic with
+  `PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED` — a real behaviour change on the
+  package path, and the reason the `AbiDirection` precedent (whose code has no
+  downstream validator) does not apply here.
+- **The two `is_c_abi_type` reject-lists are 12 and 13 of 16, on purpose.**
+  `resolver::is_c_abi_type` omits `CBool`/`CByte`/`CVoid`/`CBuffer`;
+  `ir::verify::link`'s local copy omits only `CBool`/`CByte`/`CBuffer` (it
+  includes `CVoid`, because a crafted `.mfp` naming it in an MFB signature must
+  be rejected). Rewriting either as `t.c_abi().is_some()` compiles fine and
+  silently widens `NATIVE_CPTR_ESCAPE`. The negative assertions in
+  `is_c_abi_type_recognizes_and_rejects` are the only guard.
+- **A C spelling is a legal template-parameter name.** `TYPE Box OF CPtr`
+  builds, so `with_vars` / `monomorph`'s two leaf-symbol probes carry a `C` arm
+  to keep reclassifying it as a `Var`.
+- **`every_known_ctype_lowers` is not redundant with the exhaustive matches.**
+  A `match` proves each variant has an arm; that test proves the arm actually
+  `lower_link_thunk`s without error, and its `OUT CBuffer` case walks the whole
+  buffer-staging path. Its sibling `ctype_list_is_exhaustive` WAS redundant and
+  is gone.
+
 ## New builtin-package registration seams
 
 Adding a new builtin package (e.g. a resource package like `process`) touches far more than the descriptor. The obvious ones are documented; these are the ones a plan usually MISSES and the compiler/tests catch late:
@@ -256,3 +296,59 @@ Known instances:
 **Finding them:** `python3 scripts/check-man-examples.py` compiles all ~1010 man-page example blocks. It uses `target/release/mfb` — a stale release build will report already-fixed failures, so build release first. It wraps a block with no `main` in a synthetic empty `SUB main()`, so reproduce that wrapping by hand when checking a single block.
 
 Fixture note: a `<name>.run` golden may be empty and still load-bearing — its *presence* is what makes `test-accept.sh` build and execute the program (output lands in `build.log`). New fixtures also need seeded empty `.ast`/`.ir` goldens or the harness reports "unexpected actual".
+
+## Record `RES` field (plan-114)
+
+A record field may hold a resource: `TYPE Holder { handle AS RES fs::File }`.
+The field is **one 8-byte handle slot** — copying the record copies the pointer
+and aliases the same resource, never duplicating it (§15.6). Four things about it
+are non-obvious and cost real bugs during plan-114.
+
+**1. The `RES` marker survives only where a type is stored unstripped.**
+`typed_list_element_type` and `typed_map_type_parts` **strip** it
+(`engine/types/type_utils.rs:345`, `:352`), so a collection payload is a *bare*
+resource. `model.record_fields` does **not** strip, so a record field is the only
+position where a `ParameterType::Res(_)` reaches a structural walk at the top
+level. Consequences:
+
+- `type_is_flat` was `false` for `List OF RES fs.File` all along (the payload is
+  bare) — not `true` as one would guess from reading `Res(_)` having no arm.
+- The `Res(_)` arm of any type predicate is reachable **only** through a record
+  field, so its blast radius is exactly the new feature.
+
+**2. A bare resource nominal is flat in NEITHER sense; `Res(_)` is flat in one.**
+`type_is_memcpy_copyable` / `type_is_arena_transferable` (plan-114-B) split
+"does a `memcpy` copy this within one thread" from "may this block be relocated
+into another thread's arena". `Res(inner)` is `true`/`false`; a **bare** nominal
+is `false`/`false`, and making it `true` for the memcpy question **propagates
+through `ResultOf`**: `Result OF tcp.Socket` becomes "flat",
+`is_freeable_flat_value` claims it, and a `pending_temp` free is emitted for
+something that is not a block. Measured as a real `.ncode` diff in
+`tests/byte-identity/tcp`, a fixture with no thread in it.
+
+**3. `copy_value_to_current_arena` asks the MEMCPY question, not the arena one.**
+Its name is the tell: it copies into the *current* arena, and the `Result` wrap
+at `builder_arena_transfer.rs:145` is reached by any `TRAP` in a thread-free
+program. Whether the source came from another thread is the *caller's* question,
+answered by `collection_payload_needs_transfer_fix` and the thread-send
+`size_computable` — the only two consumers of arena-transferability.
+
+**4. The escape analysis needs a type table for records, and `decl_type` is
+annotation-only.** `ResOwner::Float(name)` carries a binding name, and the
+bug-291 ordering gate consults `decl_type` to ask "can this container own a
+resource". `Named("Holder")` cannot answer that, so `ir::lower` threads
+`TypeIndex::res_field_record_types()` into `analyze_function_with`. **And
+`decl_type` is populated only for an explicit `AS T`** — so
+`LET h = Holder[..., f]; RETURN h` (inferred) had no entry, the gate degraded to
+`ResOwner::Local`, and the callee closed the handle it had just returned
+(`7-703-0004` in the caller). A record *constructor* names its own type, so the
+type is recorded from the initializer. A `RES` **parameter** is exempt from the
+ordering rule entirely: the caller owns it, this function never produces it, so
+there is no production point for the rule's hazard to attach to.
+
+**Design limit worth knowing:** a resource the callee **produces** cannot be
+returned inside a record. The ordering rule wants the container declared before
+the resource, and a record — unlike an empty `List` — cannot be constructed
+before its handle exists. `FUNC wrap(RES f AS fs::File) AS Holder` is the usable
+shape. A record with two `RES` fields of *different* resource types is refused:
+an owned-list carries one `OwnedListDrop`.

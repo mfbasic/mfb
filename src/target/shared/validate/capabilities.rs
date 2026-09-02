@@ -283,7 +283,8 @@ pub(super) fn collect_runtime_calls_from_value(
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
+        | NirValue::ResultError { value }
+        | NirValue::Checked { value, .. } => {
             collect_runtime_calls_from_value(value, calls, constants);
         }
         NirValue::WithUpdate {

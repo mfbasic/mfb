@@ -17,7 +17,7 @@ document specifies what the implementation must do behind them.
 
 The model has these requirements:
 
-- A thread entry point is an exported `ISOLATED FUNC` from an imported package.
+- A thread entry point is an `ISOLATED FUNC` — one this project declares, at any visibility, or an imported package's `EXPORT ISOLATED FUNC`.
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
 - The parent communicates with the worker through bounded typed queues, split by

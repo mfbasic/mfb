@@ -21,8 +21,8 @@
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "peer", "type": "Address", "value": { "kind": "call", "callee": "tls.remoteAddress", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 12 },
-      { "kind": "binding", "mutable": false, "name": "mine", "type": "Address", "value": { "kind": "call", "callee": "tls.localAddress", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "peer", "type": "net.Address", "value": { "kind": "call", "callee": "tls.remoteAddress", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "mine", "type": "net.Address", "value": { "kind": "call", "callee": "tls.localAddress", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 13 },
       { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "peer" }, "member": "host" }, "right": { "kind": "string", "value": ":" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "peer" }, "member": "port" }] } }, "right": { "kind": "string", "value": " from :" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "mine" }, "member": "port" }] } }, "line": 14 }
       ]
     },
@@ -42,7 +42,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "c1" }, { "kind": "number", "value": "2000" }] }, "line": 24 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setReadTimeout", "arguments": [{ "kind": "identifier", "value": "c1" }, { "kind": "number", "value": "0" }] }, "line": 25 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "tls.setWriteTimeout", "arguments": [{ "kind": "identifier", "value": "c1" }, { "kind": "number", "value": "0" }] }, "line": 26 },
-      { "kind": "binding", "mutable": false, "name": "dest", "type": "Address", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, { "kind": "number", "value": "0" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "dest", "type": "net.Address", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, { "kind": "number", "value": "0" }] }, "line": 31 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h3", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }] }, "line": 32 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h4", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }, { "kind": "string", "value": "example.com" }] }, "line": 33 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a1", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "identifier", "value": "dest" }] }, "line": 34 },

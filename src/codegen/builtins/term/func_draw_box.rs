@@ -14,7 +14,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Draw a rectangular box in a box-drawing style"#;
 
 const DESC: &str = r#"`term::drawBox` draws a rectangle into the retained surface in the chosen
-`LineStyle`. The two points `(x1, y1)` and `(x2, y2)` are **opposite corners** —
+`term::LineStyle`. The two points `(x1, y1)` and `(x2, y2)` are **opposite corners** —
 `x` is the column and `y` is the row, both **zero-based** from the top-left — and
 they may be given in any order. The box is drawn as the four edges followed by the
 four corners: the top and bottom rows are horizontal runs and the left and right
@@ -26,8 +26,8 @@ stamped with the colours and attributes currently in effect and shown on the nex
 Because the edges use the style's line glyph, a **dashed or dotted** style draws
 dashed or dotted edges — but those styles have no dashed corner glyphs, so the
 corners fall back to the solid **Light** or **Heavy** corner of the same weight
-(`Double` uses the double corners). So `LineStyle.LightDash` draws `┄`/`┆` edges
-with `┌┐└┘` corners, and `LineStyle.HeavyDot` draws `┉`/`┋` edges with `┏┓┗┛`
+(`Double` uses the double corners). So `term::LineStyle.LightDash` draws `┄`/`┆` edges
+with `┌┐└┘` corners, and `term::LineStyle.HeavyDot` draws `┉`/`┋` edges with `┏┓┗┛`
 corners.
 
 Each edge and each corner is **clamped to the surface independently**, so a box
@@ -46,7 +46,7 @@ IMPORT term
 
 SUB main()
   term::on()
-  term::drawBox(LineStyle.Light, 2, 1, 20, 8)
+  term::drawBox(term::LineStyle.Light, 2, 1, 20, 8)
   term::sync()
   term::off()
 END SUB
@@ -59,8 +59,8 @@ IMPORT term
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
-  term::drawBox(LineStyle.Double, 0, 0, size.columns - 1, size.rows - 1)
+  LET size AS term::TermSize = term::terminalSize()
+  term::drawBox(term::LineStyle.Double, 0, 0, size.columns - 1, size.rows - 1)
   term::sync()
   term::off()
 END SUB

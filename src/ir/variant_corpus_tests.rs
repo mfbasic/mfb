@@ -19,6 +19,7 @@ use super::package::{
 };
 use super::*;
 use crate::ir::resource_escape::ResOwner;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 // --- builders --------------------------------------------------------------
@@ -120,6 +121,19 @@ fn every_value() -> Vec<IrValue> {
         IrValue::ResultError {
             value: Box::new(IrValue::Local("r".to_string())),
         },
+        // bug-471. The wrapped value is call-free on purpose: that is the shape
+        // the inline-TRAP desugar builds and the only one `ir::verify` accepts
+        // (`check_checked_has_no_call`).
+        IrValue::Checked {
+            type_: crate::types::ParameterType::parse("Integer"),
+            value: Box::new(IrValue::Binary {
+                op: BinaryOp::Divide,
+                left: Box::new(IrValue::Local("a".to_string())),
+                right: Box::new(IrValue::Global("g".to_string())),
+                loc: loc(),
+                type_: crate::types::ParameterType::parse("Integer"),
+            }),
+        },
         IrValue::WithUpdate {
             type_: crate::types::ParameterType::parse("Point"),
             target: Box::new(IrValue::Local("p".to_string())),
@@ -146,14 +160,14 @@ fn every_value() -> Vec<IrValue> {
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(IrValue::Local("a".to_string())),
             right: Box::new(IrValue::Global("g".to_string())),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(IrValue::Local("b".to_string())),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Boolean"),
@@ -332,17 +346,17 @@ fn link_function() -> IrLinkFunction {
         abi_slots: vec![
             IrAbiSlot {
                 name: "path".to_string(),
-                ctype: "CPtr".to_string(),
+                ctype: crate::types::ParameterType::parse("CPtr"),
                 direction: crate::ir::AbiDirection::In,
             },
             IrAbiSlot {
                 name: "db".to_string(),
-                ctype: "CPtr".to_string(),
+                ctype: crate::types::ParameterType::parse("CPtr"),
                 direction: crate::ir::AbiDirection::Out,
             },
         ],
         abi_return_name: "rc".to_string(),
-        abi_return_ctype: "CInt32".to_string(),
+        abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
         consts: vec![("flags".to_string(), 6)],
         bind_in: vec![],
         bind_state: None,
@@ -523,15 +537,15 @@ pub(crate) fn variant_corpus() -> IrProject {
             fields: vec![
                 crate::ir::IrCStructField {
                     name: "format".to_string(),
-                    ctype: "CInt32".to_string(),
+                    ctype: crate::types::ParameterType::parse("CInt32"),
                 },
                 crate::ir::IrCStructField {
                     name: "name".to_string(),
-                    ctype: "CString".to_string(),
+                    ctype: crate::types::ParameterType::parse("CString"),
                 },
                 crate::ir::IrCStructField {
                     name: "extension".to_string(),
-                    ctype: "CString".to_string(),
+                    ctype: crate::types::ParameterType::parse("CString"),
                 },
             ],
         }],
@@ -578,7 +592,7 @@ fn binary_round_trip_over_full_surface() {
     assert_eq!(decoded.link_cstructs[0].name, "SfFormatInfo");
     assert_eq!(decoded.link_cstructs[0].maps_to.name(), "AudioFormat");
     assert_eq!(decoded.link_cstructs[0].fields.len(), 3);
-    assert_eq!(decoded.link_cstructs[0].fields[1].ctype, "CString");
+    assert_eq!(decoded.link_cstructs[0].fields[1].ctype.name(), "CString");
     assert_eq!(
         decoded.link_functions[0].abi_slots[1].direction,
         crate::ir::AbiDirection::Out
@@ -907,7 +921,7 @@ fn decode_rejects_depth_limit() {
             let mut v = IrValue::Local("x".to_string());
             for _ in 0..300 {
                 v = IrValue::Unary {
-                    op: "NOT".to_string(),
+                    op: UnaryOp::Not,
                     operand: Box::new(v),
                     loc: loc(),
                     type_: crate::types::ParameterType::parse("Boolean"),
@@ -1575,7 +1589,7 @@ fn annotated_type_reports_every_annotated_variant() {
     );
     assert_eq!(
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(c("Integer", "1")),
             right: Box::new(c("Integer", "2")),
             loc: loc(),
@@ -1588,7 +1602,7 @@ fn annotated_type_reports_every_annotated_variant() {
     );
     assert_eq!(
         IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(c("Boolean", "true")),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Boolean")
@@ -1844,7 +1858,7 @@ fn rejects_a_crafted_unknown_slot_ctype() {
     let mut lf = link_function();
     lf.abi_slots = vec![IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CBogus".to_string(),
+        ctype: crate::types::ParameterType::parse("CBogus"),
         direction: crate::ir::AbiDirection::In,
     }];
     lf.buffers.clear();
@@ -1854,7 +1868,10 @@ fn rejects_a_crafted_unknown_slot_ctype() {
     // It DECODES, and it passes the STRUCTURAL check: the decoder carries ctype
     // names without judging them, and `verify_package` judges shape, not rules.
     let decoded = decode_binary_repr(&bytes).expect("an unknown ctype still decodes");
-    assert_eq!(decoded.link_functions[0].abi_slots[0].ctype, "CBogus");
+    assert_eq!(
+        decoded.link_functions[0].abi_slots[0].ctype.name(),
+        "CBogus"
+    );
     assert!(
         verify_package(&decoded).is_ok(),
         "the structural check is not where a bad ctype is caught"
@@ -1886,17 +1903,17 @@ fn rejects_crafted_malformed_buffers_after_decode() {
         lf.abi_slots = vec![
             IrAbiSlot {
                 name: "buf".to_string(),
-                ctype: "CBuffer".to_string(),
+                ctype: crate::types::ParameterType::parse("CBuffer"),
                 direction: crate::ir::AbiDirection::Out,
             },
             IrAbiSlot {
                 name: "n".to_string(),
-                ctype: "CInt64".to_string(),
+                ctype: crate::types::ParameterType::parse("CInt64"),
                 direction: crate::ir::AbiDirection::In,
             },
         ];
         lf.abi_return_name = "status".to_string();
-        lf.abi_return_ctype = "CInt32".to_string();
+        lf.abi_return_ctype = crate::types::ParameterType::parse("CInt32");
         lf.consts = vec![];
         lf.free = None;
         lf.success_on = None;
@@ -1942,7 +1959,7 @@ fn rejects_crafted_malformed_buffers_after_decode() {
 
     // LENGTH with no CBuffer result.
     let mut lf = base();
-    lf.abi_slots[0].ctype = "CInt64".to_string();
+    lf.abi_slots[0].ctype = crate::types::ParameterType::parse("CInt64");
     lf.buffers.clear();
     lf.return_type = crate::types::ParameterType::parse("Integer");
     assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));

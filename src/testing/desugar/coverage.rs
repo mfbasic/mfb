@@ -1,5 +1,6 @@
 use super::*;
 use crate::ast::build::*;
+use crate::operators::BinaryOp;
 
 // ---------------------------------------------------------------------------
 // Coverage instrumentation (plan-18-C)
@@ -160,10 +161,10 @@ fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<It
             let_mut_at("r", "List OF Integer", empty_list(), 0),
             let_mut_at("i", "Integer", num(0), 0),
             while_loop(
-                binary(ident("i"), "<", ident("n")),
+                binary(ident("i"), BinaryOp::Less, ident("n")),
                 vec![
                     assign_at("r", call("collections.append", vec![ident("r"), num(0)]), 0),
-                    assign_at("i", binary(ident("i"), "+", num(1)), 0),
+                    assign_at("i", binary(ident("i"), BinaryOp::Add, num(1)), 0),
                 ],
             ),
             ret(ident("r")),
@@ -207,7 +208,7 @@ fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<It
                     ident("slot"),
                     binary(
                         call("collections.get", vec![ident(COV_ARRAY), ident("slot")]),
-                        "+",
+                        BinaryOp::Add,
                         num(1),
                     ),
                 ],
@@ -254,18 +255,18 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
         let_mut_at(&acc, "String", str_lit(String::new()), 0),
         let_mut_at(&idx, "Integer", num(0), 0),
         while_loop(
-            binary(ident(&idx), "<", call("len", vec![ident(list)])),
+            binary(ident(&idx), BinaryOp::Less, call("len", vec![ident(list)])),
             vec![
                 assign_at(
                     &acc,
                     binary(
-                        binary(ident(&acc), "&", rendered),
-                        "&",
+                        binary(ident(&acc), BinaryOp::Concat, rendered),
+                        BinaryOp::Concat,
                         str_lit("\n".to_string()),
                     ),
                     0,
                 ),
-                assign_at(&idx, binary(ident(&idx), "+", num(1)), 0),
+                assign_at(&idx, binary(ident(&idx), BinaryOp::Add, num(1)), 0),
             ],
         ),
         // fs::writeText(path, acc) — swallow any failure (best-effort coverage).

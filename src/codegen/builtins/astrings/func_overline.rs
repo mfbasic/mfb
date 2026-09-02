@@ -6,9 +6,9 @@
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Construct the overline flag `Attribute`."#;
+const INTRO: &str = r#"Construct the overline flag `astrings::Attribute`."#;
 
-const DESC: &str = r#"`overline` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Overline`. Pass it
+const DESC: &str = r#"`overline` returns an `astrings::Attribute` wrapping the `astrings::AttrFlag` with `kind` `astrings::AttrTypeFlag.Overline`. Pass it
 to `astrings::addAttribute` to mark a scalar range overlined. A flag attribute carries no value — a
 scalar is overlined when any covering span carries the overline flag."#;
 

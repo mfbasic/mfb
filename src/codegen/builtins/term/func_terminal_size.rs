@@ -9,10 +9,10 @@ use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Report the current size of the terminal surface as a `TermSize`"#;
+const INTRO: &str = r#"Report the current size of the terminal surface as a `term::TermSize`"#;
 
 const DESC: &str = r#"`term::terminalSize` returns the size of the drawing surface as a
-`TermSize` record with two `Integer` fields: `columns`, the width in
+`term::TermSize` record with two `Integer` fields: `columns`, the width in
 character cells, and `rows`, the height. Both are counts of whole cells, never
 pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
 through `columns-1`. It takes no arguments.
@@ -54,7 +54,7 @@ IMPORT io
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::off()
   io::print(toString(size.columns) & "x" & toString(size.rows))
 END SUB
@@ -68,7 +68,7 @@ IMPORT io
 
 SUB main()
   term::on()
-  LET size AS TermSize = term::terminalSize()
+  LET size AS term::TermSize = term::terminalSize()
   term::moveTo(size.rows / 2, size.columns / 2)
   io::write("middle")
   term::sync()

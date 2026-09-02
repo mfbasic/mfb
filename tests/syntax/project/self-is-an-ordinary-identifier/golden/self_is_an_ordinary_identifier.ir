@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "self_is_an_ordinary_identifier",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "selfCount", "line": 22, "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 24,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 26, "name": "self", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "self",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 17, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 31, "mutable": false, "name": "self", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "21" } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "updated", "type": "Holder", "value": { "kind": "with", "type": "Holder", "target": { "kind": "local", "name": "h" }, "updates": [{ "field": "self", "value": { "kind": "const", "type": "Integer", "value": "8" } }] } },
+    { "op": "assignGlobal", "line": 35, "name": "selfCount", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "self" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "updated" }, "member": "self" } } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "self=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "self" }] } }, "right": { "kind": "const", "type": "String", "value": " field=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "updated" }, "member": "self" }] } }, "right": { "kind": "const", "type": "String", "value": " count=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "selfCount" }] } }] } },
+    { "op": "return", "line": 37, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

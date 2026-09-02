@@ -6,11 +6,19 @@ impl TypeEnv {
 
     /// Structural well-formedness of the type table (the former source checker's
     /// `check_type_decl`), checkable directly on the IR. On decoded package IR
-    /// these guard codegen's layout and drop assumptions: a record that owns a
-    /// resource field, a union mixing data and resource variants (tag-dependent
-    /// copyability / drop dispatch), or a record with no base case (infinite
-    /// size) would all mislead the layout/drop lowering. Reported at the type
-    /// declaration line; the file is unset (a decoded package has no source).
+    /// these guard codegen's layout and drop assumptions: a union mixing data and
+    /// resource variants (tag-dependent copyability / drop dispatch) or a record
+    /// with no base case (infinite size) would mislead the layout/drop lowering.
+    /// Reported at the type declaration line; the file is unset (a decoded
+    /// package has no source).
+    ///
+    /// plan-114-B/D: the resource-field ban is **gone**. Its justification — that
+    /// such a field would mislead the layout and drop lowering — was retired by
+    /// letter B, which lays a resource field out as an ordinary 8-byte handle
+    /// slot and relaxed the NIR backstop accordingly. Letter D then replaced
+    /// `TYPE_RESOURCE_FIELD_FORBIDDEN` (now reserved, never emitted) with the two
+    /// `RES`-marker rules a collection element already takes, routed through the
+    /// same emitter so the positions cannot drift.
     pub(super) fn check_type_declarations(&self, project: &IrProject) {
         for ty in &project.types {
             self.current_file.replace(ty.file.clone());
@@ -21,18 +29,46 @@ impl TypeEnv {
                         self.current_line.set(field.loc.line);
                         self.check_map_key_comparable(&field.type_);
                         self.check_thread_sendability(&field.type_);
-                        self.current_line.set(ty.loc.line);
-                        if is_resource_name(&resource_base_type(&field.type_).name()) {
-                            self.current_line.set(field.loc.line);
-                            self.emit(
-                                "TYPE_RESOURCE_FIELD_FORBIDDEN",
-                                format!(
-                                    "Record `{}` field `{}` is resource `{}`; records cannot own resources.",
-                                    ty.name, field.name, field.type_
-                                ),
-                            );
-                            self.current_line.set(ty.loc.line);
+                        // plan-114-D: a record field is governed by the same two
+                        // `RES`-marker rules a collection element is — a bare
+                        // resource field needs the marker
+                        // (`TYPE_RESOURCE_REQUIRES_RES`), and the marker may only
+                        // mark a resource (`TYPE_RES_REQUIRES_RESOURCE`). This
+                        // replaces `TYPE_RESOURCE_FIELD_FORBIDDEN`, which refused
+                        // the field outright.
+                        //
+                        // It routes through the SAME emitter the element uses, so
+                        // the two positions cannot drift; only the subject and the
+                        // suggested spelling differ.
+                        self.current_line.set(field.loc.line);
+                        self.res_axis_slot(
+                            &field.type_,
+                            &format!("Record `{}` field `{}`", ty.name, field.name),
+                            "`handle AS RES fs::File`",
+                        );
+                        // plan-114-E: a `STATE T` clause on a `RES` field is
+                        // gated exactly as it is on a binding (§15.5) — `T` must
+                        // be a copyable, defaultable DATA type.
+                        //
+                        // This needed routing, not just verifying: the binding
+                        // check lives in `ops.rs` behind an `explicit_type` gate
+                        // and never saw a field, so before this a field could
+                        // declare `STATE fs::File` — a resource as its own state
+                        // payload — and nothing rejected it, all the way to
+                        // codegen. A binding with the identical clause has always
+                        // been refused.
+                        if let Some(state_type) = strip_res(&field.type_).state() {
+                            if !self.is_defaultable(&state_type, &mut HashSet::new()) {
+                                self.emit(
+                                    "TYPE_STATE_INVALID",
+                                    format!(
+                                        "Record `{}` field `{}` STATE type `{state_type}` must be a copyable, defaultable data type.",
+                                        ty.name, field.name
+                                    ),
+                                );
+                            }
                         }
+                        self.current_line.set(ty.loc.line);
                     }
                     let record = ParameterType::declared(&ty.name);
                     if self.record_field_cycle(&record, &record, &mut HashSet::new()) {

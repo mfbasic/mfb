@@ -18,6 +18,156 @@ Rule: when a shared-codegen site consumes the result of an external/C call, name
 
 Blast-radius note: a fixture that `IMPORT`s `tls`/`audio` transitively embeds those backends' `_mfb_rt_*` bodies (e.g. `http` imports `tls` via `http::serverSSL`), so a tls/audio codegen change drifts that fixture's linux-x86_64/win64 `.ncodesum` too — the byte-identity gate catches it; regenerate the importer's golden as well.
 
+### The program entry needs the +8 call parity when it is CALLED (app mode)
+
+`finalize_frame` adds `frame_call_padding()` (8 on x86-64, 0 on AArch64/RISC-V) to
+any frame whose function makes calls, so that a callee entered at `rsp % 16 == 8`
+reaches its own call sites at `rsp % 16 == 0`. **The program entry never passes
+through `finalize_frame`** — `entry.rs` builds its own frame — so it never got that
+bias.
+
+For an ordinary program that is correct: the kernel enters `_start` at
+`rsp % 16 == 0` with **no return address pushed**, so a 16-multiple frame is right.
+In **app mode** the entry is a called function — the worker shim calls it under
+`MACAPP_PROGRAM_SYMBOL` — so it arrives at `rsp % 16 == 8`, and without the bias
+every call beneath it, for the whole program, is misaligned. Gate on
+`entry_called_as_function`.
+
+**The symptom is not where the bug is.** A misaligned stack only faults when a
+callee uses an aligned SSE access, so it surfaces as a crash deep inside libc:
+`__libc_calloc` under `g_idle_add`, on the first `app::setMode`, in **Console** mode
+as much as Canvas. That reads as heap corruption and is not. The faulting
+instruction was `movaps %xmm0,(%rsp)` — an *aligned* store. **Disassemble the
+faulting instruction before believing a malloc frame**; `objdump -d
+--start-address=…` on the libc offset from the core is enough, and it is the
+difference between "something scribbled on the heap" and "rsp is 8 off".
+
+Walking it the rest of the way needs the core: `coredumpctl dump`, then gdb's
+`find /g $rsp, $rsp+N, <return-address>` to locate each frame's pushed return
+address, which gives that frame's `rsp` at its own `call`. Comparing that against
+the function's `sub rsp,imm` says whether the frame is wrong or its caller is.
+
+Windows x86-64 has the same `frame_call_padding()`, so the fix moves its app-mode
+`.ncodesum` goldens too; macOS AArch64's is 0 and does not move.
+
+### `c_arg(6)`/`c_arg(7)` are NOT arguments on SysV, and staging into them is the damage
+
+`abi::c_arg(n)` is slot `n` of the **aligned call bank**, which is longer than the ABI's
+register-argument list: SysV `CALL_ARGS` is `[rdi, rsi, rdx, rcx, r8, r9, rax, rbp]` but
+only the first six carry arguments (bug-296; the register model says so —
+`X86SysVRegisterModel::external_int_argument_registers() == 6`). So a hand-written emitter
+that stages an 8-argument C call entirely in `c_arg(0..8)` puts argument 7 in `rax`,
+argument 8 in **`rbp`** — the frame pointer, which the allocator excludes precisely because
+it is one — and the callee reads two stack slots nothing wrote. AArch64 and riscv64 pass
+eight in registers, so the identical code is correct there: **this is invisible on a Mac
+host and on every AArch64 box.**
+
+Spilling *after* staging does not fix it. `emit_external_int_call` gets away with
+`outgoing_stack_arg_store(c_arg(n), …)` only because the indices it spills on Win64 land on
+caller-saved `rdi`/`rsi`; at index 7 the staging write itself has already destroyed `rbp`.
+For an overflow argument, **write the value straight to the outgoing area** and never touch
+`c_arg(n)` for `n >= external_int_argument_registers()` — see
+`runtime/canvas/vulkan.rs:emit_int_arg_zero`, which branches on the register model so the
+bytes are unchanged wherever the target's registers cover the call.
+
+Symptom when it happens: every API call reports success and the frame comes back blank.
+
+### `RESULT_VALUE_REGISTER` is `rsi` on SysV, and so is `SCRATCH[1]`
+
+The aliasing above is not only about *arguments*. `RESULT_VALUE_REGISTER` is
+`abi::mfb_return(1)`, and `%retMFB` draws from the same aligned bank, so on SysV it is
+`rsi` — which `map_scratch_register` also hands to `SCRATCH[1]`, `SCRATCH[11]` and
+`LOCAL[2]`. `RESULT_TAG_REGISTER` (`mfb_return(0)`) is `rdi`, shared with `SCRATCH[2]`,
+`SCRATCH[12]` and `LOCAL[3]`.
+
+The deadly shape is writing the result *between* two uses of the aliasing token:
+
+    cmp  rsi, 0 ; je build      ; SCRATCH[1] = a tri-state
+    mov  rsi, 1                 ; RESULT_VALUE_REGISTER = TRUE — overwrites it
+    cmp  rsi, 1 ; je done       ; compares the answer with itself: always taken
+
+`canvas::vulkanReady` did exactly this and answered TRUE on a machine with no Vulkan
+driver, from its second call onward. On AArch64 the two are `x1` and `x10`, so it is
+correct there — invisible on a Mac host, again.
+
+**Rule: finish every comparison before writing the result, and carry the compared value
+in a `builder.temporary_vreg()` rather than a fixed `SCRATCH[k]`.** The full SysV map,
+worth having in front of you when hand-staging:
+
+    rdi  SCRATCH[2]  SCRATCH[12] LOCAL[3] c_arg(0)/mfb_return(0)
+    rsi  SCRATCH[1]  SCRATCH[11] LOCAL[2] c_arg(1)/mfb_return(1)
+    rdx                                   c_arg(2)/mfb_return(2) c_return(1)
+    rcx  SCRATCH[9]                       c_arg(3)/mfb_return(3)
+    r8   SCRATCH[3]  SCRATCH[13] LOCAL[4] c_arg(4)/mfb_return(4)
+    r9   SCRATCH[4]  SCRATCH[14] LOCAL[5] c_arg(5)/mfb_return(5)
+    rax                                   c_arg(6)/mfb_return(6) c_return(0)
+    rbp              LOCAL[0]             c_arg(7)/mfb_return(7)
+    rbx  SCRATCH[0]  SCRATCH[10] LOCAL[1]
+    r10  SCRATCH[5]  SCRATCH[15] LOCAL[6]
+    r11  SCRATCH[6]  SCRATCH[16] LOCAL[7]
+    r12  SCRATCH[7]  SCRATCH[17] LOCAL[8]
+    r13  SCRATCH[8]  SCRATCH[18] LOCAL[9]
+
+### The x86 scratch pool aliases the SysV argument bank — mid-staging, that corrupts an argument
+
+`map_scratch_register` folds `x9`–`x30` onto an 11-entry pool: `SCRATCH[1]`→`rsi`,
+`SCRATCH[2]`→`rdi`, `SCRATCH[3]`→**`r8`**, `SCRATCH[4]`→`r9`, `SCRATCH[9]`→`rcx`. Those are
+`c_arg(1)`, `c_arg(0)`, `c_arg(4)`, `c_arg(5)` and `c_arg(3)`. On AArch64 the two banks are
+disjoint (`x9+` vs `x0`–`x7`), so a helper that uses a fixed `SCRATCH[k]` as a temporary is
+correct there and silently overwrites an already-staged argument on x86-64.
+
+The trap needs three ingredients, which is why it is rare and why it bites hard: a helper
+with a fixed scratch, called *between* two argument stagings, on a call with enough
+arguments to reach the aliased index. `canvas`'s `emit_state_load` used `SCRATCH[3]`, so
+`vkCmdBindDescriptorSets` received the graphics-state block pointer as its
+`descriptorSetCount` and walked a one-element array for a dozen entries.
+
+**Rule: a helper that may be called between argument stagings takes its temporary from
+`builder.temporary_vreg()`, never a fixed `SCRATCH[k]`.** The allocator then cannot pick a
+live argument register. (Same rule, different reason, as calling through a resolved function
+pointer.)
+
+Vulkan validation layers are the fastest way to see this class on Linux — they are not
+installed on the test boxes but `apt-get download vulkan-validationlayers` + `dpkg -x` into
+a scratch dir works as a plain user, then
+`VK_LAYER_PATH=<dir>/usr/share/vulkan/explicit_layer.d
+LD_LIBRARY_PATH=<dir>/usr/lib/x86_64-linux-gnu
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`.
+
+### Never mix a raw `xN` with its role token in one x86 app body
+
+`finalize_x86_app_function` (`src/target/linux_gtk/mod.rs`) renames each **distinct
+token string** to its own vreg. `%scratch0` realizes to `x9`, so a body that loads
+into raw `"x9"` and compares `abi::SCRATCH[0]` uses one register on AArch64 and
+**two** on x86-64 — the compare then tests an uninitialized register. The GTK finish
+helper did exactly this on its "is there a transcript" test, so a headless run took
+the GUI arm and formatted into a chunk it had not allocated.
+
+**The enforced rule is stronger than "pick one spelling per value": there are now no raw
+`xN` register strings in `src/target/linux_gtk/` at all**, and
+`no_emitter_spells_a_register_as_a_raw_register_string` keeps it that way.
+
+**The token spelling is not only about correctness — it is what keeps the line visible
+to the guard.** `shared_lowering_names_no_physical_register` decides whether a line is
+an emission context by looking for `abi::` on it, so a line that spells *everything*
+raw has no `abi::` and is skipped entirely. `term_draw.rs` had
+`emit_cell_dim_to_d(&mut asm, "d0", "x22", …)` — a forbidden FP register sitting beside
+a forbidden GPR, invisible because neither was a token. Removing the raw GPR is what
+turned the guard red on the `"d0"` that had been there all along. A guard whose reach
+depends on a convention shrinks silently every time the convention is broken, so a
+green run is evidence about the guard's reach and not only about the code.
+
+(The FP half is pure visibility: converting the nine `"dN"` literals to
+`abi::FP_SCRATCH[n]` leaves **both** linux-aarch64 and linux-x86_64 byte-identical,
+because `finalize_x86_app_function` renames the integer scratch/parking space and the
+FP bank passes straight through. Only the GPR rewrite moved bytes, and only on x86.) The finish
+helper was not the only site — a census found sixteen functions mixing, including
+`emit_term_resize_helper`, which loaded the cell width into `"x10"` and divided by
+`abi::SCRATCH[1]`. Rewriting all 146 sites to tokens left the linux-aarch64 binary
+byte-identical (the spellings already named one register there) and changed the x86-64
+one, which is what the fix *is*. "Mixed" needs a def/use analysis; "present" is a
+substring search, which is why the test asserts the stronger form.
+
 ### remap_x86_abi: linear vs CFG
 
 `remap_x86_abi` (`src/arch/x86_64/select.rs`) resolves residual `x0`–`x8` operands to SysV homes by ABI role. Its incoming-parameter test used flags advanced in **emitted order** (`boundary_since_entry` / `defined_since_entry`), so any block *branched into from before* a call inherited that call's state because the call was emitted first. `fs::setBuffered` is exactly that shape: its enable arm reads the `File*` parameter but sits below the disable arm's `bl _mfb_rt_fs_file_drain`, so the parameter was colored by its next boundary (`ret`) into `rax` instead of `rdi` → store through garbage → SIGSEGV on every x86-64 program that enabled per-file buffering. Fixed via a forward MUST dataflow: `entry_clean` + `entry_undef`, meeting by intersection.
@@ -242,3 +392,51 @@ In `src/os/windows/link/mod.rs:write_executable`, the PE writer appends optional
 The trap: if each trailing section computes its own slot as `align_up(rsrc_rva + rsrc_bytes.len())` (i.e. "right after `.rsrc`"), then TWO trailing sections both land at the SAME RVA/file offset and **silently overlap** — no error, the section table just has two entries pointing at the same bytes.
 
 Rule: chain them. The unconditional `.mfbnote` is placed after `.rsrc`; `.mfbsign` must be placed after `.mfbnote` (`align_up(mfbnote_rva + mfbnote_bytes.len(), SECTION_ALIGNMENT)`), not after `.rsrc`. Any future third trailing section chains off the last one. Guard added: `signed_build_emits_both_mfbnote_and_mfbsign_disjoint` asserts non-overlapping virtual extents. The write-only linkers have no runtime verifier, so a byte/section scan test is the only guard against this class of bug.
+
+## Staging arguments in place clobbers them when the callee's own arguments share the bank
+
+`canvas::metalDrawScene` stages its arguments into the MFB argument bank, and its own
+arguments *arrive* in that bank. Writing `mfb_arg(k)` before reading every `located[j]`
+that might live in it is therefore a clobber waiting for the argument count to grow into
+it. It did: with a seventh argument, `located[5]` arrived in the register `mfb_arg(5)`
+names, so
+
+```
+ldr  x5, [x4, #0x8]     ; count  = offsets->count   -> mfb_arg(5)
+add  x6, x5, #0x28      ; meta   = located[5] + hdr -> reads the count, not the pointer
+add  x7, x6, #0x28      ; cov    = located[6] + hdr -> reads that
+```
+
+The failure is a **SIGSEGV at a tiny address** (`0x29` here) on whichever thread runs the
+call, with one frame in the crash report and nothing naming the argument. `otool -tV` on
+the shipped binary is what localizes it — the three-instruction sequence above is the
+whole bug.
+
+**Compute every value into a temporary vreg first, then write the argument registers.**
+Reordering the writes happens to work for one mapping and is a trap for the next argument
+added. The two-pass form cannot be wrong and the allocator coalesces most of the moves
+away. Same family as the scratch-pool/argument-bank aliasing above: a fixed ABI token is
+not a variable, and the allocator will not keep a live range in it for you.
+
+## A Windows thread start routine is entered ALREADY 16-byte aligned
+
+`BaseThreadInitThunk` does not leave the 8-byte skew an ordinary `call` does. So the
+odd-multiple-of-8 frame that is right for a normal Win64 prologue is wrong for a
+`CreateThread` entry, which needs a multiple of 16.
+
+What it costs is not the entry function: the program body's alignment *is* its caller's
+call site, so an 8-byte skew there is inherited by **every Win32 call the program ever
+makes**. It presents as `0xC0000005` deep inside ntdll — bug-478 faulted in the
+activation-context machinery, ~20 frames from anything this repository wrote, on an
+empty `SUB main() END SUB`.
+
+And the two entry paths disagree by exactly 8, because the console entry comes from the
+PE loader and `entry_stack_misaligned_on_entry` already shaves its skew. So a frame size
+measured on one path *breaks* the other. **Test both**, every time — `scripts/test-winapp.sh`
+runs the app path and an ordinary `--target windows-x86_64` build runs the console one.
+
+Two guards, both RED-checked: `the_worker_frame_keeps_the_stack_16_byte_aligned`
+(`win_x86_64/app/mod.rs`) and `every_calling_win32_seam_reserves_the_callees_shadow_space`
+(`win_x86_64/code.rs`). The second covers the other half of that bug: **shadow space is
+the caller's job and lands above its own `rsp`**, so an emitter that calls out without
+reserving 32 bytes hands the callee 32 bytes of its own locals.

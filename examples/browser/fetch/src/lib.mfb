@@ -133,12 +133,12 @@ END FUNC
 ' whole streams list is owned by this function's scope, so every connection is
 ' closed exactly once when it returns.
 FUNC fetchStyles(base AS net::Url, hrefs AS List OF String) AS SheetLoad
-  MUT streams AS List OF RES http::Stream STATE PendingState = []
+  MUT streams AS List OF RES http::Stream STATE http::PendingState = []
 
   ' Kick off every request. A sheet that cannot even connect is left out of the
   ' drive set; the diverging TRAP handler means its handle is never added.
   FOR EACH href IN hrefs
-    RES s AS http::Stream STATE PendingState = http::startRead(net::toUrl(resolveLocation(base, href))) TRAP(e)
+    RES s AS http::Stream STATE http::PendingState = http::startRead(net::toUrl(resolveLocation(base, href))) TRAP(e)
       CONTINUE FOR
     END TRAP
     streams = collections::append(streams, s)

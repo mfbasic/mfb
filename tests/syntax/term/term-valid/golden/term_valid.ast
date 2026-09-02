@@ -15,9 +15,9 @@
       "line": 6,
       "params": [
       ],
-      "returnType": "TermColor",
+      "returnType": "term.TermColor",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "term.TermColor", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 7 },
       { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 8 }
       ]
     },
@@ -29,9 +29,9 @@
       "line": 11,
       "params": [
       ],
-      "returnType": "TermColor",
+      "returnType": "term.TermColor",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "callee": "term.getBackground", "arguments": [] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "term.TermColor", "value": { "kind": "call", "callee": "term.getBackground", "arguments": [] }, "line": 12 },
       { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 13 }
       ]
     },
@@ -84,8 +84,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 29 },
-      { "kind": "binding", "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "term.TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "term.TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 30 },
       { "kind": "assignment", "name": "b", "value": { "kind": "identifier", "value": "a" }, "line": 31 },
       { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "columns" } }, "line": 32 }
       ]

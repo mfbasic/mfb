@@ -8,29 +8,29 @@
   "functions": [
   {
     "name": "echoText",
-    "line": 4,
+    "line": 3,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "worker", "line": 4, "type": "ThreadWorker OF String TO Integer", "default": null },
-    { "name": "seed", "line": 4, "type": "String", "default": null }
+    { "name": "worker", "line": 3, "type": "ThreadWorker OF String TO Integer", "default": null },
+    { "name": "seed", "line": 3, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 5, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
     ]
   },
   {
     "name": "spawn",
-    "line": 8,
+    "line": 7,
     "visibility": "export",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "hi" }] } },
-    { "op": "return", "line": 10, "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "return", "line": 9, "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } }
     ]
   }
   ]

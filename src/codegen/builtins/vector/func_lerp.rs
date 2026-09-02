@@ -13,7 +13,7 @@ const DESC: &str = r#"`vector::lerp` interpolates component-wise along the strai
 midpoint. For a `Float` vector the path traced as `t` sweeps is a straight line
 travelled at a constant rate. For `Fixed` and `Integer` the result is rounded to
 the element type at every step, so positions repeat and the steps are uneven —
-an `Integer2` lerp from `(0, 0)` to `(3, 0)` gives `(2, 0)` at both `t = 0.5`
+a `vector::Integer2` lerp from `(0, 0)` to `(3, 0)` gives `(2, 0)` at both `t = 0.5`
 and `t = 0.75`. For interpolation that follows the arc between two directions
 instead, use `vector::slerp`.
 

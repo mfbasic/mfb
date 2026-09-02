@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/packages/source-package-dependency-rt
+Wrote package to tests/rt-behavior/packages/source-package-dependency-rt/build/packages/source_pkg_tiny.mfp
+uses source_pkg_tiny - [Unsigned]
+Wrote AST to tests/rt-behavior/packages/source-package-dependency-rt/source_package_dependency_rt.ast
+Wrote IR to tests/rt-behavior/packages/source-package-dependency-rt/source_package_dependency_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/packages/source-package-dependency-rt
+Wrote package to tests/rt-behavior/packages/source-package-dependency-rt/build/packages/source_pkg_tiny.mfp
+uses source_pkg_tiny - [Unsigned]
+Wrote executable to tests/rt-behavior/packages/source-package-dependency-rt/build/source_package_dependency_rt.out
+[exit 0]
+$ tests/rt-behavior/packages/source-package-dependency-rt/build/source_package_dependency_rt.out
+42
+hello, world
+[exit 0]

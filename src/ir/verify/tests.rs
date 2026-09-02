@@ -3,6 +3,7 @@ use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
     IrSourceLoc, IrType, IrValue, IrVariant,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -37,6 +38,17 @@ fn expect_rule(project: &IrProject, rule: &str) {
     );
 }
 
+/// Assert `project` yields NO diagnostic with `rule`. Weaker than `expect_clean`
+/// on purpose: it pins that one specific rule stopped firing without also
+/// asserting the project is diagnostic-free, so it survives unrelated rules.
+fn expect_no_rule(project: &IrProject, rule: &str) {
+    let got = rules(project);
+    assert!(
+        !got.iter().any(|r| r == rule),
+        "expected no {rule}, got {got:?}"
+    );
+}
+
 fn ret(value: IrValue) -> IrOp {
     IrOp::Return {
         value: Some(value),
@@ -58,9 +70,9 @@ fn const_of(ty: &str, v: &str) -> IrValue {
     }
 }
 
-fn binary(op: &str, left: IrValue, right: IrValue, ty: &str) -> IrValue {
+fn binary(op: BinaryOp, left: IrValue, right: IrValue, ty: &str) -> IrValue {
     IrValue::Binary {
-        op: op.to_string(),
+        op,
         left: Box::new(left),
         right: Box::new(right),
         type_: crate::types::ParameterType::parse(ty),
@@ -68,9 +80,9 @@ fn binary(op: &str, left: IrValue, right: IrValue, ty: &str) -> IrValue {
     }
 }
 
-fn unary(op: &str, operand: IrValue, ty: &str) -> IrValue {
+fn unary(op: UnaryOp, operand: IrValue, ty: &str) -> IrValue {
     IrValue::Unary {
-        op: op.to_string(),
+        op,
         operand: Box::new(operand),
         type_: crate::types::ParameterType::parse(ty),
         loc: IrSourceLoc::default(),
@@ -837,7 +849,7 @@ fn accepts_ordinary_function() {
         },
         IrOp::Return {
             value: Some(IrValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: Box::new(IrValue::Local("n".to_string())),
                 right: Box::new(int_const("2")),
                 loc: IrSourceLoc::default(),
@@ -939,7 +951,7 @@ fn accepts_matching_default_value() {
 #[test]
 fn rejects_arithmetic_on_string() {
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -953,7 +965,7 @@ fn rejects_arithmetic_on_string() {
 #[test]
 fn rejects_and_on_numeric() {
     let body = vec![ret(binary(
-        "AND",
+        BinaryOp::And,
         int_const("1"),
         int_const("2"),
         "Boolean",
@@ -966,7 +978,12 @@ fn rejects_and_on_numeric() {
 
 #[test]
 fn rejects_concat_on_numeric() {
-    let body = vec![ret(binary("&", int_const("1"), int_const("2"), "String"))];
+    let body = vec![ret(binary(
+        BinaryOp::Concat,
+        int_const("1"),
+        int_const("2"),
+        "String",
+    ))];
     expect_rule(
         &project(vec![func_returns("run", "String", vec![], body)], vec![]),
         "TYPE_BINARY_OPERATOR_MISMATCH",
@@ -976,7 +993,7 @@ fn rejects_concat_on_numeric() {
 #[test]
 fn rejects_relational_on_boolean() {
     let body = vec![ret(binary(
-        "<",
+        BinaryOp::Less,
         const_of("Boolean", "true"),
         const_of("Boolean", "false"),
         "Boolean",
@@ -990,7 +1007,7 @@ fn rejects_relational_on_boolean() {
 #[test]
 fn accepts_string_relational() {
     let body = vec![ret(binary(
-        "<",
+        BinaryOp::Less,
         const_of("String", "a"),
         const_of("String", "b"),
         "Boolean",
@@ -1004,7 +1021,7 @@ fn accepts_string_relational() {
 #[test]
 fn accepts_string_concat() {
     let body = vec![ret(binary(
-        "&",
+        BinaryOp::Concat,
         const_of("String", "a"),
         const_of("String", "b"),
         "String",
@@ -1018,7 +1035,7 @@ fn accepts_string_concat() {
 #[test]
 fn accepts_boolean_and() {
     let body = vec![ret(binary(
-        "AND",
+        BinaryOp::And,
         const_of("Boolean", "true"),
         const_of("Boolean", "false"),
         "Boolean",
@@ -1032,7 +1049,7 @@ fn accepts_boolean_and() {
 #[test]
 fn rejects_equality_incompatible_types() {
     let body = vec![ret(binary(
-        "=",
+        BinaryOp::Equal,
         const_of("String", "a"),
         int_const("1"),
         "Boolean",
@@ -1047,7 +1064,7 @@ fn rejects_equality_incompatible_types() {
 fn rejects_equality_not_comparable() {
     // Two lists are compatible but not comparable.
     let body = vec![ret(binary(
-        "=",
+        BinaryOp::Equal,
         IrValue::ListLiteral {
             type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![],
@@ -1066,7 +1083,12 @@ fn rejects_equality_not_comparable() {
 
 #[test]
 fn accepts_numeric_equality() {
-    let body = vec![ret(binary("=", int_const("1"), int_const("2"), "Boolean"))];
+    let body = vec![ret(binary(
+        BinaryOp::Equal,
+        int_const("1"),
+        int_const("2"),
+        "Boolean",
+    ))];
     accept(&project(
         vec![func_returns("run", "Boolean", vec![], body)],
         vec![],
@@ -1077,7 +1099,7 @@ fn accepts_numeric_equality() {
 
 #[test]
 fn rejects_not_on_numeric() {
-    let body = vec![ret(unary("NOT", int_const("1"), "Boolean"))];
+    let body = vec![ret(unary(UnaryOp::Not, int_const("1"), "Boolean"))];
     expect_rule(
         &project(vec![func_returns("run", "Boolean", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_MISMATCH",
@@ -1086,16 +1108,28 @@ fn rejects_not_on_numeric() {
 
 #[test]
 fn rejects_negate_on_string() {
-    let body = vec![ret(unary("-", const_of("String", "a"), "Integer"))];
+    let body = vec![ret(unary(
+        UnaryOp::Negate,
+        const_of("String", "a"),
+        "Integer",
+    ))];
     expect_rule(
         &project(vec![func("run", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_MISMATCH",
     );
 }
 
+// plan-112: this used to feed the operator `~` — a spelling outside the
+// vocabulary — which `UnaryOp` no longer lets anyone construct. The rule it
+// pins is still live and still reachable: `SIZEOF` is a LINK-only operator that
+// folds to an integer during LINK lowering, so an IR node still carrying one is
+// malformed exactly as `~` was, and is the operator this arm now reports. The
+// out-of-vocabulary case it also covered moved to the decode boundary, where a
+// `.mfp` carrying a garbage operator string is now rejected — see
+// `binary::value_op_tests::decode_rejects_garbage_binary_and_unary_ops`.
 #[test]
 fn rejects_unknown_unary_operator() {
-    let body = vec![ret(unary("~", int_const("1"), "Integer"))];
+    let body = vec![ret(unary(UnaryOp::SizeOf, int_const("1"), "Integer"))];
     expect_rule(
         &project(vec![func("run", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_UNKNOWN",
@@ -1108,11 +1142,11 @@ fn accepts_not_on_boolean_and_negate_numeric() {
         bind(
             "b",
             "Boolean",
-            Some(unary("NOT", const_of("Boolean", "true"), "Boolean")),
+            Some(unary(UnaryOp::Not, const_of("Boolean", "true"), "Boolean")),
             false,
             false,
         ),
-        ret(unary("-", int_const("1"), "Integer")),
+        ret(unary(UnaryOp::Negate, int_const("1"), "Integer")),
     ];
     accept(&project(vec![func("run", vec![], body)], vec![]));
 }
@@ -1139,7 +1173,7 @@ fn rejects_byte_underflow() {
         vec![bind(
             "b",
             "Byte",
-            Some(unary("-", int_const("1"), "Integer")),
+            Some(unary(UnaryOp::Negate, int_const("1"), "Integer")),
             true,
             false,
         )],
@@ -1173,7 +1207,11 @@ fn rejects_negated_integer_overflow() {
         vec![bind(
             "n",
             "Integer",
-            Some(unary("-", int_const("99999999999999999999"), "Integer")),
+            Some(unary(
+                UnaryOp::Negate,
+                int_const("99999999999999999999"),
+                "Integer",
+            )),
             true,
             false,
         )],
@@ -1207,7 +1245,7 @@ fn rejects_float_underflow() {
         vec![bind(
             "f",
             "Float",
-            Some(unary("-", const_of("Float", "1e400"), "Float")),
+            Some(unary(UnaryOp::Negate, const_of("Float", "1e400"), "Float")),
             true,
             false,
         )],
@@ -1241,7 +1279,11 @@ fn rejects_fixed_underflow() {
         vec![bind(
             "x",
             "Fixed",
-            Some(unary("-", const_of("Fixed", "3000000000"), "Fixed")),
+            Some(unary(
+                UnaryOp::Negate,
+                const_of("Fixed", "3000000000"),
+                "Fixed",
+            )),
             true,
             false,
         )],
@@ -1306,7 +1348,7 @@ fn rejects_negated_scalar() {
         vec![bind(
             "c",
             "Scalar",
-            Some(unary("-", const_of("Scalar", "65"), "Scalar")),
+            Some(unary(UnaryOp::Negate, const_of("Scalar", "65"), "Scalar")),
             true,
             false,
         )],
@@ -1596,7 +1638,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
     // OPERAND, which is value position.
     let body = vec![IrOp::Eval {
         value: IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(int_const("1")),
             right: Box::new(sub_call()),
             type_: crate::types::ParameterType::parse("Integer"),
@@ -1615,7 +1657,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
     // A unary operand is the same shape one level shallower.
     let body = vec![IrOp::Eval {
         value: IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(sub_call()),
             type_: crate::types::ParameterType::parse("Boolean"),
             loc: IrSourceLoc::default(),
@@ -1694,7 +1736,7 @@ fn rejects_exit_program_i128_min_without_panic() {
     // out of the 0..255 host range, so it must be reported as such.
     let body = vec![IrOp::ExitProgram {
         code: unary(
-            "-",
+            UnaryOp::Negate,
             const_of("Integer", "-170141183460469231731687303715884105728"),
             "Integer",
         ),
@@ -2532,7 +2574,7 @@ fn eval(value: IrValue) -> IrOp {
 fn deeply_nested_value_hits_depth_cap() {
     let mut v = int_const("1");
     for _ in 0..300 {
-        v = unary("-", v, "Integer");
+        v = unary(UnaryOp::Negate, v, "Integer");
     }
     let f = func_returns("run", "Nothing", vec![], vec![eval(v)]);
     expect_rule(
@@ -2666,7 +2708,7 @@ fn rejects_negated_money_precision() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("1.123456"), "Money")),
+        Some(unary(UnaryOp::Negate, money_const("1.123456"), "Money")),
         true,
         false,
     )];
@@ -2680,7 +2722,11 @@ fn rejects_negated_money_underflow() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("100000000000000"), "Money")),
+        Some(unary(
+            UnaryOp::Negate,
+            money_const("100000000000000"),
+            "Money",
+        )),
         true,
         false,
     )];
@@ -2694,7 +2740,7 @@ fn accepts_negated_money_literal_in_range() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("1.25"), "Money")),
+        Some(unary(UnaryOp::Negate, money_const("1.25"), "Money")),
         true,
         false,
     )];
@@ -2781,7 +2827,7 @@ fn rejects_read_state_on_stateless_resource() {
 #[test]
 fn rejects_money_compared_with_non_money() {
     let body = vec![eval(binary(
-        "<",
+        BinaryOp::Less,
         money_const("1.00"),
         int_const("2"),
         "Boolean",
@@ -2794,7 +2840,7 @@ fn rejects_money_compared_with_non_money() {
 #[test]
 fn accepts_money_equality() {
     let body = vec![eval(binary(
-        "=",
+        BinaryOp::Equal,
         money_const("1.00"),
         money_const("2.00"),
         "Boolean",
@@ -2811,7 +2857,7 @@ fn accepts_money_equality() {
 #[test]
 fn rejects_money_plus_non_money() {
     let body = vec![eval(binary(
-        "+",
+        BinaryOp::Add,
         money_const("1.00"),
         int_const("2"),
         "Money",
@@ -2824,12 +2870,17 @@ fn rejects_money_plus_non_money() {
 #[test]
 fn accepts_money_add_and_scale() {
     let add = eval(binary(
-        "+",
+        BinaryOp::Add,
         money_const("1.00"),
         money_const("2.00"),
         "Money",
     ));
-    let scale = eval(binary("*", money_const("1.00"), int_const("3"), "Money"));
+    let scale = eval(binary(
+        BinaryOp::Multiply,
+        money_const("1.00"),
+        int_const("3"),
+        "Money",
+    ));
     let f = func_returns("run", "Nothing", vec![], vec![add, scale]);
     let got = rules(&project(vec![f], vec![]));
     assert!(
@@ -2842,7 +2893,7 @@ fn accepts_money_add_and_scale() {
 #[test]
 fn rejects_money_times_money() {
     let body = vec![eval(binary(
-        "*",
+        BinaryOp::Multiply,
         money_const("1.00"),
         money_const("2.00"),
         "Money",
@@ -2855,7 +2906,7 @@ fn rejects_money_times_money() {
 #[test]
 fn rejects_non_money_divided_by_money() {
     let body = vec![eval(binary(
-        "/",
+        BinaryOp::Divide,
         int_const("6"),
         money_const("2.00"),
         "Money",
@@ -2868,7 +2919,7 @@ fn rejects_non_money_divided_by_money() {
 #[test]
 fn rejects_money_exponentiation() {
     let body = vec![eval(binary(
-        "^",
+        BinaryOp::Power,
         money_const("1.00"),
         int_const("2"),
         "Money",
@@ -3071,7 +3122,7 @@ fn equality_with_unknown_operand_is_permissive() {
         loc: IrSourceLoc::default(),
     };
     let body = vec![eval(binary(
-        "=",
+        BinaryOp::Equal,
         const_of("String", "x"),
         mystery,
         "Boolean",
@@ -3186,12 +3237,56 @@ fn accepts_error_member_access_chain() {
 
 // --- type declarations -----------------------------------------------------
 
+/// plan-114-D: a **bare** resource field is still rejected — but by the marker
+/// rule a collection element takes, not by the retired ban. This is the test §3
+/// calls non-optional: if the field walk stopped emitting
+/// `TYPE_RESOURCE_FIELD_FORBIDDEN` without routing to
+/// `TYPE_RESOURCE_REQUIRES_RES`, an unmarked resource field would be silently
+/// accepted, and letter C's analysis would not float it — a leak with no
+/// diagnostic.
 #[test]
-fn rejects_resource_field_in_record() {
+fn rejects_unmarked_resource_field_in_record() {
     let mut ty = record_typed("Holder", &[("f", "fs.File")]);
     ty.file = "src/main.mfb".to_string();
     let f = func_returns("run", "Nothing", vec![], vec![]);
-    expect_rule(&project(vec![f], vec![ty]), "TYPE_RESOURCE_FIELD_FORBIDDEN");
+    let got = rules(&project(vec![f], vec![ty]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_RESOURCE_REQUIRES_RES"),
+        "a bare resource field must be told to add the RES marker: {got:?}"
+    );
+    assert!(
+        !got.iter().any(|r| r == "TYPE_RESOURCE_FIELD_FORBIDDEN"),
+        "the ban is retired and must never be emitted again: {got:?}"
+    );
+}
+
+/// The other half of the marker axis: `RES` on a non-resource field.
+#[test]
+fn rejects_res_marker_on_a_non_resource_field() {
+    let mut ty = record_typed("Holder", &[("n", "RES Integer")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    expect_rule(&project(vec![f], vec![ty]), "TYPE_RES_REQUIRES_RESOURCE");
+}
+
+/// And the accept path this letter exists for: a correctly-marked resource field
+/// is legal. Guards against the routing over-rejecting.
+#[test]
+fn accepts_a_res_marked_resource_field_in_record() {
+    let mut ty = record_typed("Holder", &[("name", "String"), ("handle", "RES fs.File")]);
+    ty.file = "src/main.mfb".to_string();
+    let f = func_returns("run", "Nothing", vec![], vec![]);
+    let got = rules(&project(vec![f], vec![ty]));
+    for rule in [
+        "TYPE_RESOURCE_FIELD_FORBIDDEN",
+        "TYPE_RESOURCE_REQUIRES_RES",
+        "TYPE_RES_REQUIRES_RESOURCE",
+    ] {
+        assert!(
+            !got.iter().any(|r| r == rule),
+            "`RES fs.File` is a legal field; {rule} must not fire: {got:?}"
+        );
+    }
 }
 
 #[test]
@@ -3762,7 +3857,11 @@ fn unary_operand_of_uninferable_value_is_skipped() {
     // `check_unary_operand` early-returns when the operand type cannot be
     // inferred (calls.rs:18) — an unknown local read as unary `-`.
     let body = vec![IrOp::Eval {
-        value: unary("-", IrValue::Local("missing".to_string()), "Integer"),
+        value: unary(
+            UnaryOp::Negate,
+            IrValue::Local("missing".to_string()),
+            "Integer",
+        ),
         loc: IrSourceLoc::default(),
     }];
     let f = func_returns("run", "Nothing", vec![], body);
@@ -4105,11 +4204,11 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         return_state_type: None,
         abi_slots: vec![crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         }],
         abi_return_name: "value".to_string(),
-        abi_return_ctype: "CInt32".to_string(),
+        abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
         consts: vec![],
         bind_in: vec![],
         bind_state: None,
@@ -4161,7 +4260,7 @@ fn cstruct(name: &str, fields: &[(&str, &str)]) -> crate::ir::IrCStruct {
             .iter()
             .map(|(n, t)| crate::ir::IrCStructField {
                 name: (*n).to_string(),
-                ctype: (*t).to_string(),
+                ctype: crate::types::ParameterType::parse(t),
             })
             .collect(),
     }
@@ -4266,7 +4365,7 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     )];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "info".to_string(),
-        ctype: "CInt32".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt32"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project_with_cstructs(vec![cstruct("SfInfo", &[("a", "CInt32")])]);
@@ -4279,7 +4378,7 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
 fn abi_slot(name: &str, ctype: &str, dir: crate::ir::AbiDirection) -> crate::ir::IrAbiSlot {
     crate::ir::IrAbiSlot {
         name: name.to_string(),
-        ctype: ctype.to_string(),
+        ctype: crate::types::ParameterType::parse(ctype),
         direction: dir,
     }
 }
@@ -4622,7 +4721,7 @@ fn rejects_struct_slot_with_uncovered_record_field() {
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction: crate::ir::AbiDirection::Out,
     }];
     lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
@@ -4645,7 +4744,7 @@ fn rejects_struct_slot_with_mistyped_record_field() {
     lf.params = vec![];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction: crate::ir::AbiDirection::Out,
     }];
     lf.result = Some(crate::ir::IrLinkExpr::Var("s".to_string()));
@@ -4667,7 +4766,7 @@ fn rejects_link_unknown_slot_ctype() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CIint32".to_string(),
+        ctype: crate::types::ParameterType::parse("CIint32"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4678,7 +4777,7 @@ fn rejects_link_unknown_slot_ctype() {
 #[test]
 fn rejects_link_unknown_return_ctype() {
     let mut lf = link_fn();
-    lf.abi_return_ctype = "CFloat32".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CFloat32");
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_ABI_UNKNOWN_CTYPE");
@@ -4690,7 +4789,7 @@ fn rejects_link_cvoid_argument_slot() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CVoid".to_string(),
+        ctype: crate::types::ParameterType::parse("CVoid"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4704,7 +4803,7 @@ fn rejects_link_cptr_escape_in_param() {
     lf.params = vec![("p".to_string(), crate::types::ParameterType::parse("CPtr"))];
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "p".to_string(),
-        ctype: "CPtr".to_string(),
+        ctype: crate::types::ParameterType::parse("CPtr"),
         direction: crate::ir::AbiDirection::In,
     }];
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
@@ -4729,12 +4828,12 @@ fn rejects_link_unbound_input_slot() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "stray".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -4749,12 +4848,12 @@ fn rejects_link_unbound_slot() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "mystery".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -4769,12 +4868,12 @@ fn rejects_link_out_slot_not_return() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "extra".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::Out,
         },
     ];
@@ -4791,12 +4890,12 @@ fn rejects_link_const_out() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::Out,
         },
     ];
@@ -4810,7 +4909,7 @@ fn rejects_link_no_result() {
     let mut lf = link_fn();
     lf.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "path".to_string(),
-        ctype: "CString".to_string(),
+        ctype: crate::types::ParameterType::parse("CString"),
         direction: crate::ir::AbiDirection::In,
     }];
     // A value-returning wrapper with no RETURN clause names no result.
@@ -4866,12 +4965,12 @@ fn accepts_link_const_pin() {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "path".to_string(),
-            ctype: "CString".to_string(),
+            ctype: crate::types::ParameterType::parse("CString"),
             direction: crate::ir::AbiDirection::In,
         },
         crate::ir::IrAbiSlot {
             name: "flags".to_string(),
-            ctype: "CInt32".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt32"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
@@ -5014,7 +5113,7 @@ fn rejects_global_byte_overflow() {
 fn collect_source_diagnostics_maps_rules_to_pending() {
     use std::path::Path;
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -5633,7 +5732,7 @@ fn captures_walked_through_nested_value_shapes() {
         "Integer",
         vec![],
         vec![ret(IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(IrValue::Capture {
                 index: 0,
                 type_: crate::types::ParameterType::parse("Integer"),
@@ -5706,7 +5805,7 @@ fn accepts_negated_literal_into_fixed_binding() {
         vec![bind(
             "x",
             "Fixed",
-            Some(unary("-", int_const("1"), "Integer")),
+            Some(unary(UnaryOp::Negate, int_const("1"), "Integer")),
             true,
             false,
         )],
@@ -5761,7 +5860,7 @@ fn poisoned_initializer_yields_unknown_value() {
         "x",
         "Integer",
         Some(binary(
-            "-",
+            BinaryOp::Subtract,
             const_of("String", "a"),
             int_const("1"),
             "Integer",
@@ -5777,7 +5876,7 @@ fn poisoned_initializer_yields_unknown_value() {
 #[test]
 fn poisoned_return_yields_unknown_value() {
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -6125,7 +6224,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "bn",
             "Integer",
             Some(IrValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: Box::new(cap()),
                 right: Box::new(cap()),
                 type_: crate::types::ParameterType::parse("Integer"),
@@ -6139,7 +6238,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "un",
             "Integer",
             Some(IrValue::Unary {
-                op: "-".to_string(),
+                op: UnaryOp::Negate,
                 operand: Box::new(cap()),
                 type_: crate::types::ParameterType::parse("Integer"),
                 loc: IrSourceLoc::default(),
@@ -6746,7 +6845,7 @@ fn match_guard_reads_union_extract_bind() {
             IrMatchCase {
                 pattern: IrMatchPattern::Value(IrValue::Local("Circle".to_string())),
                 guard: Some(binary(
-                    ">",
+                    BinaryOp::Greater,
                     IrValue::Local("r".to_string()),
                     int_const("0"),
                     "Boolean",
@@ -7232,7 +7331,7 @@ fn string_call_annotated_integer_cannot_feed_arithmetic() {
         vec![ret(const_of("String", "a"))],
     );
     let confused = binary(
-        "-",
+        BinaryOp::Subtract,
         IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
@@ -7355,7 +7454,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(binary("<", int_const("1"), int_const("2"), "Integer"))],
+        vec![ret(binary(
+            BinaryOp::Less,
+            int_const("1"),
+            int_const("2"),
+            "Integer",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7367,7 +7471,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
         "run",
         vec![],
         vec![ret(binary(
-            "&",
+            BinaryOp::Concat,
             const_of("String", "a"),
             const_of("String", "b"),
             "Integer",
@@ -7382,7 +7486,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(binary("+", int_const("1"), int_const("2"), "String"))],
+        vec![ret(binary(
+            BinaryOp::Add,
+            int_const("1"),
+            int_const("2"),
+            "String",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7393,7 +7502,11 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(unary("NOT", const_of("Boolean", "true"), "Integer"))],
+        vec![ret(unary(
+            UnaryOp::Not,
+            const_of("Boolean", "true"),
+            "Integer",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7402,7 +7515,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(unary("-", int_const("1"), "String"))],
+        vec![ret(unary(UnaryOp::Negate, int_const("1"), "String"))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7414,7 +7527,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
         "run",
         "Boolean",
         vec![],
-        vec![ret(binary("<", int_const("1"), int_const("2"), "Boolean"))],
+        vec![ret(binary(
+            BinaryOp::Less,
+            int_const("1"),
+            int_const("2"),
+            "Boolean",
+        ))],
     );
     accept(&project(vec![caller], vec![]));
 }
@@ -7453,17 +7571,17 @@ fn cbuffer_fn() -> crate::ir::IrLinkFunction {
     lf.abi_slots = vec![
         crate::ir::IrAbiSlot {
             name: "buf".to_string(),
-            ctype: "CBuffer".to_string(),
+            ctype: crate::types::ParameterType::parse("CBuffer"),
             direction: crate::ir::AbiDirection::Out,
         },
         crate::ir::IrAbiSlot {
             name: "n".to_string(),
-            ctype: "CInt64".to_string(),
+            ctype: crate::types::ParameterType::parse("CInt64"),
             direction: crate::ir::AbiDirection::In,
         },
     ];
     lf.abi_return_name = "status".to_string();
-    lf.abi_return_ctype = "CInt32".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CInt32");
     lf.result = Some(crate::ir::IrLinkExpr::Var("buf".to_string()));
     lf.buffers = vec![crate::ir::IrBuffer {
         slot: "buf".to_string(),
@@ -7555,7 +7673,7 @@ fn rejects_cbuffer_const_pin() {
 #[test]
 fn rejects_cbuffer_as_abi_return() {
     let mut lf = cbuffer_fn();
-    lf.abi_return_ctype = "CBuffer".to_string();
+    lf.abi_return_ctype = crate::types::ParameterType::parse("CBuffer");
     expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNKNOWN_CTYPE");
 }
 
@@ -7621,7 +7739,7 @@ fn rejects_buffer_size_reading_an_out_slot() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "written".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::Out,
     });
     lf.buffers[0].size = crate::ir::IrLinkExpr::Var("written".to_string());
@@ -7635,7 +7753,7 @@ fn accepts_buffer_size_reading_a_const_pin() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "cap".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::In,
     });
     lf.consts = vec![("cap".to_string(), 4096)];
@@ -7681,7 +7799,7 @@ fn accepts_length_reading_an_out_slot() {
     let mut lf = cbuffer_fn();
     lf.abi_slots.push(crate::ir::IrAbiSlot {
         name: "written".to_string(),
-        ctype: "CInt64".to_string(),
+        ctype: crate::types::ParameterType::parse("CInt64"),
         direction: crate::ir::AbiDirection::Out,
     });
     lf.result_length = Some(crate::ir::IrLinkExpr::Var("written".to_string()));
@@ -7738,12 +7856,19 @@ fn truncated_thread_spelling_still_counts_as_a_thread() {
 // decoded IR, where no the former source checker ever ran.
 // ---------------------------------------------------------------------------
 
+/// plan-115-A: `ISOLATED` is orthogonal to visibility, so a `PRIVATE ISOLATED
+/// FUNC` is well-formed. This is the converted twin of the former
+/// `rejects_private_isolated_func`, which pinned the bug-227 restriction that
+/// plan-115-A deliberately lifts (an entry no longer has to be reachable from
+/// another package, so "project-visible" has no surviving rationale). The
+/// declaration-form half of the rule is still pinned by `rejects_isolated_sub`
+/// below — that pairing is the point: only the visibility half was lifted.
 #[test]
-fn rejects_private_isolated_func() {
+fn accepts_private_isolated_func() {
     let mut f = func("w", vec![], vec![ret(int_const("0"))]);
     f.isolated = true;
     f.visibility = "private".to_string();
-    expect_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_ISOLATED_NOT_VISIBLE");
 }
 
 #[test]
@@ -7975,6 +8100,9 @@ fn rejects_transfer_on_a_thread_without_a_resource_plane() {
 /// `List OF RES fs.File` satisfies both yet carries sender-owned pointers.
 #[test]
 fn rejects_unsendable_resource_plane_state_payload() {
+    // plan-114-A: the payload is deep-copied DATA riding the resource plane, so
+    // the resource inside it is on a data plane and the rejection names the
+    // plane remedy (`2-203-0138`) rather than the generic unsendable rule.
     let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
     let f = func(
         "worker",
@@ -7985,7 +8113,10 @@ fn rejects_unsendable_resource_plane_state_payload() {
         )],
         vec![ret(int_const("0"))],
     );
-    expect_rule(&project(vec![f], vec![holder]), "TYPE_THREAD_NOT_SENDABLE");
+    expect_rule(
+        &project(vec![f], vec![holder]),
+        "TYPE_THREAD_RESOURCE_PLANE_REQUIRED",
+    );
 
     // A STATE of plain sendable fields is accepted — the rule rejects the
     // unsendable payload, not stateful planes generally.
@@ -8001,7 +8132,8 @@ fn rejects_unsendable_resource_plane_state_payload() {
     );
     let got = rules(&project(vec![f], vec![plain]));
     assert!(
-        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        !got.iter()
+            .any(|r| r == "TYPE_THREAD_NOT_SENDABLE" || r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
         "{got:?}"
     );
 }
@@ -8034,12 +8166,24 @@ fn rejects_a_non_resource_on_the_resource_plane() {
 #[test]
 fn rejects_a_resource_in_the_message_plane() {
     // The data plane is resource-free (§7): a resource rides the `RES` plane.
+    // plan-114-A gives that its own rule, since the remedy is nameable.
     let f = func(
         "run",
         vec![param("t", "Thread OF fs.File TO Integer", None)],
         vec![ret(int_const("0"))],
     );
-    expect_rule(&project(vec![f], vec![]), "TYPE_THREAD_NOT_SENDABLE");
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter()
+            .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+        "{got:?}"
+    );
+    // One mistake, one diagnostic: the plane rule and the sendability rule are
+    // mutually exclusive, so the generic rule must NOT also fire here.
+    assert!(
+        !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "both rules fired for one cause: {got:?}"
+    );
 }
 
 #[test]
@@ -8054,6 +8198,230 @@ fn accepts_a_sendable_thread_message() {
         !got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
         "{got:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// plan-114-A — the thread-unsendability CAUSE walk.
+//
+// `thread_unsendable_cause` is the single walk; "is it sendable" is `.is_none()`
+// on it. These assert the walk's classification directly, so a future edit that
+// makes it disagree with the rule it feeds is caught here rather than as a
+// silently-missing diagnostic downstream.
+// ---------------------------------------------------------------------------
+
+/// Build the checker's type environment over a project fixture, so the cause
+/// walk can be asked about a type directly.
+fn type_env(project: &IrProject) -> super::TypeEnv {
+    super::TypeEnv::build(project)
+}
+
+/// The cause the walk reports for `spelling`, given `types` are declared.
+fn cause_for(types: Vec<IrType>, spelling: &str) -> Option<super::resources::Unsendable> {
+    let f = func("run", vec![], vec![ret(int_const("0"))]);
+    let project = project(vec![f], types);
+    let env = type_env(&project);
+    env.thread_unsendable_cause(
+        &ParameterType::parse(spelling),
+        &mut std::collections::HashSet::new(),
+    )
+}
+
+#[test]
+fn cause_walk_reports_a_res_marked_element_as_a_resource() {
+    // `RES fs.File` in a collection: the §15.6 case. The reported leaf is the
+    // `RES`-marked element itself, not the enclosing `List`.
+    let cause = cause_for(vec![], "List OF RES fs.File");
+    assert_eq!(
+        cause,
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        )),
+        "expected the RES element as the blocking leaf"
+    );
+}
+
+#[test]
+fn cause_walk_reports_a_res_map_value_through_both_positions() {
+    // The Map arm reports key first, then value; only the value blocks here.
+    let cause = cause_for(vec![], "Map OF String TO RES fs.File");
+    assert_eq!(
+        cause,
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_accepts_a_sendable_bare_resource_but_rejects_an_unsendable_one() {
+    // A bare resource nominal is judged by its registered sendability, NOT by
+    // being a resource: `fs.File` is `sendable: true`
+    // (src/codegen/builtins/fs/mod.rs), `process.Process` is `sendable: false`
+    // (src/codegen/builtins/process/mod.rs). This is why the bare-resource
+    // DATA-plane rejection cannot come from this walk — see the plane rule in
+    // `check_thread_sendability`.
+    //
+    // Both spellings are package-qualified because that is the only form the
+    // resource tables answer to: `registry().resolve_type` splits on the `.`
+    // (src/codegen/registry/mod.rs:1372), so a bare `Process` resolves to
+    // nothing and reads as an unknown name — which is vacuously sendable.
+    assert_eq!(cause_for(vec![], "fs.File"), None, "fs.File is sendable");
+    assert_eq!(
+        cause_for(vec![], "process.Process"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("process.Process")
+        )),
+        "process.Process is not thread-sendable"
+    );
+    // The unqualified spelling is not a resource as far as the tables are
+    // concerned. Pinned so the contrast above is not mistaken for a typo.
+    assert_eq!(cause_for(vec![], "Process"), None);
+}
+
+#[test]
+fn cause_walk_reports_func_and_thread_handle_as_other_not_resource() {
+    // These are genuinely unsendable — no resource plane exists to move them
+    // to — so they must NOT be classified as a plane mix-up.
+    assert_eq!(
+        cause_for(vec![], "FUNC(Integer) AS String"),
+        Some(super::resources::Unsendable::Other(ParameterType::parse(
+            "FUNC(Integer) AS String"
+        )))
+    );
+    assert_eq!(
+        cause_for(vec![], "Thread OF String TO Integer"),
+        Some(super::resources::Unsendable::Other(ParameterType::parse(
+            "Thread OF String TO Integer"
+        )))
+    );
+}
+
+#[test]
+fn cause_walk_descends_into_a_record_field_and_names_the_leaf() {
+    // The nested case behind `rejects_unsendable_resource_plane_state_payload`:
+    // the record itself is not a resource, so the cause must come from the
+    // field, and the reported leaf must be the field's element — not `Holder`.
+    let holder = record_typed("Holder", &[("files", "List OF RES fs.File")]);
+    assert_eq!(
+        cause_for(vec![holder], "Holder"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_reports_the_first_blocking_field_left_to_right() {
+    // Determinism: two blocking fields, and the FIRST is reported. Without this
+    // the emitted message would depend on field-map iteration order.
+    let holder = record_typed(
+        "Holder",
+        &[
+            ("ok", "Integer"),
+            ("first", "List OF RES fs.File"),
+            ("second", "FUNC(Integer) AS String"),
+        ],
+    );
+    assert_eq!(
+        cause_for(vec![holder], "Holder"),
+        Some(super::resources::Unsendable::Resource(
+            ParameterType::parse("RES fs.File")
+        ))
+    );
+}
+
+#[test]
+fn cause_walk_accepts_every_plain_sendable_shape() {
+    // The regression guard for the refactor: the walk must still say `None`
+    // for everything that crossed a boundary before it existed.
+    let holder = record_typed("Holder", &[("count", "Integer"), ("label", "String")]);
+    for spelling in [
+        "Integer",
+        "String",
+        "Boolean",
+        "Byte",
+        "Float",
+        "Fixed",
+        "Money",
+        "Nothing",
+        "List OF Integer",
+        "Set OF String",
+        "Map OF String TO Integer",
+        "Result OF Integer",
+        "Error",
+        "ErrorLoc",
+        "Scalar",
+        "AttributedString",
+        "Holder",
+    ] {
+        assert_eq!(
+            cause_for(vec![holder.clone()], spelling),
+            None,
+            "`{spelling}` must stay sendable"
+        );
+    }
+}
+
+#[test]
+fn the_resource_plane_keeps_the_generic_unsendable_rule() {
+    // plan-114-A C3: a resource plane naming a resource that is not registered
+    // thread-sendable is NOT a plane mix-up — it is already on the right plane.
+    // Emitting `2-203-0138` here would tell the author to move it to the plane
+    // it is on, so the resource plane keeps `2-203-0063`.
+    let f = func(
+        "worker",
+        vec![param(
+            "t",
+            "ThreadWorker OF Integer RES process.Process TO Integer",
+            None,
+        )],
+        vec![ret(int_const("0"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+        "{got:?}"
+    );
+    assert!(
+        !got.iter()
+            .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+        "the resource plane must not get the data-plane remedy: {got:?}"
+    );
+}
+
+#[test]
+fn func_and_thread_handle_planes_keep_the_generic_unsendable_rule() {
+    // The other half of the split: a genuinely unsendable type has no resource
+    // plane to be moved to, so it must keep `2-203-0063` and never get the
+    // resource remedy.
+    for spelling in [
+        "Thread OF FUNC(Integer) AS String TO Integer",
+        "Thread OF ThreadWorker OF Integer TO Integer TO Integer",
+    ] {
+        let f = func(
+            "run",
+            vec![param("t", spelling, None)],
+            vec![ret(int_const("0"))],
+        );
+        let got = rules(&project(vec![f], vec![]));
+        assert!(
+            got.iter().any(|r| r == "TYPE_THREAD_NOT_SENDABLE"),
+            "`{spelling}`: {got:?}"
+        );
+        assert!(
+            !got.iter()
+                .any(|r| r == "TYPE_THREAD_RESOURCE_PLANE_REQUIRED"),
+            "`{spelling}` is not a plane mix-up: {got:?}"
+        );
+    }
+}
+
+#[test]
+fn cause_walk_terminates_on_a_self_referential_record() {
+    // The cycle guard: `seen` must still stop the walk now that the `all(..)`
+    // fold became a `find_map`.
+    let node = record_typed("Node", &[("next", "Node"), ("label", "String")]);
+    assert_eq!(cause_for(vec![node], "Node"), None);
 }
 
 // ---------------------------------------------------------------------------
@@ -8356,7 +8724,7 @@ fn struct_slot_project(
     f.params = vec![];
     f.abi_slots = vec![crate::ir::IrAbiSlot {
         name: "s".to_string(),
-        ctype: "S".to_string(),
+        ctype: crate::types::ParameterType::parse("S"),
         direction,
     }];
     (p, f)
@@ -8466,4 +8834,36 @@ fn accepts_a_body_that_returns_before_its_trap() {
     let f = func("run", vec![], body);
     let got = rules(&project(vec![f], vec![]));
     assert!(!got.iter().any(|r| r == "TYPE_TRAP_FALLTHROUGH"), "{got:?}");
+}
+
+/// bug-483 sub-issue B: the compiler-owned records a program may neither
+/// construct nor `WITH`-update are recognised by NAME, and bug-480 Phase 4b made
+/// a builtin value type's declared identity package-qualified. Matching only the
+/// bare leaf left the rule looking for a spelling nothing produces any more, so
+/// `net::Address["1.2.3.4", 80]` compiled and ran — silently handing a program a
+/// record whose layout only the runtime helpers are allowed to write.
+///
+/// Both spellings must be refused: a source `AS net::Address` resolves to the
+/// qualified id, while a record FIELD type still arrives bare.
+#[test]
+fn read_only_records_are_refused_under_either_spelling() {
+    for name in [
+        "Address",
+        "net.Address",
+        "AudioDevice",
+        "audio.AudioDevice",
+        "TermColor",
+        "term.TermColor",
+        "TermSize",
+        "term.TermSize",
+    ] {
+        assert!(
+            super::read_only_record_type(&ParameterType::declared(name)),
+            "`{name}` must stay a read-only compiler-owned record (bug-483)"
+        );
+    }
+    // An ordinary record is still constructible.
+    assert!(!super::read_only_record_type(&ParameterType::declared(
+        "net.Url"
+    )));
 }

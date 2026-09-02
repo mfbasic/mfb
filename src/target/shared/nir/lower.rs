@@ -487,6 +487,10 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             value: Box::new(lower_value(value)),
         },
+        IrValue::Checked { type_, value } => NirValue::Checked {
+            type_: type_.clone(),
+            value: Box::new(lower_value(value)),
+        },
         IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
             value: Box::new(lower_value(value)),
         },
@@ -531,7 +535,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             loc,
             ..
         } => NirValue::Binary {
-            op: op.clone(),
+            op: *op,
             left: Box::new(lower_value(left)),
             right: Box::new(lower_value(right)),
             loc: lower_loc(*loc),
@@ -539,7 +543,7 @@ fn lower_value(value: &IrValue) -> NirValue {
         IrValue::Unary {
             op, operand, loc, ..
         } => NirValue::Unary {
-            op: op.clone(),
+            op: *op,
             operand: Box::new(lower_value(operand)),
             loc: lower_loc(*loc),
         },

@@ -17,6 +17,8 @@
 //! even when post-terminal, so a function body always ends in its explicit
 //! return op and downstream planning sees the shape it expects.
 
+#[cfg(test)]
+use crate::operators::BinaryOp;
 use crate::target::shared::nir::{NirModule, NirOp};
 
 /// Apply the tree-level UCE row to the whole module. Self-guarded on its
@@ -194,7 +196,7 @@ mod tests {
         let body = run(
             vec![
                 ret(local("x")),
-                eval(binary("+", local("a"), local("b"))),
+                eval(binary(BinaryOp::Add, local("a"), local("b"))),
                 eval(local("y")),
             ],
             2,

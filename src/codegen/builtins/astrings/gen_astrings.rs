@@ -186,7 +186,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&text_alias, abi::stack_pointer(), text_slot));
 
         let spans = args[1].clone();
-        if spans.type_.name() != "List OF AttrSpan" {
+        if spans.type_.name() != "List OF astrings.AttrSpan" {
             return Err(format!(
                 "astrings::writeSpans expects a List OF AttrSpan, got {}",
                 spans.type_

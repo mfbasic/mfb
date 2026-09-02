@@ -4,6 +4,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::numeric;
+use crate::operators::BinaryOp;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 use std::collections::HashMap;
@@ -37,7 +38,7 @@ pub(crate) fn static_nir_value_type(
             op, left, right, ..
         } => static_nir_value_type(left, locals, fields)
             .zip(static_nir_value_type(right, locals, fields))
-            .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type)),
+            .map(|(left_type, right_type)| promoted_binary_type(*op, &left_type, &right_type)),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
@@ -63,6 +64,12 @@ pub(crate) fn static_nir_value_type(
             .or_else(|| builtins::call_return_type(target))
         }
         NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+        // `Checked` annotates its SUCCESS type and this oracle echoes it, exactly
+        // as the `CallResult` arm above echoes the callee's return type rather
+        // than the `Result OF` wrapper: the Result-producing family reports what
+        // the value delivers on the `Ok` path. The `Result OF T` the bind
+        // receives is on the binding, which `NirValue::Local` resolves.
+        NirValue::Checked { type_, .. } => Some(type_.clone()),
         NirValue::ResultValue { value } => match static_nir_value_type(value, locals, fields)? {
             ParameterType::ResultOf(success) => Some(*success),
             _ => None,
@@ -193,7 +200,7 @@ pub(crate) fn local_constant_value_with_constants(
                 },
             )
         }
-        NirValue::Binary { op, .. } if op == "&" => {
+        NirValue::Binary { op, .. } if *op == BinaryOp::Concat => {
             static_string_value_with_constants(value, constants, types, fields).map(|value| {
                 NirValue::Const {
                     type_: ParameterType::String,
@@ -237,13 +244,21 @@ pub(crate) fn strings_package_static_string_value(
 /// expression under-reported and its module aborted at lowering with
 /// "has no data object", even with plain locals for both operands (bug-366).
 pub(crate) fn binary_may_consume_float_into_exact(
-    op: &str,
+    op: BinaryOp,
     left: &NirValue,
     right: &NirValue,
     types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
-    if !matches!(op, "+" | "-" | "*" | "/" | "MOD" | "^") {
+    if !matches!(
+        op,
+        BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::Power
+    ) {
         return false;
     }
     let Some(left_type) = static_type_name_with_types(left, types, fields) else {
@@ -406,7 +421,7 @@ pub(crate) fn collection_has_buckets(type_: &ParameterType) -> bool {
 /// `numeric` answers `None` for a non-numeric or dimensionally-invalid pairing,
 /// and every caller here needs a type.
 pub(crate) fn promoted_binary_type(
-    operator: &str,
+    operator: BinaryOp,
     left: &ParameterType,
     right: &ParameterType,
 ) -> ParameterType {

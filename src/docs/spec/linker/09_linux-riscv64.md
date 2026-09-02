@@ -162,7 +162,7 @@ same target. [[src/os/linux/link/mod.rs:paired_auipc_offset]]
 ```text
 interpreter  /lib/ld-linux-riscv64-lp64d.so.1
 libc.so.6        C/POSIX runtime functions
-libpthread.so.0  pthread_create for thread::start
+libpthread.so.0  pthread_create for thread::start / process::detach
 ```
 
 Each soname an import names becomes a `DT_NEEDED` entry; the per-call
@@ -179,7 +179,8 @@ libc.musl-riscv64.so.1   C/POSIX runtime functions and pthread_create
 ```
 
 musl exposes the pthread entry points from libc, so `pthread_create` (for
-`thread::start`) is imported from `libc.musl-riscv64.so.1` rather than a separate
+`thread::start` and `process::detach`) is imported from `libc.musl-riscv64.so.1`
+rather than a separate
 pthread library. As on glibc, `libm.so` is not needed. [[src/target/linux_riscv64/plan.rs:libpthread]]
 
 ## App mode

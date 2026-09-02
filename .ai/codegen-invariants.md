@@ -69,6 +69,23 @@ The `string_keyed_type_maps` class is a **curated** `(file, identifier)` list, n
 
 Three levels of user generic (`Holder OF Holder OF Holder OF String`) also still fails (`SYMBOL_UNKNOWN_TYPE: Type 'Holder'`): a doubly-nested constructor's expected type is the enclosing template's already-mangled field type, which no longer names a template. Two levels work. Coverage for all of this lives in `tests/rt-behavior/generics/` — which did not exist before plan-105-B; the corpus had **zero** `TYPE X OF T` fixtures, so this grammar was entirely ungoldened.
 
+## Operators are a closed enum with exactly two mint sites (plan-112)
+
+`BinaryOp` (17 variants) and `UnaryOp` (3) in **`src/operators.rs`** are the compiler's only operator representation from the token the parser consumes to the byte codegen emits. Unlike `ParameterType` the vocabulary is **closed** — no operator overloading, no user-declared operator, no path from an identifier to one — so there is no interner, no `Symbol`, and no `UserOf` escape hatch: a `u8`-sized `Copy` enum is the whole representation.
+
+**Two enums, not one, because arity is real.** A single `Operator` would re-admit `Binary { op: Not }`. `UnaryOp` has deliberately **no `Plus`**: no parser path mints a unary `+`, and two stages carried dead arms handling one until the missing variant deleted them.
+
+**The mint sites are `BinaryOp::from_token` (via `src/ast/expr.rs`'s precedence ladder) and the two direct constructions in `src/ast/link_items.rs`** (`ERROR_ON`'s De Morgan `NOT`, and the `SIZEOF` const pin). Nothing else constructs one from text except `parse` at the decode boundary.
+
+- **`name()` is a wire format, not a display.** It is rendered verbatim into three committed sinks — `.ast` JSON (`ast/serialize.rs`), `.ir` JSON (`ir/json.rs`), and the length-prefixed operator string in the `.mfp` binary (`ir/binary.rs`) — and pinned by 1586 goldens. Changing a returned string is a format break. There is deliberately **no `Display` impl**: every render goes through `name()` so the sinks are greppable.
+- **`parse()` is for decode boundaries only.** `ir/binary.rs` rejects an out-of-vocabulary operator at decode rather than mis-lowering it (bug-403's guarantee, extended from `IrLinkExpr` to `IrValue`); `ir/link.rs`'s `link_compare_op_valid` is the same check for the LINK wire. No compiler stage reaches for `parse` to make a decision.
+- **`IrLinkExpr::Compare { op: String }` is a fourth carrier that stays a `String` on purpose** — bug-403's regression test constructs a garbage one and must keep compiling. Its two decision sites route through `BinaryOp::parse`/`is_comparison`, so the file decides nothing by spelling.
+- **Arity conflation is the trap this exposed.** Several predicates consulted **one** `&str` list in which `"-"` meant subtraction *and* negation at once, and which one a lookup meant depended on the caller (`fallible::operator_can_raise`, `shape::note_short_circuited_operator`). If you add a shared operator predicate, split it by arity.
+- **`src/optimizer/opt2/**` and `src/arch/**` are a DIFFERENT vocabulary.** Their `op` is a `CodeOp` machine mnemonic (`"adrp"`, `"fadd_d"`), already an enum, and out of scope. Only `src/optimizer/opt1/**` operates on language operators.
+- **`SIZEOF` had zero golden coverage** until `tests/byte-identity/link-const-pins` gained a `CONST nbyte = SIZEOF CPinnedInfo` pin. It is LINK-only and folds to its integer during LINK lowering, so it reaches the `.ast` dump and nothing after it — the `.ir` never sees it.
+
+`tests/no_operator_strings.rs` holds this as a **hard zero with no budget table** (the vocabulary is closed, so there is no legitimate remainder): no spelling in a `match` arm or `==`, no `Binary`/`Unary`/`Compare` node carrying a `String` operator, no fn taking an operator as `&str`. Two allowances, each pinned by its own test: `src/operators.rs` (defines `name`/`parse`, total exemption, exactly one file) and a closed nine-entry list for the classes-3-and-4 lookalikes — the `ir/link.rs` wire boundary plus the eight files where an identifier called `op` is a mnemonic or a member name. Spelling *decisions* are exempt nowhere, including in those nine. The list is asserted tight in both directions: an entry that no longer has a site fails as stale.
+
 ## Owned-value drops must free-and-null the cleanup slot (loop double-free)
 
 `emit_owned_value_drop` / `emit_closure_drop` (`src/target/shared/code/builder_owned_cleanup.rs`) null-guard the cleanup slot — `if slot != 0 { arena_free(slot) }` — and the guard is sound ONLY if the slot reads 0 on every path that reaches the drop without a store. The slot is zero-initialized once at the prologue (`function_lowering.rs`, the `owned_value_slots` splice). That one-time init is NOT enough across a loop back-edge: a loop-scoped owned temp whose initializer is short-circuit-evaluated (e.g. a **record-returning call in a `WHILE` condition** that the last iteration skips) leaves the slot holding the *previous* iteration's already-freed pointer, so the drop frees it AGAIN. A non-immediate double-free (other allocs intervened, so `arena.rs`'s immediate-double-free idempotency guard misses it) corrupts the free-list and any live block that reused the freed one. Fix: zero the slot right after `arena_free` (free-and-null), so a re-reached drop reads 0 and skips (bug-440).
@@ -202,6 +219,45 @@ Verified (macos-aarch64, target/release/mfb): a package `rec` defining `UNION Tr
 
 Consequence for the browser example: a DOM-transform pass (e.g. style resolution filling `ElementNode.style`) that lives inside `dom` may recurse over `Node` directly — no manual stack needed. Only `display`/`fetch`/`app` (which import `dom::Node`) must stay iterative.
 
+## The inline-TRAP region is built in `ir::lower`, NOT in codegen
+
+An inline `TRAP` has no backend op: `ir::lower::lower_inline_trap` desugars it into
+`Bind $trap_resN` / `If ResultIsOk` checks. Anything that must be *covered* by the
+handler therefore has to be lifted there — codegen has no notion of "the ops of this
+trap region". Two kinds of node are lifted, and they use different wrappers:
+
+* a fallible **call** becomes `IrValue::CallResult` (bug-457);
+* a raising **operator** becomes `IrValue::Checked { type_, value }` (bug-471) —
+  "evaluate `value` with its domain-error exits captured, yielding `Result OF type_`".
+
+`Checked` works because `emit_error_register_return` already consults
+`raw_result_capture` (the per-value redirect `lower_inline_conversion_raw` /
+`lower_inline_builtin_raw` set around ONE builtin); `lower_checked_value` just sets it
+around an arbitrary value instead. Three traps around it:
+
+* **A `Checked` operand must be call-free.** A callee's error return does not pass
+  through `emit_error_register_return` in *this* frame, so it would auto-propagate
+  straight past the capture. The desugar lifts every call out first, and
+  `ir::verify::check_checked_has_no_call` rejects the shape on the decoded-package path.
+* **`Checked` is the observation boundary for a `Float`.** plan-17 moved `+`/`-`/`*`/`/`'s
+  finiteness check from the operator to wherever the value is first consumed. Once
+  lifted, the operator feeds a `ResultValue` — not an arithmetic node — so nothing
+  downstream observes it: `lower_checked_value` must call `observe_float` INSIDE the
+  capture or an overflow to infinity is delivered as a finite-looking `Ok`.
+* **A negative literal is `Unary(-, Const)`, not a computed negation.** It is by far the
+  commonest operator inside a trapped expression (`f(-1) TRAP`), and lifting it costs a
+  whole `Result` materialization to check a negation that provably succeeds — it was the
+  ONLY thing that showed up in all 8 `.ir` golden diffs when bug-471 first landed without
+  the carve-out. `fallible::is_total_literal_negation` exempts it, excluding `Byte`
+  (whose negation raises `ErrUnderflow` for any non-zero operand). The i64::MIN spelling
+  is safe because lowering folds `-9223372036854775808` to a single `Const`.
+
+The scan and the rewrite (`scan_trap_call` / `rewrite_trap_call`) must agree, node for
+node, on which nodes are indexed — a position means `fallible[position]` to one and
+"lift or leave" to the other. Both ask the single `trap_hoist_kind` predicate; a
+`debug_assert_eq!` pins the agreement, so CI (which runs DEBUG) is where a desync
+surfaces.
+
 ## TRAP inside a MATCH CASE mis-types its temp as Unknown
 
 A trap-bound producer written directly inside a `MATCH CASE` body — `MUT x AS T = <call> TRAP(e) … RECOVER … END TRAP` inside `CASE Variant(v)` — passes `-ast -ir` but fails native codegen with:
@@ -293,3 +349,26 @@ across it. When a converted function calls a still-untyped helper
 `type_.name()` at that call and name the letter that deletes it. What this rule
 forbids is the opposite move: typing a signature and pushing the render *out* to
 its callers, which multiplies renders while the gate count goes down.
+
+## Two flatness predicates, not one (plan-114-B)
+
+`type_is_flat` is gone. It answered two questions with one predicate:
+
+- `type_is_memcpy_copyable` — "does a `memcpy` of this block COPY it correctly,
+  within one thread?" Consumers: `is_pointer_collection_payload_type`,
+  `list_element_padding_alignment`, `record_field_is_inlined`,
+  `is_freeable_flat_value`, and `copy_value_to_current_arena` (which copies into
+  the CURRENT arena — see below).
+- `type_is_arena_transferable` — "may this block be RELOCATED into another
+  thread's arena?" Strictly stronger: a resource handle anywhere inside would
+  arrive pointing into the *sender's* arena. Consumers:
+  `collection_payload_needs_transfer_fix` and the thread-send `size_computable`.
+
+Both are one shared `flatness_walk` with a `mode`, so the structural arms exist
+once and cannot drift. They differ in exactly one leaf: `ParameterType::Res(_)`
+is memcpy-copyable and not arena-transferable.
+
+**The trap:** classifying a site by "it has 'arena' in the name" is wrong.
+`copy_value_to_current_arena` takes the *memcpy* predicate — most of its callers
+are in-arena (the `Result` wrap is reached by any `TRAP`), and asking the arena
+question there changed codegen for a fixture containing no threads at all.

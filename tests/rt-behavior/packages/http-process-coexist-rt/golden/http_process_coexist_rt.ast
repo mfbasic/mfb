@@ -1,0 +1,68 @@
+{
+  "project": "http_process_coexist_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "http", "line": 10 },
+    { "module": "process", "line": 11 },
+    { "module": "io", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "channelName",
+      "line": 14,
+      "params": [
+      { "name": "s", "type": "process.Stream", "default": null, "line": 14 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 15,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Stream" }, "member": "StdOut" } },
+          "guard": null,
+          "line": 16,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "stdout" }, "line": 17 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Stream" }, "member": "StdErr" } },
+          "guard": null,
+          "line": 18,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "stderr" }, "line": 19 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "channelName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Stream" }, "member": "StdOut" }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "channelName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "process.Stream" }, "member": "StdErr" }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "http.Response", "value": { "kind": "call", "callee": "http.responseDefault", "arguments": [] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "status=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "status" }] } }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    }
+    ]
+  }
+  ]
+}

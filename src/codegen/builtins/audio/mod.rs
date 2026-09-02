@@ -106,6 +106,9 @@ pub(crate) const AUDIO_OUTPUT_TYPE_ID: &str = "audio.AudioOutput";
 /// The `AudioDevice` value record's type name (a plain read-only record obtained
 /// only from `audio::devices()`).
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
+/// Its package-qualified identity — what a consumer must write, and what the
+/// resolver seeds, so a bare `AS AudioDevice` is refused (bug-484).
+pub(crate) const AUDIO_DEVICE_TYPE_ID: &str = "audio.AudioDevice";
 /// The `AudioEnvelope`/`AudioNote` value records the user constructs and passes to
 /// `audio::render` (rendered into the injected source by `get_mfb` so the source
 /// `render` body operates on them).
@@ -140,9 +143,9 @@ opening one stream of each direction and driving both from a single loop with
 
 Both stream types are move-only, non-sendable resource handles: neither can
 cross a thread boundary. Each closes itself when its
-binding goes out of scope, or explicitly with `audio::close`. `AudioDevice` is a
+binding goes out of scope, or explicitly with `audio::close`. `audio::AudioDevice` is a
 plain read-only record obtained only from `audio::devices()`. The `render` and
-`play` members are pure synthesis: `render` turns one `AudioNote` into `s16le`
+`play` members are pure synthesis: `render` turns one `audio::AudioNote` into `s16le`
 PCM, and `play` parses MML music text and writes it to an open `AudioOutput`.
 
 
@@ -325,7 +328,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "envelope",
                 ty: ParameterType::named(AUDIO_ENVELOPE_TYPE),
-                description: "The `AudioEnvelope` shaping the note's amplitude over time.",
+                description: "The `audio::AudioEnvelope` shaping the note's amplitude over time.",
             },
             RecordProp {
                 name: "gainOverall",
@@ -512,7 +515,7 @@ mod tests {
         assert!(!registry().is_builtin_type("AudioInput"));
         assert_eq!(
             registry().qualified_builtin_type("audio.AudioInput"),
-            Some("AudioInput".to_string())
+            Some("audio.AudioInput".to_string())
         );
     }
 

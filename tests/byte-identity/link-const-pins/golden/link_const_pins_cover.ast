@@ -4,15 +4,61 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 15 }
+    { "module": "io", "line": 21 }
     ],
     "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "PinnedInfo",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "name": "a", "type": "Integer", "line": 24 },
+      { "visibility": null, "name": "b", "type": "Integer", "line": 25 },
+      { "visibility": null, "name": "c", "type": "Integer", "line": 26 },
+      { "visibility": null, "name": "d", "type": "Integer", "line": 27 },
+      { "visibility": null, "name": "e", "type": "Integer", "line": 28 }
+      ]
+    },
     {
       "kind": "link",
       "library": "c",
       "alias": "libc",
-      "line": 17,
+      "line": 31,
       "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "CPinnedInfo",
+        "mapsTo": "PinnedInfo",
+        "line": 61,
+        "fields": [
+        {
+          "name": "a",
+          "ctype": "CInt64",
+          "line": 62
+        },
+        {
+          "name": "b",
+          "ctype": "CInt64",
+          "line": 63
+        },
+        {
+          "name": "c",
+          "ctype": "CInt64",
+          "line": 64
+        },
+        {
+          "name": "d",
+          "ctype": "CInt64",
+          "line": 65
+        },
+        {
+          "name": "e",
+          "ctype": "CInt64",
+          "line": 66
+        }
+        ]
+      }
       ],
       "functions": [
       {
@@ -22,23 +68,23 @@
         "returnResource": false,
         "returnType": "List OF Byte",
         "returnState": null,
-        "line": 21,
+        "line": 35,
         "params": [
-        { "name": "fd", "type": "Integer", "default": null, "line": 21 }
+        { "name": "fd", "type": "Integer", "default": null, "line": 35 }
         ],
         "abi": {
           "slots": [
-          { "name": "fd", "ctype": "CInt32", "out": false, "line": 23 },
-          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 23 },
-          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 23 },
-          { "name": "offset", "ctype": "CInt64", "out": false, "line": 23 }
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 37 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 37 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 37 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 37 }
           ],
           "returnName": "got",
           "returnCType": "CInt64"
         },
         "consts": [
-        { "slot": "nbyte", "value": { "kind": "number", "value": "16" }, "line": 25 },
-        { "slot": "offset", "value": { "kind": "number", "value": "0" }, "line": 26 }
+        { "slot": "nbyte", "value": { "kind": "number", "value": "16" }, "line": 39 },
+        { "slot": "offset", "value": { "kind": "number", "value": "0" }, "line": 40 }
         ],
         "bindIn": [
         ],
@@ -54,24 +100,56 @@
         "returnResource": false,
         "returnType": "List OF Byte",
         "returnState": null,
-        "line": 32,
+        "line": 46,
         "params": [
-        { "name": "fd", "type": "Integer", "default": null, "line": 32 }
+        { "name": "fd", "type": "Integer", "default": null, "line": 46 }
         ],
         "abi": {
           "slots": [
-          { "name": "fd", "ctype": "CInt32", "out": false, "line": 34 },
-          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 34 },
-          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 34 },
-          { "name": "offset", "ctype": "CInt64", "out": false, "line": 34 }
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 48 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 48 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 48 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 48 }
           ],
           "returnName": "got",
           "returnCType": "CInt64"
         },
         "consts": [
-        { "slot": "fd", "value": { "kind": "number", "value": "3" }, "line": 36 },
-        { "slot": "nbyte", "value": { "kind": "number", "value": "24" }, "line": 37 },
-        { "slot": "offset", "value": { "kind": "number", "value": "8" }, "line": 38 }
+        { "slot": "fd", "value": { "kind": "number", "value": "3" }, "line": 50 },
+        { "slot": "nbyte", "value": { "kind": "number", "value": "24" }, "line": 51 },
+        { "slot": "offset", "value": { "kind": "number", "value": "8" }, "line": 52 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "preadSizeof",
+        "symbol": "pread",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 69,
+        "params": [
+        { "name": "fd", "type": "Integer", "default": null, "line": 69 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 71 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 71 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 71 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 71 }
+          ],
+          "returnName": "got",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        { "slot": "nbyte", "value": { "kind": "unary", "operator": "SIZEOF", "operand": { "kind": "identifier", "value": "CPinnedInfo" } }, "line": 73 },
+        { "slot": "offset", "value": { "kind": "number", "value": "0" }, "line": 74 }
         ],
         "bindIn": [
         ],
@@ -87,16 +165,18 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 43,
+      "line": 79,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadPinned", "arguments": [{ "kind": "number", "value": "3" }] }, "line": 44 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "a" }] }] }] }, "line": 45 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadTriple", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 46 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 47 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
+      { "kind": "binding", "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadPinned", "arguments": [{ "kind": "number", "value": "3" }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "a" }] }] }] }, "line": 81 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadTriple", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 83 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadSizeof", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] }, "line": 85 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 86 }
       ]
     }
     ]

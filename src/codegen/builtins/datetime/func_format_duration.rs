@@ -3,7 +3,8 @@
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
 
-const INTRO: &str = r#"Render a `Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
+const INTRO: &str =
+    r#"Render a `datetime::Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
 const DESC: &str = r#"`datetime::formatDuration` renders the signed span `d` as a fixed-shape string of
 the form `[-][Nd ]HH:MM:SS.mmm`. The hour, minute, and second fields are always
 two digits and the millisecond field always three; the day field and its trailing
@@ -23,7 +24,7 @@ the remaining whole hours modulo 24, the minute field the remaining minutes modu
 60, and the second field the remaining seconds modulo 60.
 
 
-`datetime::formatDuration` is pure: the same `Duration` always yields the same
+`datetime::formatDuration` is pure: the same `datetime::Duration` always yields the same
 string, and it has no side effects. Because the reduction to milliseconds is
 ordinary signed `Integer` arithmetic, a span whose second count is large enough
 that multiplying by 1000 (or negating the reduced total) leaves the signed
@@ -35,7 +36,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET d AS Duration = datetime::duration(90)
+  LET d AS datetime::Duration = datetime::duration(90)
   io::print(datetime::formatDuration(d))        ' 00:01:30.000
 END SUB
 ```
@@ -47,7 +48,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET d AS Duration = datetime::duration(1, 2, 3, 4, 500_000_000)
+  LET d AS datetime::Duration = datetime::duration(1, 2, 3, 4, 500_000_000)
   io::print(datetime::formatDuration(d))        ' 1d 02:03:04.500
 END SUB
 ```
@@ -59,7 +60,7 @@ IMPORT datetime
 IMPORT io
 
 SUB main()
-  LET d AS Duration = datetime::duration(-30)
+  LET d AS datetime::Duration = datetime::duration(-30)
   io::print(datetime::formatDuration(d))        ' -00:00:30.000
 END SUB
 ```"#;

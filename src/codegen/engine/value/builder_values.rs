@@ -7,6 +7,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
@@ -51,7 +52,7 @@ fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
         op, left, right, ..
     } = value
     {
-        if op == "&" {
+        if *op == BinaryOp::Concat {
             flatten_concat_spine(left, out);
             out.push(right);
             return;
@@ -296,6 +297,19 @@ impl CodeBuilder<'_> {
     pub(crate) fn value_aliases_live_resource(value: &NirValue) -> bool {
         match value {
             NirValue::Local(_) => true,
+            // plan-114-C: `RES g = h.handle` reads a handle back OUT of a record
+            // field. The record's scope owns that resource, so this bind must
+            // register no close obligation of its own — registering one would
+            // release the record's handle at this scope's exit, which is bug-375
+            // one container-kind over.
+            //
+            // Safe to state unconditionally here because the only caller ANDs
+            // this with "the bind is resource-typed"
+            // (`builder_control.rs:697-699`: `resource_cleanup_symbol(type_)` or
+            // `resource_union_cleanup(type_)`). A `MemberAccess` reading an
+            // ordinary field is not resource-typed, so it never reaches the
+            // alias branch and still takes the owned-value path below it.
+            NirValue::MemberAccess { .. } => true,
             NirValue::Call { target, .. }
             | NirValue::CallResult { target, .. }
             | NirValue::RuntimeCall { target, .. } => {
@@ -331,7 +345,7 @@ impl CodeBuilder<'_> {
     /// inline by value), resources, threads, and recursive/non-flat composites are
     /// excluded: they are never freed by the generic owned-value path.
     pub(crate) fn is_freeable_flat_value(&self, type_: &ParameterType) -> bool {
-        self.type_is_flat(type_)
+        self.type_is_memcpy_copyable(type_)
             && (*type_ == ParameterType::String
                 || typed_is_collection_type(type_)
                 || matches!(type_, ParameterType::ResultOf(_))
@@ -1510,6 +1524,7 @@ impl CodeBuilder<'_> {
                     text: "resultError".to_string(),
                 })
             }
+            NirValue::Checked { type_, value } => self.lower_checked_value(&type_, &value),
             NirValue::WithUpdate {
                 type_,
                 target,
@@ -1568,7 +1583,7 @@ impl CodeBuilder<'_> {
             NirValue::Binary {
                 op, left, right, ..
             } => {
-                if op == "&" {
+                if *op == BinaryOp::Concat {
                     // String concat / rope fusion (Level 3): `&` is
                     // left-associative, so `a & b & c` arrives as
                     // `(a & b) & c` and the pairwise lowering would allocate
@@ -1588,17 +1603,17 @@ impl CodeBuilder<'_> {
                     }
                     return self.lower_string_concat(left, right);
                 }
-                if matches!(op.as_str(), "AND" | "OR" | "XOR") {
-                    return self.lower_boolean_binary(op, left, right);
+                if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor) {
+                    return self.lower_boolean_binary(*op, left, right);
                 }
-                if matches!(op.as_str(), "=" | "<>" | "<" | ">" | "<=" | ">=") {
-                    return self.lower_comparison_binary(op, left, right);
+                if op.is_comparison() {
+                    return self.lower_comparison_binary(*op, left, right);
                 }
-                self.lower_arithmetic_binary(op, left, right)
+                self.lower_arithmetic_binary(*op, left, right)
             }
             NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
-                if op == "NOT" && operand.type_ == ParameterType::Boolean {
+                if *op == UnaryOp::Not && operand.type_ == ParameterType::Boolean {
                     let register = self.allocate_register();
                     let true_label = self.label("bool_not_true");
                     let done_label = self.label("bool_not_done");
@@ -1616,7 +1631,7 @@ impl CodeBuilder<'_> {
                         text: format!("(NOT {})", operand.text),
                     });
                 }
-                if op == "-"
+                if *op == UnaryOp::Negate
                     && matches!(
                         operand.type_.name().as_ref(),
                         "Byte" | "Integer" | "Fixed" | "Float" | "Money"
@@ -1624,8 +1639,13 @@ impl CodeBuilder<'_> {
                 {
                     return self.lower_numeric_unary_negation(operand);
                 }
+                // `NOT` on a non-Boolean and `-` on a non-numeric are both
+                // rejected by `ir::verify` before lowering, and `SIZEOF` folds
+                // during LINK lowering; a node reaching here is malformed IR,
+                // not an unlowered operator.
                 Err(format!(
-                    "native code plan does not lower unary operator '{op}' for {} yet while lowering native function '{}'",
+                    "native code plan does not lower unary operator '{}' for {} yet while lowering native function '{}'",
+                    op.name(),
                     operand.type_,
                     self.current_symbol
                 ))
@@ -1634,6 +1654,66 @@ impl CodeBuilder<'_> {
             NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(&type_, entries),
         }
+    }
+
+    /// Lower a `Checked` node (bug-471): run `value`'s ordinary lowering under a
+    /// `raw_result_capture` so every domain error it raises joins the capture
+    /// point instead of the function's error exit, then tag the success
+    /// fall-through `Ok` and materialize a `Result OF <success_type>`.
+    ///
+    /// This is the member-agnostic sibling of `lower_inline_conversion_raw` /
+    /// `lower_inline_builtin_raw`: those wrap ONE built-in's inline lowering,
+    /// this wraps an arbitrary raising *expression* — the arithmetic operators
+    /// `ir::lower`'s inline-`TRAP` desugar lifts out of a trapped expression.
+    /// Every one of them raises through `emit_error_register_return`, whose
+    /// `raw_result_capture` branch is what makes this work; the `Float`
+    /// observation-boundary check (`observe_float` → `emit_float_result_check`)
+    /// funnels through the same tail.
+    ///
+    /// `value` never contains a call: a callee's error return does not pass
+    /// through `emit_error_register_return` in this frame, so it would slip past
+    /// the capture. The desugar lifts every call out ahead of the checked value
+    /// and `ir::verify::check_checked_has_no_call` rejects the shape on the
+    /// decoded-package path.
+    fn lower_checked_value(
+        &mut self,
+        success_type: &ParameterType,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let capture = self.label("raw_checked_done");
+        let previous = self.raw_result_capture.take();
+        self.raw_result_capture = Some(capture.clone());
+        // A `Float` arithmetic node raises at plan-17's *observation boundary*,
+        // not at the operator, and the boundary is wherever the value is first
+        // consumed. Checking it here makes the `Checked` node that boundary: the
+        // lifted `z * z` no longer flows into a `Bind`/argument that would have
+        // observed it (it flows into `ResultValue`, which is not an arithmetic
+        // node), so without this an overflow to infinity would be delivered as a
+        // finite-looking `Ok` instead of running the handler.
+        let lowered = self
+            .lower_value(value)
+            .and_then(|success| self.observe_float(value, &success).map(|()| success));
+        self.raw_result_capture = previous;
+        let success = lowered?;
+        // Success fall-through: tag the produced value as the `Ok` result. A
+        // `d`-native `Float` still lives in its FP register (plan-01), so its bit
+        // pattern is moved across rather than pushed through a GP `mov` — the
+        // same distinction `store_value_at` draws when spilling one.
+        if Self::float_is_dnative(&success) {
+            self.emit(abi::float_move_x_from_d(
+                RESULT_VALUE_REGISTER,
+                &success.location,
+            ));
+        } else {
+            self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        }
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::label(&capture));
+        self.materialize_current_result(success_type, "checked".to_string(), false)
     }
 
     /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)
@@ -1924,7 +2004,7 @@ impl CodeBuilder<'_> {
             2 => args
                 .first()
                 .and_then(|arg| self.static_type_name(arg))
-                .is_some_and(|type_| type_.is_named("Address")),
+                .is_some_and(|type_| type_.is_builtin_named("net", "Address")),
             _ => false,
         }
     }
@@ -2220,7 +2300,7 @@ impl CodeBuilder<'_> {
                 if args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| type_.is_named("Address"))
+                    .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "net.pingAddr"
                 } else {
@@ -2286,7 +2366,7 @@ impl CodeBuilder<'_> {
                 if args
                     .first()
                     .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| type_.is_named("Address"))
+                    .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "tls.connectAddr"
                 } else {
@@ -2428,7 +2508,7 @@ mod concat_spine_tests {
 
     fn concat(left: NirValue, right: NirValue) -> NirValue {
         NirValue::Binary {
-            op: "&".to_string(),
+            op: BinaryOp::Concat,
             left: Box::new(left),
             right: Box::new(right),
             loc: NirSourceLoc::default(),
@@ -2475,7 +2555,7 @@ mod concat_spine_tests {
         let inner = concat(text("b"), text("c"));
         assert_eq!(spine(&inner), vec!["b", "c"]);
         let other = NirValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(text("a")),
             right: Box::new(text("b")),
             loc: NirSourceLoc::default(),
@@ -2524,6 +2604,24 @@ mod borrowed_resource_tests {
     /// listed were therefore never reached, and every `poll(List)` bind was
     /// classified as an owner -- closing the borrowed element at the bind's scope
     /// exit and again when the list drained.
+
+    /// plan-114-C: `RES g = h.handle` reads a handle back OUT of a record field.
+    /// The record's scope owns it, so the bind registers no close of its own —
+    /// the same rule bug-375 established for `poll(List)`, one container-kind
+    /// over. Registering a close here would release the record's handle at this
+    /// scope's exit and the record's drain would then close it again.
+    #[test]
+    fn a_record_field_read_aliases_a_live_resource() {
+        let read = NirValue::MemberAccess {
+            target: Box::new(NirValue::Local("h".to_string())),
+            member: "handle".to_string(),
+        };
+        assert!(
+            CodeBuilder::value_aliases_live_resource(&read),
+            "a record field read is an alias, not a producer"
+        );
+    }
+
     #[test]
     fn poll_list_forms_alias_a_live_resource() {
         for target in ["tcp.poll", "udp.poll", "tls.poll"] {

@@ -14,6 +14,13 @@
 
 mod app_io;
 mod bootstrap;
+mod metal;
+// plan-98-E: the plan declares these as canvas-gated imports, so they have to
+// leave this module.
+pub(crate) use metal::{
+    CLASS_MTL_RENDER_PASS_DESCRIPTOR, CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR,
+    CLASS_MTL_TEXTURE_DESCRIPTOR,
+};
 mod term_view;
 
 pub(crate) use app_io::*;
@@ -429,6 +436,15 @@ const CANVAS_VIEW_ASSOC_KEY: &str = "_mfb_macapp_canvas_view_key";
 const SEL_SET_WANTS_LAYER: (&str, &str) = ("_mfb_macapp_sel_setWantsLayer", "setWantsLayer:");
 /// `layer` — reads the backing layer back, proving `setWantsLayer:` took effect.
 const SEL_LAYER: (&str, &str) = ("_mfb_macapp_sel_layer", "layer");
+/// `setBackgroundColor:` — what the canvas layer shows where its contents do not.
+///
+/// A layer-backed `NSView` with no background is transparent, so before the first
+/// frame lands — and anywhere a frame does not cover — the *window* shows through.
+/// The software surface is opaque black (`canvas::newSurface`) and both GPU backends
+/// now clear to opaque black, so the layer under them is the last place the canvas
+/// could be some other colour.
+const SEL_SET_BACKGROUND_COLOR: (&str, &str) =
+    ("_mfb_macapp_sel_setBackgroundColor", "setBackgroundColor:");
 // plan-98-A Phase 4: canvas keyboard input. The canvas surface is a synthesized
 // `MFBCanvasView : NSView` rather than a bare `NSView`, purely so it can override
 // `keyDown:` and `acceptsFirstResponder` — the same two overrides `TermView` adds
@@ -805,6 +821,11 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         functions.push(emit_canvas_blit_helper());
         functions.push(emit_canvas_blit_apply_helper());
         functions.push(emit_canvas_set_frame_size_helper());
+        // plan-98-E Phase 1: the Metal device/queue/pipeline setup. Same gate as
+        // the blit for the same reason — `MFB_CANVAS_GPU=1` is a runtime choice,
+        // so any program that draws must carry the code that choice would run.
+        functions.push(metal::emit_metal_init());
+        functions.push(metal::emit_metal_draw());
     }
     Ok(functions)
 }
@@ -824,6 +845,46 @@ pub(crate) fn emit_canvas_blit_seam(
     relocations.push(CodeRelocation {
         from: from_symbol.to_string(),
         to: CANVAS_BLIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
+/// plan-98-E Phase 1: call the one-time Metal setup, leaving 1/0 in `c_return(0)`.
+///
+/// A plain call with no argument staging: `_mfb_macapp_metal_init` takes none and is
+/// idempotent, so the caller's only job is to invoke it and read the answer.
+pub(crate) fn emit_metal_init_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(metal::METAL_INIT_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: metal::METAL_INIT_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
+/// plan-98-E Phase 1: call the Metal frame renderer.
+///
+/// The caller has already staged the surface payload, its dimensions, the geometry
+/// payload, the draw-order offsets and their count in the MFB argument registers —
+/// the same shape `canvas::blitSurface` uses, and for the same reason: the helper is
+/// a plain function with a fixed contract, so the seam is one call.
+pub(crate) fn emit_metal_draw_seam(
+    from_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(metal::METAL_DRAW_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: metal::METAL_DRAW_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
@@ -1068,6 +1129,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         // plan-98-A Phase 3: the `Canvas` arm's layer-backing sends.
         SEL_SET_WANTS_LAYER,
         SEL_LAYER,
+        SEL_SET_BACKGROUND_COLOR,
         // plan-98-A Phase 4: the synthesized canvas view's class name.
         STR_CANVASVIEW_CLASS,
         // plan-98-C Phase 3: the frame blit's marshal and its main-thread apply.
@@ -1076,9 +1138,10 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         SEL_LONG_LONG_VALUE,
         SEL_SET_CONTENTS,
     ]
-    .iter()
+    .into_iter()
+    .chain(metal::metal_data_objects())
     .map(|(symbol, text)| CodeDataObject {
-        symbol: (*symbol).to_string(),
+        symbol: symbol.to_string(),
         kind: "raw".to_string(),
         layout: "C string (NUL-terminated)".to_string(),
         align: 1,
@@ -1121,6 +1184,68 @@ mod release_tests {
         rel.iter()
             .filter(|r| r.to.as_str() == SEL_RELEASE.0 && r.kind == RelocIntent::DataAddrHi)
             .count()
+    }
+
+    /// Every callee-saved register the canvas reconcile helper writes is one it saves.
+    ///
+    /// It is a hand-written frame, so nothing computes its save list for it — and the
+    /// set grew when the canvas layer gained a background colour, which needs two values
+    /// alive across a `load_selector` (that helper writes `x0` and then *calls*
+    /// `sel_registerName`, so an argument register cannot hold either one).
+    ///
+    /// Writing a `LOCAL` without saving it does not crash here. It crashes in the
+    /// CALLER, later, with this function nowhere in the trace — which is exactly how the
+    /// first version of that background colour presented: `EXC_ARM_DA_ALIGN` inside
+    /// `CFRetain`, four frames deep in CoreFoundation.
+    #[test]
+    fn the_canvas_reconcile_helper_saves_every_callee_saved_register_it_writes() {
+        use crate::arch::ops::CodeOp;
+        use std::collections::BTreeSet;
+        let func = bootstrap::emit_reconcile_canvas_helper(true);
+        let local = |name: Option<String>| -> Option<&'static str> {
+            let name = name?;
+            abi::LOCAL.iter().find(|l| **l == name.as_str()).copied()
+        };
+        let written: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op != CodeOp::StrU64)
+            .filter_map(|ins| local(ins.get("dst")))
+            .collect();
+        // Only stack traffic counts. A `str` of a LOCAL into a *global* is this helper
+        // publishing a value, not preserving its caller's register — counting those was
+        // enough to make an earlier version of this test pass with the saves deleted.
+        let on_stack =
+            |ins: &CodeInstruction| ins.get("base").as_deref() == Some(abi::stack_pointer());
+        let saved: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op == CodeOp::StrU64 && on_stack(ins))
+            .filter_map(|ins| local(ins.get("src")))
+            .collect();
+        let restored: BTreeSet<&str> = func
+            .instructions
+            .iter()
+            .filter(|ins| ins.op == CodeOp::LdrU64 && on_stack(ins))
+            .filter_map(|ins| local(ins.get("dst")))
+            .collect();
+        assert!(
+            !written.is_empty(),
+            "the helper writes no LOCAL at all — this test has stopped reaching it"
+        );
+        for register in &written {
+            assert!(
+                saved.contains(register),
+                "the canvas reconcile helper writes the callee-saved {register} without \
+                 saving it — the damage lands in its CALLER, with this function nowhere \
+                 in the trace"
+            );
+            assert!(
+                restored.contains(register),
+                "the canvas reconcile helper saves the callee-saved {register} but never \
+                 restores it"
+            );
+        }
     }
 
     /// bug-53: the transcript append helper allocates an owned `NSAttributedString`

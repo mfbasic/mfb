@@ -106,7 +106,7 @@ END FUNC
 
 ' Rows available for page content: everything except the 2 header and 2 footer
 ' rows. At least one row so the arithmetic below never goes negative.
-FUNC contentHeight(size AS TermSize) AS Integer
+FUNC contentHeight(size AS term::TermSize) AS Integer
   RETURN maxOf(1, size.rows - 4)
 END FUNC
 
@@ -293,7 +293,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
+SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -314,8 +314,8 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, lin
   ' Row 1 and row H-2: the header and footer rules.
   term::setBackground(0, 0, 0)
   term::setForeground(90, 110, 150)
-  term::drawHLine(LineStyle.Light, 1, 0, cols - 1)
-  term::drawHLine(LineStyle.Light, rows - 2, 0, cols - 1)
+  term::drawHLine(term::LineStyle.Light, 1, 0, cols - 1)
+  term::drawHLine(term::LineStyle.Light, rows - 2, 0, cols - 1)
 
   ' Row H-1: footer controls. The width-mode indicator (s)tandard / (w)ide /
   ' (e)xtra-wide sits just before the file count on the right.
@@ -415,7 +415,7 @@ END FUNC
 ' AttributedString drawn with term::drawText, which honours its per-run bold /
 ' underline / foreground colour. `focusRects` are the focused link's rectangles; their
 ' cells get a selection background overlaid before the row is drawn.
-SUB drawContent(size AS TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect)
+SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(0, 0, 0)
@@ -516,7 +516,7 @@ FUNC main AS Integer
 
   DO WHILE running
     ' Track the live terminal size; stop cleanly if the terminal detaches.
-    LET size AS TermSize = term::terminalSize() TRAP(e)
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
       EXIT DO
     END TRAP
     LET cols AS Integer = size.columns

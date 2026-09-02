@@ -12,13 +12,6 @@
       ]
     }
   ],
-  "packages": [
-    {
-      "name": "connworker",
-      "version": "0.1.0",
-      "source": "file:packages/connworker.mfp"
-    }
-  ],
   "entry": "main",
   "targets": [
     "native"

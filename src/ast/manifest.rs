@@ -144,7 +144,7 @@ pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String
 }
 
 pub fn parse_source(path: &Path, relative_path: &str, contents: &str) -> Result<AstFile, ()> {
-    parse_source_with(path, relative_path, contents, false)
+    parse_source_with(path, relative_path, contents, false, None)
 }
 
 /// Parse a compiler-injected built-in package file. Lexed in internal mode so
@@ -155,7 +155,28 @@ pub fn parse_source_internal(
     relative_path: &str,
     contents: &str,
 ) -> Result<AstFile, ()> {
-    parse_source_with(path, relative_path, contents, true)
+    parse_source_with(path, relative_path, contents, true, None)
+}
+
+/// Parse an injected built-in file whose owning package cannot be read off its
+/// path label (bug-480 Phase 4b).
+///
+/// A package's own companion is labelled `<builtin-net>`, so the parser recovers
+/// `net` from the label and qualifies that package's value-type declarations and
+/// references. A gated HELPER chunk is labelled by the HELPER's name instead
+/// (`<builtin-astrings-spans>`), which names no package — so its declarations
+/// were left bare while the signatures referring to them were qualified, and the
+/// two stopped matching (`expects a List OF AttrSpan, got List OF
+/// astrings.AttrSpan`). The owning package is passed explicitly here rather than
+/// re-labelling the file, because the label is what parse diagnostics report and
+/// re-labelling would move them.
+pub fn parse_source_builtin(
+    path: &Path,
+    relative_path: &str,
+    contents: &str,
+    package: &str,
+) -> Result<AstFile, ()> {
+    parse_source_with(path, relative_path, contents, true, Some(package))
 }
 
 fn parse_source_with(
@@ -163,13 +184,18 @@ fn parse_source_with(
     relative_path: &str,
     contents: &str,
     internal: bool,
+    builtin_package: Option<&str>,
 ) -> Result<AstFile, ()> {
     let tokens = if internal {
         lexer::lex_with(path, contents, true)?
     } else {
         lexer::lex(path, contents)?
     };
-    let ast_file = FileParser::new(path, tokens).parse()?;
+    let mut parser = FileParser::new(path, tokens);
+    if let Some(package) = builtin_package {
+        parser.builtin_package = Some(package.to_string());
+    }
+    let ast_file = parser.parse()?;
     Ok(AstFile {
         path: relative_path.replace('\\', "/"),
         imports: ast_file.imports,

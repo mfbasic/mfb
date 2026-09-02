@@ -5,7 +5,7 @@
 
 const INTRO: &str = r#"A monotonically non-decreasing clock reading for measuring elapsed time."#;
 const DESC: &str = r#"`datetime::monotonic` reads the host's monotonic clock and returns the elapsed
-span, as a `Duration`, from an arbitrary fixed origin chosen by the operating
+span, as a `datetime::Duration`, from an arbitrary fixed origin chosen by the operating
 system. The clock never moves backward: a later call always returns a span that
 is greater than or equal to an earlier one. It is unrelated to wall-clock time,
 carries no calendar meaning, and is not comparable across processes or across
@@ -18,7 +18,7 @@ difference is a reliable interval where `datetime::now` would not be. Use
 `datetime::now`, not `monotonic`, whenever you need an actual point in time.
 
 `monotonic` is `datetime::monotonicNanos` split into the `seconds` and `nanos`
-fields of a `Duration`. The split never fails, and `nanos` always falls in
+fields of a `datetime::Duration`. The split never fails, and `nanos` always falls in
 `0 .. 999_999_999`.
 
 
@@ -31,9 +31,9 @@ const EX: &str = r#"Measure the elapsed time around a block of work:
 IMPORT datetime
 
 SUB main()
-  LET t0 AS Duration = datetime::monotonic()
+  LET t0 AS datetime::Duration = datetime::monotonic()
   ' ... work ...
-  LET elapsed AS Duration = datetime::minus(datetime::monotonic(), t0)
+  LET elapsed AS datetime::Duration = datetime::minus(datetime::monotonic(), t0)
 END SUB
 ```
 
@@ -43,9 +43,9 @@ Render the measured interval as text:
 IMPORT datetime
 
 SUB main()
-  LET t0 AS Duration = datetime::monotonic()
+  LET t0 AS datetime::Duration = datetime::monotonic()
   ' ... work ...
-  LET span AS Duration = datetime::minus(datetime::monotonic(), t0)
+  LET span AS datetime::Duration = datetime::minus(datetime::monotonic(), t0)
   LET text AS String = datetime::formatDuration(span)
 END SUB
 ```"#;

@@ -9,7 +9,7 @@ IMPORT crypto
 IMPORT errorCode
 IMPORT io
 
-FUNC hkdfLen(h AS Hash, length AS Integer) AS Integer
+FUNC hkdfLen(h AS crypto::Hash, length AS Integer) AS Integer
   LET ikm AS List OF Byte = [toByte(11), toByte(11), toByte(11)]
   LET okm AS List OF Byte = crypto::hkdf(h, ikm, [], [], length)
   RETURN len(okm)
@@ -21,7 +21,7 @@ FUNC hkdfLen(h AS Hash, length AS Integer) AS Integer
   END TRAP
 END FUNC
 
-FUNC pbkdf2Args(h AS Hash, iterations AS Integer, length AS Integer) AS Integer
+FUNC pbkdf2Args(h AS crypto::Hash, iterations AS Integer, length AS Integer) AS Integer
   LET pw AS List OF Byte = [toByte(112), toByte(119)]
   LET salt AS List OF Byte = [toByte(115)]
   LET dk AS List OF Byte = crypto::pbkdf2(h, pw, salt, iterations, length)
@@ -49,16 +49,16 @@ SUB main()
   io::print("shake256-0=" & toString(shakeLen(0)))
   io::print("shake256-neg=" & toString(shakeLen(-5)))
   io::print("shake256-1=" & toString(shakeLen(1)))
-  io::print("hkdf-sha3_256-8160=" & toString(hkdfLen(Hash.SHA3_256, 8160)))
-  io::print("hkdf-sha3_256-8161=" & toString(hkdfLen(Hash.SHA3_256, 8161)))
-  io::print("pbkdf2-sha3_512-iter0=" & toString(pbkdf2Args(Hash.SHA3_512, 0, 64)))
-  io::print("hkdf-sha1-0=" & toString(hkdfLen(Hash.SHA1, 0)))
-  io::print("hkdf-sha1-5100=" & toString(hkdfLen(Hash.SHA1, 5100)))
-  io::print("hkdf-sha1-5101=" & toString(hkdfLen(Hash.SHA1, 5101)))
-  io::print("hkdf-sha2_256-8160=" & toString(hkdfLen(Hash.SHA2_256, 8160)))
-  io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(Hash.SHA2_256, 8161)))
-  io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(Hash.SHA1, 0, 20)))
-  io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(Hash.SHA1, 1, 0)))
-  io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(Hash.SHA1, 1, 21)))
-  io::print("pbkdf2-sha2_512-iter0=" & toString(pbkdf2Args(Hash.SHA2_512, 0, 64)))
+  io::print("hkdf-sha3_256-8160=" & toString(hkdfLen(crypto::Hash.SHA3_256, 8160)))
+  io::print("hkdf-sha3_256-8161=" & toString(hkdfLen(crypto::Hash.SHA3_256, 8161)))
+  io::print("pbkdf2-sha3_512-iter0=" & toString(pbkdf2Args(crypto::Hash.SHA3_512, 0, 64)))
+  io::print("hkdf-sha1-0=" & toString(hkdfLen(crypto::Hash.SHA1, 0)))
+  io::print("hkdf-sha1-5100=" & toString(hkdfLen(crypto::Hash.SHA1, 5100)))
+  io::print("hkdf-sha1-5101=" & toString(hkdfLen(crypto::Hash.SHA1, 5101)))
+  io::print("hkdf-sha2_256-8160=" & toString(hkdfLen(crypto::Hash.SHA2_256, 8160)))
+  io::print("hkdf-sha2_256-8161=" & toString(hkdfLen(crypto::Hash.SHA2_256, 8161)))
+  io::print("pbkdf2-sha1-iter0=" & toString(pbkdf2Args(crypto::Hash.SHA1, 0, 20)))
+  io::print("pbkdf2-sha1-len0=" & toString(pbkdf2Args(crypto::Hash.SHA1, 1, 0)))
+  io::print("pbkdf2-sha1-ok=" & toString(pbkdf2Args(crypto::Hash.SHA1, 1, 21)))
+  io::print("pbkdf2-sha2_512-iter0=" & toString(pbkdf2Args(crypto::Hash.SHA2_512, 0, 64)))
 END SUB
