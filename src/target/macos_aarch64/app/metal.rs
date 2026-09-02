@@ -49,12 +49,12 @@
 use super::*;
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
-    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
-    GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
-    GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT, GRAPHICS_OFFSET_MTL_TEX_WIDTH,
-    GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES, METAL_EDGE_BASE_WORDS,
-    METAL_MAX_FRAME_EDGES,
+    BLEND_MODE_COUNT, CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE,
+    GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
+    GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
+    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
+    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
+    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
 };
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
@@ -643,7 +643,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     // vertex function, one fragment function and one descriptor — only the two RGB
     // factors below differ, which is why the descriptor is edited and re-submitted
     // rather than rebuilt.
-    for (mode, src_rgb, dst_rgb) in [
+    let modes = [
         (
             0usize,
             MTL_BLEND_FACTOR_ONE,
@@ -660,7 +660,17 @@ pub(super) fn emit_metal_init() -> CodeFunction {
             MTL_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
         ),
         (3, MTL_BLEND_FACTOR_ONE, MTL_BLEND_FACTOR_ONE),
-    ] {
+    ];
+    // The frame path indexes the pipeline array by the blend tag with no bounds check,
+    // so a table shorter than the variant set binds a neighbouring state slot as a
+    // pipeline handle. Tying the literal to the constant is what makes adding a
+    // `BlendMode` variant fail here rather than in a frame.
+    debug_assert_eq!(
+        modes.len(),
+        BLEND_MODE_COUNT,
+        "one pipeline per BlendMode variant"
+    );
+    for (mode, src_rgb, dst_rgb) in modes {
         for (setter, value) in [
             (SEL_SET_SRC_RGB_FACTOR.0, src_rgb),
             (SEL_SET_DST_RGB_FACTOR.0, dst_rgb),

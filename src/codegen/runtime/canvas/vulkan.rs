@@ -41,8 +41,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    push_symbol_address, BLEND_MODE_COUNT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS,
+    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
     GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
     GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
@@ -2098,7 +2098,7 @@ fn emit_vulkan_pipeline(
     //
     // Each expands to exactly the oracle's equation for that mode — worked through in
     // the plan's §2 and confirmed by the reference image, not assumed.
-    for (mode, src_factor, dst_factor, slot) in [
+    let modes = [
         (
             0usize,
             BLEND_FACTOR_ONE,
@@ -2123,7 +2123,17 @@ fn emit_vulkan_pipeline(
             BLEND_FACTOR_ONE,
             GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES + 24,
         ),
-    ] {
+    ];
+    // The frame path indexes the pipeline array by the blend tag with no bounds check,
+    // so a table shorter than the variant set binds a neighbouring state slot as a
+    // pipeline handle. Tying the literal to the constant is what makes adding a
+    // `BlendMode` variant fail here rather than in a frame.
+    debug_assert_eq!(
+        modes.len(),
+        BLEND_MODE_COUNT,
+        "one pipeline per BlendMode variant"
+    );
+    for (mode, src_factor, dst_factor, slot) in modes {
         // The alpha channel keeps `One`/`OneMinusSrcAlpha` for every mode. The modes
         // are defined on COLOUR; the surface's alpha is written 255 everywhere by the
         // oracle, and a mode that also rewrote alpha would make the two disagree about
@@ -5685,6 +5695,9 @@ fn emit_zero_range(builder: &mut CodeBuilder, base: usize, length: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::runtime::canvas::{
+        GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE,
+    };
 
     /// The embedded SPIR-V is well-formed.
     ///
@@ -5738,6 +5751,33 @@ mod tests {
     /// members at 0/16/32/48/64/80/96/112 (2026-09-01, glslang 11:15.2.0) — re-measured
     /// when plan-116-B took the block from 112 to 128 for the clip rectangle. A later
     /// letter that widens it again must re-run that and keep this equality.
+    /// The two backends' pipeline arrays hold one entry per `BlendMode`, and the two
+    /// arrays do not overlap each other or run past the state block.
+    ///
+    /// The blend tag reaches the frame path from `HEADER_BLEND` as a plain 0..3 and is
+    /// used as an *index* with no bounds check — `base + mode * 8` — so an array
+    /// shorter than the variant set reads a neighbouring state slot and binds it as a
+    /// pipeline handle. Nothing catches that at run time: the value is a pointer either
+    /// way, and the frame comes back wrong rather than failing.
+    #[test]
+    fn each_backend_has_one_pipeline_slot_per_blend_mode() {
+        assert_eq!(
+            BLEND_MODE_COUNT, 4,
+            "BlendMode has four variants (Normal, Multiply, Screen, Add); both pipeline \
+             arrays are sized from this"
+        );
+        assert_eq!(
+            GRAPHICS_OFFSET_MTL_PIPELINE_MODES,
+            GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES + BLEND_MODE_COUNT * 8,
+            "the Metal array must start where the Vulkan one ends: a gap wastes state, \
+             and an overlap makes one backend bind the other's handles"
+        );
+        assert!(
+            GRAPHICS_OFFSET_MTL_PIPELINE_MODES + BLEND_MODE_COUNT * 8 <= GRAPHICS_STATE_SIZE,
+            "the pipeline arrays run past the end of the graphics state block"
+        );
+    }
+
     #[test]
     fn the_item_block_matches_the_std430_stride() {
         assert_eq!(
