@@ -825,6 +825,8 @@ pub(crate) fn lower_function(
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     callback_referenced_functions: &HashSet<String>,
+    // plan-118-D: the record types with their own `construct.T` function.
+    synthesized_constructors: &HashSet<ParameterType>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
     let params = function
@@ -881,6 +883,8 @@ pub(crate) fn lower_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: synthesized_constructors.clone(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1316,6 +1320,8 @@ pub(crate) fn lower_abi_function_helper(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: HashSet::new(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1459,6 +1465,8 @@ pub(crate) fn lower_thread_copy_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: HashSet::new(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),

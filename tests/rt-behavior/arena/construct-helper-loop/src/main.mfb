@@ -1,0 +1,79 @@
+' plan-118-D proof: a record type constructed enough times to get its own
+' synthesized `construct.T` function still behaves exactly like the inline
+' constructor — including arena lifetime.
+'
+' Three properties the byte gate cannot see, all exercised in a hot loop so a
+' leak or a double-free is loud rather than statistical:
+'   1. every construction produces an INDEPENDENT block (the loop rebuilds and
+'      re-reads a String field whose bytes are inlined into the record);
+'   2. the block is owned by the caller's scope, so 20,000 iterations do not
+'      grow the arena without bound (a leaked block per iteration would);
+'   3. the helper is entered with arguments in registers AND — for `Wide` — in
+'      the caller's outgoing stack tail, since a 10-field record passes two
+'      arguments beyond the eight register slots (bug-08 convention).
+'
+' Runs under always-on entropy poisoning, so a wrong field offset or an aliased
+' String region surfaces as a crash or wrong text rather than silent garbage.
+IMPORT io
+
+TYPE Point
+  label AS String
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Wide
+  a AS Integer
+  b AS Integer
+  c AS Integer
+  d AS Integer
+  e AS Integer
+  f AS Integer
+  g AS Integer
+  h AS Integer
+  i AS Integer
+  tail AS String
+END TYPE
+
+FUNC mkPoint(n AS Integer) AS Point
+  RETURN Point["pt", n, n * 2]
+END FUNC
+
+FUNC mkWide(n AS Integer) AS Wide
+  RETURN Wide[n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n + 8, "tail"]
+END FUNC
+
+FUNC main AS Integer
+  ' Enough sites of each type to clear the synthesis threshold, and enough
+  ' iterations that a per-iteration leak would be unmistakable.
+  MUT sum AS Integer = 0
+  MUT labels AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 20000
+    LET p AS Point = mkPoint(i)
+    LET w AS Wide = mkWide(i)
+    sum = sum + p.y + w.i
+    IF p.label = "pt" AND w.tail = "tail" THEN
+      labels = labels + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("sum=" & toString(sum))
+  io::print("labels=" & toString(labels))
+
+  ' The empty-String boundary through the helper: a zero-length inlined block.
+  LET blank AS Point = Point["", 7, 8]
+  io::print("[" & blank.label & "]" & toString(blank.x) & "," & toString(blank.y))
+
+  ' Independent blocks: mutating a copy through WITH must not disturb the source
+  ' the helper built.
+  LET one AS Point = mkPoint(1)
+  LET two AS Point = WITH one { label := "much-longer-label" }
+  io::print(one.label & "|" & two.label & "|" & toString(one.y) & "," & toString(two.y))
+
+  LET w1 AS Wide = mkWide(100)
+  LET w2 AS Wide = mkWide(200)
+  io::print(toString(w1.a) & "," & toString(w1.i) & "," & w1.tail)
+  io::print(toString(w2.a) & "," & toString(w2.i) & "," & w2.tail)
+  RETURN 0
+END FUNC

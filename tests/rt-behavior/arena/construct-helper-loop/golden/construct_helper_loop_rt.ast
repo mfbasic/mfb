@@ -1,0 +1,119 @@
+{
+  "project": "construct_helper_loop_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 17 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 20 },
+      { "visibility": null, "name": "x", "type": "Integer", "line": 21 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 22 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Wide",
+      "line": 25,
+      "fields": [
+      { "visibility": null, "name": "a", "type": "Integer", "line": 26 },
+      { "visibility": null, "name": "b", "type": "Integer", "line": 27 },
+      { "visibility": null, "name": "c", "type": "Integer", "line": 28 },
+      { "visibility": null, "name": "d", "type": "Integer", "line": 29 },
+      { "visibility": null, "name": "e", "type": "Integer", "line": 30 },
+      { "visibility": null, "name": "f", "type": "Integer", "line": 31 },
+      { "visibility": null, "name": "g", "type": "Integer", "line": 32 },
+      { "visibility": null, "name": "h", "type": "Integer", "line": 33 },
+      { "visibility": null, "name": "i", "type": "Integer", "line": 34 },
+      { "visibility": null, "name": "tail", "type": "String", "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mkPoint",
+      "line": 38,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 38 }
+      ],
+      "returnType": "Point",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "string", "value": "pt" }, { "kind": "identifier", "value": "n" }, { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }] }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mkWide",
+      "line": 42,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 42 }
+      ],
+      "returnType": "Wide",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Wide", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "5" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "6" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "7" } }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "8" } }, { "kind": "string", "value": "tail" }] }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 46,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "labels", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 50 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 51 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "20000" } },
+        "line": 52,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "p", "type": "Point", "value": { "kind": "call", "callee": "mkPoint", "arguments": [{ "kind": "identifier", "value": "i" }] }, "line": 53 },
+        { "kind": "binding", "mutable": false, "name": "w", "type": "Wide", "value": { "kind": "call", "callee": "mkWide", "arguments": [{ "kind": "identifier", "value": "i" }] }, "line": 54 },
+        { "kind": "assignment", "name": "sum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "y" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w" }, "member": "i" } }, "line": 55 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "label" }, "right": { "kind": "string", "value": "pt" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w" }, "member": "tail" }, "right": { "kind": "string", "value": "tail" } } },
+          "line": 56,
+          "then": [
+          { "kind": "assignment", "name": "labels", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "labels" }, "right": { "kind": "number", "value": "1" } }, "line": 57 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 59 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sum" }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "labels=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "labels" }] } }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "blank", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "string", "value": "" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "blank" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "blank" }, "member": "x" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "blank" }, "member": "y" }] } }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "one", "type": "Point", "value": { "kind": "call", "callee": "mkPoint", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "name": "two", "type": "Point", "value": { "kind": "with", "target": { "kind": "identifier", "value": "one" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "much-longer-label" } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "one" }, "member": "label" }, "right": { "kind": "string", "value": "|" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "two" }, "member": "label" } }, "right": { "kind": "string", "value": "|" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "one" }, "member": "y" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "two" }, "member": "y" }] } }] }, "line": 72 },
+      { "kind": "binding", "mutable": false, "name": "w1", "type": "Wide", "value": { "kind": "call", "callee": "mkWide", "arguments": [{ "kind": "number", "value": "100" }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "w2", "type": "Wide", "value": { "kind": "call", "callee": "mkWide", "arguments": [{ "kind": "number", "value": "200" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w1" }, "member": "a" }] }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w1" }, "member": "i" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w1" }, "member": "tail" } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w2" }, "member": "a" }] }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w2" }, "member": "i" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "w2" }, "member": "tail" } }] }, "line": 77 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 78 }
+      ]
+    }
+    ]
+  }
+  ]
+}

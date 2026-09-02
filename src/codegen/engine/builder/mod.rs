@@ -13,6 +13,7 @@ use crate::codegen::builtins::vector::builder_simd_float_math;
 use crate::codegen::engine::mir;
 use crate::codegen::link::locator as link_locator;
 use crate::codegen::link::thunk as link_thunk;
+use crate::codegen::memory::marshal::construct_helpers::*;
 use crate::codegen::term::core as term;
 use crate::target::shared::abi;
 use crate::target::shared::nir::{self, NirFunction, NirModule, NirSourceLoc, NirValue};
@@ -186,6 +187,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
+    /// plan-118-D: record types this module constructs often enough to get their
+    /// own `construct.T` function. A construction of a type in here marshals and
+    /// calls instead of inlining the allocation, the failure block, the field
+    /// stores and a byte-copy loop per `String` field. Computed once per module
+    /// from the NIR, so caller and callee cannot disagree about which types are
+    /// synthesized. Shared verbatim across all functions in the build.
+    pub(crate) synthesized_constructors: HashSet<ParameterType>,
     pub(crate) next_label: usize,
     pub(crate) trap: Option<TrapState>,
     pub(crate) loop_stack: Vec<LoopLabels>,
@@ -447,6 +455,7 @@ impl<'a> CodeBuilder<'a> {
             borrow_get_result: false,
             current_returns_param_borrow: false,
             callback_referenced_functions: HashSet::new(),
+            synthesized_constructors: HashSet::new(),
             next_label: 0,
             trap: None,
             loop_stack: Vec::new(),
@@ -1450,6 +1459,17 @@ pub(crate) fn lower_module_for_platform(
     let callback_referenced_functions = crate::trace::timed("collect function refs", || {
         collect_function_ref_names(module)
     });
+    // plan-118-D: which record types get their own `construct.T`. Decided ONCE
+    // for the module, before any function lowers, so a construction site and the
+    // synthesis below cannot disagree about whether the function exists.
+    let constructor_types = crate::trace::timed("census constructor types", || {
+        synthesized_constructor_types(module, &type_model)
+    });
+    let synthesized_constructors = synthesized_constructor_set(&constructor_types);
+    crate::trace::count(
+        "synthesized construct.T",
+        synthesized_constructors.len() as u64,
+    );
     for function in &module.functions {
         // `-vv` (`crate::trace`): the per-function codegen cost, recorded twice —
         // aggregated into the span tree (so its sub-stages nest underneath) and
@@ -1472,6 +1492,7 @@ pub(crate) fn lower_module_for_platform(
                     &globals,
                     &string_symbols,
                     &callback_referenced_functions,
+                    &synthesized_constructors,
                     type_model.clone(),
                 )
             },
@@ -1976,6 +1997,33 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
+    // plan-118-D: one `construct.T` per record type the census qualified, gated
+    // on the relocation like every other internal `bl` target — a type can
+    // qualify on site count and still have every site fold away.
+    for (type_, arity) in &constructor_types {
+        let symbol = construct_symbol(type_);
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == symbol)
+        });
+        if used {
+            code_functions.push(lower_construct_helper(
+                type_,
+                *arity,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+    }
     // plan-118-C: the shared `String` concat. Same demand gate as the map
     // helpers — an internal `bl` target, emitted iff a lowered function
     // relocates against it.
@@ -2013,7 +2061,6 @@ pub(crate) fn lower_module_for_platform(
     // plan-118-C: the synthesized `toString` renderers (Fixed/Money/byte-list/
     // Scalar). Same relocation gate; each is built by replaying the very emitter
     // the call site used to inline, so nothing can drift between them.
-    let synthesized_before = code_functions.len();
     for kind in ToStringHelper::every() {
         let used = code_functions.iter().any(|function| {
             function
@@ -2036,25 +2083,7 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
     }
-    // A synthesized function has no source file, so its allocation-failure path
-    // builds an `ErrorLoc` with an empty filename and relocates against the
-    // empty-string constant — which the module's own code may never have
-    // required. Same force-emit the recursive-copy functions above need, and for
-    // the same reason; without it the link dies on an undefined
-    // `_mfb_str_empty`.
-    if code_functions.len() > synthesized_before
-        && code_functions[synthesized_before..].iter().any(|function| {
-            function
-                .relocations
-                .iter()
-                .any(|relocation| relocation.to == EMPTY_STRING_SYMBOL)
-        })
-        && !data_objects
-            .iter()
-            .any(|object| object.symbol == EMPTY_STRING_SYMBOL)
-    {
-        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
-    }
+
     if module_uses_call(module, "fs.pathJoin") {
         code_functions
             .push(crate::codegen::builtins::fs::gen_path_builder::lower_fs_path_join_helper());
@@ -2127,6 +2156,27 @@ pub(crate) fn lower_module_for_platform(
             size: words.len() * 16,
             value: builder_simd_float_math::math_const_pool_data_value(),
         });
+    }
+
+    // A synthesized function (plan-118-C's `toString` renderers, plan-118-D's
+    // `construct.T`) has no source file, so its allocation-failure path builds
+    // an `ErrorLoc` with an empty filename and relocates against the
+    // empty-string constant — which the module's own code may never have
+    // required. Same force-emit the recursive-copy functions above need, and for
+    // the same reason; without it the link dies on an undefined
+    // `_mfb_str_empty`. Scanned over EVERY function rather than a suffix: the
+    // synthesis sites are interleaved with the demand gates, and an earlier
+    // version that only looked at the tail missed `construct.T` entirely.
+    if code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == EMPTY_STRING_SYMBOL)
+    }) && !data_objects
+        .iter()
+        .any(|object| object.symbol == EMPTY_STRING_SYMBOL)
+    {
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
 
     // Unicode property/mapping tables (`strings::upper/lower/caseFold/
