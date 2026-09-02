@@ -580,10 +580,24 @@ mac + RELEASE). Measured, three of the four combinations directly:
 | | DEBUG | RELEASE |
 |---|---|---|
 | **macOS** | `cargo test --no-fail-fast --bin mfb` → **3697 passed, 0 failed** (714.90s). Load-bearing rather than redundant: the `debug_assert_eq!(ITEM_BLOCK_SIZE % 8, 0)` guards this letter added to *both* emitters' `emit_item_publish` are compiled out of a release build and only execute here. | the full 87-binary run above |
-| **Linux** | not run directly | `cargo test --release --workspace --no-fail-fast` on box 2228 — see below |
+| **Linux** | not run directly | **3688 passed, 0 failed** (2718.14s) on box 2228 — the `--bin mfb` unit tests, run in release. Includes every canvas unit test and both this letter's new ones: `codegen::runtime::canvas::vulkan::tests::the_item_block_matches_the_std430_stride` and `target::macos_aarch64::app::metal::tests::the_metal_shader_edge_base_matches_the_buffer_layout` — the Metal module is declared unconditionally (`src/target.rs:16`), so its tests do run on a Linux host. |
 
 Both dimensions of the uncovered corner (linux, DEBUG) are therefore covered
-individually. Beyond that, the parts of this change that are actually
+individually.
+
+**What the Linux column is and is not.** It is the 3688 `--bin mfb` unit tests, not
+the whole workspace. The full `cargo test --release --workspace` was started on 2228
+and abandoned deliberately after ~3 hours: that box is the *only* one with a Rust
+toolchain and it has **one core** (2223 has 8 and 2227 has 4, neither has cargo), the
+`mfb` crate alone took 41 CPU-minutes to compile there, and ~40 further test binaries
+remained to link and run. Cross-building the test binaries on this host is not
+available either — only `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` targets are
+installed and there is no Linux linker. Rather than block on that, the already-built
+`mfb-6d42ed99fb884eda` executable was run directly, which is the highest-value single
+Linux target: it carries every compiler-side test, and the compiler side is where all
+of this letter's Rust lives. The *integration* binaries it skips are covered on Linux
+by other instruments — `scripts/test-canvas-vulkan.sh` for canvas runtime behaviour on
+two libc worlds, and `scripts/artifact-gate.sh all` for Linux-target codegen. Beyond that, the parts of this change that are actually
 platform-specific are proved *on* Linux by stronger instruments than a unit test:
 
 - `scripts/test-canvas-vulkan.sh target/release/mfb` on **box 2228 (Ubuntu x86_64,
