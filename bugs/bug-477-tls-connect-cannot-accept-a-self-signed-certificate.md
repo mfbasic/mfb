@@ -5,7 +5,7 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
+Status: Open — macOS and Linux fixed and proven; Windows/Schannel incomplete (see Phase 1 measurements §7)
 Regression Test: `tests/rt-behavior/tls/tls-connect-self-signed-rt/` (new, Phase 1)
 
 `tls::connect` always validates the peer chain against the host trust store and
@@ -341,6 +341,58 @@ branch, Linux gains two `dlsym` name strings plus the callback body, and macOS
 gains the verify-block plumbing. Per `AGENTS.md`, byte-identity is a drift
 sentinel rather than a design constraint here — the requirement is that the
 delta be explained, which the containment above does.
+
+### 7. Per-backend runtime proof — two of three backends pass, Windows does NOT
+
+Measured on the real boxes, because "it cross-builds" proves nothing here: this
+flag failed *silently* on two separate backends, in both cases behaving exactly
+like the strict path while every negative case still reported the required
+"raised".
+
+| backend | box | flag ON, good | ON, name mismatch | ON, expired | omitted | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| Network.framework | macOS 24.6 aarch64 | connected | raised | raised | raised | **PASS** |
+| OpenSSL 3.6.3 | 2223, linux-aarch64 | connected | raised | raised | raised | **PASS** |
+| OpenSSL 3.5.6 | 2228, linux-x86_64 | connected | raised | raised | raised | **PASS** |
+| Schannel | 2230, windows-x86_64 | **raised** | raised | raised | raised | **FAIL** |
+
+The x86_64 row matters on its own: it is the `c_arg(4)` = `r8` realization the
+Blast Radius flagged, and it carries the flag correctly.
+
+**The OpenSSL bug this caught.** The callback address was staged into `c_arg(2)`
+and the `emit_dlsym("SSL_set_verify")` immediately after it — a C call — clobbered
+that register, so `SSL_set_verify` got garbage instead of the callback and the
+flag did nothing. The peer's log was the tell: `0 server accepts (SSL_accept())`,
+i.e. the client never began a handshake. Fixed by staging through a frame slot
+and loading `c_arg(2)` after the last `dlsym` (`.ai/arch-abi.md`, "Stage ABI args
+via temporaries").
+
+**Windows is NOT done, and is a blocker for closing this bug.** Two things are
+established by bisecting on box 2230:
+
+1. `SCH_CRED_MANUAL_CRED_VALIDATION` **works**. With the post-handshake
+   `dwError != 0` branch removed as a diagnostic, the connection **succeeds** —
+   so `InitializeSecurityContext` no longer refuses the untrusted chain, which
+   is what that credential change was for.
+2. The rejection is therefore the post-handshake
+   `CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)` still returning a
+   non-zero `dwError` **despite** `CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG` in
+   `dwFlags`. Forcing the relaxed path unconditionally (a second diagnostic)
+   changed nothing, which rules out the flag failing to arrive — the argument
+   plumbing is fine and the defect is in the relaxation itself.
+
+The specific `dwError` value is **not yet known**; an attempt to surface it via
+`ExitProcess` did not fire and was discarded rather than trusted. Getting that
+value is the next step, and the likely candidates to check against it are
+`CERT_E_UNTRUSTEDROOT` (0x800B0109) versus a `CERT_TRUST_IS_PARTIAL_CHAIN`
+condition, which `ALLOW_UNKNOWN_CA` may not cover on its own.
+
+Both diagnostics were reverted; the committed Schannel code is the intended
+gated form. **Windows currently fails closed** — `allowSelfSigned := TRUE` there
+refuses the connection rather than accepting anything it should not — so the
+tree is safe, but the feature is unavailable on that platform and this bug must
+not be marked FIXED until row 4 passes. Per §Non-goals, shipping the asymmetry
+as "close enough" is explicitly forbidden.
 
 ## Failing Reproduction
 
