@@ -803,3 +803,56 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_geoTail", GEO_TAIL));
     pkg.add_helper(RegistryHelper::always("canvas_geoCache", GEO_CACHE));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::runtime::canvas::{GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_SLOTS};
+
+    /// The decimal literal `GEO_LAYOUT` binds to `name`.
+    fn declared(name: &str) -> usize {
+        let needle = format!("LET {name} AS Integer = ");
+        let start = GEO_LAYOUT
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} is not declared in GEO_LAYOUT"))
+            + needle.len();
+        let rest = &GEO_LAYOUT[start..];
+        let end = rest.find('\n').unwrap_or(rest.len());
+        rest[..end].trim().parse().expect("a decimal literal")
+    }
+
+    /// `GEO_LAYOUT`'s constants equal their Rust counterparts.
+    ///
+    /// Each of these numbers is spelled **twice** — once in MFBASIC here, once in
+    /// `runtime::canvas` for the emitters — with no compiler between them. Nothing
+    /// else relates the two spellings, so this test is the whole guard.
+    ///
+    /// The header length is the dangerous one. Every geometry record is
+    /// `__CANVAS_GEO_HEADER` floats followed by a per-kind tail, and both GPU emitters
+    /// find that tail at `HEADER_SLOTS * 8` bytes. If the two disagree by even one
+    /// slot, a polygon's first edge coordinate is read as a header field and a header
+    /// field as an edge — which draws a *plausible wrong shape* rather than failing.
+    /// That is exactly the failure mode a change to the header length invites, because
+    /// such a change has to touch both spellings and can be applied to only one.
+    #[test]
+    fn the_geo_layout_constants_match_their_rust_counterparts() {
+        assert_eq!(
+            declared("__CANVAS_GEO_HEADER"),
+            HEADER_SLOTS,
+            "the MFBASIC header length and the emitters' HEADER_SLOTS disagree: the \
+             tail would be read at the wrong offset, so a polygon's first edge \
+             coordinate becomes a header field",
+        );
+        for (name, kind) in [
+            ("__CANVAS_GEO_TEXT", GEO_KIND_TEXT),
+            ("__CANVAS_GEO_POLYGON", GEO_KIND_POLYGON),
+        ] {
+            assert_eq!(
+                declared(name).to_string(),
+                kind,
+                "{name} and its emitter-side kind constant disagree, so the predicates \
+                 and the emitters would branch on different values for the same kind",
+            );
+        }
+    }
+}

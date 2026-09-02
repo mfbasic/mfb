@@ -41,7 +41,7 @@ Metal host, Vulkan box); they apply unchanged here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-A complete and archived | `ls planning/completed/plan-116-A-*` → one match | NOT MET |
+| plan-116-A complete and archived | `ls planning/completed/plan-116-A-*` → one match | **MET** (2026-09-01: exactly one match, `planning/completed/plan-116-A-canvas-item-instance-buffer.md`, archived by `0bd34bad8` and merged to main. Every A phase acceptance was measured — Vulkan 12/12 on box 2228, Metal's GPU-vs-oracle pixel count identical to the base commit, mac RELEASE 88 test binaries 0 failures, Linux 3688 unit tests 0 failures, acceptance 1346, artifact-gate 1823 goldens 0 diffs.) |
 
 If plan-116-A is not complete, this letter cannot start, full stop. The clip
 rectangle is four words and the blend mode one, and the pre-A item block has three
@@ -337,7 +337,7 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
       through the *symbol*, so they follow the one definition. The literal `22` appears
       only at `helper_geometry.rs:53` (the definition) and in four doc comments
       (`:4`, `:36`, `:39`, `:121`), which must be updated too or they will lie.
-- [ ] **Pin `HEADER_SLOTS` == `__CANVAS_GEO_HEADER` with a unit test, before changing
+- [x] **Pin `HEADER_SLOTS` == `__CANVAS_GEO_HEADER` with a unit test, before changing
       either.** They are the same number spelled once in Rust and once in MFBASIC with
       no compiler between them, and **no test currently relates them** (`grep -rn
       "HEADER_SLOTS" src/ | grep -i test` → no matches, 2026-09-01). That is precisely
@@ -346,6 +346,16 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
       the single most likely way to produce this letter's worst failure, the one this
       phase's acceptance calls out: a polygon's first edge read as a header slot.
       Use the same `declared("…")` helper `helper_render.rs`'s tests already use.
+      Landed as `the_geo_layout_constants_match_their_rust_counterparts` in a new
+      tests module in `helper_geometry.rs`. **Widened beyond the task**: auditing
+      `GEO_LAYOUT` for this showed the header length is not the only unpinned
+      cross-language constant there — `__CANVAS_GEO_TEXT`/`__CANVAS_GEO_POLYGON` are
+      spelled again in MFBASIC beside it and were equally unguarded (the existing
+      `the_text_kind_is_spelled_once` pins the *Rust* value and that the predicate uses
+      the symbol, but never relates the two spellings). All three are pinned together.
+      Proved RED before being trusted: desyncing `__CANVAS_GEO_HEADER` 22 → 27 fails
+      with "the tail would be read at the wrong offset, so a polygon's first edge
+      coordinate becomes a header field"; restored, green.
 - [ ] `__canvas_paintHeader` writes the resolved clip and the blend tag into slots
       22–26 from the `Paint` it is already given.
 - [ ] `ITEM_BLOCK_SIZE` 112 → 128; add the clip `ivec4` and the blend word; extend the
