@@ -903,7 +903,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_HAS_TRANSFORM, HEADER_SLOTS,
+        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_SLOTS,
     };
 
     /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -940,15 +940,17 @@ mod tests {
              tail would be read at the wrong offset, so a polygon's first edge \
              coordinate becomes a header field",
         );
-        // plan-116-D. The cap slot has no Rust counterpart yet — no emitter reads it
-        // until the shaders gain the cap arm — so what is checkable here is that it
-        // lands *inside* the header and *past* every slot the emitters already name.
-        // Both failures are silent: a slot at or beyond `HEADER_SLOTS` writes into a
-        // polygon's edge tail, and one at or below `HEADER_HAS_TRANSFORM` overwrites a
-        // field the GPU paths read, which draws a plausible wrong picture rather than
-        // failing. When an emitter does read the cap it gets a `HEADER_CAP` constant
-        // and an equality assertion here, like every other named slot.
+        // plan-116-D. Both GPU emitters read the cap out of this slot now, so the
+        // equality is the real guard; the two bounds below stay because they name what
+        // goes wrong, and both failures draw a plausible wrong picture rather than
+        // failing outright.
         let cap = declared("__CANVAS_GEO_CAP");
+        assert_eq!(
+            cap, HEADER_CAP,
+            "the MFBASIC cap slot and the emitters' HEADER_CAP disagree, so a Line or \
+             Arc writes its cap where the GPU paths do not look — and they read \
+             whatever the neighbouring field happens to hold",
+        );
         assert!(
             cap < HEADER_SLOTS,
             "__CANVAS_GEO_CAP {cap} is past the end of a {HEADER_SLOTS}-slot header, so \

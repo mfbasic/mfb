@@ -21,7 +21,7 @@ struct ItemBlock {
     ivec4 fill;
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
-    ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
+    ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, capStyle
     ivec4 surface; // width, height, blendMode, unused
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
@@ -86,6 +86,23 @@ float segmentDistance(vec2 p, vec2 a, vec2 b) {
     return length(w - v * t);
 }
 
+// The same segment cut square at its endpoints instead of capped with a disc
+// (plan-116-D). A butt stroke is the round BAND intersected with the slab between the
+// two end planes, so `half` is taken off before the `max` rather than after it — doing
+// it after compares the plane distance against the half-width instead of against zero,
+// and the cap then only bites more than `half` past the endpoint.
+float segmentDistanceButt(vec2 p, vec2 a, vec2 b, float half_) {
+    vec2 v = b - a;
+    vec2 w = p - a;
+    float len2 = dot(v, v);
+    if (len2 <= 0.0) { return 1.0e6; }
+    float length_ = sqrt(len2);
+    float t = dot(w, v) / len2;
+    float d = length(w - v * clamp(t, 0.0, 1.0)) - half_;
+    d = max(d, -t * length_);
+    return max(d, (t - 1.0) * length_);
+}
+
 bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
     bool afterStart = s.x * d.y - s.y * d.x >= 0.0;
     bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;
@@ -136,7 +153,13 @@ float geoDistance(vec2 p) {
         return length(p - c) - fx(item.shape.z) - radius;
     }
     if (item.misc.x == 2) {
-        return segmentDistance(p, c, vec2(fx(item.shape.z), fx(item.shape.w))) - radius;
+        // Round is 1 and is what a Line did before plan-116-D, so it reads as the
+        // straight path. The butt arm returns the finished band distance and does not
+        // subtract `radius` again.
+        if (item.arc.w == 1) {
+            return segmentDistance(p, c, vec2(fx(item.shape.z), fx(item.shape.w))) - radius;
+        }
+        return segmentDistanceButt(p, c, vec2(fx(item.shape.z), fx(item.shape.w)), radius);
     }
     if (item.misc.x == 3) {
         vec2 d = p - c;

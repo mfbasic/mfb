@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -68,7 +68,19 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     RETURN math::sqrt(cdx * cdx + cdy * cdy) - p2 - radius
   END IF
   IF kind = __CANVAS_KIND_SEGMENT THEN
-    RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+    ' plan-116-D. Round is 1 and is what a Line did before this letter, so the branch
+    ' is written round-first: the pre-existing behaviour reads as the straight path
+    ' rather than as the exception.
+    '
+    ' The butt arm returns the finished band distance and so does NOT subtract `radius`
+    ' again -- a butt cap is the band intersected with the slab between the end planes,
+    ' and that intersection has to be taken against a distance that is already zero at
+    ' the band's edge. See `__canvas_segmentDistanceButt` for the measured consequence
+    ' of subtracting afterwards instead.
+    IF cap = 1 THEN
+      RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+    END IF
+    RETURN __canvas_segmentDistanceButt(px, py, p0, p1, p2, p3, radius)
   END IF
   IF kind = __CANVAS_GEO_ARC THEN
     LET adx AS Float = px - p0

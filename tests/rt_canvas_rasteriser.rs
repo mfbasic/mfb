@@ -1136,3 +1136,103 @@ fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
          rotated shape — so the bounds were widened, not the shape"
     );
 }
+
+/// A butt-capped line stops at its endpoint; the same line round-capped does not.
+///
+/// plan-116-D Phase 2. Asserted against **the same line** a few pixels apart, because
+/// that difference is the only thing the cap changes — a weaker pair of assertions
+/// would also pass on a renderer that ignored the flag entirely.
+///
+/// Horizontal, from `x = 200` to `x = 400` at `y = 300`, stroke width 20 (half-width
+/// 10). Pixel centres sit at `x + 0.5`, so pixel 405's centre is 5.5 past the end
+/// plane: outside for `Butt`, inside the end disc for `Round`.
+#[test]
+fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
+    let line = |cap: &str| {
+        format!(
+            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, \
+             x2 := 400.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 20.0)]\n  \
+             canvas::present([l])\n"
+        )
+    };
+    let (butt, _) = render("canvas_cap_butt", &scene(&line("Butt")));
+    let (round, _) = render("canvas_cap_round", &scene(&line("Round")));
+
+    // Both must draw the body, or every assertion below is vacuous: an item that was
+    // dropped entirely would "pass" all the outside-the-cap checks.
+    for (name, frame) in [("butt", &butt), ("round", &round)] {
+        assert_eq!(
+            pixel(frame, 300, 300),
+            (255, 255, 255, 255),
+            "the {name} line did not draw its own middle"
+        );
+        assert_eq!(
+            pixel(frame, 399, 300),
+            (255, 255, 255, 255),
+            "the {name} line stops short of its own endpoint"
+        );
+    }
+
+    assert_eq!(
+        pixel(&butt, 405, 300),
+        (0, 0, 0, 255),
+        "past the endpoint is background for a butt cap — ink here is the round \
+         distance, so the flag was not read"
+    );
+    assert_eq!(
+        pixel(&round, 405, 300),
+        (255, 255, 255, 255),
+        "the same pixel is inside the round cap's disc (half-width 10), so a round \
+         cap must still paint it"
+    );
+    assert_eq!(
+        pixel(&round, 415, 300),
+        (0, 0, 0, 255),
+        "15 px past is outside even the round cap, so the disc has the stroke's \
+         half-width and not some larger reach"
+    );
+}
+
+/// A zero-length line is a dot when round-capped and nothing at all when butt-capped.
+///
+/// The degenerate case, and the one a `max` of three terms is most likely to get
+/// wrong: with `len2 = 0` there is no direction for the two end planes to be
+/// perpendicular to. Butt answers "outside everywhere" deliberately rather than
+/// dividing by zero; Round keeps the pre-existing behaviour, where clamping `t` makes
+/// the distance radial and the shape a disc.
+///
+/// Both halves are needed. Asserting only that the butt one is empty would also pass
+/// if zero-length lines had stopped drawing altogether.
+#[test]
+fn a_zero_length_line_is_a_dot_only_when_round_capped() {
+    let dot = |cap: &str| {
+        format!(
+            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 300.0, \
+             x2 := 300.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 20.0)]\n  \
+             canvas::present([l])\n"
+        )
+    };
+    let (butt, _) = render("canvas_cap_zero_butt", &scene(&dot("Butt")));
+    let (round, _) = render("canvas_cap_zero_round", &scene(&dot("Round")));
+
+    assert_eq!(
+        pixel(&round, 300, 300),
+        (255, 255, 255, 255),
+        "a zero-length ROUND line is a disc of the stroke's half-width, so its centre \
+         is painted — the behaviour that existed before plan-116-D"
+    );
+    assert_eq!(
+        pixel(&round, 305, 300),
+        (255, 255, 255, 255),
+        "5 px from the centre is inside that disc (half-width 10)"
+    );
+    assert_eq!(
+        pixel(&butt, 300, 300),
+        (0, 0, 0, 255),
+        "a zero-length BUTT line has no length for its end planes to bound, so it is \
+         empty — ink at the centre means the degenerate case fell through to the \
+         round distance"
+    );
+}

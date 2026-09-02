@@ -342,6 +342,10 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   LET strokeA AS Integer = toInt(__canvas_geoAt(offset, 15))
   LET edges AS Integer = toInt(__canvas_geoAt(offset, 20))
   LET tail AS Integer = offset + __CANVAS_GEO_HEADER
+  ' plan-116-D. Read once per item, not per pixel: it is a per-shape constant like the
+  ' arc's sweep vectors below. Only Line and Arc ever write it; every other kind leaves
+  ' it at the blank header's zero and never reaches a cap branch.
+  LET cap AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_CAP))
 
   ' Arc sweep vectors: per-shape constants, so the only sin/cos in the renderer runs
   ' once per arc rather than once per pixel.
@@ -427,11 +431,11 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
       IF transformed THEN
         LET tx AS Float = __canvas_invX(offset, px, py)
         LET ty AS Float = __canvas_invY(offset, px, py)
-        LET d0 AS Float = __canvas_geoDistance(kind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
-        LET dxp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
-        LET dxm AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
-        LET dyp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
-        LET dym AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
+        LET d0 AS Float = __canvas_geoDistance(kind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
+        LET dxp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
+        LET dxm AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
+        LET dyp AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
+        LET dym AS Float = __canvas_geoDistance(kind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
         LET gx AS Float = dxp - dxm
         LET gy AS Float = dyp - dym
         LET g AS Float = math::sqrt(gx * gx + gy * gy)
@@ -441,7 +445,7 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
         END IF
         distance = dRaw / dScale
       ELSE
-        dRaw = __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
+        dRaw = __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap)
         distance = dRaw
       END IF
       LET idx AS Integer = rowBase + x * 4

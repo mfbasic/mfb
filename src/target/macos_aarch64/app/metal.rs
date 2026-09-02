@@ -59,12 +59,13 @@ use crate::codegen::runtime::canvas::{
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
-    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
-    HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
-    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
-    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL,
-    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CLIP_X0, HEADER_CLIP_X1,
+    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND,
+    HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
+    HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
+    HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT,
+    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
     ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
 };
 
@@ -126,7 +127,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), unused, unused
+    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), edgeBase, capStyle
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
     "  int surfacePad;\n",
@@ -173,6 +174,22 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float t = len2 > 0.0 ? clamp(dot(w, v) / len2, 0.0, 1.0) : 0.0;\n",
     "  return length(w - v * t);\n",
     "}\n",
+    // plan-116-D: the butt-capped twin, and the twin of `segmentDistanceButt` in
+    // `runtime/canvas/shaders/mfb_canvas.frag`. `half` comes off BEFORE the two `max`es
+    // because a butt stroke is the round band intersected with the slab between the end
+    // planes — subtracting after would compare each plane against the half-width rather
+    // than against zero, so the cap would not bite until a pixel was more than `half`
+    // past the endpoint.
+    "static float segmentDistanceButt(float2 p, float2 a, float2 b, float halfW) {\n",
+    "  float2 v = b - a, w = p - a;\n",
+    "  float len2 = dot(v, v);\n",
+    "  if (len2 <= 0.0) { return 1.0e6; }\n",
+    "  float len = sqrt(len2);\n",
+    "  float t = dot(w, v) / len2;\n",
+    "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
+    "  d = max(d, -t * len);\n",
+    "  return max(d, (t - 1.0) * len);\n",
+    "}\n",
     "static bool arcInSweep(float2 d, float2 s, float2 e, bool reflex) {\n",
     "  bool afterStart = s.x * d.y - s.y * d.x >= 0.0;\n",
     "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
@@ -214,8 +231,14 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
     "  }\n",
     "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
+    // Round is 1 and is what a Line did before plan-116-D, so it reads as the straight
+    // path; the butt arm returns the finished band distance and does not subtract
+    // `radius` again.
     "  if (item.misc.x == 2) {\n",
-    "    return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "    if (item.arc.w == 1) {\n",
+    "      return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "    }\n",
+    "    return segmentDistanceButt(p, c, float2(fx(item.shape.z), fx(item.shape.w)), radius);\n",
     "  }\n",
     "  if (item.misc.x == 3) {\n",
     "    float2 d = p - c;\n",
@@ -2226,6 +2249,19 @@ fn emit_item_block(asm: &mut Asm) {
         abi::SCRATCH[1],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_SURFACE + ITEM_SURFACE_BLEND,
+    ));
+
+    // The cap tag, in the per-kind block's last free word (plan-116-D) — the twin of
+    // the block in `runtime/canvas/vulkan.rs`, and unconditional for the same reason.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CAP * 8));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_CAP,
     ));
 }
 

@@ -197,19 +197,33 @@ Header slot **34** carries the cap (0 or 1); item block takes a free word from t
 ### 4.2 The geometry
 
 **Line, `Butt`.** The round-cap distance is `|w - v·t|` with `t` clamped. For a butt
-cap, take the *unclamped* projection `t` and cut with two half-planes:
+cap, take the *unclamped* projection `t` and cut with two half-planes. **Corrected
+2026-09-02 — see D4; the version below is the one that is right.** A butt stroke is the
+round *band* intersected with the slab between the two end planes, and the SDF of an
+intersection of convex sets is the `max` of their SDFs — so the half-width comes off
+**before** the `max`, and the helper returns the finished band distance:
 
 ```
-d_butt = max( d_round_with_t_clamped ,  -t * |v| ,  (t - 1) * |v| )
+d_butt = max( d_round_with_t_clamped - half ,  -t * |v| ,  (t - 1) * |v| )
 ```
+
+~~`d_butt = max( d_round_with_t_clamped, -t*|v|, (t-1)*|v| )` with the caller
+subtracting `half` afterwards~~ — moot: that compares each end plane against the
+*half-width* rather than against zero, so the cap does not cut until a pixel is more
+than `half` past the endpoint. Measured on a 20 px line ending at `x = 400`, pixel 405
+stayed painted: `max(5.52, 5.5) - 10 < 0`.
 
 The two extra terms are the signed distances to the planes through each endpoint
 perpendicular to the segment. `max` with them turns the disc at each end into a
 square cut exactly at the endpoint. This is exact, uses only `+ - * /` and the
-existing `sqrt`, and so preserves the reproducibility `06_canvas.md` requires.
+existing `sqrt`, and so preserves the reproducibility `06_canvas.md` requires — and
+because both terms are true signed distances, a butt end is **antialiased** by the
+ordinary `clamp(0.5 - d, 0, 1)` rather than stair-stepped.
 
-A zero-length butt-capped line is empty (both half-planes cut everything) — correct,
-and distinct from a round-capped zero-length line, which is a dot. Assert both.
+A zero-length butt-capped line is empty — correct, and distinct from a round-capped
+zero-length line, which is a dot. Assert both. (With `len2 = 0` there is no direction
+for the planes to be perpendicular to, so the helper answers "far outside" explicitly
+rather than dividing by zero.)
 
 **Arc, `Round`.** Today's sweep test cuts radially. Round caps union a disc of radius
 `half` at each sweep endpoint:
@@ -320,20 +334,48 @@ Commit: 5f7d1ca93, 65a99632e
 
 ### Phase 2 — The line cap, all three renderers
 
-- [ ] `__canvas_segmentDistance` gains a cap parameter, or a sibling
+- [x] `__canvas_segmentDistance` gains a cap parameter, or a sibling
       `__canvas_segmentDistanceButt`, implementing §4.2's `max` form.
       Prefer a sibling: `__canvas_segmentDistance` is called by the polygon edge walk
       (`helper_draw.rs:100`) where caps are meaningless, and threading a parameter
-      through that path adds a per-edge argument for no reason.
-- [ ] `__canvas_geoDistance` selects on the cap slot for `__CANVAS_KIND_SEGMENT`.
-- [ ] The same sibling in both shaders; `scripts/regen-spirv.sh`.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` — a butt-capped horizontal line (assert
+      through that path adds a per-edge argument for no reason. → sibling, as advised.
+      **§4.2's formula as written is wrong** — see **D4**; the sibling takes `half` and
+      returns the finished band distance.
+- [x] `__canvas_geoDistance` selects on the cap slot for `__CANVAS_KIND_SEGMENT`.
+      The cap is read once per item beside the arc's sweep vectors, not per pixel.
+- [x] The same sibling in both shaders; `scripts/regen-spirv.sh`. → `frag -> 22580
+      bytes`, `vert` byte-identical at 4004 again. The cap travels in the item block's
+      last free word (`ITEM_ARC_CAP`, `arc.w`), so `ITEM_BLOCK_SIZE` stays 160.
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` — a butt-capped horizontal line (assert
       the pixel one past the endpoint is background and the pixel at the endpoint is
       stroke); the same line round-capped (assert the pixel one past is stroke); a
       zero-length butt line (nothing drawn); a zero-length round line (a dot).
+      → `a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not` and
+      `a_zero_length_line_is_a_dot_only_when_round_capped`, both asserting the two
+      styles against the *same* line so neither could pass on a renderer that ignored
+      the flag.
+- [x] **Added:** a butt- and a round-capped line in both GPU harnesses
+      (`tests/rt_canvas_metal.rs`, `scripts/test-canvas-vulkan.sh`). Not in the plan,
+      and needed: without a butt-capped item on a GPU scene the new shader branch is
+      compiled into both backends and **never executed**, so a wrong butt arm would
+      still match the oracle everywhere either harness looks. Deferring that to
+      Phase 4's `endcaps.png` would have found it three phases late.
 
 Acceptance: the four new cases pass; the round-capped line renders byte-identically to
 the same line at Phase 1's commit.
+
+**MET.**
+
+- The new cases pass; `rt_canvas_rasteriser` is 24 passed / 1 ignored.
+- **Byte-identity, measured against Phase 1's actual compiler** rather than inferred
+  from the source. No canvas golden contains a `Line`, so this needed its own
+  instrument: `git archive 5f7d1ca93 | tar -x -C /tmp/p116d-phase1`, build, and render
+  the same six-line scene (horizontal, vertical, diagonal, shallow, 2 px, 44 px, and a
+  zero-length dot — 32,098 lit pixels) with both binaries. `cmp` → **byte-identical**.
+- Both GPUs agree with the oracle **with both cap styles in the scene**:
+  `rt_canvas_metal` 4/4, and `scripts/test-canvas-vulkan.sh` on box 2228 12/12 with
+  `entries=23` (up from 21, so the two new items really did reach the cache) at
+  `worst=2 differing=0.7797%`.
 Commit: —
 
 ### Phase 3 — The arc cap, all three renderers
@@ -407,6 +449,40 @@ Commit: —
   styles stay mutually consistent.
 
 ## Corrections
+
+- **D5 (2026-09-02, Phase 2) — the site census missed `scripts/test-canvas-vulkan.sh`,
+  because the harness embeds MFBASIC in a shell heredoc.** Phase 1's census used
+  `grep -rn 'canvas::Line\[\|canvas::Arc\[' --include='*.rs' --include='*.mfb'` — the
+  file-type filter the plan's §2 specifies — and the Vulkan harness is a `.sh`. Its two
+  sites (`:118` an `Arc`, `:121` a `Line`) therefore kept building a scene with no `cap`
+  field, which no longer compiles.
+
+  Nothing caught it, and nothing would have until the harness was next run by hand:
+  `scripts/test-canvas-vulkan.sh` is not part of `cargo test`, so Phase 1's 95 green
+  test binaries were entirely consistent with a broken Linux GPU harness. Re-censused
+  without a file-type filter (`grep -rn … . | grep -v '^./target/'`), which finds 16
+  sites rather than 14; the two extra are exactly these. **The lesson generalises past
+  this letter**: a census that filters by extension cannot see MFBASIC embedded in a
+  shell script, and this repo has at least one such harness.
+
+- **D4 (2026-09-02, Phase 2) — §4.2's butt-cap formula is wrong, and wrong in the
+  direction that looks right.** The plan gives
+
+  ```
+  d_butt = max( d_round_with_t_clamped , -t*|v| , (t-1)*|v| )
+  ```
+
+  with the caller subtracting the stroke half-width afterwards, as it does for the
+  round arm. That compares each end plane against the **half-width** instead of against
+  zero, so the cap does not begin to cut until a pixel is more than `half` past the
+  endpoint. Measured on a 20 px line ending at `x = 400`: pixel 405 stayed painted,
+  because `max(5.52, 5.5) - 10 < 0`. The first written test caught it immediately.
+
+  A butt stroke is the round **band** intersected with the slab between the end planes,
+  and the SDF of an intersection of convex sets is the `max` of their SDFs — so `half`
+  has to come off *before* the `max`, and the sibling therefore takes `half` and returns
+  the finished band distance rather than a raw distance. Corrected in §4.2 and in all
+  three renderers.
 
 - **D3 (2026-09-02, Phase 1) — the phase's own "nothing reads it yet" makes a Rust
   `HEADER_CAP` constant dead code, and the sanctioned justifications do not cover it.**

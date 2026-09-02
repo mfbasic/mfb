@@ -350,6 +350,15 @@ pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
 /// A glyph reads neither arc angle, so `arc.x` carries the height beside `misc.w`'s
 /// width — the same per-kind reuse the arc/polygon pair already makes of this block.
 pub(crate) const ITEM_ARC_GLYPH_HEIGHT: usize = 0;
+/// The word inside `ITEM_OFFSET_ARC` holding the `CapStyle` tag, 0 or 1 (plan-116-D).
+///
+/// The block's last free word, and the right one: only `Line` and `Arc` read it, and
+/// they are the two kinds this block already serves — a polygon reads
+/// `ITEM_ARC_EDGE_BASE`, a glyph reads `ITEM_ARC_GLYPH_HEIGHT`, and none of the three
+/// uses overlaps another because no item is two kinds at once. Taking a word here is
+/// what keeps `ITEM_BLOCK_SIZE` at 160 rather than growing every item in every scene
+/// to carry one bit for two primitives.
+pub(crate) const ITEM_ARC_CAP: usize = 12;
 /// The surface's width and height, in whole pixels, then the blend mode.
 pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
 /// The word inside `ITEM_OFFSET_SURFACE` holding the `BlendMode` tag, 0..3
@@ -490,6 +499,20 @@ pub(crate) const HEADER_HAS_TRANSFORM: usize = 33;
 /// every scene had before this field was read — the zero value is the no-op, the same
 /// rule the rest of `Paint` follows.
 pub(crate) const HEADER_BLEND: usize = 26;
+/// The item's `CapStyle`, as the enum tag 0..1 (plan-116-D).
+///
+/// Only `Line` and `Arc` write it; every other kind leaves it at the blank header's
+/// zero. That is safe rather than merely unread — a kind with no ends never reaches a
+/// cap branch in any of the three renderers.
+///
+/// **The zero is not "today's behaviour" for both variants**, which is the thing to
+/// know here. A `Line` was round before this letter (`__canvas_segmentDistance` clamps
+/// `t` to `0..1`) and an `Arc` was butt (the sweep test cuts it along a radius), so
+/// preserving today's rendering meant splitting the existing sites: `Line` → `Round`,
+/// `Arc` → `Butt`. `Butt` is still the enum's zero, because that is how the feature was
+/// specified and a defaulted `cap` cannot arise — MFBASIC named construction requires
+/// every field.
+pub(crate) const HEADER_CAP: usize = 34;
 /// The fixed header length in slots — where a polygon's edge tail begins.
 ///
 /// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry.rs`), with no
