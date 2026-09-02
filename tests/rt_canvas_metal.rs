@@ -117,7 +117,17 @@ SUB main()
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(canvas::rgb(230, 120, 40), canvas::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
   LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 400.0, w := 200.5, h := 60.0] }]
 
-  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox])
+  ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
+  ' A rotation exercises the gradient correction on a curved edge; the non-uniform
+  ' scale is the case Phase 1 measured sqrt(|det M|) as 37/255 wrong on. Rotated TEXT
+  ' is covered by rt_canvas_font's a_rotated_text_run_draws_rotated, which owns the
+  ' font fixture -- this scene has no font.
+  LET rotT AS canvas::Transform = canvas::Transform[a := 0.7071067811865476, b := 0.7071067811865476, c := 0.0 - 0.7071067811865476, d := 0.7071067811865476, tx := 120.0, ty := 560.0]
+  LET rotBox AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 25.0, y := 0.0 - 25.0, w := 50.0, h := 50.0, paint := WITH canvas::fill(canvas::rgb(255, 200, 40)) { transform := rotT }]
+  LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 250.0, ty := 560.0]
+  LET scaleDot AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 18.0, paint := WITH canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 6.0) { transform := scaleT }]
+
+  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot])
 END SUB
 "#;
 

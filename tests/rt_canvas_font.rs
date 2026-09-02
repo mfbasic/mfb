@@ -977,3 +977,65 @@ fn a_rotated_text_run_draws_rotated() {
          much ink as the upright one: upright {up}, rotated {rot}"
     );
 }
+
+/// A transformed text run reaches the GPU, and draws there what the oracle draws.
+///
+/// Two claims in one render, because they fail together and are cheap to separate only
+/// here:
+///
+/// 1. **Neither `*Renderable` predicate declines a transform.** `gpuSelected=TRUE` is
+///    the observable for that — the renderer sets it only after the predicate let the
+///    scene through, so a predicate that grew a `hasTransform` bail would flip the
+///    scene to software and this assertion, not the pixel comparison, is what would
+///    fail. That distinction is the point: falling back to software still produces a
+///    *correct* picture, so the comparison below would pass while the GPU path went
+///    entirely unexercised.
+/// 2. **The glyph fragment path's inverse sample matches the oracle's.** A transformed
+///    run is the one case where the per-glyph quad cannot be narrowed to the glyph's
+///    own box (see the `_glyph_hull` block in `runtime/canvas/vulkan.rs`), so this is
+///    also the test that the run's transformed hull is what the vertex stage expands.
+#[test]
+fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
+    let software = render_with("canvas_text_xform_sw", ROTATED_TEXT, false);
+    let (gpu, stats) = render_env(
+        "canvas_text_xform_hw",
+        ROTATED_TEXT,
+        &[("MFB_CANVAS_GPU", "1")],
+    );
+    if !stats.contains("metalReady=TRUE") {
+        eprintln!("skip: this host reports no Metal device");
+        return;
+    }
+    assert!(
+        stats.contains("gpuSelected=TRUE"),
+        "a scene whose only item carries a transform was refused by the renderable \
+         predicate and fell back to software. The transform slots sit past the header \
+         fields the predicates read, so nothing in them should reach either: {stats}"
+    );
+    assert!(
+        software.iter().any(|&b| b != 0),
+        "the software render of the rotated run drew nothing, so the comparison would \
+         be vacuous"
+    );
+
+    let height = (software.len() / 4 / WIDTH) as u32;
+    let want = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: software,
+    };
+    let got = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: gpu,
+    };
+    if let Err(diff) = compare_within_tolerance(&got, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's transformed glyph run disagrees with the oracle: {diff}\n\
+             The inverse sample is the suspect: the shader maps the fragment back \
+             through the run's inverse and reads the cached coverage there, so a \
+             whole-run offset is a wrong translation, and a run that came out sheared \
+             or mirrored is a transposed matrix."
+        );
+    }
+}

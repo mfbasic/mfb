@@ -113,6 +113,19 @@ float edgeDistance(int base, int count, vec2 p) {
     return inside ? -best : best;
 }
 
+// plan-116-C: the inverse transform, decoded from the float32 bits the item block
+// carries. `intBitsToFloat` is a reinterpret, not a conversion — the CPU already did
+// the narrowing (`__canvas_float32Bits`), because this compiler's assemblers have no
+// double→single convert.
+bool hasTransform() { return item.xform1.z != 0; }
+
+vec2 inverseMap(vec2 p) {
+    return vec2(intBitsToFloat(item.xform0.x) * p.x + intBitsToFloat(item.xform0.z) * p.y
+                    + intBitsToFloat(item.xform1.x),
+                intBitsToFloat(item.xform0.y) * p.x + intBitsToFloat(item.xform0.w) * p.y
+                    + intBitsToFloat(item.xform1.y));
+}
+
 float geoDistance(vec2 p) {
     float radius = fx(item.misc.y);
     vec2 c = vec2(fx(item.shape.x), fx(item.shape.y));
@@ -154,8 +167,12 @@ float geoDistance(vec2 p) {
 // integer and exact. Outside the box is zero rather than clamped: a quad can cover a
 // pixel its bitmap does not, and clamping would smear the border row outward.
 int glyphCoverage(vec2 p) {
-    int ix = int(p.x) - item.shape.x;
-    int iy = int(p.y) - item.shape.y;
+    // `floor`, not a cast: a cast truncates toward zero, and a transformed glyph maps
+    // to NEGATIVE shape-space coordinates (ink runs up from the pen), where truncation
+    // picks the texel on the wrong side. Untransformed, `p` is a surface pixel centre
+    // and always positive, so this is the same value the cast gave.
+    int ix = int(floor(p.x)) - item.shape.x;
+    int iy = int(floor(p.y)) - item.shape.y;
     if (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x) { return 0; }
     return edges.values[GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];
 }
@@ -193,6 +210,31 @@ int clipCoverage(vec2 p) {
     return int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5);
 }
 
+/// The shape-space distance at `p` and the local scale of the mapping, as `(d, s)`.
+///
+/// plan-116-C. Untransformed, this is the distance and 1.0 — the same single evaluation
+/// the shader always did. Transformed, it is the distance at the inverse-mapped point
+/// and `‖∇d‖` by CENTRAL DIFFERENCES at epsilon 0.5, so the `/2ε` divisor is exactly 1.
+///
+/// The epsilon is part of the specified result and not a tuning knob: the oracle
+/// (`__canvas_drawGeometry`) uses the same one, and Phase 1's measurement is against
+/// this value. Central differences rather than `fwidth` for the reason
+/// `06_canvas.md` gives — a hardware derivative differs between platforms, and this
+/// uses only `+ - * /` and `sqrt`.
+///
+/// Five distance evaluations when transformed, one otherwise. The branch is uniform
+/// across an instance, so it costs a predicted branch rather than divergence.
+vec2 shapeDistanceAndScale(vec2 p) {
+    if (!hasTransform()) { return vec2(geoDistance(p), 1.0); }
+    float d = geoDistance(inverseMap(p));
+    float gx = geoDistance(inverseMap(p + vec2(0.5, 0.0)))
+             - geoDistance(inverseMap(p - vec2(0.5, 0.0)));
+    float gy = geoDistance(inverseMap(p + vec2(0.0, 0.5)))
+             - geoDistance(inverseMap(p - vec2(0.0, 0.5)));
+    float g = sqrt(gx * gx + gy * gy);
+    return vec2(d, g > 0.000001 ? g : 1.0);
+}
+
 void main() {
     // First, before anything reads it: everything below, and both helpers above, work
     // off this one record.
@@ -205,10 +247,23 @@ void main() {
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline
         // polygon by the geometry builder, so there is nothing here to stroke.
-        fragColor = covered(item.fill, (glyphCoverage(gl_FragCoord.xy) * clipCov) / 255);
+        //
+        // plan-116-C §4.5: a transformed glyph samples its bitmap at the inverse-mapped
+        // point, nearest. `glyphCoverage` already indexes by whole pixels, so mapping
+        // the query point is the whole change — the cache stays untransformed and one
+        // entry serves every transform.
+        vec2 gp = hasTransform() ? inverseMap(gl_FragCoord.xy) : gl_FragCoord.xy;
+        fragColor = covered(item.fill, (glyphCoverage(gp) * clipCov) / 255);
         return;
     }
-    float d = geoDistance(gl_FragCoord.xy);
+    // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
+    // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
+    // with the shape (§4.3). Untransformed, `dScale` is 1.0 and both collapse to the
+    // expressions this shader had.
+    vec2 ds = shapeDistanceAndScale(gl_FragCoord.xy);
+    float dRaw = ds.x;
+    float dScale = ds.y;
+    float d = dRaw / dScale;
     vec4 colour = covered(item.fill,
         (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
     float halfWidth = fx(item.misc.z);
@@ -222,7 +277,7 @@ void main() {
         // By the time such an item reaches here it is either fill-only or stroke-only,
         // so this branch composes two sources only under `Normal`, where it is exact.
         vec4 s = covered(item.stroke,
-            (int(clamp(0.5 - (abs(d) - halfWidth), 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
+            (int(clamp(0.5 - (abs(dRaw) - halfWidth) / dScale, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
         colour = s + colour * (1.0 - s.w);
     }
     fragColor = colour;

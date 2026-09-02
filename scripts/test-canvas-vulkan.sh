@@ -169,7 +169,22 @@ SUB main()
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(canvas::rgb(230, 120, 40), canvas::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
   LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 240.0, w := 200.5, h := 60.0] }]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox]
+  ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
+  ' Without these the frame never sets hasTransform and the whole of this letter's
+  ' shader work would go unexercised while the suite still reported success.
+  '
+  ' A rotation, a non-uniform scale and a rotated TEXT run: the rotation exercises the
+  ' gradient correction on a curved edge, the non-uniform scale is the case Phase 1
+  ' measured sqrt(|det M|) as 37/255 wrong on, and the text takes the separate
+  ' inverse-sample arm. Small, for the reason the blend items are small -- see the
+  ' comment there.
+  LET rotT AS canvas::Transform = canvas::Transform[a := 0.7071067811865476, b := 0.7071067811865476, c := 0.0 - 0.7071067811865476, d := 0.7071067811865476, tx := 120.0, ty := 560.0]
+  LET rotBox AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 25.0, y := 0.0 - 25.0, w := 50.0, h := 50.0, paint := WITH canvas::fill(canvas::rgb(255, 200, 40)) { transform := rotT }]
+  LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 250.0, ty := 560.0]
+  LET scaleDot AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 18.0, paint := WITH canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 6.0) { transform := scaleT }]
+  LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 700.0, ty := 460.0]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 40.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

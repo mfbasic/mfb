@@ -248,8 +248,18 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
           WHILE tx <= hiX
             LET fpx AS Float = toFloat(tx) + 0.5
             LET fpy AS Float = toFloat(ty) + 0.5
-            LET ux AS Integer = toInt(__canvas_invX(offset, fpx, fpy) - toFloat(gx))
-            LET uy AS Integer = toInt(__canvas_invY(offset, fpx, fpy) - toFloat(gy))
+            ' FLOOR, not truncation, and floor of the mapped coordinate BEFORE the
+            ' whole-pixel glyph origin is subtracted -- the same two decisions both
+            ' shaders make.
+            '
+            ' Truncation is wrong rather than merely different here: the texel holding a
+            ' point `u` is `floor(u)`, and `toInt` rounds toward zero, so every glyph
+            ' above the baseline -- which is all of them, ink runs up from the pen --
+            ' has negative shape-space coordinates and picks the texel on the wrong
+            ' side. And the order matters independently: mapped 4.3 with origin 12 gives
+            ' -8 if you floor first and -7 if you subtract first.
+            LET ux AS Integer = math::floor(__canvas_invX(offset, fpx, fpy)) - gx
+            LET uy AS Integer = math::floor(__canvas_invY(offset, fpx, fpy)) - gy
             IF ux >= 0 AND uy >= 0 AND ux < gw AND uy < gh THEN
               MUT tcov AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + uy * gw + ux, toByte(0)))
               IF tClipped THEN

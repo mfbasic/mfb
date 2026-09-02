@@ -416,7 +416,7 @@ item block moved up 32 and `DRAW_FRAME` went 480 → 512.
 `rt_canvas_rasteriser` 17 (+1 ignored), and `scripts/test-canvas-vulkan.sh` 12/12 at
 `worst=2 differing=0.7748%` — **the same three numbers as before the widening**.
 `git status --short tests/golden/canvas/` is empty.
-Commit: —
+Commit: ec5269dd1, 353f0da8a
 
 ### Phase 3 — The software renderer transforms
 
@@ -466,25 +466,36 @@ rasteriser case is byte-identical.
 One of the five caught a real conflict between §4.2 and §4.3 — see **Correction C4**:
 correcting the distance *before* the stroke test holds the outline at a constant surface
 width, which is the opposite of §4.3's decision that the stroke scales with the shape.
-Commit: —
+Commit: 093caccda
 
 ### Phase 4 — Metal and Vulkan transform
 
-- [ ] Both fragment shaders: transform `gl_FragCoord.xy` / `[[position]].xy` through
+- [x] Both fragment shaders: transform `gl_FragCoord.xy` / `[[position]].xy` through
       the inverse and divide the distance by `‖∇d‖`, taken by the same central
       differences the oracle uses at the same fixed epsilon, gated on the flag. The
       epsilon has to match the oracle's exactly — it is part of the specified result,
       not a tuning knob.
-- [ ] Both vertex shaders already expand the item's `quad`, which Phase 3 made the
+- [x] Both vertex shaders already expand the item's `quad`, which Phase 3 made the
       transformed hull — so **no vertex-stage change should be needed**. Verify this
       rather than assume it; a rotated shape clipped to a stale quad is the failure
-      mode.
-- [ ] `scripts/regen-spirv.sh`.
-- [ ] Both glyph fragment paths (MSL and GLSL) take the same §4.5 inverse-sample,
-      gated on the flag; glyph quads take the transformed hull.
-- [ ] Neither `*Renderable` predicate needs to decline a transform — including on a
-      transformed `Text`. Confirm by test.
-- [ ] Tests: a new reference image `tests/golden/canvas/transforms.png` — a rotated
+      mode. **Verified, and by the instrument rather than by reading**: a re-run of
+      `scripts/regen-spirv.sh` after all of Phase 4's shader work leaves
+      `mfb_canvas.vert.spv` byte-identical (`git status --porcelain
+      src/codegen/runtime/canvas/shaders/` lists only the two `.frag` files), and the
+      rotated rect — the case whose transformed hull is 1.41× its shape-space box in
+      both axes — comes back with full corners on both backends.
+- [x] `scripts/regen-spirv.sh`. → `frag -> 20732 bytes`, `vert -> 4004 bytes`.
+- [x] Both glyph fragment paths (MSL and GLSL) take the same §4.5 inverse-sample,
+      gated on the flag; glyph quads take the transformed hull. See **C6** — the
+      per-glyph quad narrowing had to become conditional, which is what "glyph quads
+      take the transformed hull" means in emitted code.
+- [x] Neither `*Renderable` predicate needs to decline a transform — including on a
+      transformed `Text`. Confirm by test. → neither predicate reads a slot past
+      `offset + 20`, and the transform slots are 27–33; confirmed at runtime by
+      `a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle`
+      (`tests/rt_canvas_font.rs`), which asserts `gpuSelected=TRUE` *before* comparing
+      pixels — a fallback to software would otherwise pass the pixel comparison.
+- [x] Tests: a new reference image `tests/golden/canvas/transforms.png` — a rotated
       rect, a scaled circle, a sheared polygon, **and a rotated text label** —
       rendered by the oracle in Phase 3 and matched here by both GPUs within
       `Tolerance::GPU_DEFAULT`.
@@ -492,6 +503,23 @@ Commit: —
 Acceptance: on a Metal host and a Vulkan box, `transforms.png`'s scene matches the
 oracle within `Tolerance::GPU_DEFAULT`, with `MFB_CANVAS_STATS` confirming the GPU
 path ran.
+
+**MET**, three rows:
+
+- **Metal**, `the_gpu_draws_the_transform_scene_the_reference_shows`
+  (`tests/rt_canvas_golden.rs`) — the whole `transforms.png` scene rendered with
+  `MFB_CANVAS_GPU=1` and compared against the committed reference, not against a
+  same-run oracle: **443 of 576000 pixels differ (0.077%), worst channel delta 1**,
+  against `GPU_DEFAULT`'s ≤2 steps and ≤2%. Stats:
+  `gpuSelected=TRUE metalReady=TRUE`.
+- **Vulkan glibc**, box 2228, `scripts/test-canvas-vulkan.sh target/release/mfb` —
+  12/12 ok, `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`.
+- **Vulkan musl**, box 2227, `scripts/test-canvas-vulkan.sh target/release/mfb --box
+  2227 --libc musl --icd auto` — 12/12 ok, same numbers.
+
+Also green: `cargo test --release --test rt_canvas_metal --no-fail-fast` (4/4, with
+the rotated rect and 2:1 ellipse added to `PRIMITIVES`), `--test rt_canvas_font` (12/12,
+including the new transformed-text GPU test), `--test rt_canvas_golden` (8/8).
 Commit: —
 
 ### Phase 5 — Docs, and the three-field defect closed
@@ -547,6 +575,58 @@ Commit: —
   readings are defensible and a user will ask.
 
 ## Corrections
+
+- **C7 (2026-09-01, Phase 4) — the golden harness never waited for the frame it asked
+  for, and the first reference that needed a font recorded a scene with no text in it.**
+  `tests/rt_canvas_golden.rs` was the only canvas suite that did not set
+  `MFB_CANVAS_SYNC=1`. Without it `present` returns at once and `main` returns behind
+  it, so the process tears down while the graphics thread is still reading the scene:
+  the geometry survives, because the ring holds a published copy, but a `canvas::Font`'s
+  outlines do not — they live in the worker's own arena, which is per-thread
+  (`.ai/canvas-threading.md` §1). The first `transforms.png` therefore had all six
+  shapes and **zero** text pixels.
+
+  What made this worth a correction rather than a one-line fix is that it is invisible
+  by construction. It is not a race: five consecutive runs produced 0 text pixels every
+  time, so the truncated frame is perfectly reproducible and `compare_exact` reported it
+  as a *match*. The reference had been regenerated from it, and the suite was green.
+
+  Measured, on the transform scene:
+
+  ```
+  # no MFB_CANVAS_SYNC, five runs        -> text-ish px 0   (x5)
+  # MFB_CANVAS_SYNC=1                    -> text-ish px 840, bbox x 385..874, y 125..299
+  # no SYNC but os::sleep(1500) after present -> text-ish px 840
+  ```
+
+  The third row is what identifies the mechanism: keeping the worker alive is enough, so
+  it is the teardown and not the font path. Fixed by setting `MFB_CANVAS_SYNC=1` (and
+  `MFB_GTKAPP_HEADLESS`, missing for the same reason) in `render_inner`, and
+  regenerating the reference. `smiley.png` and `blendmodes.png` are byte-identical
+  under the change — the only pixels that moved were the 840 the text occupies — which
+  is why no earlier golden caught it: this letter's scene is the first golden to load a
+  font at all.
+
+- **C6 (2026-09-01, Phase 4) — the per-glyph quad narrowing is only valid
+  untransformed.** Both backends narrow a glyph run's item quad to each glyph's own box,
+  so a twenty-glyph run rasterises twenty small quads rather than twenty copies of the
+  run's box. That box is in *shape* space. Under a transform the glyph's pixels are
+  somewhere else entirely, so the GPU rasterised a region the glyph no longer occupied
+  and drew nothing — a transformed run vanished on both backends while the software
+  oracle drew it.
+
+  This cost time because the first diagnosis was wrong: the Vulkan harness reports its
+  differences as a tuple, and I read it as `(x, y, gpu, sw)` when the script has
+  `a = software, b = gpu`. Three changes were made against the reversed reading before
+  the script was checked. Recorded here because the lesson is the general one — read
+  the instrument's own definition of its output before acting on it.
+
+  Fixed by gating the narrowing on `ITEM_OFFSET_TRANSFORM + 24` (the `hasTransform`
+  flag) in both emitters, leaving a transformed run with the whole run's transformed
+  hull that `__canvas_boundsHeader` already computes. The cost is stated in the code
+  rather than hidden: a transformed run is O(glyphs × hull) fragments. Narrowing it
+  properly would mean forward-mapping four corners in hand-emitted machine code, in two
+  backends, to save fragments on the case that is not the common one.
 
 - **C4 (2026-09-01, Phase 3) — §4.2's correction and §4.3's stroke rule contradict each
   other, and the test found it.** §4.3 decides that the stroke scales with the shape,

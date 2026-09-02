@@ -4325,18 +4325,42 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, a
         abi::SCRATCH[1],
         abi::SCRATCH[3],
     ));
-    for (register, word) in [
-        (abi::SCRATCH[0], 0usize),
-        (abi::SCRATCH[1], 1),
-        (abi::SCRATCH[4], 2),
-        (abi::SCRATCH[5], 3),
-    ] {
-        builder.emit(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
-        builder.emit(abi::store_u32(
+    // The per-glyph quad narrows the item's quad to this one glyph's box, so a run of
+    // twenty glyphs rasterises twenty small quads instead of twenty copies of the whole
+    // run's box. That narrowing is only valid UNTRANSFORMED: the box is in shape space,
+    // and under a transform the glyph's pixels are somewhere else entirely — the GPU
+    // would rasterise a region the glyph no longer occupies and draw nothing.
+    //
+    // Transformed, the item's quad is left as `emit_item_block` wrote it, which is the
+    // whole run's transformed hull (`__canvas_boundsHeader` maps the four corners
+    // forward). Correct, and the cost is stated rather than hidden: every glyph in a
+    // transformed run rasterises the run's hull, so a long transformed string is
+    // O(glyphs × hull) fragments. Narrowing it would mean forward-mapping four corners
+    // in emitted machine code, in both backends, to save fragments on a case that is
+    // not the common one.
+    {
+        let keep_hull = builder.label("vk_glyph_hull");
+        builder.emit(abi::load_u32(
             abi::SCRATCH[6],
             abi::stack_pointer(),
-            at.item + ITEM_OFFSET_QUAD + word * 4,
+            at.item + ITEM_OFFSET_TRANSFORM + 24,
         ));
+        builder.emit(abi::compare_immediate(abi::SCRATCH[6], "0"));
+        builder.emit(abi::branch_ne(&keep_hull));
+        for (register, word) in [
+            (abi::SCRATCH[0], 0usize),
+            (abi::SCRATCH[1], 1),
+            (abi::SCRATCH[4], 2),
+            (abi::SCRATCH[5], 3),
+        ] {
+            builder.emit(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            builder.emit(abi::store_u32(
+                abi::SCRATCH[6],
+                abi::stack_pointer(),
+                at.item + ITEM_OFFSET_QUAD + word * 4,
+            ));
+        }
+        builder.emit(abi::label(&keep_hull));
     }
     // misc.w = width, arc.x = height, arc.z = the sample offset into the region.
     builder.emit(abi::store_u32(

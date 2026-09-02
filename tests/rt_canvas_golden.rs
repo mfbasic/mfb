@@ -51,6 +51,39 @@ SUB main()
 END SUB
 "#;
 
+/// The twelve-glyph fixture font, as bytes.
+fn fixture_truetype() -> Vec<u8> {
+    const B64: &str = concat!(
+        "AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA",
+        "AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD",
+        "AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA",
+        "AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB",
+        "9AAAAPoAAAEsAAAAAAAAABEAEQ==",
+    );
+    let table: Vec<u8> =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for ch in B64.bytes() {
+        if ch == b'=' {
+            break;
+        }
+        let v = table
+            .iter()
+            .position(|&c| c == ch)
+            .expect("base64 alphabet") as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
+}
+
 fn golden_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -59,9 +92,43 @@ fn golden_path(name: &str) -> PathBuf {
         .join(format!("{name}.png"))
 }
 
-/// Build and run a `--app` program headless, returning its rendered frame.
+/// Render a scene that needs a font, dropping the fixture beside the project first.
+///
+/// The same twelve-glyph TrueType `tests/rt_canvas_font.rs` and
+/// `scripts/test-canvas-vulkan.sh` build — `unitsPerEm` 1000, one square glyph — rather
+/// than a system font, so the reference cannot depend on which typefaces the machine
+/// happens to have. A solid square is also the right glyph for a *reference*: whether a
+/// rotated run landed correctly is a whole-pixel question rather than a judgement about
+/// an antialiased curve.
+fn render_with_font(name: &str, source: &str) -> Frame {
+    render_inner(name, source, true, &[]).0
+}
+
 fn render(name: &str, source: &str) -> Frame {
+    render_inner(name, source, false, &[]).0
+}
+
+/// The same render on the GPU, with the stats line that says whether it *was* the GPU.
+///
+/// The stats are not decoration here. A backend that declines a scene falls back to the
+/// software renderer and returns a frame that matches the reference perfectly — so a
+/// GPU comparison with no `gpuSelected=TRUE` check is a test that passes hardest
+/// exactly when the hardware path is broken enough to be refused.
+fn render_gpu_with_font(name: &str, source: &str) -> (Frame, String) {
+    render_inner(name, source, true, &[("MFB_CANVAS_GPU", "1")])
+}
+
+fn render_inner(
+    name: &str,
+    source: &str,
+    font: bool,
+    extra: &[(&str, &str)],
+) -> (Frame, String) {
     let project = common::temp_project(name, source);
+    if font {
+        std::fs::write(project.join("fixture.ttf"), fixture_truetype())
+            .expect("write the font fixture");
+    }
     let build = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-app")
@@ -76,11 +143,34 @@ fn render(name: &str, source: &str) -> Frame {
     );
 
     let frame_path = project.join("frame.rgba");
+    let stats_path = project.join("stats.txt");
     let binary = app_binary(&project, name);
-    let run = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    command
+        // The project directory, so a scene that opens `fixture.ttf` finds it. Running
+        // from the repository root instead would resolve the relative path against
+        // cargo's cwd, where the fixture is not.
+        .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_CANVAS_DUMP", &frame_path)
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        // Wait for the frame this scene asked for. Without it `present` returns at
+        // once and `main` returns behind it, and the process tears down while the
+        // graphics thread is still reading the scene: the geometry survives (the ring
+        // holds a published copy) but a `canvas::Font`'s outlines do not, because they
+        // live in the worker's own arena, which is per-thread. The frame then lands
+        // with every shape and no text — silently, and identically on every run, so it
+        // reads as a reference rather than a truncated one. Measured on the transform
+        // scene: 0 text pixels without this, 840 with it. Every other canvas suite
+        // sets it; this one was the exception because no golden scene used a font
+        // until plan-116-C's did.
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats_path)
+        .env("MFB_CANVAS_DUMP", &frame_path);
+    for (key, value) in extra {
+        command.env(key, value);
+    }
+    let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -92,8 +182,9 @@ fn render(name: &str, source: &str) -> Frame {
     );
 
     let pixels = std::fs::read(&frame_path).expect("canvas dump written");
+    let stats = std::fs::read_to_string(&stats_path).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&project);
-    Frame::from_rgba(WIDTH, HEIGHT, pixels)
+    (Frame::from_rgba(WIDTH, HEIGHT, pixels), stats)
 }
 
 fn app_binary(project: &Path, name: &str) -> PathBuf {
@@ -315,6 +406,149 @@ fn blend_modes_match_their_reference_exactly() {
              four pairs run left to right as Normal, Multiply, Screen, Add, the arcs \
              below them are the same four on the STROKE channel, and the band at the \
              bottom is a fractional clip edge.",
+        );
+    }
+}
+
+/// A rotated rect, a non-uniformly scaled circle, a sheared polygon and rotated text
+/// (plan-116-C).
+///
+/// The four cases the transform work has to get right, and each is chosen to fail
+/// differently:
+///
+/// - **The rotated rect** is the bounds case: its transformed hull is wider than its
+///   shape-space box in both axes, so a renderer that kept the original box would slice
+///   the corners off.
+/// - **The non-uniformly scaled circle** is the distance-correction case. Phase 1
+///   measured `sqrt(|det M|)` as 37/255 coverage steps wrong here, so this ellipse's
+///   edge is where a wrong correction shows.
+/// - **The sheared polygon** exercises the correction on an edge that is neither
+///   axis-aligned nor curved, and the polygon SDF's crossing-count fill rule under a
+///   mapping that does not preserve angles.
+/// - **The rotated text** takes the separate inverse-sample arm, not the SDF path at
+///   all, and its per-glyph quad is the run's transformed hull.
+///
+/// Each is drawn beside its untransformed twin on a mid-grey ground, so the reference
+/// shows the transform's effect rather than just its result — a reader can see at a
+/// glance whether the pair differs the way the matrix says.
+const TRANSFORMS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(96, 96, 96))]
+
+  ' 45 degrees: the hull is 1.41x the shape-space box in both axes.
+  LET k AS Float = 0.7071067811865476
+  LET rotT AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 200.0, ty := 160.0]
+  LET plainRect AS canvas::DrawItem = canvas::Rectangle[x := 480.0, y := 90.0, w := 140.0, h := 140.0, paint := canvas::fill(canvas::rgb(255, 190, 60))]
+  LET rotRect AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 70.0, y := 0.0 - 70.0, w := 140.0, h := 140.0, paint := WITH canvas::fill(canvas::rgb(255, 190, 60)) { transform := rotT }]
+
+  ' 2:1 in x only -- the case sqrt(|det M|) gets wrong.
+  LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 380.0]
+  LET plainCircle AS canvas::DrawItem = canvas::Circle[x := 550.0, y := 380.0, radius := 60.0, paint := canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 8.0)]
+  LET scaledCircle AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 60.0, paint := WITH canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 8.0) { transform := scaleT }]
+
+  ' A 30 degree shear in x.
+  LET shearT AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5773502691896258, d := 1.0, tx := 660.0, ty := 480.0]
+  LET tri AS List OF canvas::Point = [canvas::Point[x := 0.0 - 60.0, y := 50.0], canvas::Point[x := 60.0, y := 50.0], canvas::Point[x := 0.0, y := 0.0 - 50.0]]
+  LET plainPoly AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]], paint := canvas::fill(canvas::rgb(220, 120, 220))]
+  LET shearPoly AS canvas::DrawItem = canvas::Polygon[points := tri, paint := WITH canvas::fill(canvas::rgb(220, 120, 220)) { transform := shearT }]
+
+  ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
+  LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
+  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+
+  canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The transform reference renders exactly.
+///
+/// Same rule as the other two references: a mismatch is a bug hunt, not a re-baseline.
+#[test]
+fn transforms_match_their_reference_exactly() {
+    let rendered = render_with_font("canvas_golden_transforms", TRANSFORMS);
+    let reference = golden_path("transforms");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the transform scene no longer renders to its reference image: {diff}\n\
+             Deterministic output, so localize by pair: the rotated rect is the BOUNDS \
+             hull, the scaled circle is the distance correction (Phase 1 measured \
+             sqrt(|det M|) as 37/255 wrong exactly here), the sheared triangle is the \
+             polygon fill rule under a non-similarity, and the rotated label is the \
+             glyph inverse-sample arm.",
+        );
+    }
+}
+
+/// The hardware backend draws the transform scene the reference shows.
+///
+/// This is plan-116-C Phase 4's acceptance in the form the plan states it: the whole
+/// `transforms.png` scene — all four transformed items *and* their untransformed twins
+/// — rendered by whichever GPU backend this host has, compared against the stored
+/// reference within `Tolerance::GPU_DEFAULT`.
+///
+/// The reference rather than a fresh software render, deliberately. Comparing GPU
+/// against a same-run oracle would let a change that broke both in the same direction
+/// pass; comparing against the committed image means the picture a human looked at is
+/// the one the hardware has to reproduce.
+///
+/// A tolerance rather than `compare_exact` because the GPU composites in linear space
+/// with hardware blending while the oracle blends in sRGB, so antialiased edges land a
+/// step or two apart. `Tolerance::GPU_DEFAULT` bounds both how far one pixel may move
+/// and how many may move at all — it is not a lever to widen when something fails.
+#[test]
+fn the_gpu_draws_the_transform_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu_with_font("canvas_golden_transforms_gpu", TRANSFORMS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuSelected=TRUE"),
+        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+         predicate declined the transform scene, and every pixel below would then be \
+         the software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("transforms");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's transform scene disagrees with the reference: {diff}\n\
+             Localize by pair against the picture: a rotated rect with sliced corners \
+             is a stale vertex quad, an ellipse whose stroke thickens along one axis \
+             is the distance correction, and a label that vanished or landed upright \
+             is the glyph inverse-sample arm."
         );
     }
 }

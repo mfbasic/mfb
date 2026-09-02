@@ -198,6 +198,15 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  }\n",
     "  return inside ? -best : best;\n",
     "}\n",
+    // plan-116-C: the inverse transform, decoded from the float32 bits the item block
+    // carries. `as_type<float>` is a reinterpret, not a conversion -- the CPU already
+    // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
+    // have no double->single convert.
+    "static bool hasTransform(constant MfbItem &item) { return item.xform1.z != 0; }\n",
+    "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
+    "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
+    "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
+    "}\n",
     "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
     "  float radius = fx(item.misc.y);\n",
     "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
@@ -217,6 +226,25 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    return abs(length(d) - fx(item.shape.z)) - radius;\n",
     "  }\n",
     "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
+    "}\n",
+    // The shape-space distance and the local scale of the mapping, as (d, s).
+    //
+    // Untransformed this is the distance and 1.0 -- the single evaluation the shader
+    // always did. Transformed it is the distance at the inverse-mapped point and
+    // ||grad d|| by CENTRAL DIFFERENCES at epsilon 0.5, so the /2e divisor is exactly 1.
+    // The epsilon is part of the specified result, not a tuning knob: the oracle uses
+    // the same one and Phase 1's measurement is against this value. Central differences
+    // rather than fwidth for the reason 06_canvas.md gives -- a hardware derivative
+    // differs between platforms; this uses only + - * / and sqrt.
+    "static float2 shapeDistanceAndScale(constant MfbItem &item, constant int *edges, float2 p) {\n",
+    "  if (!hasTransform(item)) { return float2(geoDistance(item, edges, p), 1.0); }\n",
+    "  float d = geoDistance(item, edges, inverseMap(item, p));\n",
+    "  float gx = geoDistance(item, edges, inverseMap(item, p + float2(0.5, 0.0)))\n",
+    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.5, 0.0)));\n",
+    "  float gy = geoDistance(item, edges, inverseMap(item, p + float2(0.0, 0.5)))\n",
+    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.0, 0.5)));\n",
+    "  float g = sqrt(gx * gx + gy * gy);\n",
+    "  return float2(d, g > 0.000001 ? g : 1.0);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -277,14 +305,30 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // the two quantize identically -- a float multiply here would disagree on the
     // boundary pixels, which are the only ones a clip can affect.
     "  int clipCov = clipCoverage(item, in.pos.xy);\n",
+    // plan-116-C section 4.5: a transformed glyph samples its bitmap at the
+    // inverse-mapped point, nearest. The index arithmetic is already whole-pixel, so
+    // mapping the query point is the whole change -- the cache stays untransformed and
+    // one entry serves every transform.
     "  if (item.misc.x == 6) {\n",
-    "    int ix = int(in.pos.x) - item.shape.x;\n",
-    "    int iy = int(in.pos.y) - item.shape.y;\n",
+    "    float2 gp = hasTransform(item) ? inverseMap(item, in.pos.xy) : in.pos.xy;\n",
+    // `floor`, not a cast: a cast truncates toward zero, and a transformed glyph maps
+    // to NEGATIVE shape-space coordinates (ink runs up from the pen), where truncation
+    // picks the texel on the wrong side. Untransformed, `gp` is a surface pixel centre
+    // and always positive, so this is the same value the cast gave.
+    "    int ix = int(floor(gp.x)) - item.shape.x;\n",
+    "    int iy = int(floor(gp.y)) - item.shape.y;\n",
     "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
     "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
     "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
-    "  float d = geoDistance(item, edges, in.pos.xy);\n",
+    // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
+    // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
+    // with the shape (section 4.3). Untransformed, `dScale` is 1.0 and both collapse to
+    // the expressions this shader had.
+    "  float2 ds = shapeDistanceAndScale(item, edges, in.pos.xy);\n",
+    "  float dRaw = ds.x;\n",
+    "  float dScale = ds.y;\n",
+    "  float d = dRaw / dScale;\n",
     "  float4 colour = covered(item.fill,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -294,7 +338,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
     // time such an item reaches here it is fill-only or stroke-only.
     "    float4 s = covered(item.stroke,\n",
-    "      (int(clamp(0.5 - (abs(d) - halfWidth), 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
+    "      (int(clamp(0.5 - (abs(dRaw) - halfWidth) / dScale, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -1886,18 +1930,33 @@ fn emit_glyph_draws(asm: &mut Asm) {
         abi::SCRATCH[1],
         abi::SCRATCH[3],
     ));
-    for (register, word) in [
-        (abi::SCRATCH[0], 0usize),
-        (abi::SCRATCH[1], 1),
-        (abi::SCRATCH[4], 2),
-        (abi::SCRATCH[5], 3),
-    ] {
-        asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
-        asm.push(abi::store_u32(
+    // The per-glyph quad narrows the item's quad to this one glyph's box, which is only
+    // valid UNTRANSFORMED — the box is in shape space, so under a transform the GPU
+    // would rasterise a region the glyph no longer occupies and draw nothing. See the
+    // twin of this block in `runtime/canvas/vulkan.rs` for the cost of the alternative.
+    {
+        let keep_hull = format!("{METAL_DRAW_SYMBOL}_glyph_hull");
+        asm.push(abi::load_u32(
             abi::SCRATCH[6],
             abi::stack_pointer(),
-            OFF_ITEM + ITEM_OFFSET_QUAD + word * 4,
+            OFF_ITEM + ITEM_OFFSET_TRANSFORM + 24,
         ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
+        asm.push(abi::branch_ne(&keep_hull));
+        for (register, word) in [
+            (abi::SCRATCH[0], 0usize),
+            (abi::SCRATCH[1], 1),
+            (abi::SCRATCH[4], 2),
+            (abi::SCRATCH[5], 3),
+        ] {
+            asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            asm.push(abi::store_u32(
+                abi::SCRATCH[6],
+                abi::stack_pointer(),
+                OFF_ITEM + ITEM_OFFSET_QUAD + word * 4,
+            ));
+        }
+        asm.push(abi::label(&keep_hull));
     }
     // misc.w = width, arc.x = height. Metal needs no bitmap offset: its payload starts
     // at the glyph, where Vulkan's is one region shared by the whole frame.
