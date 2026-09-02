@@ -42,7 +42,7 @@ SUB main()
   LET face AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := cx - 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := cx + 50.0, y := cy - 40.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := cx, y := cy + 15.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
 
   LET scene AS List OF canvas::DrawItem = [face, eyeL, eyeR, smile]
 
@@ -355,10 +355,10 @@ SUB main()
 
   ' A stroked arc under each mode too: a mode has to reach the stroke channel, not
   ' just the fill, and the stroke is the one that rides `salpha` rather than `alpha`.
-  LET arcNormal AS canvas::DrawItem = canvas::Arc[x := 160.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Normal }]
-  LET arcMultiply AS canvas::DrawItem = canvas::Arc[x := 380.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Multiply }]
-  LET arcScreen AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Screen }]
-  LET arcAdd AS canvas::DrawItem = canvas::Arc[x := 820.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Add }]
+  LET arcNormal AS canvas::DrawItem = canvas::Arc[x := 160.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Normal }]
+  LET arcMultiply AS canvas::DrawItem = canvas::Arc[x := 380.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Multiply }]
+  LET arcScreen AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Screen }]
+  LET arcAdd AS canvas::DrawItem = canvas::Arc[x := 820.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Add }]
 
   ' One clipped item, so the reference covers the other half of this letter as well:
   ' a fractional clip edge that must stay antialiased.

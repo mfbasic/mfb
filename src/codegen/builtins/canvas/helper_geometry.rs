@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 34-float header carrying the
+//! draws. Generation turns one into the other: a fixed 35-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 34-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 35-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 34 float compares
+//! is worse than a common slow one, and the confirmation costs 35 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,8 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 34
+r#"LET __CANVAS_GEO_HEADER AS Integer = 35
+LET __CANVAS_GEO_CAP AS Integer = 34
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
@@ -118,7 +119,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 34 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 35 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -133,7 +134,7 @@ r#"FUNC __canvas_headerFor(item AS DrawItem) AS List OF Float
     CASE Circle(c)
       RETURN __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
     CASE Line(l)
-      RETURN __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, l.paint)
+      RETURN __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
     CASE Arc(a)
       RETURN __canvas_arcHeader(a)
     CASE Polygon(p)
@@ -160,6 +161,21 @@ FUNC __canvas_emptyHeader() AS List OF Float
   h = collections::set(h, 0, toFloat(__CANVAS_GEO_NONE))
   h = collections::set(h, 1, toFloat(__CANVAS_GEO_HEADER))
   RETURN h
+END FUNC
+
+' plan-116-D: a CapStyle as the 0..1 tag the header slot carries.
+'
+' A function rather than an inline IF at each of the two call sites, because `Line`
+' and `Arc` must agree on the encoding: they read the same slot and the renderers
+' branch on it with one comparison for both kinds. Butt is 0 for the same reason
+' BlendMode.Normal is -- it is the enum's zero -- but note that unlike blend, the zero
+' is NOT what preserved today's rendering for both variants: a Line was round before
+' this letter and an Arc was butt, so the existing sites had to be split.
+FUNC __canvas_capTag(cap AS CapStyle) AS Integer
+  IF cap = CapStyle.Round THEN
+    RETURN 1
+  END IF
+  RETURN 0
 END FUNC
 
 FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
@@ -309,7 +325,7 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
 END FUNC
 
-FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, paint AS Paint) AS List OF Float
+FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint) AS List OF Float
   LET half AS Float = __canvas_strokeHalf(paint)
   IF half <= 0.0 THEN
     RETURN __canvas_emptyHeader()
@@ -322,6 +338,7 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, 4, x2)
   out = collections::set(out, 5, y2)
   out = collections::set(out, 6, half)
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
   out = __canvas_paintHeader(out, paint)
   out = __canvas_strokeAsFill(out)
   LET pad AS Float = half + 1.0
@@ -347,6 +364,7 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.cap)))
   LET reach AS Float = a.radius + half + 1.0
   RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
 END FUNC
@@ -884,7 +902,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::runtime::canvas::{GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_SLOTS};
+    use crate::codegen::runtime::canvas::{
+        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_HAS_TRANSFORM, HEADER_SLOTS,
+    };
 
     /// The decimal literal `GEO_LAYOUT` binds to `name`.
     fn declared(name: &str) -> usize {
@@ -919,6 +939,25 @@ mod tests {
             "the MFBASIC header length and the emitters' HEADER_SLOTS disagree: the \
              tail would be read at the wrong offset, so a polygon's first edge \
              coordinate becomes a header field",
+        );
+        // plan-116-D. The cap slot has no Rust counterpart yet — no emitter reads it
+        // until the shaders gain the cap arm — so what is checkable here is that it
+        // lands *inside* the header and *past* every slot the emitters already name.
+        // Both failures are silent: a slot at or beyond `HEADER_SLOTS` writes into a
+        // polygon's edge tail, and one at or below `HEADER_HAS_TRANSFORM` overwrites a
+        // field the GPU paths read, which draws a plausible wrong picture rather than
+        // failing. When an emitter does read the cap it gets a `HEADER_CAP` constant
+        // and an equality assertion here, like every other named slot.
+        let cap = declared("__CANVAS_GEO_CAP");
+        assert!(
+            cap < HEADER_SLOTS,
+            "__CANVAS_GEO_CAP {cap} is past the end of a {HEADER_SLOTS}-slot header, so \
+             a Line or Arc would write its cap over a polygon's first edge coordinate",
+        );
+        assert!(
+            cap > HEADER_HAS_TRANSFORM,
+            "__CANVAS_GEO_CAP {cap} collides with a slot the emitters already read \
+             (the last named one is HEADER_HAS_TRANSFORM at {HEADER_HAS_TRANSFORM})",
         );
         for (name, kind) in [
             ("__CANVAS_GEO_TEXT", GEO_KIND_TEXT),

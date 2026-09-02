@@ -263,23 +263,30 @@ rather than assume.
 The whole breaking change, landed with zero rendering movement — so the field edit and
 the geometry work are never in the same failing gate.
 
-- [ ] Add `CapStyle` to `mod.rs` via `pkg.add_enum`, `Butt` then `Round`.
-- [ ] Add `cap AS CapStyle` to the `Line` record (`mod.rs:499`) after `y2`, and to
+- [x] Add `CapStyle` to `mod.rs` via `pkg.add_enum`, `Butt` then `Round`.
+- [x] Add `cap AS CapStyle` to the `Line` record (`mod.rs:499`) after `y2`, and to
       `Arc` (`mod.rs:571`) after `endAngle`.
-- [ ] Re-run the site census (the §2 command), then update **every**
+- [x] Re-run the site census (the §2 command), then update **every**
       `canvas::Line[`/`canvas::Arc[` site: `Line` → `cap := CapStyle.Round`, `Arc` →
       `cap := CapStyle.Butt`, per §2's finding that those are each variant's
-      *current* behaviour. Sites at last census (11):
-      `tests/rt_canvas_rasteriser.rs:183,273,424`, `tests/cli_canvas_package.rs:57,59`,
-      `tests/rt_canvas_golden.rs:45`, `tests/rt_canvas_metal.rs:76,79`,
-      `src/codegen/builtins/canvas/func_stroke.rs:35`,
-      `src/codegen/builtins/canvas/func_present.rs:50`,
-      `examples/emoji/src/main.mfb:219` (an `Arc` → `Butt`; keeps the example's
-      rendering byte-identical).
-- [ ] Header slot 34 carries the cap; `__canvas_segmentHeader`/`__canvas_arcHeader`
-      write it. **Nothing reads it yet.**
-- [ ] Tests: add a case asserting `mfb man canvas types` lists `CapStyle` with both
-      variants.
+      *current* behaviour. → **14 sites, not the 11 listed** (see Correction D2):
+      12 `Arc` → `Butt` and 2 `Line` → `Round`, in
+      `tests/cli_canvas_package.rs` (1+1), `tests/rt_canvas_metal.rs` (1+1),
+      `tests/rt_canvas_rasteriser.rs` (3+0), `tests/rt_canvas_golden.rs` (5+0),
+      `src/codegen/builtins/canvas/func_stroke.rs` (1+0) and `func_present.rs` (1+0).
+      `examples/emoji/src/main.mfb` is **not in the tree** and was not edited.
+- [x] Header slot 34 carries the cap; `__canvas_segmentHeader`/`__canvas_arcHeader`
+      write it. **Nothing reads it yet.** → `__CANVAS_GEO_CAP = 34`,
+      `__CANVAS_GEO_HEADER` 34 → 35, and a `__canvas_capTag` helper so the two
+      writers cannot disagree about the encoding. See **D3** for why no *Rust*
+      `HEADER_CAP` constant was added in this phase.
+- [x] Tests: add a case asserting `mfb man canvas types` lists `CapStyle` with both
+      variants. → `the_cap_style_enum_and_both_cap_fields_render` (`src/cli/man.rs`),
+      which also asserts both records carry the field **and that `Circle`/`Rectangle`
+      do not** — the rejected "put `cap` on `Paint`" alternative would show up there
+      as a shape with no ends acquiring one. Plus the layout guard in
+      `helper_geometry.rs` gained two assertions pinning the cap slot inside the
+      header and past every slot an emitter already reads.
 
 Acceptance: `cargo test --no-fail-fast` green; **every** canvas golden byte-identical
 on disk; `scripts/man-run-examples.sh canvas --run` passes (the two man examples now
@@ -376,6 +383,28 @@ Commit: —
   styles stay mutually consistent.
 
 ## Corrections
+
+- **D3 (2026-09-02, Phase 1) — the phase's own "nothing reads it yet" makes a Rust
+  `HEADER_CAP` constant dead code, and the sanctioned justifications do not cover it.**
+  The obvious shape for a new header slot is a `pub(crate) const HEADER_CAP` beside
+  `HEADER_BLEND` in `runtime/canvas/mod.rs`, with the layout guard asserting it equals
+  the MFBASIC `__CANVAS_GEO_CAP`. Doing that produced `warning: constant HEADER_CAP is
+  never used`: its only consumer would be a `#[cfg(test)]` assertion until Phase 2
+  gives the emitters a cap arm. AGENTS.md allows a targeted `#[allow]`/`#[cfg(test)]`
+  "+ comment why load-bearing (**never** 'consumed by a later phase')" — which is
+  precisely and only what could be written here.
+
+  So the constant is not added yet. It arrives in Phase 2, with the emitter that reads
+  it. What Phase 1 *can* check is what the guard now checks: that the cap slot lands
+  **inside** the header (`cap < HEADER_SLOTS`, else a `Line` writes over a polygon's
+  first edge coordinate) and **past** every slot an emitter already names
+  (`cap > HEADER_HAS_TRANSFORM`, else it overwrites a field the GPU paths read). Both
+  failures draw a plausible wrong picture rather than failing, which is the reason to
+  pin them at all.
+
+  Worth recording because the tempting move is the opposite one — add the constant,
+  suppress the warning, and let Phase 2 justify it — and that is how a stub with no
+  production consumer ships.
 
 - **D1 (2026-09-02, pre-Phase 1) — the header slot numbers were estimated from where
   plan-116-C was *expected* to leave the header, and C landed one slot lower.** This

@@ -340,6 +340,23 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    pkg.add_enum(RegistryEnum {
+        name: "CapStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Butt",
+                description: "Cut square at the endpoint, so the stroke stops exactly where the item says it does. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Round",
+                description: "Extend past the endpoint by a half-disc of the stroke's half-width, so a thick line ends in a dome rather than a corner.",
+                advisory: None,
+            },
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "Transform",
         export: true,
@@ -557,6 +574,13 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Float,
                 description: "The ending point's Y coordinate in pixels.",
             },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Round` extends the \
+                              stroke past each endpoint by a half-disc; `Butt` cuts \
+                              it square there.",
+            },
             paint_prop(),
         ],
     });
@@ -634,6 +658,13 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "endAngle",
                 ty: ParameterType::Float,
                 description: "Where the arc ends, in radians clockwise from +X.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Butt` cuts the stroke \
+                              along the radius at each end; `Round` caps it with a \
+                              half-disc there.",
             },
             paint_prop(),
         ],

@@ -818,6 +818,55 @@ mod tests {
         assert!(!md.contains("__json_StringNode"));
     }
 
+    /// `canvas::CapStyle` reaches the types page with both variants, and both records
+    /// that have ends carry the `cap` field.
+    ///
+    /// plan-116-D adds user-visible surface out of registry *data*, which no compiler
+    /// gate reads: the enum could be registered with one variant, or registered and
+    /// then referenced by neither record, and everything would still build and every
+    /// other test would stay green. Rendering it is the only check those have.
+    #[test]
+    fn the_cap_style_enum_and_both_cap_fields_render() {
+        let md = render_types_markdown(registry().resolve_package("canvas").unwrap());
+
+        // One type's entry: from its `#### ` heading to the next one.
+        let entry = |heading: &str| -> String {
+            let at = md
+                .find(heading)
+                .unwrap_or_else(|| panic!("canvas exports {heading}"));
+            let rest = &md[at..];
+            let end = rest[4..].find("\n#### ").map_or(rest.len(), |i| i + 4);
+            rest[..end].to_string()
+        };
+
+        let cap_style = entry("#### canvas::CapStyle");
+        for variant in ["`Butt`", "`Round`"] {
+            assert!(
+                cap_style.contains(variant),
+                "canvas::CapStyle is missing {variant}:\n{cap_style}"
+            );
+        }
+
+        for record in ["#### canvas::Line", "#### canvas::Arc"] {
+            let table = entry(record);
+            assert!(
+                table.contains("| `cap` | `CapStyle` |"),
+                "{record} does not carry a `cap AS CapStyle` field:\n{table}"
+            );
+        }
+
+        // And nowhere else. A cap on a shape with no ends is what plan-116-D's
+        // non-goals rule out, and putting it on `Paint` — the rejected alternative —
+        // would show up here as `Circle` and `Rectangle` acquiring one.
+        for record in ["#### canvas::Circle", "#### canvas::Rectangle"] {
+            let table = entry(record);
+            assert!(
+                !table.contains("| `cap` |"),
+                "{record} has no ends, so it must not carry a cap:\n{table}"
+            );
+        }
+    }
+
     /// A record's own description reaches the page, above its field table.
     ///
     /// Worth a test of its own because the failure is silent in both directions: a

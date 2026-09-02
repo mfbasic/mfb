@@ -182,7 +182,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
         &scene(
             "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
+             cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
              canvas::present([smile])\n",
         ),
     );
@@ -272,7 +272,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
+             cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
         ),
     );
 
@@ -422,7 +422,7 @@ fn rendering_is_byte_reproducible() {
         "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  \
          LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
-         endAngle := 3.14159, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
+         endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
          canvas::present([disc, a])\n",
     );
     let (first, _) = render("canvas_determinism_a", &source);

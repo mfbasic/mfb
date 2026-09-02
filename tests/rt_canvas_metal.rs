@@ -82,10 +82,10 @@ SUB main()
   LET face AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
