@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::UnaryOp;
 
 /// The builtin a lowered call targets, by the name the source wrote: the
 /// target itself when it is a builtin call, or — for a call lowering rewrote
@@ -617,7 +618,7 @@ impl TypeEnv {
         // Negated numeric literal into Fixed / Money (`-1`, `-1.25`).
         if matches!(expected, ParameterType::Fixed | ParameterType::Money) {
             if let IrValue::Unary { op, operand, .. } = value {
-                if op == "-"
+                if *op == UnaryOp::Negate
                     && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, ParameterType::Integer | ParameterType::Float))
                 {
                     return true;

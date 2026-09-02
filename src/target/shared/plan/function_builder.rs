@@ -596,11 +596,13 @@ pub(super) fn describe_value(value: &NirValue) -> String {
             format!(
                 "({} {} {})",
                 describe_value(left),
-                op,
+                op.name(),
                 describe_value(right)
             )
         }
-        NirValue::Unary { op, operand, .. } => format!("({op} {})", describe_value(operand)),
+        NirValue::Unary { op, operand, .. } => {
+            format!("({} {})", op.name(), describe_value(operand))
+        }
     }
 }
 

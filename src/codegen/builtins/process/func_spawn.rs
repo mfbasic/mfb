@@ -48,7 +48,14 @@ is left; call `process::waitFor` first if the child should be allowed to finish,
 `process::detach` to let it outlive the program.
 
 The empty argument list is rejected with `ErrInvalidArgument` — there is no program
-to run."#;
+to run.
+
+
+**The four-argument form is Unix-only.** A program that passes a working
+directory, an environment map, and the replace flag does not build for Windows:
+the compiler rejects it with `native backend does not support runtime call
+'process.spawnEnv'`. The one-argument form builds and runs on every supported
+platform."#;
 const EX: &str = r#"Run a program and read its first line of output:
 
 ```

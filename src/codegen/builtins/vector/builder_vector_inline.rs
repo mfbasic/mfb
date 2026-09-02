@@ -28,6 +28,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -333,17 +334,23 @@ impl CodeBuilder<'_> {
         fields: &[&str],
         loc: NirSourceLoc,
     ) -> Result<ValueResult, String> {
-        let bin = |op: &str, left: NirValue, right: NirValue| NirValue::Binary {
-            op: op.to_string(),
+        let bin = |op: BinaryOp, left: NirValue, right: NirValue| NirValue::Binary {
+            op,
             left: Box::new(left),
             right: Box::new(right),
             loc,
         };
         // sum = f0*f0 + f1*f1 + … (left-associative, matching the FUNC).
-        let square = |f: &str| bin("*", Self::vector_field(v, f), Self::vector_field(v, f));
+        let square = |f: &str| {
+            bin(
+                BinaryOp::Multiply,
+                Self::vector_field(v, f),
+                Self::vector_field(v, f),
+            )
+        };
         let mut sum = square(fields[0]);
         for f in &fields[1..] {
-            sum = bin("+", sum, square(f));
+            sum = bin(BinaryOp::Add, sum, square(f));
         }
         // len = math::sqrt(sum), observed finite exactly as the FUNC's `LET len`.
         let len_node = NirValue::Call {
@@ -370,7 +377,7 @@ impl CodeBuilder<'_> {
         );
         // IF len = 0.0 THEN FAIL error(77050002, "…zero-length…").
         let is_zero = self.lower_value(&bin(
-            "=",
+            BinaryOp::Equal,
             NirValue::Local(len_name.clone()),
             NirValue::Const {
                 type_: ParameterType::Float,
@@ -389,7 +396,7 @@ impl CodeBuilder<'_> {
             .iter()
             .map(|f| {
                 bin(
-                    "/",
+                    BinaryOp::Divide,
                     Self::vector_field(v, f),
                     NirValue::Local(len_name.clone()),
                 )
@@ -433,8 +440,8 @@ impl CodeBuilder<'_> {
             return Ok(None);
         }
         // A binary `op x` node over two synthetic operands at the call's location.
-        let bin = |op: &str, left: NirValue, right: NirValue| NirValue::Binary {
-            op: op.to_string(),
+        let bin = |op: BinaryOp, left: NirValue, right: NirValue| NirValue::Binary {
+            op,
             left: Box::new(left),
             right: Box::new(right),
             loc,
@@ -453,18 +460,29 @@ impl CodeBuilder<'_> {
                 let (a, b) = (&args[0], &args[1]);
                 let lanes = fields
                     .iter()
-                    .map(|f| bin("*", Self::vector_field(a, f), Self::vector_field(b, f)))
+                    .map(|f| {
+                        bin(
+                            BinaryOp::Multiply,
+                            Self::vector_field(a, f),
+                            Self::vector_field(b, f),
+                        )
+                    })
                     .collect();
                 build(self, lanes)?
             }
             // dot: a.f0*b.f0 + a.f1*b.f1 + ... (left-associative, matching the FUNC).
             ("dot", 2) => {
                 let (a, b) = (&args[0], &args[1]);
-                let product =
-                    |f: &str| bin("*", Self::vector_field(a, f), Self::vector_field(b, f));
+                let product = |f: &str| {
+                    bin(
+                        BinaryOp::Multiply,
+                        Self::vector_field(a, f),
+                        Self::vector_field(b, f),
+                    )
+                };
                 let mut sum = product(fields[0]);
                 for f in &fields[1..] {
-                    sum = bin("+", sum, product(f));
+                    sum = bin(BinaryOp::Add, sum, product(f));
                 }
                 self.lower_value(&sum)?
             }
@@ -474,8 +492,16 @@ impl CodeBuilder<'_> {
                 let lanes = fields
                     .iter()
                     .map(|f| {
-                        let delta = bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
-                        bin("+", Self::vector_field(a, f), bin("*", delta, t.clone()))
+                        let delta = bin(
+                            BinaryOp::Subtract,
+                            Self::vector_field(b, f),
+                            Self::vector_field(a, f),
+                        );
+                        bin(
+                            BinaryOp::Add,
+                            Self::vector_field(a, f),
+                            bin(BinaryOp::Multiply, delta, t.clone()),
+                        )
                     })
                     .collect();
                 build(self, lanes)?
@@ -504,8 +530,16 @@ impl CodeBuilder<'_> {
                 let lanes = fields
                     .iter()
                     .map(|f| {
-                        let delta = bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
-                        bin("+", Self::vector_field(a, f), bin("*", delta, clamped_t()))
+                        let delta = bin(
+                            BinaryOp::Subtract,
+                            Self::vector_field(b, f),
+                            Self::vector_field(a, f),
+                        );
+                        bin(
+                            BinaryOp::Add,
+                            Self::vector_field(a, f),
+                            bin(BinaryOp::Multiply, delta, clamped_t()),
+                        )
                     })
                     .collect();
                 build(self, lanes)?
@@ -518,19 +552,19 @@ impl CodeBuilder<'_> {
                 let m = |v: &NirValue, f: &str| Self::vector_field(v, f);
                 let lanes = vec![
                     bin(
-                        "-",
-                        bin("*", m(a, "y"), m(b, "z")),
-                        bin("*", m(a, "z"), m(b, "y")),
+                        BinaryOp::Subtract,
+                        bin(BinaryOp::Multiply, m(a, "y"), m(b, "z")),
+                        bin(BinaryOp::Multiply, m(a, "z"), m(b, "y")),
                     ),
                     bin(
-                        "-",
-                        bin("*", m(a, "z"), m(b, "x")),
-                        bin("*", m(a, "x"), m(b, "z")),
+                        BinaryOp::Subtract,
+                        bin(BinaryOp::Multiply, m(a, "z"), m(b, "x")),
+                        bin(BinaryOp::Multiply, m(a, "x"), m(b, "z")),
                     ),
                     bin(
-                        "-",
-                        bin("*", m(a, "x"), m(b, "y")),
-                        bin("*", m(a, "y"), m(b, "x")),
+                        BinaryOp::Subtract,
+                        bin(BinaryOp::Multiply, m(a, "x"), m(b, "y")),
+                        bin(BinaryOp::Multiply, m(a, "y"), m(b, "x")),
                     ),
                 ];
                 build(self, lanes)?
@@ -541,10 +575,16 @@ impl CodeBuilder<'_> {
             // invariant).
             ("length", 1) => {
                 let v = &args[0];
-                let square = |f: &str| bin("*", Self::vector_field(v, f), Self::vector_field(v, f));
+                let square = |f: &str| {
+                    bin(
+                        BinaryOp::Multiply,
+                        Self::vector_field(v, f),
+                        Self::vector_field(v, f),
+                    )
+                };
                 let mut sum = square(fields[0]);
                 for f in &fields[1..] {
-                    sum = bin("+", sum, square(f));
+                    sum = bin(BinaryOp::Add, sum, square(f));
                 }
                 self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }
@@ -556,12 +596,16 @@ impl CodeBuilder<'_> {
             ("distance", 2) => {
                 let (a, b) = (&args[0], &args[1]);
                 let sq_diff = |f: &str| {
-                    let diff = bin("-", Self::vector_field(a, f), Self::vector_field(b, f));
-                    bin("*", diff.clone(), diff)
+                    let diff = bin(
+                        BinaryOp::Subtract,
+                        Self::vector_field(a, f),
+                        Self::vector_field(b, f),
+                    );
+                    bin(BinaryOp::Multiply, diff.clone(), diff)
                 };
                 let mut sum = sq_diff(fields[0]);
                 for f in &fields[1..] {
-                    sum = bin("+", sum, sq_diff(f));
+                    sum = bin(BinaryOp::Add, sum, sq_diff(f));
                 }
                 self.lower_value(&Self::vector_sqrt_of(element, sum, loc))?
             }

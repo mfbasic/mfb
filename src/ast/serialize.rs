@@ -1300,7 +1300,7 @@ impl ToJson for Expression {
             } => {
                 format!(
                     "{{ \"kind\": \"binary\", \"operator\": {}, \"left\": {}, \"right\": {} }}",
-                    json_string(operator),
+                    json_string(operator.name()),
                     left.to_json(0),
                     right.to_json(0)
                 )
@@ -1310,7 +1310,7 @@ impl ToJson for Expression {
             } => {
                 format!(
                     "{{ \"kind\": \"unary\", \"operator\": {}, \"operand\": {} }}",
-                    json_string(operator),
+                    json_string(operator.name()),
                     operand.to_json(0)
                 )
             }

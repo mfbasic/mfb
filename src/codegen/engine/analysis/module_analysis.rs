@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -474,9 +475,17 @@ fn value_may_emit_float_arithmetic_error(
         } => {
             let result_type = static_nir_value_type(left, locals, fields)
                 .zip(static_nir_value_type(right, locals, fields))
-                .map(|(left_type, right_type)| promoted_binary_type(op, &left_type, &right_type));
-            (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
-                && result_type == Some(ParameterType::Float))
+                .map(|(left_type, right_type)| promoted_binary_type(*op, &left_type, &right_type));
+            (matches!(
+                op,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Mod
+                    | BinaryOp::Power
+            ) && result_type == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
                 || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
@@ -513,7 +522,7 @@ fn value_may_emit_float_arithmetic_error(
             value_may_emit_float_arithmetic_error(target, locals, fields)
         }
         NirValue::Unary { op, operand, .. } => {
-            (op == "-"
+            (*op == UnaryOp::Negate
                 && static_nir_value_type(operand, locals, fields) == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(operand, locals, fields)
         }
@@ -1126,7 +1135,7 @@ pub(crate) fn value_may_return_invalid_format(
         NirValue::Binary {
             op, left, right, ..
         } => {
-            binary_may_consume_float_into_exact(op, left, right, types, fields)
+            binary_may_consume_float_into_exact(*op, left, right, types, fields)
                 || value_may_return_invalid_format(left, constants, types, fields)
                 || value_may_return_invalid_format(right, constants, types, fields)
         }

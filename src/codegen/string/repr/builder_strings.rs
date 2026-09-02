@@ -6,6 +6,7 @@ use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::string::format::*;
+use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -2009,18 +2010,31 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_string_comparison_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
     ) -> Result<ValueResult, String> {
         match op {
-            "=" | "<>" => {}
-            "<" | ">" | "<=" | ">=" => {
+            BinaryOp::Equal | BinaryOp::NotEqual => {}
+            BinaryOp::Less | BinaryOp::Greater | BinaryOp::LessEqual | BinaryOp::GreaterEqual => {
                 return self.lower_string_ordering_binary(op, left, right);
             }
-            other => {
+            // `&` is lowered by the concat path and every other operator is
+            // rejected on String operands by `ir::verify` before lowering.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Concat
+            | BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => {
                 return Err(format!(
-                    "native code does not lower string comparison operator '{other}'"
+                    "native code does not lower string comparison operator '{}'",
+                    op.name()
                 ));
             }
         }
@@ -2059,7 +2073,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &result,
             "Boolean",
-            if op == "=" { "true" } else { "false" },
+            if op == BinaryOp::Equal {
+                "true"
+            } else {
+                "false"
+            },
         ));
         self.emit(abi::branch(&done_label));
 
@@ -2067,7 +2085,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &result,
             "Boolean",
-            if op == "=" { "false" } else { "true" },
+            if op == BinaryOp::Equal {
+                "false"
+            } else {
+                "true"
+            },
         ));
         self.emit(abi::label(&done_label));
 
@@ -2075,7 +2097,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
-            text: format!("({} {op} {})", left.text, right.text),
+            text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
 
@@ -2086,22 +2108,22 @@ impl CodeBuilder<'_> {
     /// are compared unsigned. The result is target independent.
     pub(crate) fn lower_string_ordering_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
     ) -> Result<ValueResult, String> {
         // Boolean outcome for each of the three orderings, per operator.
-        let less_value = if matches!(op, "<" | "<=") {
+        let less_value = if matches!(op, BinaryOp::Less | BinaryOp::LessEqual) {
             "true"
         } else {
             "false"
         };
-        let greater_value = if matches!(op, ">" | ">=") {
+        let greater_value = if matches!(op, BinaryOp::Greater | BinaryOp::GreaterEqual) {
             "true"
         } else {
             "false"
         };
-        let equal_value = if matches!(op, "<=" | ">=") {
+        let equal_value = if matches!(op, BinaryOp::LessEqual | BinaryOp::GreaterEqual) {
             "true"
         } else {
             "false"
@@ -2171,7 +2193,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
-            text: format!("({} {op} {})", left.text, right.text),
+            text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
 }

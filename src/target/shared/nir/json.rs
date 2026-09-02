@@ -1005,13 +1005,13 @@ impl ToNirJson for NirValue {
                 op, left, right, ..
             } => format!(
                 "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
-                json_string(op),
+                json_string(op.name()),
                 left.to_json(0),
                 right.to_json(0)
             ),
             NirValue::Unary { op, operand, .. } => format!(
                 "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
-                json_string(op),
+                json_string(op.name()),
                 operand.to_json(0)
             ),
         }

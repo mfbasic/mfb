@@ -14,6 +14,7 @@
 //! reconstructable from this payload alone.
 
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 /// Magic bytes prefixing a Binary Representation payload.
@@ -1468,7 +1469,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             loc,
         } => {
             put_u8(out, 18);
-            put_str(out, op);
+            put_str(out, op.name());
             encode_value(out, left);
             encode_value(out, right);
             put_str(out, &type_.name());
@@ -1481,7 +1482,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             loc,
         } => {
             put_u8(out, 19);
-            put_str(out, op);
+            put_str(out, op.name());
             encode_value(out, operand);
             put_str(out, &type_.name());
             put_loc(out, *loc);
@@ -1601,14 +1602,28 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             type_: crate::types::ParameterType::parse(&r.string()?),
         },
         18 => IrValue::Binary {
-            op: r.string()?,
+            // The operator is a length-prefixed string on the wire, so this is
+            // the one place a spelling still has to be turned back into the
+            // enum. Anything outside the set is rejected here rather than
+            // silently mis-lowered later (bug-403's guarantee, made structural).
+            op: {
+                let text = r.string()?;
+                BinaryOp::parse(&text).ok_or_else(|| {
+                    format!("Binary Representation: unknown binary operator `{text}`")
+                })?
+            },
             left: Box::new(decode_value(r)?),
             right: Box::new(decode_value(r)?),
             type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
         19 => IrValue::Unary {
-            op: r.string()?,
+            op: {
+                let text = r.string()?;
+                UnaryOp::parse(&text).ok_or_else(|| {
+                    format!("Binary Representation: unknown unary operator `{text}`")
+                })?
+            },
             operand: Box::new(decode_value(r)?),
             type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
@@ -1732,6 +1747,97 @@ fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod value_op_tests {
+    use super::*;
+
+    /// Hand-assemble an `IrValue` node's bytes with an arbitrary operator
+    /// spelling. `encode_value` can no longer produce one — `BinaryOp`/`UnaryOp`
+    /// have no variant for it — which is exactly why the decoder still has to be
+    /// tested against bytes a hostile or corrupt `.mfp` could carry.
+    fn value_bytes_with_op(tag: u8, op: &str, unary: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        put_u8(&mut out, tag);
+        put_str(&mut out, op);
+        // One operand for a unary node, two for a binary one: `Const "1"` typed
+        // `Integer` (tag 0), matching `encode_value`'s layout.
+        let operands = if unary { 1 } else { 2 };
+        for _ in 0..operands {
+            put_u8(&mut out, 0);
+            put_str(&mut out, "Integer");
+            put_str(&mut out, "1");
+        }
+        put_str(&mut out, "Integer");
+        put_u32(&mut out, 1);
+        put_u32(&mut out, 1);
+        out
+    }
+
+    /// plan-112, inheriting bug-403's guarantee for `IrValue`: an operator that
+    /// arrives off the wire outside the vocabulary must be rejected at decode,
+    /// never accepted and silently lowered as some other operator. In-memory the
+    /// state is now unrepresentable; on the wire it is still a sequence of bytes,
+    /// so this is the boundary where it has to be refused.
+    #[test]
+    fn decode_rejects_garbage_binary_and_unary_ops() {
+        for (tag, unary, label) in [(18u8, false, "binary"), (19u8, true, "unary")] {
+            for op in ["GARBAGE", "", "~", "and", "=="] {
+                let bytes = value_bytes_with_op(tag, op, unary);
+                let err = match decode_value(&mut IrReader::new(&bytes)) {
+                    Ok(_) => {
+                        panic!("{label} operator {op:?} must be rejected at decode, but it was accepted")
+                    }
+                    Err(err) => err,
+                };
+                assert!(
+                    err.contains("operator"),
+                    "unexpected error message for {label} {op:?}: {err}"
+                );
+            }
+        }
+    }
+
+    /// The counterpart: every spelling the encoder can emit still decodes, so
+    /// the rejection above is not simply refusing everything.
+    #[test]
+    fn decode_accepts_every_valid_operator() {
+        for op in [
+            BinaryOp::Or,
+            BinaryOp::Xor,
+            BinaryOp::And,
+            BinaryOp::Equal,
+            BinaryOp::NotEqual,
+            BinaryOp::Less,
+            BinaryOp::LessEqual,
+            BinaryOp::Greater,
+            BinaryOp::GreaterEqual,
+            BinaryOp::Concat,
+            BinaryOp::Add,
+            BinaryOp::Subtract,
+            BinaryOp::Multiply,
+            BinaryOp::Divide,
+            BinaryOp::Mod,
+            BinaryOp::IntDiv,
+            BinaryOp::Power,
+        ] {
+            let bytes = value_bytes_with_op(18, op.name(), false);
+            match decode_value(&mut IrReader::new(&bytes)) {
+                Ok(IrValue::Binary { op: got, .. }) => assert_eq!(got, op),
+                Ok(_) => panic!("binary operator {op:?} decoded as some other node"),
+                Err(err) => panic!("binary operator {op:?} did not decode: {err}"),
+            }
+        }
+        for op in [UnaryOp::Not, UnaryOp::Negate, UnaryOp::SizeOf] {
+            let bytes = value_bytes_with_op(19, op.name(), true);
+            match decode_value(&mut IrReader::new(&bytes)) {
+                Ok(IrValue::Unary { op: got, .. }) => assert_eq!(got, op),
+                Ok(_) => panic!("unary operator {op:?} decoded as some other node"),
+                Err(err) => panic!("unary operator {op:?} did not decode: {err}"),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

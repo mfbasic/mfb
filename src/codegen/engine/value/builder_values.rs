@@ -7,6 +7,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
@@ -51,7 +52,7 @@ fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
         op, left, right, ..
     } = value
     {
-        if op == "&" {
+        if *op == BinaryOp::Concat {
             flatten_concat_spine(left, out);
             out.push(right);
             return;
@@ -1582,7 +1583,7 @@ impl CodeBuilder<'_> {
             NirValue::Binary {
                 op, left, right, ..
             } => {
-                if op == "&" {
+                if *op == BinaryOp::Concat {
                     // String concat / rope fusion (Level 3): `&` is
                     // left-associative, so `a & b & c` arrives as
                     // `(a & b) & c` and the pairwise lowering would allocate
@@ -1602,17 +1603,17 @@ impl CodeBuilder<'_> {
                     }
                     return self.lower_string_concat(left, right);
                 }
-                if matches!(op.as_str(), "AND" | "OR" | "XOR") {
-                    return self.lower_boolean_binary(op, left, right);
+                if matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor) {
+                    return self.lower_boolean_binary(*op, left, right);
                 }
-                if matches!(op.as_str(), "=" | "<>" | "<" | ">" | "<=" | ">=") {
-                    return self.lower_comparison_binary(op, left, right);
+                if op.is_comparison() {
+                    return self.lower_comparison_binary(*op, left, right);
                 }
-                self.lower_arithmetic_binary(op, left, right)
+                self.lower_arithmetic_binary(*op, left, right)
             }
             NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
-                if op == "NOT" && operand.type_ == ParameterType::Boolean {
+                if *op == UnaryOp::Not && operand.type_ == ParameterType::Boolean {
                     let register = self.allocate_register();
                     let true_label = self.label("bool_not_true");
                     let done_label = self.label("bool_not_done");
@@ -1630,7 +1631,7 @@ impl CodeBuilder<'_> {
                         text: format!("(NOT {})", operand.text),
                     });
                 }
-                if op == "-"
+                if *op == UnaryOp::Negate
                     && matches!(
                         operand.type_.name().as_ref(),
                         "Byte" | "Integer" | "Fixed" | "Float" | "Money"
@@ -1638,8 +1639,13 @@ impl CodeBuilder<'_> {
                 {
                     return self.lower_numeric_unary_negation(operand);
                 }
+                // `NOT` on a non-Boolean and `-` on a non-numeric are both
+                // rejected by `ir::verify` before lowering, and `SIZEOF` folds
+                // during LINK lowering; a node reaching here is malformed IR,
+                // not an unlowered operator.
                 Err(format!(
-                    "native code plan does not lower unary operator '{op}' for {} yet while lowering native function '{}'",
+                    "native code plan does not lower unary operator '{}' for {} yet while lowering native function '{}'",
+                    op.name(),
                     operand.type_,
                     self.current_symbol
                 ))
@@ -2502,7 +2508,7 @@ mod concat_spine_tests {
 
     fn concat(left: NirValue, right: NirValue) -> NirValue {
         NirValue::Binary {
-            op: "&".to_string(),
+            op: BinaryOp::Concat,
             left: Box::new(left),
             right: Box::new(right),
             loc: NirSourceLoc::default(),
@@ -2549,7 +2555,7 @@ mod concat_spine_tests {
         let inner = concat(text("b"), text("c"));
         assert_eq!(spine(&inner), vec!["b", "c"]);
         let other = NirValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(text("a")),
             right: Box::new(text("b")),
             loc: NirSourceLoc::default(),

@@ -252,6 +252,25 @@ pub(crate) fn lower_process_drop_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // Hand back the two spill blocks `waitFor` may have grown (bug-475) — each can
+    // reach SPILL_MAX_CAPACITY, and the handle is closed on this path, so nothing
+    // can read them afterwards.
+    for off in [PROC_STDOUT_BUF, PROC_STDERR_BUF] {
+        let skip = format!("{symbol}_skip_spill_{off}");
+        instructions.extend([
+            abi::load_u64(abi::mfb_arg(0), sp, FILE),
+            abi::load_u64(abi::mfb_arg(1), abi::mfb_arg(0), off),
+            abi::compare_immediate(abi::mfb_arg(1), "0"),
+            abi::branch_eq(&skip),
+            abi::store_u64(abi::ZERO, abi::mfb_arg(0), off),
+            abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(1), SPILL_CAPACITY),
+            abi::add_immediate(abi::mfb_arg(2), abi::mfb_arg(2), SPILL_DATA),
+            abi::move_register(abi::return_register(), abi::mfb_arg(1)),
+            abi::move_register(abi::mfb_arg(1), abi::mfb_arg(2)),
+        ]);
+        emit_arena_free(symbol, &mut instructions, &mut relocations);
+        instructions.push(abi::label(&skip));
+    }
     instructions.extend([
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),

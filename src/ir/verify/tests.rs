@@ -3,6 +3,7 @@ use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
     IrSourceLoc, IrType, IrValue, IrVariant,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -69,9 +70,9 @@ fn const_of(ty: &str, v: &str) -> IrValue {
     }
 }
 
-fn binary(op: &str, left: IrValue, right: IrValue, ty: &str) -> IrValue {
+fn binary(op: BinaryOp, left: IrValue, right: IrValue, ty: &str) -> IrValue {
     IrValue::Binary {
-        op: op.to_string(),
+        op,
         left: Box::new(left),
         right: Box::new(right),
         type_: crate::types::ParameterType::parse(ty),
@@ -79,9 +80,9 @@ fn binary(op: &str, left: IrValue, right: IrValue, ty: &str) -> IrValue {
     }
 }
 
-fn unary(op: &str, operand: IrValue, ty: &str) -> IrValue {
+fn unary(op: UnaryOp, operand: IrValue, ty: &str) -> IrValue {
     IrValue::Unary {
-        op: op.to_string(),
+        op,
         operand: Box::new(operand),
         type_: crate::types::ParameterType::parse(ty),
         loc: IrSourceLoc::default(),
@@ -848,7 +849,7 @@ fn accepts_ordinary_function() {
         },
         IrOp::Return {
             value: Some(IrValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: Box::new(IrValue::Local("n".to_string())),
                 right: Box::new(int_const("2")),
                 loc: IrSourceLoc::default(),
@@ -950,7 +951,7 @@ fn accepts_matching_default_value() {
 #[test]
 fn rejects_arithmetic_on_string() {
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -964,7 +965,7 @@ fn rejects_arithmetic_on_string() {
 #[test]
 fn rejects_and_on_numeric() {
     let body = vec![ret(binary(
-        "AND",
+        BinaryOp::And,
         int_const("1"),
         int_const("2"),
         "Boolean",
@@ -977,7 +978,12 @@ fn rejects_and_on_numeric() {
 
 #[test]
 fn rejects_concat_on_numeric() {
-    let body = vec![ret(binary("&", int_const("1"), int_const("2"), "String"))];
+    let body = vec![ret(binary(
+        BinaryOp::Concat,
+        int_const("1"),
+        int_const("2"),
+        "String",
+    ))];
     expect_rule(
         &project(vec![func_returns("run", "String", vec![], body)], vec![]),
         "TYPE_BINARY_OPERATOR_MISMATCH",
@@ -987,7 +993,7 @@ fn rejects_concat_on_numeric() {
 #[test]
 fn rejects_relational_on_boolean() {
     let body = vec![ret(binary(
-        "<",
+        BinaryOp::Less,
         const_of("Boolean", "true"),
         const_of("Boolean", "false"),
         "Boolean",
@@ -1001,7 +1007,7 @@ fn rejects_relational_on_boolean() {
 #[test]
 fn accepts_string_relational() {
     let body = vec![ret(binary(
-        "<",
+        BinaryOp::Less,
         const_of("String", "a"),
         const_of("String", "b"),
         "Boolean",
@@ -1015,7 +1021,7 @@ fn accepts_string_relational() {
 #[test]
 fn accepts_string_concat() {
     let body = vec![ret(binary(
-        "&",
+        BinaryOp::Concat,
         const_of("String", "a"),
         const_of("String", "b"),
         "String",
@@ -1029,7 +1035,7 @@ fn accepts_string_concat() {
 #[test]
 fn accepts_boolean_and() {
     let body = vec![ret(binary(
-        "AND",
+        BinaryOp::And,
         const_of("Boolean", "true"),
         const_of("Boolean", "false"),
         "Boolean",
@@ -1043,7 +1049,7 @@ fn accepts_boolean_and() {
 #[test]
 fn rejects_equality_incompatible_types() {
     let body = vec![ret(binary(
-        "=",
+        BinaryOp::Equal,
         const_of("String", "a"),
         int_const("1"),
         "Boolean",
@@ -1058,7 +1064,7 @@ fn rejects_equality_incompatible_types() {
 fn rejects_equality_not_comparable() {
     // Two lists are compatible but not comparable.
     let body = vec![ret(binary(
-        "=",
+        BinaryOp::Equal,
         IrValue::ListLiteral {
             type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![],
@@ -1077,7 +1083,12 @@ fn rejects_equality_not_comparable() {
 
 #[test]
 fn accepts_numeric_equality() {
-    let body = vec![ret(binary("=", int_const("1"), int_const("2"), "Boolean"))];
+    let body = vec![ret(binary(
+        BinaryOp::Equal,
+        int_const("1"),
+        int_const("2"),
+        "Boolean",
+    ))];
     accept(&project(
         vec![func_returns("run", "Boolean", vec![], body)],
         vec![],
@@ -1088,7 +1099,7 @@ fn accepts_numeric_equality() {
 
 #[test]
 fn rejects_not_on_numeric() {
-    let body = vec![ret(unary("NOT", int_const("1"), "Boolean"))];
+    let body = vec![ret(unary(UnaryOp::Not, int_const("1"), "Boolean"))];
     expect_rule(
         &project(vec![func_returns("run", "Boolean", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_MISMATCH",
@@ -1097,16 +1108,28 @@ fn rejects_not_on_numeric() {
 
 #[test]
 fn rejects_negate_on_string() {
-    let body = vec![ret(unary("-", const_of("String", "a"), "Integer"))];
+    let body = vec![ret(unary(
+        UnaryOp::Negate,
+        const_of("String", "a"),
+        "Integer",
+    ))];
     expect_rule(
         &project(vec![func("run", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_MISMATCH",
     );
 }
 
+// plan-112: this used to feed the operator `~` — a spelling outside the
+// vocabulary — which `UnaryOp` no longer lets anyone construct. The rule it
+// pins is still live and still reachable: `SIZEOF` is a LINK-only operator that
+// folds to an integer during LINK lowering, so an IR node still carrying one is
+// malformed exactly as `~` was, and is the operator this arm now reports. The
+// out-of-vocabulary case it also covered moved to the decode boundary, where a
+// `.mfp` carrying a garbage operator string is now rejected — see
+// `binary::value_op_tests::decode_rejects_garbage_binary_and_unary_ops`.
 #[test]
 fn rejects_unknown_unary_operator() {
-    let body = vec![ret(unary("~", int_const("1"), "Integer"))];
+    let body = vec![ret(unary(UnaryOp::SizeOf, int_const("1"), "Integer"))];
     expect_rule(
         &project(vec![func("run", vec![], body)], vec![]),
         "TYPE_UNARY_OPERATOR_UNKNOWN",
@@ -1119,11 +1142,11 @@ fn accepts_not_on_boolean_and_negate_numeric() {
         bind(
             "b",
             "Boolean",
-            Some(unary("NOT", const_of("Boolean", "true"), "Boolean")),
+            Some(unary(UnaryOp::Not, const_of("Boolean", "true"), "Boolean")),
             false,
             false,
         ),
-        ret(unary("-", int_const("1"), "Integer")),
+        ret(unary(UnaryOp::Negate, int_const("1"), "Integer")),
     ];
     accept(&project(vec![func("run", vec![], body)], vec![]));
 }
@@ -1150,7 +1173,7 @@ fn rejects_byte_underflow() {
         vec![bind(
             "b",
             "Byte",
-            Some(unary("-", int_const("1"), "Integer")),
+            Some(unary(UnaryOp::Negate, int_const("1"), "Integer")),
             true,
             false,
         )],
@@ -1184,7 +1207,11 @@ fn rejects_negated_integer_overflow() {
         vec![bind(
             "n",
             "Integer",
-            Some(unary("-", int_const("99999999999999999999"), "Integer")),
+            Some(unary(
+                UnaryOp::Negate,
+                int_const("99999999999999999999"),
+                "Integer",
+            )),
             true,
             false,
         )],
@@ -1218,7 +1245,7 @@ fn rejects_float_underflow() {
         vec![bind(
             "f",
             "Float",
-            Some(unary("-", const_of("Float", "1e400"), "Float")),
+            Some(unary(UnaryOp::Negate, const_of("Float", "1e400"), "Float")),
             true,
             false,
         )],
@@ -1252,7 +1279,11 @@ fn rejects_fixed_underflow() {
         vec![bind(
             "x",
             "Fixed",
-            Some(unary("-", const_of("Fixed", "3000000000"), "Fixed")),
+            Some(unary(
+                UnaryOp::Negate,
+                const_of("Fixed", "3000000000"),
+                "Fixed",
+            )),
             true,
             false,
         )],
@@ -1317,7 +1348,7 @@ fn rejects_negated_scalar() {
         vec![bind(
             "c",
             "Scalar",
-            Some(unary("-", const_of("Scalar", "65"), "Scalar")),
+            Some(unary(UnaryOp::Negate, const_of("Scalar", "65"), "Scalar")),
             true,
             false,
         )],
@@ -1607,7 +1638,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
     // OPERAND, which is value position.
     let body = vec![IrOp::Eval {
         value: IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(int_const("1")),
             right: Box::new(sub_call()),
             type_: crate::types::ParameterType::parse("Integer"),
@@ -1626,7 +1657,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
     // A unary operand is the same shape one level shallower.
     let body = vec![IrOp::Eval {
         value: IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(sub_call()),
             type_: crate::types::ParameterType::parse("Boolean"),
             loc: IrSourceLoc::default(),
@@ -1705,7 +1736,7 @@ fn rejects_exit_program_i128_min_without_panic() {
     // out of the 0..255 host range, so it must be reported as such.
     let body = vec![IrOp::ExitProgram {
         code: unary(
-            "-",
+            UnaryOp::Negate,
             const_of("Integer", "-170141183460469231731687303715884105728"),
             "Integer",
         ),
@@ -2543,7 +2574,7 @@ fn eval(value: IrValue) -> IrOp {
 fn deeply_nested_value_hits_depth_cap() {
     let mut v = int_const("1");
     for _ in 0..300 {
-        v = unary("-", v, "Integer");
+        v = unary(UnaryOp::Negate, v, "Integer");
     }
     let f = func_returns("run", "Nothing", vec![], vec![eval(v)]);
     expect_rule(
@@ -2677,7 +2708,7 @@ fn rejects_negated_money_precision() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("1.123456"), "Money")),
+        Some(unary(UnaryOp::Negate, money_const("1.123456"), "Money")),
         true,
         false,
     )];
@@ -2691,7 +2722,11 @@ fn rejects_negated_money_underflow() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("100000000000000"), "Money")),
+        Some(unary(
+            UnaryOp::Negate,
+            money_const("100000000000000"),
+            "Money",
+        )),
         true,
         false,
     )];
@@ -2705,7 +2740,7 @@ fn accepts_negated_money_literal_in_range() {
     let body = vec![bind(
         "m",
         "Money",
-        Some(unary("-", money_const("1.25"), "Money")),
+        Some(unary(UnaryOp::Negate, money_const("1.25"), "Money")),
         true,
         false,
     )];
@@ -2792,7 +2827,7 @@ fn rejects_read_state_on_stateless_resource() {
 #[test]
 fn rejects_money_compared_with_non_money() {
     let body = vec![eval(binary(
-        "<",
+        BinaryOp::Less,
         money_const("1.00"),
         int_const("2"),
         "Boolean",
@@ -2805,7 +2840,7 @@ fn rejects_money_compared_with_non_money() {
 #[test]
 fn accepts_money_equality() {
     let body = vec![eval(binary(
-        "=",
+        BinaryOp::Equal,
         money_const("1.00"),
         money_const("2.00"),
         "Boolean",
@@ -2822,7 +2857,7 @@ fn accepts_money_equality() {
 #[test]
 fn rejects_money_plus_non_money() {
     let body = vec![eval(binary(
-        "+",
+        BinaryOp::Add,
         money_const("1.00"),
         int_const("2"),
         "Money",
@@ -2835,12 +2870,17 @@ fn rejects_money_plus_non_money() {
 #[test]
 fn accepts_money_add_and_scale() {
     let add = eval(binary(
-        "+",
+        BinaryOp::Add,
         money_const("1.00"),
         money_const("2.00"),
         "Money",
     ));
-    let scale = eval(binary("*", money_const("1.00"), int_const("3"), "Money"));
+    let scale = eval(binary(
+        BinaryOp::Multiply,
+        money_const("1.00"),
+        int_const("3"),
+        "Money",
+    ));
     let f = func_returns("run", "Nothing", vec![], vec![add, scale]);
     let got = rules(&project(vec![f], vec![]));
     assert!(
@@ -2853,7 +2893,7 @@ fn accepts_money_add_and_scale() {
 #[test]
 fn rejects_money_times_money() {
     let body = vec![eval(binary(
-        "*",
+        BinaryOp::Multiply,
         money_const("1.00"),
         money_const("2.00"),
         "Money",
@@ -2866,7 +2906,7 @@ fn rejects_money_times_money() {
 #[test]
 fn rejects_non_money_divided_by_money() {
     let body = vec![eval(binary(
-        "/",
+        BinaryOp::Divide,
         int_const("6"),
         money_const("2.00"),
         "Money",
@@ -2879,7 +2919,7 @@ fn rejects_non_money_divided_by_money() {
 #[test]
 fn rejects_money_exponentiation() {
     let body = vec![eval(binary(
-        "^",
+        BinaryOp::Power,
         money_const("1.00"),
         int_const("2"),
         "Money",
@@ -3082,7 +3122,7 @@ fn equality_with_unknown_operand_is_permissive() {
         loc: IrSourceLoc::default(),
     };
     let body = vec![eval(binary(
-        "=",
+        BinaryOp::Equal,
         const_of("String", "x"),
         mystery,
         "Boolean",
@@ -3817,7 +3857,11 @@ fn unary_operand_of_uninferable_value_is_skipped() {
     // `check_unary_operand` early-returns when the operand type cannot be
     // inferred (calls.rs:18) — an unknown local read as unary `-`.
     let body = vec![IrOp::Eval {
-        value: unary("-", IrValue::Local("missing".to_string()), "Integer"),
+        value: unary(
+            UnaryOp::Negate,
+            IrValue::Local("missing".to_string()),
+            "Integer",
+        ),
         loc: IrSourceLoc::default(),
     }];
     let f = func_returns("run", "Nothing", vec![], body);
@@ -5069,7 +5113,7 @@ fn rejects_global_byte_overflow() {
 fn collect_source_diagnostics_maps_rules_to_pending() {
     use std::path::Path;
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -5688,7 +5732,7 @@ fn captures_walked_through_nested_value_shapes() {
         "Integer",
         vec![],
         vec![ret(IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(IrValue::Capture {
                 index: 0,
                 type_: crate::types::ParameterType::parse("Integer"),
@@ -5761,7 +5805,7 @@ fn accepts_negated_literal_into_fixed_binding() {
         vec![bind(
             "x",
             "Fixed",
-            Some(unary("-", int_const("1"), "Integer")),
+            Some(unary(UnaryOp::Negate, int_const("1"), "Integer")),
             true,
             false,
         )],
@@ -5816,7 +5860,7 @@ fn poisoned_initializer_yields_unknown_value() {
         "x",
         "Integer",
         Some(binary(
-            "-",
+            BinaryOp::Subtract,
             const_of("String", "a"),
             int_const("1"),
             "Integer",
@@ -5832,7 +5876,7 @@ fn poisoned_initializer_yields_unknown_value() {
 #[test]
 fn poisoned_return_yields_unknown_value() {
     let body = vec![ret(binary(
-        "-",
+        BinaryOp::Subtract,
         const_of("String", "a"),
         int_const("1"),
         "Integer",
@@ -6180,7 +6224,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "bn",
             "Integer",
             Some(IrValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: Box::new(cap()),
                 right: Box::new(cap()),
                 type_: crate::types::ParameterType::parse("Integer"),
@@ -6194,7 +6238,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "un",
             "Integer",
             Some(IrValue::Unary {
-                op: "-".to_string(),
+                op: UnaryOp::Negate,
                 operand: Box::new(cap()),
                 type_: crate::types::ParameterType::parse("Integer"),
                 loc: IrSourceLoc::default(),
@@ -6801,7 +6845,7 @@ fn match_guard_reads_union_extract_bind() {
             IrMatchCase {
                 pattern: IrMatchPattern::Value(IrValue::Local("Circle".to_string())),
                 guard: Some(binary(
-                    ">",
+                    BinaryOp::Greater,
                     IrValue::Local("r".to_string()),
                     int_const("0"),
                     "Boolean",
@@ -7287,7 +7331,7 @@ fn string_call_annotated_integer_cannot_feed_arithmetic() {
         vec![ret(const_of("String", "a"))],
     );
     let confused = binary(
-        "-",
+        BinaryOp::Subtract,
         IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
@@ -7410,7 +7454,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(binary("<", int_const("1"), int_const("2"), "Integer"))],
+        vec![ret(binary(
+            BinaryOp::Less,
+            int_const("1"),
+            int_const("2"),
+            "Integer",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7422,7 +7471,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
         "run",
         vec![],
         vec![ret(binary(
-            "&",
+            BinaryOp::Concat,
             const_of("String", "a"),
             const_of("String", "b"),
             "Integer",
@@ -7437,7 +7486,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(binary("+", int_const("1"), int_const("2"), "String"))],
+        vec![ret(binary(
+            BinaryOp::Add,
+            int_const("1"),
+            int_const("2"),
+            "String",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7448,7 +7502,11 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(unary("NOT", const_of("Boolean", "true"), "Integer"))],
+        vec![ret(unary(
+            UnaryOp::Not,
+            const_of("Boolean", "true"),
+            "Integer",
+        ))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7457,7 +7515,7 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
     let caller = func(
         "run",
         vec![],
-        vec![ret(unary("-", int_const("1"), "String"))],
+        vec![ret(unary(UnaryOp::Negate, int_const("1"), "String"))],
     );
     expect_rule(
         &project(vec![caller], vec![]),
@@ -7469,7 +7527,12 @@ fn operator_result_annotations_are_reconciled_with_their_operands() {
         "run",
         "Boolean",
         vec![],
-        vec![ret(binary("<", int_const("1"), int_const("2"), "Boolean"))],
+        vec![ret(binary(
+            BinaryOp::Less,
+            int_const("1"),
+            int_const("2"),
+            "Boolean",
+        ))],
     );
     accept(&project(vec![caller], vec![]));
 }

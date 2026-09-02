@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
@@ -547,6 +548,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // ErrTimeout. `__drop` is emitted by scope-drop, so a program that only spawns
     // still needs the close-path strings. The whole surface is listed so an I/O-
     // or signal-only reference still pulls the shared close/timeout strings.
+    // bug-475 adds ErrResourceBusy: `waitFor` drains the child's pipes while it
+    // waits, and raises rather than buffering without bound past its cap.
     let process_calls = [
         "process.spawn",
         "process.spawnEnv",
@@ -577,6 +580,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrInvalidArgument"),
             err_msg("ErrOutOfMemory"),
             err_msg("ErrTimeout"),
+            err_msg("ErrResourceBusy"),
         ] {
             push_string_value(&mut values, value);
         }
@@ -1284,7 +1288,7 @@ pub(crate) fn static_string_value_with_constants(
         }
         NirValue::Binary {
             op, left, right, ..
-        } if op == "&" => {
+        } if *op == BinaryOp::Concat => {
             let left = static_string_value_with_constants(left, constants, types, fields)?;
             let right = static_string_value_with_constants(right, constants, types, fields)?;
             Some(format!("{left}{right}"))
@@ -1364,21 +1368,18 @@ pub(crate) fn static_type_name_with_types(
         NirValue::Binary {
             op, left, right, ..
         } => {
-            if matches!(
-                op.as_str(),
-                "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-            ) {
+            if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor) {
                 return Some(ParameterType::Boolean);
             }
-            if op == "&" {
+            if *op == BinaryOp::Concat {
                 return Some(ParameterType::String);
             }
             let left = static_type_name_with_types(left, types, fields)?;
             let right = static_type_name_with_types(right, types, fields)?;
-            Some(promoted_binary_type(op, &left, &right))
+            Some(promoted_binary_type(*op, &left, &right))
         }
         NirValue::Unary { op, operand, .. } => {
-            if op == "NOT" {
+            if *op == UnaryOp::Not {
                 Some(ParameterType::Boolean)
             } else {
                 static_type_name_with_types(operand, types, fields)

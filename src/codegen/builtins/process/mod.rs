@@ -151,7 +151,10 @@ The lifecycle queries read cached state: `process::pid` returns the child pid,
 `process::isRunning` polls without blocking, `process::waitFor` blocks for exit
 and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
 `isRunning` cache the exit status the first time they observe it, so `waitFor` is
-idempotent and `didSignal` can report the death cause after the fact."#;
+idempotent and `didSignal` can report the death cause after the fact. `waitFor`
+also keeps reading the child's output while it waits, so a child that writes more
+than the pipe can hold still finishes; that output is held for you and comes back
+from the next `process::receive`/`process::receiveBytes`."#;
 
 /// Register the `process` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
