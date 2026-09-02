@@ -22,18 +22,75 @@ use std::collections::HashMap;
 /// restated `"4"`.
 pub(crate) const EINTR_ERRNO: &str = "4";
 
+/// `EPIPE` — a `write` to a pipe with no reader, or to a socket whose peer has
+/// gone away, once SIGPIPE is not killing the process first (bug-467). `32` on
+/// both Linux and macOS/BSD, like [`EINTR_ERRNO`], so one literal serves every
+/// backend.
+pub(crate) const EPIPE_ERRNO: &str = "32";
+
+/// `SIGPIPE`. `13` on Linux, macOS/BSD and Android.
+pub(crate) const SIGPIPE_SIGNO: &str = "13";
+
+/// `SIG_DFL` / `SIG_IGN` as `signal(2)` handler arguments: the null pointer and
+/// the constant `1` cast to a handler pointer, on every POSIX system.
+pub(crate) const SIG_DFL: &str = "0";
+pub(crate) const SIG_IGN: &str = "1";
+
+/// Emit `signal(SIGPIPE, SIG_DFL); raise(SIGPIPE);` at `label` (bug-467).
+///
+/// The program entry installs a process-wide `signal(SIGPIPE, SIG_IGN)` so that a
+/// remote peer cannot kill an MFBASIC server by closing a socket. That disposition
+/// is process-wide, so it also reaches the `io::` stdout path — where the old
+/// behaviour is the *wanted* one: `prog | head` ends because the writer dies by
+/// SIGPIPE, and turning that into an `ErrWriteFailed` raise would put a diagnostic
+/// on stderr and a wrong exit status into every pipeline.
+///
+/// So the stdout write loops classify their own failure and come here on `EPIPE`
+/// only: restore the default disposition and re-raise, reproducing exactly the
+/// death the program would have had before the entry's `SIG_IGN`. Every other
+/// errno still raises `ErrWriteFailed`. `raise` does not return, so the caller
+/// simply places its ordinary error label after this block.
+pub(crate) fn emit_sigpipe_restore_and_raise(ctx: &mut EmitCtx, label: &str) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    ctx.instructions.extend([
+        abi::label(label),
+        abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
+        abi::move_immediate(abi::c_arg(1), "Integer", SIG_DFL),
+    ]);
+    platform.emit_external_call(
+        "signal",
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    ctx.instructions
+        .push(abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO));
+    platform.emit_external_call(
+        "raise",
+        symbol,
+        platform_imports,
+        ctx.instructions,
+        ctx.relocations,
+    )?;
+    Ok(())
+}
+
 /// Whether this program links the platform's `errno` accessor (`___error` on
 /// macOS, `__errno_location` on Linux). Both `fs::` (a `File` only comes from
 /// `fs::openFile`, which pulls the accessor in) and the `io::` read helpers
 /// (`readByte`/`readChar`/`readLine`/`input` — their `plan.rs` arms co-import the
 /// accessor, bug-62) link it, so their read/write/seek loops always read `errno`
-/// and retry `EINTR`. The only path that links no accessor is a program whose sole
-/// syscall use is an `io::` output drain (`io.print`/`io.write`/`io.flush`, never a
-/// read and never `fs`): there the libc-write negative return cannot be classified
-/// and is a hard error — acceptable, since a drain-only `EINTR` is degenerate and
-/// `linux-x86_64`'s raw-`svc` write still retries via its `-errno` return. Checking
-/// the merged import table keeps that boundary honest: the libc `EINTR` retry is
-/// emitted exactly when `errno` is actually readable at runtime.
+/// and retry `EINTR`. Since bug-467 the `io::` OUTPUT helpers link it too — they
+/// have to classify `EPIPE` now that SIGPIPE is ignored process-wide — which
+/// also closes the gap this comment used to describe, where an output-drain-only
+/// program (`io.print`/`io.write`/`io.flush`, never a read and never `fs`) could
+/// not classify a negative libc-write return and hard-errored instead of
+/// retrying `EINTR`. Checking the merged import table keeps the boundary honest
+/// either way: the libc `EINTR` retry is emitted exactly when `errno` is actually
+/// readable at runtime.
 pub(crate) fn errno_accessor_available(platform_imports: &HashMap<String, String>) -> bool {
     platform_imports.contains_key("___error") || platform_imports.contains_key("__errno_location")
 }
@@ -64,10 +121,9 @@ pub(crate) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 ///   the accessor.
 /// * otherwise (every libc `read`/`write`/`lseek`): re-read `errno` through the
 ///   platform accessor (`___error` / `__errno_location`, left in `x9`). `fs::` and
-///   the `io::` read helpers import the accessor, so they retry `EINTR`. Only an
-///   output-drain-only program (`io.print`/`io.write`/`io.flush` with no read and
-///   no `fs`) omits it; there the negative return cannot be classified, so it is a
-///   hard error.
+///   both the read AND write `io::` helpers import the accessor (the latter since
+///   bug-467), so they retry `EINTR`. A site that reaches this with no accessor
+///   linked cannot classify its negative return and hard-errors.
 ///
 /// `emit_errno` issues a `bl` to the accessor, which the register allocator treats
 /// like any other call (all caller-saved integer registers clobbered); the
@@ -85,6 +141,32 @@ pub(crate) fn emit_eintr_retry_or_error(
     retry_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    emit_eintr_retry_or_error_epipe(ctx, ret, raw_return, retry_label, None, error_label)
+}
+
+/// [`emit_eintr_retry_or_error`] with an extra `EPIPE` exit (bug-467).
+///
+/// `epipe_label` is `Some` only where the destination is the process's own
+/// stdout: with the entry's process-wide `signal(SIGPIPE, SIG_IGN)` installed, a
+/// closed stdout pipe now returns `EPIPE` instead of killing the process, and the
+/// `prog | head` convention is restored explicitly at that label (see
+/// [`emit_sigpipe_restore_and_raise`]). Everywhere else it is `None` and this
+/// emits byte-for-byte what it always did.
+///
+/// The `EPIPE` test is placed AFTER the `EINTR` one on both conventions so the
+/// pre-existing sequences are untouched. On the raw-`svc` convention that means
+/// `ret` has already been advanced by `EINTR`, so the remaining test is
+/// `ret + (EPIPE - EINTR) == 0` — the same `-errno == -EPIPE` question, asked
+/// without needing a second scratch register.
+#[allow(clippy::useless_conversion)]
+pub(crate) fn emit_eintr_retry_or_error_epipe(
+    ctx: &mut EmitCtx,
+    ret: impl Into<Operand>,
+    raw_return: bool,
+    retry_label: &str,
+    epipe_label: Option<&str>,
+    error_label: &str,
+) -> Result<(), String> {
     let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -96,6 +178,9 @@ pub(crate) fn emit_eintr_retry_or_error(
     let eintr = EINTR_ERRNO
         .parse::<usize>()
         .expect("EINTR_ERRNO is numeric");
+    let epipe = EPIPE_ERRNO
+        .parse::<usize>()
+        .expect("EPIPE_ERRNO is numeric");
     if raw_return {
         // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
         // `ret + EINTR == 0`.
@@ -103,8 +188,16 @@ pub(crate) fn emit_eintr_retry_or_error(
             abi::add_immediate(&ret, &ret, eintr),
             abi::compare_immediate(&ret, "0"),
             abi::branch_eq(retry_label),
-            abi::branch(error_label),
         ]);
+        if let Some(epipe_label) = epipe_label {
+            // `ret` is `-errno + EINTR` here, so `-EPIPE` is `ret + (EPIPE - EINTR)`.
+            ctx.instructions.extend([
+                abi::add_immediate(&ret, &ret, epipe - eintr),
+                abi::compare_immediate(&ret, "0"),
+                abi::branch_eq(epipe_label),
+            ]);
+        }
+        ctx.instructions.push(abi::branch(error_label));
     } else if errno_accessor_available(platform_imports) {
         // `emit_errno` loads the current `errno` into `ret` (reused).
         platform.emit_errno(
@@ -120,9 +213,24 @@ pub(crate) fn emit_eintr_retry_or_error(
         ctx.instructions.extend([
             abi::compare_immediate(&ret, EINTR_ERRNO),
             abi::branch_eq(retry_label),
-            abi::branch(error_label),
         ]);
+        if let Some(epipe_label) = epipe_label {
+            ctx.instructions.extend([
+                abi::compare_immediate(&ret, EPIPE_ERRNO),
+                abi::branch_eq(epipe_label),
+            ]);
+        }
+        ctx.instructions.push(abi::branch(error_label));
     } else {
+        // No `errno` accessor is linked, so nothing here can be classified. A
+        // stdout write site must never reach this arm once bug-467's process-wide
+        // `SIG_IGN` is installed — it would silently turn `prog | head` into an
+        // `ErrWriteFailed` raise — so the `io::` output plan arms import the
+        // accessor unconditionally, and this stays a hard error for everyone else.
+        debug_assert!(
+            epipe_label.is_none(),
+            "{symbol}: an EPIPE-classifying write site must link the errno accessor",
+        );
         ctx.instructions.push(abi::branch(error_label));
     }
     Ok(())
@@ -145,6 +253,32 @@ pub(crate) fn emit_transfer_loop_tail(
     loop_label: &str,
     error_label: &str,
 ) -> Result<(), String> {
+    emit_transfer_loop_tail_epipe(
+        ctx,
+        ret,
+        raw_return,
+        cursor,
+        remaining,
+        loop_label,
+        None,
+        error_label,
+    )
+}
+
+/// [`emit_transfer_loop_tail`] with the extra `EPIPE` exit described on
+/// [`emit_eintr_retry_or_error_epipe`] (bug-467). `epipe_label` is `Some` only for
+/// a write whose destination is the process's own stdout.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_transfer_loop_tail_epipe(
+    ctx: &mut EmitCtx,
+    ret: impl Into<Operand>,
+    raw_return: bool,
+    cursor: &str,
+    remaining: &str,
+    loop_label: &str,
+    epipe_label: Option<&str>,
+    error_label: &str,
+) -> Result<(), String> {
     let ret = ret.into();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -156,7 +290,7 @@ pub(crate) fn emit_transfer_loop_tail(
         abi::branch_gt(&advance),
         abi::branch_eq(error_label),
     ]);
-    emit_eintr_retry_or_error(
+    emit_eintr_retry_or_error_epipe(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -167,6 +301,7 @@ pub(crate) fn emit_transfer_loop_tail(
         &ret,
         raw_return,
         loop_label,
+        epipe_label,
         error_label,
     )?;
     ctx.instructions.extend([

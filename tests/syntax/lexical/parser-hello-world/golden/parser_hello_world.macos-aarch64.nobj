@@ -31,7 +31,7 @@
   "codeUnits": [
   { "symbol": "_main", "section": "__TEXT,__text", "offset": 0, "plannedSize": 16, "operations": ["call entry function", "return 0"], "calls": ["_mfb_fn_main"], "dataRefs": [] },
   { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 16, "plannedSize": 4, "operations": ["eval runtimeCall io io.print(String(Hello World))"], "calls": ["_mfb_rt_io_io_print"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 20, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": ["_mfb_cstr_0"] }
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 20, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_signal", "_raise", "___error", "_write"], "dataRefs": ["_mfb_cstr_0"] }
   ],
   "dataUnits": [
   { "symbol": "_mfb_cstr_0", "section": "__TEXT,__cstring", "offset": 0, "size": 12, "value": "Hello World" }
@@ -42,7 +42,9 @@
   { "library": "libSystem", "symbol": "_getentropy" },
   { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
-  { "library": "libSystem", "symbol": "_write" }
+  { "library": "libSystem", "symbol": "_write" },
+  { "library": "libSystem", "symbol": "_raise" },
+  { "library": "libSystem", "symbol": "___error" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -54,10 +56,12 @@
   { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 58 },
   { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 70 },
   { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 85 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 93 }
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 93 },
+  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 100 },
+  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 107 }
   ],
   "stringTable": {
-    "size": 100,
+    "size": 116,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -67,7 +71,9 @@
     { "value": "_getentropy", "offset": 58 },
     { "value": "_clock_gettime", "offset": 70 },
     { "value": "_signal", "offset": 85 },
-    { "value": "_write", "offset": 93 }
+    { "value": "_write", "offset": 93 },
+    { "value": "_raise", "offset": 100 },
+    { "value": "___error", "offset": 107 }
     ]
   },
   "relocations": [
@@ -78,6 +84,9 @@
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_raise", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "___error", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
   ]

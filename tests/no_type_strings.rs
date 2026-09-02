@@ -473,10 +473,16 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // operation (and the same shape) as codegen's `union_names`.
     ("src/ir/verify/mod.rs", "variants"),
     // Monomorphization's template and instantiation tables.
+    // `FunctionContext::record_fields` used to be a fourth entry here. plan-117
+    // Phase 2 deleted that map: monomorph now reads a record's fields live off
+    // `concrete_types` (listed above, still type-keyed) instead of snapshotting
+    // them into a per-function context. No population is lost — the table it was
+    // derived FROM is the entry directly above — and no budget moves, because it
+    // was already type-keyed and so contributed zero `string_keyed_type_maps`
+    // hits (there is no `("string_keyed_type_maps", "monomorph", _)` row).
     ("src/monomorph/mod.rs", "type_templates"),
     ("src/monomorph/mod.rs", "concrete_types"),
     ("src/monomorph/mod.rs", "type_instantiations"),
-    ("src/monomorph/mod.rs", "record_fields"),
     // The resolver's set of declared type names.
     ("src/resolver/mod.rs", "types"),
 ];

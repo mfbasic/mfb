@@ -197,6 +197,9 @@ pub(crate) fn emit_append_to_file_buffer(
             reg: fd_reg.as_str(),
             off: FILE_OFFSET_FD,
         }),
+        // bug-467: a file handle is not the process's stdout pipe, so a failed
+        // write here keeps raising `ErrWriteFailed` rather than re-raising SIGPIPE.
+        epipe_label: None,
     };
     emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }

@@ -150,16 +150,35 @@ mod tests {
     }
 
     /// bug-71: `io.flush` is drain-only (`lower_io_flush_helper` never fsyncs /
-    /// reads errno), so its runtime import arm must be empty on both flavors.
+    /// reads errno), so it declares no `fsync` and no write of its own.
+    ///
+    /// bug-467 replaced the original `is_empty()` assertion. The arm is no longer
+    /// empty and correctly so: `io.flush` runs the shared stdout drain, and the
+    /// drain now classifies its own `EPIPE` — restoring `SIG_DFL` and re-raising
+    /// SIGPIPE — so that `prog | head` still ends a CLI the way it always has,
+    /// despite the process-wide `SIG_IGN` the entry installs to stop a socket peer
+    /// from killing the process. `__errno_location` is present because aarch64
+    /// writes through libc; x86-64's raw-`svc` `write` returns `-errno` and omits
+    /// it (`term_sync_does_not_import_errno_accessor`, bug-410).
+    ///
+    /// Pinned as an exact set rather than a subset: that keeps the original
+    /// guard's whole point — no arm may declare a symbol its code unit never
+    /// references — so a stray or resurrected `fsync` still fails here.
     #[test]
-    fn io_flush_imports_nothing() {
+    fn io_flush_imports_only_the_sigpipe_classification() {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
         for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
             let platform = Platform { flavor };
-            assert!(
-                platform.runtime_imports(spec).is_empty(),
-                "io.flush should import nothing ({flavor:?})"
+            let symbols: Vec<String> = platform
+                .runtime_imports(spec)
+                .into_iter()
+                .map(|imp| imp.symbol)
+                .collect();
+            assert_eq!(
+                symbols,
+                vec!["signal", "raise", "__errno_location"],
+                "io.flush import set ({flavor:?})"
             );
         }
     }
