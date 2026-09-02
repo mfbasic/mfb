@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 22-float header carrying the
+//! draws. Generation turns one into the other: a fixed 27-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 22-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 27-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 22 float compares
+//! is worse than a common slow one, and the confirmation costs 27 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 22
+r#"LET __CANVAS_GEO_HEADER AS Integer = 27
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
@@ -118,7 +118,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 22 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 27 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -173,6 +173,33 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   out = collections::set(out, 13, toFloat(toInt(paint.stroke.green)))
   out = collections::set(out, 14, toFloat(toInt(paint.stroke.blue)))
   out = collections::set(out, 15, toFloat(toInt(paint.stroke.alpha)))
+  ' plan-116-B: the clip, RESOLVED to x0,y0,x1,y1 rather than kept as x,y,w,h, so
+  ' neither the rasteriser nor either shader repeats the addition per pixel.
+  '
+  ' Written unconditionally, with no zero-area special case, because none is needed:
+  ' w = 0 gives x1 = x + 0 = x, so the `x0 >= x1` test that means "unclipped" already
+  ' holds, and an all-zero Bounds -- what an unset Paint.clip is -- resolves to four
+  ' zeros and satisfies it too. A branch here would only be a second way to say the
+  ' same thing.
+  out = collections::set(out, 22, paint.clip.x)
+  out = collections::set(out, 23, paint.clip.y)
+  out = collections::set(out, 24, paint.clip.x + paint.clip.w)
+  out = collections::set(out, 25, paint.clip.y + paint.clip.h)
+  ' The blend mode as its tag. Compared variant by variant rather than converted,
+  ' because Normal must land as 0 -- the zero value being the no-op is the rule the
+  ' whole of Paint follows, and it is what keeps every pre-plan-116-B scene rendering
+  ' exactly as it did.
+  MUT blend AS Float = 0.0
+  IF paint.blend = BlendMode.Multiply THEN
+    blend = 1.0
+  END IF
+  IF paint.blend = BlendMode.Screen THEN
+    blend = 2.0
+  END IF
+  IF paint.blend = BlendMode.Add THEN
+    blend = 3.0
+  END IF
+  out = collections::set(out, 26, blend)
   RETURN out
 END FUNC
 
@@ -802,4 +829,57 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_geoHeader", GEO_HEADER));
     pkg.add_helper(RegistryHelper::always("canvas_geoTail", GEO_TAIL));
     pkg.add_helper(RegistryHelper::always("canvas_geoCache", GEO_CACHE));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::runtime::canvas::{GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_SLOTS};
+
+    /// The decimal literal `GEO_LAYOUT` binds to `name`.
+    fn declared(name: &str) -> usize {
+        let needle = format!("LET {name} AS Integer = ");
+        let start = GEO_LAYOUT
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} is not declared in GEO_LAYOUT"))
+            + needle.len();
+        let rest = &GEO_LAYOUT[start..];
+        let end = rest.find('\n').unwrap_or(rest.len());
+        rest[..end].trim().parse().expect("a decimal literal")
+    }
+
+    /// `GEO_LAYOUT`'s constants equal their Rust counterparts.
+    ///
+    /// Each of these numbers is spelled **twice** — once in MFBASIC here, once in
+    /// `runtime::canvas` for the emitters — with no compiler between them. Nothing
+    /// else relates the two spellings, so this test is the whole guard.
+    ///
+    /// The header length is the dangerous one. Every geometry record is
+    /// `__CANVAS_GEO_HEADER` floats followed by a per-kind tail, and both GPU emitters
+    /// find that tail at `HEADER_SLOTS * 8` bytes. If the two disagree by even one
+    /// slot, a polygon's first edge coordinate is read as a header field and a header
+    /// field as an edge — which draws a *plausible wrong shape* rather than failing.
+    /// That is exactly the failure mode a change to the header length invites, because
+    /// such a change has to touch both spellings and can be applied to only one.
+    #[test]
+    fn the_geo_layout_constants_match_their_rust_counterparts() {
+        assert_eq!(
+            declared("__CANVAS_GEO_HEADER"),
+            HEADER_SLOTS,
+            "the MFBASIC header length and the emitters' HEADER_SLOTS disagree: the \
+             tail would be read at the wrong offset, so a polygon's first edge \
+             coordinate becomes a header field",
+        );
+        for (name, kind) in [
+            ("__CANVAS_GEO_TEXT", GEO_KIND_TEXT),
+            ("__CANVAS_GEO_POLYGON", GEO_KIND_POLYGON),
+        ] {
+            assert_eq!(
+                declared(name).to_string(),
+                kind,
+                "{name} and its emitter-side kind constant disagree, so the predicates \
+                 and the emitters would branch on different values for the same kind",
+            );
+        }
+    }
 }

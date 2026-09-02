@@ -140,7 +140,36 @@ SUB main()
   ' and of `faint`/`tri`, so the existing lit-pixel and diff assertions keep meaning what
   ' they meant.
   LET tail AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 180.0, radius := 40.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail]
+  ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
+  '
+  ' Without these the frame never binds a pipeline other than Normal's and never takes
+  ' the clip-coverage path, so three of the four pipelines this letter builds would go
+  ' entirely unexercised on the GPU while the suite still reported success.
+  '
+  ' They sit on a mid-grey patch on purpose: over black, Multiply is a no-op and Screen
+  ' and Add are indistinguishable from Normal, so a wrong pipeline would look right.
+  '
+  ' `blendStroke` is the sharp one -- a non-Normal item that BOTH fills and strokes,
+  ' which the shaders cannot compose in one pass (the stroke-over-fill identity is
+  ' Normal-only), so it must be emitted as two adjacent instances. If that split is
+  ' missing, this item alone diverges from the oracle.
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 240.0, w := 360.0, h := 120.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+  ' Deliberately SMALL. Each one only has to bind its pipeline and take its arm; the
+  ' area buys nothing. It costs, though: a blended pixel agrees with the oracle to
+  ' within one or two steps but rarely exactly, because the oracle blends through a
+  ' 16-bit linear table and the hardware blends in float. Measured on this scene --
+  ' with these four set to Normal the frame matches at worst=1 differing=0.4677%, and
+  ' with the modes restored at radius 40 it was worst=2 differing=2.8012%, i.e. every
+  ' extra blended pixel is a differing pixel. `Tolerance::GPU_DEFAULT`'s per-channel
+  ' bound is the correctness signal and it holds either way; its 2% population budget
+  ' is a fraction of the WHOLE frame, so a large blended patch would exhaust it
+  ' without testing anything the small one does not.
+  LET blendMul AS canvas::DrawItem = canvas::Circle[x := 70.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
+  LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
+  LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
+  LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(canvas::rgb(230, 120, 40), canvas::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 240.0, w := 200.5, h := 60.0] }]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

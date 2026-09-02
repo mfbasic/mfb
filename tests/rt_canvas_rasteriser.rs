@@ -534,3 +534,270 @@ fn polygons_sharing_a_header_keep_their_own_points() {
         .expect("stats line with entries=");
     assert_eq!(entries, "2", "one cache entry per distinct polygon");
 }
+
+/// A clip cuts a circle in half, leaving the other half untouched.
+///
+/// The circle is the right shape to clip with, because a clip that were secretly
+/// implemented as "shrink the bounds" would still produce a half circle here — but the
+/// *curved* boundary would be wrong if the clip and the shape did not compose. Sampling
+/// on both sides of the clip edge at the same height is what tells the two apart.
+#[test]
+fn a_clip_cuts_a_circle_in_half() {
+    let (frame, _) = render(
+        "canvas_clip_half",
+        &scene(
+            "  LET c AS canvas::Color = canvas::rgb(255, 0, 0)\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 200.0, h := 640.0] }\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 100.0, paint := p]\n  \
+             canvas::present([dot])\n",
+        ),
+    );
+
+    // Inside the clip and inside the circle.
+    assert_eq!(
+        pixel(&frame, 150, 200),
+        (255, 0, 0, 255),
+        "left of the clip edge and well inside the circle: must be painted"
+    );
+    // Outside the clip, but still inside the circle — the half that must be cut.
+    assert_eq!(
+        pixel(&frame, 250, 200),
+        (0, 0, 0, 255),
+        "right of the clip edge: inside the circle, so only the clip can have removed it"
+    );
+    // The circle's own curved edge still bounds it inside the clip.
+    assert_eq!(
+        pixel(&frame, 150, 60),
+        (0, 0, 0, 255),
+        "inside the clip but ABOVE the circle: the clip must not have widened the shape"
+    );
+}
+
+/// A clip on a fractional pixel boundary antialiases its own edge.
+///
+/// The clip starts at x = 100.25, so pixel 100 (centre 100.5) is 75% inside and pixel
+/// 99 is wholly outside. That is the whole reason the clip is a coverage multiply and
+/// not a pixel-index comparison: a `x >= 100` test would paint pixel 100 fully and
+/// there would be a hard, aliased edge where the shape's own edges are smooth.
+#[test]
+fn a_fractional_clip_edge_is_antialiased() {
+    let (frame, _) = render(
+        "canvas_clip_frac",
+        &scene(
+            "  LET c AS canvas::Color = canvas::rgb(255, 255, 255)\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 100.25, y := 0.0, w := 300.0, h := 640.0] }\n  \
+             LET box AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 500.0, h := 200.0, paint := p]\n  \
+             canvas::present([box])\n",
+        ),
+    );
+
+    let (r, _, _, _) = pixel(&frame, 100, 100);
+    assert!(
+        r > 0 && r < 255,
+        "pixel 100 straddles a clip edge at x = 100.25, so it must be PARTIALLY \
+         covered — got {r}, which is {}",
+        if r == 0 {
+            "fully clipped"
+        } else {
+            "fully painted"
+        }
+    );
+    assert_eq!(
+        pixel(&frame, 99, 100),
+        (0, 0, 0, 255),
+        "pixel 99 is wholly left of the clip"
+    );
+    assert_eq!(
+        pixel(&frame, 101, 100),
+        (255, 255, 255, 255),
+        "pixel 101 is wholly inside the clip"
+    );
+}
+
+/// A zero-area clip means "no clip", and renders identically to an unset one.
+///
+/// This is the compatibility case, and it is asserted as whole-frame byte equality
+/// rather than by sampling: `canvas::Bounds`'s own description promises a zero-area
+/// rectangle reads as unclipped, and every `Paint` built before plan-116-B carries
+/// exactly that value. A single wrong pixel here is every existing scene changing.
+#[test]
+fn a_zero_area_clip_is_identical_to_no_clip() {
+    let body = |clip: &str| {
+        scene(&format!(
+            "  LET c AS canvas::Color = canvas::rgb(0, 200, 255)\n  \
+             LET p AS canvas::Paint = {clip}\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 120.0, paint := p]\n  \
+             canvas::present([dot])\n"
+        ))
+    };
+    let (unset, _) = render("canvas_clip_unset", &body("canvas::fill(c)"));
+    let (zero, _) = render(
+        "canvas_clip_zero",
+        &body(
+            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 50.0, y := 50.0, w := 0.0, h := 0.0] }",
+        ),
+    );
+    assert_eq!(
+        unset, zero,
+        "a zero-area clip must render byte-identically to no clip at all"
+    );
+}
+
+/// A clip entirely outside the item draws nothing.
+///
+/// The negative case for the loop bounds: `firstX` ends up past `lastX`, so the loop
+/// body never runs. Asserted against a frame with a second, unclipped item in it, so
+/// "nothing was drawn" cannot be confused with "the renderer failed".
+#[test]
+fn a_clip_outside_the_item_draws_nothing() {
+    let (frame, _) = render(
+        "canvas_clip_outside",
+        &scene(
+            "  LET red AS canvas::Color = canvas::rgb(255, 0, 0)\n  \
+             LET green AS canvas::Color = canvas::rgb(0, 255, 0)\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(red) { clip := canvas::Bounds[x := 600.0, y := 400.0, w := 100.0, h := 100.0] }\n  \
+             LET hidden AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 100.0, h := 100.0, paint := p]\n  \
+             LET shown AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(green)]\n  \
+             canvas::present([hidden, shown])\n",
+        ),
+    );
+
+    assert_eq!(
+        pixel(&frame, 60, 60),
+        (0, 0, 0, 255),
+        "the clipped rectangle's own centre: its clip is 600 px away, so nothing may be drawn"
+    );
+    assert_eq!(
+        pixel(&frame, 320, 30),
+        (0, 255, 0, 255),
+        "the unclipped rectangle still drew, so the frame is not simply blank"
+    );
+}
+
+/// A clip larger than the item changes nothing.
+///
+/// The other half of the zero-area case: a clip that contains the item must be as
+/// inert as no clip, including on the item's own antialiased edges — which is why this
+/// compares whole frames rather than an interior sample. A clip that quantized its
+/// coverage differently from the shape would show up here and nowhere else.
+#[test]
+fn a_clip_larger_than_the_item_changes_nothing() {
+    let body = |clip: &str| {
+        scene(&format!(
+            "  LET c AS canvas::Color = canvas::rgb(255, 200, 0)\n  \
+             LET p AS canvas::Paint = {clip}\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 90.0, paint := p]\n  \
+             canvas::present([dot])\n"
+        ))
+    };
+    let (unset, _) = render("canvas_clip_big_unset", &body("canvas::fill(c)"));
+    let (big, _) = render(
+        "canvas_clip_big",
+        &body(
+            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 900.0, h := 640.0] }",
+        ),
+    );
+    assert_eq!(
+        unset, big,
+        "a clip containing the whole item must render byte-identically to no clip"
+    );
+}
+
+/// Each `BlendMode` composites to its own exact channel values.
+///
+/// One scene, four overlapping pairs, all over the **same mid-grey ground** — which is
+/// what makes the four answers distinct. Over white or black they collapse: `Multiply`
+/// with white is the source, `Screen` and `Add` with white are both white, and a test
+/// that could not tell `Screen` from `Add` would pass with either wired to the other.
+///
+/// The expected values are derived from the mode definitions on **linear** values
+/// (`06_canvas.md` §"Rendering conventions") against the checked-in sRGB table, not
+/// read back from the renderer:
+///
+/// | mode | rgb(200,100,50) over rgb(128,128,128) |
+/// |---|---|
+/// | `Normal` | `(200, 100, 50)` — the source, unchanged |
+/// | `Multiply` | `(99, 46, 20)` — darker than both |
+/// | `Screen` | `(213, 152, 135)` — lighter than both |
+/// | `Add` | `(230, 158, 136)` — lighter still, and distinct from `Screen` |
+///
+/// Asserted exactly rather than by inequality, because "darker" and "lighter" would
+/// also hold for a blend that composited in sRGB space instead of linear — the very
+/// mistake `translucent_fill_blends_in_linear_space` exists to catch for `Normal`.
+#[test]
+fn each_blend_mode_composites_to_its_own_values() {
+    let over = |name: &str, mode: &str, x: f64| {
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := {x:.1}, y := 60.0, w := 60.0, h := 60.0, \
+             paint := WITH canvas::fill(canvas::rgb(200, 100, 50)) {{ blend := canvas::BlendMode.{mode} }}]\n"
+        )
+    };
+    let body = format!(
+        "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 200.0, \
+         paint := canvas::fill(canvas::rgb(128, 128, 128))]\n{}{}{}{}  \
+         canvas::present([ground, normal, multiply, screen, add])\n",
+        over("normal", "Normal", 20.0),
+        over("multiply", "Multiply", 120.0),
+        over("screen", "Screen", 220.0),
+        over("add", "Add", 320.0),
+    );
+    let (frame, _) = render("canvas_blend_modes", &scene(&body));
+
+    assert_eq!(
+        pixel(&frame, 10, 90),
+        (128, 128, 128, 255),
+        "the mid-grey ground, away from every overlay"
+    );
+    for (mode, x, want) in [
+        ("Normal", 50, (200u8, 100u8, 50u8)),
+        ("Multiply", 150, (99, 46, 20)),
+        ("Screen", 250, (213, 152, 135)),
+        ("Add", 350, (230, 158, 136)),
+    ] {
+        let got = pixel(&frame, x, 90);
+        assert_eq!(
+            (got.0, got.1, got.2),
+            want,
+            "BlendMode.{mode} over mid grey: the linear-space equation for this mode \
+             gives {want:?}, got {:?}",
+            (got.0, got.1, got.2),
+        );
+    }
+}
+
+/// `BlendMode.Normal` is byte-for-byte what an unset `blend` renders.
+///
+/// The compatibility pair for `each_blend_mode_composites_to_its_own_values`, and the
+/// reason `__canvas_blendChannelMode`'s mode-0 arm is the same *expression* as
+/// `__canvas_blendChannel` rather than merely an equivalent one. `Normal` is the zero
+/// value, so every `Paint` ever built carries it and every existing golden renders
+/// through it — a one-step rounding drift here is every scene in the repository
+/// changing at once.
+///
+/// Whole-frame equality, including the antialiased circle edge, where a rounding
+/// difference would show up first.
+#[test]
+fn blend_mode_normal_is_identical_to_an_unset_blend() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 400.0, \
+             paint := canvas::fill(canvas::rgb(128, 128, 128))]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 90.0, paint := {paint}]\n  \
+             canvas::present([ground, dot])\n"
+        ))
+    };
+    let (unset, _) = render(
+        "canvas_blend_unset",
+        &body("canvas::fill(canvas::rgba(255, 200, 0, 160))"),
+    );
+    let (normal, _) = render(
+        "canvas_blend_normal",
+        &body(
+            "WITH canvas::fill(canvas::rgba(255, 200, 0, 160)) { blend := canvas::BlendMode.Normal }",
+        ),
+    );
+    assert_eq!(
+        unset, normal,
+        "BlendMode.Normal must render byte-identically to an unset blend"
+    );
+}

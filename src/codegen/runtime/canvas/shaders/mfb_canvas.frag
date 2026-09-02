@@ -22,7 +22,8 @@ struct ItemBlock {
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
     ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
-    ivec4 surface;
+    ivec4 surface; // width, height, blendMode, unused
+    ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -173,24 +174,53 @@ vec4 premultiplied(ivec4 rgba, float distance) {
     return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));
 }
 
+// The clip's own antialiased coverage at this pixel, 0..255 (plan-116-B).
+//
+// The same `rectDistance` and the same `clamp(0.5 - d, 0, 1)` quantization the shape
+// edges use, so a fractional clip edge is antialiased identically to a shape edge —
+// which is what lets the oracle and this shader agree on it rather than merely come
+// close. `__canvas_clipCoverage` in `helper_items.rs` is the same three lines.
+//
+// A zero-area rectangle means unclipped and returns 255, matching `__canvas_hasClip`:
+// testing both extents also rejects a negative one, which `Bounds` cannot forbid.
+int clipCoverage(vec2 p) {
+    if (item.clip.x >= item.clip.z || item.clip.y >= item.clip.w) { return 255; }
+    vec2 lo = vec2(fx(item.clip.x), fx(item.clip.y));
+    vec2 hi = vec2(fx(item.clip.z), fx(item.clip.w));
+    float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);
+    return int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5);
+}
+
 void main() {
     // First, before anything reads it: everything below, and both helpers above, work
     // off this one record.
     item = itemBuf.blocks[vItem];
+    // The clip multiplies the shape's own coverage, exactly as it does in the oracle's
+    // `(coverage * clipCov) / 255`. Integer, and by 255 rather than a shift, so the two
+    // quantize identically — a float multiply here would disagree on the boundary
+    // pixels, which are the only ones a clip can affect.
+    int clipCov = clipCoverage(gl_FragCoord.xy);
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline
         // polygon by the geometry builder, so there is nothing here to stroke.
-        fragColor = covered(item.fill, glyphCoverage(gl_FragCoord.xy));
+        fragColor = covered(item.fill, (glyphCoverage(gl_FragCoord.xy) * clipCov) / 255);
         return;
     }
     float d = geoDistance(gl_FragCoord.xy);
-    vec4 colour = premultiplied(item.fill, d);
+    vec4 colour = covered(item.fill,
+        (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
     float halfWidth = fx(item.misc.z);
     if (halfWidth > 0.0) {
         // Stroke over fill, then the hardware puts that over the destination — which
         // is what makes this one fragment equal to the software path's two sequential
         // writes, since `over` is associative.
-        vec4 s = premultiplied(item.stroke, abs(d) - halfWidth);
+        //
+        // plan-116-B: that identity is `Normal`-ONLY, which is why a non-`Normal`
+        // stroked-and-filled item is emitted as two adjacent instances instead (§4.3).
+        // By the time such an item reaches here it is either fill-only or stroke-only,
+        // so this branch composes two sources only under `Normal`, where it is exact.
+        vec4 s = covered(item.stroke,
+            (int(clamp(0.5 - (abs(d) - halfWidth), 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
         colour = s + colour * (1.0 - s.w);
     }
     fragColor = colour;

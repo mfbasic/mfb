@@ -262,8 +262,33 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED: usize = 672;
 /// depend on the surface, so a resize must not tear it down.
 pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_BUFFER: usize = 680;
 pub(crate) const GRAPHICS_OFFSET_MTL_ITEM_CONTENTS: usize = 688;
+/// The **three non-`Normal` pipelines**, one per remaining `BlendMode`, on each
+/// backend (plan-116-B).
+///
+/// A blend mode is per-*pipeline* state on both APIs, not per-draw — it is baked into
+/// `VkPipelineColorBlendAttachmentState` and into `MTLRenderPipelineDescriptor`'s
+/// colour attachment — so "per-item blend" means four pipelines selected per draw, not
+/// a shader branch. All four differ *only* in their blend factors; they share one
+/// vertex function, one fragment function and one layout.
+///
+/// **Four contiguous slots each, indexed by the `BlendMode` tag directly** — entry 0
+/// is `Normal`. Contiguous and 0-based so the frame path computes the handle's address
+/// as `base + mode * 8` with no branch and no `mode - 1` correction; a four-way branch
+/// per mode change is the kind of arithmetic that is right for three of the four cases.
+///
+/// `Normal`'s handle is *also* stored in `…_VULKAN_PIPELINE` / `…_MTL_PIPELINE`, which
+/// stay exactly what they were. That is not redundancy for its own sake: those slots
+/// are what the readiness checks test for non-zero, and what an ordinary scene binds
+/// once at frame start, so leaving them untouched keeps "the pipeline built" meaning
+/// what it has always meant.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES: usize = 696;
+pub(crate) const GRAPHICS_OFFSET_MTL_PIPELINE_MODES: usize = 728;
+/// How many blend modes there are, and therefore how many pipelines each backend
+/// builds. Spelled again in MFBASIC as the `BlendMode` variant count; the emitters and
+/// the header agree through `HEADER_BLEND`'s 0..3 range.
+pub(crate) const BLEND_MODE_COUNT: usize = 4;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = 696;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -289,12 +314,13 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 696;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 112` with members at 0/16/32/48/64/80/96
-/// (`glslangValidator -V -q mfb_canvas.vert`, measured 2026-09-01), matching the
+/// `ItemBlock` reports `topLevelArrayStride 128` with members at
+/// 0/16/32/48/64/80/96/112 (`glslangValidator -V -q mfb_canvas.vert`, re-measured
+/// 2026-09-01 when plan-116-B added the clip `ivec4`), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 112;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 128;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -308,12 +334,10 @@ pub(crate) const ITEM_OFFSET_MISC: usize = 64;
 /// index into the Vulkan edge buffer, then one unused word.
 ///
 /// Slots 2 and 3 are per-kind the same way `HEADER_AUX0` is: an arc never reads the
-/// edge base and a polygon never reads the angles, so one `ivec4` carries both and
-/// the block stays at 112 bytes. Metal leaves the edge base zero — its
-/// `setFragmentBytes:` copies each item's edges into the command buffer, so every
-/// polygon's array starts at 0. Vulkan cannot do that: one storage buffer serves the
-/// whole frame, so each polygon gets a slice of it and this is where the offset
-/// travels.
+/// edge base and a polygon never reads the angles, so one `ivec4` carries both rather
+/// than each taking its own. Both backends carry the edge base since plan-116-A: each
+/// polygon takes a slice of one buffer that serves the whole frame, and this is where
+/// the offset travels.
 pub(crate) const ITEM_OFFSET_ARC: usize = 80;
 /// The word inside `ITEM_OFFSET_ARC` holding the polygon's first-edge index.
 ///
@@ -326,8 +350,27 @@ pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
 /// A glyph reads neither arc angle, so `arc.x` carries the height beside `misc.w`'s
 /// width — the same per-kind reuse the arc/polygon pair already makes of this block.
 pub(crate) const ITEM_ARC_GLYPH_HEIGHT: usize = 0;
-/// The surface's width and height, in whole pixels.
+/// The surface's width and height, in whole pixels, then the blend mode.
 pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
+/// The word inside `ITEM_OFFSET_SURFACE` holding the `BlendMode` tag, 0..3
+/// (plan-116-B).
+///
+/// It lands here rather than in a new `ivec4` because plan-116-A's audit found this
+/// word free — the surface size needs two of the four, and the block is declared as a
+/// full `ivec4` on both sides precisely so trailing padding cannot differ between the
+/// languages. Using the space costs nothing and keeps the block one `ivec4` narrower.
+pub(crate) const ITEM_SURFACE_BLEND: usize = 8;
+/// The item's clip rectangle, resolved to `x0, y0, x1, y1` in 16.16 fixed point
+/// (plan-116-B).
+///
+/// The `ivec4` that took the block from 112 to 128 bytes — which the push-constant
+/// transport could not have afforded, since 128 is the whole guaranteed range and the
+/// pipeline layout would have had nothing left. plan-116-A moved the block into a
+/// buffer for exactly this.
+///
+/// A zero-area rectangle means **unclipped** and is recognised by `x0 >= x1 || y0 >=
+/// y1`, the same test the geometry header uses, so the two agree by construction.
+pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
 
 /// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
 /// item block, so both backends have to test for it by hand.
@@ -368,7 +411,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 22-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 27-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -383,8 +426,34 @@ pub(crate) const HEADER_BOUNDS: usize = 16;
 /// `kind` selects.
 pub(crate) const HEADER_AUX0: usize = 20;
 pub(crate) const HEADER_AUX1: usize = 21;
+/// The item's clip rectangle, **resolved** to `x0, y0, x1, y1` in surface pixels
+/// (plan-116-B).
+///
+/// Resolved rather than `x/y/w/h` so neither the rasteriser nor either shader repeats
+/// the addition — the clip is tested once per covered pixel on the boundary and once
+/// per item everywhere else, and `x + w` is not a term worth recomputing there.
+///
+/// A zero-area clip means **no clipping**, which is what an unset `Paint.clip` reads
+/// as (`canvas::Paint.clip`'s description). It is stored as four zeros and recognised
+/// by `x0 >= x1 OR y0 >= y1` — a test that also catches a caller passing a negative
+/// extent, which `Bounds` cannot forbid.
+pub(crate) const HEADER_CLIP_X0: usize = 22;
+pub(crate) const HEADER_CLIP_Y0: usize = 23;
+pub(crate) const HEADER_CLIP_X1: usize = 24;
+pub(crate) const HEADER_CLIP_Y1: usize = 25;
+/// The item's `BlendMode`, as the enum tag 0..3 (plan-116-B).
+///
+/// `BlendMode.Normal` is 0, so an unset `Paint.blend` is the source-over behaviour
+/// every scene had before this field was read — the zero value is the no-op, the same
+/// rule the rest of `Paint` follows.
+pub(crate) const HEADER_BLEND: usize = 26;
 /// The fixed header length in slots — where a polygon's edge tail begins.
-pub(crate) const HEADER_SLOTS: usize = 22;
+///
+/// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry.rs`), with no
+/// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
+/// is what keeps them equal. Changing this without changing that one makes a polygon's
+/// first edge coordinate read as a header field.
+pub(crate) const HEADER_SLOTS: usize = 27;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.

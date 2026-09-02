@@ -23,7 +23,8 @@ struct ItemBlock {
     ivec4 stroke;  // 48: RGBA 0..255
     ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
     ivec4 arc;     // 80: startAngle, endAngle (16.16 rad), edgeBase, unused
-    ivec4 surface; // 96: width, height, unused, unused (whole px)
+    ivec4 surface; //  96: width, height, blendMode, unused
+    ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

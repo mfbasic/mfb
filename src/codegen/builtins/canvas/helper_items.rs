@@ -66,6 +66,37 @@ END FUNC
 
 FUNC __canvas_geoByte(offset AS Integer, slot AS Integer) AS Byte
   RETURN __canvas_clampByte(toInt(__canvas_geoAt(offset, slot)))
+END FUNC
+
+' plan-116-B: does this item clip at all?
+'
+' Slots 22-25 hold the clip RESOLVED to x0,y0,x1,y1, and a zero-area rectangle means
+' unclipped -- which is what an unset `Paint.clip` is. Testing both extents rather than
+' comparing against zero also rejects a negative extent, which `Bounds` cannot forbid:
+' `w := -5.0` gives x1 < x0 and must mean "draws nothing", not "draws everything".
+'
+' The per-pixel clip coverage is gated on this, so an unclipped item -- every item in
+' every scene written before this letter -- pays one compare per ITEM and nothing per
+' pixel.
+FUNC __canvas_hasClip(offset AS Integer) AS Boolean
+  RETURN __canvas_geoAt(offset, 22) < __canvas_geoAt(offset, 24) AND __canvas_geoAt(offset, 23) < __canvas_geoAt(offset, 25)
+END FUNC
+
+' The clip's own antialiased coverage at a pixel centre, 0..255.
+'
+' The same `clamp(0.5 - d, 0, 1)` form every shape edge uses, with `d` the signed
+' distance to the clip rectangle -- so a fractional clip edge is antialiased exactly
+' like a shape edge, which is what keeps the oracle and both GPU backends agreeing.
+'
+' Evaluating the rectangle SDF at the pixel CENTRE gives the covered fraction directly
+' for an axis-aligned edge: a clip starting at x = 10.6 leaves pixel 10 (centre 10.5)
+' at d = +0.1, hence coverage 0.4 -- which is the 40% of that pixel actually inside.
+FUNC __canvas_clipCoverage(offset AS Integer, px AS Float, py AS Float) AS Integer
+  LET x0 AS Float = __canvas_geoAt(offset, 22)
+  LET y0 AS Float = __canvas_geoAt(offset, 23)
+  LET x1 AS Float = __canvas_geoAt(offset, 24)
+  LET y1 AS Float = __canvas_geoAt(offset, 25)
+  RETURN __canvas_coverage(__canvas_rectDistance(px, py, (x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0))
 END FUNC"#;
 
 /// Rasterise one geometry record onto the surface.
@@ -104,6 +135,13 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
       RETURN out
     END IF
     LET runAt AS Integer = offset + __CANVAS_GEO_HEADER
+    ' plan-116-B: a glyph run clips like any other item. The blit's bounds test is
+    ' already per-pixel (`sx`/`sy` against the surface), so the clip folds into the same
+    ' guard rather than into loop bounds -- and the boundary pixels take the same
+    ' coverage multiply the SDF path takes, so a clipped glyph edge is antialiased
+    ' identically to a clipped shape edge.
+    LET tClipped AS Boolean = __canvas_hasClip(offset)
+    LET tBlend AS Integer = toInt(__canvas_geoAt(offset, 26))
     MUT gi AS Integer = 0
     WHILE gi < tGlyphs
       LET runBase AS Integer = runAt + gi * 3
@@ -122,19 +160,22 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
           WHILE gCol < gw
             LET sx AS Integer = gx + gCol
             IF sx >= 0 AND sx < width THEN
-              LET cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
+              MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
+              IF tClipped THEN
+                cover = (cover * __canvas_clipCoverage(offset, toFloat(sx) + 0.5, toFloat(sy) + 0.5)) / 255
+              END IF
               IF cover > 0 THEN
                 LET gAlpha AS Integer = (tA * cover) / 255
                 LET gIdx AS Integer = gRowBase + sx * 4
-                IF gAlpha >= 255 THEN
+                IF gAlpha >= 255 AND tBlend = 0 THEN
                   out = collections::set(out, gIdx, tR)
                   out = collections::set(out, gIdx + 1, tG)
                   out = collections::set(out, gIdx + 2, tB)
                   out = collections::set(out, gIdx + 3, toByte(255))
                 ELSEIF gAlpha > 0 THEN
-                  out = collections::set(out, gIdx, __canvas_blendChannel(collections::getOr(out, gIdx, toByte(0)), tR, gAlpha))
-                  out = collections::set(out, gIdx + 1, __canvas_blendChannel(collections::getOr(out, gIdx + 1, toByte(0)), tG, gAlpha))
-                  out = collections::set(out, gIdx + 2, __canvas_blendChannel(collections::getOr(out, gIdx + 2, toByte(0)), tB, gAlpha))
+                  out = collections::set(out, gIdx, __canvas_blendChannelMode(collections::getOr(out, gIdx, toByte(0)), tR, gAlpha, tBlend))
+                  out = collections::set(out, gIdx + 1, __canvas_blendChannelMode(collections::getOr(out, gIdx + 1, toByte(0)), tG, gAlpha, tBlend))
+                  out = collections::set(out, gIdx + 2, __canvas_blendChannelMode(collections::getOr(out, gIdx + 2, toByte(0)), tB, gAlpha, tBlend))
                   out = collections::set(out, gIdx + 3, toByte(255))
                 END IF
               END IF
@@ -183,10 +224,34 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
     ey = __canvas_sin(endAngle)
   END IF
 
-  LET firstX AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 16)), 0)
-  LET lastX AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 18)), width - 1)
-  LET lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19)), height - 1)
+  ' plan-116-B: the clip narrows the SAME four expressions that already clamp the
+  ' item's bounds to the surface, so the whole interior costs nothing extra -- only the
+  ' at most two columns and two rows the clip edge crosses need per-pixel attention,
+  ' and `__canvas_clipCoverage` handles those below.
+  '
+  ' `toInt` truncation is the right rounding here rather than a floor/ceil pair. A clip
+  ' starting at x = 10.3 must still visit pixel 10, which covers [10, 11) and is 70%
+  ' inside; toInt gives 10. A clip ENDING at x = 20.0 gives 20, so pixel 20 is visited
+  ' and then contributes nothing -- its centre 20.5 is outside, so the coverage is 0.
+  ' Visiting one pixel too many is free; missing one would clip a whole column.
+  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 16)), 0)
+  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 18)), width - 1)
+  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19)), height - 1)
   MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17)), 0)
+  LET clipped AS Boolean = __canvas_hasClip(offset)
+  ' plan-116-B: the item's BlendMode, read ONCE per item rather than per pixel.
+  '
+  ' The dispatch lives in `__canvas_blendChannelMode` rather than in four copies of the
+  ' pixel loop -- see the Corrections in the plan for the measurement behind that. Mode
+  ' 0 keeps the existing full-coverage fast path below, so an unblended item's inner
+  ' loop is exactly the one it had.
+  LET blendMode AS Integer = toInt(__canvas_geoAt(offset, 26))
+  IF clipped THEN
+    firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22)))
+    y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23)))
+    lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24)))
+    lastY = __canvas_minI(lastY, toInt(__canvas_geoAt(offset, 25)))
+  END IF
   WHILE y <= lastY
     LET rowBase AS Integer = y * width * 4
     LET py AS Float = toFloat(y) + 0.5
@@ -195,36 +260,53 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
       LET px AS Float = toFloat(x) + 0.5
       LET distance AS Float = __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex)
       LET idx AS Integer = rowBase + x * 4
+      ' The clip's own coverage at this pixel, folded into the shape's below. Computed
+      ' only for a clipped item, and only ever non-255 on the at most two columns and
+      ' two rows the clip edge crosses -- the interior was already excluded by the loop
+      ' bounds, so this is the boundary's cost and nothing else's.
+      MUT clipCov AS Integer = 255
+      IF clipped THEN
+        clipCov = __canvas_clipCoverage(offset, px, py)
+      END IF
 
       IF fillA > 0 THEN
-        LET coverage AS Integer = __canvas_coverage(distance)
+        MUT coverage AS Integer = __canvas_coverage(distance)
+        IF clipped THEN
+          coverage = (coverage * clipCov) / 255
+        END IF
         LET alpha AS Integer = (fillA * coverage) / 255
-        IF alpha >= 255 THEN
+        ' The opaque fast path is Normal-ONLY. A Multiply source at full coverage is
+        ' still `src * dst`, not `src` -- writing the source directly there would make
+        ' every fully-covered pixel of a blended item ignore its mode.
+        IF alpha >= 255 AND blendMode = 0 THEN
           out = collections::set(out, idx, fillR)
           out = collections::set(out, idx + 1, fillG)
           out = collections::set(out, idx + 2, fillB)
           out = collections::set(out, idx + 3, toByte(255))
         ELSEIF alpha > 0 THEN
-          out = collections::set(out, idx, __canvas_blendChannel(collections::getOr(out, idx, toByte(0)), fillR, alpha))
-          out = collections::set(out, idx + 1, __canvas_blendChannel(collections::getOr(out, idx + 1, toByte(0)), fillG, alpha))
-          out = collections::set(out, idx + 2, __canvas_blendChannel(collections::getOr(out, idx + 2, toByte(0)), fillB, alpha))
+          out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), fillR, alpha, blendMode))
+          out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), fillG, alpha, blendMode))
+          out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), fillB, alpha, blendMode))
           out = collections::set(out, idx + 3, toByte(255))
         END IF
       END IF
 
       IF half > 0.0 THEN
         IF strokeA > 0 THEN
-          LET band AS Integer = __canvas_coverage(__canvas_absF(distance) - half)
+          MUT band AS Integer = __canvas_coverage(__canvas_absF(distance) - half)
+          IF clipped THEN
+            band = (band * clipCov) / 255
+          END IF
           LET salpha AS Integer = (strokeA * band) / 255
-          IF salpha >= 255 THEN
+          IF salpha >= 255 AND blendMode = 0 THEN
             out = collections::set(out, idx, strokeR)
             out = collections::set(out, idx + 1, strokeG)
             out = collections::set(out, idx + 2, strokeB)
             out = collections::set(out, idx + 3, toByte(255))
           ELSEIF salpha > 0 THEN
-            out = collections::set(out, idx, __canvas_blendChannel(collections::getOr(out, idx, toByte(0)), strokeR, salpha))
-            out = collections::set(out, idx + 1, __canvas_blendChannel(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha))
-            out = collections::set(out, idx + 2, __canvas_blendChannel(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha))
+            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), strokeR, salpha, blendMode))
+            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha, blendMode))
+            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha, blendMode))
             out = collections::set(out, idx + 3, toByte(255))
           END IF
         END IF

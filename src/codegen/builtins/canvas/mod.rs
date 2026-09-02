@@ -324,17 +324,17 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "Multiply",
-                description: "Multiply source and destination; darkens.",
+                description: "Multiply source and destination; darkens. Multiplying by white leaves the destination alone, and by black gives black.",
                 advisory: None,
             },
             EnumVariant {
                 name: "Screen",
-                description: "Inverse-multiply source and destination; lightens.",
+                description: "Inverse-multiply source and destination; lightens. Screening with black leaves the destination alone, and with white gives white.",
                 advisory: None,
             },
             EnumVariant {
                 name: "Add",
-                description: "Add source to destination, clamped; the usual choice for glows.",
+                description: "Add the source to the destination, clamped; the usual choice for glows. A partly-covered pixel adds proportionally less.",
                 advisory: None,
             },
         ],
@@ -452,7 +452,12 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "blend",
                 ty: ParameterType::named("BlendMode"),
                 description: "How the item composites onto what is already there. \
-                              The zero value is `Normal`.",
+                              The zero value is `Normal`, ordinary source-over. \
+                              Compositing happens on linear light, so `Multiply` of \
+                              mid grey with itself is darker than the sRGB byte \
+                              arithmetic would suggest. An item that both fills and \
+                              strokes applies the mode twice — the fill onto what is \
+                              beneath, then the outline onto that.",
             },
             RecordProp {
                 name: "transform",
@@ -464,7 +469,12 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "clip",
                 ty: ParameterType::named("Bounds"),
                 description: "Restricts drawing to this rectangle. A zero-area \
-                              `canvas::Bounds` — the zero value — means no clipping.",
+                              `canvas::Bounds` — the zero value — means no clipping, \
+                              and so does a negative width or height. The rectangle is \
+                              axis-aligned and given in surface pixels; \
+                              `canvas::Paint.transform` does not move it. Its edges \
+                              may fall between pixels, and a partly-covered pixel is \
+                              drawn partly, exactly as a shape's own edge is.",
             },
         ],
     });
@@ -755,10 +765,10 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: FONT_TYPE,
         export: true,
-        description: "An opaque, owned handle to a loaded font, released \
-                      automatically when it leaves scope. A scene names one through a \
-                      `canvas::FontRef`, never directly, so releasing a font whose text a \
-                      scene still draws is safe — that text simply draws as empty.",
+        description: "An opaque handle to a loaded font, closed automatically when it \
+                      leaves scope. A scene names one through a `canvas::FontRef`, never \
+                      directly, so closing a font whose text a scene still draws is \
+                      safe — that text simply draws as empty.",
         close_function: DESTROY_FONT,
         // A font belongs to the drawing surface's thread, like an image; it does not
         // cross a thread boundary in v1.
