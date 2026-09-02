@@ -60,11 +60,12 @@ use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
     HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
-    HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_SURFACE_BLEND, MAX_EDGES,
-    METAL_MAX_GLYPH_SAMPLES,
+    HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
+    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
+    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL,
+    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
 };
 
 /// The one-time setup helper's symbol.
@@ -863,7 +864,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 480;
+const DRAW_FRAME: usize = 512;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -872,44 +873,44 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 320;
+const OFF_TEXTURE: usize = 352;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 328;
-const OFF_GLYPH_COV: usize = 336;
-const OFF_GLYPH_INDEX: usize = 344;
-const OFF_GLYPH_COUNT: usize = 352;
-const OFF_GLYPH_HEADER: usize = 360;
-const OFF_GLYPH_W: usize = 368;
-const OFF_GLYPH_H: usize = 376;
-const OFF_GLYPH_X: usize = 384;
-const OFF_GLYPH_Y: usize = 392;
+const OFF_GLYPH_META: usize = 360;
+const OFF_GLYPH_COV: usize = 368;
+const OFF_GLYPH_INDEX: usize = 376;
+const OFF_GLYPH_COUNT: usize = 384;
+const OFF_GLYPH_HEADER: usize = 392;
+const OFF_GLYPH_W: usize = 400;
+const OFF_GLYPH_H: usize = 408;
+const OFF_GLYPH_X: usize = 416;
+const OFF_GLYPH_Y: usize = 424;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 400;
+const OFF_GLYPH_SRC: usize = 432;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 408;
+const OFF_CONTENTS: usize = 440;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
 /// to live somewhere the argument staging cannot clobber.
-const OFF_ITEM_CURSOR: usize = 416;
-const OFF_RUN_START: usize = 424;
-const OFF_RUN_COUNT: usize = 432;
+const OFF_ITEM_CURSOR: usize = 448;
+const OFF_RUN_START: usize = 456;
+const OFF_RUN_COUNT: usize = 464;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 440;
+const OFF_EDGE_CURSOR: usize = 472;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 448;
+const OFF_GLYPH_INSTANCE: usize = 480;
 /// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
 /// two-instance split (plan-116-B).
 ///
@@ -917,9 +918,9 @@ const OFF_GLYPH_INSTANCE: usize = 448;
 /// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
 /// registers, so a value saved across it comes back as a mapped address — and as a
 /// stroke width that reads like an enormous band the oracle never drew.
-const OFF_BOUND_MODE: usize = 456;
-const OFF_ITEM_MODE: usize = 464;
-const OFF_SAVED_STROKE: usize = 472;
+const OFF_BOUND_MODE: usize = 488;
+const OFF_ITEM_MODE: usize = 496;
+const OFF_SAVED_STROKE: usize = 504;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -2119,6 +2120,34 @@ fn emit_item_block(asm: &mut Asm) {
             abi::SCRATCH[1],
             abi::stack_pointer(),
             OFF_ITEM + ITEM_OFFSET_SURFACE + index * 4,
+        ));
+    }
+
+    // The inverse transform (plan-116-C). The header already holds these as float32
+    // BIT PATTERNS — `__canvas_float32Bits` narrowed them once, in MFBASIC, because
+    // this assembler has no double→single convert — so the emitter's whole job is a
+    // whole-number read and a 32-bit store. Seven slots: `ia..ity` then the flag.
+    for (index, slot) in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+        HEADER_TRANSFORM_ITX,
+        HEADER_TRANSFORM_ITY,
+        HEADER_HAS_TRANSFORM,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_TRANSFORM + index * 4,
         ));
     }
 

@@ -379,20 +379,43 @@ Commit: ba2240639
 
 ### Phase 2 — Carry the inverse; identity path unchanged
 
-- [ ] `HEADER_SLOTS` 27 → 34; add slot constants for `ia..ity` and `hasTransform`.
+- [x] `HEADER_SLOTS` 27 → 34; add slot constants for `ia..ity` and `hasTransform`.
       **34, not 35** — §4.2's scale-factor slot is gone with the formula it carried;
       the gradient is per-pixel, so there is nothing to precompute per item.
-- [ ] Add `__canvas_invertTransform` to `helper_paint_defaults.rs`, handling both
+- [x] Add `__canvas_invertTransform` to `helper_paint_defaults.rs`, handling both
       degenerate cases per §4.4; it is the sole all-zero→identity mapping.
-- [ ] `__canvas_paintHeader` writes slots 27–34 from `paint.transform`.
-- [ ] `ITEM_BLOCK_SIZE` 128 → 160; extend the MSL struct and both GLSL blocks;
+- [x] `__canvas_paintHeader` writes slots 27–34 from `paint.transform`.
+      Slots 27–33 (seven): six terms and the flag. The identity is written as float32
+      bit patterns directly (`1.0` is `0x3F800000` = 1065353216), so the identity path
+      does not even call the encoder.
+- [x] `ITEM_BLOCK_SIZE` 128 → 160; extend the MSL struct and both GLSL blocks;
       `scripts/regen-spirv.sh`.
-- [ ] Every `__CANVAS_GEO_HEADER` / `HEADER_SLOTS` reader updated (the same sweep
+      Re-measured rather than assumed: glslang now reports `topLevelArrayStride 160`
+      with `xform0` at **128** and `xform1` at **144**, matching `ITEM_OFFSET_TRANSFORM`.
+      `METAL_EDGE_BASE` moved 131072 → 163840 with the block, and
+      `the_metal_shader_edge_base_matches_the_buffer_layout` caught it the moment it
+      did not — the third time that guard has fired on a real drift.
+- [x] Every `__CANVAS_GEO_HEADER` / `HEADER_SLOTS` reader updated (the same sweep
       plan-116-B Phase 1 did — grep both spellings, fix all hits).
-- [ ] Tests: existing suite green, no golden change.
+      `the_geo_layout_constants_match_their_rust_counterparts` makes a half-applied
+      edit a test failure rather than a rendering one, which is exactly why
+      plan-116-B added it before touching the header.
+- [x] Tests: existing suite green, no golden change.
 
 Acceptance: `cargo test --no-fail-fast` green and every canvas golden unchanged on
 disk. Nothing reads the new slots yet, so any rendering change is a plumbing bug.
+
+**MET**, and the plan's warning was right for the second letter running: widening the
+block produced a rendering change, it was a plumbing bug, and it was root-caused rather
+than re-baselined. `the_draw_frame_slots_do_not_overlap` — added in plan-116-B for
+precisely this — named it exactly: *"`item` at 192 is 160 bytes, so it runs to 352 and
+overlaps `texture` at 320"*. Metal's frame is hand-assigned, so every slot above the
+item block moved up 32 and `DRAW_FRAME` went 480 → 512.
+
+`rt_canvas_metal` 4, `rt_canvas_font` 10, `rt_canvas_golden` 6,
+`rt_canvas_rasteriser` 17 (+1 ignored), and `scripts/test-canvas-vulkan.sh` 12/12 at
+`worst=2 differing=0.7748%` — **the same three numbers as before the widening**.
+`git status --short tests/golden/canvas/` is empty.
 Commit: —
 
 ### Phase 3 — The software renderer transforms

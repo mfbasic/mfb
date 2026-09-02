@@ -314,9 +314,9 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 128` with members at
-/// 0/16/32/48/64/80/96/112 (`glslangValidator -V -q mfb_canvas.vert`, re-measured
-/// 2026-09-01 when plan-116-B added the clip `ivec4`), matching the
+/// `ItemBlock` reports `topLevelArrayStride 160` with members at
+/// 0/16/32/48/64/80/96/112/128/144 (`glslangValidator -V -q mfb_canvas.vert`,
+/// re-measured 2026-09-01 when plan-116-C added the two transform `ivec4`s), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
@@ -384,8 +384,10 @@ pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
 /// `hasTransform` is a whole 0 or 1, not a float bit pattern: it is compared, never
 /// arithmetic.
 pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
-/// The word inside the second transform `ivec4` holding the `hasTransform` flag.
-pub(crate) const ITEM_TRANSFORM_FLAG: usize = 24;
+// The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
+// positionally by the same loop that writes the six terms — a named offset for it
+// would be a second way to say where it lives, and one of the two would eventually be
+// wrong. The shaders read it as `xform1.z`, which the struct comment records.
 
 /// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
 /// item block, so both backends have to test for it by hand.

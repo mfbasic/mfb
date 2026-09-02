@@ -60,12 +60,14 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
     GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
     HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1,
-    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
-    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT,
+    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND,
+    HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
+    HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
+    HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT,
     ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
     ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS,
+    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -3453,6 +3455,34 @@ fn emit_item_block(
         ));
     }
 
+    // The inverse transform (plan-116-C). The header already holds these as float32
+    // BIT PATTERNS — `__canvas_float32Bits` narrowed them once, in MFBASIC, because
+    // this assembler has no double→single convert — so the emitter's whole job is a
+    // whole-number read and a 32-bit store. Seven slots: `ia..ity` then the flag.
+    for (index, slot) in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+        HEADER_TRANSFORM_ITX,
+        HEADER_TRANSFORM_ITY,
+        HEADER_HAS_TRANSFORM,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_TRANSFORM + index * 4,
+        ));
+    }
+
     // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
     // so an item that never set `Paint.blend` writes the value the pipeline it selects
     // has always had.
@@ -5747,10 +5777,11 @@ mod tests {
     /// block is an `ivec4` rather than packed.
     ///
     /// Measured against the real compiler rather than reasoned about alone:
-    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 128` with
-    /// members at 0/16/32/48/64/80/96/112 (2026-09-01, glslang 11:15.2.0) — re-measured
-    /// when plan-116-B took the block from 112 to 128 for the clip rectangle. A later
-    /// letter that widens it again must re-run that and keep this equality.
+    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 160` with
+    /// members at 0/16/32/48/64/80/96/112/128/144 (2026-09-01, glslang 11:15.2.0) —
+    /// re-measured each time the block grew: 112 → 128 for plan-116-B's clip, then
+    /// 128 → 160 for plan-116-C's transform. A later letter that widens it again must
+    /// re-run that and keep this equality.
     /// The two backends' pipeline arrays hold one entry per `BlendMode`, and the two
     /// arrays do not overlap each other or run past the state block.
     ///
