@@ -1,6 +1,6 @@
 # bug-467: writing to a socket whose peer has closed kills the process with SIGPIPE instead of raising
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness + Availability (a remote peer can terminate any MFBASIC server)
@@ -35,7 +35,7 @@ same code the read side already raises at end of stream — and never delivers a
 signal. `TRAP` sees it, scope drop runs, and the process survives to serve its
 other connections.
 
-## STATUS: FIXED (51eb79f5d, f7990daa4, 37b74484d, 93ed880fa, 5928cb3dd, 12621e706, a1aef8539)
+## STATUS: FIXED (0a81c3846, 434c1be01, 7334b1606, 0c031db41, 5928cb3dd, 12621e706, a1aef8539, 272870ddd)
 
 `lower_program_entry` installs `signal(SIGPIPE, SIG_IGN)` on every POSIX target
 for every program, app mode included. The `io::` stdout/stderr write paths
@@ -67,7 +67,7 @@ Deviations from the design above, all deliberate:
 ### Corrections found on landing (2026-09-01)
 
 The branch above was written but never landed, and the gates it claimed were not
-all met. Three things were wrong and are fixed in the three commits appended to
+all met. Three things were wrong and are fixed in the commits appended to
 the STATUS line.
 
 1. **The regression fixture asserted nothing** (`5928cb3dd`). All four goldens of
@@ -361,7 +361,7 @@ Commit: e6402c7ab
 Acceptance: the Phase 1 fixture passes on every target; `EAGAIN`/`EINTR`
 classification is unchanged. MET — `write_fail` in `tcp/gen_io.rs` was not
 touched at all; the fix only lets it run.
-Commit: 51eb79f5d, f7990daa4
+Commit: 0a81c3846, 434c1be01
 
 ### Phase 3 — regenerate + validate
 
@@ -379,7 +379,7 @@ empty and six tests were red. Now measured:
   * `test-accept.sh` — full acceptance sweep.
   * the reproduction, on all four POSIX targets, unfixed vs fixed, plus the
     `prog | head` and spawned-child behaviours that had to survive.
-Commit: 37b74484d, 93ed880fa, 5928cb3dd, 12621e706, a1aef8539
+Commit: 7334b1606, 0c031db41, 5928cb3dd, 12621e706, a1aef8539, 272870ddd
 
 ## Validation Plan
 
