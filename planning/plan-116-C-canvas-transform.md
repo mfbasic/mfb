@@ -520,7 +520,7 @@ path ran.
 Also green: `cargo test --release --test rt_canvas_metal --no-fail-fast` (4/4, with
 the rotated rect and 2:1 ellipse added to `PRIMITIVES`), `--test rt_canvas_font` (12/12,
 including the new transformed-text GPU test), `--test rt_canvas_golden` (8/8).
-Commit: —
+Commit: 7a4163547
 
 ### Phase 5 — Docs, and the three-field defect closed
 
@@ -586,7 +586,35 @@ to close.
   `paint.transform` at `:207` (`__canvas_invertTransform(paint.transform)`). Every
   other hit is a doc string. **This is the defect plan-116-B and this letter set out
   to close, and it is closed.**
-Commit: —
+Commit: 01ac9108c (docs), 1151c8b8c (the two topic docs)
+
+### Merge-back gate (main advanced 14 commits mid-letter)
+
+Peer sessions landed plan-117 and plan-119 while this letter ran, so main was merged
+into `worktree-P-116` (`3ee3ef107`) and **every gate re-run on the merged tree**. The
+two sides share no file (`comm -12` on their `git diff --name-only` lists is empty),
+but plan-117 rewrote monomorph's invariant tables — compiler core — so the post-merge
+run is the one that counts, not a formality.
+
+- `cargo test --release --no-fail-fast` — **91 test binaries, 0 failures, exit 0.**
+  `artifact_gate_all` passes *inside* this run, rather than needing the standalone
+  re-run the contended pre-merge attempt took.
+- `bash scripts/test-accept.sh` — **1347 test(s) ran**, up from 1346 because main's
+  merge brought `tests/rt-behavior/tcp/tcp-write-peer-closed-raises-rt`. The count
+  moving for a reason that can be named is the point of watching it.
+- `scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
+  — 12/12 ok, `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`, the
+  same numbers as pre-merge.
+- Box 2228 (glibc) — recorded below once its run lands.
+
+**A harness defect found here, worth the note (Correction C9).** The first two
+attempts at the Linux `--bin mfb` row failed after ~80 minutes of compiling with
+`error[E0583]: file not found for module linux_common / linux_gtk / macos_aarch64`.
+Neither was a code problem: the rsync used `--exclude target`, and an unanchored rsync
+pattern matches **any** path component — so it dropped `src/target/`, the whole
+per-architecture backend tree, along with the build directory. `--exclude '/target'`
+is the fix, and verifying one eaten path (`ssh … 'ls ~/mfb-p116/src/target | head'`)
+before starting a long build is a one-second check that replaces an hour-long one.
 
 ## Validation Plan
 
