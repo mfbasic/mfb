@@ -668,6 +668,14 @@ Commit: —
   like every other existing site, and missing it would change that example's rendering
   rather than fail to compile only if the field were optional, which it is not.
 
+  **It moved a third time, and exactly that way.** The merge-back before landing brought
+  `examples/emoji` in from main (`1fda27fc9`) with the `Arc` at `:219`. Capped `Butt` —
+  what an `Arc` did before this letter, so the example's rendering is unchanged — and
+  `mfb build -app examples/emoji` confirms it compiles. The census is now **17**. The
+  general point is the one Phase 2's D5 makes from the other direction: on a shared
+  checkout the population a breaking field change has to sweep is not fixed at plan
+  time, so it is re-measured at every merge, not once.
+
 ## Summary
 
 The engineering is small and closed-form; the risk is entirely in the ten
