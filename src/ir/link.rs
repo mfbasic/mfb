@@ -1,45 +1,5 @@
 use crate::operators::BinaryOp;
-use crate::types::ParameterType;
-
-/// Whether `ctype` is a C ABI type the marshaling backend implements for an
-/// `ABI (...)` slot or the ABI return (plan-50-A).
-///
-/// This is the **slot** namespace. It is deliberately distinct from
-/// `is_c_abi_type` (the former source checker's `helpers` / `ir::verify`), which answers the
-/// opposite question — which names are *banned* from a wrapper's MFBASIC-facing
-/// signature (`NATIVE_CPTR_ESCAPE`) — and which excludes `CBool`/`CByte`/`CVoid`
-/// on purpose. Do not merge the two lists.
-///
-/// The set is enumerated from what `lower_link_thunk` actually implements, not
-/// from the spec prose; `link_thunk::tests::every_known_ctype_lowers` walks every
-/// name here through the thunk to keep the two in step.
-///
-/// Two names are position-restricted; see [`abi_ctype_valid_as_argument`] and
-/// [`abi_ctype_valid_as_return`]. A third, `CBuffer`, is restricted further than
-/// either predicate can express — it is legal *only* as an `OUT` slot carrying a
-/// `BUFFER … SIZE` clause and named by `RETURN`. Those rules live in
-/// [`check_buffer_slots`], not here (plan-58-A §4.3).
-pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
-    matches!(
-        ctype,
-        "CPtr"
-            | "CString"
-            | "CBuffer"
-            | "CInt8"
-            | "CInt16"
-            | "CInt32"
-            | "CInt64"
-            | "CUInt8"
-            | "CUInt16"
-            | "CUInt32"
-            | "CUInt64"
-            | "CBool"
-            | "CByte"
-            | "CFloat"
-            | "CDouble"
-            | "CVoid"
-    )
-}
+use crate::types::{CAbiType, ParameterType};
 
 /// Whether `ctype` may appear on an `ABI (...)` argument slot.
 ///
@@ -48,8 +8,22 @@ pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
 /// `CBuffer` is OUT-only (plan-58-A §4.3 rule 1): its bytes are produced by the
 /// callee into storage the thunk allocates, so there is no input direction to
 /// marshal.
-pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
-    abi_slot_ctype_is_known(ctype) && ctype != "CVoid" && ctype != "CBuffer"
+///
+/// plan-113 deleted the separate `abi_slot_ctype_is_known` this used to call:
+/// a [`CAbiType`] **is** the proof of knownness, so `c_abi()` returning `None`
+/// is exactly "not one of the 16". That is what keeps
+/// `NATIVE_ABI_UNKNOWN_CTYPE` firing on a typo'd or crafted spelling, which
+/// arrives here as a [`ParameterType::Named`].
+///
+/// A third name, `CBuffer`, is restricted further than either position
+/// predicate can express — it is legal *only* as an `OUT` slot carrying a
+/// `BUFFER … SIZE` clause and named by `RETURN`. Those rules live in
+/// [`check_buffer_slots`], not here (plan-58-A §4.3).
+pub(crate) fn abi_ctype_valid_as_argument(ctype: &ParameterType) -> bool {
+    !matches!(
+        ctype.c_abi(),
+        None | Some(CAbiType::Void) | Some(CAbiType::Buffer)
+    )
 }
 
 /// Whether `ctype` may appear as the ABI return (`AS <name> <ctype>`).
@@ -65,8 +39,8 @@ pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
 /// sufficient* for `CBuffer`: it is still rejected as the ABI return proper by
 /// [`check_buffer_slots`] rule 5. Do not read a `true` here as "legal in every
 /// return-shaped position".
-pub(crate) fn abi_ctype_valid_as_return(ctype: &str) -> bool {
-    abi_slot_ctype_is_known(ctype) && ctype != "CString"
+pub(crate) fn abi_ctype_valid_as_return(ctype: &ParameterType) -> bool {
+    !matches!(ctype.c_abi(), None | Some(CAbiType::Str))
 }
 
 /// The largest total size a `CSTRUCT` may lay out to, in bytes (plan-50-B).
@@ -95,7 +69,7 @@ pub(crate) struct IrCStruct {
 #[derive(Clone)]
 pub(crate) struct IrCStructField {
     pub(crate) name: String,
-    pub(crate) ctype: String,
+    pub(crate) ctype: ParameterType,
 }
 
 /// A computed C struct layout: total size, alignment, and each field's byte
@@ -116,27 +90,34 @@ pub(crate) struct CLayout {
 /// pointers, and finding every call site under time pressure is worse than
 /// carrying the parameter now.
 ///
-/// Returns `None` for a name that is not a valid struct-field ctype.
-pub(crate) fn ctype_size_align(ctype: &str, target: &str) -> Option<(usize, usize)> {
+/// Returns `None` for a name that is not a valid struct-field ctype — including
+/// a spelling outside the 16 (a [`ParameterType::Named`]), which is how a typo'd
+/// or crafted field ctype still reaches `NATIVE_ABI_UNKNOWN_CTYPE`.
+pub(crate) fn ctype_size_align(ctype: &ParameterType, target: &str) -> Option<(usize, usize)> {
     debug_assert!(
         !target.contains("arm64_32") && !target.contains("riscv32"),
         "ctype_size_align assumes LP64; an ILP32 target needs its own pointer width"
     );
     let _ = target;
-    match ctype {
+    // Exhaustive on `CAbiType`, so a new C type cannot be added without deciding
+    // its storage here — the property `ctype_list_is_exhaustive` used to guard by
+    // hand (plan-113).
+    Some(match ctype.c_abi()? {
         // C `_Bool` and `unsigned char`.
-        "CInt8" | "CUInt8" | "CBool" | "CByte" => Some((1, 1)),
-        "CInt16" | "CUInt16" => Some((2, 2)),
-        "CInt32" | "CUInt32" | "CFloat" => Some((4, 4)),
+        CAbiType::Int8 | CAbiType::UInt8 | CAbiType::Bool | CAbiType::Byte => (1, 1),
+        CAbiType::Int16 | CAbiType::UInt16 => (2, 2),
+        CAbiType::Int32 | CAbiType::UInt32 | CAbiType::Float => (4, 4),
         // `CString` is a `const char *` FIELD here: the pointer, not its bytes.
-        "CInt64" | "CUInt64" | "CDouble" | "CPtr" | "CString" => Some((8, 8)),
+        CAbiType::Int64 | CAbiType::UInt64 | CAbiType::Double | CAbiType::Ptr | CAbiType::Str => {
+            (8, 8)
+        }
         // `CVoid` has no storage; it is an ABI return type only. `CBuffer` has no
         // *static* storage: its size is a runtime `BUFFER … SIZE` expression, and
         // a struct field must have a constant offset, so it can never be one
-        // (plan-58-A §4.1). Both fall through to `None`, which is what makes
+        // (plan-58-A §4.1). Both answer `None`, which is what makes
         // `check_cstruct` reject them via `NATIVE_CSTRUCT_INVALID`.
-        _ => None,
-    }
+        CAbiType::Void | CAbiType::Buffer => return None,
+    })
 }
 
 /// Compute a C struct's layout from its field ctypes, using standard natural
@@ -153,7 +134,7 @@ pub(crate) fn ctype_size_align(ctype: &str, target: &str) -> Option<(usize, usiz
 ///
 /// Returns `Err` naming the offending field for an unlayoutable ctype.
 pub(crate) fn compute_c_layout(
-    fields: &[(String, String)],
+    fields: &[(String, ParameterType)],
     target: &str,
 ) -> Result<CLayout, String> {
     let mut offset = 0usize;
@@ -161,7 +142,7 @@ pub(crate) fn compute_c_layout(
     let mut offsets = Vec::with_capacity(fields.len());
     for (name, ctype) in fields {
         let (fsize, falign) = ctype_size_align(ctype, target)
-            .ok_or_else(|| format!("field `{name}` has no C layout for type `{ctype}`"))?;
+            .ok_or_else(|| format!("field `{name}` has no C layout for type `{}`", ctype.name()))?;
         offset = offset.div_ceil(falign) * falign;
         offsets.push(offset);
         offset += fsize;
@@ -202,19 +183,26 @@ pub(crate) fn link_expr_var_names<'a>(expr: &'a IrLinkExpr, out: &mut Vec<&'a st
 ///
 /// `CPtr` never maps: a raw pointer must not surface in ordinary code
 /// (`NATIVE_CPTR_ESCAPE`). `CVoid` has no storage.
-pub(crate) fn cstruct_field_mfb_type(ctype: &str) -> Option<&'static str> {
-    match ctype {
+pub(crate) fn cstruct_field_mfb_type(ctype: &ParameterType) -> Option<&'static str> {
+    Some(match ctype.c_abi()? {
         // Every narrow integer widens into MFBASIC's 64-bit `Integer`.
         // `CUInt64` reinterprets: MFBASIC has no unsigned 64-bit type, so a value
         // above i64::MAX wraps. Documented rather than rejected.
-        "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64"
-        | "CByte" => Some("Integer"),
-        "CBool" => Some("Boolean"),
-        "CFloat" | "CDouble" => Some("Float"),
+        CAbiType::Int8
+        | CAbiType::Int16
+        | CAbiType::Int32
+        | CAbiType::Int64
+        | CAbiType::UInt8
+        | CAbiType::UInt16
+        | CAbiType::UInt32
+        | CAbiType::UInt64
+        | CAbiType::Byte => "Integer",
+        CAbiType::Bool => "Boolean",
+        CAbiType::Float | CAbiType::Double => "Float",
         // A `const char *` field, copied out into an owned String (plan-50-F).
-        "CString" => Some("String"),
-        _ => None,
-    }
+        CAbiType::Str => "String",
+        CAbiType::Ptr | CAbiType::Void | CAbiType::Buffer => return None,
+    })
 }
 
 /// One reason a `CSTRUCT` declaration is not usable, paired with the rule that
@@ -227,7 +215,7 @@ pub(crate) struct CStructFault {
 /// A struct slot's shape, resolved for validation (plan-50-E).
 pub(crate) struct StructSlotView<'a> {
     /// The `CSTRUCT`'s fields, in C declaration order.
-    pub(crate) cfields: &'a [(String, String)],
+    pub(crate) cfields: &'a [(String, ParameterType)],
     /// The `AS <MfbType>` record's fields, as `(name, mfb_type)`.
     pub(crate) record: &'a [(String, String)],
     pub(crate) cstruct_name: &'a str,
@@ -249,7 +237,7 @@ pub(crate) fn check_struct_slot(view: &StructSlotView) -> Vec<CStructFault> {
 
     for (cname, ctype) in view.cfields {
         // A CPtr field can never surface: it would put a raw pointer in a record.
-        if ctype == "CPtr" {
+        if ctype.c_abi() == Some(CAbiType::Ptr) {
             faults.push(fault(
                 "NATIVE_CSTRUCT_INVALID",
                 format!(
@@ -274,8 +262,8 @@ pub(crate) fn check_struct_slot(view: &StructSlotView) -> Vec<CStructFault> {
             Some((_, rtype)) if rtype != want => faults.push(fault(
                 "NATIVE_STRUCT_FIELD_MISMATCH",
                 format!(
-                    "CSTRUCT `{}` field `{cname}` is `{ctype}`, which maps to `{want}`, but record `{}` declares it `{rtype}`.",
-                    view.cstruct_name, view.maps_to
+                    "CSTRUCT `{}` field `{cname}` is `{}`, which maps to `{want}`, but record `{}` declares it `{rtype}`.",
+                    view.cstruct_name, ctype.name(), view.maps_to
                 ),
             )),
             Some(_) => {}
@@ -307,7 +295,7 @@ pub(crate) fn check_struct_slot(view: &StructSlotView) -> Vec<CStructFault> {
 /// to reject nesting.
 pub(crate) fn check_cstruct(
     name: &str,
-    fields: &[(String, String)],
+    fields: &[(String, ParameterType)],
     cstruct_names: &[String],
     target: &str,
 ) -> Vec<CStructFault> {
@@ -334,19 +322,26 @@ pub(crate) fn check_cstruct(
         // Nesting is out of scope: a struct-valued field would need its own
         // layout recursion and has no consumer. Reject it explicitly rather than
         // letting it fall into "unknown ctype", which would misdescribe the cause.
-        if cstruct_names.iter().any(|n| n == ctype) {
+        if cstruct_names.iter().any(|n| ctype.is_named(n)) {
             faults.push(fault(
                 "NATIVE_CSTRUCT_INVALID",
                 format!(
-                    "CSTRUCT `{name}` field `{field}` has struct type `{ctype}`; nested structs are not supported."
+                    "CSTRUCT `{name}` field `{field}` has struct type `{}`; nested structs are not supported.",
+                    ctype.name()
                 ),
             ));
             continue;
         }
-        if !abi_slot_ctype_is_known(ctype) {
+        // plan-113: "is this one of the 16?" is now the type itself — a spelling
+        // outside them parsed to a `Named` and answers `None` here, which is
+        // exactly what `abi_slot_ctype_is_known` used to answer `false` for.
+        if ctype.c_abi().is_none() {
             faults.push(fault(
                 "NATIVE_ABI_UNKNOWN_CTYPE",
-                format!("CSTRUCT `{name}` field `{field}` uses unknown C type `{ctype}`."),
+                format!(
+                    "CSTRUCT `{name}` field `{field}` uses unknown C type `{}`.",
+                    ctype.name()
+                ),
             ));
             continue;
         }
@@ -354,7 +349,8 @@ pub(crate) fn check_cstruct(
             faults.push(fault(
                 "NATIVE_CSTRUCT_INVALID",
                 format!(
-                    "CSTRUCT `{name}` field `{field}` uses `{ctype}`, which has no storage and cannot be a struct field."
+                    "CSTRUCT `{name}` field `{field}` uses `{}`, which has no storage and cannot be a struct field.",
+                    ctype.name()
                 ),
             ));
         }
@@ -430,7 +426,7 @@ pub(crate) struct IrLinkFunction {
     /// any other name ⇒ a status used only by `SUCCESS_ON`/`RESULT`).
     pub(crate) abi_return_name: String,
     /// The native return C type, e.g. `CInt32` or `CPtr`.
-    pub(crate) abi_return_ctype: String,
+    pub(crate) abi_return_ctype: ParameterType,
     /// `CONST slot = value` pins resolved to an integer immediate.
     pub(crate) consts: Vec<(String, i64)>,
     /// `SUCCESS_ON <expr>` over the native return variable.
@@ -525,7 +521,7 @@ pub(crate) struct BufferSlotsView<'a> {
     /// The wrapper's name, for diagnostics.
     pub(crate) function: &'a str,
     /// `(slot name, ctype, direction)` in native argument order.
-    pub(crate) slots: Vec<(&'a str, &'a str, AbiDirection)>,
+    pub(crate) slots: Vec<(&'a str, &'a ParameterType, AbiDirection)>,
     /// `(BUFFER slot, identifiers its SIZE expression reads)`, in declared order.
     pub(crate) buffers: Vec<(&'a str, Vec<&'a str>)>,
     /// Slot names pinned by `CONST`.
@@ -536,7 +532,7 @@ pub(crate) struct BufferSlotsView<'a> {
     pub(crate) return_type: &'a ParameterType,
     /// The ABI return's name and ctype (`AS <name> <ctype>`).
     pub(crate) abi_return_name: &'a str,
-    pub(crate) abi_return_ctype: &'a str,
+    pub(crate) abi_return_ctype: &'a ParameterType,
     /// The slot `RETURN` names, when the clause is a bare identifier. `None` for a
     /// computed `RETURN` (`RETURN status = 0`) or no `RETURN` at all — neither can
     /// surface a buffer, which is exactly what rules 6 and 8 turn on.
@@ -569,14 +565,14 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
     let is_buffer_slot = |slot: &str| {
         view.slots
             .iter()
-            .any(|(n, c, _)| *n == slot && *c == "CBuffer")
+            .any(|(n, c, _)| *n == slot && c.c_abi() == Some(CAbiType::Buffer))
     };
 
     // Rule 5: `CBuffer` as the ABI return proper. `abi_ctype_valid_as_return`
     // cannot express this — an OUT slot is checked through that same predicate —
     // so it is a position rule here. A C function cannot *return* a buffer whose
     // size the caller declared; it fills storage the caller passed in.
-    if view.abi_return_ctype == "CBuffer" {
+    if view.abi_return_ctype.c_abi() == Some(CAbiType::Buffer) {
         faults.push(fault(
             "NATIVE_ABI_UNKNOWN_CTYPE",
             format!(
@@ -587,7 +583,7 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
     }
 
     for (slot, ctype, direction) in &view.slots {
-        if *ctype != "CBuffer" {
+        if ctype.c_abi() != Some(CAbiType::Buffer) {
             continue;
         }
         // Rule 1: OUT-only. An IN or INOUT CBuffer would need a `List OF Byte`
@@ -659,10 +655,11 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
                     "Native function `{name}` declares `BUFFER {slot} SIZE`, but `{slot}` is not an ABI slot of this function."
                 ),
             )),
-            Some((_, ctype, _)) if *ctype != "CBuffer" => faults.push(fault(
+            Some((_, ctype, _)) if ctype.c_abi() != Some(CAbiType::Buffer) => faults.push(fault(
                 "NATIVE_BUFFER_INVALID",
                 format!(
-                    "Native function `{name}` declares `BUFFER {slot} SIZE`, but ABI slot `{slot}` is `{ctype}`, not a CBuffer."
+                    "Native function `{name}` declares `BUFFER {slot} SIZE`, but ABI slot `{slot}` is `{}`, not a CBuffer.",
+                    ctype.name()
                 ),
             )),
             Some(_) => {}
@@ -870,7 +867,7 @@ impl AbiDirection {
 #[derive(Clone)]
 pub(crate) struct IrAbiSlot {
     pub(crate) name: String,
-    pub(crate) ctype: String,
+    pub(crate) ctype: ParameterType,
     pub(crate) direction: AbiDirection,
 }
 
@@ -927,42 +924,24 @@ pub(crate) fn link_compare_op_valid(op: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn fields(spec: &[(&str, &str)]) -> Vec<(String, String)> {
+    fn fields(spec: &[(&str, &str)]) -> Vec<(String, ParameterType)> {
         spec.iter()
-            .map(|(n, t)| ((*n).to_string(), (*t).to_string()))
+            .map(|(n, t)| ((*n).to_string(), ParameterType::parse(t)))
             .collect()
     }
 
-    /// The ctype list `link_thunk::tests::every_known_ctype_lowers` walks must be
-    /// the whole accepted set, or that guard silently stops covering a name. The
-    /// two live in different modules, so this is where they are held together.
-    #[test]
-    fn ctype_list_is_exhaustive() {
-        const CTYPES: &[&str] = &[
-            "CPtr", "CString", "CBuffer", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8",
-            "CUInt16", "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
-        ];
-        for ctype in CTYPES {
-            assert!(
-                abi_slot_ctype_is_known(ctype),
-                "{ctype} is in the backend's list but rejected by abi_slot_ctype_is_known"
-            );
-        }
-        // The converse: every name the authority accepts must be in that list.
-        // Enumerating a `matches!` needs a candidate set, so probe the spellings
-        // any binding could plausibly write plus the accepted ones.
-        for candidate in CTYPES
-            .iter()
-            .chain(["CFloat32", "CIntPtr", "CSize", "CLong", "Cint32"].iter())
-        {
-            if abi_slot_ctype_is_known(candidate) {
-                assert!(
-                    CTYPES.contains(candidate),
-                    "{candidate} is accepted but link_thunk's CTYPES list omits it"
-                );
-            }
-        }
-    }
+    // plan-113 deleted `ctype_list_is_exhaustive`. It asserted that
+    // `link_thunk::tests::every_known_ctype_lowers`'s hand-written `CTYPES`
+    // array agreed with `abi_slot_ctype_is_known`, and probed a candidate set to
+    // catch the converse. Both sides of that assertion are now the SAME value:
+    // the array is `CAbiType::ALL`, and the authority is `c_abi()` — a `Some`
+    // exactly for the 16 the enum defines. There is nothing left that could
+    // disagree, so the test could no longer fail for any input.
+    //
+    // The lowering half it guarded is NOT redundant and was kept:
+    // `every_known_ctype_lowers` still walks every variant through
+    // `lower_link_thunk` and asserts `is_ok()`, which an exhaustive `match`
+    // proves nothing about.
 
     /// Ground truth probed with gcc against the real `sndfile.h` on the aarch64
     /// box during planning:
@@ -1104,21 +1083,49 @@ mod tests {
 
     #[test]
     fn cstruct_field_mfb_type_maps_each_scalar_class() {
-        assert_eq!(cstruct_field_mfb_type("CInt64"), Some("Integer"));
-        assert_eq!(cstruct_field_mfb_type("CBool"), Some("Boolean"));
-        assert_eq!(cstruct_field_mfb_type("CFloat"), Some("Float"));
-        assert_eq!(cstruct_field_mfb_type("CDouble"), Some("Float"));
-        assert_eq!(cstruct_field_mfb_type("CString"), Some("String"));
+        assert_eq!(
+            cstruct_field_mfb_type(&ParameterType::parse("CInt64")),
+            Some("Integer")
+        );
+        assert_eq!(
+            cstruct_field_mfb_type(&ParameterType::parse("CBool")),
+            Some("Boolean")
+        );
+        assert_eq!(
+            cstruct_field_mfb_type(&ParameterType::parse("CFloat")),
+            Some("Float")
+        );
+        assert_eq!(
+            cstruct_field_mfb_type(&ParameterType::parse("CDouble")),
+            Some("Float")
+        );
+        assert_eq!(
+            cstruct_field_mfb_type(&ParameterType::parse("CString")),
+            Some("String")
+        );
         // CPtr/CVoid and any unknown ctype never map into a record field.
-        assert_eq!(cstruct_field_mfb_type("CPtr"), None);
-        assert_eq!(cstruct_field_mfb_type("CVoid"), None);
-        assert_eq!(cstruct_field_mfb_type("CSize"), None);
+        assert_eq!(cstruct_field_mfb_type(&ParameterType::parse("CPtr")), None);
+        assert_eq!(cstruct_field_mfb_type(&ParameterType::parse("CVoid")), None);
+        assert_eq!(cstruct_field_mfb_type(&ParameterType::parse("CSize")), None);
     }
 
     // ---- check_struct_slot fault arms ---------------------------------------
 
+    /// The MFBASIC record side of a struct slot. Unlike [`fields`] these stay
+    /// `(name, mfb type NAME)`: `StructSlotView.record` is the declared record's
+    /// rendered field types, which plan-113 did not touch.
     fn record(spec: &[(&str, &str)]) -> Vec<(String, String)> {
-        fields(spec)
+        spec.iter()
+            .map(|(n, t)| ((*n).to_string(), (*t).to_string()))
+            .collect()
+    }
+
+    /// A C ABI spelling as a `&'static ParameterType`, so a [`BufferSlotsView`]
+    /// — which borrows its slots — can still be built inline in a test. The leak
+    /// is one small allocation per call in a test binary; the alternative is a
+    /// `let` binding per slot in every view below.
+    fn ct(spelling: &str) -> &'static ParameterType {
+        Box::leak(Box::new(ParameterType::parse(spelling)))
     }
 
     #[test]
@@ -1171,13 +1178,13 @@ mod tests {
         // rule 4 (a CONST slot cannot be a CBuffer).
         let view = BufferSlotsView {
             function: "grab",
-            slots: vec![("buf", "CBuffer", AbiDirection::In)],
+            slots: vec![("buf", ct("CBuffer"), AbiDirection::In)],
             buffers: vec![("buf", vec![])],
             const_slots: vec!["buf"],
             param_names: vec![],
             return_type: &ParameterType::Nothing,
             abi_return_name: "status",
-            abi_return_ctype: "CInt32",
+            abi_return_ctype: ct("CInt32"),
             result_slot: None,
             length_reads: None,
         };
@@ -1195,15 +1202,15 @@ mod tests {
         let view = BufferSlotsView {
             function: "read",
             slots: vec![
-                ("buf", "CBuffer", AbiDirection::Out),
-                ("n", "CInt32", AbiDirection::In),
+                ("buf", ct("CBuffer"), AbiDirection::Out),
+                ("n", ct("CInt32"), AbiDirection::In),
             ],
             buffers: vec![("buf", vec!["n"])],
             const_slots: vec![],
             param_names: vec![],
             return_type: &ParameterType::ListOf(Box::new(ParameterType::Byte)),
             abi_return_name: "status",
-            abi_return_ctype: "CInt32",
+            abi_return_ctype: ct("CInt32"),
             result_slot: Some("buf"),
             length_reads: Some(vec!["status"]),
         };

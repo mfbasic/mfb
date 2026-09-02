@@ -142,7 +142,7 @@ pub(crate) struct HirLinkFunction {
     pub(crate) return_state_type: Option<ParameterType>,
     /// The native C symbol, e.g. `"sqlite3_open"`.
     pub(crate) symbol: String,
-    pub(crate) abi: crate::ast::AbiSpec,
+    pub(crate) abi: HirAbiSpec,
     pub(crate) consts: Vec<crate::ast::ConstPin>,
     pub(crate) bind_in: Vec<crate::ast::BindIn>,
     pub(crate) bind_state: Option<crate::ast::BindState>,
@@ -150,7 +150,47 @@ pub(crate) struct HirLinkFunction {
     pub(crate) result_length: Option<crate::ast::Expression>,
     pub(crate) success_on: Option<crate::ast::Expression>,
     pub(crate) result: Option<crate::ast::Expression>,
-    pub(crate) free: Option<crate::ast::FreeSpec>,
+    pub(crate) free: Option<HirFreeSpec>,
+    pub(crate) line: usize,
+}
+
+/// The elaborated mirror of [`crate::ast::AbiSpec`] — the `ABI (slots…) AS name
+/// ctype` native call shape, with every C type parsed (plan-113).
+#[derive(Clone, Debug)]
+pub(crate) struct HirAbiSpec {
+    pub(crate) slots: Vec<HirAbiSlot>,
+    pub(crate) return_name: String,
+    pub(crate) return_ctype: ParameterType,
+    pub(crate) line: usize,
+}
+
+/// The elaborated mirror of [`crate::ast::AbiSlot`].
+#[derive(Clone, Debug)]
+pub(crate) struct HirAbiSlot {
+    pub(crate) name: String,
+    pub(crate) ctype: ParameterType,
+    pub(crate) direction: crate::ir::AbiDirection,
+    pub(crate) line: usize,
+}
+
+/// The elaborated mirror of [`crate::ast::FreeSpec`] — the deallocator block's
+/// parameter and return C types.
+#[derive(Clone, Debug)]
+pub(crate) struct HirFreeSpec {
+    pub(crate) slot: String,
+    pub(crate) symbol: String,
+    pub(crate) param_name: String,
+    pub(crate) param_ctype: ParameterType,
+    pub(crate) return_ctype: ParameterType,
+    pub(crate) line: usize,
+}
+
+/// The elaborated mirror of [`crate::ast::CStructField`] — one `<name> <ctype>`
+/// field of a `CSTRUCT`.
+#[derive(Clone, Debug)]
+pub(crate) struct HirCStructField {
+    pub(crate) name: String,
+    pub(crate) ctype: ParameterType,
     pub(crate) line: usize,
 }
 
@@ -169,8 +209,16 @@ pub(crate) struct HirLinkParam {
 }
 
 /// A `CSTRUCT <CName> AS <MfbType>` declaration, with its MFBASIC record type
-/// elaborated. The C-side field list is untouched: a `ctype` is a C ABI slot
-/// spelling, not an MFBASIC type.
+/// and its C-side field list both elaborated.
+///
+/// plan-113: the field list used to be the verbatim AST struct, on the reasoning
+/// that *"a `ctype` is a C ABI slot spelling, not an MFBASIC type"*. It is now a
+/// [`ParameterType`] like every other type this stage carries — a
+/// [`ParameterType::C`] for one of the 16 primitives, a
+/// [`Named`](ParameterType::Named) for a name outside them (which the CSTRUCT
+/// rules then reject). This is the boundary where that conversion belongs: the
+/// AST is the name world, and `elaborate_link_block` is where its spellings
+/// become types.
 #[derive(Clone, Debug)]
 pub(crate) struct HirCStructDecl {
     /// The C-side name, e.g. `SfFormatInfo`. Local to the owning LINK alias.
@@ -178,7 +226,7 @@ pub(crate) struct HirCStructDecl {
     /// The MFBASIC record type this struct maps to, e.g. `AudioFormat`.
     pub(crate) maps_to: ParameterType,
     /// Fields in **C declaration order** — the order drives the offsets.
-    pub(crate) fields: Vec<crate::ast::CStructField>,
+    pub(crate) fields: Vec<HirCStructField>,
     pub(crate) line: usize,
 }
 
@@ -580,7 +628,15 @@ pub(crate) fn elaborate_link_block(block: &crate::ast::LinkBlock) -> HirLinkBloc
             .map(|c| HirCStructDecl {
                 name: c.name.clone(),
                 maps_to: ParameterType::parse(&c.maps_to),
-                fields: c.fields.clone(),
+                fields: c
+                    .fields
+                    .iter()
+                    .map(|f| HirCStructField {
+                        name: f.name.clone(),
+                        ctype: ParameterType::parse(&f.ctype),
+                        line: f.line,
+                    })
+                    .collect(),
                 line: c.line,
             })
             .collect(),
@@ -610,7 +666,22 @@ fn elaborate_link_function(function: &crate::ast::LinkFunction) -> HirLinkFuncti
             .as_deref()
             .map(ParameterType::parse),
         symbol: function.symbol.clone(),
-        abi: function.abi.clone(),
+        abi: HirAbiSpec {
+            slots: function
+                .abi
+                .slots
+                .iter()
+                .map(|slot| HirAbiSlot {
+                    name: slot.name.clone(),
+                    ctype: ParameterType::parse(&slot.ctype),
+                    direction: slot.direction,
+                    line: slot.line,
+                })
+                .collect(),
+            return_name: function.abi.return_name.clone(),
+            return_ctype: ParameterType::parse(&function.abi.return_ctype),
+            line: function.abi.line,
+        },
         consts: function.consts.clone(),
         bind_in: function.bind_in.clone(),
         bind_state: function.bind_state.clone(),
@@ -618,7 +689,14 @@ fn elaborate_link_function(function: &crate::ast::LinkFunction) -> HirLinkFuncti
         result_length: function.result_length.clone(),
         success_on: function.success_on.clone(),
         result: function.result.clone(),
-        free: function.free.clone(),
+        free: function.free.as_ref().map(|free| HirFreeSpec {
+            slot: free.slot.clone(),
+            symbol: free.symbol.clone(),
+            param_name: free.param_name.clone(),
+            param_ctype: ParameterType::parse(&free.param_ctype),
+            return_ctype: ParameterType::parse(&free.return_ctype),
+            line: free.line,
+        }),
         line: function.line,
     }
 }

@@ -279,7 +279,7 @@ fn eval_link_const_opt(expr: &Expression, cstructs: &[crate::hir::HirCStructDecl
                     return None;
                 };
                 let decl = cstructs.iter().find(|c| c.name == *name)?;
-                let fields: Vec<(String, String)> = decl
+                let fields: Vec<(String, crate::types::ParameterType)> = decl
                     .fields
                     .iter()
                     .map(|f| (f.name.clone(), f.ctype.clone()))
