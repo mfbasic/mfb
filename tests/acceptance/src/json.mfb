@@ -264,13 +264,80 @@ TESTING
         expectTrap(getStr(v, ["missing"]), errorCode::ErrNotFound)
         expectTrap(getStr(v, ["user", "missing"]), errorCode::ErrNotFound)
       END TCASE
-      TCASE "security: a non-object at any step raises ErrNotFound"
+      TCASE "security: a step that finds nothing raises ErrNotFound"
+        ' "x" is not an index, so an array rejects it exactly as it always did —
+        ' plan-120-B made arrays traversable by INDEX, not by arbitrary token.
         expectTrap(getStr(json::parse("[1,2,3]"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("\"hi\""), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("5"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("true"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("null"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("{\"flag\":true}"), ["flag", "x"]), errorCode::ErrNotFound)
+        ' A scalar never accepts an index either, however well spelled.
+        expectTrap(getStr(json::parse("5"), ["0"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("\"hi\""), ["0"]), errorCode::ErrNotFound)
+      END TCASE
+      ' plan-120-B: array-index path steps. Before this, `json::get` on a
+      ' `JsonArr` failed unconditionally, so every case below moves from
+      ' ErrNotFound to a value — no pin is weakened, the surface is new.
+      TCASE "array index steps select elements"
+        LET v AS json::Json = json::parse("{\"items\":[10,20,30]}")
+        expectString(getStr(v, ["items", "0"]), "10")
+        expectString(getStr(v, ["items", "1"]), "20")
+        expectString(getStr(v, ["items", "2"]), "30")
+        ' Mixed key/index/key traversal in one path.
+        LET m AS json::Json = json::parse("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
+        expectString(getStr(m, ["items", "1", "name"]), "\"b\"")
+        expectString(getStr(m, ["items", "0"]), "{\"name\":\"a\"}")
+        ' An index onto a nested array, and a bare (unwrapped) array root.
+        expectString(getStr(json::parse("[[1,2],[3,4]]"), ["1", "0"]), "3")
+        expectString(getStr(json::parse("[7]"), ["0"]), "7")
+      END TCASE
+      TCASE "array index out of range raises ErrNotFound"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        expectTrap(getStr(v, ["items", "2"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "99"]), errorCode::ErrNotFound)
+        ' An empty array has no element 0.
+        expectTrap(getStr(json::parse("[]"), ["0"]), errorCode::ErrNotFound)
+      END TCASE
+      TCASE "only the RFC 6901 spelling counts as an index"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        ' Leading zero, explicit sign, surrounding space, empty, non-decimal —
+        ' none of these are index tokens, so on an array they find nothing.
+        expectTrap(getStr(v, ["items", "01"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "+1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "-1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1 "]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", " 1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", ""]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1.0"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "0x1"]), errorCode::ErrNotFound)
+        ' A digit run too wide for an Integer must MISS, not overflow: the
+        ' 19-digit token below would trap in toInt if it were converted.
+        expectTrap(getStr(v, ["items", "9999999999999999999"]), errorCode::ErrNotFound)
+        ' 18 digits IS converted, and is simply out of range.
+        expectTrap(getStr(v, ["items", "999999999999999999"]), errorCode::ErrNotFound)
+        ' A GRAPHEME that merely starts with a digit is not a digit. "1" plus
+        ' U+0308 COMBINING DIAERESIS is one cluster that sorts inside ["0","9"]
+        ' under lexicographic compare, so a range test wrongly accepts it and
+        ' toInt then raises -- caught during plan-120-B, see Correction B-C5.
+        expectTrap(getStr(v, ["items", "1\u{308}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "11\u{308}"]), errorCode::ErrNotFound)
+        ' Non-ASCII digits are not indexes either: fullwidth ONE and
+        ' Arabic-Indic ONE both look like digits to a human, not to RFC 6901.
+        expectTrap(getStr(v, ["items", "\u{FF11}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1\u{FF11}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1\u{661}"]), errorCode::ErrNotFound)
+      END TCASE
+      TCASE "the variant underfoot decides: a numeric token is still an object key"
+        ' This is what makes the change backward-compatible — an object with
+        ' digit-shaped keys reads them as keys, never as indexes.
+        LET v AS json::Json = json::parse("{\"0\":\"zero\",\"1\":\"one\",\"01\":\"oh-one\"}")
+        expectString(getStr(v, ["0"]), "\"zero\"")
+        expectString(getStr(v, ["1"]), "\"one\"")
+        expectString(getStr(v, ["01"]), "\"oh-one\"")
+        ' And a key absent from that object is still just a miss.
+        expectTrap(getStr(v, ["2"]), errorCode::ErrNotFound)
       END TCASE
     END TGROUP
 
@@ -290,6 +357,47 @@ TESTING
         expectString(json::stringify(json::getOr(v, ["user", "missing"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(v, ["flag", "x"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(json::parse("[1,2]"), ["x"], json::JsonNull[NOTHING])), "null")
+      END TCASE
+      ' plan-120-B: getOr is get's contract with the FAIL replaced by the
+      ' default, so every get case above has a twin here. The pairing is the
+      ' review checklist for the two bodies staying parallel.
+      TCASE "array index steps select elements (getOr)"
+        LET v AS json::Json = json::parse("{\"items\":[10,20,30]}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["items", "0"], fb)), "10")
+        expectString(json::stringify(json::getOr(v, ["items", "2"], fb)), "30")
+        LET m AS json::Json = json::parse("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
+        expectString(json::stringify(json::getOr(m, ["items", "1", "name"], fb)), "\"b\"")
+        expectString(json::stringify(json::getOr(json::parse("[[1,2],[3,4]]"), ["1", "0"], fb)), "3")
+      END TCASE
+      TCASE "out-of-range and non-index tokens return the default, never fail"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["items", "2"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "01"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "+1"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "-1"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "1 "], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", ""], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(json::parse("[]"), ["0"], fb)), "\"fallback\"")
+        ' The overflow guard matters most HERE: getOr must not fail, ever, so a
+        ' 19-digit token has to miss rather than reach toInt.
+        expectString(json::stringify(json::getOr(v, ["items", "9999999999999999999"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "9999999999999999999"], fb)))
+        ' Same reason, for the combining-mark cluster: this FAILED with 77050003
+        ' before Correction B-C5, which is a broken getOr contract, not a miss.
+        expectString(json::stringify(json::getOr(v, ["items", "1\u{308}"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "1\u{308}"], fb)))
+        expectString(json::stringify(json::getOr(v, ["items", "11\u{308}"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "11\u{308}"], fb)))
+        expectNTrap(json::stringify(json::getOr(v, ["items", "1\u{FF11}"], fb)))
+      END TCASE
+      TCASE "a numeric token on an object is still a key (getOr)"
+        LET v AS json::Json = json::parse("{\"0\":\"zero\",\"01\":\"oh-one\"}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["0"], fb)), "\"zero\"")
+        expectString(json::stringify(json::getOr(v, ["01"], fb)), "\"oh-one\"")
+        expectString(json::stringify(json::getOr(v, ["2"], fb)), "\"fallback\"")
       END TCASE
     END TGROUP
 

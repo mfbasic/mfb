@@ -11,6 +11,7 @@ mod func_get_or;
 mod func_parse;
 mod func_stringify;
 
+mod helper_array_index;
 mod helper_code_point_to_string;
 mod helper_collect_number;
 mod helper_consume_digits;
@@ -85,12 +86,13 @@ applies the standard JSON string escapes. Parsing reads one complete document,
 allows surrounding JSON whitespace, and rejects any trailing non-whitespace
 content.
 
-The path readers operate only on object members. `json::get` and `json::getOr`
-follow a `List OF String` of object keys left to right from `value`, requiring a
-`json::JsonObj` at each step; an empty path returns `value` unchanged. They do not copy
-`value`: the located `json::Json` value is returned directly. `json::get` fails when a
-key is missing or the current value is not an object, whereas `json::getOr`
-returns its default value in those cases instead of failing."#;
+The path readers walk a whole tree. `json::get` and `json::getOr` follow a
+`List OF String` left to right from `value`; a step is an object key on a
+`json::JsonObj` and a zero-based decimal index on a `json::JsonArr`, so
+`["items", "1", "name"]` crosses both. An empty path returns `value` unchanged.
+They do not copy `value`: the located `json::Json` value is returned directly.
+`json::get` fails when a step finds nothing, whereas `json::getOr` returns its
+default value in those cases instead of failing."#;
 
 /// Register the `json` package on the registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -269,6 +271,9 @@ pub(crate) fn register(r: &mut Registry) {
     helper_is_whitespace::register(&mut pkg);
     helper_is_digit::register(&mut pkg);
     helper_is_non_zero_digit::register(&mut pkg);
+    // plan-120-B. Appended rather than slotted next to the other predicates so
+    // the helpers above keep the order the old `package.mfb` blob had.
+    helper_array_index::register(&mut pkg);
 
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);

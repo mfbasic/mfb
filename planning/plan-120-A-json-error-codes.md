@@ -229,7 +229,7 @@ Gates:
   `every_builtin_declared_error_is_a_table_name` (which validates the new
   `errors:` entries name real table rows) — all pass.
 - `cargo fmt` both roots: no churn.
-Commit: —
+Commit: 2ccc4cce5
 
 ### Phase 2 — truthful docs
 
@@ -290,7 +290,7 @@ and `ErrOverflow` from the codes now named in the prose.
 `scripts/man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`.
 `scripts/man-run-examples.sh json --run` → `examples: 12  built: 12  ran: 12
 failed: 0`. `cargo check --all-targets` clean; `cargo fmt` both roots: no churn.
-Commit: —
+Commit: 2ccc4cce5 (one commit carries both phases — the doc corrections in Phase 2 were only provable against the code changes in Phase 1, so splitting them would have left an intermediate commit whose rendered pages contradicted its behavior)
 
 ## Validation Plan
 
