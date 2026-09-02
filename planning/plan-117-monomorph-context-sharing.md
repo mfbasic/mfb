@@ -489,13 +489,35 @@ Commit: 81982a91c
   list it: `function_signature_types`'s doc comment said "Shared by
   `Monomorphizer::function_context` and `add_function_to_context`", both of which
   Phase 2 deletes. Rewritten to describe the on-demand call it now serves.
-- **`artifact_gate_all` failed once on lock contention, not on a diff.** The
-  Phase 2 `cargo test --no-fail-fast` reported
+- **`artifact_gate_all` failed on lock contention, not on a diff — three
+  times.** Every Phase 2 `cargo test --no-fail-fast` reported
   `artifact-gate.sh could not START: another gate run holds the lock. This is NOT
-  a golden regression -- nothing was checked` (`tests/golden.rs:39`). Re-run
-  uncontended: `cargo test --test golden` → `1325 tests, 1487 build(s), 1823
-  golden(s) checked, 0 diff(s)`, `test artifact_gate_all ... ok`. Recorded so the
-  transient is not mistaken for a phase-2 inference delta.
+  a golden regression -- nothing was checked` (`tests/golden.rs:39`, exit 98).
+  The holder was identified rather than assumed:
+  `ps -o pid=,args= -A | grep artifact-gate` → `77149 bash
+  ./scripts/artifact-gate.sh target/release/mfb all`, a PEER session working
+  plan-118 (plus a second peer queued on it, writing `/tmp/p118_gate_c1b.log`).
+  Re-run once the lock cleared: `cargo test --test golden` → `test
+  artifact_gate_all ... ok`, `1325 tests, 1487 build(s), 1823 golden(s) checked,
+  0 diff(s)`. Recorded so the transient is not mistaken for a phase-2 inference
+  delta.
+
+### Merge-back
+
+- **`main` advanced 14 commits during execution** (`00dbc5102` → `467b32a4f`:
+  the plan-116-B canvas blend/clip family and plan-120-A..G json fixes).
+  `git merge main` into `worktree-P-117` was clean — no conflict, and no file
+  this plan touches was among the 31 main changed. The full gate set was re-run
+  on the merged tree: `cargo test --no-fail-fast` → 90 suites, 4401 passed
+  (`artifact_gate_all` refused on the peer lock again; re-run standalone → ok);
+  `scripts/test-accept.sh` → `acceptance tests passed (1346 test(s) ran)`;
+  `scripts/artifact-gate.sh all` → `1823 golden(s) checked, 0 diff(s)`;
+  `./target/release/mfb test -vv tests/acceptance` →
+  `monomorphize 134.9ms 134.9ms 1 0.2%` (resolve 459.6ms),
+  `Tests: 732  Pass: 732  Fail: 0`. The span is larger than the pre-merge
+  101.0 ms because main's merge grew the corpus, not because anything regressed;
+  the share is unchanged at 0.2 %, against a ≤ 2,000 ms / under-3 % criterion.
+  `cargo fmt --all` + the `repository/` pass produced no churn.
 
 ## Summary
 
