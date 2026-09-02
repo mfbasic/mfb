@@ -331,7 +331,9 @@ mod tests {
                 .as_deref(),
             Some("String")
         );
-        assert_eq!(registry().arity("json.parse"), Some((1, 1)));
+        // plan-120-E: parse gained the `(text, reviver)` overload, so it now
+        // accepts 1 OR 2 arguments. The 1-arg form is unchanged.
+        assert_eq!(registry().arity("json.parse"), Some((1, 2)));
         assert_eq!(registry().arity("json.get"), Some((2, 2)));
         assert_eq!(registry().arity("json.getOr"), Some((3, 3)));
     }

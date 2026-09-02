@@ -5224,13 +5224,30 @@ mod tests {
         assert_eq!(agreed_argument_type("json.stringify", 2), None);
         // A single-implementation member is `argument_types_typed`'s job; this
         // function deliberately declines so the two cannot both answer.
-        assert_eq!(agreed_argument_type("json.parse", 0), None);
+        // `json.get` stands in for `json.parse` here, which plan-120-E gave a
+        // second overload — the parse cases moved below.
+        assert_eq!(agreed_argument_type("json.get", 0), None);
         // And it agrees with `argument_types_typed` about what position 0 IS,
         // for a member where that function does answer.
         assert_eq!(
-            argument_types_typed("json.parse").and_then(|p| p.first().cloned()),
-            Some(ParameterType::String)
+            argument_types_typed("json.get").and_then(|p| p.first().map(|t| t.name().into_owned())),
+            Some("json.Json".to_string())
         );
+        // plan-120-E: now that `json.parse` is overloaded the two roles swap —
+        // this function answers and `argument_types_typed` declines. They are
+        // exact complements (exactly 1 implementation vs 2 or more), which is
+        // what stops both from answering for the same member; asserting BOTH
+        // halves is what makes that a property rather than a coincidence.
+        assert_eq!(
+            agreed_argument_type("json.parse", 0).map(|t| t.name().into_owned()),
+            Some("String".to_string()),
+            "both parse overloads take String first"
+        );
+        assert_eq!(argument_types_typed("json.parse"), None);
+        // Position 1 exists in only ONE of the two overloads. A position past
+        // some overload's parameter list is not agreement, so it must decline —
+        // otherwise a 1-arg call site would be handed the reviver's type.
+        assert_eq!(agreed_argument_type("json.parse", 1), None);
         // An unknown member is not an answer.
         assert_eq!(agreed_argument_type("nope.missing", 0), None);
     }

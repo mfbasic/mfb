@@ -212,6 +212,17 @@ deferred).
       first run reported 26 diffs; all 26 were localized, attributed and
       regenerated, and the gate now reads
       `1329 tests, 1492 build(s), 1832 golden(s) checked, 0 diff(s)`.
+- [x] **Added task (not in the plan as written): sync
+      `src/docs/spec/stdlib/04_json.md`.** Found while checking whether the
+      embedded spec needed E's reviver. It did — and so did four earlier
+      letters. See Correction E-C3; every letter's doc-sync task said
+      `mfb man`, and only A touched `mfb spec` (and only the global
+      error-code table, not the json topic). Eleven edits; the four `[[…]]`
+      citations added all resolve (`spec_citations_resolve`, and all 26
+      `docs::` tests, green).
+- [x] **Added task: repair two assertions the overload invalidated.** The full
+      `cargo test --no-fail-fast` came back `95 binaries, 2 failed`, both
+      stale facts rather than broken behaviour — see Correction E-C4.
 
 Acceptance: all Phase 1 cases green; artifact-gate clean; full
 `cargo test --no-fail-fast` + `scripts/test-accept.sh` green; fmt + check.
@@ -320,6 +331,58 @@ Commit: —
   hand-copied because `test-accept` skips `byte-identity/`, and its `.ast` was
   confirmed byte-identical first, proving the fixture's own source did not move.
   7 + 19 = 26, matching the diff count exactly.
+
+- **E-C3: the embedded spec was never synced by ANY letter of this family.**
+  Checking whether `mfb spec stdlib json` needed a reviver section turned up
+  that the page was stale with respect to **five** letters. It was not stale in
+  a cosmetic way — it stated wrong error codes and a wrong escaping rule, both
+  of which a reader would act on:
+
+  | Claim in the page | Reality | Owed by |
+  |---|---|---|
+  | nesting past 256 "rejected with `77050003`" — on a line citing the very helper that changed | raises `77050024` `ErrDepthExceeded` | A |
+  | "All failures raise error `77050003`" | also `77050024`, `77050025`, and `toFloat`'s re-raised `ErrOverflow` | A |
+  | NaN/±inf "rejected with error `77050003`" | `77050013` / `77050014` | A |
+  | number formatting: "rendered with 9 fractional digits" | a search over 1..25 places verifying the round trip | C (bug-304) |
+  | "the solidus `/` is always escaped on output" | it is no longer escaped at all | C |
+  | "The path addresses object fields only — there is no array-index step" | arrays are indexed by decimal token | B |
+  | the get/getOr step table | had no array rows | B |
+  | error-code table | listed 2 of the 7 codes json can raise | A, C |
+  | "producing compact output — no spaces, no newlines, no indentation" | two indented overloads exist | D |
+  | no mention of a reviver | this letter | E |
+
+  Fixed all eleven in one pass, adding a `Revival: parse(text, reviver)` section
+  and citations to the four helpers the family added
+  (`__json_revive`, `__json_stringifyIndent`, `__json_arrayIndex`,
+  `__json_requireFiniteNumberText`). Rendered via `mfb spec stdlib json`;
+  `spec_citations_resolve` and all 26 `docs::` tests green.
+
+  **The transferable lesson: "doc sync" in each letter meant `mfb man`, and
+  every letter honoured it, so nothing was skipped through carelessness — the
+  task simply never named the second surface.** A future plan touching a builtin
+  should say which of the two it means, or say both.
+
+- **E-C4: two test assertions went stale, and neither was a behaviour
+  regression.** `cargo test --no-fail-fast` reported 95 binaries with exactly 2
+  failures:
+
+  - `json::tests::generic_dispatch_reaches_json` — `arity("json.parse")` is
+    now `Some((1, 2))`, asserted `Some((1, 1))`. A factual mirror of the
+    descriptor, and the second overload is this letter's entire point.
+  - `registry::tests::agreed_argument_type_answers_where_overloads_agree` —
+    written by me in plan-120-D, using `json.parse` as its example of a
+    *single-implementation* member. E made that premise false.
+
+  The second needed care rather than a number change: the guarantee under test
+  is that `agreed_argument_type` and `argument_types_typed` are exact
+  complements (2-or-more implementations vs exactly 1) so they can never both
+  answer for one member. That property still holds — only the example went
+  stale. So `json.get` takes over as the single-implementation example, and
+  `json.parse` comes back as a *new* case asserting the other side: position 0
+  agrees (`String`, so `agreed_argument_type` answers and `argument_types_typed`
+  declines), and position 1 exists in only one overload, which is not agreement
+  and must decline — otherwise a 1-arg call site would be handed the reviver's
+  type. Net effect is more coverage than before, not less.
 
 ## Summary
 
