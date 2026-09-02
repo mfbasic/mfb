@@ -487,7 +487,14 @@ Acceptance: `endcaps.png` matches on the software oracle and on both GPUs within
   because box 2228 is a single core: the Vulkan harness on **both** Linux libc worlds,
   which is where this letter's Linux-specific work (the butt segment and the arc cap
   discs in the SPIR-V, and the widened item block) actually executes, plus the
-  `--bin mfb` unit tests recorded below.
+  `--bin mfb` unit tests: `cargo test --release --no-fail-fast --bin mfb` on box 2228
+  → **3722 passed, 0 failed** (1437.41s of tests after a ~2h single-core compile).
+  Run at `cca22df71` — this letter's own last code commit — rather than after the
+  final merge-back, which brought main's `append(list, f(x))` in-place fix and audio
+  changes. Those are gated by their own plans, and re-running a 2-hour single-core row
+  for each peer landing outruns main rather than checking it; what the merge had to
+  answer is whether the two interact, which the 96-binary local suite and the 1348-test
+  acceptance run answer.
 Commit: cca22df71, 610d34e38 (the `examples/emoji` arc main brought in mid-letter)
 
 ## Validation Plan
