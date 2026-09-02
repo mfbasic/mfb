@@ -33,7 +33,7 @@
   { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 16, "plannedSize": 12, "operations": ["eval call consume$Integer(Integer(42))", "eval call consume$String(String(ok))", "eval runtimeCall io io.print(String(ok))"], "calls": ["_mfb_fn_consume_24Integer", "_mfb_fn_consume_24String", "_mfb_rt_io_io_print"], "dataRefs": [] },
   { "symbol": "_mfb_fn_consume_24Integer", "section": "__TEXT,__text", "offset": 28, "plannedSize": 4, "operations": ["noOp"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_consume_24String", "section": "__TEXT,__text", "offset": 32, "plannedSize": 4, "operations": ["noOp"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 36, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": ["_mfb_cstr_0"] }
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 36, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_signal", "_raise", "___error", "_write"], "dataRefs": ["_mfb_cstr_0"] }
   ],
   "dataUnits": [
   { "symbol": "_mfb_cstr_0", "section": "__TEXT,__cstring", "offset": 0, "size": 3, "value": "ok" }
@@ -44,7 +44,9 @@
   { "library": "libSystem", "symbol": "_getentropy" },
   { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
-  { "library": "libSystem", "symbol": "_write" }
+  { "library": "libSystem", "symbol": "_write" },
+  { "library": "libSystem", "symbol": "_raise" },
+  { "library": "libSystem", "symbol": "___error" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -58,10 +60,12 @@
   { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 109 },
   { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 121 },
   { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 136 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 144 }
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 144 },
+  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 151 },
+  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 }
   ],
   "stringTable": {
-    "size": 151,
+    "size": 167,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -73,7 +77,9 @@
     { "value": "_getentropy", "offset": 109 },
     { "value": "_clock_gettime", "offset": 121 },
     { "value": "_signal", "offset": 136 },
-    { "value": "_write", "offset": 144 }
+    { "value": "_write", "offset": 144 },
+    { "value": "_raise", "offset": 151 },
+    { "value": "___error", "offset": 158 }
     ]
   },
   "relocations": [
@@ -86,6 +92,9 @@
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_raise", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "___error", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
   ]

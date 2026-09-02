@@ -37,7 +37,7 @@
   { "symbol": "_mfb_fn_inlineIfElse", "section": "__TEXT,__text", "offset": 152, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(4)", "branch -> if_end_1", "label if_else_0", "return Integer(5)", "label if_end_1"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_inlineIfAssign", "section": "__TEXT,__text", "offset": 176, "plannedSize": 32, "operations": ["bind mutable result AS Integer = Integer(0)", "branchIfFalse local flag -> if_else_0", "assign result = Integer(6)", "branch -> if_end_1", "label if_else_0", "assign result = Integer(7)", "label if_end_1", "return local result"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 208, "plannedSize": 12, "operations": ["bind immutable total AS Integer = (((((((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false))) + call inlineIfElse(Boolean(true))) + call inlineIfElse(Boolean(false))) + call inlineIfAssign(Boolean(true))) + call inlineIfAssign(Boolean(false)))", "eval runtimeCall io io.print(call toString(local total))", "return Integer(0)"], "calls": ["_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_rt_io_io_print"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 220, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": [] }
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 220, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_signal", "_raise", "___error", "_write"], "dataRefs": [] }
   ],
   "dataUnits": [
   ],
@@ -47,7 +47,9 @@
   { "library": "libSystem", "symbol": "_getentropy" },
   { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
-  { "library": "libSystem", "symbol": "_write" }
+  { "library": "libSystem", "symbol": "_write" },
+  { "library": "libSystem", "symbol": "_raise" },
+  { "library": "libSystem", "symbol": "___error" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -64,10 +66,12 @@
   { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 },
   { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 170 },
   { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 185 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 193 }
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 193 },
+  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 200 },
+  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 207 }
   ],
   "stringTable": {
-    "size": 200,
+    "size": 216,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
@@ -82,7 +86,9 @@
     { "value": "_getentropy", "offset": 158 },
     { "value": "_clock_gettime", "offset": 170 },
     { "value": "_signal", "offset": 185 },
-    { "value": "_write", "offset": 193 }
+    { "value": "_write", "offset": 193 },
+    { "value": "_raise", "offset": 200 },
+    { "value": "___error", "offset": 207 }
     ]
   },
   "relocations": [
@@ -99,6 +105,9 @@
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_raise", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "___error", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }
