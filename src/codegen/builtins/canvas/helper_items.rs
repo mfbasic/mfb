@@ -141,6 +141,7 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
     ' coverage multiply the SDF path takes, so a clipped glyph edge is antialiased
     ' identically to a clipped shape edge.
     LET tClipped AS Boolean = __canvas_hasClip(offset)
+    LET tBlend AS Integer = toInt(__canvas_geoAt(offset, 26))
     MUT gi AS Integer = 0
     WHILE gi < tGlyphs
       LET runBase AS Integer = runAt + gi * 3
@@ -166,15 +167,15 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
               IF cover > 0 THEN
                 LET gAlpha AS Integer = (tA * cover) / 255
                 LET gIdx AS Integer = gRowBase + sx * 4
-                IF gAlpha >= 255 THEN
+                IF gAlpha >= 255 AND tBlend = 0 THEN
                   out = collections::set(out, gIdx, tR)
                   out = collections::set(out, gIdx + 1, tG)
                   out = collections::set(out, gIdx + 2, tB)
                   out = collections::set(out, gIdx + 3, toByte(255))
                 ELSEIF gAlpha > 0 THEN
-                  out = collections::set(out, gIdx, __canvas_blendChannel(collections::getOr(out, gIdx, toByte(0)), tR, gAlpha))
-                  out = collections::set(out, gIdx + 1, __canvas_blendChannel(collections::getOr(out, gIdx + 1, toByte(0)), tG, gAlpha))
-                  out = collections::set(out, gIdx + 2, __canvas_blendChannel(collections::getOr(out, gIdx + 2, toByte(0)), tB, gAlpha))
+                  out = collections::set(out, gIdx, __canvas_blendChannelMode(collections::getOr(out, gIdx, toByte(0)), tR, gAlpha, tBlend))
+                  out = collections::set(out, gIdx + 1, __canvas_blendChannelMode(collections::getOr(out, gIdx + 1, toByte(0)), tG, gAlpha, tBlend))
+                  out = collections::set(out, gIdx + 2, __canvas_blendChannelMode(collections::getOr(out, gIdx + 2, toByte(0)), tB, gAlpha, tBlend))
                   out = collections::set(out, gIdx + 3, toByte(255))
                 END IF
               END IF
@@ -238,6 +239,13 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19)), height - 1)
   MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17)), 0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
+  ' plan-116-B: the item's BlendMode, read ONCE per item rather than per pixel.
+  '
+  ' The dispatch lives in `__canvas_blendChannelMode` rather than in four copies of the
+  ' pixel loop -- see the Corrections in the plan for the measurement behind that. Mode
+  ' 0 keeps the existing full-coverage fast path below, so an unblended item's inner
+  ' loop is exactly the one it had.
+  LET blendMode AS Integer = toInt(__canvas_geoAt(offset, 26))
   IF clipped THEN
     firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22)))
     y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23)))
@@ -267,15 +275,18 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
           coverage = (coverage * clipCov) / 255
         END IF
         LET alpha AS Integer = (fillA * coverage) / 255
-        IF alpha >= 255 THEN
+        ' The opaque fast path is Normal-ONLY. A Multiply source at full coverage is
+        ' still `src * dst`, not `src` -- writing the source directly there would make
+        ' every fully-covered pixel of a blended item ignore its mode.
+        IF alpha >= 255 AND blendMode = 0 THEN
           out = collections::set(out, idx, fillR)
           out = collections::set(out, idx + 1, fillG)
           out = collections::set(out, idx + 2, fillB)
           out = collections::set(out, idx + 3, toByte(255))
         ELSEIF alpha > 0 THEN
-          out = collections::set(out, idx, __canvas_blendChannel(collections::getOr(out, idx, toByte(0)), fillR, alpha))
-          out = collections::set(out, idx + 1, __canvas_blendChannel(collections::getOr(out, idx + 1, toByte(0)), fillG, alpha))
-          out = collections::set(out, idx + 2, __canvas_blendChannel(collections::getOr(out, idx + 2, toByte(0)), fillB, alpha))
+          out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), fillR, alpha, blendMode))
+          out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), fillG, alpha, blendMode))
+          out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), fillB, alpha, blendMode))
           out = collections::set(out, idx + 3, toByte(255))
         END IF
       END IF
@@ -287,15 +298,15 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
             band = (band * clipCov) / 255
           END IF
           LET salpha AS Integer = (strokeA * band) / 255
-          IF salpha >= 255 THEN
+          IF salpha >= 255 AND blendMode = 0 THEN
             out = collections::set(out, idx, strokeR)
             out = collections::set(out, idx + 1, strokeG)
             out = collections::set(out, idx + 2, strokeB)
             out = collections::set(out, idx + 3, toByte(255))
           ELSEIF salpha > 0 THEN
-            out = collections::set(out, idx, __canvas_blendChannel(collections::getOr(out, idx, toByte(0)), strokeR, salpha))
-            out = collections::set(out, idx + 1, __canvas_blendChannel(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha))
-            out = collections::set(out, idx + 2, __canvas_blendChannel(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha))
+            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), strokeR, salpha, blendMode))
+            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha, blendMode))
+            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha, blendMode))
             out = collections::set(out, idx + 3, toByte(255))
           END IF
         END IF

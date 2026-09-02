@@ -226,3 +226,95 @@ fn too_many_small_differences_fail_tolerance() {
     );
     assert_eq!(diff.differing_pixels, nudge);
 }
+
+/// The four blend modes, each over the same mid-grey ground (plan-116-B).
+///
+/// A reference image rather than only channel assertions, because
+/// `rt_canvas_rasteriser`'s per-mode test samples **one pixel per mode** at full
+/// coverage. That is the right shape for pinning the equations, and it is blind to
+/// everything else: an antialiased edge under a non-`Normal` mode, a mode applied to a
+/// stroke rather than a fill, and the overlap where two blended items meet. Those are
+/// exactly the places a mode that is right at coverage 255 can still be wrong.
+///
+/// Mid grey is load-bearing. Over white or black the four modes collapse into each
+/// other — `Multiply` with white is the source, `Screen` and `Add` with white are both
+/// white — so a reference taken over either could not distinguish a correct renderer
+/// from one that had `Screen` and `Add` swapped.
+///
+/// Each pair is a filled circle over a stroked rounded rectangle, so every frame
+/// carries both paint channels under every mode.
+const BLEND_MODES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+
+  LET warm AS canvas::Color = canvas::rgb(230, 120, 40)
+  LET cool AS canvas::Color = canvas::rgb(40, 120, 230)
+
+  LET boxNormal AS canvas::DrawItem = canvas::RoundedRect[x := 40.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET dotNormal AS canvas::DrawItem = canvas::Circle[x := 160.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Normal }]
+
+  LET boxMultiply AS canvas::DrawItem = canvas::RoundedRect[x := 260.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET dotMultiply AS canvas::DrawItem = canvas::Circle[x := 380.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Multiply }]
+
+  LET boxScreen AS canvas::DrawItem = canvas::RoundedRect[x := 480.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET dotScreen AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Screen }]
+
+  LET boxAdd AS canvas::DrawItem = canvas::RoundedRect[x := 700.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET dotAdd AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Add }]
+
+  ' A stroked arc under each mode too: a mode has to reach the stroke channel, not
+  ' just the fill, and the stroke is the one that rides `salpha` rather than `alpha`.
+  LET arcNormal AS canvas::DrawItem = canvas::Arc[x := 160.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Normal }]
+  LET arcMultiply AS canvas::DrawItem = canvas::Arc[x := 380.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Multiply }]
+  LET arcScreen AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Screen }]
+  LET arcAdd AS canvas::DrawItem = canvas::Arc[x := 820.0, y := 450.0, radius := 80.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(warm, 16.0) { blend := canvas::BlendMode.Add }]
+
+  ' One clipped item, so the reference covers the other half of this letter as well:
+  ' a fractional clip edge that must stay antialiased.
+  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 560.0, w := 820.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 100.25, y := 560.0, w := 700.5, h := 60.0] }]
+
+  canvas::present([ground, boxNormal, dotNormal, boxMultiply, dotMultiply, boxScreen, dotScreen, boxAdd, dotAdd, arcNormal, arcMultiply, arcScreen, arcAdd, clipped])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The blend-mode reference renders exactly.
+///
+/// Same rule as `smiley_matches_its_reference_exactly`: a mismatch is a bug hunt, not
+/// a re-baseline. The software path is deterministic, so a difference here means one
+/// of the four equations, the clip's coverage, or the sRGB chain moved.
+#[test]
+fn blend_modes_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_blend", BLEND_MODES);
+    let reference = golden_path("blendmodes");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the blend-mode scene no longer renders to its reference image: {diff}\n\
+             This is deterministic output. Localize the mode at that coordinate: the \
+             four pairs run left to right as Normal, Multiply, Screen, Add, the arcs \
+             below them are the same four on the STROKE channel, and the band at the \
+             bottom is a fractional clip edge.",
+        );
+    }
+}

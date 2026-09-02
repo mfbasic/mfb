@@ -450,19 +450,45 @@ Commit: —
 
 The oracle defines the modes, so it lands before either GPU sees them.
 
-- [ ] Add `__canvas_blendChannelMultiply/Screen/Add` to `helper_color.rs`, on linear
-      values through `__CANVAS_SRGB`.
-- [ ] Hoist a blend-mode branch outside `__canvas_drawGeometry`'s pixel loop, with one
-      inner-loop copy per mode.
-- [ ] Add a **new reference-image golden** `tests/golden/canvas/blendmodes.png`: four
+- [x] ~~Add `__canvas_blendChannelMultiply/Screen/Add` to `helper_color.rs`, on linear
+      values through `__CANVAS_SRGB`.~~ — landed as **one** helper,
+      `__canvas_blendChannelMode(dst, src, alpha, mode)`, rather than three siblings.
+      Three siblings would have needed the *call site* to choose between four function
+      names, which is the dispatch this phase was trying to avoid putting per pixel;
+      one helper with the mode as a parameter puts it inside, where it is a branch on
+      a value already in a register. The equations are unchanged from the plan's.
+- [x] ~~Hoist a blend-mode branch outside `__canvas_drawGeometry`'s pixel loop, with one
+      inner-loop copy per mode.~~ — **moot: measured, and the four copies cost 30× more
+      generated code than the dispatch.** See Correction C4; the plan's own Open
+      Decision required this to be measured rather than assumed.
+- [x] Add a **new reference-image golden** `tests/golden/canvas/blendmodes.png`: four
       overlapping pairs, one per mode, on a mid-grey ground so `Multiply` and `Screen`
       are distinguishable from `Normal`.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` asserts the four modes' exact channel
+      Widened past four pairs: each pair is a filled circle over a *stroked* rounded
+      rect, and a second row repeats the four modes on a stroked **arc** — a mode has
+      to reach the stroke channel, which rides `salpha` rather than `alpha`, and the
+      per-mode channel test below only samples a fill. A clipped band with a
+      **fractional** edge is included too, so the reference covers both halves of this
+      letter rather than only the blend half.
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` asserts the four modes' exact channel
       values for a known overlap (e.g. half-opaque white over red, whose `Normal`
       answer `(255, 188, 188)` `06_canvas.md` already pins).
+      Not that overlap — see **Correction C5**: white-over-red cannot tell `Screen`
+      from `Add`. Uses `rgb(200,100,50)` over a mid grey, where all four answers are
+      distinct, and the expected values are derived from the mode definitions against
+      the checked-in sRGB table rather than read back from the renderer.
+      Paired with `blend_mode_normal_is_identical_to_an_unset_blend`, a whole-frame
+      byte comparison — `Normal` is the zero value every existing `Paint` carries.
 
 Acceptance: the new golden renders and is committed; the four per-mode channel
 assertions pass; `smiley.png` is unchanged.
+
+**MET.** `rt_canvas_golden` 6 passed (`blend_modes_match_their_reference_exactly` is
+new and `smiley_matches_its_reference_exactly` still passes **exactly**, so `Normal`
+did not move by a byte); `rt_canvas_rasteriser` 17 passed. The reference was inspected
+rather than merely generated: `Multiply` is visibly the darkest pair, `Screen` and
+`Add` the two lightest and distinguishable from each other, and the arcs below show
+the same four on the stroke channel.
 Commit: —
 
 ### Phase 4 — Four pipelines on Metal and Vulkan
@@ -579,6 +605,45 @@ Commit: —
   restoring `OFF_TEXTURE = 304` fails with "`item` at 192 is 128 bytes, so it runs to
   320 and overlaps `texture` at 304". Written as a sorted sweep rather than pairwise
   asserts so a slot added later is covered without anyone remembering to extend it.
+- **C4 (2026-09-01, Phase 3) — the Open Decision, measured: four inner-loop copies cost
+  30× what the helper dispatch costs, so §4.3's dispatch design is dropped.**
+  §4.3 said to hoist the mode branch out of the pixel loop and emit one copy of the
+  inner loop per mode; Open Decisions offered "one predictable branch per pixel" as the
+  alternative and said **"Measure before choosing; do not assume."** Measured, on the
+  same trivial canvas program (`mfb build -q -ncode -app`, macOS AArch64):
+
+  | | `.ncode` bytes | vs. baseline |
+  |---|---|---|
+  | before this phase | 66,813,193 | — |
+  | **helper dispatch (chosen)** | **67,184,362** | **+371,169 (+0.6%)** |
+  | four inner-loop copies | 78,288,751 | +11,475,558 (+17.2%) |
+
+  The four-copy shape costs **+11.1 MB of generated code in every canvas program**,
+  including one that only ever uses `Normal` — 30× the dispatch's total cost, and the
+  plan itself flagged that as "a real cost in generated code size". The four copies
+  were built and measured, not estimated: they were installed mechanically, compiled,
+  measured, and reverted, and the restored build reproduces 67,184,362 exactly.
+  What replaces it: `__canvas_blendChannelMode` takes the mode as a parameter and
+  branches inside. That does not reintroduce the pattern `helper_items.rs`'s module
+  comment forbids — the ban is on moving the *surface* across a function boundary, and
+  this helper takes channels, exactly as `__canvas_blendChannel` already did.
+  One consequence the plan did not mention and that matters: the **opaque fast path had
+  to become `Normal`-only**. `IF alpha >= 255 THEN <write the source directly>` is
+  correct for `over` and wrong for every other mode — a `Multiply` source at full
+  coverage is still `src × dst`. Left alone, every fully-covered pixel of a blended
+  item would have ignored its mode, which is exactly the "plausible wrong picture"
+  class. The condition is now `alpha >= 255 AND blendMode = 0`, so `Normal` keeps the
+  identical fast path it had.
+- **C5 (2026-09-01, Phase 3) — the suggested test overlap cannot distinguish two of the
+  four modes.** The task proposed "half-opaque white over red, whose `Normal` answer
+  `(255, 188, 188)` `06_canvas.md` already pins". Against a white *source* the modes
+  collapse: `Multiply` returns the destination, and `Screen` and `Add` both saturate to
+  white, so a renderer with `Screen` and `Add` swapped would pass. Replaced with
+  `rgb(200,100,50)` over a mid grey, where the four answers are distinct —
+  `(200,100,50)`, `(99,46,20)`, `(213,152,135)`, `(230,158,136)` — and each is derived
+  from the mode's definition on linear values against the checked-in sRGB table, not
+  read back from the renderer. The same reasoning drove the reference image's mid-grey
+  ground, which the plan had already got right.
 
 ## Summary
 

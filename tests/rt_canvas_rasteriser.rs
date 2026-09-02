@@ -702,3 +702,102 @@ fn a_clip_larger_than_the_item_changes_nothing() {
         "a clip containing the whole item must render byte-identically to no clip"
     );
 }
+
+/// Each `BlendMode` composites to its own exact channel values.
+///
+/// One scene, four overlapping pairs, all over the **same mid-grey ground** — which is
+/// what makes the four answers distinct. Over white or black they collapse: `Multiply`
+/// with white is the source, `Screen` and `Add` with white are both white, and a test
+/// that could not tell `Screen` from `Add` would pass with either wired to the other.
+///
+/// The expected values are derived from the mode definitions on **linear** values
+/// (`06_canvas.md` §"Rendering conventions") against the checked-in sRGB table, not
+/// read back from the renderer:
+///
+/// | mode | rgb(200,100,50) over rgb(128,128,128) |
+/// |---|---|
+/// | `Normal` | `(200, 100, 50)` — the source, unchanged |
+/// | `Multiply` | `(99, 46, 20)` — darker than both |
+/// | `Screen` | `(213, 152, 135)` — lighter than both |
+/// | `Add` | `(230, 158, 136)` — lighter still, and distinct from `Screen` |
+///
+/// Asserted exactly rather than by inequality, because "darker" and "lighter" would
+/// also hold for a blend that composited in sRGB space instead of linear — the very
+/// mistake `translucent_fill_blends_in_linear_space` exists to catch for `Normal`.
+#[test]
+fn each_blend_mode_composites_to_its_own_values() {
+    let over = |name: &str, mode: &str, x: f64| {
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := {x:.1}, y := 60.0, w := 60.0, h := 60.0, \
+             paint := WITH canvas::fill(canvas::rgb(200, 100, 50)) {{ blend := canvas::BlendMode.{mode} }}]\n"
+        )
+    };
+    let body = format!(
+        "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 200.0, \
+         paint := canvas::fill(canvas::rgb(128, 128, 128))]\n{}{}{}{}  \
+         canvas::present([ground, normal, multiply, screen, add])\n",
+        over("normal", "Normal", 20.0),
+        over("multiply", "Multiply", 120.0),
+        over("screen", "Screen", 220.0),
+        over("add", "Add", 320.0),
+    );
+    let (frame, _) = render("canvas_blend_modes", &scene(&body));
+
+    assert_eq!(
+        pixel(&frame, 10, 90),
+        (128, 128, 128, 255),
+        "the mid-grey ground, away from every overlay"
+    );
+    for (mode, x, want) in [
+        ("Normal", 50, (200u8, 100u8, 50u8)),
+        ("Multiply", 150, (99, 46, 20)),
+        ("Screen", 250, (213, 152, 135)),
+        ("Add", 350, (230, 158, 136)),
+    ] {
+        let got = pixel(&frame, x, 90);
+        assert_eq!(
+            (got.0, got.1, got.2),
+            want,
+            "BlendMode.{mode} over mid grey: the linear-space equation for this mode \
+             gives {want:?}, got {:?}",
+            (got.0, got.1, got.2),
+        );
+    }
+}
+
+/// `BlendMode.Normal` is byte-for-byte what an unset `blend` renders.
+///
+/// The compatibility pair for `each_blend_mode_composites_to_its_own_values`, and the
+/// reason `__canvas_blendChannelMode`'s mode-0 arm is the same *expression* as
+/// `__canvas_blendChannel` rather than merely an equivalent one. `Normal` is the zero
+/// value, so every `Paint` ever built carries it and every existing golden renders
+/// through it — a one-step rounding drift here is every scene in the repository
+/// changing at once.
+///
+/// Whole-frame equality, including the antialiased circle edge, where a rounding
+/// difference would show up first.
+#[test]
+fn blend_mode_normal_is_identical_to_an_unset_blend() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 400.0, \
+             paint := canvas::fill(canvas::rgb(128, 128, 128))]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 90.0, paint := {paint}]\n  \
+             canvas::present([ground, dot])\n"
+        ))
+    };
+    let (unset, _) = render(
+        "canvas_blend_unset",
+        &body("canvas::fill(canvas::rgba(255, 200, 0, 160))"),
+    );
+    let (normal, _) = render(
+        "canvas_blend_normal",
+        &body(
+            "WITH canvas::fill(canvas::rgba(255, 200, 0, 160)) { blend := canvas::BlendMode.Normal }",
+        ),
+    );
+    assert_eq!(
+        unset, normal,
+        "BlendMode.Normal must render byte-identically to an unset blend"
+    );
+}
