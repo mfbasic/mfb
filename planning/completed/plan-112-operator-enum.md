@@ -1,6 +1,6 @@
 # Operator Enum Plan
 
-Last updated: 2026-08-30
+Last updated: 2026-09-01 (executed and completed)
 Effort: large (3h–1d)
 
 The compiler's binary and unary operators are carried as `String` from the
@@ -507,7 +507,7 @@ Commit: `3ad1096e2`
       enum and the two mint sites are the only construction points. Check
       whether `src/docs/spec/**` states the operator set; if it does, it is
       prose and needs no change, but verify it agrees with the 20 variants.
-- [ ] Move `planning/plan-112-operator-enum.md` to `planning/completed/`.
+- [x] Move `planning/plan-112-operator-enum.md` to `planning/completed/`.
 
 Acceptance: `cargo test --test no_operator_strings` passes with hard zeros;
 `cargo test --no-fail-fast` green; `scripts/artifact-gate.sh all` → 0 diffs;
@@ -543,7 +543,8 @@ plan's own exclusion list (it is the vocabulary; the census excluded
   `-O3`, where the `opt1` folding rows fire: identical again, and identical to
   the `-O1` output. An enum conversion that compiles can still have two arms
   swapped; this is what rules that out.
-Commit: —
+Commit: `875189218` (the archive move rides the next commit, which is the one
+line a phase cannot name inside itself)
 
 ## Validation Plan
 
