@@ -620,6 +620,14 @@ boxes, and re-running a 2-hour single-core row for every peer landing is a tread
 that outruns main rather than a check — what this merge needed to answer is whether
 the two changes interact, which the local suite and the acceptance harness answer.
 
+**Third merge-back (plan-118: outlining).** plan-118 A–E landed while this letter was
+landing — outlined string ops, outlined record construction and shared epilogue error
+paths, all code-emission changes. Merged (`d35135ecb`) and re-gated: `cargo test
+--release --no-fail-fast` **95 test binaries, 0 failures, exit 0**, and
+`test-accept.sh` **1348 test(s) ran** (plan-118 added
+`tests/rt-behavior/arena/construct-helper-loop`). Same reasoning as above for the
+Linux row.
+
 - **Linux `--bin mfb` unit tests, box 2228** — `cargo test --release --no-fail-fast
   --bin mfb` on the merged tree: **3707 passed, 0 failed** (4436.78s; the box was
   time-shared with a peer session at load ~4, against plan-116-A's 2718s uncontended).
