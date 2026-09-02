@@ -95,11 +95,21 @@ r#"FUNC __canvas_blendChannelMode(dst AS Byte, src AS Byte, alpha AS Integer, mo
   IF mode = 2 THEN
     blended = srcLin + dstLin - (srcLin * dstLin + 32767) / 65535
   END IF
+  ' `Add` is the one mode that does NOT go through the lerp below, and the reason is
+  ' reproducibility rather than taste. Additive blending means "add the COVERED source
+  ' to the destination, then clamp" -- coverage scales how much source is added, which
+  ' is the premultiplied-source form every GPU expresses as the factor pair (One, One).
+  '
+  ' Lerping towards a pre-clamped sum instead -- `dst + (min(src+dst,1) - dst)*a` --
+  ' agrees at full coverage and diverges by up to 0.15 in linear at partial coverage
+  ' over a bright destination, which no fixed-function blend can reproduce. That would
+  ' have made `Add` the one mode the GPU backends had to decline (plan-116-B C6).
   IF mode = 3 THEN
-    blended = srcLin + dstLin
-    IF blended > 65535 THEN
-      blended = 65535
+    LET added AS Integer = dstLin + (srcLin * alpha + 127) / 255
+    IF added > 65535 THEN
+      RETURN __canvas_linearToSrgb(65535)
     END IF
+    RETURN __canvas_linearToSrgb(added)
   END IF
   LET mixed AS Integer = dstLin + ((blended - dstLin) * alpha + 127) / 255
   RETURN __canvas_linearToSrgb(mixed)

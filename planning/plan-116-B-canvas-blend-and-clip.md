@@ -644,6 +644,38 @@ Commit: —
   from the mode's definition on linear values against the checked-in sRGB table, not
   read back from the renderer. The same reasoning drove the reference image's mid-grey
   ground, which the plan had already got right.
+- **C6 (2026-09-01, Phase 3/4 boundary) — `Add` as first defined was not reproducible
+  by ANY fixed-function blend, so its definition changed and its reference was
+  regenerated.**
+  §2 lists `Add` as the factor pair `One`/`One`, and that is right — but only for the
+  conventional meaning of additive blending, "add the **covered** source to the
+  destination, then clamp", which is what a premultiplied source through `(One, One)`
+  computes. Phase 3 instead defined it as a lerp towards a *pre-clamped* sum,
+  `dst + (min(src + dst, 1) − dst) × a`. The two agree exactly at full coverage and
+  diverge wherever the sum saturates at partial coverage — measured, in linear:
+
+  | `Cs` | `Dst` | `a` | lerp-to-clamped-sum | `(One, One)` | delta |
+  |---|---|---|---|---|---|
+  | 1.0 | 0.8 | 0.5 | 0.9000 | 1.0000 | 0.1000 |
+  | 1.0 | 0.9 | 0.25 | 0.9250 | 1.0000 | 0.0750 |
+  | 0.6 | 0.7 | 0.5 | 0.8500 | 1.0000 | 0.1500 |
+  | 1.0 | 0.8 | 1.0 | 1.0000 | 1.0000 | 0 |
+
+  0.15 in linear is far outside `Tolerance::GPU_DEFAULT`, so keeping that definition
+  would have forced `Add` to be **declined** on both GPU backends — the escape hatch
+  Phase 4's own task list offers ("if a mode turns out not to be [reproducible],
+  decline it explicitly") — and this letter's Goal says all four modes work on all
+  three paths. Changing the definition is strictly better than declining: the
+  conventional meaning is both what a caller expects from "add source to destination"
+  and the one every GPU can express.
+  **This is why `tests/golden/canvas/blendmodes.png` was regenerated**, and it is the
+  proof AGENTS.md requires before touching a reference: the previous image encoded a
+  definition no GPU backend could reproduce. The diff was exactly where the analysis
+  predicted and nowhere else — 350 of 576000 pixels, **max channel delta 1**, first at
+  (864, 146), which is the antialiased edge of the `Add` circle at x = 820, r = 70. No
+  other pair moved, and `smiley.png` is untouched (it contains no `Add`). The
+  full-coverage channel assertions in `rt_canvas_rasteriser` did not change either,
+  since the two definitions agree there.
 
 ## Summary
 
