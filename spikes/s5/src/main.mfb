@@ -1,0 +1,77 @@
+' SPIKE 5 -- where does isSuperset's 410x come from?
+'   H1: Set `contains` is a linear scan, not a hash probe  => cost rises with N
+'   H2: the interpreted OF T body has a large per-element dispatch cost
+'       => a hand-written FOR EACH + contains loop costs the same as isSuperset
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC buildSet(n AS Integer) AS Set OF Integer
+  MUT s AS Set OF Integer = Set OF Integer { }
+  FOR i = 0 TO n - 1
+    s = collections::add(s, i)
+  NEXT
+  RETURN s
+END FUNC
+
+' H1: probe cost vs set size, constant probe count
+FUNC containsCost(n AS Integer, probes AS Integer) AS Integer
+  LET s AS Set OF Integer = buildSet(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  MUT hits AS Integer = 0
+  FOR i = 0 TO probes - 1
+    IF collections::contains(s, i MOD n) THEN
+      hits = hits + 1
+    END IF
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("h1 " & toString(hits))
+  RETURN t1 - t0
+END FUNC
+
+' H2: hand-written superset loop (same shape as the interpreted body)
+FUNC handSuperset(a AS Set OF Integer, b AS Set OF Integer) AS Boolean
+  FOR EACH x IN b
+    IF NOT collections::contains(a, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+FUNC compareBodies(n AS Integer, calls AS Integer) AS Integer
+  LET a AS Set OF Integer = buildSet(n)
+  LET b AS Set OF Integer = buildSet(n / 2)
+  MUT acc AS Integer = 0
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    IF handSuperset(a, b) THEN
+      acc = acc + 1
+    END IF
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    IF collections::isSuperset(a, b) THEN
+      acc = acc + 1
+    END IF
+  NEXT
+  LET t2 AS Integer = datetime::monotonicNanos()
+  io::print("  N=" & toString(n) & "  hand=" & toString((t1 - t0) / 1000) & "us  builtin=" & toString((t2 - t1) / 1000) & "us  acc=" & toString(acc))
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  io::print("# spike 5")
+  io::print("")
+  io::print("H1: contains cost, 4000 probes, varying set size (flat => hash, rising => scan)")
+  LET sizes AS List OF Integer = [100, 400, 1600, 6400]
+  FOR EACH n IN sizes
+    io::print("  N=" & toString(n) & "  per_probe=" & toString(containsCost(n, 4000) / 4000) & "ns")
+  NEXT
+  io::print("")
+  io::print("H2: hand-written loop vs collections::isSuperset, 200 calls, b = a/2, answer TRUE")
+  FOR EACH n IN [100, 400, 1600]
+    LET d AS Integer = compareBodies(n, 200)
+  NEXT
+  RETURN 0
+END FUNC

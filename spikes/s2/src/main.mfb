@@ -1,0 +1,88 @@
+' SPIKE 2 -- why is `set` on a String list O(1) sometimes and O(N) others?
+'
+' Hypothesis: list elements are stored as variable-length bytes in one packed
+' data region. Overwriting an element with a DIFFERENT byte length has to shift
+' every later element's bytes, so it is O(N); overwriting with the SAME length
+' fits in place and is O(1).
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC buildStrsLen(n AS Integer, width AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    MUT s AS String = "x"
+    FOR k = 1 TO width - 1
+      s = s & "y"
+    NEXT
+    xs = collections::append(xs, s)
+  NEXT
+  RETURN xs
+END FUNC
+
+' Same byte length as what is already there (5 chars replacing 5 chars).
+FUNC setSameLen(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF String = buildStrsLen(n, 5)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    xs = collections::set(xs, j, "abcde")
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("same " & toString(len(collections::get(xs, 0))))
+  RETURN t1 - t0
+END FUNC
+
+' One byte LONGER than what is there (6 chars replacing 5).
+FUNC setLonger(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF String = buildStrsLen(n, 5)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    xs = collections::set(xs, j, "abcdef")
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("longer " & toString(len(collections::get(xs, 0))))
+  RETURN t1 - t0
+END FUNC
+
+' One byte SHORTER (4 chars replacing 5).
+FUNC setShorter(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF String = buildStrsLen(n, 5)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    xs = collections::set(xs, j, "abcd")
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("shorter " & toString(len(collections::get(xs, 0))))
+  RETURN t1 - t0
+END FUNC
+
+FUNC row(label AS String, n AS Integer, ns AS Integer, calls AS Integer) AS Integer
+  io::print(label & "  N=" & toString(n) & "  per_set=" & toString(ns / calls) & "ns")
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET calls AS Integer = 2000
+  LET sizes AS List OF Integer = [50, 200, 800, 3200]
+  io::print("# spike 2: String `set`, plain MUT local, CALLS constant at " & toString(calls))
+  io::print("")
+  io::print("same length (5 -> 5)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  same   ", n, setSameLen(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("longer (5 -> 6)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  longer ", n, setLonger(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("shorter (5 -> 4)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  shorter", n, setShorter(n, calls), calls)
+  NEXT
+  RETURN 0
+END FUNC

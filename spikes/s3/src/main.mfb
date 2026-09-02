@@ -1,0 +1,132 @@
+' SPIKE 3 -- the remaining top-10 root causes.
+'   P1: does a String-accumulator fold cost O(N) or O(N^2)?
+'   P2: do insert / removeAt / prepend have an in-place path like append?
+'       (constant CALLS, growing N: flat => O(1) amortized, rising => O(N) copy)
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC addFn(acc AS Integer, x AS Integer) AS Integer
+  RETURN acc + x
+END FUNC
+
+FUNC catFn(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+FUNC buildInts(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildStrs(n AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, "abcde")
+  NEXT
+  RETURN xs
+END FUNC
+
+' P1a: Integer fold (accumulator is a scalar)
+FUNC foldInt(n AS Integer) AS Integer
+  LET xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  LET r AS Integer = collections::reduce(xs, 0, addFn)
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P1a " & toString(r))
+  RETURN t1 - t0
+END FUNC
+
+' P1b: String fold (accumulator grows by 5 bytes per element)
+FUNC foldStr(n AS Integer) AS Integer
+  LET xs AS List OF String = buildStrs(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  LET r AS String = collections::reduce(xs, "", catFn)
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P1b " & toString(len(r)))
+  RETURN t1 - t0
+END FUNC
+
+' P2 baseline: append (known in-place) on a plain Integer local
+FUNC appendInt(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::append(xs, i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P2app " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+' P2a: prepend
+FUNC prependInt(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::prepend(xs, i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P2pre " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+' P2b: insert at the midpoint
+FUNC insertInt(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::insert(xs, len(xs) / 2, i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P2ins " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+' P2c: removeAt(0), refilling so length stays ~N
+FUNC removeAtInt(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n + calls)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::removeAt(xs, 0)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("P2rem " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+FUNC main() AS Integer
+  io::print("# spike 3")
+  io::print("")
+  io::print("P1 fold: total time for ONE reduce over N elements")
+  io::print("   linear in N => O(N); quadrupling when N doubles => O(N^2)")
+  LET fsizes AS List OF Integer = [500, 1000, 2000, 4000]
+  FOR EACH n IN fsizes
+    io::print("  int    N=" & toString(n) & "  " & toString(foldInt(n) / 1000) & "us")
+  NEXT
+  FOR EACH n IN fsizes
+    io::print("  string N=" & toString(n) & "  " & toString(foldStr(n) / 1000) & "us")
+  NEXT
+  io::print("")
+  io::print("P2 mutation: 500 calls on a list of N ints; per-call ns")
+  io::print("   flat => in-place; rising with N => whole-list copy per call")
+  LET calls AS Integer = 500
+  LET sizes AS List OF Integer = [100, 400, 1600, 6400]
+  FOR EACH n IN sizes
+    io::print("  append   N=" & toString(n) & "  " & toString(appendInt(n, calls) / calls) & "ns")
+  NEXT
+  FOR EACH n IN sizes
+    io::print("  prepend  N=" & toString(n) & "  " & toString(prependInt(n, calls) / calls) & "ns")
+  NEXT
+  FOR EACH n IN sizes
+    io::print("  insert   N=" & toString(n) & "  " & toString(insertInt(n, calls) / calls) & "ns")
+  NEXT
+  FOR EACH n IN sizes
+    io::print("  removeAt N=" & toString(n) & "  " & toString(removeAtInt(n, calls) / calls) & "ns")
+  NEXT
+  RETURN 0
+END FUNC
