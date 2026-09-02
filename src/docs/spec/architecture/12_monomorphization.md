@@ -168,25 +168,32 @@ when a type cannot be determined locally.
 |------------|---------------|
 | string / number / boolean literal | `String` / `Integer` or `Float` (by `.`) / `Boolean` |
 | `NOTHING` | `Nothing` |
-| identifier | `context.locals` then `context.function_types` |
+| identifier | `context.locals`, then a concrete function's signature type, then the globals |
 | constructor | `Error`, `Ok`→`Result OF Unknown`, or a known record name |
 | list literal | `List OF <first element>` else `List OF Unknown` |
 | map literal | `Map OF <key> TO <value>` |
 | member access | the record field's declared type |
-| call | the callee's recorded return type (`function_returns`) |
+| call | the concrete callee's declared return type |
 | lambda | `FUNC(params) AS <body type>`; assignment-bodied → `AS Nothing` |
 | binary | `Boolean` for comparisons/logicals, `String` for `&`, else numeric promotion |
 | unary | `Boolean` for `NOT`, else the operand type |
 | trapped | the inner expression's type |
 
-The `FunctionContext` carries `locals`, `function_returns`, `function_types`,
-`record_fields`, and `enclosing_return`. It is seeded by `function_context` from
-every concrete function and record, then extended as statements are lowered:
-`LET` records the bound type, `FOR` promotes the loop variable's numeric type,
-`FOR EACH` strips `List OF`/`Map OF` to the element/entry type, match-`Union`
-patterns and lambda params bind their declared types, and the `RETURN` slot is
-typed by `enclosing_return`. A newly-mangled callee is added to the context
-(`add_function_to_context`) so a later inference sees its return type.
+The `FunctionContext` carries only SCOPE-local state: `locals` and
+`enclosing_return`. Everything program-wide is read live off the monomorphizer
+at each query — a function's return and signature types from `concrete_functions`
+(via `function_signature_types`), a record's fields from `concrete_types`
+(`TYPE` declarations only), and an explicitly-typed top-level binding's declared
+type from `globals`, which is derived once when the monomorphizer is built.
+Nothing is snapshotted into the context, so a newly-mangled callee is visible to
+later inference the moment `instantiate_function` records it; no patch step is
+needed. Every scope boundary — both `IF` arms, each `MATCH` case, a loop body, a
+lambda, a trap handler — clones the context, and the clone is just the locals.
+
+The context is extended as statements are lowered: `LET` records the bound type,
+`FOR` promotes the loop variable's numeric type, `FOR EACH` strips `List
+OF`/`Map OF` to the element/entry type, match-`Union` patterns and lambda params
+bind their declared types, and the `RETURN` slot is typed by `enclosing_return`.
 
 ## Overload resolution
 

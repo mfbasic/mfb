@@ -93,7 +93,31 @@ SUB main()
   ' a wrong FILL, not merely a shifted outline.
   LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fill(canvas::rgba(0, 180, 180, 200))]
 
-  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile])
+  ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
+  '
+  ' Without these the frame binds only Normal's pipeline and never takes the clip
+  ' path, so three of the four pipelines this letter builds would go unexercised on
+  ' Metal while the suite still reported success.
+  '
+  ' On a mid-grey patch on purpose: over black, Multiply is a no-op and Screen and Add
+  ' are indistinguishable from Normal, so a wrong pipeline would look right.
+  '
+  ' `blendStroke` is the sharp one -- non-Normal AND both filled and stroked, which the
+  ' shader cannot compose in one pass (the stroke-over-fill identity is Normal-only),
+  ' so it must be emitted as two adjacent instances.
+  '
+  ' Small on purpose: a blended pixel agrees with the oracle to within a step or two
+  ' but rarely exactly (the oracle blends through a 16-bit linear table, the hardware
+  ' in float), and Tolerance::GPU_DEFAULT's population budget is a fraction of the
+  ' WHOLE frame -- a large blended patch would exhaust it without testing anything more.
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 400.0, w := 360.0, h := 120.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+  LET blendMul AS canvas::DrawItem = canvas::Circle[x := 70.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
+  LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
+  LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(canvas::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
+  LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(canvas::rgb(230, 120, 40), canvas::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 400.0, w := 200.5, h := 60.0] }]
+
+  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox])
 END SUB
 "#;
 

@@ -26,8 +26,8 @@ Closing twice is the defined no-op, and using a closed font afterwards raises th
 universal `ErrResourceClosed` — the same contract every resource has.
 
 Unlike the rest of `canvas`, `destroyFont` does **not** require `app::Mode.Canvas`: a
-program leaving canvas mode must still be able to release what it allocated, and
-closing a handle touches no surface."#;
+program leaving canvas mode must still be able to close what it opened, and closing
+a handle touches no surface."#;
 
 const EX: &str = r#"```
 IMPORT app

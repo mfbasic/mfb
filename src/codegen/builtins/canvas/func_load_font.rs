@@ -15,10 +15,10 @@ use super::gen_font::FONT_BYTES;
 
 const INTRO: &str = r#"Load a TrueType font file and hold it as a `Font` resource."#;
 
-const DESC: &str = r#"`loadFont` reads the file at `path` and returns a `Font` — an owned resource, bound
-with `RES`, released when it leaves scope or when `canvas::destroyFont` is called.
+const DESC: &str = r#"`loadFont` reads the file at `path` and returns a `Font`, bound with `RES`. It closes
+by itself when it leaves scope, and `canvas::destroyFont` closes it sooner.
 A `canvas::Text` item names it through a `canvas::FontRef` from `canvas::fontRef`, never directly, so
-the scene has no opinion about the font's lifetime.
+you can close a font while a scene that draws with it is still on screen.
 
 **The file is kept whole, not decoded.** A TrueType file *is* the glyph database —
 its `loca` table indexes `glyf` by glyph id — so decoding up front would mean
