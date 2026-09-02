@@ -66,7 +66,7 @@ impl CodeBuilder<'_> {
         // Commit only for a statically-known single element of the list's element
         // type. A bulk `append(list, otherList)` has item type == list_type and
         // falls through to the general (concatenating) path.
-        match self.static_type_name(&args[1]) {
+        match self.static_item_type(&args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
@@ -173,7 +173,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         // Single element (item type == element type) vs bulk concatenation.
-        let bulk = match self.static_type_name(&args[1]) {
+        let bulk = match self.static_item_type(&args[1]) {
             Some(t) if t == element_type => false,
             Some(t) if t == field_type_parsed => true,
             _ => return Ok(false),
@@ -284,7 +284,7 @@ impl CodeBuilder<'_> {
         if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&set_type).is_none() {
             return Ok(false);
         }
-        match self.static_type_name(&args[1]) {
+        match self.static_item_type(&args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
@@ -360,7 +360,7 @@ impl CodeBuilder<'_> {
         if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&map_type).is_none() {
             return Ok(false);
         }
-        match self.static_type_name(&args[1]) {
+        match self.static_item_type(&args[1]) {
             Some(kt) if kt == key_type => {}
             _ => return Ok(false),
         }
@@ -427,7 +427,7 @@ impl CodeBuilder<'_> {
         // Commit only for a statically-known RHS of the *list* type (not the
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
-        match self.static_type_name(&args[1]) {
+        match self.static_item_type(&args[1]) {
             Some(item_type) if item_type == list_type => {}
             _ => return Ok(false),
         }

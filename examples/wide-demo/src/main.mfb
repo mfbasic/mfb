@@ -86,7 +86,5 @@ FUNC main() AS Integer
     io::print("  " & line & " = " & toString(strings::displayWidth(line)))
   NEXT
 
-  io::print(collections::get(display, 22))
-
   RETURN 0
 END FUNC

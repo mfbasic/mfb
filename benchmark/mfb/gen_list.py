@@ -74,7 +74,7 @@ class Container:
 INT = dict(
     ty='Integer', rec='RecFixed',
     build_range='buildRange(1000)', build_2000='buildRange(2000)',
-    build_500='buildRange(500)', build_50='buildRand(50)',
+    build_500='buildRange(500)', build_50='sortMakeScramble(50)',
     dup='buildDupRange(5000, 1000)',
     asc='sortMakeAsc(20000)', desc='sortMakeDesc(20000)', scr='sortMakeScramble(20000)',
     hash='sortHash',
@@ -86,7 +86,8 @@ INT = dict(
     all_build='buildPos(1000)', all_pred='isPos',
     any_build='buildNeg(1000)', any_pred='isPos',
     groupby_key='bucketKey', groupby_val='identity',
-    sortby_key='keyNeg', copy_fn='copyInts',
+    sortby_key='keyNeg',
+    copy_probe='k', copy_read='collections::get(cpy, 0)',
     forEach_fn='bumpAcc', forEach_acc='forEachAcc',
     partition_pred='isEvenN',
 )
@@ -107,7 +108,8 @@ STR = dict(
     all_build='buildStrRange(1000)', all_pred='strNonEmpty',
     any_build='buildStrRange(1000)', any_pred='strIsShort',
     groupby_key='strLenKey', groupby_val='strIdentity',
-    sortby_key='strLenKey', copy_fn='copyStrs',
+    sortby_key='strLenKey',
+    copy_probe='"!"', copy_read='len2(collections::get(cpy, 0))',
     forEach_fn='strBumpLen', forEach_acc='strForEachAcc',
     partition_pred='strIsShort',
 )
@@ -194,8 +196,14 @@ def _(c, E):
 
 @op('copy')
 def _(c, E):
+    # A real, observable copy. The old pass-through helper (`RETURN xs`) was
+    # elided to O(1), so the row measured nothing. `set` on the read-only base
+    # must materialize a fresh list (base is re-read next iteration), and the
+    # changed element folds into the checksum so no optimizer can skip it.
+    # C/Python peers do copy + poke element 0 + fold count and element.
     return ro(c, E, E['build_range'], 1000,
-              lambda L: [f'acc = acc + len({E["copy_fn"]}({L}))'])
+              lambda L: [f'LET cpy AS List OF {E["ty"]} = collections::set({L}, 0, {E["copy_probe"]})',
+                         f'acc = acc + len(cpy) + {E["copy_read"]}'])
 
 
 @op('distinct')
@@ -534,7 +542,6 @@ HEADER = '''\
 IMPORT io
 IMPORT collections
 IMPORT datetime
-IMPORT math
 IMPORT fs
 
 TYPE RecFixed
@@ -578,23 +585,11 @@ FUNC buildNeg(n AS Integer) AS List OF Integer
   RETURN xs
 END FUNC
 
-FUNC buildRand(n AS Integer) AS List OF Integer
-  MUT xs AS List OF Integer = []
-  FOR i = 0 TO n - 1
-    xs = collections::append(xs, math::rand(0, 1000000))
-  NEXT
-  RETURN xs
-END FUNC
-
 FUNC buildDupRange(n AS Integer, distinct AS Integer) AS List OF Integer
   MUT xs AS List OF Integer = []
   FOR i = 0 TO n - 1
     xs = collections::append(xs, i - (i / distinct) * distinct)
   NEXT
-  RETURN xs
-END FUNC
-
-FUNC copyInts(xs AS List OF Integer) AS List OF Integer
   RETURN xs
 END FUNC
 
@@ -692,10 +687,6 @@ FUNC buildStrDup(n AS Integer, distinct AS Integer) AS List OF String
   FOR i = 0 TO n - 1
     xs = collections::append(xs, "d" & toString(i - (i / distinct) * distinct))
   NEXT
-  RETURN xs
-END FUNC
-
-FUNC copyStrs(xs AS List OF String) AS List OF String
   RETURN xs
 END FUNC
 

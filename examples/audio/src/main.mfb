@@ -4,6 +4,34 @@ IMPORT io
 IMPORT libsnd
 IMPORT os
 
+' Play a sound file on its OWN stream.
+'
+' The `out` stream `main` holds is 48 kHz mono because that is the only format
+' audio::play's MML sequencer renders. A decoded file has whatever rate and
+' channel count it was authored at — Mozart2.ogg is 44.1 kHz stereo — and
+' audio:: does no resampling or channel conversion, so writing that PCM to the
+' mono 48 kHz stream replays it at the wrong pitch and nearly twice the length
+' (the two channels arrive as consecutive mono frames). Open a second stream
+' shaped by the file's own SoundInfo instead.
+SUB playSoundFile(dev AS audio::AudioDevice, path AS String)
+  RES music AS SoundFile STATE SoundInfo = libsnd::openSound(path) TRAP(e)
+    io::print("Couldn't open " & path & ":\n" & e.message)
+    EXIT SUB
+  END TRAP
+  LET info AS SoundInfo = music.state
+  io::print("Playing " & toString(info.samplerate) & " Hz, " & toString(info.channels) & " channel(s), " & toString(info.frames) & " frames")
+
+  RES fileOut AS audio::AudioOutput = audio::openOutput(dev, info.samplerate, info.channels, 512) TRAP(e)
+    io::print("Couldn't open the device at this file's format:\n" & e.message)
+    EXIT SUB
+  END TRAP
+  FOR i = 0 TO info.frames STEP 500
+    LET sound = libsnd::loadFrames(music, 500)
+    audio::write(fileOut, sound.pcm)
+  NEXT
+  audio::close(fileOut)
+END SUB
+
 SUB main()
   LET devices AS List OF audio::AudioDevice = audio::devices()
   LET outDevices AS List OF audio::AudioDevice = collections::filter(devices, LAMBDA(d AS audio::AudioDevice) -> d.canOutput)
@@ -91,19 +119,9 @@ SUB main()
         LET tracks AS List OF String = [voice1, voice2, voice3]
         audio::play(out, tracks)
       CASE 3
-        RES music AS SoundFile STATE SoundInfo = libsnd::openSound(os::resourcePath("music/Mozart1.ogg"))
-        LET info AS SoundInfo = music.state
-        FOR i = 0 TO info.frames STEP 500
-          LET sound = libsnd::loadFrames(music, 500)
-          audio::write(out, sound.pcm)
-        NEXT
+        playSoundFile(seloutDevices, os::resourcePath("music/Mozart1.ogg"))
       CASE 4
-        RES music AS SoundFile STATE SoundInfo = libsnd::openSound(os::resourcePath("music/Mozart2.ogg"))
-        LET info AS SoundInfo = music.state
-        FOR i = 0 TO info.frames STEP 500
-          LET sound = libsnd::loadFrames(music, 500)
-          audio::write(out, sound.pcm)
-        NEXT
+        playSoundFile(seloutDevices, os::resourcePath("music/Mozart2.ogg"))
       CASE ELSE
     END MATCH
 

@@ -1,5 +1,11 @@
 *.log
+*.sums
 *.out
 *.mfp
 mfb/packages/
 python/__pycache__/
+
+# baseline/ holds the committed reference results (a full `run.sh 10`), so the
+# ignores above must not swallow them.
+!baseline/*.log
+!baseline/*.sums

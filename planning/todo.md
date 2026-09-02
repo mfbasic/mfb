@@ -415,8 +415,6 @@ Here is the enumerated census of what is still a string after the AST.
 
 ## Still strings
 
-- **Operators** — `HirExpression::Binary/Unary { operator: String }` (`src/hir/mod.rs:420,426`), `IrValue::Binary/Unary { op: String }` (`src/ir/value.rs:123,132`). The source token itself is carried and re-decided: `operator == "&"` (`src/ir/lower.rs:2368`), `== "NOT"` (`:2392`), `== "-"` (`:3596`), `== "SIZEOF"` (`src/ir/shape.rs:383`). 22 sites (`grep -rn 'operator ==\|operator\.as_str()\|match operator' src/ir src/monomorph src/resolver src/codegen | grep -v _tests.rs`).
-
 - **Local/global variable identity** — `IrValue::Local(String)`, `Global(String)` (`src/ir/value.rs:25,26`), `IrOp::Bind/Assign/AssignGlobal { name: String }` (`src/ir/op.rs:8,21,26`), `NirValue::Local(String)` (`src/target/shared/nir/mod.rs:264`). Bindings are matched by name string from HIR to register allocation — no index, no `Symbol`.
 
 - **Call targets / function identity** — `Call { callee: String }` (`src/hir/mod.rs:432`), `IrValue::Call/CallResult { target: String }` (`src/ir/value.rs:57,65`), `NirValue::Call/CallResult/RuntimeCall { target: String }`. Dispatch is string compare plus `split_once('.')` on `"pkg.member"` (27 sites; `src/ir/shape.rs:1769,1834,1854`, `src/ir/lower.rs:2462`) against literals `"thread.start"`, `"net.poll"`, `"process.spawnEnv"`, `"tls.listen"`, `"crypto.sign"`.
@@ -426,8 +424,6 @@ Here is the enumerated census of what is still a string after the AST.
 - **Declaration keywords, as text, inside the IR** — `IrType { kind: String, visibility: String }` (`src/ir/types.rs:6,7`), `IrFunction.kind: String` (`:209`), `IrField.visibility: Option<String>`. `"record"`/`"union"`/`"enum"`, `"public"`/`"private"`, `"function"`/`"sub"` are compared as spellings: 53 sites (`grep -rn 'visibility *== *"\|kind *== *"' src/ | grep -v _tests.rs`).
 
 - **Literal payloads** — `HirExpression::Number(String)` (`src/hir/mod.rs:415`), `IrValue::Const { value: String }` (`src/ir/value.rs:23`), `NirValue::Const { value: String }`. Numeric literals stay source text and are re-parsed downstream: 24 `parse::<f64>/<i64>/<u64>` in `src/ir`+`src/codegen`.
-
-- **The entire C FFI type vocabulary — a second type domain plan-111 never touched** — `ctype: String` (`src/ir/link.rs:97,432,872`; `src/ast/types.rs:299,364,366,378,388`). `"CString"`/`"CPtr"`/`"CInt32"`/`"CBuffer"`/`"CVoid"` decided by spelling in 19 places. Invisible to the gate by construction: its needle vocabulary is the MFBASIC scalars only. `src/hir/mod.rs:18-21` says why — the native-binding nodes are "reused verbatim from `crate::ast`", so these strings flow straight to codegen.
 
 - **Machine operands and registers** — `Operand::Raw(Box<str>)` plus `impl From<&str> for Operand` (`src/codegen/engine/operand/operand.rs:163,362`), so any `"x0".into()` mints a string operand. The file's own doc: *"in the pre-allocation stream every register operand is `Raw`"*. Regalloc then re-parses it: `starts_with('%')` (`src/codegen/engine/regalloc/analysis.rs:298,352`), `value.starts_with('%') || value == "sp"` (`src/codegen/engine/regalloc/mod.rs:107`). 465 non-test `.render()`/`.rendered()` calls.
 

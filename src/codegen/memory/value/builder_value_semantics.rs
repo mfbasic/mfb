@@ -1048,6 +1048,36 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// The static type of a value for the **in-place collection gates**, widened
+    /// past [`Self::static_type_name`]'s hand-written builtin-name table to the
+    /// declared return type of a call to a user (or `LINK`) function.
+    ///
+    /// Those gates ask one question — "is this operand statically exactly `T`?" —
+    /// to tell a single-element `append(list, x)` from a bulk
+    /// `append(list, otherList)`. `static_type_name` answers `None` for ANY call it
+    /// does not have a hard-coded row for, so every
+    /// `list = collections::append(list, someFunc(…))` fell off the in-place path
+    /// and copied the whole buffer per element: the accumulate loop ran O(n^2)
+    /// (50 000 appends took 60 s against 3 ms for the same loop appending a plain
+    /// local). A callee's declared `returns` is exactly as static as a local's
+    /// declared type, so answering from it is sound for a gate that only asks the
+    /// operand's type — it is NOT a widening of `static_type_name`, whose other
+    /// consumers (the float-numeric-error gate, module analysis, binary typing)
+    /// must keep their exact current answers.
+    pub(crate) fn static_item_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        match value {
+            NirValue::Call { target, .. } => self
+                .functions
+                .get(target)
+                .map(|function| function.returns.clone())
+                .or_else(|| self.package_return_types.get(target).cloned()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<ParameterType> {
         match value {
             NirValue::Const { type_, .. } => Some(type_.clone()),
