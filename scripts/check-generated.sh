@@ -53,5 +53,10 @@ check() {
 if python3 scripts/check_vector_bodies.py; then :; else status=1; fi
 check scripts/gen_regex_unicode.py src/codegen/string/unicode/unicode_gencat.mfb
 check scripts/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_of.mfb
+# plan-118-B: the same two run tables as DATA, for the native rodata lookup.
+# Each imports its .mfb generator's `runs()` rather than recomputing, so a drift
+# here means the shared computation moved -- and both artifacts drift together.
+check scripts/gen_unicode_gencat_table.py src/codegen/string/unicode/unicode_gencat_ranges.txt
+check scripts/gen_unicode_script_table.py src/codegen/string/unicode/unicode_script_ranges.txt
 
 exit "$status"

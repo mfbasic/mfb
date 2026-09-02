@@ -38,7 +38,7 @@ plan-118-A's family gate (see that doc) plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-118-A landed | `-vv` prints the "costliest expansion" tally | NOT MET (A pending) |
+| plan-118-A landed | `-vv` prints the "costliest expansion" tally | MET — `f86af39a7`; verified `grep -c "costliest expansion" /tmp/p118_vv_phase2.log → 1` |
 | The gencat generator's stated reason for code-not-data is understood | header of `scripts/gen_regex_unicode.py` (read: "MFBASIC list reads copy the whole list, and the native backends cannot hold a large constant array cheaply") | MET — see §2: that reasoning predates the native data-object trie and does not apply to a rodata table + native lookup |
 
 ## 1. Goal
@@ -91,15 +91,45 @@ plan-118-A's family gate (see that doc) plus:
 | gencat source lines | 4,109 | `wc -l src/codegen/string/unicode/unicode_gencat.mfb` |
 | scriptOf source lines | 1,891 | `wc -l src/codegen/string/unicode/unicode_script_of.mfb` |
 | Free flag bits in PackedProperty | 9 (bits 7–15) | read `runtime_tables.rs:42-51` |
-| MFBASIC call sites of the three helpers | UNMEASURED | Phase 1 census task |
+| MFBASIC call sites of the three helpers | **11** (5 regex, 6 strings) | census below |
+| utf8proc categories disagreeing with pinned 16.0.0 | **4,804 scalars** | `python3 /tmp/p118_catcheck.py` (§3 correction) |
+| utf8proc property rows carrying >1 pinned-16.0.0 category | **19** of 8,385 | `python3 /tmp/p118_rowcheck.py` |
+| `__regex_scriptCanonName` (rides in `unicode_script_of.mfb`) | 171 arms, lines 1719–1891 | `grep -n '^FUNC \|^END FUNC' unicode_script_of.mfb` |
+
+Census of the three helpers' call sites
+(`grep -rn "genCat\|scriptOf" src/codegen/builtins/regex/*.rs src/codegen/builtins/strings/*.rs`):
+
+| Caller | File | Uses |
+|---|---|---|
+| `__regex_isWord` | `regex/helper_is_word.rs:12` | `__regex_genCat(cp)` |
+| `__regex_propTest` | `regex/helper_prop_test.rs:13` | `__regex_genCat(cp)` |
+| `__regex_shorthandMatch` | `regex/helper_shorthand_match.rs:13` | `__regex_genCat(cp)` |
+| `__regex_scriptTest` | `regex/helper_script_test.rs:14` | `__regex_scriptOf(cp) = name` |
+| `__strings_isLetter` | `strings/helper_scalar_seam.rs:85` | `__strings_genCat(cp)` |
+| `__strings_isDigit` | `strings/helper_scalar_seam.rs:94` | `= "Nd"` |
+| `__strings_isWhitespace` | `strings/helper_scalar_seam.rs:102` | `__strings_genCat(cp)` |
+| `__strings_isUpper` | `strings/helper_scalar_seam.rs:120` | `= "Lu"` |
+| `__strings_isLower` | `strings/helper_scalar_seam.rs:128` | `= "Ll"` |
+
+Every call site consumes the returned `String` immediately (a comparison or a
+5-way `OR` of comparisons) and none stores or frees it — which is what makes the
+Open Decision's "return the interned static string" safe. All five `strings`
+predicates already short-circuit `cp < 128` before reaching the table.
 
 ### Verified properties
 
 - The twins really are the same generated source included twice — read
   `regex/mod.rs:912` and `strings/helper_scalar_seam.rs:25` (both
   `include_str!` the same `unicode_gencat.mfb`; strings renames the FUNC).
-  Byte-equal instruction counts corroborate. (Verify streams equal as a Phase 1
-  task before deleting one.)
+  Byte-equal instruction counts corroborate.
+
+  **Verified mechanically (Phase 1, 2026-09-01).** A scratch project importing
+  both packages, built with `mfb build --ncode`, yields `#regex_genCat` and
+  `#strings_genCat` at 1,057,783 instructions each. Normalising only the
+  package-prefixed symbol (`_mfb_ifn_{regex,strings}_5FgenCat`), the local label
+  names, and the interned `_mfb_str_N` constant names, the two instruction
+  streams are **identical JSON**, and their opcode histograms match exactly
+  (`/tmp/p118_twin3.py`). They are one generated table compiled twice.
 
 ## 3. Design Overview
 
@@ -143,17 +173,30 @@ survivor).
 
 ### Phase 1 — census + twin verification (no behavior change)
 
-- [ ] Census the three helpers' call sites (command in §2) and record them here.
-- [ ] Verify the twin claim mechanically: dump both functions' instruction
+- [x] Census the three helpers' call sites (command in §2) and record them here.
+- [x] Verify the twin claim mechanically: dump both functions' instruction
       streams from one acceptance `--ncode`-style build and diff (names aside).
-- [ ] Extend the generators to ALSO emit the category index / script range
+- [x] Extend the generators to ALSO emit the category index / script range
       table data (new output files under `src/codegen/string/unicode/`),
       keeping the current `.mfb` outputs untouched. Wire
       `scripts/check-generated.sh` to cover the new artifacts.
+      — `scripts/gen_unicode_gencat_table.py` → `unicode_gencat_ranges.txt`
+      (4,099 runs, 30 categories), `scripts/gen_unicode_script_table.py` →
+      `unicode_script_ranges.txt` (1,708 runs, 171 scripts). Each imports the
+      `.mfb` generator's new `runs()` rather than recomputing, so the code and
+      data forms cannot disagree about a scalar; both `.mfb` outputs stay
+      byte-identical (`cmp` clean).
+- [x] Added: fix the two generators' stale artifact paths
+      (`src/codegen/unicode/` → `src/codegen/string/unicode/`, wrong since the
+      `src/codegen` tier relocation) in their docstrings and `scripts/README.md`,
+      and give `gen_regex_scripts.py` a README entry it never had.
 
 Acceptance: census table filled in; generated data artifacts reproduce under
 `scripts/check-generated.sh`; `cargo test --no-fail-fast` green; artifact-gate
 0 diffs (nothing consumes the new data yet).
+
+MET: `./scripts/check-generated.sh` → exit 0, all five artifacts `ok:`
+(173 vector bodies, both `.mfb`s, both new `.txt`s).
 Commit: —
 
 ### Phase 2 — genCat through the trie

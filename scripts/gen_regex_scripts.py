@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/codegen/unicode/unicode_script_of.mfb — the full Unicode Script property
+"""Generate src/codegen/string/unicode/unicode_script_of.mfb — the full Unicode Script property
 table used by the regex engine's `\\p{Script=...}` (see `mfb spec stdlib regex`).
 
 The 10 hand-written script ranges the engine shipped with are replaced by two
@@ -22,7 +22,7 @@ committed file — never the network or the interpreter's Unicode tables — its
 output is reproducible under any Python 3, so `scripts/check-generated.sh`
 verifies it the same way it verifies the other generated artifacts.
 
-    python3 scripts/gen_regex_scripts.py > src/codegen/unicode/unicode_script_of.mfb
+    python3 scripts/gen_regex_scripts.py > src/codegen/string/unicode/unicode_script_of.mfb
 """
 import os
 import sys
@@ -59,20 +59,31 @@ def parse_scripts():
     return scripts, version
 
 
-def main():
-    scripts, version = parse_scripts()
+def runs():
+    """`(runs, names, version)` — contiguous (lo, hi, script) runs covering
+    0 .. 0x10FFFF, the sorted non-`Unknown` script names, and the pinned Unicode
+    version.
 
-    runs = []
+    Shared with `gen_unicode_script_table.py`, which emits the same runs as a
+    native rodata range table (plan-118-B). One computation, two artifacts, so
+    they cannot disagree about a scalar.
+    """
+    scripts, version = parse_scripts()
+    out = []
     start = 0
     cur = scripts[0]
     for cp in range(1, MAX):
         if scripts[cp] != cur:
-            runs.append((start, cp - 1, cur))
+            out.append((start, cp - 1, cur))
             start = cp
             cur = scripts[cp]
-    runs.append((start, MAX - 1, cur))
-
+    out.append((start, MAX - 1, cur))
     names = sorted(name for name in set(scripts) if name != "Unknown")
+    return out, names, version
+
+
+def main():
+    runs_, names, version = runs()
 
     out = []
     out.append("REM GENERATED FILE — do not edit by hand.")
@@ -82,7 +93,7 @@ def main():
     out.append("REM Runs are contiguous and cover 0 .. 0x10FFFF (Unknown = no script).")
     out.append("")
     out.append("FUNC __regex_scriptOf(cp AS Integer) AS String")
-    for _lo, hi, name in runs:
+    for _lo, hi, name in runs_:
         out.append(f'  IF cp <= {hi} THEN RETURN "{name}"')
     out.append('  RETURN "Unknown"')
     out.append("END FUNC")
@@ -96,7 +107,7 @@ def main():
 
     sys.stdout.write("\n".join(out))
     sys.stderr.write(
-        f"{len(runs)} runs, {len(names)} scripts, Unicode {version}\n"
+        f"{len(runs_)} runs, {len(names)} scripts, Unicode {version}\n"
     )
 
 
