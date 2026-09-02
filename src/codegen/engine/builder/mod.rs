@@ -1530,6 +1530,24 @@ pub(crate) fn lower_module_for_platform(
             )?,
         );
     }
+    // bug-474: `process::detach` reaps its one child on a dedicated thread whose
+    // start routine is `_mfb_rt_process_reaper`, so that helper must be emitted
+    // wherever `process.detach` is (the detach body takes its address). It replaced
+    // a process-wide `signal(SIGCHLD, SIG_IGN)`, which auto-reaped EVERY child and
+    // left `process::waitFor` on an unrelated handle reporting `0`. Windows
+    // `detach` only closes handles, so it has no reaper.
+    if platform.family() != PlatformFamily::Windows
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_process_process_detach")
+    {
+        code_functions.push(
+            crate::codegen::builtins::process::lower_process_reaper_helper(
+                &platform_imports,
+                platform,
+            )?,
+        );
+    }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
             uses_term,

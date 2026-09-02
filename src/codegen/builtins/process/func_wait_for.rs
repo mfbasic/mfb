@@ -28,14 +28,6 @@ const DESC: &str = r#"`process::waitFor` blocks until the child behind a `Proces
 returns its exit code. A child that exited normally returns its exit status
 (`0 .. 255` on Unix); a child killed by a signal returns `-1`.
 
-
-**A `process::detach` anywhere in the program breaks the exit code.** On Unix,
-`process::detach` asks the operating system to clean up finished children
-automatically, and that setting applies to the whole program rather than to one
-child: after any `detach`, `waitFor` on any *other* handle reports `0` instead
-of that child's real exit code. Do not detach a child while you still need an
-accurate exit status from another one.
-
 `waitFor` is **idempotent**. The first call reaps the child (`waitpid` on Unix) and
 caches its exit code and raw wait status in the handle; every later call — and a
 call after `process::isRunning` already observed the exit — returns the cached code

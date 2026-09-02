@@ -115,7 +115,7 @@ itself, so `initializers` is empty and no `.init_array` is produced.
 ```text
 interpreter  /lib/ld-linux-aarch64.so.1
 libc.so.6        C/POSIX runtime functions
-libpthread.so.0  pthread_create for thread::start
+libpthread.so.0  pthread_create for thread::start / process::detach
 ```
 
 Each soname an import names becomes a `DT_NEEDED` entry. The per-call
@@ -133,7 +133,7 @@ libc.musl-aarch64.so.1   C/POSIX runtime functions and pthread_create
 ```
 
 musl exposes the pthread entry points from libc, so the pthread surface
-(`pthread_create` for `thread::start`) is imported from
+(`pthread_create` for `thread::start` and `process::detach`) is imported from
 `libc.musl-aarch64.so.1` rather than a separate pthread library. As on glibc,
 `libm.so` is not needed — the `math::` kernels are in-tree. The per-call symbol
 mapping is owned by ./mfb spec linker import-selection.

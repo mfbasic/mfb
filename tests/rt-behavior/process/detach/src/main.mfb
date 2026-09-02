@@ -1,6 +1,6 @@
 ' plan-90-C Phase 2: detach relinquishes the child without killing it — the
 ' program exits promptly (scope-drop's __drop is a no-op after detach) and no
-' zombie accrues (SIGCHLD is SIG_IGN'd so the kernel auto-reaps). The detached
+' zombie accrues (bug-474: a thread waitpid's just this one pid). The detached
 ' `sleep 30` outlives the parent-side handle.
 IMPORT process
 IMPORT io
