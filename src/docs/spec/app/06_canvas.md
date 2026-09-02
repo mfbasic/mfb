@@ -150,6 +150,39 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
+**`Paint.transform` maps the item's coordinates onto the surface.** The item is
+drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
+b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
+never sets one is unaffected.
+
+Coverage is still `clamp(0.5 - d, 0, 1)`, but `d` is the distance measured **after**
+the transform: a rotated edge is antialiased along where it now lies, not along
+where it started. Because a distance field is transformed by transforming the query
+point rather than the shape, this is specified as the shape's own distance
+evaluated at the inverse-mapped point, divided by how fast that mapping stretches
+distance there. That divisor is what makes the rule direction-aware, and it is
+required rather than optional: under a non-uniform scale a single scalar such as
+`sqrt(|det M|)` is wrong by up to 37 coverage steps of 255 at the shape's edge.
+
+Two consequences follow, both specified rather than left to the backend:
+
+* **A stroke is transformed with the shape it outlines.** `Paint.strokeWidth` is a
+  width in the item's own coordinates, so scaling an item by 2 draws its outline
+  twice as wide. The alternative — a width fixed in surface pixels — would make a
+  uniformly scaled circle come out with a thinner-looking ring, which is not what
+  scaling a drawing means.
+* **A transform with no area is the identity.** If either row is all zero, or
+  `|a*d - b*c|` is below `1e-12`, the item draws untransformed. Such a matrix
+  collapses the item to a line or a point, which has no coverage under any
+  antialiasing rule, so the choice is between drawing nothing and drawing the
+  untransformed item; the second is specified because it is the one a program can
+  see and diagnose.
+
+A `Text` item is not a distance field — it is a run of coverage bitmaps — so it is
+specified separately: each pixel of the run's transformed bounds samples the glyph
+coverage at its inverse-mapped point. The result is the same rule stated for shapes,
+and a rotated label is a rotated label on every backend.
+
 **`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
 in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
 transformed rectangle. A zero-area or negative-extent `Bounds` means no clipping,

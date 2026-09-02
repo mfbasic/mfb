@@ -118,12 +118,7 @@ fn render_gpu_with_font(name: &str, source: &str) -> (Frame, String) {
     render_inner(name, source, true, &[("MFB_CANVAS_GPU", "1")])
 }
 
-fn render_inner(
-    name: &str,
-    source: &str,
-    font: bool,
-    extra: &[(&str, &str)],
-) -> (Frame, String) {
+fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) -> (Frame, String) {
     let project = common::temp_project(name, source);
     if font {
         std::fs::write(project.join("fixture.ttf"), fixture_truetype())

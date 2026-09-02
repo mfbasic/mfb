@@ -367,6 +367,18 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
         md.push_str("## Records\n\n");
         for record in records {
             md.push_str(&format!("#### {pkg}::{}\n\n", record.name));
+            // The record's own prose, above its field table, in the same place a
+            // resource's description already goes. `RegistryRecord::description` is
+            // documented by AGENTS.md as a man-content field and by its own doc comment
+            // as the source of the `DOC … END DOC` round-trip; it was only ever the
+            // second. Thirty-eight records across eight packages carried prose no page
+            // rendered — `canvas::Transform`'s all-zero-is-identity rule among them,
+            // which `mfb spec` §"Paint is a value, not ambient state" calls the one
+            // consequence worth stating explicitly.
+            if !record.description.is_empty() {
+                md.push_str(record.description);
+                md.push_str("\n\n");
+            }
             md.push_str("| Field | Type | Description |\n| --- | --- | --- |\n");
             for prop in &record.props {
                 md.push_str(&format!(
@@ -804,6 +816,40 @@ mod tests {
         // Internal (non-export) records are omitted from the public page.
         assert!(!md.contains("__json_Node"));
         assert!(!md.contains("__json_StringNode"));
+    }
+
+    /// A record's own description reaches the page, above its field table.
+    ///
+    /// Worth a test of its own because the failure is silent in both directions: a
+    /// renderer that drops the prose still emits a complete-looking type entry, and the
+    /// prose itself is an `&'static str` no compiler gate reads. `canvas::Transform` is
+    /// the case that found it — its all-zero-is-identity rule is the one consequence
+    /// `mfb spec` singles out, and no page showed it.
+    #[test]
+    fn a_records_own_description_renders_above_its_fields() {
+        let package = registry().resolve_package("canvas").unwrap();
+        let md = render_types_markdown(package);
+        let at = md
+            .find("#### canvas::Transform")
+            .expect("canvas exports Transform");
+        let table = md[at..]
+            .find("| Field |")
+            .expect("Transform renders a field table");
+        let head = &md[at..at + table];
+        assert!(
+            head.contains("all-zero"),
+            "the record's description should sit between its heading and its field \
+             table, but that span is:\n{head}"
+        );
+        // And an undocumented record is unchanged — a bare heading then the table.
+        let json = render_types_markdown(registry().resolve_package("json").unwrap());
+        let at = json
+            .find("#### json::JsonObj")
+            .expect("json exports JsonObj");
+        assert!(
+            json[at..].starts_with("#### json::JsonObj\n\n| Field |"),
+            "a record with an empty description must render exactly as before"
+        );
     }
 
     #[test]

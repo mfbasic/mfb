@@ -524,23 +524,68 @@ Commit: —
 
 ### Phase 5 — Docs, and the three-field defect closed
 
-- [ ] `mod.rs` — the `Transform` and `Paint.transform` descriptions describe behaviour;
+- [x] `mod.rs` — the `Transform` and `Paint.transform` descriptions describe behaviour;
       state the stroke-scales decision (§4.3) and the singular-transform rule (§4.4).
-- [ ] `src/docs/spec/app/06_canvas.md` — the transform's effect on geometry, on
-      stroke width, and its non-effect on `clip`.
-- [ ] Add a worked `mfb man` example on `canvas::fillStroke` or `canvas::present`
+      Both done — and doing it turned up that a record's own description was rendered
+      by **no** page at all, so half of this box would have been unobservable. See
+      **C8**.
+- [x] `src/docs/spec/app/06_canvas.md` — the transform's effect on geometry, on
+      stroke width, and its non-effect on `clip`. → a new
+      **`Paint.transform` maps the item's coordinates onto the surface** block in
+      §Rendering conventions, immediately above the `Paint.clip` one, carrying the
+      coverage rule, the two consequences (stroke transforms with the shape; a
+      no-area transform is the identity) and the separate `Text` rule. It states the
+      37/255 measurement as the reason the divisor is direction-aware, so the next
+      reader cannot re-derive `sqrt(|det M|)` from the prose.
+- [x] Add a worked `mfb man` example on `canvas::fillStroke` or `canvas::present`
       showing a rotated item, and add that member to `MEMBERS` in
       `tests/cli_canvas_man_examples_compile.rs` if it is not already there (it lists
       13 members — `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs`).
-- [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
-      `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      → a second example on `canvas::fillStroke`: the same square upright and turned
+      45°, drawn with one paint apart from the transform. `fillStroke` was already in
+      `MEMBERS` (it is the 5th of the 14 that list now). Note that
+      `cli_canvas_man_examples_compile` deliberately stops at a member's *first*
+      example — `example_source` breaks on the prose introducing a second — so the new
+      one is gated by `man-run-examples.sh` instead, where the count went 20 → 21.
+- [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
+      `scripts/man-run-examples.sh canvas --run` passes. → 0 unclassified (15 CARVE-1,
+      23 CARVE-2), re-run *after* C8 put 38 more records' prose on pages; and
+      `examples: 21   built: 21   ran: 21   failed: 0`.
+- [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's. → `132 golden(s)
+      refreshed, 0 missing`, and `git status --porcelain tests/` is **empty** after it.
+      The delta is not merely this letter's, it is nil: no `tests/byte-identity/`
+      fixture imports `canvas`, so a canvas registry description cannot move a
+      `.ncode`. `scripts/artifact-gate.sh target/release/mfb all` agrees —
+      1325 tests, 1487 builds, 1823 goldens, **0 diffs**.
 
 Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
 `scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs, and
 `grep -rn "\.transform\|\.clip\|\.blend" src/codegen/builtins/canvas/` now finds
 **real reads**, not only doc strings — which is the defect this and plan-116-B set out
 to close.
+
+**MET.**
+
+- `cargo test --release --no-fail-fast` on **mac+RELEASE** — 90 test binaries, 0
+  failures. The run reported one: `artifact_gate_all` refused to start because a peer
+  session's gate held the lock (`pgrep -fl 'artifact-gate\.sh'` showed
+  `.claude/worktrees/477`). That is exit 98, a refusal rather than a result — the
+  script separates the two codes precisely so this is not read as a golden regression.
+  Re-run uncontended: **ok, 494.72s, 1325 tests / 1487 builds / 1823 goldens / 0
+  diffs.**
+- The **linux+DEBUG** half is covered as plan-116-A established and B repeated, and
+  for the same reason (box 2228 is one core): the `--bin mfb` unit tests on 2228, plus
+  `scripts/test-canvas-vulkan.sh` on **both** Linux libc worlds — 2228 glibc and 2227
+  musl — which is where this letter's Linux-specific behaviour (the inverse map and
+  gradient correction in the SPIR-V, the conditional glyph hull) actually executes.
+- `bash scripts/test-accept.sh target/release/mfb /tmp/accept-116c` — **acceptance
+  tests passed (1346 test(s) ran)**, the same count B recorded, so no fixture was
+  silently skipped.
+- The three-field grep now finds real reads, in `helper_geometry.rs`:
+  `paint.clip.x/y/w/h` at `:184-187`, `paint.blend` at `:193/196/199`, and
+  `paint.transform` at `:207` (`__canvas_invertTransform(paint.transform)`). Every
+  other hit is a doc string. **This is the defect plan-116-B and this letter set out
+  to close, and it is closed.**
 Commit: —
 
 ## Validation Plan
@@ -575,6 +620,35 @@ Commit: —
   readings are defensible and a user will ask.
 
 ## Corrections
+
+- **C8 (2026-09-01, Phase 5) — a record's own `description` was rendered by no `mfb man`
+  page, so this phase's first box could not have been verified as written.** The phase
+  asks that "the `Transform` and `Paint.transform` descriptions describe behaviour".
+  `Paint.transform` is a `RecordProp` and renders in the `Paint` field table.
+  `Transform` is a `RegistryRecord`, and `render_types_markdown` (`src/cli/man.rs:365`)
+  emitted its heading and its field table with the record's own `description` dropped
+  between them — so the prose could be rewritten to any standard and nothing would show
+  it.
+
+  Not a scoping question: AGENTS.md lists "the `description` on
+  `RegistryRecord`/`RegistryResource`/`EnumVariant`/`UnionVariant`" as a man-content
+  field to edit, and the other three all render. `RegistryRecord::description`'s own doc
+  comment describes only its *other* job — sourcing the `DOC … END DOC` block that lets
+  a documented record round-trip through `add_record` — which is presumably how it came
+  to have one consumer instead of two.
+
+  Measured before fixing: 38 of 89 `add_record` sites carry a non-empty description
+  (`grep -rn "add_record(RegistryRecord" -A 5 src/codegen/builtins/ | grep 'description:'
+  | grep -v 'description: ""'`), across crypto, net, udp, datetime, term, canvas,
+  astrings and http. All 38 were invisible.
+
+  Fixed by emitting the description between the heading and the field table, where a
+  resource's already goes, and pinned by
+  `a_records_own_description_renders_above_its_fields` — which also asserts an
+  *undocumented* record still renders `#### json::JsonObj\n\n| Field |` exactly as
+  before, so the change cannot quietly reformat the other 51. Re-running
+  `scripts/man-census.sh --memory-scope` after it still reports 0 unclassified hits:
+  none of the newly-visible prose uses the banned memory vocabulary.
 
 - **C7 (2026-09-01, Phase 4) — the golden harness never waited for the frame it asked
   for, and the first reference that needed a font recorded a scene with no text in it.**
