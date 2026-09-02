@@ -380,20 +380,55 @@ Commit: 086d06969
 
 ### Phase 3 — The arc cap, all three renderers
 
-- [ ] `__canvas_arcHeader` computes and stores the two sweep endpoints in slots 36–39;
-      `HEADER_SLOTS` → 40; every `__CANVAS_GEO_HEADER` reader updated.
-- [ ] `__canvas_geoDistance`'s arc arm takes the `min` with the two cap discs when the
-      cap is `Round`.
-- [ ] The same in both shaders; extend the item block by one `ivec4`;
-      `scripts/regen-spirv.sh`.
-- [ ] Verify the existing `reach = radius + half + 1.0` bounds still contain a round
-      cap (§4.2) — by test, on an arc whose sweep ends at the bounds' extreme.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` — a butt-capped 0..PI arc (byte-identical
+- [x] `__canvas_arcHeader` computes and stores the two sweep endpoints in slots 35–38;
+      `HEADER_SLOTS` → 39; every `__CANVAS_GEO_HEADER` reader updated. (35–38 / 39, not
+      36–39 / 40 — see **D1**.) The two endpoints ride the `__canvas_cos`/`__canvas_sin`
+      calls the arc header already makes, so a round-capped arc costs no extra
+      transcendental — which matters because the oracle's trig is a hand-written
+      deterministic series, not libm.
+- [x] `__canvas_geoDistance`'s arc arm takes the `min` with the two cap discs when the
+      cap is `Round`. Butt returns the band untouched, so it is the pre-letter path.
+- [x] The same in both shaders; extend the item block by one `ivec4`;
+      `scripts/regen-spirv.sh`. → `ITEM_BLOCK_SIZE` 160 → 176, `frag -> 23804 bytes`,
+      `vert -> 4140 bytes`. See **D6**: the *vertex* shader has its own copy of
+      `ItemBlock` and widening only the fragment one would have shifted every item
+      after the first.
+- [x] Verify the existing `reach = radius + half + 1.0` bounds still contain a round
+      cap (§4.2) — by test, on an arc whose sweep ends at the bounds' extreme. →
+      `a_round_arc_cap_at_the_bounds_extreme_is_not_clipped`, on an arc whose start
+      endpoint *is* the hull's +X extreme: the cap disc reaches x = 412 against a hull
+      edge at 413, and the test asserts the outermost column is painted. The arithmetic
+      says it fits; a hull one pixel short would have cut exactly that column and
+      nothing else, which is why this is a measurement and not a paragraph.
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` — a butt-capped 0..PI arc (byte-identical
       to Phase 1's arc); the same arc round-capped (assert stroke pixels beyond the
       radial cut at each end); a full-circle arc (caps must be invisible either way).
+      → `a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not`,
+      `a_round_arc_cap_at_the_bounds_extreme_is_not_clipped`, and
+      `a_full_circle_arc_is_identical_with_either_cap` — the last comparing whole
+      frames, because a disc drawn in the wrong place on a closed arc is a bulge no
+      single-pixel check is positioned to see.
+- [x] **Added:** a round-capped arc in both GPU harnesses, for the reason Phase 2 added
+      the butt line — `smile` is butt-capped in both scenes, so the cap-disc arm would
+      otherwise be compiled into both shaders and never taken.
 
 Acceptance: the four new cases pass; the butt-capped arc is byte-identical to the same
 arc at Phase 1's commit.
+
+**MET.**
+
+- `rt_canvas_rasteriser` 27 passed / 1 ignored (24 before this phase).
+- **Butt arcs byte-identical**, and this one needs no special instrument: every stored
+  reference contains an arc — `smiley.png` one, `blendmodes.png` four — and all three
+  still match `compare_exact`, with `git status --short tests/golden/canvas/` empty.
+- Both backends' layout guards fired on this change and were satisfied rather than
+  silenced: `the_draw_frame_slots_do_not_overlap` (the item block at `OFF_ITEM` ran
+  into `OFF_TEXTURE`) and `the_metal_shader_edge_base_matches_the_buffer_layout`
+  (163840 → 180224). See **D7**.
+- GPU parity with both styles on both variants: `rt_canvas_metal` 4/4,
+  `rt_canvas_golden` 8/8, `rt_canvas_font` 12/12, and `scripts/test-canvas-vulkan.sh`
+  on box 2228 12/12 with `entries=24` at `worst=2 differing=0.7818%` — up from
+  0.7797%, which is the round arc's antialiased cap edges rather than a no-op.
 Commit: —
 
 ### Phase 4 — GPU parity, docs, and the gates
@@ -449,6 +484,46 @@ Commit: —
   styles stay mutually consistent.
 
 ## Corrections
+
+- **D7 (2026-09-02, Phase 3) — growing `ITEM_BLOCK_SIZE` moves two Metal constants
+  that nothing else relates to it, and both guards fired.** The block went 160 → 176 for
+  the arc-cap `ivec4`, and:
+
+  * `the_draw_frame_slots_do_not_overlap` — the item block is built on Metal's
+    hand-assigned stack frame at `OFF_ITEM = 192`, so at 176 bytes it ran to 368 and
+    overlapped `OFF_TEXTURE` at 352. Every slot from `OFF_TEXTURE` up shifted by 16 and
+    `DRAW_FRAME` went 512 → 528.
+  * `the_metal_shader_edge_base_matches_the_buffer_layout` — the MSL's
+    `METAL_EDGE_BASE` is a literal that must equal `CANVAS_ITEM_BUFFER_BYTES / 4`, so it
+    went 163840 → 180224.
+
+  Neither would have failed loudly. A frame-slot overlap corrupts a pointer the
+  `objc_msgSend` sequence reads and produces a **black GPU frame that reports success**;
+  a stale edge base makes every polygon read edges from the wrong offset of a buffer
+  that is entirely valid memory. Recorded because the pattern is now three-for-three
+  across plan-116 (A grew the block for the item buffer, C for the transform, D for the
+  caps) and each time the guards were the only thing that noticed.
+
+- **D6 (2026-09-02, Phase 3) — `ItemBlock` is declared TWICE, and the vertex copy is the
+  one that sets the stride.** Adding `arcCaps` to `mfb_canvas.frag` alone left
+  `mfb_canvas.vert`'s own declaration at ten members. The reflection is unambiguous:
+
+  ```
+  # before, mfb_canvas.vert
+  Items.blocks.xform1: offset 144, ... topLevelArrayStride 160
+  Items: ... size 160, numMembers 10
+  # after
+  Items.blocks.arcCaps: offset 160, ... topLevelArrayStride 176
+  Items: ... size 176, numMembers 11
+  ```
+
+  With the two stages disagreeing, the vertex stage would index a 160-byte stride into a
+  buffer the emitter writes at 176 — so every item after the first reads a block
+  straddling two records, which draws plausible wrong shapes rather than failing. The
+  plan's box says "extend the item block by one `ivec4`" without saying *where*, and
+  only one of the two places is the one the stride comes from. Measured with
+  `glslangValidator -V -q` on box 2228, which is what the `ITEM_BLOCK_SIZE` doc comment
+  already tells you to re-run and is the reason it says so.
 
 - **D5 (2026-09-02, Phase 2) — the site census missed `scripts/test-canvas-vulkan.sh`,
   because the harness embeds MFBASIC in a shell heredoc.** Phase 1's census used

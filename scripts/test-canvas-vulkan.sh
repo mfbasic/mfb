@@ -190,7 +190,11 @@ SUB main()
   ' because the cap is a half-width feature.
   LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
   LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound]
+  ' And a ROUND-capped arc: `smile` above is butt, which is what every arc was before
+  ' plan-116-D, so without this the cap-disc arm is compiled into the SPIR-V and never
+  ' taken.
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(120, 255, 200), 20.0)]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

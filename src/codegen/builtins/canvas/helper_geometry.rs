@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 35-float header carrying the
+//! draws. Generation turns one into the other: a fixed 39-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 35-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 39-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 35 float compares
+//! is worse than a common slow one, and the confirmation costs 39 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,8 +50,12 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 35
+r#"LET __CANVAS_GEO_HEADER AS Integer = 39
 LET __CANVAS_GEO_CAP AS Integer = 34
+LET __CANVAS_GEO_CAPSTARTX AS Integer = 35
+LET __CANVAS_GEO_CAPSTARTY AS Integer = 36
+LET __CANVAS_GEO_CAPENDX AS Integer = 37
+LET __CANVAS_GEO_CAPENDY AS Integer = 38
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
@@ -119,7 +123,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 35 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 39 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -365,6 +369,15 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.cap)))
+  ' plan-116-D: the two sweep endpoints, in surface pixels. Per-shape constants, so
+  ' they are computed ONCE here rather than per pixel in each of three renderers --
+  ' which is the same reason the sweep vectors are turned into sin/cos here. The two
+  ' extra multiply-adds ride on `__canvas_cos`/`__canvas_sin` calls the arc already
+  ' makes, so a round-capped arc costs no extra transcendental.
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTX, a.x + a.radius * __canvas_cos(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTY, a.y + a.radius * __canvas_sin(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDX, a.x + a.radius * __canvas_cos(a.endAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDY, a.y + a.radius * __canvas_sin(a.endAngle))
   LET reach AS Float = a.radius + half + 1.0
   RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
 END FUNC

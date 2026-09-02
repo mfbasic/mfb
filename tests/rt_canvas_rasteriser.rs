@@ -1236,3 +1236,121 @@ fn a_zero_length_line_is_a_dot_only_when_round_capped() {
          round distance"
     );
 }
+
+/// A round-capped arc puts a disc at each sweep end; a butt-capped one does not.
+///
+/// plan-116-D Phase 3, and the pair is what makes it a test: an `Arc` was *butt* before
+/// this letter — the sweep test already cuts the band along a radius at each end — so
+/// `Butt` is the byte-identical side here and `Round` is the new geometry. That is the
+/// opposite of `Line`, and getting the two backwards is the mistake this letter is
+/// shaped to prevent.
+///
+/// The arc is centred at (300, 300), radius 100, sweeping `0.0`..`PI` — so it runs
+/// below the centre (Y grows downward) and its start endpoint is at (400, 300), exactly
+/// the +X extreme. Stroke width 24, so a cap disc there has half-width 12.
+#[test]
+fn a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not() {
+    let arc = |cap: &str| {
+        format!(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
+             cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n"
+        )
+    };
+    let (butt, _) = render("canvas_arccap_butt", &scene(&arc("Butt")));
+    let (round, _) = render("canvas_arccap_round", &scene(&arc("Round")));
+
+    // The band itself, well inside the sweep — both must draw it, or everything below
+    // is vacuous.
+    for (name, frame) in [("butt", &butt), ("round", &round)] {
+        assert_eq!(
+            pixel(frame, 300, 400),
+            (255, 255, 255, 255),
+            "the {name} arc did not draw the bottom of its own band"
+        );
+    }
+
+    // Seven pixels above the start endpoint (400, 300). The sweep is 0..PI, so anything
+    // with y < 300 is outside it and the radial cut removes it — unless a cap disc of
+    // half-width 12 is centred there.
+    assert_eq!(
+        pixel(&round, 400, 293),
+        (255, 255, 255, 255),
+        "a round cap puts a disc of the stroke's half-width at the sweep endpoint, so \
+         just outside the sweep is still painted"
+    );
+    assert_eq!(
+        pixel(&butt, 400, 293),
+        (0, 0, 0, 255),
+        "a butt arc is cut along the radius at its end, so the same pixel is \
+         background — this is the pre-plan-116-D behaviour"
+    );
+    // And the disc has the stroke's half-width, not some larger reach.
+    assert_eq!(
+        pixel(&round, 400, 285),
+        (0, 0, 0, 255),
+        "15 px past the endpoint is outside a 12 px cap disc"
+    );
+}
+
+/// A round cap at the bounds' extreme is not clipped by the item's bounds.
+///
+/// The plan says to verify this rather than assume it. The arc header pads its hull by
+/// `radius + half + 1.0`, and a cap disc of half-width `half` centred on a point at
+/// distance `radius` from the centre reaches exactly `radius + half` — so it fits, with
+/// one pixel to spare. That is an argument, not a measurement, and a hull one pixel
+/// short would cut the cap's outer edge and nothing else.
+///
+/// The arc's start endpoint is (400, 300), the hull's +X extreme; the cap disc there
+/// reaches x = 412 against a hull edge at x = 413.
+#[test]
+fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
+    let (frame, _) = render(
+        "canvas_arccap_bounds",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
+             cap := canvas::CapStyle.Round, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n",
+        ),
+    );
+    assert_eq!(
+        pixel(&frame, 411, 300),
+        (255, 255, 255, 255),
+        "the outermost column of the start cap's disc — a hull that did not grow for \
+         the cap would have cut exactly here and left the rest of the arc intact"
+    );
+}
+
+/// A full-circle arc looks the same either way, because it has no ends to cap.
+///
+/// The degenerate case for this phase. A `0..2*PI` sweep never leaves the sweep test,
+/// so the cap discs are unioned into a band that already covers them — `min` with
+/// something already inside changes nothing. Comparing the two frames byte for byte is
+/// what rules out a disc drawn in the wrong place: on a closed arc that would be a
+/// bulge, which no single-pixel check is positioned to see.
+#[test]
+fn a_full_circle_arc_is_identical_with_either_cap() {
+    let ring = |cap: &str| {
+        format!(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, \
+             cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n"
+        )
+    };
+    let (butt, _) = render("canvas_arccap_ring_butt", &scene(&ring("Butt")));
+    let (round, _) = render("canvas_arccap_ring_round", &scene(&ring("Round")));
+    assert!(
+        butt.iter().any(|&b| b != 0),
+        "the ring drew nothing, so the comparison would be vacuous"
+    );
+    assert_eq!(
+        butt, round,
+        "a closed arc has no ends, so the cap must make no difference at all"
+    );
+}

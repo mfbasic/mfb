@@ -26,6 +26,7 @@ struct ItemBlock {
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px)
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -167,8 +168,19 @@ float geoDistance(vec2 p) {
         float a1 = fx(item.arc.y);
         vec2 s = vec2(cos(a0), sin(a0));
         vec2 e = vec2(cos(a1), sin(a1));
-        if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }
-        return abs(length(d) - fx(item.shape.z)) - radius;
+        float band = arcInSweep(d, s, e, (a1 - a0) > PI)
+            ? abs(length(d) - fx(item.shape.z)) - radius
+            : 1.0e6;
+        // Butt is 0 and is what an Arc did before plan-116-D — the sweep test already
+        // cuts the band along a radius at each end — so it returns untouched. Round
+        // unions a disc of the stroke's half-width at each sweep endpoint, and a union
+        // of SDFs is their min. The endpoints are per-shape constants the CPU wrote,
+        // so this costs two distances and no trigonometry.
+        if (item.arc.w == 0) { return band; }
+        vec2 cs = vec2(fx(item.arcCaps.x), fx(item.arcCaps.y));
+        vec2 ce = vec2(fx(item.arcCaps.z), fx(item.arcCaps.w));
+        band = min(band, length(p - cs) - radius);
+        return min(band, length(p - ce) - radius);
     }
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, item.misc.w, p);

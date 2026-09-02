@@ -59,14 +59,15 @@ use crate::codegen::runtime::canvas::{
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
-    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CLIP_X0, HEADER_CLIP_X1,
-    HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND,
-    HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
-    HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
-    HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT,
-    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC,
-    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
-    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
+    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X,
+    HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R,
+    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
+    HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
+    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
+    ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
+    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES,
+    METAL_MAX_GLYPH_SAMPLES,
 };
 
 /// The one-time setup helper's symbol.
@@ -120,7 +121,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 163840;\n",
+    "constant int METAL_EDGE_BASE = 180224;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -134,6 +135,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
     "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -245,8 +247,18 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    float a0 = fx(item.arc.x), a1 = fx(item.arc.y);\n",
     "    float2 s = float2(cos(a0), sin(a0));\n",
     "    float2 e = float2(cos(a1), sin(a1));\n",
-    "    if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }\n",
-    "    return abs(length(d) - fx(item.shape.z)) - radius;\n",
+    "    float band = arcInSweep(d, s, e, (a1 - a0) > PI)\n",
+    "        ? abs(length(d) - fx(item.shape.z)) - radius : 1.0e6;\n",
+    // Butt is 0 and is what an Arc did before plan-116-D, so it returns untouched;
+    // Round unions a disc of the stroke's half-width at each sweep endpoint, and a
+    // union of SDFs is their min. The endpoints are per-shape constants the CPU wrote,
+    // so this costs two distances and no trigonometry. Twin of the block in
+    // `runtime/canvas/shaders/mfb_canvas.frag`.
+    "    if (item.arc.w == 0) { return band; }\n",
+    "    float2 cs = float2(fx(item.arcCaps.x), fx(item.arcCaps.y));\n",
+    "    float2 ce = float2(fx(item.arcCaps.z), fx(item.arcCaps.w));\n",
+    "    band = min(band, length(p - cs) - radius);\n",
+    "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
     "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
     "}\n",
@@ -931,7 +943,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 512;
+const DRAW_FRAME: usize = 528;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -940,44 +952,44 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 352;
+const OFF_TEXTURE: usize = 368;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 360;
-const OFF_GLYPH_COV: usize = 368;
-const OFF_GLYPH_INDEX: usize = 376;
-const OFF_GLYPH_COUNT: usize = 384;
-const OFF_GLYPH_HEADER: usize = 392;
-const OFF_GLYPH_W: usize = 400;
-const OFF_GLYPH_H: usize = 408;
-const OFF_GLYPH_X: usize = 416;
-const OFF_GLYPH_Y: usize = 424;
+const OFF_GLYPH_META: usize = 376;
+const OFF_GLYPH_COV: usize = 384;
+const OFF_GLYPH_INDEX: usize = 392;
+const OFF_GLYPH_COUNT: usize = 400;
+const OFF_GLYPH_HEADER: usize = 408;
+const OFF_GLYPH_W: usize = 416;
+const OFF_GLYPH_H: usize = 424;
+const OFF_GLYPH_X: usize = 432;
+const OFF_GLYPH_Y: usize = 440;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 432;
+const OFF_GLYPH_SRC: usize = 448;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 440;
+const OFF_CONTENTS: usize = 456;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
 /// to live somewhere the argument staging cannot clobber.
-const OFF_ITEM_CURSOR: usize = 448;
-const OFF_RUN_START: usize = 456;
-const OFF_RUN_COUNT: usize = 464;
+const OFF_ITEM_CURSOR: usize = 464;
+const OFF_RUN_START: usize = 472;
+const OFF_RUN_COUNT: usize = 480;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 472;
+const OFF_EDGE_CURSOR: usize = 488;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 480;
+const OFF_GLYPH_INSTANCE: usize = 496;
 /// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
 /// two-instance split (plan-116-B).
 ///
@@ -985,9 +997,9 @@ const OFF_GLYPH_INSTANCE: usize = 480;
 /// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
 /// registers, so a value saved across it comes back as a mapped address — and as a
 /// stroke width that reads like an enormous band the oracle never drew.
-const OFF_BOUND_MODE: usize = 488;
-const OFF_ITEM_MODE: usize = 496;
-const OFF_SAVED_STROKE: usize = 504;
+const OFF_BOUND_MODE: usize = 504;
+const OFF_ITEM_MODE: usize = 512;
+const OFF_SAVED_STROKE: usize = 520;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -2109,6 +2121,19 @@ fn emit_item_block(asm: &mut Asm) {
         (
             ITEM_OFFSET_ARC,
             [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
+        ),
+        // plan-116-D: an arc's two sweep endpoints, four consecutive header slots
+        // narrowing to 16.16 exactly like the bounds — so the new `ivec4` rides this
+        // loop rather than adding a hand-written store per coordinate. Written for
+        // every kind; only a Round-capped arc reads them.
+        (
+            ITEM_OFFSET_ARC_CAPS,
+            [
+                HEADER_CAP_START_X,
+                HEADER_CAP_START_X + 1,
+                HEADER_CAP_END_X,
+                HEADER_CAP_END_X + 1,
+            ],
         ),
         // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
         // rides this loop unchanged — four consecutive slots narrowing to 16.16 like

@@ -135,8 +135,13 @@ SUB main()
   ' styles differ over a visibly large region rather than one antialiased pixel.
   LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
   LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(255, 240, 120), 24.0)]
+  ' And a ROUND-capped arc, for the same reason. `smile` above is butt-capped -- which
+  ' is what every arc was before plan-116-D -- so without this the arc's cap-disc arm
+  ' is compiled into both shaders and never taken. The sweep stops at 0.6*PI so both
+  ' ends are visible rather than one running off the item's own band.
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(120, 255, 200), 20.0)]
 
-  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound])
+  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END SUB
 "#;
 
