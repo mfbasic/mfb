@@ -121,8 +121,9 @@ static void run_ii(const char *group, const char *pfx) {
       IIMap *m = ii_new(); for (int i = 0; i < S.rem_n; i++) ii_set(m, i, i);
       long long c = 0; for (int i = 0; i < S.rem_n; i++) { ii_del(m, i); c++; } checksum = c; free(m);
     });
-    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
-    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
+    /* keys/values materialize the list, like mfb's collections::keys/values. */
+    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { long long *xs = malloc(sizeof(long long) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = b->k[s]; a += n2; bench_opaque(xs); free(xs); } checksum = a; });
+    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { long long *xs = malloc(sizeof(long long) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = b->v[s]; a += n2; bench_opaque(xs); free(xs); } checksum = a; });
     free(b); }
   { IIMap *b = ii_new(); for (int i = 0; i < S.prod_n; i++) ii_set(b, i, i);
     ROW("mapValues", { long long a = 0; for (int k = 0; k < S.k_prod; k++) { IIMap *o = ii_new(); for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) ii_set(o, b->k[s], b->v[s] + b->v[s]); a += o->n; free(o); } checksum = a; });
@@ -148,8 +149,9 @@ static void run_is(const char *group, const char *pfx) {
       ISMap *m = is_new(); for (int i = 0; i < S.rem_n; i++) { snprintf(buf, sizeof buf, "v%d", i); is_set(m, i, buf); }
       long long c = 0; for (int i = 0; i < S.rem_n; i++) { int s = -1; unsigned hh = h64((uint64_t)i); while (m->used[hh]) { if (m->used[hh] == 1 && m->k[hh] == i) { s = (int)hh; break; } hh = (hh + 1) & MMASK; } if (s >= 0) { free(m->v[s]); m->used[s] = 2; m->n--; } c++; } checksum = c; is_free(m);
     });
-    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
-    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
+    /* keys/values materialize the list (values copies string bytes, like mfb). */
+    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { long long *xs = malloc(sizeof(long long) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = b->k[s]; a += n2; bench_opaque(xs); free(xs); } checksum = a; });
+    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { char **xs = malloc(sizeof(char *) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = strdup(b->v[s]); a += n2; bench_opaque(xs); for (int j = 0; j < n2; j++) free(xs[j]); free(xs); } checksum = a; });
     is_free(b); }
   { ISMap *b = is_new(); for (int i = 0; i < S.prod_n; i++) { snprintf(buf, sizeof buf, "v%d", i); is_set(b, i, buf); }
     ROW("mapValues", { long long a = 0; for (int k = 0; k < S.k_prod; k++) { ISMap *o = is_new(); for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) { char tb[28]; snprintf(tb, sizeof tb, "[%s]", b->v[s]); is_set(o, b->k[s], tb); } a += o->n; is_free(o); } checksum = a; });
@@ -175,8 +177,9 @@ static void run_si(const char *group, const char *pfx) {
       SIMap *m = si_new(); for (int i = 0; i < S.rem_n; i++) { snprintf(buf, sizeof buf, "k%d", i); si_set(m, buf, i); }
       long long c = 0; for (int i = 0; i < S.rem_n; i++) { snprintf(buf, sizeof buf, "k%d", i); si_del(m, buf); c++; } checksum = c; si_free(m);
     });
-    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
-    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) a += b->n; checksum = a; });
+    /* keys/values materialize the list (keys copies string bytes, like mfb). */
+    ROW("keys", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { char **xs = malloc(sizeof(char *) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = strdup(b->k[s]); a += n2; bench_opaque(xs); for (int j = 0; j < n2; j++) free(xs[j]); free(xs); } checksum = a; });
+    ROW("values", { long long a = 0; for (int k = 0; k < S.k_keys; k++) { long long *xs = malloc(sizeof(long long) * b->n); int n2 = 0; for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) xs[n2++] = b->v[s]; a += n2; bench_opaque(xs); free(xs); } checksum = a; });
     si_free(b); }
   { SIMap *b = si_new(); for (int i = 0; i < S.prod_n; i++) { snprintf(buf, sizeof buf, "k%d", i); si_set(b, buf, i); }
     ROW("mapValues", { long long a = 0; for (int k = 0; k < S.k_prod; k++) { SIMap *o = si_new(); for (int s = 0; s < MCAP; s++) if (b->used[s] == 1) si_set(o, b->k[s], b->v[s] + b->v[s]); a += o->n; si_free(o); } checksum = a; });

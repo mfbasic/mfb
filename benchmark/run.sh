@@ -57,15 +57,17 @@ cc -O2 -o "$here/c/bench-O2.out" "${c_srcs[@]}" -lm -lpthread
 # One shared timestamp for every log written by this run.
 ts="$(date +%Y%m%d-%H%M%S)"
 
-# run_one LABEL LOGNAME CMD... — run CMD, echo its table to the terminal, and
-# also write it to "$here/LOGNAME-$ts.log" (checksums/progress stay on stderr).
+# run_one LABEL LOGNAME CMD... — run CMD, echo its table to the terminal, write
+# it to "$here/LOGNAME-$ts.log", and capture stderr (the per-row `test_* = N`
+# checksums, plus any diagnostics) to "$here/LOGNAME-$ts.sums" for validation.
 run_one() {
   local label="$1" logname="$2"; shift 2
   local logfile="$here/${logname}-${ts}.log"
+  local sumsfile="$here/${logname}-${ts}.sums"
   printf '\n========================================================================\n'
   printf '  %s  (--run %s)  ->  %s\n' "$label" "$runs" "$(basename "$logfile")"
   printf '========================================================================\n'
-  "$@" --run "$runs" | tee "$logfile"
+  "$@" --run "$runs" 2>"$sumsfile" | tee "$logfile"
 }
 
 run_one "mfb"    "mfb"    "$mfb_out"
@@ -76,6 +78,46 @@ run_one "python" "python" python3 "$here/python/main.py"
 echo
 echo "==> logs written (timestamp $ts):"
 for n in mfb c-O0 c-O2 python; do echo "    $here/${n}-${ts}.log"; done
+
+# Cross-validate the per-row checksums: every shared `test_<name>` key must
+# agree wherever the README claims bit-for-bit peers (mismatches are listed;
+# a few rows are documented approximations). c-O0 vs c-O2 must ALWAYS agree —
+# a disagreement means the optimizer changed observable work, and is fatal.
+echo
+echo "==> validating checksums"
+python3 - "$here/mfb-${ts}.sums" "$here/c-O0-${ts}.sums" \
+          "$here/c-O2-${ts}.sums" "$here/python-${ts}.sums" <<'EOF'
+import re, sys
+names = ["mfb", "c-O0", "c-O2", "python"]
+maps = []
+for p in sys.argv[1:5]:
+    m = {}
+    for line in open(p, encoding="utf-8", errors="replace"):
+        mm = re.match(r"(test_\w+) = (-?\d+)\s*$", line)
+        if mm:
+            m[mm.group(1)] = mm.group(2)
+    maps.append(m)
+keys = sorted(set().union(*maps))
+shared = [k for k in keys if sum(k in m for m in maps) > 1]
+bad, hard_bad = [], []
+for k in shared:
+    vals = {names[i]: maps[i][k] for i in range(4) if k in maps[i]}
+    if len(set(vals.values())) > 1:
+        bad.append((k, vals))
+        if vals.get("c-O0") is not None and vals.get("c-O2") is not None \
+           and vals["c-O0"] != vals["c-O2"]:
+            hard_bad.append(k)
+print("    %d checksum keys, %d shared across >=2 targets, %d mismatched"
+      % (len(keys), len(shared), len(bad)))
+for k, vals in bad:
+    print("    MISMATCH %s: %s" % (k, "  ".join("%s=%s" % nv for nv in vals.items())))
+if bad:
+    print("    (a few rows are documented approximations -- see"
+          " 'Coverage vs. throughput' in benchmark/README.md)")
+if hard_bad:
+    print("ERROR: c-O0 and c-O2 disagree (same source): " + ", ".join(hard_bad))
+    sys.exit(1)
+EOF
 
 # Tidy up build artifacts (all git-ignored, but keep the tree clean).
 rm -f "$here/c/bench-O0.out" "$here/c/bench-O2.out" \

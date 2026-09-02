@@ -50,12 +50,15 @@ def run_all(run, now_ns_fn, record_fn):
         group = "list (%s)" % label
         is_int = ty == "int"
 
-        def emit(op, fn):
+        def emit(op, fn, setup=None):
+            # setup (when given) rebuilds per-run mutable state OUTSIDE the
+            # timed region, matching mfb's untimed pre-t0 rebuild.
             times = []
             checksum = 0
             for _ in range(RUN):
+                args = (setup(),) if setup else ()
                 t0 = now_ns()
-                checksum = fn()
+                checksum = fn(*args)
                 times.append(now_ns() - t0)
             print("test_%s_%s = %d" % (pfx, op, checksum), file=sys.stderr)
             record(group, op, times)
@@ -115,7 +118,16 @@ def run_all(run, now_ns_fn, record_fn):
         emit("prepend", op_prepend)
 
         # --- read-only ---------------------------------------------------
-        emit("copy", lambda: sum(len(list(base1k)) for _ in range(1000)))
+        # copy + poke element 0 + fold it back, matching mfb's set(base, 0, k)
+        # shape (mfb/C copy element bytes; list() copies refs — Python's copy).
+        def op_copy():
+            acc = 0
+            for k in range(1000):
+                c = list(base1k)
+                c[0] = k if is_int else "!"
+                acc += len(c) + (c[0] if is_int else len(c[0]))
+            return acc
+        emit("copy", op_copy)
 
         dup = [el(ty, i % 1000) for i in range(5000)]
         emit("distinct", lambda: len(list(dict.fromkeys(dup))))
@@ -129,17 +141,17 @@ def run_all(run, now_ns_fn, record_fn):
             return len(g)
         emit("groupby", op_groupby)
 
-        def op_set():
-            xs = rng(ty, 200)
+        def op_set(xs):
             for _ in range(10):
                 for j in range(200):
                     v = xs[j]
                     xs[j] = v + 1 if is_int else v + "!"
             return sum((xs[j] if is_int else len(xs[j])) for j in range(200))
-        emit("set", op_set)
+        emit("set", op_set, setup=lambda: rng(ty, 200))
 
-        rand50 = rng(ty, 50)          # deterministic; sort checksum is len
-        emit("sort", lambda: len(sorted(rand50)))
+        # deterministic scramble (matches mfb/C data); sort checksum is len
+        s50 = [(i * 7919) % 50 for i in range(50)] if is_int else rng(ty, 50)
+        emit("sort", lambda: len(sorted(s50)))
 
         asc = list(range(20000)) if is_int else [_pad6(i) for i in range(20000)]
         desc = list(range(19999, -1, -1)) if is_int else [_pad6(19999 - i) for i in range(20000)]
@@ -179,8 +191,10 @@ def run_all(run, now_ns_fn, record_fn):
             return -1
         emit("findLastIndex", lambda: sum(_findlast(base1k, leLo) for _ in range(500)))
 
-        nested = [rng(ty, 10) for _ in range(100)]
-        emit("flatten", lambda: sum(len([x for row in nested for x in row]) for _ in range(200)))
+        # flatten times chunks + flatten, like mfb's flatten(chunks(base, 10)).
+        emit("flatten", lambda: sum(
+            len([x for row in [base1k[i:i + 10] for i in range(0, len(base1k), 10)] for x in row])
+            for _ in range(200)))
 
         def op_foreach():
             acc = 0

@@ -1,4 +1,5 @@
 *.log
+*.sums
 *.out
 *.mfp
 mfb/packages/

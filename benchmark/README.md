@@ -144,10 +144,51 @@ writes a timestamped log per target:
 mfb-<ts>.log   c-O0-<ts>.log   c-O2-<ts>.log   python-<ts>.log
 ```
 
-Logs, built `*.out` binaries, and generated `*.mfp` packages are git-ignored.
+Each target's stderr (the per-row `test_<name> = <checksum>` lines) is captured
+to a matching `<target>-<ts>.sums` file, and run.sh ends by cross-validating
+every checksum key shared between targets: mismatches are listed (a few rows
+are documented approximations — see below), and a c-O0 vs c-O2 disagreement is
+fatal, because the two are the same source and a divergence means the optimizer
+changed the observable work.
+
+Logs, `.sums` files, built `*.out` binaries, and generated `*.mfp` packages are
+git-ignored.
 **Prefer the median** — the average is dragged up by occasional OS-scheduling
 outliers. Use a higher `--run` (e.g. 50+) when you care about the stats
 columns; a single-sample run leaves `median == average`.
+
+## Work equivalence
+
+Every row is required to do the same *observable* work in every language, so a
+column difference is a language/runtime property, not a benchmark artifact:
+
+- **Result-producing ops materialize their result everywhere.** A C row for
+  `chunks`/`drop`/`take`/`mid`/`replace`/`transform`/`window`/`zip`/`flatten`/
+  `toList`/`keys`/`values` allocates and fills the same structure mfb and Python
+  build — never a closed-form count. In C, `bench_opaque()` (an empty asm with a
+  memory clobber, `bench.h`) pins each materialized-then-freed result so `-O2`
+  cannot eliminate the build as dead; the run-end c-O0 vs c-O2 checksum equality
+  check is the regression gate for that.
+- **The `copy` row copies observably.** It copies the 1000-element base, pokes
+  element 0, and folds both the count and the poked element into the checksum
+  (`lf` = 1499500, `ld` = 1001000), so a copy-on-write share or borrow elision
+  cannot masquerade as a copy. (A previous pass-through-helper shape was elided
+  to O(1) by mfb and measured nothing.) mfb and C copy element bytes; Python's
+  `list()` copies references, which is Python's copy semantics.
+- **`flatten` times `chunks` + `flatten` together in all three languages** (the
+  mfb container matrix derives the nested list from the container-held base
+  inside the timed region, so the peers do too).
+- **Setup is excluded consistently.** Read-only bases are built before the run
+  loop; per-run mutable state (the `set` row's working array) is rebuilt untimed
+  before each timed pass in all three languages; checksums are printed after
+  timing, never inside the timed region.
+- **The Python column is idiomatic CPython.** Rows use the stdlib the way a
+  Python program would be written: `hashlib`/`hmac` for `crypto`, `re` for
+  regex, timsort for `sort` — native cores, not interpreted re-implementations.
+  Those rows compare each language's standard means of doing the job (as the C
+  column uses libc `qsort`/`regcomp`), not interpreter-loop throughput; the
+  checksums still must match. Read the Python column with that in mind before
+  folding it into any cross-language aggregate.
 
 ## Coverage vs. throughput
 
