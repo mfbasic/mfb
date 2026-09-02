@@ -210,6 +210,31 @@ pub(super) fn resource_findings(resources: &[ResourceEntry], findings: &mut Vec<
     }
 }
 
+pub(super) fn relaxed_trust_findings(
+    entries: &[RelaxedTrustEntry],
+    findings: &mut Vec<Finding>,
+) {
+    for entry in entries {
+        findings.push(Finding {
+            code: "AUDIT-TLS-RELAXED-TRUST".to_string(),
+            category: "network".to_string(),
+            // Warning, not Info: unlike AUDIT-PERM-NETWORK (which reports that a
+            // capability is *used*), this reports that a safety check was
+            // deliberately weakened. It is correct and opt-in, but it is the one
+            // argument in the language that lowers transport trust, and a
+            // reviewer should not have to grep for it.
+            severity: Severity::Warning,
+            message: format!(
+                "`{}` passes `allowSelfSigned := TRUE`: a certificate chain whose root is not in the host trust store is accepted. The server name, the validity dates and the TLS 1.2 floor are still enforced",
+                entry.function
+            ),
+            path: Some(entry.path.clone()),
+            line: Some(entry.line),
+            package: None,
+        });
+    }
+}
+
 pub(super) fn permission_findings(permissions: &[PermissionEntry], findings: &mut Vec<Finding>) {
     let mut seen = HashSet::new();
     for permission in permissions {

@@ -22,12 +22,19 @@
 ' retires the connection at once instead of waiting to notice the close, then
 ' closes the socket.
 '
-' Note on the TLS attempt: tls::connect always verifies the server certificate
-' against the system trust store, and there is no way to turn that off
-' (bug-477). Against network-server's shipped self-signed certificate the
-' handshake is therefore *expected* to fail, and the printed reason is the point
-' of the exercise. To see it succeed, serve a certificate your machine already
-' trusts and pass --server-name with the name that certificate carries.
+' Note on the TLS attempt: tls::connect verifies the server certificate against
+' the system trust store, so against network-server's shipped SELF-SIGNED
+' certificate the handshake fails by default -- and that default is the right
+' one. Pass --allow-self-signed to accept a chain whose only fault is an
+' untrusted root:
+'
+'   $ network-client --port 7413 --server-name localhost --allow-self-signed
+'
+' That relaxes the trust anchor and nothing else: the certificate must still
+' match --server-name and must still be in date, so the flag cannot be used to
+' talk to just anything. `mfb audit` reports its use as AUDIT-TLS-RELAXED-TRUST.
+' Without it, the TLS attempt is expected to fail and the printed reason is the
+' point of the exercise.
 
 IMPORT collections
 IMPORT encoding
@@ -87,12 +94,14 @@ SUB usage()
   io::print("network-client — try TCP, UDP, and TLS against examples/network-server.")
   io::print("")
   io::print("USAGE")
-  io::print("  network-client [--host HOST] [--port PORT] [--server-name NAME]")
+  io::print("  network-client [--host HOST] [--port PORT] [--server-name NAME] [--allow-self-signed]")
   io::print("")
   io::print("OPTIONS")
   io::print("  --host HOST        Server address. Default 127.0.0.1.")
   io::print("  --port PORT        Server port. Default 7000.")
   io::print("  --server-name NAME Name the TLS certificate must match, sent as SNI.")
+  io::print("  --allow-self-signed  Accept a TLS chain whose only fault is an untrusted")
+  io::print("                       root. The name and the dates are still checked.")
   io::print("                     Defaults to HOST.")
   io::print("  --help             Show this text and exit.")
   io::print("")
@@ -146,9 +155,9 @@ END SUB
 
 ' ---------------------------------------------------------------------- TLS --
 
-SUB runTls(host AS String, port AS Integer, serverName AS String, pid AS String)
+SUB runTls(host AS String, port AS Integer, serverName AS String, allowSelfSigned AS Boolean, pid AS String)
   io::print("[tls " & host & ":" & toString(port) & "]")
-  RES sock AS tls::Socket = tls::connect(host, port, connectTimeoutMs(), serverName) TRAP(e)
+  RES sock AS tls::Socket = tls::connect(host, port, connectTimeoutMs(), serverName, allowSelfSigned) TRAP(e)
     io::print("Failed " & pid & " " & e.message)
     EXIT SUB
   END TRAP
@@ -264,6 +273,7 @@ SUB main()
   MUT host AS String = "127.0.0.1"
   MUT port AS Integer = 7000
   MUT serverName AS String = ""
+  MUT allowSelfSigned AS Boolean = FALSE
   MUT i AS Integer = 0
 
   DO WHILE i < len(args)
@@ -284,6 +294,9 @@ SUB main()
         EXIT PROGRAM 2
       END TRAP
       i = i + 2
+    ELSEIF arg = "--allow-self-signed" THEN
+      allowSelfSigned = TRUE
+      i = i + 1
     ELSEIF arg = "--server-name" THEN
       serverName = argAt(args, i + 1)
       IF serverName = "" THEN
@@ -307,5 +320,5 @@ SUB main()
 
   runTcp(host, port, pid)
   runUdp(host, port, pid)
-  runTls(host, port, serverName, pid)
+  runTls(host, port, serverName, allowSelfSigned, pid)
 END SUB

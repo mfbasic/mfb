@@ -55,6 +55,56 @@ So `tls::listen` parks the host C string it already built for `nw_endpoint_creat
 - **`nw_listener_get_port` is listed with the CLIENT symbols on purpose.** The `localAddress` overload split resolves at emission, so the code layer force-emits the listener body wherever `tls.localAddress` appears — including in a client-only module, which would otherwise relocate against a name the server-gated symbol table never wrote. Gating the *synthesis* does not close it either: a module can take a `Listener` parameter without ever calling `listen`.
 - **The port needs a 16-bit store.** `nw_listener_get_port` returns `uint16_t`; the C return's upper bits are undefined, so it goes into a zeroed slot via `store_u16`. Unlike the `sockaddr` path, no byte-swap: it is already host order.
 
+## Relaxing trust must classify the failure, never disable verification
+
+`tls::connect`'s `allowSelfSigned` (bug-477) accepts a chain that fails *only*
+because its root is untrusted. On every backend the shortest way to do that also
+silently disables the hostname and expiry checks, so each one **keeps
+verification on and classifies the failure** instead.
+
+**bug-177's audit finding is amended, not invalidated.** That audit certified "no
+verification bypass exists" on either backend. That remains true of the default
+path — omitting the argument is byte-for-byte the old handshake. What exists now
+is one opt-in, default-`FALSE`, call-site-visible relaxation of the *trust anchor
+only*, reported by `mfb audit` as `AUDIT-TLS-RELAXED-TRUST`.
+
+**OpenSSL: `SSL_VERIFY_NONE` is a trap, measured.** With a NULL callback the
+store's default `verify_cb` returns `ok` (0) at the first error, so
+`X509_verify_cert` stops inside `build_chain` and `check_id` — the hostname
+check — never runs. A self-signed certificate then reports code 18 *whether or
+not the name matches*, so accepting {0,18,19,20} under `SSL_VERIFY_NONE` accepts
+a MITM certificate. The emitter therefore keeps `SSL_VERIFY_PEER` and passes a
+callback (`_mfb_tls_verify_cb`) that clears only 18/19/20 and returns 1, letting
+verification continue into the name and date checks. Because the callback resets
+the error to `X509_V_OK`, the post-handshake `SSL_get_verify_result == 0` check
+is unchanged. **`openssl s_client` is not a valid probe for this** — it installs
+its own callback returning 1, so it reports 62 where the emitted code reports 18.
+
+**Schannel.** `SCH_CRED_MANUAL_CRED_VALIDATION` replaces
+`SCH_CRED_AUTO_CRED_VALIDATION` (keeping `SCH_USE_STRONG_CRYPTO`) so
+`InitializeSecurityContext` stops refusing outright, and
+`CERT_CHAIN_POLICY_PARA::dwFlags` gains **only**
+`CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG`. Never the sibling
+`..._IGNORE_INVALID_NAME`/`..._INVALID_DATE`, never clear `pwszServerName`, and
+`dwError == 0` is still required.
+
+**Network.framework.** A `sec_protocol_options_set_verify_block` block that
+re-runs the *whole* SSL policy with the peer's own root as the anchor
+(`SecTrustCopyCertificateChain`'s last entry →
+`SecTrustSetAnchorCertificates` + `SecTrustSetAnchorCertificatesOnly(true)`),
+under `SecPolicyCreateSSL(true, name)`. Never `complete(true)` unconditionally,
+and never
+`sec_protocol_options_set_peer_authentication_required(false)`.
+
+**macOS is stricter than the other two, deliberately.** Apple enforces a
+certificate *shape* policy: a TLS server certificate needs an `serverAuth`
+extended key usage and a validity window under ~398 days, or
+`SecTrustEvaluateWithError` refuses it as "not standards compliant" regardless of
+anchors — the keychain exemption does not apply to a programmatic anchor and
+there is no opt-out. A 10-year self-signed certificate therefore works on Linux
+and Windows and fails on macOS *even with the flag*. Generate test and example
+certificates with `-days 397 -addext extendedKeyUsage=serverAuth`.
+
 ## There is no `tls::wrap`, and the reason is macOS-specific
 
 Upgrading an established `tcp::Socket` in place needs to adopt its fd. On macOS nothing supported can: Network.framework fixes TLS in `nw_parameters` at creation and cannot graft it onto a live connection; `nw_connection_create_with_connected_socket` is exported but declared in no SDK header and fails `ENETDOWN` for every parameter shape; Secure Transport can adopt an fd but is deprecated and rejects `kTLSProtocol13` (`errSSLIllegalParam`), capping at TLS 1.2. The system LibreSSL (`/usr/lib/libssl.48.dylib`) *can* do it at TLS 1.3 — measured — but ships no headers and the unversioned path deliberately aborts, so it is unsupported. Shipping `wrap` on Linux and Windows alone would let a program compile for five targets and fail at runtime on one, so the member exists nowhere (plan-110-D §C9). Do not reintroduce it on two platforms.
