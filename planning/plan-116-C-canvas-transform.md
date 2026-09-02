@@ -608,6 +608,12 @@ run is the one that counts, not a formality.
 - `scripts/test-canvas-vulkan.sh target/release/mfb` (box 2228, glibc) — 12/12 ok,
   `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`. Both libc worlds
   therefore agree with the oracle to the same number post-merge as pre-merge.
+- **Linux `--bin mfb` unit tests, box 2228** — `cargo test --release --no-fail-fast
+  --bin mfb` on the merged tree: **3707 passed, 0 failed** (4436.78s; the box was
+  time-shared with a peer session at load ~4, against plan-116-A's 2718s uncontended).
+  3707 rather than A's 3688 because 19 unit tests have been added since, this letter's
+  among them. This is the row that covers plan-117's monomorph rewrite on the other
+  platform, which is the reason the merge-back gate was re-run rather than assumed.
 
 **A harness defect found here, worth the note (Correction C9).** The first two
 attempts at the Linux `--bin mfb` row failed after ~80 minutes of compiling with
