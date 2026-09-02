@@ -259,6 +259,27 @@ Commit: 0be618f08
   `gen_windows.rs`, beside the tail, with its own scratch-slot block
   (`WIN_CMD_*`) and `WIN_CMDLINE_SCRATCH_END` for callers that need more.
 
+## Merge-back gate results (2026-09-01)
+
+Run in the `worktree-P-119` integration worktree AFTER merging `main`
+(`00dbc5102` → `5c646284e`, clean merge, `648794c08`-era canvas/monomorph work
+included). Commit for the merge: see `git log`.
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | green; the only FAILED line is `artifact_gate_all`, and it is the peer-contention refusal (exit 98 — "could not START: another gate run holds the lock", nothing checked), not a golden result |
+| `scripts/artifact-gate.sh ./target/release/mfb all` (standalone, uncontended) | 1325 tests, 1488 builds, **1824 goldens, 0 diffs** — one golden more than before the plan, the new `process` Windows `.ncodesum` |
+| `scripts/test-accept.sh` | acceptance tests passed, **1346 ran** |
+| `scripts/test-winprocess.sh` (box 2230) | **47/47 ok** — spawn argv quoting, the cmd matrix, the shell matrix, cwd + both environment modes |
+| `scripts/test-winapp.sh` (box 2230) | passed — app mode, canvas, Vulkan and the resize handshake, re-run because this plan changed the Windows helper force-emit set |
+| `cargo check --all-targets` | no warnings |
+| `cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml` | no churn |
+
+The peer-contended artifact gate showed up on **every** full-suite run of this
+plan (five times) and was never a real failure — `.ai/testing-gates.md`'s
+exit-98 rule is what keeps that legible. Each was re-run standalone to a real
+0-diff result.
+
 ## Summary
 
 Pure enabling work: a proven-buggy joiner gets the real quoting algorithm

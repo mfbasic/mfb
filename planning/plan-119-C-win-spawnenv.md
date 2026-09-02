@@ -198,7 +198,7 @@ Rejected: requiring sorted blocks (not needed for ANSI CreateProcess).
       that no longer exists.
 
 Acceptance: box probes pass; full `cargo test --no-fail-fast` green.
-Commit: —
+Commit: 11aa10e25 (shared with Phase 2 — see Corrections)
 
 ### Phase 2 — merge-mode env (the risk concentrate)
 
@@ -212,7 +212,7 @@ Commit: —
 
 Acceptance: box probes pass, including the case-collision single-entry
 assertion; full suite green.
-Commit: —
+Commit: 11aa10e25 (shared with Phase 1 — see Corrections)
 
 ### Phase 3 — docs
 
@@ -240,7 +240,7 @@ Commit: —
 Acceptance: rendered page correct; man gates green; family-standard suite
 green (full cargo test, test-accept, artifact-gate, fmt, check
 --all-targets).
-Commit: —
+Commit: 11aa10e25
 
 ## Validation Plan
 
