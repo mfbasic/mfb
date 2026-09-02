@@ -300,6 +300,26 @@ test, because a future maintainer regenerating those certificates with a longer
 life would break only the macOS positive case, for a reason with nothing to do
 with this flag.
 
+### 6a. Final gate: 0 diffs
+
+After regenerating the `.ir` goldens the padded fifth argument shifts:
+
+```
+artifact-gate [all]: 1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)
+```
+
+exit 0, uncontended. `cargo fmt --all` (both workspaces) and
+`cargo check --all-targets` are clean, and the full `cargo test --release
+--no-fail-fast` passes every target.
+
+Two of the regenerated goldens are **diagnostics**, not drift sentinels, so they
+were corrected rather than re-baselined — see the commit for the reasoning. In
+short: 5 arguments is now a valid arity, so
+`tls::connect(h, p, t, s, 9)` stops being `TYPE_CALL_ARITY_MISMATCH` and becomes
+`TYPE_CALL_ARGUMENT_MISMATCH` (an Integer in a Boolean slot). It still fails, and
+the fixture now says *that* is what it pins — which is the property that stops a
+caller passing a truthy Integer and believing the flag is on.
+
 ### 6. Golden delta — proven, not assumed
 
 `scripts/regen-ncodesum.sh ./target/release/mfb macos-aarch64` refreshed **132**
