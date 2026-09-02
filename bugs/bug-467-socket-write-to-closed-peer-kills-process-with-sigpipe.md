@@ -35,7 +35,7 @@ same code the read side already raises at end of stream — and never delivers a
 signal. `TRAP` sees it, scope drop runs, and the process survives to serve its
 other connections.
 
-## STATUS: FIXED (51eb79f5d, f7990daa4, 37b74484d, 93ed880fa)
+## STATUS: FIXED (51eb79f5d, f7990daa4, 37b74484d, 93ed880fa, 5928cb3dd, 12621e706, a1aef8539)
 
 `lower_program_entry` installs `signal(SIGPIPE, SIG_IGN)` on every POSIX target
 for every program, app mode included. The `io::` stdout/stderr write paths
@@ -63,6 +63,49 @@ Deviations from the design above, all deliberate:
    (Network.framework) and `ErrNetworkFailed` on Windows (Schannel). Neither
    layers TLS over a descriptor in the sense of this bug's goal, and each needs
    its own transport-error classification.
+
+### Corrections found on landing (2026-09-01)
+
+The branch above was written but never landed, and the gates it claimed were not
+all met. Three things were wrong and are fixed in the three commits appended to
+the STATUS line.
+
+1. **The regression fixture asserted nothing** (`5928cb3dd`). All four goldens of
+   `rt-behavior/tcp/tcp-write-peer-closed-raises-rt` were committed as zero-byte
+   placeholders, against the sibling `tcp-read-eof-raises-rt`'s 523 / 7004 /
+   58725 / 0. `sync-goldens.sh` only ever *overwrites* an existing golden and
+   never creates one, so the placeholders survived every regeneration and the
+   fixture was a dead gate — the exact failure mode recorded for a new rt
+   fixture. Regenerated; `build.log` now pins both output lines and `[exit 0]`.
+
+   Its sensitivity is now measured rather than assumed: against a clean-`main`
+   compiler it goes RED on **8 of 10** runs, not 10. On the other two the peer's
+   departure surfaces as `ECONNRESET` instead of `EPIPE`, which raises without a
+   signal and looks identical to a pass. So the fixture can false-GREEN on a
+   broken build; it never false-REDs on a fixed one (10/10). That is inherent to
+   which error the stack reports first, not something the fixture can tighten.
+
+2. **`cargo test --release` was not green** (`a1aef8539`). Six tests pinned facts
+   the fix deliberately changes — the five `io_*_imports_nothing` plan tests and
+   `cli_linux_app_mode`'s console-handler assertion. Each went through the
+   four-question gate; none of them disproves the fix, and all six were corrected
+   to assert the new truth *more* strictly than before (exact import sets, and
+   the handler symbol the app-mode test always meant instead of the `signal`
+   string it used as a proxy). Details in that commit message.
+
+3. **The branch predated 73 golden changes on `main`** (`12621e706`). Merging
+   main conflicted on 73 `.ncode`/`.ncodesum` drift sentinels that both sides had
+   regenerated. Resolved to main's values rather than either branch's, then
+   re-derived from the merged source: `artifact-gate.sh all` went 84 diffs → **0**
+   across 1825 goldens. Three tools were needed, which is worth recording —
+   `regen-ncodesum.sh` (132, byte-identity only), `regen-outside-ncode.sh` (15),
+   and `sync-goldens.sh` (40 `.nplan`/`.nobj`/`.mir`, which neither regen script
+   sweeps).
+
+A fourth item is *not* a defect: `cargo test`'s `artifact_gate_all` failed once in
+0.26s with "another gate run holds the lock". That is the harness's contention
+refusal, not a golden regression — nothing was checked. The standalone gate run
+is the authority and it is clean.
 
 References:
 
@@ -152,6 +195,39 @@ MEASURED 2026-08-31, all rows, 3 runs each. The Linux rows are identical to
 macOS, and the TLS row is the one that settled the mechanism: `SSL_write` on
 Linux dies exactly the same way, and no call site can reach libssl's internal
 `write(2)`.
+
+### RE-MEASURED 2026-09-01, on landing
+
+Re-run from scratch against two compilers built for the purpose — one from clean
+`main` (no SIGPIPE code anywhere: `grep -rni sigpipe src/` is empty there) and
+one from this branch — rather than trusting the rows above. Both binaries ran the
+committed fixture; the "unfixed" column is the bug still alive at `main`.
+
+| Target | Box | unfixed | fixed |
+| --- | --- | --- | --- |
+| macos-aarch64 | local | 8/10 exit 141 | 10/10 raises, exit 0 |
+| linux-x86_64 glibc | 2228 | 5/5 exit 141 | 5/5 raises, exit 0 |
+| linux-aarch64 glibc | 2223 | 3/3 exit 141 | 3/3 raises, exit 0 |
+| linux-riscv64 musl | 2229 | 3/3 exit 141 | 3/3 raises, exit 0 |
+
+The macOS row is 8/10 rather than 10/10 on purpose — see the note on the
+fixture's sensitivity under Corrections. Every failing run produced **no output
+at all**: the process dies inside the loop, so not even the first `io::print`
+runs, which is the signal death rather than a wrong error code.
+
+The two behaviours that had to survive were measured on both Linux write
+conventions — x86-64's raw `svc` `write` (returns `-errno`) and riscv64's libc
+`write` (needs the errno accessor):
+
+| Check | Target | unfixed | fixed |
+| --- | --- | --- | --- |
+| `prog \| head -3` still dies by SIGPIPE | linux-x86_64 | exit 141 | exit 141 |
+| `prog \| head -3` still dies by SIGPIPE | linux-riscv64 | exit 141 | exit 141 |
+| spawned child's SIGPIPE disposition | linux-x86_64 | `DEFAULT` | `DEFAULT` |
+
+Windows was not re-run: its entry is untouched and `artifact-gate.sh all`
+reports **0** windows-x86_64 diffs, which is the prediction the fix makes about
+itself.
 
 ## Root Cause
 
@@ -295,7 +371,15 @@ Commit: 51eb79f5d, f7990daa4
       the code delivers it.
 
 Acceptance: full suite green; the reproduction passes on every row of the matrix.
-Commit: 37b74484d, 93ed880fa
+MET, but only after the landing pass — see "Corrections found on landing". As
+first written this acceptance was claimed, not met: the fixture's goldens were
+empty and six tests were red. Now measured:
+  * `artifact-gate.sh all` — 1825 goldens, **0** diffs, exit 0.
+  * `cargo test --release --no-fail-fast` — a real `test result: ok`.
+  * `test-accept.sh` — full acceptance sweep.
+  * the reproduction, on all four POSIX targets, unfixed vs fixed, plus the
+    `prog | head` and spawned-child behaviours that had to survive.
+Commit: 37b74484d, 93ed880fa, 5928cb3dd, 12621e706, a1aef8539
 
 ## Validation Plan
 
