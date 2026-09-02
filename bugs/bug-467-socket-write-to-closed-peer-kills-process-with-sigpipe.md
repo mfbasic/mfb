@@ -79,11 +79,42 @@ the STATUS line.
    fixture. Regenerated; `build.log` now pins both output lines and `[exit 0]`.
 
    Its sensitivity is now measured rather than assumed: against a clean-`main`
-   compiler it goes RED on **8 of 10** runs, not 10. On the other two the peer's
+   compiler it went RED on **8 of 10** runs, not 10. On the other two the peer's
    departure surfaces as `ECONNRESET` instead of `EPIPE`, which raises without a
-   signal and looks identical to a pass. So the fixture can false-GREEN on a
-   broken build; it never false-REDs on a fixed one (10/10). That is inherent to
-   which error the stack reports first, not something the fixture can tighten.
+   signal and looks identical to a pass.
+
+   **And it was flaky in the other direction too, which the full sweep caught.**
+   The claim that it "never false-REDs on a fixed one" was measured on an idle
+   machine and was wrong. Under the load of the 1347-fixture acceptance run the
+   fixture printed `write completed=TRUE`: with 32-byte writes every one was
+   absorbed by the local send buffer before the peer's RST arrived, so nothing
+   failed at all — a golden mismatch on a CORRECT build. A flaky golden is worse
+   than a weak one, because it makes the whole suite untrustworthy.
+
+   Fixed by changing what the loop writes (`5ca5d9f65`). The chunk is now 64 KiB
+   rather than 32 bytes, which fills the send buffer within a few iterations so
+   the write BLOCKS waiting for ACKs a departed peer will never send — and a
+   blocked write is exactly where the failure surfaces. Measured on the fixed
+   build: 12/12 idle and 15/15 under eight spinning CPU hogs, all `raised=TRUE`.
+
+   That trade is deliberate and costs sensitivity: the large-chunk shape is RED
+   on only ~4 of 10 runs against a broken compiler, because a blocked write tends
+   to observe `ECONNRESET` rather than take the signal. So the two tests were
+   given different jobs, which is the durable lesson here:
+
+   * the **golden fixture** takes the shape that is stable, because its output is
+     pinned byte-for-byte and must never vary on a correct build;
+   * the **Rust test** (`rt_sigpipe_socket_and_pipe.rs`) keeps the small-write
+     shape, which is likelier to take the signal per run, and now runs the
+     program **10 times** asserting that no run is ever killed by a signal. At
+     ~80% per-run detection that is ~1e-7 miss probability, against ~20% for the
+     single run it did before.
+
+   The Rust test deliberately does NOT assert that a raise happened on any given
+   run — that is the assertion that made the golden flaky. It asserts the real
+   contract on every run (no signal, exit 0) and, once across the ten, that the
+   failure path was exercised at all, so the probe cannot silently stop
+   reproducing the condition and pass for the wrong reason.
 
 2. **`cargo test --release` was not green** (`a1aef8539`). Six tests pinned facts
    the fix deliberately changes — the five `io_*_imports_nothing` plan tests and

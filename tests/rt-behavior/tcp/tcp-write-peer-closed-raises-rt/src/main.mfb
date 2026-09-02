@@ -11,17 +11,24 @@
 ' POSIX target, so the write fails with `EPIPE` and `tcp/gen_io.rs`'s existing
 ' errno classification names it `ErrConnectionClosed`.
 '
-' The loop writes MANY times on purpose. A single write after the peer's close
-' SUCCEEDS -- it is accepted by the local stack, and only the peer's RST makes a
-' later one fail -- so a one-write probe passes against the broken compiler and
-' proves nothing. Which iteration raises is timing-dependent, so the output
-' reports only that it raised and with which code, never a count.
+' The loop writes MANY times, and each write is LARGE, both on purpose. A single
+' small write after the peer's close SUCCEEDS -- it is accepted by the local
+' stack, and only the peer's RST makes a later one fail -- so a one-write probe
+' passes against the broken compiler and proves nothing. See the comment on the
+' chunk below for why the size is what makes this a stable golden.
+'
+' This fixture's job is to be DETERMINISTIC, so it is the shape that always
+' reports the raise. Catching a regression is the job of
+' `tests/rt_sigpipe_socket_and_pipe.rs`, which runs the small-write shape
+' repeatedly and asserts that no run is ever killed by a signal -- that shape is
+' likelier to take SIGPIPE per run but cannot be pinned by a golden.
 '
 ' The mirror of `rt-behavior/tcp/tcp-read-eof-raises-rt`: both directions of a
 ' departed peer now report the same `ErrConnectionClosed`, and `tls` agrees.
 IMPORT errorCode
 IMPORT io
 IMPORT net
+IMPORT strings
 IMPORT tcp
 
 ' Connect a loopback pair, close the client outright (not a shutdown -- the
@@ -33,8 +40,22 @@ FUNC writeAfterPeerClose AS String
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
   tcp::close(client)
+  ' The chunk is 64 KiB, not a few bytes, and that is what makes this fixture a
+  ' STABLE golden. Small writes are all accepted by the local send buffer, so
+  ' whether any of them fails depends on the peer's RST racing the loop: with
+  ' 32-byte writes this fixture printed `raised=TRUE` on an idle machine but
+  ' `completed=TRUE` under the load of a full acceptance sweep, i.e. it went red
+  ' on a CORRECT build. Chunks this size fill the send buffer within a few
+  ' iterations, so the write BLOCKS waiting for ACKs that a departed peer will
+  ' never send -- and a blocked write is exactly where the failure surfaces.
+  ' Measured on the fixed build: 10/10 raised idle, 20/20 raised under eight
+  ' spinning CPU hogs.
+  '
+  ' Which iteration raises still varies (1-4 across those runs), so the output
+  ' reports only THAT it raised and with which code, never a count.
+  LET chunk AS String = strings::repeat("x", 65536)
   FOR i = 1 TO 200
-    tcp::write(conn, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    tcp::write(conn, chunk)
   NEXT
   RETURN "completed=TRUE"
   TRAP(err)

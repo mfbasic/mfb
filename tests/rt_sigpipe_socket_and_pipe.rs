@@ -116,24 +116,59 @@ FUNC main AS Integer
 END FUNC
 ";
     let exe = build_project("bug467_tcp_write", source);
-    let output = Command::new(&exe).output().expect("run program");
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-    assert_eq!(
-        output.status.signal(),
-        None,
-        "the program was killed by a signal ({:?}) instead of raising; stdout:\n{stdout}",
-        output.status.signal(),
-    );
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "program exited {:?}; stdout:\n{stdout}",
-        output.status.code(),
-    );
+    // Run it repeatedly, and require EVERY run to survive. One run is not enough
+    // to gate this: whether a given run dies depends on the peer's RST racing the
+    // write loop. Measured against a compiler built from clean `main` -- the bug
+    // still alive -- this shape is killed by SIGPIPE on about 8 runs in 10; the
+    // other 2 surface `ECONNRESET` instead, which raises without a signal and is
+    // indistinguishable from a pass. A single-run assertion therefore misses the
+    // regression roughly a fifth of the time. Ten runs cut that to ~1e-7.
+    //
+    // The small 32-byte write is deliberate and is the opposite choice from
+    // `rt-behavior/tcp/tcp-write-peer-closed-raises-rt`, which writes 64 KiB
+    // chunks so that its output is stable enough to pin in a golden. Small writes
+    // are the shape MORE likely to take the signal per run, so they belong here,
+    // where the assertion is "no run was ever signalled" rather than a fixed
+    // string.
+    const RUNS: usize = 10;
+    let mut raised = 0;
+    for run in 1..=RUNS {
+        let output = Command::new(&exe).output().expect("run program");
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // The contract, asserted on EVERY run: a peer's behaviour never delivers a
+        // signal, and the program gets to finish.
+        assert_eq!(
+            output.status.signal(),
+            None,
+            "run {run}/{RUNS}: killed by a signal ({:?}) instead of raising; stdout:\n{stdout}",
+            output.status.signal(),
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "run {run}/{RUNS}: exited {:?}; stdout:\n{stdout}",
+            output.status.code(),
+        );
+        if stdout.starts_with("raised-after-") {
+            raised += 1;
+        }
+    }
+
+    // Whether any individual run raises is NOT assertable: with writes this small
+    // every one can be absorbed by the local send buffer before the peer's RST
+    // arrives, and then the loop completes normally. That is a legitimate outcome
+    // of a correct build -- demanding a raise per run is what made the sibling
+    // golden fixture go red under the load of a full acceptance sweep.
+    //
+    // What must hold is that the failure path is exercised at all, so that these
+    // ten runs cannot silently degenerate into ten runs that never touch it and
+    // pass for the wrong reason.
     assert!(
-        stdout.starts_with("raised-after-"),
-        "write to a closed peer did not raise; stdout:\n{stdout}",
+        raised > 0,
+        "none of {RUNS} runs saw the write fail, so the raise path was never \
+         exercised; the probe has stopped reproducing the condition",
     );
 }
 
