@@ -5,6 +5,7 @@ use crate::codegen::engine::types::CodegenPlatform;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
+use crate::codegen::os::syscall::{SIGPIPE_SIGNO, SIG_IGN};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 use std::collections::HashMap;
@@ -307,24 +308,67 @@ pub(crate) fn lower_program_entry(
             instructions.push(abi::store_u64(abi::c_arg(1), abi::SCRATCH[0], 0));
         }
     }
-    // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
+    // Install SIGINT/SIGTERM handlers (console programs) and, on every POSIX
+    // target, take SIGPIPE out of the picture (bug-467). `signal()` clobbers
     // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`
     // pins the entry frame, so temporarily lowering `sp` is safe.
-    if register_signal_handlers {
+    //
+    // bug-467: SIGPIPE's default disposition TERMINATES the process, and POSIX
+    // delivers it to any `write` to a socket whose peer has sent an RST. That
+    // made a remote peer able to end an MFBASIC server by connecting and
+    // disconnecting -- the second `tcp::write` after the close killed the process
+    // before `write` could return `EPIPE`, so no `TRAP` and no scope drop ever
+    // ran. A per-call `MSG_NOSIGNAL` / per-socket `SO_NOSIGPIPE` fixes only the
+    // writes this compiler emits itself; the Linux TLS backend writes inside
+    // libssl (`SSL_write` -> the socket BIO's plain `write(2)`), which no call
+    // site can reach, and that path was measured to die the same way. The
+    // process-wide disposition is the only mechanism that covers it, so it is
+    // installed here, unconditionally, for every program on every POSIX target --
+    // app mode included, since an app-mode program owns sockets too.
+    //
+    // The one behaviour this must NOT change is `prog | head`: a CLI whose stdout
+    // pipe closes is *supposed* to die. The `io::` stdout write path therefore
+    // classifies its own `EPIPE` and restores `SIG_DFL` before re-raising (see
+    // `emit_sigpipe_restore_and_raise` in `codegen::os::syscall`), so the pipeline
+    // convention survives while sockets stop being lethal.
+    //
+    // Windows has no SIGPIPE (and this build links only kernel32, no CRT), so the
+    // whole block stays off there and its entry is unchanged.
+    let ignore_sigpipe = platform.family() != PlatformFamily::Windows;
+    if register_signal_handlers || ignore_sigpipe {
         instructions.extend([
             abi::subtract_stack(16),
             abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 0),
             abi::store_u64(abi::c_arg(1), abi::stack_pointer(), 8),
         ]);
-        for signo in ["2", "15"] {
-            instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", signo));
-            push_symbol_address(
-                entry_symbol,
-                SIGNAL_HANDLER_SYMBOL,
-                abi::c_arg(1),
-                &mut instructions,
-                &mut relocations,
-            );
+        if register_signal_handlers {
+            for signo in ["2", "15"] {
+                instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", signo));
+                push_symbol_address(
+                    entry_symbol,
+                    SIGNAL_HANDLER_SYMBOL,
+                    abi::c_arg(1),
+                    &mut instructions,
+                    &mut relocations,
+                );
+                platform.emit_external_call(
+                    "signal",
+                    entry_symbol,
+                    platform_imports,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
+            }
+        }
+        if ignore_sigpipe {
+            // signal(SIGPIPE, SIG_IGN). `SIG_IGN` is the constant `1` cast to a
+            // handler pointer on every POSIX system; it must be materialized as an
+            // immediate rather than moved from `abi::ZERO`-style operands because
+            // x86-64 has no hardware zero register (`.ai/arch-abi.md`).
+            instructions.extend([
+                abi::move_immediate(abi::c_arg(0), "Integer", SIGPIPE_SIGNO),
+                abi::move_immediate(abi::c_arg(1), "Integer", SIG_IGN),
+            ]);
             platform.emit_external_call(
                 "signal",
                 entry_symbol,

@@ -26,15 +26,23 @@ const INTRO: &str =
     r#"Run a command line through the platform shell, returning a handle to the child."#;
 const DESC: &str = r#"`process::shell` runs `cmd` as a shell command line and returns a `Process`
 handle to the resulting child. Unlike `process::spawn`, which execs a program
-directly, `shell` hands the string to the platform shell — `/bin/sh -c` on Unix —
-so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
-command sequencing (`;`, `&&`), quoting, and environment-variable expansion are all
-interpreted by the shell.
+directly, `shell` hands the string to the platform shell, so shell features work:
+pipelines (`|`), redirection (`>`, `<`), globbing, command sequencing, quoting,
+and environment-variable expansion are all interpreted by the shell.
 
-**`process::shell` is Unix-only.** A program that calls it does not build for
-Windows: the compiler rejects it with `native backend does not support runtime
-call 'process.shell'`. Use `process::spawn` for anything that has to run on
-Windows too.
+Which shell depends on the platform: `/bin/sh -c` on Unix, `cmd.exe /S /C` on
+Windows. The string is handed over unchanged — `shell` does not translate between
+dialects, so a command line has to be written for the shell that will read it.
+`echo hi | sort` works on both; `ls -l` and `dir` do not. When a program must run
+on both and the command is simple, `process::spawn` avoids the question entirely.
+
+On Windows a line is wrapped in quotes before `cmd` sees it and `/S` makes `cmd`
+strip exactly that wrap, so a command line containing quotes — or starting with
+one — reaches the shell intact.
+
+`process::receive` returns each line as the child wrote it. Windows programs end
+their lines `\r\n`, so a line read from a Windows child keeps its trailing `\r`;
+trim it if the value is compared or printed inline.
 
 
 Because the string is parsed by a shell, values interpolated into `cmd` are subject
@@ -47,14 +55,15 @@ The child is wired to three pipes for its standard streams exactly as with
 `process::spawn`, and the returned handle behaves the same way: it closes itself
 when its binding goes out of scope, force-killing and reaping a still-running child unless
 it is first awaited with `process::waitFor` or ended with `process::detach`."#;
-const EX: &str = r#"Run a pipeline and read the result:
+const EX: &str = r#"Run a pipeline and read the result. `echo` and `sort` are spelled the
+same way in both shells, so this line runs unchanged on Unix and on Windows:
 
 ```
 IMPORT process
 IMPORT io
 
 FUNC main AS Integer
-  RES sh = process::shell("echo hello | tr a-z A-Z")
+  RES sh = process::shell("echo hello | sort")
   io::print(process::receive(sh))
   RETURN 0
 END FUNC
@@ -67,7 +76,7 @@ IMPORT process
 IMPORT io
 
 FUNC main AS Integer
-  RES sh = process::shell("true")
+  RES sh = process::shell("exit 0")
   io::print(toString(process::waitFor(sh)))
   RETURN 0
 END FUNC
@@ -230,11 +239,134 @@ pub(crate) fn lower_process_shell_helper_posix(
     Ok((instructions, relocations, LOCAL))
 }
 
+/// `process::shell` on Windows (plan-119-B): run the line through
+/// `cmd.exe /S /C "<line>"` and hand the rest to the shared spawn tail.
+///
+/// The Windows twin of `lower_process_shell_helper_posix`, and the same shape:
+/// build the shell invocation, then call the tail. Where posix builds an argv
+/// (`["/bin/sh", "-c", cmd]`) because `execvp` takes a vector, Windows builds one
+/// string because `CreateProcessA` takes one.
+///
+/// `cmd.exe` is named without a path: `CreateProcessA` with a NULL
+/// `lpApplicationName` resolves it through the system directory, which is
+/// box-verified — no `COMSPEC` read is involved.
+///
+/// **`/S` is load-bearing.** Without it `cmd` applies a two-branch heuristic to
+/// decide whether to keep or strip the quotes around the command (it inspects the
+/// quote count, the characters between them, and whether the quoted text names an
+/// executable). With `/S` it always takes the simple branch: strip the leading
+/// quote and the final quote, and run everything in between. That makes a line
+/// which itself contains — or starts with — a quote behave predictably, and
+/// `scripts/test-winprocess.sh` pins exactly that case.
+///
+/// Frame: the shared depth-1, no-vreg frame described on `WIN_SPAWN_SI`. The four
+/// scratch slots start at `WIN_SPAWN_SCRATCH`; the command-line *builder*'s slots
+/// are not used here, since there is no argv list to walk.
 pub(crate) fn lower_process_shell_helper_win(
     _call: &str,
-    _symbol: &str,
-    _platform_imports: &HashMap<String, String>,
-    _platform: &dyn CodegenPlatform,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
 ) -> Result<ProcBodyParts, String> {
-    unimplemented_on_windows("shell")
+    /// `cmd.exe /S /C "` — the closing `"` and the NUL are appended after the line.
+    const PREFIX: &str = "cmd.exe /S /C \"";
+    const QUOTE: &str = "34";
+    /// The MFB `String` object (length@0, bytes@8).
+    const SRC: usize = WIN_SPAWN_SCRATCH;
+    /// Its byte length.
+    const LEN: usize = WIN_SPAWN_SCRATCH + 0x08;
+    /// Write cursor into the command line.
+    const DP: usize = WIN_SPAWN_SCRATCH + 0x10;
+    const FRAME: usize = 0x150; // covers SRC..DP, 16-aligned
+    const _: () = assert!(FRAME >= WIN_SPAWN_SCRATCH + 0x18 && FRAME % 16 == 0);
+    let sp = abi::stack_pointer();
+
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let spawn_fail = format!("{symbol}_spawn_fail");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let done = format!("{symbol}_done");
+
+    let mut relocations = Vec::new();
+    let mut instructions = vec![
+        abi::subtract_stack(FRAME),
+        // The command String arrives in the return register.
+        abi::store_u64(abi::return_register(), sp, SRC),
+        abi::load_u64(abi::mfb_arg(0), sp, SRC),
+        abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(0), 0),
+        abi::store_u64(abi::mfb_arg(2), sp, LEN),
+        // cmd = arena_alloc(PREFIX + len + closing quote + NUL, align 1)
+        abi::add_immediate(abi::return_register(), abi::mfb_arg(2), PREFIX.len() + 2),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+    ];
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::store_u64(abi::mfb_return(1), sp, WIN_SPAWN_CMD),
+        abi::move_register(abi::mfb_arg(1), abi::mfb_return(1)),
+    ]);
+    // The literal prefix, byte by byte (no vreg is available for a helper here).
+    for (offset, ch) in PREFIX.bytes().enumerate() {
+        instructions.push(abi::move_immediate(
+            abi::mfb_arg(2),
+            "Integer",
+            &ch.to_string(),
+        ));
+        instructions.push(abi::store_u8(abi::mfb_arg(2), abi::mfb_arg(1), offset));
+    }
+    instructions.extend([
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), PREFIX.len()),
+        abi::store_u64(abi::mfb_arg(1), sp, DP),
+        // Copy the String's bytes in verbatim — a shell command line is *supposed*
+        // to be interpreted, so nothing here is quoted or escaped beyond the wrap.
+        abi::load_u64(abi::mfb_arg(0), sp, SRC),
+        abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 8),
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
+        abi::label(&copy_loop),
+        abi::load_u64(abi::mfb_arg(2), sp, LEN),
+        abi::compare_registers(abi::mfb_arg(3), abi::mfb_arg(2)),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(abi::mfb_arg(2), abi::mfb_arg(0), 0),
+        abi::store_u8(abi::mfb_arg(2), abi::mfb_arg(1), 0),
+        abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+        abi::add_immediate(abi::mfb_arg(3), abi::mfb_arg(3), 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        // closing wrap quote + NUL
+        abi::move_immediate(abi::mfb_arg(2), "Integer", QUOTE),
+        abi::store_u8(abi::mfb_arg(2), abi::mfb_arg(1), 0),
+        abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 1),
+        abi::store_u8(abi::ZERO, abi::mfb_arg(1), 0),
+        // `shell` has no cwd or environment of its own: the child inherits both.
+        abi::store_u64(abi::ZERO, sp, WIN_SPAWN_ENV),
+        abi::store_u64(abi::ZERO, sp, WIN_SPAWN_CWD),
+    ]);
+    emit_win_spawn_tail(
+        symbol,
+        &alloc_fail,
+        &spawn_fail,
+        &done,
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&spawn_fail));
+    emit_fail(
+        symbol,
+        "ErrSpawnFailed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+    Ok((instructions, relocations, 0))
 }

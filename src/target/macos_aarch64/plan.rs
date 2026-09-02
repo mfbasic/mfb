@@ -40,16 +40,16 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "_clock_gettime".to_string(),
             required_by: "_main".to_string(),
         });
-        // `signal` installs the SIGINT/SIGTERM handlers for console programs. App
-        // mode keeps its window-driven finish path, so no handler is registered
-        // there and the import is omitted.
-        if module.build_mode != crate::target::NativeBuildMode::MacApp {
-            imports.push(PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_signal".to_string(),
-                required_by: "_main".to_string(),
-            });
-        }
+        // `signal` installs the SIGINT/SIGTERM handlers for console programs and,
+        // since bug-467, the process-wide `SIGPIPE -> SIG_IGN` disposition that
+        // stops a socket peer from being able to kill the process. App mode
+        // registers no console handlers but owns sockets just the same, so the
+        // import is now unconditional.
+        imports.push(PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: "_signal".to_string(),
+            required_by: "_main".to_string(),
+        });
         imports
     }
 
@@ -206,7 +206,39 @@ impl plan::NativePlanPlatform for Platform {
                 });
             }
         };
-        match spec.call {
+        // bug-467: every helper below whose emission contains a write to the
+        // process's own stdout/stderr — the `io::` write family directly, and
+        // every call that pulls in the shared stdout drain (`uses_stdout_buffer`
+        // in `engine::builder`) — classifies its own `EPIPE` and restores
+        // SIGPIPE's default disposition before re-raising it, so that
+        // `prog | head` still ends the way a CLI is expected to end despite the
+        // process-wide `SIG_IGN` the entry now installs. Those blocks reference
+        // `_signal`/`_raise` and the `___error` accessor that classifies the
+        // failure. Attributed here so the merged table always resolves them and
+        // no arm declares a symbol its code unit never references.
+        let mut imports = Vec::new();
+        if matches!(
+            spec.call,
+            "io.print"
+                | "io.write"
+                | "io.printError"
+                | "io.writeError"
+                | "io.flush"
+                | "io.setBuffered"
+                | "io.readLine"
+                | "io.input"
+                | "io.readChar"
+                | "io.readByte"
+        ) {
+            for name in ["_signal", "_raise", "___error"] {
+                imports.push(PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: name.to_string(),
+                    required_by: required_by.clone(),
+                });
+            }
+        }
+        imports.extend(match spec.call {
             "crypto.randomBytes" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getentropy".to_string(),
@@ -1017,7 +1049,8 @@ impl plan::NativePlanPlatform for Platform {
                     .collect()
             }
             _ => Vec::new(),
-        }
+        });
+        imports
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
@@ -1074,13 +1107,30 @@ mod tests {
     }
 
     /// bug-71: `io.flush` is drain-only (`lower_io_flush_helper` never fsyncs /
-    /// reads errno), so its runtime import arm must be empty — no dead
-    /// `_fsync`/`___error` libSystem symbols.
+    /// reads errno), so it declares no `_fsync` and no write of its own.
+    ///
+    /// bug-467 replaced the original `is_empty()` assertion. The arm is no longer
+    /// empty and correctly so: `io.flush` runs the shared stdout drain, and the
+    /// drain now classifies its own `EPIPE` — restoring `SIG_DFL` and re-raising
+    /// SIGPIPE — so that `prog | head` still ends a CLI the way it always has,
+    /// despite the process-wide `SIG_IGN` the entry installs to stop a socket peer
+    /// from killing the process. That block genuinely references `_signal`,
+    /// `_raise` and `___error`, so declaring them is required, not dead weight
+    /// (the emission is pinned by the `.nplan`/`.mir` goldens).
+    ///
+    /// Pinned as an exact set rather than a subset: that keeps the original
+    /// guard's whole point — no arm may declare a symbol its code unit never
+    /// references — so a stray or resurrected `_fsync` still fails here.
     #[test]
-    fn io_flush_imports_nothing() {
+    fn io_flush_imports_only_the_sigpipe_classification() {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
-        assert!(Platform.runtime_imports(spec).is_empty());
+        let symbols: Vec<String> = Platform
+            .runtime_imports(spec)
+            .into_iter()
+            .map(|imp| imp.symbol)
+            .collect();
+        assert_eq!(symbols, vec!["_signal", "_raise", "___error"]);
     }
 
     /// bug-410: `term::sync` presents the frame with a libc `_write` on macOS and

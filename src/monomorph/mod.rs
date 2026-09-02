@@ -83,6 +83,13 @@ struct Monomorphizer<'a> {
     /// of which the depth cap collapses (bug-399). Checked against
     /// `MAX_TOTAL_INSTANTIATIONS` at each instantiation entry point.
     total_instantiations: usize,
+    /// Declared type of each top-level `LET`/`MUT` binding that carries an
+    /// explicit `AS` type, keyed by name. Lets `expression_type` resolve an
+    /// identifier that names a global so a generic / overloaded call taking that
+    /// global infers its type instead of being falsely rejected (bug-103). Built
+    /// once in `new` — `source.files` is immutable — rather than re-derived for
+    /// every lowered function (plan-117 Phase 2).
+    globals: HashMap<String, ParameterType>,
     /// Set once any instantiation limit (the total budget or the depth cap) trips,
     /// so every subsequent instantiation short-circuits without recursing or
     /// re-reporting — halting the enumeration after a single bounded diagnostic
@@ -102,43 +109,28 @@ struct ImportedOverload {
     qualified_name: String,
 }
 
-#[derive(Default)]
 /// The type environment monomorph's `expression_type` oracle consults while a
-/// body is lowered.
+/// body is lowered — purely the SCOPE-local half of it.
 ///
 /// Every value is a [`ParameterType`] (plan-106-A): the *keys* stay `String`
 /// because they are NAMES (locals, functions, record types), not types. Before
 /// plan-106-A each of these was `HashMap<String, String>` and the engine
 /// inferred over rendered spellings — the plan-102 staging residue this letter
 /// retires.
+///
+/// Every scope boundary in body lowering (both `IF` arms, each `MATCH` case,
+/// every loop body, lambda and trap handler) clones this, so nothing
+/// program-wide may live here. Function signatures, record fields and globals
+/// are instead read LIVE off the [`Monomorphizer`] (`concrete_functions`,
+/// `concrete_types`, `globals`) at each query, rather than snapshotted into the
+/// context once per lowered function (plan-117 Phase 2).
+#[derive(Default, Clone)]
 struct FunctionContext {
     locals: HashMap<String, ParameterType>,
-    function_returns: HashMap<String, ParameterType>,
-    function_types: HashMap<String, ParameterType>,
-    /// plan-111-B: keyed by the record TYPE.
-    record_fields: HashMap<crate::types::ParameterType, Vec<HirTypeField>>,
-    /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
-    /// `expression_type` resolve an identifier that names a global so a generic /
-    /// overloaded call taking that global infers its type instead of being falsely
-    /// rejected (bug-103).
-    globals: HashMap<String, ParameterType>,
     /// Declared return type of the function whose body is being lowered. Supplies
     /// the expected (contextual) type for a `RETURN` operand so a return-type
     /// overload set resolves there (plan-01-overload.md §F.2).
     enclosing_return: Option<ParameterType>,
-}
-
-impl Clone for FunctionContext {
-    fn clone(&self) -> Self {
-        Self {
-            locals: self.locals.clone(),
-            function_returns: self.function_returns.clone(),
-            function_types: self.function_types.clone(),
-            record_fields: self.record_fields.clone(),
-            globals: self.globals.clone(),
-            enclosing_return: self.enclosing_return.clone(),
-        }
-    }
 }
 
 mod helpers;

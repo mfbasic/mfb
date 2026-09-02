@@ -100,8 +100,9 @@ It closes itself when its binding goes out of scope.
 A child is created two ways. `process::spawn` runs a program directly from an
 argument list — `args[0]` is the executable, resolved on `PATH`, and no shell is
 involved, so no quoting, globbing, or redirection is interpreted. `process::shell`
-instead runs a command line through the platform shell (`/bin/sh -c` on Unix), so
-pipes, redirection, and shell syntax work. A four-argument `spawn` overload adds a
+instead runs a command line through the platform shell (`/bin/sh -c` on Unix,
+`cmd.exe /S /C` on Windows), so pipes, redirection, and shell syntax work — in
+that shell's own dialect. A four-argument `spawn` overload adds a
 working directory, an environment `Map OF String TO String`, and a replace-vs-merge
 flag.
 

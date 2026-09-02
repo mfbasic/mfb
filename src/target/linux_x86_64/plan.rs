@@ -140,13 +140,31 @@ mod tests {
         );
     }
 
-    /// bug-71: `io.flush` is drain-only, so its runtime import arm is empty — no
-    /// dead `fsync`/`__errno_location`.
+    /// bug-71: `io.flush` is drain-only, so it declares no `fsync` and no write of
+    /// its own.
+    ///
+    /// bug-467 replaced the original `is_empty()` assertion. The arm is no longer
+    /// empty and correctly so: `io.flush` runs the shared stdout drain, and the
+    /// drain now classifies its own `EPIPE` — restoring `SIG_DFL` and re-raising
+    /// SIGPIPE — so that `prog | head` still ends a CLI the way it always has,
+    /// despite the process-wide `SIG_IGN` the entry installs to stop a socket peer
+    /// from killing the process.
+    ///
+    /// `__errno_location` is deliberately ABSENT here where the libc-write
+    /// backends carry it: x86-64's `write` is a raw `svc` returning `-errno`, so
+    /// the classification reads the return value and the accessor would be a dead
+    /// dynsym — the same split `term_sync_does_not_import_errno_accessor` pins
+    /// (bug-410).
     #[test]
-    fn io_flush_imports_nothing() {
+    fn io_flush_imports_only_the_sigpipe_classification() {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
-        assert!(platform().runtime_imports(spec).is_empty());
+        let symbols: Vec<String> = platform()
+            .runtime_imports(spec)
+            .into_iter()
+            .map(|imp| imp.symbol)
+            .collect();
+        assert_eq!(symbols, vec!["signal", "raise"]);
     }
 
     /// bug-79.4: x86 emits `write` as a raw syscall (`emit_write`, nr 1), never a
@@ -202,12 +220,28 @@ mod tests {
         );
     }
 
-    /// The io.print family raw-syscalls `write`, so its import arm is empty.
+    /// The io.print family raw-syscalls `write`, so it imports no libc `write`.
+    ///
+    /// bug-467 replaced the original `is_empty()` assertion. `io.print` writes to
+    /// the process's own stdout, so it now classifies its own `EPIPE` and restores
+    /// `SIG_DFL` before re-raising SIGPIPE, keeping `prog | head` working despite
+    /// the process-wide `SIG_IGN` the entry installs. That block references
+    /// `signal` and `raise`, which are therefore declared.
+    ///
+    /// Still no `write` and still no `__errno_location`: the raw `svc` returns
+    /// `-errno`, so both would be dead dynsyms. Those two remain covered by
+    /// `write_is_never_imported` and `term_sync_does_not_import_errno_accessor`,
+    /// and the exact-set assertion here re-pins them for this call.
     #[test]
-    fn io_print_imports_nothing() {
+    fn io_print_imports_only_the_sigpipe_classification() {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.print").expect("io.print spec");
-        assert!(platform().runtime_imports(spec).is_empty());
+        let symbols: Vec<String> = platform()
+            .runtime_imports(spec)
+            .into_iter()
+            .map(|imp| imp.symbol)
+            .collect();
+        assert_eq!(symbols, vec!["signal", "raise"]);
     }
 
     /// plan-01-libm-kernels Phase 5: no `math.*` target resolves to a `libm.so`

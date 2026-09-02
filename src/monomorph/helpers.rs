@@ -589,8 +589,9 @@ pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpress
 /// returns [`Nothing`](ParameterType::Nothing), reproducing the two
 /// `unwrap_or_else` defaults the string form applied.
 ///
-/// Shared by `Monomorphizer::function_context` and `add_function_to_context`,
-/// which carried byte-identical copies of this construction.
+/// plan-117 Phase 2: called on demand by `expression_type`, for the ONE function
+/// a query names. It used to seed a whole-program snapshot rebuilt for every
+/// lowered function, which made the seeding O(F^2) in the function count.
 pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType, ParameterType) {
     let returns = match function.kind {
         crate::ast::FunctionKind::Func => {
