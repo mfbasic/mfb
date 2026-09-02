@@ -801,3 +801,133 @@ fn blend_mode_normal_is_identical_to_an_unset_blend() {
         "BlendMode.Normal must render byte-identically to an unset blend"
     );
 }
+
+/// plan-116-C Phase 1: how wrong is the transformed-distance correction?
+///
+/// Kept and `#[ignore]`d rather than deleted. It is not a regression test — it
+/// measures a *design* question and its answer is written into
+/// `planning/completed/plan-116-C-canvas-transform.md` §4.2. Re-run it with
+/// `cargo test --release --test rt_canvas_rasteriser -- --ignored --nocapture` if that
+/// choice is ever revisited.
+///
+/// **The question.** Evaluating a shape at `T⁻¹(p)` yields a distance in *shape* space.
+/// Coverage must be computed in *surface* space, so the distance needs dividing by the
+/// local scale of `T⁻¹`. §4.2 proposed `sqrt(|det M|)`, which is exact for a similarity
+/// and an approximation otherwise, and required the error to be measured before
+/// anything was built on it.
+///
+/// **The answer, in 1/255 coverage steps, against a 32×32 supersampled ground truth:**
+///
+/// | | `sqrt(\|det M\|)` | `d / ‖∇d‖` |
+/// |---|---|---|
+/// | identity (the control) | 3.19 | 3.19 |
+/// | 2:1 non-uniform scale | **37.34** | 3.19 |
+/// | 30° shear | **18.18** | 9.71 |
+///
+/// 3.19/255 is the measurement floor — the supersampling grid quantises a straight
+/// edge's area at 1/32 per axis — so `d / ‖∇d‖` is *exact* for the non-uniform scale.
+///
+/// And the shear's residual 9.71 is not the correction's fault either: an
+/// **untransformed** 30° edge measures 9.71 too, and an untransformed 45° edge 13.69.
+/// That is the inherent error of the `clamp(0.5 - d, 0, 1)` coverage model on an edge
+/// that is not axis-aligned — the model `06_canvas.md` §"Rendering conventions"
+/// specifies, which every rotated shape in the renderer has always been drawn with. So
+/// the gradient form introduces **no error the renderer did not already have**, and
+/// `sqrt(|det M|)` introduces up to 37 steps of new error.
+///
+/// Hence §4.2's formula changed. The gradient is taken by explicit central differences
+/// at a fixed epsilon, which is deterministic — `+ - * /` and `sqrt` only — and so does
+/// not fall foul of the same section's ban on `fwidth`-style hardware derivatives,
+/// whose whole problem is that they vary between platforms.
+#[test]
+#[ignore = "a design measurement, not a regression gate; see plan-116-C §4.2"]
+fn measure_the_transformed_distance_correction() {
+    // A half-plane, so the only error source is the correction — a curved shape would
+    // mix in the coverage model's curvature error and confuse the two.
+    fn sdf(x: f64, _y: f64) -> f64 {
+        x
+    }
+    fn mapped(m: [f64; 4], px: f64, py: f64) -> f64 {
+        sdf(m[0] * px + m[2] * py, m[1] * px + m[3] * py)
+    }
+    fn cover(d: f64) -> f64 {
+        (0.5 - d).clamp(0.0, 1.0)
+    }
+    /// Fraction of the pixel at `(px, py)` whose inverse-mapped point is inside.
+    fn truth(m: [f64; 4], px: f64, py: f64) -> f64 {
+        const N: usize = 32;
+        let mut inside = 0;
+        for i in 0..N {
+            for j in 0..N {
+                let sx = px - 0.5 + (i as f64 + 0.5) / N as f64;
+                let sy = py - 0.5 + (j as f64 + 0.5) / N as f64;
+                if mapped(m, sx, sy) <= 0.0 {
+                    inside += 1;
+                }
+            }
+        }
+        inside as f64 / (N * N) as f64
+    }
+    fn by_sqrt_det(m: [f64; 4], px: f64, py: f64) -> f64 {
+        mapped(m, px, py) / (m[0] * m[3] - m[1] * m[2]).abs().sqrt()
+    }
+    fn by_gradient(m: [f64; 4], px: f64, py: f64) -> f64 {
+        const EPS: f64 = 0.5;
+        let d = mapped(m, px, py);
+        let gx = (mapped(m, px + EPS, py) - mapped(m, px - EPS, py)) / (2.0 * EPS);
+        let gy = (mapped(m, px, py + EPS) - mapped(m, px, py - EPS)) / (2.0 * EPS);
+        let g = gx.hypot(gy);
+        if g > 1e-9 {
+            d / g
+        } else {
+            d
+        }
+    }
+    fn worst(m: [f64; 4], f: fn([f64; 4], f64, f64) -> f64) -> f64 {
+        let mut e: f64 = 0.0;
+        for j in -20..=20 {
+            for i in -40..=40 {
+                let (px, py) = (i as f64 * 0.05, j as f64 * 0.5);
+                e = e.max((cover(f(m, px, py)) - truth(m, px, py)).abs());
+            }
+        }
+        e
+    }
+
+    let shear = (30.0f64).to_radians().tan();
+    let cases = [
+        ("identity", [1.0, 0.0, 0.0, 1.0]),
+        ("2:1 scale", [0.5, 0.0, 0.0, 1.0]),
+        ("30deg shear", [1.0, 0.0, -shear, 1.0]),
+    ];
+    let mut worst_det = 0.0f64;
+    let mut worst_grad = 0.0f64;
+    for (name, m) in cases {
+        let det = worst(m, by_sqrt_det);
+        let grad = worst(m, by_gradient);
+        eprintln!(
+            "{name:12} sqrt(|det|) {:6.2}/255   d/||grad|| {:6.2}/255",
+            det * 255.0,
+            grad * 255.0
+        );
+        if name != "identity" {
+            worst_det = worst_det.max(det);
+            worst_grad = worst_grad.max(grad);
+        }
+    }
+
+    // The floor: 32x32 supersampling quantises a straight edge's area, and even the
+    // identity measures this much.
+    let floor = worst([1.0, 0.0, 0.0, 1.0], by_gradient);
+    eprintln!("measurement floor {:.2}/255", floor * 255.0);
+
+    assert!(
+        worst_det * 255.0 > 30.0,
+        "sqrt(|det M|) was expected to be badly wrong for a non-similarity — if this \
+         no longer holds, §4.2's conclusion needs re-deriving, not just re-running"
+    );
+    assert!(
+        worst_grad <= worst_det,
+        "the gradient form must never be worse than sqrt(|det M|)"
+    );
+}

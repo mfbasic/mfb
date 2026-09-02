@@ -35,7 +35,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-B complete and archived | `ls planning/completed/plan-116-B-*` → one match | NOT MET |
+| plan-116-B complete and archived | `ls planning/completed/plan-116-B-*` → one match | **MET** (2026-09-01: exactly one match, `planning/completed/plan-116-B-canvas-blend-and-clip.md`, archived by `467b32a4f` and merged to main. Every B phase acceptance measured — 90 test binaries, artifact-gate 1823 goldens 0 diffs, test-accept 1346, man-census 0 unclassified, man-run-examples canvas 20/20, Vulkan 12/12 on box 2228.) |
 
 If plan-116-B is not complete, this letter cannot start, full stop. B establishes
 the widened header and the widened item block; C adds six more words to both, and
@@ -214,18 +214,50 @@ The correction is `d_surface = d_shape / s`, where `s` is the local scale factor
 with matrix `M`, the exact factor is direction-dependent; the tractable choices are:
 
 - **`s = sqrt(|det M|)`** — exact for any similarity (uniform scale + rotation +
-  translation), which is the overwhelmingly common case, and a bounded approximation
-  otherwise.
-- **`s = ‖M · n̂‖` for the gradient direction `n̂`** — exact, but needs the gradient,
-  which the SDF does not return.
+  translation), and an approximation otherwise.
+- **`s = ‖∇d‖`, the norm of the composed field's own gradient** — exact for any
+  affine, and obtainable *without* the shape returning a gradient: take it by explicit
+  central differences of the already-composed distance field.
 
-**Recommend `sqrt(|det M|)`, computed once on the CPU and carried as a 35th header
-slot**, so the per-pixel cost is one multiply and the GPU never computes a determinant.
-Phase 1 measures the error for a 2:1 non-uniform scale and a 30° shear and records the
-number here; if it exceeds one coverage step (1/255) at the antialiased edge, escalate
-to Open Decisions rather than shipping a known-wrong oracle.
+**Phase 1 measured both, and `sqrt(|det M|)` lost decisively. The design is
+`d / ‖∇d‖`.** Worst-case coverage error against a 32×32 supersampled ground truth on a
+half-plane, in 1/255 steps:
 
-Header becomes **35** slots (0..34), item block **160** bytes.
+| | `sqrt(\|det M\|)` | `d / ‖∇d‖` |
+|---|---|---|
+| identity (the control) | 3.19 | 3.19 |
+| 2:1 non-uniform scale | **37.34** | 3.19 |
+| 30° shear | **18.18** | 9.71 |
+
+Two things make that table conclusive rather than merely favourable.
+
+**3.19 is the measurement floor**, not a result: a 32×32 grid quantises a straight
+edge's area at 1/32 per axis, and the identity — which every method gets exactly right
+— measures 3.19 too. So `d / ‖∇d‖` is *exact* for the non-uniform scale.
+
+**The shear's residual 9.71 is not this letter's error at all.** An **untransformed**
+30° edge measures 9.71 by the same harness, and an untransformed 45° edge 13.69. That
+is the inherent error of the `clamp(0.5 - d, 0, 1)` coverage model on an edge that is
+not axis-aligned — the model `06_canvas.md` §"Rendering conventions" *specifies*, and
+the one every rotated shape in the renderer has always been drawn with. The gradient
+form therefore introduces **no error the renderer did not already have**, while
+`sqrt(|det M|)` introduces up to 37 steps of new error — an eighth of the full coverage
+range, on the edge of every non-uniformly scaled shape.
+
+The gradient is taken by **central differences at a fixed epsilon**, not by `fwidth`.
+That distinction is exactly the one §"Rendering conventions" draws: it bans hardware
+derivative estimates because they differ between platforms, and explicit central
+differences use only `+ - * /` and `sqrt`, all exactly specified by IEEE-754. The
+oracle and both shaders compute the identical value.
+
+Cost: **three** distance evaluations per pixel instead of one, and only for an item
+that carries a transform — the flag gates it. That is the price of the 37 steps, and
+it is worth paying: a non-similarity transform is the case the correction exists for.
+
+**There is no scale-factor header slot.** §4.2 originally carried `sqrt(|det M|)` as a
+35th slot computed once on the CPU; the gradient is per-pixel and per-direction, so
+there is nothing to precompute. Header stays at **34** slots (0..33), item block
+**160** bytes.
 
 ### 4.3 Stroke width
 
@@ -298,26 +330,43 @@ every existing scene — is byte-identical.
 
 The letter's one unproven premise, tested as cheaply as possible.
 
-- [ ] Write a throwaway harness (or a `#[test]` in `tests/rt_canvas_rasteriser.rs`
+- [x] Write a throwaway harness (or a `#[test]` in `tests/rt_canvas_rasteriser.rs`
       marked `#[ignore]` and kept) that, for a 2:1 non-uniform scale and a 30° shear,
       compares coverage computed with `d/sqrt(|det M|)` against coverage computed
       from a densely supersampled ground truth on the same shape.
-- [ ] **Record the worst-case coverage error, in 1/255 steps, in §4.2 of this
+      Kept, as `measure_the_transformed_distance_correction`. It measures a
+      **half-plane** rather than a curved shape: a circle mixes the correction's error
+      with the coverage model's curvature error, and the first run did exactly that —
+      the two were indistinguishable until the shape was straightened.
+- [x] **Record the worst-case coverage error, in 1/255 steps, in §4.2 of this
       document.** A number, from a run — not an estimate.
-- [ ] If it exceeds one step, add an Open Decision with the measured figure and a
+- [x] If it exceeds one step, add an Open Decision with the measured figure and a
       recommendation (carry a per-item pair of axis scales, or accept and document a
       tolerance for non-similarity transforms). **Do not stop** — record it and
       proceed with the recommendation.
+      It exceeds one step by a wide margin, and the recommendation is **neither** of
+      the two the plan offered — see §4.2 as rewritten and Correction C2.
 
 Acceptance: the worst-case error is written into this document with the command that
 produced it, and the choice of correction is settled by that number rather than by
 argument.
-Commit: —
+
+**MET, and it settled the question against §4.2's proposal.**
+`cargo test --release --test rt_canvas_rasteriser measure_the_transformed -- --ignored --nocapture`:
+
+```
+identity     sqrt(|det|)   3.19/255   d/||grad||   3.19/255
+2:1 scale    sqrt(|det|)  37.34/255   d/||grad||   3.19/255
+30deg shear  sqrt(|det|)  18.18/255   d/||grad||   9.71/255
+measurement floor 3.19/255
+```
+Commit: —PLACEHOLDER
 
 ### Phase 2 — Carry the inverse; identity path unchanged
 
-- [ ] `HEADER_SLOTS` 27 → 35; add slot constants for `ia..ity`, `hasTransform` and
-      the scale factor.
+- [ ] `HEADER_SLOTS` 27 → 34; add slot constants for `ia..ity` and `hasTransform`.
+      **34, not 35** — §4.2's scale-factor slot is gone with the formula it carried;
+      the gradient is per-pixel, so there is nothing to precompute per item.
 - [ ] Add `__canvas_invertTransform` to `helper_paint_defaults.rs`, handling both
       degenerate cases per §4.4; it is the sole all-zero→identity mapping.
 - [ ] `__canvas_paintHeader` writes slots 27–34 from `paint.transform`.
@@ -334,9 +383,11 @@ Commit: —
 ### Phase 3 — The software renderer transforms
 
 - [ ] `__canvas_drawGeometry`: when `hasTransform`, map `(px, py)` through the
-      inverse before `__canvas_geoDistance` and divide the result by the scale
-      factor. Gate on the flag so the identity path adds one compare per item, not
-      per pixel.
+      inverse before `__canvas_geoDistance` and divide the result by `‖∇d‖`, taken by
+      central differences of the composed field (§4.2 as re-derived in Phase 1 — **not**
+      by a precomputed `sqrt(|det M|)`, which measured 37/255 wrong). Gate on the flag
+      so the identity path adds one compare per item, not per pixel, and pays for
+      neither the mapping nor the two extra distance evaluations.
 - [ ] Transform the bounds: `__canvas_boundsHeader` takes the four transformed
       corners' axis-aligned hull when a transform is present.
 - [ ] `__canvas_drawGeometry`'s `__CANVAS_GEO_TEXT` arm: when `hasTransform`, map
@@ -356,7 +407,10 @@ Commit: —
 ### Phase 4 — Metal and Vulkan transform
 
 - [ ] Both fragment shaders: transform `gl_FragCoord.xy` / `[[position]].xy` through
-      the inverse and divide the distance by the scale factor, gated on the flag.
+      the inverse and divide the distance by `‖∇d‖`, taken by the same central
+      differences the oracle uses at the same fixed epsilon, gated on the flag. The
+      epsilon has to match the oracle's exactly — it is part of the specified result,
+      not a tuning knob.
 - [ ] Both vertex shaders already expand the item's `quad`, which Phase 3 made the
       transformed hull — so **no vertex-stage change should be needed**. Verify this
       rather than assume it; a rotated shape clipped to a stale quad is the failure
@@ -429,6 +483,25 @@ Commit: —
   readings are defensible and a user will ask.
 
 ## Corrections
+
+- **C2 (2026-09-01, Phase 1) — §4.2's recommended correction was measured and
+  rejected.** The section recommended `s = sqrt(|det M|)` "computed once on the CPU and
+  carried as a 35th header slot", and required Phase 1 to measure it before anything was
+  built on it. Measured: **37.34/255 coverage steps** wrong for a 2:1 non-uniform scale
+  and **18.18/255** for a 30° shear, against a 3.19/255 measurement floor. That is an
+  eighth of the full coverage range on the edge of every non-uniformly scaled shape.
+  Replaced by `d / ‖∇d‖` with the gradient taken by explicit central differences, which
+  measures **3.19** (the floor — exact) for the scale and **9.71** for the shear, the
+  latter being precisely what an *untransformed* 30° edge already measures. The plan
+  offered two fallbacks — per-item axis scales, or documenting a tolerance — and neither
+  was needed; the third option was better than both and needs no extra header slot at
+  all, so the header is 34 slots rather than 35.
+  Two details that made the measurement trustworthy and are worth keeping: it uses a
+  **half-plane**, because a circle mixes the correction's error with the coverage
+  model's curvature error and the first attempt could not separate them; and the
+  identity row is carried as a control, which is what identified 3.19 as the grid's
+  floor rather than a result.
+
 
 - **C1 (2026-09-01, review — pre-execution).** As first written this letter was
   silent on `Text` and `Picture`, which are not SDFs — a transformed `Text` would
