@@ -1113,6 +1113,17 @@ pub(crate) fn lower_function(
         )
     };
     crate::trace::count("machine instructions", instructions.len() as u64);
+    // plan-118-A: the size twin of the "slowest lower_function" leaderboard a
+    // few lines of instrumentation up the stack. Lowering time and emitted size
+    // are different axes — a function can be slow to lower because it is
+    // quadratic in something small, or fast to lower and still be 6% of the
+    // module — so "is the expansion one pathological function or all of them?"
+    // is only answerable from this one.
+    crate::trace::size_item(
+        "lower_function",
+        || function.name.clone(),
+        instructions.len() as u64,
+    );
 
     Ok(CodeFunction {
         name: function.name.clone(),

@@ -49,8 +49,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `-vv` tracer exists | `grep -n 'fn count' src/trace.rs → src/trace.rs:375` | MET |
-| `-vv` is print-only (pinned) | `grep -rln artifact_bytes_identical_across_verbosity_levels tests/ → 1 hit` | MET |
+| The `-vv` tracer exists | `grep -n 'fn count' src/trace.rs → src/trace.rs:375` | MET (re-run 2026-09-01: `375:pub(crate) fn count(...)`) |
+| `-vv` is print-only (pinned) | `grep -rln artifact_bytes_identical_across_verbosity_levels tests/ → 1 hit` | MET (re-run: `tests/cli_build_verbosity_output.rs`) |
 
 Everything below is written against current `main` (`f4be5ea25` at plan time).
 
@@ -143,18 +143,42 @@ report is where every other profiling row lives).
 
 ### Phase 1 — counters and leaderboard
 
-- [ ] `src/target/shared/lower.rs`: add the recursive `NIR ops (recursive)`
+- [x] `src/target/shared/lower.rs`: add the recursive `NIR ops (recursive)`
       counter (exhaustive `nir::visit` walk).
-- [ ] `src/codegen/engine/function/function_lowering.rs`: record per-function
+- [x] `src/codegen/engine/function/function_lowering.rs`: record per-function
       instruction counts into a "largest lower_function" leaderboard.
-- [ ] `src/trace.rs`: size-tally support if `timed_tally`/`item` cannot carry a
-      count cleanly (a `count_tally(bucket, label, amount)` twin).
+- [x] `src/trace.rs`: size-tally support if `timed_tally`/`item` cannot carry a
+      count cleanly (a `count_tally(bucket, label, amount)` twin). — `item`
+      cannot: its leaderboard is `Duration`-keyed end to end (insertion sort,
+      `millis()` render), so a count would have to be smuggled through a
+      `Duration` and rendered as milliseconds. Landed `size_item` (the
+      leaderboard twin) here; `count_tally` (the tally twin) lands with its
+      only consumer in Phase 2, so no phase commits an unused function.
 
 Acceptance: `cd tests/acceptance && ../../target/release/mfb test -vv` prints
 the recursive counter (~52.5k) and a size leaderboard whose top three rows are
 `#strings_genCat`, `#regex_genCat` (equal counts), `#regex_scriptOf`;
 `rustup run 1.96.0 cargo test --no-fail-fast` green;
 `scripts/artifact-gate.sh all` 0 diffs.
+
+MET, measured 2026-09-01 in this worktree (`cd tests/acceptance &&
+../../target/release/mfb test -vv`, log `/tmp/p118_vv_phase1.log`):
+
+```
+--- trace: largest lower_function (20 of 1616 items, 17079160 total) ---
+     1057783  #regex_genCat
+     1057783  #strings_genCat
+      440905  #regex_scriptOf
+       71647  __mfb_test_case_266
+--- trace: counters ---
+NIR functions                    1616
+NIR statements                  29088
+NIR ops (recursive)             52548
+machine instructions         17079160
+```
+
+Every §2 number reproduces exactly: 52,548 recursive ops, 29,088 flat, and
+17,079,160 machine instructions → **325:1**, not 585:1.
 Commit: —
 
 ### Phase 2 — attribution tally
