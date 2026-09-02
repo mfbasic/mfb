@@ -402,7 +402,7 @@ Newton solve struck through with the 127.5-step and 411/1608 numbers that reject
 Every figure comes from
 `cargo test --release --test rt_canvas_rasteriser measure_the_ellipse -- --ignored
 --nocapture`.
-Commit: —
+Commit: 5ef61834f
 
 ### Phase 2 — The type, the variant, and the frozen-set amendment
 
