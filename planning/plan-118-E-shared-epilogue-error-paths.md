@@ -44,8 +44,8 @@ Family gate in plan-118-A, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-118-C and -D landed | their docs archived | NOT MET |
-| Post-C/D attribution re-measured | `-vv` "costliest expansion" over tests/acceptance, AFTER D | UNMEASURED — Phase 1 re-census; C/D remove error blocks from their sites, so THIS letter's remaining value must be re-read, not assumed from the pre-C numbers |
+| plan-118-C and -D landed | their docs archived | MET (`planning/completed/plan-118-{C,D}-*`) |
+| Post-C/D attribution re-measured | `-vv` "costliest expansion" over tests/acceptance, AFTER D | MET — Phase 1 below. **The re-read changed this letter completely**: `op:Return` fell from 2,007,382 to 134,581 before phase 2 even started, and the error block turned out to be 194 instructions rather than ~40. |
 
 ## 1. Goal
 
@@ -78,27 +78,66 @@ Family gate in plan-118-A, plus:
   (`function_lowering.rs:1060` block) — the precondition for a shared
   epilogue visiting slots that a given path never wrote.
 
-### Measured populations (PRE-C/D numbers — Phase 1 re-measures)
+### Measured populations — **RE-CENSUSED post-D (Phase 1)**
 
-| What | Count | Command |
+| What | plan-118-A (pre-B) | post-D (this letter's baseline) |
 |---|---|---|
-| `op:Return` | 2,007,382 / 11,432 sites | plan-118-A §2 |
-| `op:Fail` | 255,872 / 3,609 | ditto |
-| `op:Bind` / `op:Assign` / `binop:+` | 551,939 / 319,358 / 245,967 | ditto |
-| Returns per function distribution | UNMEASURED | Phase 1 (attribution key + function) |
-| Error-staging emit helpers census | UNMEASURED | Phase 1 grep `make_error_result` emitters |
+| `op:Return` | 2,007,382 / 11,432 sites | **134,581 / 1,523 sites** |
+| `op:Fail` | 255,872 / 3,609 | 255,872 / 3,609 |
+| `op:Bind` | 551,939 / 12,407 | 552,683 / 12,407 |
+| `op:Assign` | 319,358 / 4,540 | 319,358 / 4,540 |
+| `binop:Add` | 245,967 / 1,828 | 245,967 / 1,828 |
+| module total | 17,079,160 | 11,880,468 |
+
+**`op:Return` collapsed by 93 % before this letter ran a line of code** — 9,909
+of its 11,432 sites were the `RETURN` arms of the three generated Unicode
+IF-chains plan-118-B deleted. §3's phase 3, the chained cleanup epilogue, was
+sized against the old number; against the real one it is 1.1 % of the module.
+This is exactly the re-read the Prerequisites row demanded.
+
+The **error-staging census** (Phase 1's third task): 183 call sites reach the
+error emitters, 171 of them through `raise_error_bare`, and they all funnel into
+`emit_error_register_return`. Its cost is not the staging — the staging is ~8
+instructions of immediates — but what follows: `emit_park_error_block_from_registers`,
+which builds the owned `Error` block and parks it. Measured on
+`FUNC cat2(a, b) RETURN a & b` (`--ncode`), a fallible site is:
+
+```
+  8  stage code / line / column / message / filename
+  1  bl _mfb_make_error_result
+174  build the owned Error block and park it        <-- the category
+ 11  route (return, or branch to the trap label)
+```
+
+Per-function distinct-error-kind distribution: not needed, and Open Decisions
+records why — the shape that repeats is not keyed by error kind at all.
 
 ### Verified properties
 
 - Owned slots are zero-initialized at entry so cleanup null-guards are sound on
   paths that skipped an initializer — read `function_lowering.rs:1060-1085`
   (this is what makes one shared cleanup block correct for all paths).
-- UNVERIFIED: whether cleanup sets at different RETURNs within one function
-  are nested prefixes of one scope stack (required for a chained epilogue) or
-  can diverge (parallel scopes with different live temps). Phase 1 reads
-  `emit_return_exit_inner` + the scope machinery and answers this; the design
-  below assumes chained scopes, which is how `active_cleanups` is maintained
-  (a stack), but the answer gates Phase 2.
+- **ANSWERED (Phase 1): the cleanup sets DIVERGE, so a per-depth chained
+  epilogue is not sound.** `active_cleanups` is a stack, so the *scope* part
+  nests as the design assumed — but a `RETURN` does not emit the stack. It emits
+  the stack MINUS a set of per-return deactivations, each keyed on what is being
+  returned:
+  * `plan_returned_move` (`emit_return_exit:299`) removes the returned local's
+    own drop for that path only, then restores it for sibling returns;
+  * `deactivate_thread_cleanup`, `deactivate_resource_cleanup` (twice — plain
+    resource and resource union, bug-141) and `deactivate_owned_list` each
+    remove a cleanup when the returned value transfers that ownership;
+  * and `escaping_value_slot` adds a *runtime* skip inside the sequence for the
+    block that is escaping.
+
+  Two `RETURN`s at the same depth therefore emit different cleanup sets whenever
+  they return different locals — which is the normal case. A block keyed on
+  depth alone would free a block the caller now owns (a use-after-free) or leak
+  one it does not. Keying on (depth × deactivation-set) degenerates to roughly
+  one block per return, i.e. no sharing.
+
+  §3's design is corrected accordingly (Corrections 2); what phase 3 shares
+  instead needs no scope reasoning at all.
 
 ## 3. Design Overview
 
@@ -151,27 +190,77 @@ Commit: —
 
 ### Phase 2 — shared error-staging blocks (smaller blast radius first)
 
-- [ ] Emit per-(kind) staging blocks at function end; rewrite fallible-op
-      failure branches to stage loc + jump.
-- [ ] Regenerate goldens; codegen-inspection test pinning one staged error
-      path's register discipline.
+- [x] ~~Emit per-(kind) staging blocks at function end; rewrite fallible-op
+      failure branches to stage loc + jump.~~ — **corrected** (Corrections 1):
+      what repeats is not the staging and is not keyed by kind. The staging is
+      ~8 instructions of per-site immediates and must stay per-site (the
+      `ErrorLoc` is the point). What repeats is the **174-instruction park**
+      after it, which closes over nothing — its inputs are three fixed
+      registers, its scratch is its own frame, and its one side effect is a
+      store through the per-thread, callee-saved `ARENA_STATE_REGISTER`. So it
+      is ONE `_mfb_rt_park_error` per module, not a block per function: smaller
+      blast radius, smaller module, and no scope reasoning.
+- [x] Regenerate goldens; codegen-inspection test pinning one staged error
+      path's register discipline. — `tests/codegen_shared_cleanup_helpers.rs`
+      asserts nothing is emitted between `bl _mfb_make_error_result` and
+      `bl _mfb_rt_park_error`, which is precisely the register discipline: the
+      three loose error registers the first call lands must reach the second
+      untouched.
 
 Acceptance: residual error-staging categories drop ≥ 50 %; full suites green;
 error-message/loc rt fixtures byte-identical output.
+
+MET. Against Phase 1's post-D re-census:
+
+| category | post-D | after E | Δ |
+|---|---|---|---|
+| `op:Bind` | 552,683 | 197,677 | −64.2 % |
+| `op:Assign` | 319,358 | 134,777 | −57.8 % |
+| `binop:Add` | 245,967 | 28,988 | −88.2 % |
+| `op:Fail` | 255,872 | 183,516 | −28.3 % |
+| **combined** | **1,373,880** | **544,958** | **−60.3 %** |
+
+`op:Fail` moves least, and correctly so: an explicit `FAIL` *is* the per-site
+staging (its code, message and loc are the program's own data), so what is left
+under that row is the part that cannot be shared.
+
+Error text, codes and locations are unchanged everywhere:
+`scripts/test-accept.sh`'s only mismatches across the whole change were three
+`.ncode` dumps — **no `.run`, no `build.log`** — and the
+`toString_invalid_encoding` fixture still reports `Error: 7-702-0004` /
+"Text encoding or decoding failed." / exit 255, on the host and on both remote
+boxes.
 Commit: —
 
 ### Phase 3 — chained cleanup epilogue
 
-- [ ] Restructure `emit_return_exit` to stage-and-jump; emit the per-depth
+- [x] ~~Restructure `emit_return_exit` to stage-and-jump; emit the per-depth
       chain + single frame exit at function end; `Fail`/trap exits routed
-      through the same chain.
-- [ ] Codegen-inspection test: staged return value survives the cleanup chain
-      (callee-saved or spilled) on a function whose cleanup frees temps.
-- [ ] Regenerate goldens; benchmark run (expected neutral: same dynamic
+      through the same chain.~~ — **corrected** (Corrections 2): Phase 1 proved
+      a per-depth chain unsound, because a `RETURN`'s cleanup set is the scope
+      stack MINUS per-return ownership-transfer deactivations. What is shared
+      instead is the individual drop, which closes over no scope at all:
+      `_mfb_rt_drop_owned_string` and `_mfb_rt_drop_owned_collection` take the
+      slot ADDRESS and do the null-guard, the size computation, the
+      `arena_free` and the free-and-null themselves. Eleven instructions become
+      two (String) and twelve become four (collection), at every exit of every
+      scope holding one — not only at `RETURN`.
+- [x] Codegen-inspection test: staged return value survives the cleanup chain
+      (callee-saved or spilled) on a function whose cleanup frees temps. —
+      `tests/codegen_shared_cleanup_helpers.rs`. With no chain there is no
+      staged value to survive; what the test pins instead is the pair of
+      guarantees that DID move into the helpers — free-and-null (bug-440) and
+      the null guard — plus the error registers' flow across the park call.
+      Without it the two commonest cleanup shapes would have lost their only
+      check, since `codegen_owned_drop_free_and_null.rs` can no longer see them
+      (they emit no `owned_value_free_skip` label at the site).
+- [x] Regenerate goldens; benchmark run (expected neutral: same dynamic
       instruction count on any single path).
-- [ ] Doc sync: `planning/speed.md` closing note for recommendation 3 with the
+- [x] Doc sync: `planning/speed.md` closing note for recommendation 3 with the
       family's final numbers; spec architecture page on function lowering if
-      it describes per-return cleanup.
+      it describes per-return cleanup. — no spec page describes per-return
+      cleanup (same census plan-118-C ran: the internal `bl` helper family is
+      not a documented surface).
 
 Acceptance: `op:Return` attribution −≥ 60 % vs Phase 1's re-census; full
 `cargo test --no-fail-fast`, `test-accept.sh` (full count), regenerated
@@ -179,6 +268,23 @@ Acceptance: `op:Return` attribution −≥ 60 % vs Phase 1's re-census; full
 remote-box runtime proof (x86-64 + Windows) per `.ai/remote_systems.md` —
 exit-path code is exactly where per-arch ABI differences bite
 (`.ai/arch-abi.md` read before Phase 3).
+
+MET. `op:Return` 134,581 → **49,226**, **−63.4 %** vs Phase 1's re-census.
+Module 11,880,468 → **3,348,186**.
+
+Benchmark: a 400 k-iteration loop owning a `String` and a `List` per iteration
+plus 400 k trapped `FAIL`s — i.e. maximally scope-drop- and error-heavy —
+compiled by the pre-E compiler (`f9ced6a1f`) and by this one, interleaved 7×:
+min 0.227 s → 0.228 s (+0.5 %), median 0.231 s → 0.229 s (−1.0 %). Neutral, as
+predicted: the same work, reached by a call.
+
+Remote-box proof, output compared byte-for-byte against the host goldens —
+`arena/flat-record-string` (String + record scope drops) and
+`rt-error/general/toString_invalid_encoding` (the error path end to end, code
+`7-702-0004`, message, exit 255): **identical on 2228 (x86-64 glibc) and 2229
+(riscv64 musl)**. 2230 (Win11) is down — `Connection refused`, retried across
+the whole letter — so Windows is covered by cross-compilation and its
+regenerated `.ncodesum` goldens only.
 Commit: —
 
 ## Validation Plan
@@ -198,7 +304,59 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+1. **The repeating error shape is the PARK, not the staging, and it is not keyed
+   by error kind.** §3's phase 2 designs "one error-staging block per
+   (error-kind) per function", sites staging only their loc and jumping. The
+   measurement says otherwise: staging is ~8 instructions of per-site
+   immediates — and per-site is where it must stay, since the `ErrorLoc` is the
+   whole point — while what follows it is **174 instructions** that vary by
+   nothing at all: build the owned `Error` block, park it in the arena's
+   current-error slot, restore the three loose registers, stamp the tag.
+
+   Because it varies by nothing, it does not need to be per-function either. It
+   closes over no scope: three fixed input registers, its own frame for scratch,
+   and one store through `ARENA_STATE_REGISTER`, which is per-thread and
+   callee-saved. So it is **one `_mfb_rt_park_error` per module**, and a
+   fallible site is `bl _mfb_make_error_result` + `bl _mfb_rt_park_error`.
+
+   §2's "~40–56-instruction error-construction block" was low by ~4×; the
+   original attribution charged most of it to the enclosing category
+   (`binop:Concat`, `val:Constructor`, …) rather than to `op:Fail`, which is why
+   the earlier letters kept bottoming out on it.
+
+2. **A per-scope-depth chained cleanup epilogue is unsound; the sharable unit is
+   the individual drop.** §2 flagged as UNVERIFIED whether cleanup sets at
+   different `RETURN`s nest. Phase 1 answered: **they do not.** `active_cleanups`
+   is a stack, but a `RETURN` emits that stack MINUS deactivations chosen by
+   what is being returned — `plan_returned_move`, `deactivate_thread_cleanup`,
+   `deactivate_resource_cleanup` (plain and union, bug-141), `deactivate_owned_list`,
+   and a runtime `escaping_value_slot` skip. Two returns at the same depth
+   returning different locals emit different sets, so a depth-keyed block would
+   free a block the caller now owns or leak one it does not. Keying on
+   (depth × deactivation-set) is one block per return — no sharing.
+
+   The corrected unit is the drop itself, which depends only on the slot address
+   and the value's type: `_mfb_rt_drop_owned_string(slot)` and
+   `_mfb_rt_drop_owned_collection(slot, stride, hasBuckets)`. Eleven and twelve
+   instructions become two and four, at **every** scope exit rather than only at
+   `RETURN` — which is why the win shows up under `op:Fail`, `op:Assign` and
+   `op:If` as well as `op:Return`.
+
+3. **`op:Return` was 93 % smaller than §2 said before this letter began.**
+   9,909 of its 11,432 sites were the `RETURN` arms of the three generated
+   Unicode IF-chains plan-118-B deleted, so the post-D baseline is 134,581 over
+   1,523 sites, not 2,007,382 over 11,432. This is the re-census the
+   Prerequisites row existed to force, and it is why phase 3 became a
+   small, sound sharing rather than the "largest blast radius in the family"
+   rewrite of every function's exit path.
+
+4. **The `.ai/codegen-invariants.md` lore this letter cites is now enforced in a
+   second place.** "Owned-value drops must free-and-null the cleanup slot"
+   (bug-440) was pinned by `codegen_owned_drop_free_and_null.rs`, which finds
+   `owned_value_free_skip` labels. The `String` and collection drops no longer
+   emit that label at the site, so that test can no longer see the two
+   commonest cleanup shapes; `tests/codegen_shared_cleanup_helpers.rs` pins the
+   same guarantee inside the helpers.
 
 ## Summary
 

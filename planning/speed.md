@@ -207,6 +207,40 @@ family's largest remaining item by a wide margin — larger than plan-118-E's ow
 §2 numbers imply, because those were taken before C measured the block at 194
 rather than the ~40 it was assumed to be.
 
+### Final: the plan-118 family is complete (2026-09-02)
+
+```
+                        A (baseline)   after B      after C      after D      after E
+machine instructions      17,079,160   14,523,769   12,872,114   11,880,468    3,348,186
+NIR ops (recursive)           52,548       32,733       32,733       32,733       32,733
+expansion ratio                325:1        444:1        393:1        363:1        102:1
+```
+
+**−80.4 % of the module.** (The ratio rises after B because B removed 19,815 NIR
+ops as well as 2.6 M instructions — it deleted whole generated functions, not
+per-site expansion. C, D and E remove expansion only, which is why the ratio
+falls with each.)
+
+Build time over the same corpus, `mfb test -vv`:
+
+```
+                  before      after
+phase resolve     12,709ms    6,322ms
+phase codegen+link 52,713ms   22,623ms
+```
+
+The one finding worth carrying forward: **every category bottomed out on the
+same shape.** After the concat, the renderers, the print marshalling and the
+record constructors were out-of-lined, what was left at each of those sites was
+one 174-instruction block — build the owned `Error` and park it — inlined at
+every fallible operation in the program. Sharing it as a single
+`_mfb_rt_park_error` took the module from 11.9 M to 3.5 M on its own. The
+attribution instrument is what made that visible: the block was charged to
+`binop:Concat`, `val:Constructor`, `call:toString` and `rtcall:io.print` rather
+than to anything named "error", so no single row ever pointed at it.
+
+Recommendation 3 is closed.
+
 Separately measured and deliberately NOT in plan-118's scope: roughly half of
 every function's instructions are stack round-trips (in the 300-instruction
 `RETURN a & b`, 83 `ldr_u64` + 68 `str_u64` — every intermediate value stored
@@ -381,13 +415,12 @@ scoped or designed; each is a place the numbers say is worth opening.
    optimized Rust. Everything about its shape says defect rather than volume.
    Highest-value single row that is *not* explained by §5.1.
 
-3. **Attack the NIR→machine expansion.** It is the ceiling on §4's entire
-   lower half; halving it roughly halves the back end. Broadest and hardest —
-   worth understanding before committing to anything, which is why it sits
-   below the two cheap items above rather than at the top. *(Root-caused
-   2026-09-01 — see the correction in §5.1: the honest ratio is 325:1, and five
-   inline lowerings are 68 % of it. plan-118-A landed the instrument; -B..-E
-   attack the categories.)*
+3. ~~**Attack the NIR→machine expansion.**~~ **DONE (plan-118-A..E, 2026-09-02).**
+   17,079,160 → **3,348,186** machine instructions over `tests/acceptance`
+   (−80.4 %), expansion 325:1 → 102:1, `codegen+link` 52.7 s → 22.6 s. See the
+   correction and the closing table in §5.1. The single largest item was not any
+   of the five categories the attribution named but the error block inlined
+   inside all of them.
 
 4. **Instrument `encoding image`.** 13.7 s / 20 % with zero visibility. Not a
    fix — a prerequisite for knowing whether there is one. Cheap.

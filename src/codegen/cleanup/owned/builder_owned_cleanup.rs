@@ -1,5 +1,7 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::builder_collection_layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::{typed_is_collection_type, typed_list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -244,6 +246,53 @@ impl CodeBuilder<'_> {
         // whatever the stack held (benignly 0 on AArch64 in practice; stack
         // garbage — a wild free — on x86-64).
         self.owned_value_slots.push(cleanup.stack_offset);
+        // plan-118-E: the `String` drop is a pure function of the slot address —
+        // null-test, header read, `+9`, free, null the slot — so all eleven
+        // instructions live in `_mfb_rt_drop_owned_string` and the site is the
+        // slot address plus a `bl`. `String` is by far the commonest owned
+        // cleanup, and this shape is emitted at every exit of every scope that
+        // holds one.
+        // The flat collection drop shares the same treatment; the size formula
+        // varies only on the entry stride and whether the block carries a
+        // hash-bucket region, both compile-time constants here.
+        if typed_is_collection_type(&cleanup.type_) {
+            let element = typed_list_element_type(&cleanup.type_)
+                .cloned()
+                .unwrap_or_else(|| ParameterType::named(""));
+            let stride = list_entry_stride(&element);
+            let buckets = matches!(
+                cleanup.type_,
+                ParameterType::MapOf(..) | ParameterType::SetOf(_)
+            );
+            self.emit(abi::add_immediate(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                cleanup.stack_offset,
+            ));
+            self.emit(abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                &stride.to_string(),
+            ));
+            self.emit(abi::move_immediate(
+                abi::c_arg(2),
+                "Integer",
+                if buckets { "1" } else { "0" },
+            ));
+            self.emit(abi::branch_link(DROP_OWNED_COLLECTION_SYMBOL));
+            self.push_internal_call_relocation(DROP_OWNED_COLLECTION_SYMBOL);
+            return Ok(());
+        }
+        if cleanup.type_ == ParameterType::String {
+            self.emit(abi::add_immediate(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                cleanup.stack_offset,
+            ));
+            self.emit(abi::branch_link(DROP_OWNED_STRING_SYMBOL));
+            self.push_internal_call_relocation(DROP_OWNED_STRING_SYMBOL);
+            return Ok(());
+        }
         let skip = self.label("owned_value_free_skip");
         // This pointer is consumed as arg 0 of the arena-free call below, so emit it
         // into the C-argument token (`c_arg(0)`) — the aligned call bank — rather

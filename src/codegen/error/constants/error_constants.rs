@@ -1009,6 +1009,22 @@ pub(crate) const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
 /// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the
 /// call site's `ErrorLoc`, so it cannot move into the helper).
 pub(crate) const STRING_CONCAT_SYMBOL: &str = "_mfb_rt_string_concat";
+/// plan-118-E: build the owned `Error` block from the loose error registers and
+/// park it in the arena's current-error slot. Takes and returns the standard
+/// error registers (code / message / source), leaving the `ERR_BLOCK` tag.
+/// Position-independent — it touches only those registers, its own frame, and
+/// the per-thread arena slot — which is why it can be ONE function per module
+/// rather than a block per function.
+pub(crate) const PARK_ERROR_SYMBOL: &str = "_mfb_rt_park_error";
+/// plan-118-E: drop one owned `String` slot — null-check, size from the block
+/// header, `arena_free`, then null the slot. `x0` is the slot's ADDRESS, not the
+/// pointer, so the helper can do the free-and-null itself.
+pub(crate) const DROP_OWNED_STRING_SYMBOL: &str = "_mfb_rt_drop_owned_string";
+/// plan-118-E: drop one owned flat collection slot. `x0` is the slot ADDRESS,
+/// `x1` the entry stride, `x2` non-zero when the block carries a hash-bucket
+/// region (`Map`/`Set`, never `List`). Those two are the only things the flat
+/// size formula varies on.
+pub(crate) const DROP_OWNED_COLLECTION_SYMBOL: &str = "_mfb_rt_drop_owned_collection";
 /// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
 pub(crate) const FNV1A_BASIS: &str = "14695981039346656037";
 pub(crate) const FNV1A_PRIME: &str = "1099511628211";

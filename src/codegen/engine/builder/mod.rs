@@ -30,6 +30,9 @@ use crate::codegen::collection::sort::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::park_error_helper::{
+    lower_drop_owned_collection_helper, lower_drop_owned_string_helper, lower_park_error_helper,
+};
 use crate::codegen::error::result::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::os::process::*;
@@ -2023,6 +2026,67 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
             )?);
         }
+    }
+    // plan-118-E: the shared owned flat-collection scope drop. Same gate.
+    let uses_drop_owned_collection = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_COLLECTION_SYMBOL)
+    });
+    if uses_drop_owned_collection {
+        code_functions.push(lower_drop_owned_collection_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // plan-118-E: the shared owned-`String` scope drop. Same relocation gate.
+    let uses_drop_owned_string = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_STRING_SYMBOL)
+    });
+    if uses_drop_owned_string {
+        code_functions.push(lower_drop_owned_string_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // plan-118-E: the shared error-block park, the single largest shape left in
+    // the module after B/C/D. Same relocation gate.
+    let uses_park_error = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == PARK_ERROR_SYMBOL)
+    });
+    if uses_park_error {
+        code_functions.push(lower_park_error_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
     }
     // plan-118-C: the shared `String` concat. Same demand gate as the map
     // helpers — an internal `bl` target, emitted iff a lowered function
