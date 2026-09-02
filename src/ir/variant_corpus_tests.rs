@@ -19,6 +19,7 @@ use super::package::{
 };
 use super::*;
 use crate::ir::resource_escape::ResOwner;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 // --- builders --------------------------------------------------------------
@@ -126,7 +127,7 @@ fn every_value() -> Vec<IrValue> {
         IrValue::Checked {
             type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(IrValue::Binary {
-                op: "/".to_string(),
+                op: BinaryOp::Divide,
                 left: Box::new(IrValue::Local("a".to_string())),
                 right: Box::new(IrValue::Global("g".to_string())),
                 loc: loc(),
@@ -159,14 +160,14 @@ fn every_value() -> Vec<IrValue> {
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(IrValue::Local("a".to_string())),
             right: Box::new(IrValue::Global("g".to_string())),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(IrValue::Local("b".to_string())),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Boolean"),
@@ -920,7 +921,7 @@ fn decode_rejects_depth_limit() {
             let mut v = IrValue::Local("x".to_string());
             for _ in 0..300 {
                 v = IrValue::Unary {
-                    op: "NOT".to_string(),
+                    op: UnaryOp::Not,
                     operand: Box::new(v),
                     loc: loc(),
                     type_: crate::types::ParameterType::parse("Boolean"),
@@ -1588,7 +1589,7 @@ fn annotated_type_reports_every_annotated_variant() {
     );
     assert_eq!(
         IrValue::Binary {
-            op: "+".to_string(),
+            op: BinaryOp::Add,
             left: Box::new(c("Integer", "1")),
             right: Box::new(c("Integer", "2")),
             loc: loc(),
@@ -1601,7 +1602,7 @@ fn annotated_type_reports_every_annotated_variant() {
     );
     assert_eq!(
         IrValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(c("Boolean", "true")),
             loc: loc(),
             type_: crate::types::ParameterType::parse("Boolean")

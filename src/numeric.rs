@@ -1,3 +1,4 @@
+use crate::operators::BinaryOp;
 use crate::types::ParameterType;
 
 /// plan-106-E: the five names below are reached only by the name-domain
@@ -407,7 +408,11 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
 /// [`typed_binary_result_type`], not a second implementation: promotion has
 /// exactly one algebra.
 #[cfg(test)]
-pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
+pub(crate) fn binary_result_type(
+    operator: BinaryOp,
+    left: &str,
+    right: &str,
+) -> Option<&'static str> {
     let left = numeric_variant(left)?;
     let right = numeric_variant(right)?;
     numeric_variant_name(&typed_binary_result_type(operator, &left, &right)?)
@@ -439,7 +444,7 @@ pub(crate) fn is_numeric(type_: &ParameterType) -> bool {
 /// name-keyed [`binary_result_type`]; every typed engine now calls this
 /// directly and the name-keyed form is the adapter, not the primitive.
 pub(crate) fn typed_binary_result_type(
-    operator: &str,
+    operator: BinaryOp,
     left: &ParameterType,
     right: &ParameterType,
 ) -> Option<ParameterType> {
@@ -453,7 +458,7 @@ pub(crate) fn typed_binary_result_type(
     if l_money || r_money {
         return typed_money_result_type(operator, l_money, r_money);
     }
-    if operator == "DIV" {
+    if operator == BinaryOp::IntDiv {
         Some(ParameterType::Float)
     } else if matches!(left, ParameterType::Fixed) || matches!(right, ParameterType::Fixed) {
         Some(ParameterType::Fixed)
@@ -475,8 +480,9 @@ pub(crate) fn typed_promote_loop_numeric_type(
     end: &ParameterType,
     step: &ParameterType,
 ) -> ParameterType {
-    let first = typed_binary_result_type("+", start, end).unwrap_or(ParameterType::Integer);
-    typed_binary_result_type("+", &first, step).unwrap_or(ParameterType::Integer)
+    let first =
+        typed_binary_result_type(BinaryOp::Add, start, end).unwrap_or(ParameterType::Integer);
+    typed_binary_result_type(BinaryOp::Add, &first, step).unwrap_or(ParameterType::Integer)
 }
 
 /// The [`ParameterType`] a numeric type *name* denotes, or `None` for anything
@@ -528,20 +534,20 @@ fn numeric_variant_name(type_: &ParameterType) -> Option<&'static str> {
 /// sit behind: `ir::verify` was its last caller, and it speaks
 /// [`ParameterType`] now. This is the only definition of the table.
 pub(crate) fn typed_money_result_type(
-    operator: &str,
+    operator: BinaryOp,
     l_money: bool,
     r_money: bool,
 ) -> Option<ParameterType> {
     match operator {
-        "+" | "-" => (l_money && r_money).then_some(ParameterType::Money),
-        "*" => {
+        BinaryOp::Add | BinaryOp::Subtract => (l_money && r_money).then_some(ParameterType::Money),
+        BinaryOp::Multiply => {
             if l_money && r_money {
                 None
             } else {
                 Some(ParameterType::Money)
             }
         }
-        "/" => {
+        BinaryOp::Divide => {
             if l_money && r_money {
                 Some(ParameterType::Float)
             } else if l_money {
@@ -550,15 +556,28 @@ pub(crate) fn typed_money_result_type(
                 None
             }
         }
-        "DIV" => {
+        BinaryOp::IntDiv => {
             if l_money {
                 Some(ParameterType::Float)
             } else {
                 None
             }
         }
-        "MOD" => (l_money && r_money).then_some(ParameterType::Money),
-        _ => None,
+        BinaryOp::Mod => (l_money && r_money).then_some(ParameterType::Money),
+        // `^` and the comparison / logical / concatenation operators have no
+        // Money form at all: exponentiating a Money is meaningless, and the
+        // rest never reach the dimensional lattice.
+        BinaryOp::Power
+        | BinaryOp::Or
+        | BinaryOp::Xor
+        | BinaryOp::And
+        | BinaryOp::Equal
+        | BinaryOp::NotEqual
+        | BinaryOp::Less
+        | BinaryOp::LessEqual
+        | BinaryOp::Greater
+        | BinaryOp::GreaterEqual
+        | BinaryOp::Concat => None,
     }
 }
 
@@ -796,20 +815,26 @@ mod tests {
 
     #[test]
     fn non_numeric_operand_has_no_result_type() {
-        assert_eq!(binary_result_type("+", "String", TYPE_INTEGER), None);
-        assert_eq!(binary_result_type("+", TYPE_INTEGER, "Boolean"), None);
-        assert_eq!(binary_result_type("+", "String", "String"), None);
+        assert_eq!(
+            binary_result_type(BinaryOp::Add, "String", TYPE_INTEGER),
+            None
+        );
+        assert_eq!(
+            binary_result_type(BinaryOp::Add, TYPE_INTEGER, "Boolean"),
+            None
+        );
+        assert_eq!(binary_result_type(BinaryOp::Add, "String", "String"), None);
     }
 
     #[test]
     fn div_always_yields_float() {
         // DIV promotes to Float regardless of operand types (even Byte/Byte).
         assert_eq!(
-            binary_result_type("DIV", TYPE_BYTE, TYPE_BYTE),
+            binary_result_type(BinaryOp::IntDiv, TYPE_BYTE, TYPE_BYTE),
             Some(TYPE_FLOAT)
         );
         assert_eq!(
-            binary_result_type("DIV", TYPE_INTEGER, TYPE_INTEGER),
+            binary_result_type(BinaryOp::IntDiv, TYPE_INTEGER, TYPE_INTEGER),
             Some(TYPE_FLOAT)
         );
     }
@@ -817,15 +842,15 @@ mod tests {
     #[test]
     fn fixed_dominates_all_other_numerics() {
         assert_eq!(
-            binary_result_type("+", TYPE_FIXED, TYPE_INTEGER),
+            binary_result_type(BinaryOp::Add, TYPE_FIXED, TYPE_INTEGER),
             Some(TYPE_FIXED)
         );
         assert_eq!(
-            binary_result_type("*", TYPE_FLOAT, TYPE_FIXED),
+            binary_result_type(BinaryOp::Multiply, TYPE_FLOAT, TYPE_FIXED),
             Some(TYPE_FIXED)
         );
         assert_eq!(
-            binary_result_type("-", TYPE_BYTE, TYPE_FIXED),
+            binary_result_type(BinaryOp::Subtract, TYPE_BYTE, TYPE_FIXED),
             Some(TYPE_FIXED)
         );
     }
@@ -833,11 +858,11 @@ mod tests {
     #[test]
     fn float_dominates_integer_and_byte() {
         assert_eq!(
-            binary_result_type("+", TYPE_FLOAT, TYPE_INTEGER),
+            binary_result_type(BinaryOp::Add, TYPE_FLOAT, TYPE_INTEGER),
             Some(TYPE_FLOAT)
         );
         assert_eq!(
-            binary_result_type("*", TYPE_BYTE, TYPE_FLOAT),
+            binary_result_type(BinaryOp::Multiply, TYPE_BYTE, TYPE_FLOAT),
             Some(TYPE_FLOAT)
         );
     }
@@ -845,15 +870,15 @@ mod tests {
     #[test]
     fn byte_pair_stays_byte_but_mixed_widens_to_integer() {
         assert_eq!(
-            binary_result_type("+", TYPE_BYTE, TYPE_BYTE),
+            binary_result_type(BinaryOp::Add, TYPE_BYTE, TYPE_BYTE),
             Some(TYPE_BYTE)
         );
         assert_eq!(
-            binary_result_type("+", TYPE_BYTE, TYPE_INTEGER),
+            binary_result_type(BinaryOp::Add, TYPE_BYTE, TYPE_INTEGER),
             Some(TYPE_INTEGER)
         );
         assert_eq!(
-            binary_result_type("+", TYPE_INTEGER, TYPE_INTEGER),
+            binary_result_type(BinaryOp::Add, TYPE_INTEGER, TYPE_INTEGER),
             Some(TYPE_INTEGER)
         );
     }
@@ -972,62 +997,108 @@ mod tests {
 
         // M , M
         assert_eq!(
-            binary_result_type("+", TYPE_MONEY, TYPE_MONEY),
+            binary_result_type(BinaryOp::Add, TYPE_MONEY, TYPE_MONEY),
             Some(TYPE_MONEY)
         );
         assert_eq!(
-            binary_result_type("-", TYPE_MONEY, TYPE_MONEY),
+            binary_result_type(BinaryOp::Subtract, TYPE_MONEY, TYPE_MONEY),
             Some(TYPE_MONEY)
         );
-        assert_eq!(binary_result_type("*", TYPE_MONEY, TYPE_MONEY), None);
         assert_eq!(
-            binary_result_type("/", TYPE_MONEY, TYPE_MONEY),
+            binary_result_type(BinaryOp::Multiply, TYPE_MONEY, TYPE_MONEY),
+            None
+        );
+        assert_eq!(
+            binary_result_type(BinaryOp::Divide, TYPE_MONEY, TYPE_MONEY),
             Some(TYPE_FLOAT)
         );
         assert_eq!(
-            binary_result_type("DIV", TYPE_MONEY, TYPE_MONEY),
+            binary_result_type(BinaryOp::IntDiv, TYPE_MONEY, TYPE_MONEY),
             Some(TYPE_FLOAT)
         );
         assert_eq!(
-            binary_result_type("MOD", TYPE_MONEY, TYPE_MONEY),
+            binary_result_type(BinaryOp::Mod, TYPE_MONEY, TYPE_MONEY),
             Some(TYPE_MONEY)
         );
-        assert_eq!(binary_result_type("^", TYPE_MONEY, TYPE_MONEY), None);
+        assert_eq!(
+            binary_result_type(BinaryOp::Power, TYPE_MONEY, TYPE_MONEY),
+            None
+        );
 
         for k in scalars {
             // M , k
-            assert_eq!(binary_result_type("+", TYPE_MONEY, k), None, "M+{k}");
-            assert_eq!(binary_result_type("-", TYPE_MONEY, k), None, "M-{k}");
             assert_eq!(
-                binary_result_type("*", TYPE_MONEY, k),
+                binary_result_type(BinaryOp::Add, TYPE_MONEY, k),
+                None,
+                "M+{k}"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Subtract, TYPE_MONEY, k),
+                None,
+                "M-{k}"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Multiply, TYPE_MONEY, k),
                 Some(TYPE_MONEY),
                 "M*{k}"
             );
             assert_eq!(
-                binary_result_type("/", TYPE_MONEY, k),
+                binary_result_type(BinaryOp::Divide, TYPE_MONEY, k),
                 Some(TYPE_MONEY),
                 "M/{k}"
             );
             assert_eq!(
-                binary_result_type("DIV", TYPE_MONEY, k),
+                binary_result_type(BinaryOp::IntDiv, TYPE_MONEY, k),
                 Some(TYPE_FLOAT),
                 "M DIV {k}"
             );
-            assert_eq!(binary_result_type("MOD", TYPE_MONEY, k), None, "M MOD {k}");
-            assert_eq!(binary_result_type("^", TYPE_MONEY, k), None, "M^{k}");
+            assert_eq!(
+                binary_result_type(BinaryOp::Mod, TYPE_MONEY, k),
+                None,
+                "M MOD {k}"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Power, TYPE_MONEY, k),
+                None,
+                "M^{k}"
+            );
 
             // k , M
-            assert_eq!(binary_result_type("+", k, TYPE_MONEY), None, "{k}+M");
-            assert_eq!(binary_result_type("-", k, TYPE_MONEY), None, "{k}-M");
             assert_eq!(
-                binary_result_type("*", k, TYPE_MONEY),
+                binary_result_type(BinaryOp::Add, k, TYPE_MONEY),
+                None,
+                "{k}+M"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Subtract, k, TYPE_MONEY),
+                None,
+                "{k}-M"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Multiply, k, TYPE_MONEY),
                 Some(TYPE_MONEY),
                 "{k}*M"
             );
-            assert_eq!(binary_result_type("/", k, TYPE_MONEY), None, "{k}/M");
-            assert_eq!(binary_result_type("DIV", k, TYPE_MONEY), None, "{k} DIV M");
-            assert_eq!(binary_result_type("MOD", k, TYPE_MONEY), None, "{k} MOD M");
-            assert_eq!(binary_result_type("^", k, TYPE_MONEY), None, "{k}^M");
+            assert_eq!(
+                binary_result_type(BinaryOp::Divide, k, TYPE_MONEY),
+                None,
+                "{k}/M"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::IntDiv, k, TYPE_MONEY),
+                None,
+                "{k} DIV M"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Mod, k, TYPE_MONEY),
+                None,
+                "{k} MOD M"
+            );
+            assert_eq!(
+                binary_result_type(BinaryOp::Power, k, TYPE_MONEY),
+                None,
+                "{k}^M"
+            );
         }
     }
 
@@ -1156,9 +1227,24 @@ mod tests {
     /// Every binary operator the language spells, so the equivalence covers the
     /// `DIV`/`MOD`/`^` arms and the comparison/logical operators that fall
     /// through to the default `Integer`.
-    const OPERATORS: [&str; 17] = [
-        "+", "-", "*", "/", "DIV", "MOD", "^", "&", "=", "<>", "<", ">", "<=", ">=", "AND", "OR",
-        "XOR",
+    const OPERATORS: [BinaryOp; 17] = [
+        BinaryOp::Add,
+        BinaryOp::Subtract,
+        BinaryOp::Multiply,
+        BinaryOp::Divide,
+        BinaryOp::IntDiv,
+        BinaryOp::Mod,
+        BinaryOp::Power,
+        BinaryOp::Concat,
+        BinaryOp::Equal,
+        BinaryOp::NotEqual,
+        BinaryOp::Less,
+        BinaryOp::Greater,
+        BinaryOp::LessEqual,
+        BinaryOp::GreaterEqual,
+        BinaryOp::And,
+        BinaryOp::Or,
+        BinaryOp::Xor,
     ];
 
     #[test]
@@ -1167,6 +1253,7 @@ mod tests {
         assert_eq!(types.len(), LATTICE_NAMES.len());
         let mut checked = 0usize;
         for operator in OPERATORS {
+            let spelling = operator.name();
             for (left_name, left) in &types {
                 for (right_name, right) in &types {
                     let typed = typed_binary_result_type(operator, left, right);
@@ -1175,18 +1262,18 @@ mod tests {
                     assert_eq!(
                         typed.is_some(),
                         rendered.is_some(),
-                        "{left_name} {operator} {right_name}: typed result escaped the scalar lattice ({typed:?})"
+                        "{left_name} {spelling} {right_name}: typed result escaped the scalar lattice ({typed:?})"
                     );
                     assert_eq!(
                         rendered,
-                        legacy_binary_result_type(operator, left_name, right_name),
-                        "{left_name} {operator} {right_name}"
+                        legacy_binary_result_type(spelling, left_name, right_name),
+                        "{left_name} {spelling} {right_name}"
                     );
                     // And the shipped adapter agrees with both.
                     assert_eq!(
                         binary_result_type(operator, left_name, right_name),
                         rendered,
-                        "adapter drift at {left_name} {operator} {right_name}"
+                        "adapter drift at {left_name} {spelling} {right_name}"
                     );
                     checked += 1;
                 }
@@ -1223,14 +1310,15 @@ mod tests {
     #[test]
     fn typed_money_result_type_matches_the_legacy_table() {
         for operator in OPERATORS {
+            let spelling = operator.name();
             for l_money in [false, true] {
                 for r_money in [false, true] {
                     assert_eq!(
                         typed_money_result_type(operator, l_money, r_money)
                             .as_ref()
                             .and_then(numeric_variant_name),
-                        legacy_money_result_type(operator, l_money, r_money),
-                        "{operator} l_money={l_money} r_money={r_money}"
+                        legacy_money_result_type(spelling, l_money, r_money),
+                        "{spelling} l_money={l_money} r_money={r_money}"
                     );
                 }
             }
@@ -1253,19 +1341,19 @@ mod tests {
     fn non_money_lattice_is_unchanged_by_money_rules() {
         // The Money guard must not perturb any all-non-Money pairing.
         assert_eq!(
-            binary_result_type("+", TYPE_FIXED, TYPE_INTEGER),
+            binary_result_type(BinaryOp::Add, TYPE_FIXED, TYPE_INTEGER),
             Some(TYPE_FIXED)
         );
         assert_eq!(
-            binary_result_type("*", TYPE_FLOAT, TYPE_BYTE),
+            binary_result_type(BinaryOp::Multiply, TYPE_FLOAT, TYPE_BYTE),
             Some(TYPE_FLOAT)
         );
         assert_eq!(
-            binary_result_type("+", TYPE_BYTE, TYPE_BYTE),
+            binary_result_type(BinaryOp::Add, TYPE_BYTE, TYPE_BYTE),
             Some(TYPE_BYTE)
         );
         assert_eq!(
-            binary_result_type("DIV", TYPE_INTEGER, TYPE_INTEGER),
+            binary_result_type(BinaryOp::IntDiv, TYPE_INTEGER, TYPE_INTEGER),
             Some(TYPE_FLOAT)
         );
     }

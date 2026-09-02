@@ -5,6 +5,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::typed_map_entry_type_parts;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
@@ -977,13 +978,12 @@ impl CodeBuilder<'_> {
                         value: type_.name().into_owned(),
                     })
             }
-            NirValue::Binary { op, .. } if op == "&" => {
-                self.static_string_value(value)
-                    .map(|value| NirValue::Const {
-                        type_: ParameterType::String,
-                        value,
-                    })
-            }
+            NirValue::Binary { op, .. } if *op == BinaryOp::Concat => self
+                .static_string_value(value)
+                .map(|value| NirValue::Const {
+                    type_: ParameterType::String,
+                    value,
+                }),
             _ => None,
         }
     }
@@ -1038,7 +1038,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::Binary {
                 op, left, right, ..
-            } if op == "&" => {
+            } if *op == BinaryOp::Concat => {
                 let left = self.static_string_value(left)?;
                 let right = self.static_string_value(right)?;
                 Some(format!("{left}{right}"))
@@ -1173,21 +1173,19 @@ impl CodeBuilder<'_> {
             NirValue::Binary {
                 op, left, right, ..
             } => {
-                if matches!(
-                    op.as_str(),
-                    "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-                ) {
+                if op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+                {
                     return Some(ParameterType::Boolean);
                 }
-                if op == "&" {
+                if *op == BinaryOp::Concat {
                     return Some(ParameterType::String);
                 }
                 let left = self.static_type_name(left)?;
                 let right = self.static_type_name(right)?;
-                Some(promoted_binary_type(op, &left, &right))
+                Some(promoted_binary_type(*op, &left, &right))
             }
             NirValue::Unary { op, operand, .. } => {
-                if op == "NOT" {
+                if *op == UnaryOp::Not {
                     Some(ParameterType::Boolean)
                 } else {
                     self.static_type_name(operand)

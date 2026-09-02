@@ -11,22 +11,40 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::operators::BinaryOp;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_boolean_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &NirValue,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         match op {
-            "AND" => self.lower_short_circuit_and(left, right),
-            "OR" => self.lower_short_circuit_or(left, right),
-            "XOR" => self.lower_boolean_xor(left, right),
-            other => Err(format!(
-                "native code plan does not lower boolean operator '{other}'"
+            BinaryOp::And => self.lower_short_circuit_and(left, right),
+            BinaryOp::Or => self.lower_short_circuit_or(left, right),
+            BinaryOp::Xor => self.lower_boolean_xor(left, right),
+            // Reachable only from malformed IR: `ir::verify` requires Boolean
+            // operands for exactly these three, so every other operator on a
+            // Boolean pair is rejected before lowering.
+            BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat
+            | BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => Err(format!(
+                "native code plan does not lower boolean operator '{}'",
+                op.name()
             )),
         }
     }
@@ -135,14 +153,14 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_arithmetic_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &NirValue,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         // plan-39 I1: decide overflow-check elision from the *NIR* operands before
         // they are lowered (and `left`/`right` are shadowed by their ValueResults).
-        let elide_overflow = (op == "-" && self.integer_sub_elidable(left, right))
-            || (op == "+" && self.integer_add_elidable(left, right));
+        let elide_overflow = (op == BinaryOp::Subtract && self.integer_sub_elidable(left, right))
+            || (op == BinaryOp::Add && self.integer_add_elidable(left, right));
         let left = self.lower_value(left)?;
         // `d`-native float fast path (plan-01 float-dnative): when the operation
         // yields a `Float`, both operands are consumed directly in the FP domain
@@ -160,7 +178,16 @@ impl CodeBuilder<'_> {
         // general path's `Fixed` lowering. The right operand's static type
         // decides the result type without lowering it twice; an unknown type
         // conservatively falls through to the general path.
-        if left.type_ == ParameterType::Float && matches!(op, "+" | "-" | "*" | "/" | "DIV") {
+        if left.type_ == ParameterType::Float
+            && matches!(
+                op,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntDiv
+            )
+        {
             let result_is_float = self
                 .static_type_name(right)
                 .map(|right_type| {
@@ -313,7 +340,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: result_type.clone(),
             location: Operand::from(result_location),
-            text: format!("({} {op} {})", left.text, right.text),
+            text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
 
@@ -326,7 +353,7 @@ impl CodeBuilder<'_> {
     /// call), so it does not need to be manually preserved.
     fn lower_float_arithmetic_dnative(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: ValueResult,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
@@ -343,7 +370,8 @@ impl CodeBuilder<'_> {
             type_: result_type.clone(),
             location: Operand::from(location),
             text: format!(
-                "({op_left} {op} {op_right})",
+                "({op_left} {} {op_right})",
+                op.name(),
                 op_left = left_text,
                 op_right = right_text
             ),
@@ -414,7 +442,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_comparison_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &NirValue,
         right: &NirValue,
     ) -> Result<ValueResult, String> {
@@ -511,9 +539,10 @@ impl CodeBuilder<'_> {
             return self.lower_numeric_comparison_binary(op, &left, &right);
         }
         if self.type_model.record_fields.contains_key(&left.type_) {
-            if !matches!(op, "=" | "<>") {
+            if !matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
                 return Err(format!(
-                    "native code does not lower record comparison operator '{op}'"
+                    "native code does not lower record comparison operator '{}'",
+                    op.name()
                 ));
             }
             let right = self.lower_value(right)?;
@@ -557,21 +586,29 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(
                 &result,
                 "Boolean",
-                if op == "=" { "true" } else { "false" },
+                if op == BinaryOp::Equal {
+                    "true"
+                } else {
+                    "false"
+                },
             ));
             self.emit(abi::branch(&done_label));
             self.emit(abi::label(&not_equal_label));
             self.emit(abi::move_immediate(
                 &result,
                 "Boolean",
-                if op == "=" { "false" } else { "true" },
+                if op == BinaryOp::Equal {
+                    "false"
+                } else {
+                    "true"
+                },
             ));
             self.emit(abi::label(&done_label));
             return Ok(ValueResult {
                 origin: None,
                 type_: ParameterType::Boolean,
                 location: Operand::from(result.render()),
-                text: format!("({} {op} {})", left.text, right.text),
+                text: format!("({} {} {})", left.text, op.name(), right.text),
             });
         }
         let right = self.lower_value(right)?;
@@ -599,15 +636,28 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_registers(&left_register, &right_register));
         match op {
-            "=" => self.emit(abi::branch_eq(&true_label)),
-            "<>" => self.emit(abi::branch_ne(&true_label)),
-            "<" => self.emit(abi::branch_lt(&true_label)),
-            ">" => self.emit(abi::branch_gt(&true_label)),
-            "<=" => self.emit(abi::branch_le(&true_label)),
-            ">=" => self.emit(abi::branch_ge(&true_label)),
-            other => {
+            BinaryOp::Equal => self.emit(abi::branch_eq(&true_label)),
+            BinaryOp::NotEqual => self.emit(abi::branch_ne(&true_label)),
+            BinaryOp::Less => self.emit(abi::branch_lt(&true_label)),
+            BinaryOp::Greater => self.emit(abi::branch_gt(&true_label)),
+            BinaryOp::LessEqual => self.emit(abi::branch_le(&true_label)),
+            BinaryOp::GreaterEqual => self.emit(abi::branch_ge(&true_label)),
+            // Only the six comparisons produce a Boolean; `ir::verify` rejects
+            // every other operator on this path before lowering.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Concat
+            | BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => {
                 return Err(format!(
-                    "native code plan does not lower comparison operator '{other}'"
+                    "native code plan does not lower comparison operator '{}'",
+                    op.name()
                 ));
             }
         }
@@ -620,13 +670,13 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
-            text: format!("({} {op} {})", left.text, right.text),
+            text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
 
     fn lower_numeric_comparison_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
     ) -> Result<ValueResult, String> {
@@ -675,7 +725,7 @@ impl CodeBuilder<'_> {
         } else if left.type_ == ParameterType::Fixed || right.type_ == ParameterType::Fixed {
             ParameterType::Fixed
         } else {
-            promoted_binary_type("+", &left.type_, &right.type_)
+            promoted_binary_type(BinaryOp::Add, &left.type_, &right.type_)
         };
         let result = self.allocate_register();
         let true_label = self.label("cmp_true");
@@ -725,17 +775,30 @@ impl CodeBuilder<'_> {
         // `LT`/`LE`, which would wrongly take an unordered NaN as the true side.
         let is_float = promoted == ParameterType::Float;
         match op {
-            "=" => self.emit(abi::branch_eq(&true_label)),
-            "<>" => self.emit(abi::branch_ne(&true_label)),
-            "<" if is_float => self.emit(abi::branch_mi(&true_label)),
-            "<" => self.emit(abi::branch_lt(&true_label)),
-            ">" => self.emit(abi::branch_gt(&true_label)),
-            "<=" if is_float => self.emit(abi::branch_ls(&true_label)),
-            "<=" => self.emit(abi::branch_le(&true_label)),
-            ">=" => self.emit(abi::branch_ge(&true_label)),
-            other => {
+            BinaryOp::Equal => self.emit(abi::branch_eq(&true_label)),
+            BinaryOp::NotEqual => self.emit(abi::branch_ne(&true_label)),
+            BinaryOp::Less if is_float => self.emit(abi::branch_mi(&true_label)),
+            BinaryOp::Less => self.emit(abi::branch_lt(&true_label)),
+            BinaryOp::Greater => self.emit(abi::branch_gt(&true_label)),
+            BinaryOp::LessEqual if is_float => self.emit(abi::branch_ls(&true_label)),
+            BinaryOp::LessEqual => self.emit(abi::branch_le(&true_label)),
+            BinaryOp::GreaterEqual => self.emit(abi::branch_ge(&true_label)),
+            // Only the six comparisons produce a Boolean; `ir::verify` rejects
+            // every other operator on this path before lowering.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Concat
+            | BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => {
                 return Err(format!(
-                    "native code plan does not lower comparison operator '{other}'"
+                    "native code plan does not lower comparison operator '{}'",
+                    op.name()
                 ));
             }
         }
@@ -748,7 +811,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
-            text: format!("({} {op} {})", left.text, right.text),
+            text: format!("({} {} {})", left.text, op.name(), right.text),
         })
     }
 
@@ -817,16 +880,33 @@ impl CodeBuilder<'_> {
             }
             _ => return None,
         };
-        match op.as_str() {
-            "<" => Some((name, konst)),
-            "<=" => Some((name, konst.checked_add(1)?)),
-            _ => None,
+        match op {
+            BinaryOp::Less => Some((name, konst)),
+            BinaryOp::LessEqual => Some((name, konst.checked_add(1)?)),
+            // Only a strict/non-strict upper-bound guard yields a bound; no
+            // other comparison (and no arithmetic operator) constrains the
+            // local from above.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat
+            | BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Mod
+            | BinaryOp::IntDiv
+            | BinaryOp::Power => None,
         }
     }
 
     pub(crate) fn emit_integer_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<Operand>,
@@ -842,7 +922,7 @@ impl CodeBuilder<'_> {
     /// `true` for the non-byte `-` path.
     pub(crate) fn emit_integer_binary_checked(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<Operand>,
@@ -851,7 +931,7 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let dst = dst.into();
         match op {
-            "+" => {
+            BinaryOp::Add => {
                 if elide_overflow && !byte_result {
                     // Proven non-overflowing (`local + 1` under a strict upper
                     // bound): bare add, no flags/check.
@@ -872,7 +952,7 @@ impl CodeBuilder<'_> {
                     }
                 }
             }
-            "-" => {
+            BinaryOp::Subtract => {
                 if byte_result {
                     let underflow_label = self.label("byte_underflow");
                     let ok_label = self.label("byte_ok");
@@ -903,13 +983,13 @@ impl CodeBuilder<'_> {
                     self.emit_overflow_if_flags_set()?;
                 }
             }
-            "*" => {
+            BinaryOp::Multiply => {
                 self.emit_checked_integer_multiply(dst.clone(), &left.location, &right.location)?;
                 if byte_result {
                     self.emit_byte_upper_bound_check(dst.clone())?;
                 }
             }
-            "/" | "DIV" => {
+            BinaryOp::Divide | BinaryOp::IntDiv => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
                 self.emit(abi::signed_divide_registers(
@@ -918,7 +998,7 @@ impl CodeBuilder<'_> {
                     &right.location,
                 ));
             }
-            "MOD" => {
+            BinaryOp::Mod => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
                 let quotient = self.allocate_register();
@@ -934,12 +1014,25 @@ impl CodeBuilder<'_> {
                     &left.location,
                 ));
             }
-            "^" => {
+            BinaryOp::Power => {
                 self.emit_integer_pow(dst.clone(), &left.location, &right.location, byte_result)?
             }
-            other => {
+            // The comparison and logical operators never reach an arithmetic
+            // emitter: `lower_binary` routes them to their own lowering, and
+            // `&` is String-only.
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat => {
                 return Err(format!(
-                    "native code plan does not lower integer operator '{other}'"
+                    "native code plan does not lower integer operator '{}'",
+                    op.name()
                 ));
             }
         }
@@ -948,14 +1041,14 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn emit_fixed_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<Operand>,
     ) -> Result<(), String> {
         let dst = dst.into();
         match op {
-            "+" => {
+            BinaryOp::Add => {
                 self.emit(abi::add_registers_set_flags(
                     dst,
                     &left.location,
@@ -963,7 +1056,7 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_overflow_if_flags_set()?;
             }
-            "-" => {
+            BinaryOp::Subtract => {
                 self.emit(abi::subtract_registers_set_flags(
                     dst,
                     &left.location,
@@ -971,9 +1064,9 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit_overflow_if_flags_set()?;
             }
-            "*" => self.emit_fixed_multiply(dst, &left.location, &right.location)?,
-            "/" => self.emit_fixed_divide(dst, &left.location, &right.location)?,
-            "MOD" => {
+            BinaryOp::Multiply => self.emit_fixed_multiply(dst, &left.location, &right.location)?,
+            BinaryOp::Divide => self.emit_fixed_divide(dst, &left.location, &right.location)?,
+            BinaryOp::Mod => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
                 let quotient = self.allocate_register();
@@ -989,10 +1082,21 @@ impl CodeBuilder<'_> {
                     &left.location,
                 ));
             }
-            "^" => self.emit_fixed_pow(dst, &left.location, &right.location)?,
-            other => {
+            BinaryOp::Power => self.emit_fixed_pow(dst, &left.location, &right.location)?,
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat
+            | BinaryOp::IntDiv => {
                 return Err(format!(
-                    "native code plan does not lower Fixed operator '{other}'"
+                    "native code plan does not lower Fixed operator '{}'",
+                    op.name()
                 ));
             }
         }
@@ -1009,7 +1113,7 @@ impl CodeBuilder<'_> {
     /// (plan-17), where `observe_float` reads the returned location.
     pub(crate) fn emit_float_binary(
         &mut self,
-        op: &str,
+        op: BinaryOp,
         left: &ValueResult,
         right: &ValueResult,
         dst: impl Into<Operand>,
@@ -1019,26 +1123,49 @@ impl CodeBuilder<'_> {
             // The pure-FP arithmetic ops run on FP virtual registers so a chained
             // operand stays resident in a `d`-register instead of round-tripping
             // through a GPR (plan-03 Stage C).
-            "+" | "-" | "*" | "/" | "DIV" => {
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::IntDiv => {
                 let d_left = self.operand_as_double(left)?;
                 let d_right = self.operand_as_double(right)?;
                 let d_res = self.allocate_fp_register();
                 match op {
-                    "+" => self.emit(abi::float_add_d(&d_res, &d_left, &d_right)),
-                    "-" => self.emit(abi::float_subtract_d(&d_res, &d_left, &d_right)),
-                    "*" => self.emit(abi::float_multiply_d(&d_res, &d_left, &d_right)),
+                    BinaryOp::Add => self.emit(abi::float_add_d(&d_res, &d_left, &d_right)),
+                    BinaryOp::Subtract => {
+                        self.emit(abi::float_subtract_d(&d_res, &d_left, &d_right))
+                    }
+                    BinaryOp::Multiply => {
+                        self.emit(abi::float_multiply_d(&d_res, &d_left, &d_right))
+                    }
                     // Division by zero is no longer pre-checked: `x/0` → `±Inf`
                     // and `0/0` → `NaN` flow out as ordinary non-finite results
                     // and trap at the boundary (`ErrFloatOverflow`/`ErrFloatNaN`),
-                    // never `ErrFloatDomain` (plan-17 §4.3).
-                    _ => self.emit(abi::float_divide_d(&d_res, &d_left, &d_right)),
+                    // never `ErrFloatDomain` (plan-17 §4.3). `DIV` on Float is
+                    // the same `fdiv`: the Float escape hatch, not a truncating
+                    // divide.
+                    BinaryOp::Or
+                    | BinaryOp::Xor
+                    | BinaryOp::And
+                    | BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+                    | BinaryOp::Concat
+                    | BinaryOp::Divide
+                    | BinaryOp::Mod
+                    | BinaryOp::IntDiv
+                    | BinaryOp::Power => self.emit(abi::float_divide_d(&d_res, &d_left, &d_right)),
                 }
                 // `d`-native model: the FP register *is* the value's home; return
                 // it so consumers stay in the FP domain and the GP shuttle is
                 // never created.
                 return Ok(d_res.render());
             }
-            "MOD" => {
+            BinaryOp::Mod => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
                 self.load_numeric_as_double(abi::FP_SCRATCH[1], right)?;
                 // Domain pre-check: b == 0 raises ErrFloatDomain. This stays a
@@ -1063,7 +1190,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], &result));
                 self.emit(abi::float_move_x_from_d(dst.clone(), abi::FP_SCRATCH[0]));
             }
-            "^" => {
+            BinaryOp::Power => {
                 self.load_numeric_as_double(abi::FP_SCRATCH[0], left)?;
                 self.load_numeric_as_double(abi::FP_SCRATCH[1], right)?;
                 // `emit_float_pow` keeps its domain guards (whole, non-negative
@@ -1073,9 +1200,19 @@ impl CodeBuilder<'_> {
                 self.emit_float_pow(abi::FP_SCRATCH[0], abi::FP_SCRATCH[1])?;
                 self.emit(abi::float_move_x_from_d(dst.clone(), abi::FP_SCRATCH[0]));
             }
-            other => {
+            BinaryOp::Or
+            | BinaryOp::Xor
+            | BinaryOp::And
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Concat => {
                 return Err(format!(
-                    "native code plan does not lower Float operator '{other}'"
+                    "native code plan does not lower Float operator '{}'",
+                    op.name()
                 ));
             }
         }

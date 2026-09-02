@@ -1,4 +1,5 @@
 use super::*;
+use crate::operators::BinaryOp;
 
 // ---------------------------------------------------------------------------
 // AST builder helpers
@@ -20,10 +21,10 @@ pub(crate) fn ident(name: &str) -> Expression {
     Expression::Identifier(name.to_string())
 }
 
-pub(crate) fn binary(left: Expression, operator: &str, right: Expression) -> Expression {
+pub(crate) fn binary(left: Expression, operator: BinaryOp, right: Expression) -> Expression {
     Expression::Binary {
         left: Box::new(left),
-        operator: operator.to_string(),
+        operator,
         right: Box::new(right),
         line: 0,
         column: 0,
@@ -55,7 +56,7 @@ pub(crate) fn concat(parts: Vec<Expression>) -> Expression {
     let mut iter = parts.into_iter();
     let mut acc = iter.next().expect("concat needs at least one part");
     for part in iter {
-        acc = binary(acc, "&", part);
+        acc = binary(acc, BinaryOp::Concat, part);
     }
     acc
 }

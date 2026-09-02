@@ -1,5 +1,6 @@
 use super::compat::builtin_call_target;
 use super::*;
+use crate::operators::UnaryOp;
 
 impl TypeEnv {
     // 10. Call arity/arg types, thread + STATE agreement
@@ -11,7 +12,7 @@ impl TypeEnv {
     /// picks the instruction from the operand type. `Unknown` never rejects.
     pub(super) fn check_unary_operand(
         &self,
-        op: &str,
+        op: UnaryOp,
         operand: &IrValue,
         locals: &HashMap<String, ParameterType>,
     ) {
@@ -19,7 +20,7 @@ impl TypeEnv {
             return;
         };
         match op {
-            "NOT" => {
+            UnaryOp::Not => {
                 if !matches!(t, ParameterType::Boolean | ParameterType::Unknown) {
                     let t = t.name();
                     self.emit(
@@ -28,7 +29,7 @@ impl TypeEnv {
                     );
                 }
             }
-            "-" => {
+            UnaryOp::Negate => {
                 if !matches!(
                     t,
                     ParameterType::Integer
@@ -45,10 +46,15 @@ impl TypeEnv {
                     );
                 }
             }
-            other => {
+            // `SIZEOF` is LINK-only: it folds to its integer during LINK
+            // lowering, so an IR node still carrying one is malformed. It is now
+            // the *only* operator that can reach this arm — a spelling outside
+            // the vocabulary is rejected structurally, by `UnaryOp::parse` on
+            // the package decode boundary.
+            UnaryOp::SizeOf => {
                 self.emit(
                     "TYPE_UNARY_OPERATOR_UNKNOWN",
-                    format!("Unknown unary operator `{other}`."),
+                    format!("Unknown unary operator `{}`.", op.name()),
                 );
             }
         }
