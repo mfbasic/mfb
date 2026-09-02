@@ -163,8 +163,26 @@ captured Node output for a fixture tree).
       with its expected output; `man-run-examples.sh json --run` → **16/16**
       built and ran, and both print exactly what the page documents including
       the empty `[]` staying inline. `man-census.sh --memory-scope` → 0 hits.
-- [ ] Prove the 1-arg path unchanged: `scripts/artifact-gate.sh all` — 0
+- [x] Prove the 1-arg path unchanged: `scripts/artifact-gate.sh all` — 0
       diffs expected for every fixture that only uses 1-arg stringify.
+
+      **Proven, and by a stronger argument than the gate alone.**
+      `artifact-gate.sh all` → **1830 goldens checked, 0 diffs.** But the gate
+      runs after regeneration, so on its own it would only show the goldens
+      match what the compiler now emits. The claim that the 1-arg PATH is
+      unchanged rests on the pre-regeneration `.ir` diff: the json IR gained
+      exactly the five new functions (`#json_indentFromCount`,
+      `#json_indentFromText`, `#json_stringifyCount`, `#json_stringifyIndent`,
+      `#json_stringifyText`) and removed **nothing**. The only apparent
+      removals were `$matchN` temporaries renumbering — the counter is
+      module-wide, so the new helper's `MATCH` claimed `$match2` and pushed
+      `get`/`getOr` to `$match3`/`$match4`; both were confirmed present and
+      intact with unchanged bindings.
+
+      Three acceptance cases pin the behavioural half directly:
+      `stringify(v, 0)` and `stringify(v, "")` are asserted EQUAL to
+      `stringify(v)`, not merely equal to a literal — so the compact form
+      cannot drift from itself.
 
       **Blast-radius note for reading this gate.** Correction D-C3's fix is in
       `ir/lower.rs`'s `expected_parameter_type`, which is shared by EVERY
@@ -181,7 +199,37 @@ captured Node output for a fixture tree).
 Acceptance: byte-equality with the recorded Node outputs for all clamp
 cases; artifact-gate 0 diffs outside any new fixtures; full
 `cargo test --no-fail-fast` + `scripts/test-accept.sh` green.
-Commit: —
+
+**MET.** Byte-equality was established by writing the same tree and the same
+six clamp cases in both languages and `diff`-ing the full transcripts — not by
+eyeballing a sample:
+
+```
+$ diff /tmp/p120-D-node.txt /tmp/p120-D-mfb.txt
+=== BYTE-IDENTICAL TO NODE ===
+```
+
+covering `space` = 2, 0, 11 (clamped to 10), `"\t"`, `""`, and
+`"abcdefghijklmno"` (truncated to 10), plus the 1-arg compact form. Re-run
+after Correction D-C3's fix and still byte-identical, so the fix did not buy
+member-type dispatch at the cost of layout.
+
+- `mfb test tests/acceptance` → **750 pass, 0 fail** (743 before).
+- `cargo test --no-fail-fast` → **exit 0, 95 binaries, 0 failures**, 3729 unit
+  tests (up one: the new `agreed_argument_type` regression test).
+  `no_golden_pins_a_fatal_signal` is green, which is the check that would have
+  caught D-C5 had the crashed golden been regenerated.
+- `scripts/test-accept.sh` → 1349 ran, 9 mismatches: 8 legitimate (7 json
+  `.ir` + the diagnostic `build.log` of D-C6) and 1 environmental crash left
+  untouched (D-C5). Regenerated the 8; `regen-ncodesum.sh` moved only the 5
+  json sums out of 141 refreshed.
+- `scripts/artifact-gate.sh all` → **1830 goldens, 0 diffs**, with
+  `datetime::parse`, `process::spawn`, `tls::poll` and `http`'s `Func`-typed
+  `Route` field all passing — the overloaded builtins D-C3's shared-seam change
+  can reach, confirming it is inert where the overloads disagree.
+- `man-run-examples.sh json --run` → **16/16**; `man-census.sh --memory-scope`
+  → 0 hits; `cargo check --all-targets` clean; `cargo fmt` both roots, no churn.
+Commit: b08678cbf
 
 ## Validation Plan
 
