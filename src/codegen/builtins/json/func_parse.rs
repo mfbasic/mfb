@@ -85,6 +85,39 @@ cleanly instead of crashing the process. The code is separate from
 `ErrInvalidFormat` on purpose — the text is well-formed JSON, it is simply nested
 deeper than this reader descends, which is something a caller can act on.
 
+**The reviver form.** `json::parse(value, reviver)` parses exactly as above, then
+walks the finished document, calling `reviver` once for every value in it. What
+the reviver returns is stored in place of what it was given, so a single pass can
+convert dates, unwrap tagged objects, or normalize numbers without traversing the
+document a second time.
+
+The walk is innermost-first. Every element of an array and every member of an
+object is revived before the array or object containing it, and the container the
+reviver receives already holds the revived children rather than the original ones.
+The document root is revived last of all.
+
+The key says where the value came from:
+
+- inside an object, the member name;
+- inside an array, the index written as a decimal string — `"0"`, `"1"`, and so on;
+- for the document root, the empty string `""`. That call is the only one that
+  sees the whole document, which is where a reviver that finishes the document as
+  a whole does its work.
+
+Duplicate keys have already collapsed last-wins by the time revival starts, so the
+reviver is called once per surviving member, not once per occurrence in the text.
+
+The document is parsed completely before any revival happens. Malformed text fails
+without the reviver being called at all, so a reviver only ever receives a value
+that parsed. An error the reviver itself raises is not caught: it surfaces at the
+`json::parse` call site carrying the code and message the reviver used.
+
+This is `JSON.parse`'s second argument, with one difference. JavaScript removes a
+member whose reviver returns `undefined`; MFBASIC has no `undefined`, so there is
+nothing to ask for removal with and every return is stored. Returning
+`json::JsonNull[NOTHING]` therefore stores a JSON null instead of dropping the
+member.
+
 The argument may also be passed by the name `text`."#;
 
 const EX: &str = r#"Parse an object and read a nested value out of it:
@@ -127,6 +160,48 @@ END FUNC
 SUB main
   io::print(json::stringify(parseOrNull("[1,2]")))
   io::print(json::stringify(parseOrNull("not json")))
+END SUB
+```
+
+Transform every value as the document is read, using the reviver form:
+
+```
+IMPORT json
+IMPORT io
+
+' Double every number, wherever it sits in the document.
+FUNC double(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      RETURN json::JsonNum[n.value * 2.0]
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+SUB main
+  io::print(json::stringify(json::parse("{\"a\":1,\"b\":[2,3]}", double)))
+END SUB
+```
+
+Act on one member by name, and on the finished document under the empty key:
+
+```
+IMPORT json
+IMPORT io
+
+FUNC summarize(key AS String, value AS json::Json) AS json::Json
+  IF key = "" THEN
+    RETURN json::JsonStr["document: " & json::stringify(value)]
+  END IF
+  IF key = "name" THEN
+    RETURN json::JsonStr["Ada"]
+  END IF
+  RETURN value
+END FUNC
+
+SUB main
+  io::print(json::stringify(json::parse("{\"name\":\"?\",\"id\":7}", summarize)))
 END SUB
 ```"#;
 

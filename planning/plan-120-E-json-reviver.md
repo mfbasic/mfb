@@ -190,8 +190,23 @@ deferred).
       asserted but never covered) and a 1-arg-unchanged case. Every expected
       string was captured from Node v24.12.0 running the identical reviver and
       diffed byte-for-byte — all eight matched on the first comparison.
-- [ ] DESC/EX (`mfb man json parse` documents both forms, the key
-      vocabulary, and the no-deletion divergence); man gates.
+- [x] DESC/EX (`mfb man json parse` documents both forms, the key
+      vocabulary, and the no-deletion divergence); man gates. DESC gained a
+      **The reviver form** section covering the innermost-first order, all three
+      key spellings, duplicate collapse happening before revival, the
+      parse-completes-first guarantee, error propagation, and the `undefined`
+      divergence; the `reviver` Parameter carries its own description, so the
+      rendered Parameters table explains the callback without the reader
+      having to reach DESC. Two examples added: doubling every number, and
+      acting on one member plus the finished document under `""`.
+
+      Gates: `mfb man json parse` renders both overloads in the Overloads
+      block; `scripts/man-run-examples.sh json --run` → 18 built / 18 ran /
+      0 failed, with the two new ones printing `{"a":2,"b":[4,6]}` and
+      `"document: {\\"name\\":\\"Ada\\",\\"id\\":7}"` — the latter
+      showing `name` already revived when the root call saw it, so the example
+      demonstrates the order rather than merely asserting it;
+      `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
 - [ ] `scripts/artifact-gate.sh all`: 0 diffs outside new fixtures (1-arg
       path untouched).
 
