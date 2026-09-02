@@ -29,5 +29,10 @@ Provenance:
 - host: Apple M2 Max, macOS 15.7.7 (arm64)
 - command: `./benchmark/run.sh 10`
 
+Rank these numbers with `./benchmark/rank.py` (see `benchmark/RANKING.md`).
+Note that it ranks on the **`min`** column, not the median: for a *ratio*
+between two columns `min` is measurably the more stable estimator
+(`./benchmark/rank.py --calibrate`).
+
 Timings are host-specific — compare a new run against this baseline only on
 comparable hardware, and prefer the median column.
