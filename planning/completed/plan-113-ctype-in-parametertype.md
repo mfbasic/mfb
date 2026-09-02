@@ -860,6 +860,22 @@ Three peer sessions were running gates on the same machine. Re-run uncontended,
 1823 golden(s) checked, 0 diff(s)` / `test artifact_gate_all ... ok`, so the
 post-merge suite is 4368 of 4368.
 
+### C12 — main advanced a second time; re-verified again
+
+While C11's gates ran, `main` moved again to `3e9a51120` (bug-474, the detached
+child reaper — which regenerated four `process` `.ncodesum` goldens). Merged in
+a second time (clean, no conflicts) and everything re-run:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1325 tests, 1487 build(s), 1823 golden(s) checked, **0 diff(s)**`, EXIT=0 |
+| `cargo test --no-fail-fast` | **4369 passed, 0 failed** (the in-suite gate also read 0 diffs) |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1346** test(s) ran)`, EXIT=0, 0 `mismatch:` lines |
+
+bug-474's four regenerated `process` ncodesums are already on main and the gate
+reads them as matching, so nothing about this plan touches them.
+
 ### C9 — the re-measured census (Phase 4)
 
 Every §Measured-populations command re-run at the end of Phase 3
