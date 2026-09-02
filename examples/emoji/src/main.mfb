@@ -216,7 +216,7 @@ FUNC mouthItems(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS List O
 
   LET a0 AS Float = mid - theta
   LET a1 AS Float = mid + theta
-  LET arc AS canvas::DrawItem = canvas::Arc[x := cx, y := ky, radius := rho, startAngle := a0, endAngle := a1, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
+  LET arc AS canvas::DrawItem = canvas::Arc[x := cx, y := ky, radius := rho, startAngle := a0, endAngle := a1, cap := canvas::CapStyle.Butt, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
 
   ' An arc is cut square along the radii that bound its sweep — the canvas has no
   ' line caps — so each end gets a disc of the stroke's own half-width, centred on
