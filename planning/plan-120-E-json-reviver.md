@@ -167,11 +167,29 @@ deferred).
       accepted on a `Body::mfb` carrier, so the `Route`-style record wrapper
       fallback was not needed. Verified by building the overload before writing
       its body, as the task directed.
-- [ ] Acceptance cases: N07 twin (increment by key), index-key vocabulary
+- [x] Acceptance cases: N07 twin (increment by key), index-key vocabulary
       (array of two, reviver records keys seen → `"0","1",""` order),
       bottom-up order proof (nested object; inner revived before outer),
       JsonNull return stored verbatim, reviver failure propagates (a FAIL
-      inside the reviver surfaces to the caller).
+      inside the reviver surfaces to the caller). Landed as the
+      `parse — reviver overload` TGROUP: 8 cases, all green (suite 758/758).
+      Two deviations from the task as written, both strengthening it:
+
+      1. **The revivers are state-free.** "Records keys seen" implies a global
+         log, which couples every case to the order the suite runs them in.
+         Each reviver instead encodes what it saw into its RETURN value, so the
+         assertion is on the returned document and each case stands alone.
+      2. **The order proof is a discriminator, not a trace.** A reviver that
+         merely records keys passes under either walk order. `jsonRevObserve`
+         rewrites `inner` to 99 and has `outer` snapshot what it RECEIVES:
+         bottom-up yields `{"outer":"{\\"inner\\":99}"}`, top-down would
+         yield `{"inner":1}` instead. The bytes differ, so the test can fail.
+
+      Added beyond the five: duplicate-keys-collapse-before-revival
+      (`{"a":1,"a":2}` → `{"a":3}`, pinning References detail 3, which was
+      asserted but never covered) and a 1-arg-unchanged case. Every expected
+      string was captured from Node v24.12.0 running the identical reviver and
+      diffed byte-for-byte — all eight matched on the first comparison.
 - [ ] DESC/EX (`mfb man json parse` documents both forms, the key
       vocabulary, and the no-deletion divergence); man gates.
 - [ ] `scripts/artifact-gate.sh all`: 0 diffs outside new fixtures (1-arg

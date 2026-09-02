@@ -87,6 +87,87 @@ FUNC nestedObject(d AS Integer) AS String
   RETURN o & "1" & c
 END FUNC
 
+' ---------------------------------------------------------------------------
+' plan-120-E: revivers for `json::parse(text, reviver)`.
+'
+' These are deliberately STATE-FREE. The obvious way to prove call order is a
+' reviver that appends each key to a global log, but a global couples every case
+' to every other one and to the order the suite happens to run them in. Instead
+' each reviver below encodes what it saw into its RETURN value, so the assertion
+' is on the returned document and each case stands alone.
+'
+' Every expected string in the TGROUP was captured from Node v24.12.0 running
+' the identical reviver and diffed byte-for-byte -- JSON.parse's reviver IS the
+' specification here, so those are oracle values rather than taste.
+
+' N07: increment the number stored under key "a".
+FUNC jsonRevBump(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      IF key = "a" THEN
+        RETURN json::JsonNum[n.value + 1.0]
+      END IF
+      RETURN value
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+' Replace every number with the KEY it arrived under, making the key vocabulary
+' (member name / array index as a decimal string) visible in the output.
+FUNC jsonRevKeyTag(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      RETURN json::JsonStr[key]
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+' Rewrite only the root call, proving it happens and arrives under key "".
+FUNC jsonRevRootTag(key AS String, value AS json::Json) AS json::Json
+  IF key = "" THEN
+    RETURN json::JsonStr["ROOT"]
+  END IF
+  RETURN value
+END FUNC
+
+' The order discriminator: "inner" is rewritten to 99, and "outer" snapshots
+' whatever it RECEIVES. Bottom-up, outer sees the already-revived {"inner":99};
+' a top-down walk would hand it the raw {"inner":1} instead. The two are
+' distinguishable in the output, which a "did every key get called" test is not.
+FUNC jsonRevObserve(key AS String, value AS json::Json) AS json::Json
+  IF key = "inner" THEN
+    RETURN json::JsonNum[99.0]
+  END IF
+  IF key = "outer" THEN
+    RETURN json::JsonStr[json::stringify(value)]
+  END IF
+  RETURN value
+END FUNC
+
+' Returning null STORES a null; it does not delete the member (the one
+' documented divergence from JavaScript, which drops it for `undefined`).
+FUNC jsonRevNullify(key AS String, value AS json::Json) AS json::Json
+  IF key = "a" THEN
+    RETURN json::JsonNull[NOTHING]
+  END IF
+  RETURN value
+END FUNC
+
+' A reviver that rejects what it was given.
+FUNC jsonRevBoom(key AS String, value AS json::Json) AS json::Json
+  IF key = "a" THEN
+    FAIL error(errorCode::ErrInvalidArgument, "reviver rejected a")
+  END IF
+  RETURN value
+END FUNC
+
+' Fallible wrapper so expectTrap can guard the failing reviver.
+FUNC jsonReviveBoom(text AS String) AS String
+  RETURN json::stringify(json::parse(text, jsonRevBoom))
+END FUNC
+
 TESTING
   TGROUP "Builtin: json"
 
@@ -322,6 +403,53 @@ TESTING
         ' negative-zero rules hold here too rather than being reimplemented.
         expectString(json::stringify(json::parse("{\"a\":\"x/y\"}"), 2), "{\n  \"a\": \"x/y\"\n}")
         expectString(json::stringify(json::parse("{\"a\":-0}"), 2), "{\n  \"a\": 0\n}")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' plan-120-E: the 2-arg reviver overload. Each expected string was produced
+    ' by Node v24.12.0 running the same reviver, and compared byte-for-byte.
+    TGROUP "parse — reviver overload"
+      TCASE "the reviver rewrites a value by key"
+        expectString(json::stringify(json::parse("{\"a\":1}", jsonRevBump)), "{\"a\":2}")
+      END TCASE
+      TCASE "array elements arrive keyed by index, objects by member name"
+        ' The index is a decimal STRING, not a number -- JavaScript's vocabulary.
+        expectString(json::stringify(json::parse("[10,20]", jsonRevKeyTag)), "[\"0\",\"1\"]")
+        expectString(json::stringify(json::parse("{\"o\":{\"i\":1},\"arr\":[10,20],\"s\":\"x\"}", jsonRevKeyTag)), "{\"o\":{\"i\":\"i\"},\"arr\":[\"0\",\"1\"],\"s\":\"x\"}")
+      END TCASE
+      TCASE "the root is revived too, under the empty-string key"
+        ' The root call is the only one that sees the whole document, so the
+        ' common "transform the document once" reviver depends on it.
+        expectString(json::stringify(json::parse("[10,20]", jsonRevRootTag)), "\"ROOT\"")
+        expectString(json::stringify(json::parse("{\"a\":1}", jsonRevRootTag)), "\"ROOT\"")
+        expectString(json::stringify(json::parse("7", jsonRevRootTag)), "\"ROOT\"")
+      END TCASE
+      TCASE "a container is revived AFTER its children, and sees them revived"
+        ' This is the order proof. "outer" snapshots what it receives: bottom-up
+        ' that is the rewritten {"inner":99}. A top-down walk would snapshot the
+        ' raw {"inner":1}, so the two orders give different bytes here.
+        expectString(json::stringify(json::parse("{\"outer\":{\"inner\":1}}", jsonRevObserve)), "{\"outer\":\"{\\\"inner\\\":99}\"}")
+      END TCASE
+      TCASE "returning null stores a null rather than dropping the member"
+        ' The one documented divergence from JavaScript: there is no `undefined`
+        ' in MFBASIC, so there is no way to ask for deletion. Node returning
+        ' undefined here yields {"b":2}; the member survives as null instead.
+        expectString(json::stringify(json::parse("{\"a\":1,\"b\":2}", jsonRevNullify)), "{\"a\":null,\"b\":2}")
+      END TCASE
+      TCASE "duplicate keys collapse BEFORE the reviver runs"
+        ' The parser already applied last-wins, so the reviver is called once
+        ' with a=2 and bumps it to 3 -- not twice, and not once with a=1.
+        expectString(json::stringify(json::parse("{\"a\":1,\"a\":2}", jsonRevBump)), "{\"a\":3}")
+      END TCASE
+      TCASE "security: a failure inside the reviver reaches the caller"
+        ' A reviver is ordinary user code and may fail. Its error must surface
+        ' at the json::parse call site rather than being swallowed or, worse,
+        ' returned as if it were the parsed value.
+        expectTrap(jsonReviveBoom("{\"a\":1}"), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "the 1-arg form is unchanged"
+        expectString(json::stringify(json::parse("{\"a\":1}")), "{\"a\":1}")
       END TCASE
     END TGROUP
 
