@@ -49,6 +49,7 @@ pub(crate) fn lower_tls_connect_openssl(
     const TIMEVAL_OFFSET: usize = 184; // 184..200: tv_sec (8) + tv_usec (8)
     const HSTOFLAG: usize = 200; // plan-73-D: 1 if the handshake recv timed out (SO_*TIMEO)
     const ALLOW: usize = 208; // bug-477: allowSelfSigned (0/1)
+    const VCB: usize = 216; // bug-477: SSL_set_verify's callback argument (0 or &cb)
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let net_fail = format!("{symbol}_net_fail");
@@ -547,7 +548,14 @@ pub(crate) fn lower_tls_connect_openssl(
     // was measured to make a name-mismatched self-signed certificate
     // indistinguishable from a name-correct one (both report 18), which is why
     // this is a callback and not a mode change.
-    instructions.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    // The callback argument is staged into a FRAME SLOT, not into `c_arg(2)`,
+    // and only loaded into the register after the last `dlsym` below. Every
+    // `emit_dlsym` is a C call and a C call clobbers the argument registers, so
+    // writing `c_arg(2)` here and calling `dlsym` afterwards destroys it —
+    // measured on box 2223, where the handshake never started and the peer
+    // logged "0 server accepts". See `.ai/arch-abi.md`, "Stage ABI args via
+    // temporaries".
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), VCB));
     {
         let strict = format!("{symbol}_verify_strict");
         instructions.extend([
@@ -587,13 +595,8 @@ pub(crate) fn lower_tls_connect_openssl(
                 abi::store_u64(&v9, &v10, slot),
             ]);
         }
-        emit_data_address(
-            symbol,
-            abi::c_arg(2),
-            TLS_VERIFY_CB,
-            &mut instructions,
-            &mut relocations,
-        );
+        emit_data_address(symbol, &v10, TLS_VERIFY_CB, &mut instructions, &mut relocations);
+        instructions.push(abi::store_u64(&v10, abi::stack_pointer(), VCB));
         instructions.push(abi::label(&strict));
     }
     // SSL_set_verify's own fnptr is re-resolved here because the loop above
@@ -614,6 +617,8 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", SSL_VERIFY_PEER),
+        // Loaded HERE, after the last dlsym, for the reason given at VCB.
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), VCB),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
     ]);
