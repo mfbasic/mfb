@@ -207,8 +207,11 @@ deferred).
       showing `name` already revived when the root call saw it, so the example
       demonstrates the order rather than merely asserting it;
       `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
-- [ ] `scripts/artifact-gate.sh all`: 0 diffs outside new fixtures (1-arg
-      path untouched).
+- [x] `scripts/artifact-gate.sh all`: 0 diffs outside new fixtures (1-arg
+      path untouched). **The prediction was wrong — see Correction E-C2.** The
+      first run reported 26 diffs; all 26 were localized, attributed and
+      regenerated, and the gate now reads
+      `1329 tests, 1492 build(s), 1832 golden(s) checked, 0 diff(s)`.
 
 Acceptance: all Phase 1 cases green; artifact-gate clean; full
 `cargo test --no-fail-fast` + `scripts/test-accept.sh` green; fmt + check.
@@ -274,6 +277,49 @@ Commit: —
   Per the skill's table this was a prerequisite no letter covered, not a
   falsified premise: the design works, it just rested on a compiler guarantee
   that did not yet hold.
+
+- **E-C2: "0 diffs outside new fixtures (1-arg path untouched)" was a
+  miscalibrated prediction.** The gate's first run reported **26 diffs**. Per
+  AGENTS.md an unexpected artifact diff is a bug-hunt trigger, so each was
+  localized before anything was regenerated. All 26 decompose into exactly two
+  intended changes, with nothing left over:
+
+  **12 diffs — the `json` package grew.** The 1-arg path is untouched
+  *semantically*, but adding `__json_revive` and `__json_parseRevive` changes
+  the package's assembled source, and every json importer embeds that. Diffing
+  `inline-trap-union-bind-rt.ir` and filtering out `"line":` and the `$matchN`
+  desugar counters leaves **zero `<` lines** — the change is purely additive
+  plus renumbering. This is the known drift recorded for a registry
+  `description`; a new helper does the same thing, only more so because it
+  reaches `.ncode` as well as `.ir`. The plan's expectation should have been
+  "the 1-arg path is behaviourally untouched and its goldens drift by
+  construction", which is what it is corrected to.
+
+  **14 diffs — the indirect-call fix (E-C1) adds a tag check.** These are
+  `collections`/`crypto` fixtures that import no json at all, and their `.ir`
+  is unchanged while `.ncode` moved — the right signature for a change below
+  IR. Isolated by building `collections_codegen_cover_rt` twice, once with the
+  guard reverted, and diffing the two `-ncode` dumps. With label counters
+  normalized the delta is exactly:
+
+  - 5 tag-check blocks (`cmp_imm x0,0` / `b.eq call_value_ok_N` / restore-and-
+    `ret` / label) — one per indirect call site in the fixture;
+  - 4 new `pending_result_{value,tag,message,source}` frame slots at offsets
+    200–224, growing the frame `656 → 688` (+32 = 4 x 8);
+  - every later stack offset shifted by that same +32, and label counters
+    renumbered.
+
+  One addition is worth calling out as a correctness signal rather than churn:
+  the new error path emits `bl _mfb_rt_drop_owned_collection`, so a callback
+  that fails inside `collections::mapValues` now releases the collection on the
+  way out instead of propagating past it.
+
+  Regenerated: 19 `.ncodesum` (via `regen-ncodesum.sh`, which refreshed 141 and
+  changed exactly those 19 — bounding the blast radius) and 7 `.ir`. Six of the
+  `.ir` went through `sync-goldens.sh`; `tests/byte-identity/json`'s was
+  hand-copied because `test-accept` skips `byte-identity/`, and its `.ast` was
+  confirmed byte-identical first, proving the fixture's own source did not move.
+  7 + 19 = 26, matching the diff count exactly.
 
 ## Summary
 
