@@ -58,8 +58,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Windows box reachable | `ssh -p 2230 test@127.0.0.1 "echo ok"` | MET (spike) |
-| Cross-build produces a runnable PE | `mfb build --target windows-x86_64` + box run | MET (spike ran 3 PEs) |
+| Windows box reachable | `ssh -p 2230 test@127.0.0.1 "echo ok"` | MET (re-run 2026-09-01, prints `ok`) |
+| Cross-build produces a runnable PE | `mfb build --target windows-x86_64` + box run | MET (re-run 2026-09-01: `argdump.exe` + `spawner.exe` both built and executed on 2230) |
 
 ## 1. Goal
 
@@ -103,7 +103,7 @@ References:
 | Windows spawn body size | 334 lines | `func_spawn.rs:488-820` |
 | Capability rows for `process.` on win | 19 (no shell/spawnEnv) | `grep -c '"process\.' src/target/win_x86_64/mod.rs` → 19 |
 | Quoting defect repro | argc=3 for `["argdump.exe","a b","c"]` | box 2230 run, 2026-09-01 (probe PEs from `mfb build --target windows-x86_64`) |
-| Windows `.ncodesum` fixtures that will churn | UNMEASURED | Phase 1: `grep -rln process tests/byte-identity` + windows-target goldens census |
+| Windows `.ncodesum` fixtures that will churn | **0** | full 132-golden census (`tests/byte-identity/*/golden/*.ncodesum`, each rebuilt for its own target and sha-compared): `unchanged: 132`, zero DIFF. `tests/byte-identity/process` has no `windows-x86_64.ncodesum` at all — the fixture calls `shell` and 4-arg `spawn`, so it cannot build for Windows until B and C land. See Corrections. |
 
 ### Verified properties
 
@@ -150,39 +150,63 @@ plan — every sibling helper is A-API).
 
 ### Phase 1 — refactor to the shared tail (no quoting change yet)
 
-- [ ] `gen_windows.rs`: add `emit_win_spawn_tail` (+ move/share the frame
-      constants); re-emit the 1-arg spawn body through it.
-- [ ] Census + re-sync the churned windows `.ncodesum`/goldens
+- [x] `gen_windows.rs`: add `emit_win_spawn_tail` (+ move/share the frame
+      constants); re-emit the 1-arg spawn body through it. The joiner came out
+      too — `emit_win_build_cmdline` — since letter C needs the same argv build.
+      The 334-line body is now 80 lines of prologue + two shared calls.
+- [x] Census + re-sync the churned windows `.ncodesum`/goldens
       (`regen-ncodesum.sh`; expect ONLY windows-target, process-using
-      fixtures — prove the delta list matches the census).
-- [ ] Ship the spike's probe program (spawn `cmd.exe /C …` matrix) to box
-      2230 and re-run: identical output to the recorded spike baseline.
+      fixtures — prove the delta list matches the census). **0 churned**, so
+      nothing to re-sync; the census is in Measured populations and the
+      *absence* of Windows process coverage is filed in Corrections.
+- [x] Ship the spike's probe program (spawn `cmd.exe /C …` matrix) to box
+      2230 and re-run: identical output to the recorded spike baseline. Landed
+      as `scripts/test-winprocess.sh` (Phase 2's home too) rather than a
+      throwaway: `seq:one`/`seq:two`, `exit:rc=7`, `cat:filed`,
+      `pipe:apple`/`pipe:banana`, `stdin:apple`/`stdin:banana` — 9/9 ok.
+- [x] Added: a standalone argv probe (`argdump.exe` driven by a spawner) run
+      BEFORE and AFTER the refactor — byte-for-byte identical output
+      (`A:argc=3 / arg=[a] / arg=[b]`), proving the code motion changed no
+      behavior. It is the Phase 2 fixture too.
 
 Acceptance: `cargo test --no-fail-fast` green (incl.
 `cli_process_windows_build.rs` nplan assertions);
 box run reproduces the spike baseline byte-for-byte (`rc-b=7`, sorted
 `apple`/`banana`, …).
-Commit: —
+Commit: 407ea3bdf
 
 ### Phase 2 — argv quoting
 
-- [ ] Implement the CRT quoting in the cmdline build loop (worst-case length
-      pre-scan; wrap/escape emit).
-- [ ] Add the argdump quoting probe as a scripted box check: new
+- [x] Implement the CRT quoting in the cmdline build loop (worst-case length
+      pre-scan; wrap/escape emit). `emit_win_build_cmdline` sizes at
+      `n + Σ(2·vlen + 2)` and emits per argument: pass-through when non-empty
+      and free of space/tab/quote, else a `"`-wrap with backslash runs doubled
+      before a `"` and before the closing quote and an embedded `"` written
+      `\"`.
+- [x] Add the argdump quoting probe as a scripted box check: new
       `scripts/test-winprocess.sh` (sibling of `test-winapp.sh`: builds a
       console argdump.exe + a spawner, ships both, asserts `argc=2`,
       `arg=[a b]`, plus a quote-containing and an empty argument case).
-- [ ] Re-sync churned windows goldens (same census discipline).
-- [ ] Doc sync: `func_spawn.rs` DESC — the "no quoting … interpreted" promise
+      Landed in Phase 1; Phase 2 adds q1–q5 (space, embedded quote, empty,
+      literal backslashes, and a trailing backslash *inside* a wrap) plus a
+      `reject` assertion that `q1:arg=[a]` never appears again.
+- [x] Re-sync churned windows goldens (same census discipline). Census re-run
+      after the quoting landed: `unchanged: 132`, 0 churned — same reason as
+      Phase 1 (no Windows `process` byte-identity fixture exists yet), so
+      again nothing to re-sync.
+- [x] Doc sync: `func_spawn.rs` DESC — the "no quoting … interpreted" promise
       now holds on Windows too; note that the joined line is re-parsed by the
-      child's CRT using the standard rules.
+      child's CRT using the standard rules. Rendered with `mfb man process
+      spawn`; `man-census.sh --memory-scope` unchanged (8 unclassified hits,
+      all pre-existing and all in `canvas`); `man-run-examples.sh process
+      --run` 18 built / 18 ran / 0 failed.
 
 Acceptance: `scripts/test-winprocess.sh target/release/mfb` passes on box
 2230 (argc=2 / `a b` / `c`, quote and empty-arg cases); full
 `cargo test --no-fail-fast`, `scripts/test-accept.sh`,
 `scripts/artifact-gate.sh all` with re-synced goldens; both-root fmt +
 `cargo check --all-targets`.
-Commit: —
+Commit: 0be618f08
 
 ## Validation Plan
 
@@ -203,7 +227,58 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+- **"Windows `.ncodesum` fixtures that will churn: UNMEASURED" → measured 0.**
+  Every one of the 132 `tests/byte-identity/*/golden/*.ncodesum` goldens was
+  rebuilt for its own target and sha-compared: zero differ. The reason is not
+  that the refactor was byte-identical (it is not — slots moved and label names
+  changed); it is that **the Windows `process` backend has no byte-identity
+  coverage at all.** `tests/byte-identity/process/golden/` holds
+  `linux-{x86_64,aarch64,riscv64}` and `macos-aarch64` sums and no
+  `windows-x86_64` one, because the fixture calls `process::shell` and the
+  four-argument `process::spawn` unconditionally and both are compile-time
+  rejected on Windows today. The drift sentinel this plan family would most
+  like to have is the one the family's own subject makes possible — so a new
+  task lands in **plan-119-C Phase 3**, once B and C have made the fixture
+  buildable for `windows-x86_64`.
+- **The `/S /C` question letter B raises is already answered by Phase 2's
+  matrix.** Quoting the argv changes what `spawn(["cmd.exe","/C","echo a | sort"])`
+  sends: the line becomes `cmd.exe /C "echo a | sort"`. `cmd`'s own documented
+  rule (`cmd /?`) then applies — the wrapped text holds `|`, a special
+  character, so the "preserve the quotes" case cannot apply and `cmd` strips the
+  leading quote and the last quote instead, recovering the original command.
+  The whole Phase 1 `cmd.exe` matrix (sequencing, `exit 7`, redirect + `type`,
+  `| sort` pipeline, stdin filter) was re-run AFTER quoting landed and is still
+  9/9 green, so the two changes compose. Keeping the matrix in the same script
+  as the quoting cases is what makes that a standing regression pin.
+- **Phase 1 also factored out the command-line joiner, not just the tail.**
+  The plan's §3 scoped `emit_win_spawn_tail` alone and left the joiner inside
+  `func_spawn.rs`. But letter C builds the *same* quoted argv (its §3 says so
+  explicitly: "argv build (A's quoted builder)"), so leaving it in
+  `func_spawn.rs` would have forced C to either duplicate it or reach across
+  files into a `func_*.rs`. It is now `emit_win_build_cmdline` in
+  `gen_windows.rs`, beside the tail, with its own scratch-slot block
+  (`WIN_CMD_*`) and `WIN_CMDLINE_SCRATCH_END` for callers that need more.
+
+## Merge-back gate results (2026-09-01)
+
+Run in the `worktree-P-119` integration worktree AFTER merging `main`
+(`00dbc5102` → `5c646284e`, clean merge, `648794c08`-era canvas/monomorph work
+included). Commit for the merge: see `git log`.
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | green; the only FAILED line is `artifact_gate_all`, and it is the peer-contention refusal (exit 98 — "could not START: another gate run holds the lock", nothing checked), not a golden result |
+| `scripts/artifact-gate.sh ./target/release/mfb all` (standalone, uncontended) | 1325 tests, 1488 builds, **1824 goldens, 0 diffs** — one golden more than before the plan, the new `process` Windows `.ncodesum` |
+| `scripts/test-accept.sh` | acceptance tests passed, **1346 ran** |
+| `scripts/test-winprocess.sh` (box 2230) | **47/47 ok** — spawn argv quoting, the cmd matrix, the shell matrix, cwd + both environment modes |
+| `scripts/test-winapp.sh` (box 2230) | passed — app mode, canvas, Vulkan and the resize handshake, re-run because this plan changed the Windows helper force-emit set |
+| `cargo check --all-targets` | no warnings |
+| `cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml` | no churn |
+
+The peer-contended artifact gate showed up on **every** full-suite run of this
+plan (five times) and was never a real failure — `.ai/testing-gates.md`'s
+exit-98 rule is what keeps that legible. Each was re-run standalone to a real
+0-diff result.
 
 ## Summary
 

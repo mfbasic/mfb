@@ -141,7 +141,21 @@ HIR functions (concrete)         1609
 Fourteen seconds to turn 1,618 generic functions into 1,609 concrete ones —
 *nine fewer than it started with*. Combined with the 2.1× release speedup (§3),
 this is the one row in the profile whose shape suggests a defect rather than a
-scaling problem. Not yet root-caused.
+scaling problem.
+
+**Root-caused and fixed, 2026-09-01 (plan-117).** It was a defect, and the
+2.1× anomaly was the tell: the time was allocator traffic, which optimized Rust
+cannot speed up. `monomorph::FunctionContext` bundled per-scope state (`locals`,
+`enclosing_return`) with four program-wide tables (`function_returns`,
+`function_types`, `record_fields`, `globals`), and all eleven scope boundaries
+in body lowering deep-cloned the whole thing — 25,987 clones copying 85,282,698
+map entries per acceptance build. A second, smaller defect: the tables were
+re-seeded from scratch for every lowered function, O(F²) in the function count.
+plan-117 Phase 1 put the invariant tables behind one `Rc` (18,698.8 ms →
+1,207.3 ms); Phase 2 deleted the per-function snapshot in favour of live lookups
+(1,207.3 ms → 101.0 ms). The row's share of the build went 20.9 % → 0.2 %, with
+`scripts/artifact-gate.sh all` at 0 diffs over 1,823 goldens both times. See
+`planning/completed/plan-117-monomorph-context-sharing.md`.
 
 ### 5.3 Three generated functions are 18 % of all function lowering
 
