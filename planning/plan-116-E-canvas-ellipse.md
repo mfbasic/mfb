@@ -236,32 +236,66 @@ Evaluate in the ellipse's own frame: `q = R(-angle) · (p - centre)`, using the 
 `cos`/`sin`. Then fold to the first quadrant by taking `|q|` — the ellipse is
 symmetric in both axes — and solve for the nearest point on `x²/rx² + y²/ry² = 1`.
 
-The solve is a **fixed-count Newton iteration carried on the unit pair `(c, s)`**
-— never on an angle, so no trigonometric function appears anywhere in it.
-Minimise `‖q - (rx·c, ry·s)‖` subject to `c² + s² = 1`:
+> **Phase 1 measured the Newton solve below and REJECTED it — see E2.** What ships is
+> the fallback this letter already named: **fixed-count bisection on the folded
+> quadrant, 24 halvings**, worst-case **0.0215 coverage steps** of 1/255. The Newton
+> description is kept for the record, struck through, because the reason it fails is
+> the useful part.
 
-- **Seed** from the gradient direction, exact in every quadrant after the `|q|`
-  fold: `L = sqrt((qx·rx)² + (qy·ry)²)`, `c₀ = qx·rx / L`, `s₀ = qy·ry / L`.
-  `L = 0` only at the exact centre, where the sign test below already answers
-  "inside" and the solve is skipped.
-- **Step**: compute the Newton angle correction `Δ` from the residual (a ratio of
-  dot products — `+ - * /` only), then rotate the pair by the small-angle form and
-  renormalise: `c' = c - s·Δ`, `s' = s + c·Δ`, `n = sqrt(c'² + s'²)`, `c = c'/n`,
-  `s = s'/n`. The renormalised small-angle rotation is an exact rotation by
-  `atan(Δ)` rather than `Δ` — a slightly damped Newton step whose convergence
-  Phase 1 measures directly, which is the only claim being made for it.
+~~The solve is a **fixed-count Newton iteration carried on the unit pair `(c, s)`**~~
+~~— never on an angle, so no trigonometric function appears anywhere in it.~~
+~~Minimise `‖q - (rx·c, ry·s)‖` subject to `c² + s² = 1`, seeding from the gradient~~
+~~direction and stepping by the renormalised small-angle rotation.~~
 
-Every operation is `+ - * /` and `sqrt`, so the oracle's reproducibility rule
-holds, and dropping the angle drops the per-iteration `__canvas_cos`/`__canvas_sin`
-evaluations an angle-based loop would have needed.
+**Rejected by measurement.** At *every* count tried — N = 1, 2, 4, 6 and 8 — the worst
+coverage error is **127.5 steps**, which is the signature of the solve landing on the
+wrong side of the ellipse entirely rather than of slow convergence. The basin probe
+puts a number on it: **411 of 1608** sample points converge to a stationary point that
+is not the nearest one. A localized case, at `rx = 5, ry = 1.25, q = (4.3269,
+1.8291)`: the iteration settles at angle **−2.03 rad** and reports `d = 3.40` where the
+true distance is `1.13`.
 
-The sign is `‖q‖ ≥ ‖nearest‖ ? +1 : -1` — equivalently, inside is
-`(qx/rx)² + (qy/ry)² < 1`, which is one comparison and needs no iteration.
+That is precisely the failure the plan's own Phase 1 box anticipated — "a fixed-count
+Newton that starts in the wrong quadrant does not converge and will not announce it" —
+and it is worth being clear that the seed is *not* the problem: the seed is in the
+first quadrant by construction after the `|q|` fold. The problem is the step. For an
+eccentric ellipse the gradient-direction seed can sit outside the evolute, where the
+squared-distance function has three stationary points in the quadrant, and Newton has
+no preference among them.
 
-**`N` is fixed by Phase 1's measurement**, not by a convergence test. A
-`WHILE |Δt| > ε` loop would make the iteration count depend on the input, which is
-fine numerically and fatal for the oracle: the three renderers would take different
-numbers of steps on the same pixel on different hardware.
+**What ships: fixed-count bisection on the folded quadrant.**
+
+Bisect the sign of `g(t) = (q − P(t)) · P′(t)`, the derivative of the squared distance,
+with the quadrant's endpoints as the initial `(c, s)` pairs. After the `|q|` fold the
+bracket is guaranteed *by construction* rather than by any property of the input:
+`g(1, 0) = qy·ry ≥ 0` and `g(0, 1) = −qx·rx ≤ 0`. Each halving is the angular midpoint
+of two unit vectors — their sum, normalised — so no trigonometry appears:
+
+```
+cm, sm = normalise(c₀ + c₁, s₀ + s₁)
+if g(cm, sm) > 0 then (c₀, s₀) = (cm, sm) else (c₁, s₁) = (cm, sm)
+```
+
+Every operation is `+ - * /` and `sqrt`, the count is fixed, and the branch is on a
+sign rather than a magnitude — so all three renderers take the same path.
+
+**`N` = 24 halvings**, measured
+(`cargo test --release --test rt_canvas_rasteriser measure_the_ellipse -- --ignored
+--nocapture`):
+
+| halvings | worst coverage error, all cases |
+|---|---|
+| 16 | 5.5008 steps |
+| 20 | 0.3438 steps |
+| **24** | **0.0215 steps** |
+
+The plan's suggested 16 is **not enough**: the error scales with the radius, because
+the angular bracket after `k` halvings spans an arc proportional to `r`. 16 halvings is
+fine at `rx = 5` (0.03 steps) and 5.5 steps wrong at `rx = 900`. The measurement was
+therefore extended past the plan's 5 px and 300 px to **450 and 900** — a canvas is 900
+px wide, so an ellipse can legitimately be larger than the range the plan sampled, and
+a count chosen at 300 and deployed at 900 would be a third as accurate. At 24 halvings
+the worst case over every radius and eccentricity tried is 1/46th of a coverage step.
 
 **Circle equivalence — by construction, not by convergence.** A fixed-`N` Newton
 solve is never algebraically exact (for a circle the angle iteration is
@@ -271,9 +305,27 @@ pixel lands nearest a 1/255 step — so "byte-identical to `Circle`" cannot be
 promised from the solve. The SDF therefore **special-cases `rx = ry`**: an exact
 float compare guards `RETURN sqrt(qx² + qy²) - rx` — literally the circle arm of
 `__canvas_geoDistance` — before the iteration, in all three renderers. The §1
-equivalence then holds by construction, and Phase 3's test pins it. Continuity at
-`rx ≈ ry` is bounded by the solve's residual; Phase 1 measures it at
-`ry = rx·(1 ± 1/4096)` so the guard is known not to introduce a visible seam.
+equivalence then holds by construction, and Phase 3's test pins it.
+
+**Continuity at the guard, measured (E3).** The plan proposed to check this by
+comparing the solve at `ry = rx·(1 ± 1/4096)` against the circle arm, which turns out
+to ask the wrong question: those are *different shapes*, and they differ by about
+`|ry − rx|` in distance however good the solve is. Measured that way `rx = 300` reads
+as 18.7 steps, which is just `300/4096 × 255` and says nothing about the guard.
+
+The two questions that matter are answered instead:
+
+| `rx` | at the guard (`ry = rx`), solve vs circle arm | off it: 1/1024 → 1/4096 → 1/16384 |
+|---|---|---|
+| 5 | **0.0001 steps** | 1.245 → 0.311 → 0.078 |
+| 300 | **0.0072 steps** | 74.710 → 18.682 → 4.674 |
+| 900 | **0.0215 steps** | 224.121 → 56.047 → 14.026 |
+
+At the handover point the two arms agree to well under one 1/255 step, so the exact
+float compare introduces no jump. Off it the difference falls by exactly 4× as the
+separation falls by 4× — linear in `|ry − rx|`, i.e. the shapes' own difference going
+to zero. **There is no seam**; what the plan feared was an artefact of the comparison
+it proposed.
 
 ### 4.3 The three renderers
 
@@ -310,26 +362,46 @@ The iteration is short and branch-free, so all three get the same code shape:
 
 The letter's one unproven premise, settled before any renderer changes.
 
-- [ ] Write a harness (a `#[test]` in `tests/rt_canvas_rasteriser.rs`, kept) that
+- [x] Write a harness (a `#[test]` in `tests/rt_canvas_rasteriser.rs`, kept) that
       evaluates the §4.2 solve at `N = 1..8` against a densely supersampled ground
       truth, for eccentricities 1:1, 2:1, 4:1 and 10:1, at radii 5 px and 300 px.
-- [ ] **Record in §4.2 the smallest `N` whose worst-case coverage error is under one
-      1/255 step, with the command that produced it.** A number from a run.
-- [ ] Confirm the seed guess never leaves the solve in a different basin for any of
+      → `measure_the_ellipse_newton_iteration_count`, `#[ignore]`d like plan-116-C's
+      measurement harness. Radii **450 and 900 added** beyond the plan's range: the
+      bisection error scales with the radius and a canvas is 900 px wide, so a count
+      chosen at 300 would be a third as accurate where it is actually used.
+- [x] **Record in §4.2 the smallest `N` whose worst-case coverage error is under one
+      1/255 step, with the command that produced it.** A number from a run. → **24
+      bisection halvings, 0.0215 steps**; 16 gives 5.5008 and 20 gives 0.3438. The
+      Newton solve the section specified reaches one step at **no** count.
+- [x] Confirm the seed guess never leaves the solve in a different basin for any of
       those cases (a fixed-count Newton that starts in the wrong quadrant does not
-      converge and will not announce it).
-- [ ] Measure the `rx = ry` special-case seam: compare the guard arm against the
+      converge and will not announce it). → it does, **411 of 1608** probes. See **E2**;
+      the seed is fine and the *step* is the problem. The bisection that ships is
+      checked by the same probe and passes it as an assertion rather than a count.
+- [x] Measure the `rx = ry` special-case seam: compare the guard arm against the
       `N`-step solve at `ry = rx·(1 ± 1/4096)` and record the worst coverage
-      difference (§4.2 requires it under one 1/255 step).
-- [ ] If no `N ≤ 8` reaches one step at 10:1, switch the solve to the named
+      difference (§4.2 requires it under one 1/255 step). → the proposed comparison
+      asks the wrong question (**E3**); measured properly, the two arms agree to
+      0.0001/0.0072/0.0215 steps *at* the guard for `rx` = 5/300/900, and the
+      difference off it is linear in `|ry − rx|`. No seam.
+- [x] If no `N ≤ 8` reaches one step at 10:1, switch the solve to the named
       fallback — **fixed-count bisection on the folded quadrant**, seeded with the
       quadrant's endpoints as `(c, s)` pairs and halved by midpoint-renormalise
-      (`c = (c₀+c₁)/n`, same `sqrt` form), 16 halvings — which is
+      (`c = (c₀+c₁)/n`, same `sqrt` form), ~~16~~ **24** halvings — which is
       guaranteed-convergent, branch-count-fixed, and still `+ - * / sqrt`-only.
       Record the measured error of whichever solve ships; do **not** stop.
+      → taken. 16 halvings was the plan's suggestion and is **not enough** (5.5 steps
+      at `rx = 900`).
 
 Acceptance: `N` is written into this document with its measured worst-case error, and
 the choice is settled by that number rather than by argument.
+
+**MET.** §4.2 now carries the bisection solve at **24 halvings** with its measured
+worst case of **0.0215 coverage steps**, the table of 16/20/24, and the rejected
+Newton solve struck through with the 127.5-step and 411/1608 numbers that rejected it.
+Every figure comes from
+`cargo test --release --test rt_canvas_rasteriser measure_the_ellipse -- --ignored
+--nocapture`.
 Commit: —
 
 ### Phase 2 — The type, the variant, and the frozen-set amendment
@@ -445,6 +517,49 @@ Commit: —
   not loosen the tolerance — it is the gate that caught a real backend lie before.
 
 ## Corrections
+
+- **E3 (2026-09-02, Phase 1) — the seam check the plan specifies asks the wrong
+  question.** It says to "compare the guard arm against the `N`-step solve at
+  `ry = rx·(1 ± 1/4096)`" and requires the difference to be under one 1/255 step. But at
+  `ry ≠ rx` the two arms describe *different shapes*: a circle of radius `rx` and an
+  ellipse that is `rx/4096` taller. They differ by about that much in distance however
+  accurate the solve is. Measured as written, `rx = 300` gives **18.68 steps** — which
+  is just `300/4096 × 255`, a restatement of the separation, and would have failed an
+  acceptance criterion that nothing was wrong with.
+
+  The guard's actual risk is a **discontinuity**, so the questions are (a) do the arms
+  agree *at* the handover, and (b) does the difference go to zero as the shapes
+  converge. Both measured: at `ry = rx` exactly, 0.0001 / 0.0072 / 0.0215 steps for
+  `rx` = 5 / 300 / 900; off it, 74.71 → 18.68 → 4.67 at `rx = 300` as the separation
+  falls 1/1024 → 1/4096 → 1/16384, i.e. exactly linear. No jump. §4.2's paragraph is
+  replaced with that table.
+
+- **E2 (2026-09-02, Phase 1) — §4.2's Newton solve is not viable at any iteration
+  count, and the fallback's suggested 16 halvings is not enough either.** Both settled
+  by the measurement the phase exists to make.
+
+  The Newton form reaches a worst-case coverage error of **127.5 steps** at N = 1, 2, 4,
+  6 *and* 8 — a flat 127.5 rather than a decreasing sequence, which is the signature of
+  landing on the wrong side of the ellipse rather than of slow convergence. The basin
+  probe counts it: **411 of 1608** points converge to a stationary point that is not the
+  nearest. Localized: `rx = 5, ry = 1.25, q = (4.3269, 1.8291)` settles at angle
+  **−2.03 rad** and reports `d = 3.40` against a true `1.13`.
+
+  The seed is not at fault — after the `|q|` fold it is in the first quadrant by
+  construction. The step is: outside the evolute of an eccentric ellipse the squared
+  distance has three stationary points in the quadrant and Newton has no preference
+  among them. No iteration count fixes that, which is why the numbers do not improve
+  with N.
+
+  So the plan's named fallback ships. Its suggested **16 halvings is also wrong**: the
+  bisection error scales with the radius, so 16 is 0.03 steps at `rx = 5` and **5.50**
+  at `rx = 900`. **24 halvings** gives 0.0215. The measurement was extended to radii 450
+  and 900 to find that — the plan sampled only 5 and 300, and a canvas is 900 px wide.
+
+  One thing this cost, worth recording: the harness's first basin assertion was
+  `d.is_finite() && d > 0.0`, which **passes** for a solve that converged to the far
+  side — that answer is finite and positive, just six times too large. An assertion
+  about a numerical result has to compare it against the truth, not against its type.
 
 - **E1 (2026-09-02, pre-Phase 1) — the header slot numbers were one high, for the third
   letter running.** This letter says the header is 40 slots after plan-116-D and puts

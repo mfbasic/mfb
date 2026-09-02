@@ -1354,3 +1354,354 @@ fn a_full_circle_arc_is_identical_with_either_cap() {
         "a closed arc has no ends, so the cap must make no difference at all"
     );
 }
+
+/// plan-116-E Phase 1: how many Newton steps does the ellipse SDF need?
+///
+/// Kept and `#[ignore]`d rather than deleted, for the same reason
+/// `measure_the_transformed_distance_correction` is: it measures a *design* question
+/// whose answer is written into `planning/completed/plan-116-E-canvas-ellipse.md` §4.2.
+/// Re-run it with
+/// `cargo test --release --test rt_canvas_rasteriser -- --ignored --nocapture` if the
+/// solve or the iteration count is ever revisited.
+///
+/// **Why the count has to be fixed rather than convergence-tested.** A
+/// `WHILE |Δ| > ε` loop makes the number of steps depend on the input, which is fine
+/// numerically and fatal for an oracle: the software rasteriser, Metal and Vulkan
+/// would take different numbers of steps on the same pixel on different hardware, and
+/// the software path would stop being predictive of the other two. So the count is
+/// pinned by this measurement and shared by all three.
+///
+/// The ground truth is the true distance from the pixel centre to the ellipse,
+/// obtained by dense sampling of the curve — not by another closed form, because the
+/// closed forms this letter rejected are exactly what is being avoided. The error
+/// reported is in **coverage steps of 1/255**, since that is the only thing a
+/// difference in `d` can actually change: `clamp(0.5 - d, 0, 1)` quantised to 0..255.
+#[test]
+#[ignore = "a design measurement, not a regression gate; see plan-116-E §4.2"]
+fn measure_the_ellipse_newton_iteration_count() {
+    /// The true distance from `q` to the ellipse `(rx, ry)`, by dense sampling.
+    ///
+    /// 1 << 22 samples over the first quadrant, which at rx = 300 puts adjacent
+    /// samples ~1e-4 px apart — two orders below the 1/255 coverage step this is
+    /// measured against, so the ground truth is not the thing being measured.
+    fn truth(qx: f64, qy: f64, rx: f64, ry: f64) -> f64 {
+        // Coarse sweep to bracket the minimum, then twelve golden-section-style
+        // halvings around it. Brute force at the resolution this needs (~1e-4 px at
+        // rx = 300) is 4M samples per query and there are ~10^5 queries; bracket-then-
+        // refine reaches the same place in ~4096 + 12·2. The distance along the curve
+        // is unimodal in the first quadrant, so the bracket is sound.
+        const COARSE: usize = 4096;
+        let at = |t: f64| {
+            let (s, c) = t.sin_cos();
+            let dx = qx - rx * c;
+            let dy = qy - ry * s;
+            (dx * dx + dy * dy).sqrt()
+        };
+        let mut best_i = 0usize;
+        let mut best = f64::INFINITY;
+        for i in 0..=COARSE {
+            let d = at(std::f64::consts::FRAC_PI_2 * (i as f64) / (COARSE as f64));
+            if d < best {
+                best = d;
+                best_i = i;
+            }
+        }
+        let step = std::f64::consts::FRAC_PI_2 / (COARSE as f64);
+        let mut lo = (best_i.saturating_sub(1)) as f64 * step;
+        let mut hi = ((best_i + 1).min(COARSE)) as f64 * step;
+        for _ in 0..60 {
+            let m1 = lo + (hi - lo) / 3.0;
+            let m2 = hi - (hi - lo) / 3.0;
+            if at(m1) < at(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let best = at((lo + hi) / 2.0).min(best);
+        let inside = (qx / rx) * (qx / rx) + (qy / ry) * (qy / ry) < 1.0;
+        if inside {
+            -best
+        } else {
+            best
+        }
+    }
+
+    /// §4.2's solve at `n` steps: Newton on the unit pair, never on an angle.
+    fn solve(qx: f64, qy: f64, rx: f64, ry: f64, n: usize) -> f64 {
+        // The seed is the gradient direction, exact in the folded first quadrant.
+        let l = ((qx * rx) * (qx * rx) + (qy * ry) * (qy * ry)).sqrt();
+        if l == 0.0 {
+            // The exact centre. The sign test answers this without iterating.
+            return -rx.min(ry);
+        }
+        let mut c = qx * rx / l;
+        let mut s = qy * ry / l;
+        for _ in 0..n {
+            // Nearest-point residual: the component of (q - P) along the tangent,
+            // over the second-order term. Ratios of dot products — `+ - * /` only.
+            let px = rx * c;
+            let py = ry * s;
+            let ex = -rx * s;
+            let ey = ry * c;
+            let num = (qx - px) * ex + (qy - py) * ey;
+            let den = ex * ex + ey * ey + (qx - px) * (rx * c) + (qy - py) * (ry * s);
+            if den == 0.0 {
+                break;
+            }
+            let delta = num / den;
+            // Rotate the pair by the small-angle form and renormalise: an exact
+            // rotation by atan(delta) rather than delta, i.e. a slightly damped step.
+            let cp = c - s * delta;
+            let sp = s + c * delta;
+            let nn = (cp * cp + sp * sp).sqrt();
+            c = cp / nn;
+            s = sp / nn;
+        }
+        let dx = qx - rx * c;
+        let dy = qy - ry * s;
+        let d = (dx * dx + dy * dy).sqrt();
+        let inside = (qx / rx) * (qx / rx) + (qy / ry) * (qy / ry) < 1.0;
+        if inside {
+            -d
+        } else {
+            d
+        }
+    }
+
+    /// §4.2's **named fallback**: fixed-count bisection on the folded quadrant.
+    ///
+    /// Bisects the sign of `g(t) = (q - P(t)) · P'(t)`, the derivative of the squared
+    /// distance. After the `|q|` fold, `g(0) = qy·ry ≥ 0` and `g(π/2) = −qx·rx ≤ 0`, so
+    /// the bracket is guaranteed by construction rather than by a property of the
+    /// input — which is the whole reason to prefer it over Newton here.
+    ///
+    /// The halving is the plan's midpoint-renormalise on the `(c, s)` pair, so no
+    /// trigonometry appears: the angular midpoint of two unit vectors is their sum,
+    /// normalised. Every operation is `+ - * /` and `sqrt`.
+    fn bisect(qx: f64, qy: f64, rx: f64, ry: f64, n: usize) -> f64 {
+        let g = |c: f64, s: f64| (qx - rx * c) * (-rx * s) + (qy - ry * s) * (ry * c);
+        // The quadrant's endpoints, as (c, s) pairs.
+        let (mut c0, mut s0) = (1.0f64, 0.0f64);
+        let (mut c1, mut s1) = (0.0f64, 1.0f64);
+        let (mut cm, mut sm) = (c0, s0);
+        for _ in 0..n {
+            let (cs, ss) = (c0 + c1, s0 + s1);
+            let nn = (cs * cs + ss * ss).sqrt();
+            cm = cs / nn;
+            sm = ss / nn;
+            if g(cm, sm) > 0.0 {
+                c0 = cm;
+                s0 = sm;
+            } else {
+                c1 = cm;
+                s1 = sm;
+            }
+        }
+        let dx = qx - rx * cm;
+        let dy = qy - ry * sm;
+        let d = (dx * dx + dy * dy).sqrt();
+        let inside = (qx / rx) * (qx / rx) + (qy / ry) * (qy / ry) < 1.0;
+        if inside {
+            -d
+        } else {
+            d
+        }
+    }
+
+    fn steps(a: f64, b: f64) -> f64 {
+        let ca = (0.5 - a).clamp(0.0, 1.0) * 255.0;
+        let cb = (0.5 - b).clamp(0.0, 1.0) * 255.0;
+        (ca - cb).abs()
+    }
+
+    // Radii chosen at both ends of the plan's range, at the four eccentricities it
+    // names. The 10:1 row is the one that decides `N`: the flat ends of a very
+    // eccentric ellipse are where a seed from the gradient direction is furthest from
+    // the true nearest point.
+    //
+    // 450 and 900 are past the plan's stated range deliberately: the bisection error
+    // scales with the radius (the angular bracket after k halvings is
+    // `(pi/2)/2^k`, so the arc it spans is proportional to r), and a canvas is 900 px
+    // wide — an ellipse can legitimately be larger than the 300 the plan sampled. A
+    // count chosen at 300 and deployed at 900 would be a third as accurate.
+    let cases: &[(f64, f64)] = &[
+        (5.0, 5.0),
+        (5.0, 2.5),
+        (5.0, 1.25),
+        (5.0, 0.5),
+        (300.0, 300.0),
+        (300.0, 150.0),
+        (300.0, 75.0),
+        (300.0, 30.0),
+        (450.0, 45.0),
+        (900.0, 90.0),
+    ];
+
+    eprintln!("worst coverage error in 1/255 steps, over the antialiased band:");
+    eprintln!(
+        "  rx     ry     N=1      N=2      N=4      N=6      N=8     bis16    bis20    bis24"
+    );
+    let mut worst_by_n = [0.0f64; 9];
+    let mut worst_bisect = [0.0f64; 3];
+    for &(rx, ry) in cases {
+        let mut row = format!("{rx:6.1} {ry:6.2}");
+        // Sample the band where coverage is not saturated — |d| < 1 — since that is
+        // the only place an error in `d` can move a pixel. Walk the curve and step off
+        // it perpendicular. The ground truth is computed ONCE per query point and
+        // reused across every N, which is what makes this run in seconds.
+        const M: usize = 800;
+        let mut queries = Vec::new();
+        for i in 0..=M {
+            let t = std::f64::consts::FRAC_PI_2 * (i as f64) / (M as f64);
+            let (st, ct) = t.sin_cos();
+            let bx = rx * ct;
+            let by = ry * st;
+            let nx = ct / rx;
+            let ny = st / ry;
+            let nl = (nx * nx + ny * ny).sqrt();
+            for k in -4..=4 {
+                let off = k as f64 * 0.25;
+                let qx = (bx + nx / nl * off).abs();
+                let qy = (by + ny / nl * off).abs();
+                let t = truth(qx, qy, rx, ry);
+                queries.push((qx, qy, t));
+            }
+        }
+        for n in [1usize, 2, 4, 6, 8] {
+            let mut worst = 0.0f64;
+            for &(qx, qy, t) in &queries {
+                let e = steps(solve(qx, qy, rx, ry, n), t);
+                if e > worst {
+                    worst = e;
+                }
+            }
+            let slot = match n {
+                1 => 1,
+                2 => 2,
+                4 => 3,
+                6 => 4,
+                _ => 5,
+            };
+            if worst > worst_by_n[slot] {
+                worst_by_n[slot] = worst;
+            }
+            row.push_str(&format!(" {worst:8.4}"));
+        }
+        for (slot, n) in [16usize, 20, 24].iter().enumerate() {
+            let mut worst = 0.0f64;
+            for &(qx, qy, t) in &queries {
+                let e = steps(bisect(qx, qy, rx, ry, *n), t);
+                if e > worst {
+                    worst = e;
+                }
+            }
+            if worst > worst_bisect[slot] {
+                worst_bisect[slot] = worst;
+            }
+            row.push_str(&format!(" {worst:8.4}"));
+        }
+        eprintln!("{row}");
+    }
+    eprintln!();
+    for (slot, n) in [1usize, 2, 4, 6, 8].iter().enumerate() {
+        eprintln!(
+            "Newton N={n}: worst over all cases = {:.4} steps",
+            worst_by_n[slot + 1]
+        );
+    }
+    for (slot, n) in [16usize, 20, 24].iter().enumerate() {
+        eprintln!(
+            "bisection {n} halvings: worst over all cases = {:.4} steps",
+            worst_bisect[slot]
+        );
+    }
+
+    // The seed-basin check the plan asks for: a fixed-count Newton that starts in the
+    // wrong quadrant does not converge and does not announce it. After the |q| fold
+    // the seed is in the first quadrant by construction, so what is checked is that
+    // the solved point stays there.
+    //
+    // **This assertion started as `d.is_finite() && d > 0.0` and was useless.** A
+    // Newton step that converges to the stationary point on the FAR side of the
+    // ellipse returns a distance that is finite and positive — it is just the wrong
+    // one, six times too large. What has to be checked is agreement with the truth.
+    let mut basin_failures = 0usize;
+    for &(rx, ry) in cases {
+        for i in 0..=200 {
+            let t = std::f64::consts::FRAC_PI_2 * (i as f64) / 200.0;
+            let (st, ct) = t.sin_cos();
+            let qx = (rx * ct * 1.7).abs();
+            let qy = (ry * st * 1.7).abs();
+            let got = solve(qx, qy, rx, ry, 8);
+            let want = truth(qx, qy, rx, ry);
+            if (got - want).abs() > 0.01 {
+                if basin_failures == 0 {
+                    eprintln!(
+                        "basin: Newton(8) converged to the wrong stationary point at \
+                         rx={rx} ry={ry} q=({qx:.4}, {qy:.4}): got {got:.4}, want {want:.4}"
+                    );
+                }
+                basin_failures += 1;
+            }
+            let got = bisect(qx, qy, rx, ry, 16);
+            assert!(
+                (got - want).abs() <= 0.01,
+                "bisection(16) missed the nearest point at rx={rx} ry={ry} \
+                 q=({qx}, {qy}): got {got}, want {want}"
+            );
+        }
+    }
+    eprintln!("basin: Newton(8) wrong-stationary-point failures = {basin_failures} of 1608");
+
+    // The `rx == ry` seam. The question the plan asks — "is the guard introducing a
+    // visible discontinuity?" — is NOT answered by comparing the solve at `ry != rx`
+    // against a circle of radius `rx`: those are different shapes, and they differ by
+    // about `|ry - rx|` in distance whatever the solve does. Measured that way, `ry =
+    // rx·(1 + 1/4096)` at `rx = 300` reads as 18.7 steps, which is just `300/4096 ·
+    // 255` and says nothing about the guard.
+    //
+    // What matters is (a) that the two arms agree AT the guard, where the exact float
+    // compare hands over, and (b) that the difference off it goes to zero linearly
+    // rather than jumping. Both are measured here.
+    for &rx in &[5.0f64, 300.0, 900.0] {
+        let mut worst_at = 0.0f64;
+        for i in 0..=800 {
+            let t = std::f64::consts::FRAC_PI_2 * (i as f64) / 800.0;
+            let (st, ct) = t.sin_cos();
+            for k in -4..=4 {
+                let off = k as f64 * 0.25;
+                let qx = (rx * ct + ct * off).abs();
+                let qy = (rx * st + st * off).abs();
+                let guard = (qx * qx + qy * qy).sqrt() - rx;
+                let e = steps(bisect(qx, qy, rx, rx, 24), guard);
+                if e > worst_at {
+                    worst_at = e;
+                }
+            }
+        }
+        eprint!("seam rx={rx}: at the guard, solve vs circle arm = {worst_at:.4} steps;");
+        // And off it, at three separations, to show the difference shrinks with the
+        // shape difference rather than sitting at a step.
+        for &denom in &[1024.0f64, 4096.0, 16384.0] {
+            let ry = rx * (1.0 + 1.0 / denom);
+            let mut worst = 0.0f64;
+            for i in 0..=800 {
+                let t = std::f64::consts::FRAC_PI_2 * (i as f64) / 800.0;
+                let (st, ct) = t.sin_cos();
+                for k in -4..=4 {
+                    let off = k as f64 * 0.25;
+                    let qx = (rx * ct + ct * off).abs();
+                    let qy = (ry * st + st * off).abs();
+                    let guard = (qx * qx + qy * qy).sqrt() - rx;
+                    let e = steps(bisect(qx, qy, rx, ry, 24), guard);
+                    if e > worst {
+                        worst = e;
+                    }
+                }
+            }
+            eprint!(" 1/{denom:.0}: {worst:.3};");
+        }
+        eprintln!();
+    }
+}
