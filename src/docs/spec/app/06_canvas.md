@@ -127,9 +127,43 @@ idiom — depends on a derivative estimate and would not.
 so alpha is written back as `255` and an unpainted pixel is black rather than
 transparent.
 
+**`Paint.blend` selects the compositing equation.** All four are defined on the
+**linear** values, with `S` the source channel, `D` the destination channel and `a`
+the source's coverage-folded alpha. `B` is the mode's function of `S` and `D`; the
+result is then `D + (B - D) * a`, the same step every mode shares:
+
+| `BlendMode` | `B` |
+|---|---|
+| `Normal` | `S` |
+| `Multiply` | `S * D` |
+| `Screen` | `S + D - S * D` |
+
+`Add` is the exception and does not go through that step: it is
+`min(D + S * a, 1)`. Coverage scales *how much source is added*, so a
+partly-covered pixel adds proportionally less — which is both what "add the source"
+means and what an additive blend computes on every GPU. Defining it instead as a
+mix towards a pre-clamped `min(S + D, 1)` agrees at full coverage and differs by up
+to `0.15` in linear at partial coverage over a bright destination, and no
+fixed-function blend can produce that.
+
+The destination is opaque (above), so no mode has to define what happens to a
+partly-transparent destination. Alpha itself is not blended by the mode: it is
+written back as `255` under every one.
+
+**`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
+in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
+transformed rectangle. A zero-area or negative-extent `Bounds` means no clipping,
+which is what the zero value gives.
+
+Its edges need not fall on pixel boundaries. A clipped pixel's coverage is the
+clip's own `clamp(0.5 - d, 0, 1)` on the signed distance to that rectangle,
+multiplied into the shape's coverage as `(coverage * clipCoverage) / 255`. A clip
+edge is therefore antialiased exactly as a shape edge is, and clipping a shape to a
+rectangle larger than it changes nothing.
+
 ## Images are named, not embedded
 
-An `Image` is an ordinary owned resource, released when it leaves scope or by
+An `Image` is an ordinary resource, closing when it leaves scope or with
 `canvas::destroyImage`. A scene never holds one: an item that draws an image
 carries an `ImageRef`, a plain value holding the id the backend knows the image
 by, obtained with `canvas::imageRef`.

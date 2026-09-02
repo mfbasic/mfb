@@ -552,15 +552,39 @@ Commit: —
 
 ### Phase 5 — Docs, and the promise closed
 
-- [ ] `mod.rs` — the `Paint.blend` and `Paint.clip` descriptions currently describe
+- [x] `mod.rs` — the `Paint.blend` and `Paint.clip` descriptions currently describe
       intent; make them describe behaviour, and say the clip is axis-aligned in
       surface pixels and unaffected by `transform` (which is still unread until
       plan-116-C — say nothing about transform here).
-- [ ] `src/docs/spec/app/06_canvas.md` §"Rendering conventions" gains the four blend
+      The clip's description does name `transform`, once, to say it does **not** move
+      the clip. That is a statement about the clip and is true today; saying nothing
+      would leave a reader of plan-116-C's release to guess. The three non-`Normal`
+      `BlendMode` variants also gained the observable fact each one is usually reached
+      for — multiplying by white is a no-op, screening with black is a no-op, and a
+      partly-covered `Add` adds proportionally less.
+- [x] `src/docs/spec/app/06_canvas.md` §"Rendering conventions" gains the four blend
       equations on linear premultiplied values, and the clip's coverage rule.
-- [ ] `scripts/man-census.sh --memory-scope` reports 0 unclassified hits.
-- [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      Including why `Add` is not `D + (B - D) * a` like the others (Correction C6),
+      since that is exactly the definition a reader would otherwise assume.
+- [x] `scripts/man-census.sh --memory-scope` reports 0 unclassified hits.
+      It reported **8** before this phase, all in `canvas` pages and all pre-existing
+      (`owned`, `released`, `allocated`, `owns`, `lifetime`, `dangling` across
+      `loadFont`, `loadImage`, `fontRef`, `destroyFont`, `didResize` and the `Font`
+      type). Rewritten to what a developer observes — "closes by itself when it leaves
+      scope", "a handle naming a closed font is still just a number". Now **0**.
+- [x] `scripts/man-run-examples.sh canvas --run` passes.
+      It reported **5 of 20 failing** before this phase, again pre-existing: every
+      example that opens a font or an image died with "Filesystem path does not exist",
+      because the harness never put one in the scratch project. Fixed in the harness
+      rather than by rewriting the examples not to open files — see **Correction C9**.
+      Now **20 built, 20 ran, 0 failed**.
+- [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      **Zero delta, and that is not evidence of neutrality** — plan-116-A's Correction
+      C7 established that no `tests/byte-identity/` fixture imports `canvas` or `app`,
+      so these 132 goldens cannot observe a canvas change at all. Re-measured here:
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → "132 golden(s) refreshed,
+      0 missing", `git status --short tests/byte-identity/` empty. The gate that does
+      cover this letter is the `rt_canvas_*` suites and the two GPU harnesses.
 
 Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
 `scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs, and
@@ -735,7 +759,25 @@ Commit: —
   Nothing measures that as a problem today, and the software path — where the same
   saving *was* taken, in the loop bounds — is the one that actually walks pixels in a
   scripting-language loop.
-
+- **C9 (2026-09-01, Phase 5) — two doc gates were already failing before this letter
+  touched them, and both were fixed rather than noted.**
+  `scripts/man-census.sh --memory-scope` reported **8** unclassified hits and
+  `scripts/man-run-examples.sh canvas --run` **5 of 20 failing**. Neither is caused by
+  plan-116-B; both are in `canvas` pages, and the phase's acceptance names both
+  commands, so "pre-existing" is not an exemption — a gate that has never passed cannot
+  tell anyone whether this letter broke it.
+  The census hits were `.ai/man-content.md`'s banned memory vocabulary (`owned`,
+  `released`, `allocated`, `owns`, `lifetime`, `dangling`) in `loadFont`, `loadImage`,
+  `fontRef`, `destroyFont`, `didResize` and the `Font` type description. Rewritten to
+  what a developer observes.
+  The example failures were all "Filesystem path does not exist": every example that
+  opens a font or an image, because the harness never put one in the scratch project.
+  Fixed **in the harness**, following the precedent already there for the `thread`
+  pages' companion package — `install_canvas_fixtures` drops `DejaVuSans.ttf` (the same
+  synthesized twelve-glyph TrueType the canvas tests build, so nothing has to be
+  installed on the machine) and a 2×2 `logo.png`, gated on the pages actually naming
+  them. Rewriting the examples not to open a file was the alternative and was rejected:
+  it would document something other than what those functions are for.
 ## Summary
 
 The risk is concentrated in the `Normal` arm: every existing scene and every existing

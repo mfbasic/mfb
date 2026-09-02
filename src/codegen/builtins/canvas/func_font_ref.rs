@@ -22,10 +22,10 @@ resource.** A `canvas::DrawItem` is a record and a record field cannot hold a `R
 more importantly a published scene outlives the call that installed it and is read
 by the renderer at arbitrary times, so a scene holding resources would have to keep
 them alive, which would make `canvas::destroyFont` a lie. Holding only the id means
-an installed scene has no opinion about any font's lifetime at all.
+an installed scene never has to keep a font open.
 
-A handle naming a destroyed font is not dangling: it is an integer, and text
-carrying it measures and draws as empty once the font is gone.
+A handle naming a closed font is still just a number, and text carrying it measures
+and draws as empty once that font is gone.
 
 Raises `ErrResourceClosed` if the font has already been destroyed — taking a handle
 to something that no longer exists is a program error, unlike drawing a handle whose

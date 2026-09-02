@@ -23,8 +23,8 @@ AppKit in particular sends routinely.
 
 There is no resize *callback*, and that is deliberate: a callback would run on the
 platform's UI thread, where a program cannot safely touch its own state. This is a
-plain read from the worker, in the program's own loop, where everything else it owns
-is reachable.
+plain read from the worker, in the program's own loop, where all of its variables are
+in scope.
 
 `canvas::getSize` reports the current dimensions; this reports only that they moved.
 A program that lays out from scratch each frame does not need this at all — the

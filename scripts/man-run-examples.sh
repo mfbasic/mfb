@@ -110,6 +110,7 @@ prepare_project() {
 	rm -rf "$SCRATCH"
 	"$MFB" init "$SCRATCH" >/dev/null 2>&1 || return 1
 	[ "$needs_workers" = 1 ] && install_workers_package "$SCRATCH"
+	[ "$needs_canvas_fixtures" = 1 ] && install_canvas_fixtures "$SCRATCH"
 	return 0
 }
 
@@ -208,8 +209,46 @@ install_workers_package() {
 	PY
 }
 
+# The data files the `canvas` pages' examples open.
+#
+# Same reasoning as the companion package above: an example that loads a font or an
+# image is only *verified* if it can actually run, and without these five canvas pages
+# were reported as run-failures on every invocation
+# (`canvas::loadFont`, `loadImage`, `fontRef`, `destroyFont`, `measureText` — all
+# "Filesystem path does not exist"). The alternative was to rewrite the examples not to
+# open a file, which would document something other than what the function is for.
+#
+# The names are dictated by the examples themselves, exactly as the worker signatures
+# are: rename one in a page and it stops running here, which is the point.
+#
+# The font is the same synthesized twelve-glyph TrueType `tests/rt_canvas_font.rs` and
+# `scripts/test-canvas-vulkan.sh` build — `unitsPerEm` 1000, one square glyph — rather
+# than a real typeface, so the harness needs nothing installed on the machine.
+install_canvas_fixtures() {
+	root=$1
+	base64 -d > "$root/DejaVuSans.ttf" <<-'TTF'
+	AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA
+	AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD
+	AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA
+	AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA
+	AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB
+	9AAAAPoAAAEsAAAAAAAAABEAEQ==
+	TTF
+	# A 2x2 RGBA PNG. Small on purpose: the examples only need `loadImage` to succeed
+	# and report a size, and a large asset would make this script carry a payload.
+	base64 -d > "$root/logo.png" <<-'PNG'
+	iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mP4z8DwHwyBNBgAAEnI
+	CfcD2WTxAAAAAElFTkSuQmCC
+	PNG
+}
+
 # The companion package costs a full package build, so only pay for it when
 # this package's pages actually import it.
+needs_canvas_fixtures=0
+if "$MFB" man "$pkg" --all 2>/dev/null | grep -qE '"(DejaVuSans\.ttf|logo\.png)"'; then
+	needs_canvas_fixtures=1
+fi
+
 needs_workers=0
 if "$MFB" man "$pkg" --all 2>/dev/null | grep -q '^  IMPORT workers'; then
 	needs_workers=1
