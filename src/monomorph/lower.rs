@@ -137,6 +137,21 @@ impl<'a> Monomorphizer<'a> {
                 .map(|import| import.binding_name().to_string())
                 .collect(),
             function_files,
+            // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call
+            // or overload whose argument names a global can be typed (bug-103).
+            // `source` is immutable, so this is derived once here instead of per
+            // lowered function (plan-117 Phase 2).
+            globals: source
+                .files
+                .iter()
+                .flat_map(|file| &file.items)
+                .filter_map(|item| match item {
+                    HirItem::Binding(binding) if binding.explicit_type => {
+                        Some((binding.name.clone(), binding.type_.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
             current_file: None,
             template_instantiation_depth: 0,
             total_instantiations: 0,
@@ -575,7 +590,7 @@ impl<'a> Monomorphizer<'a> {
             binding.type_ = self.concrete_type(&declared, &HashMap::new());
         }
         if let Some(value) = binding.value.take() {
-            let mut context = self.function_context();
+            let mut context = FunctionContext::default();
             let expected = binding.explicit_type.then(|| binding.type_.clone());
             binding.value = Some(self.lower_expression(
                 &value,
@@ -631,7 +646,7 @@ impl<'a> Monomorphizer<'a> {
             function.returns = self.concrete_type(&declared, substitutions);
         }
 
-        let mut context = self.function_context();
+        let mut context = FunctionContext::default();
         context.enclosing_return = opt_type(&function.returns);
         for param in &function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
@@ -1485,9 +1500,6 @@ impl<'a> Monomorphizer<'a> {
                     // argument diagnostic naming the public call (bug-443).
                     public_callee.clone()
                 };
-                if target != *callee {
-                    self.add_function_to_context(&target, context);
-                }
                 HirExpression::Call {
                     callee: target,
                     arguments: lowered_args,
@@ -1521,7 +1533,7 @@ impl<'a> Monomorphizer<'a> {
                 let field_types = concrete_type
                     .clone()
                     .or_else(|| Some(ParameterType::declared(&type_name)))
-                    .and_then(|type_| context.shared.record_fields.get(&type_).cloned());
+                    .and_then(|type_| self.record_fields(&type_).cloned());
                 let lowered_args = arguments
                     .iter()
                     .enumerate()
@@ -1942,49 +1954,18 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    fn function_context(&self) -> FunctionContext {
-        let mut shared = SharedTables::default();
-        for (name, function) in &self.concrete_functions {
-            let (returns, signature) = function_signature_types(function);
-            shared.function_returns.insert(name.clone(), returns);
-            shared.function_types.insert(name.clone(), signature);
-        }
-        for (type_, type_decl) in &self.concrete_types {
-            if matches!(type_decl.kind, TypeDeclKind::Type) {
-                shared
-                    .record_fields
-                    .insert(type_.clone(), type_decl.fields.clone());
-            }
-        }
-        // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call or
-        // overload whose argument names a global can be typed (bug-103).
-        for item in self.source.files.iter().flat_map(|file| &file.items) {
-            if let HirItem::Binding(binding) = item {
-                if binding.explicit_type {
-                    shared
-                        .globals
-                        .insert(binding.name.clone(), binding.type_.clone());
-                }
-            }
-        }
-        // plan-117: the four tables above never vary per scope, so they are shared
-        // by `Rc` and a nested-scope clone copies only `locals` + the overlay.
-        FunctionContext {
-            shared: std::rc::Rc::new(shared),
-            ..FunctionContext::default()
-        }
-    }
-
-    fn add_function_to_context(&self, name: &str, context: &mut FunctionContext) {
-        let Some(function) = self.concrete_functions.get(name) else {
-            return;
-        };
-        let (returns, signature) = function_signature_types(function);
-        // plan-117: into the scope-local overlay, which `function_return` /
-        // `function_type` consult before the shared table — the same overwrite the
-        // old single-map insert performed.
-        context.added_returns.insert(name.to_string(), returns);
-        context.added_types.insert(name.to_string(), signature);
+    /// The declared fields of a concrete RECORD type, or `None` when `type_` names
+    /// no record. The `TypeDeclKind::Type` filter is what the per-function
+    /// snapshot applied when it populated `record_fields`, so an `ENUM`/`UNION`
+    /// declaration stays invisible here exactly as it was then.
+    ///
+    /// plan-117 Phase 2: read live off `concrete_types` instead of through a
+    /// snapshot rebuilt for every lowered function.
+    fn record_fields(&self, type_: &ParameterType) -> Option<&Vec<HirTypeField>> {
+        self.concrete_types
+            .get(type_)
+            .filter(|type_decl| matches!(type_decl.kind, TypeDeclKind::Type))
+            .map(|type_decl| &type_decl.fields)
     }
 
     /// The return type of a builtin/package call, using the same per-package
@@ -2039,8 +2020,12 @@ impl<'a> Monomorphizer<'a> {
                 .locals
                 .get(value)
                 .cloned()
-                .or_else(|| context.function_type(value).cloned())
-                .or_else(|| context.shared.globals.get(value).cloned()),
+                .or_else(|| {
+                    self.concrete_functions
+                        .get(value)
+                        .map(|function| function_signature_types(function).1)
+                })
+                .or_else(|| self.globals.get(value).cloned()),
             // plan-111-B: `Error`/`Ok` are nominals, and the record table is
             // keyed by the type.
             HirExpression::Constructor { type_, .. } => {
@@ -2048,7 +2033,7 @@ impl<'a> Monomorphizer<'a> {
                     Some(ParameterType::named("Error"))
                 } else if type_.is_named("Ok") {
                     Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown)))
-                } else if context.shared.record_fields.contains_key(type_) {
+                } else if self.record_fields(type_).is_some() {
                     Some(type_.clone())
                 } else {
                     None
@@ -2074,19 +2059,17 @@ impl<'a> Monomorphizer<'a> {
             )),
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
-                context
-                    .shared
-                    .record_fields
-                    .get(&target_type)?
+                self.record_fields(&target_type)?
                     .iter()
                     .find(|field| field.name == *member)
                     .map(|field| field.type_.clone())
             }
             HirExpression::Call {
                 callee, arguments, ..
-            } => context
-                .function_return(callee)
-                .cloned()
+            } => self
+                .concrete_functions
+                .get(callee)
+                .map(|function| function_signature_types(function).0)
                 .or_else(|| self.builtin_call_return_type(callee, arguments, context)),
             HirExpression::Lambda {
                 params,

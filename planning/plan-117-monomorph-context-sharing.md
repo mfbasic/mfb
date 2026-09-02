@@ -335,35 +335,63 @@ Measured (2026-09-01, this worktree, macOS arm64):
 (4) `cd tests/acceptance && ../../target/release/mfb test -vv` →
     `monomorphize 1207.3ms 1207.3ms 1 2.2%` (resolve 1495.2ms total),
     `Tests: 732  Pass: 732  Fail: 0`.
-Commit: —
+Commit: c835446f6
 
 ### Phase 2 — Delete the per-function snapshot (live lookups)
 
 Removes the remaining O(F²) rebuild (648.4 ms measured) and the overlay/patch
 machinery; `FunctionContext` becomes just `locals` + `enclosing_return`.
 
-- [ ] `src/monomorph/mod.rs`: add `globals` to `Monomorphizer`, built in
+- [x] `src/monomorph/mod.rs`: add `globals` to `Monomorphizer`, built in
       `new()`; shrink `FunctionContext` to `locals` + `enclosing_return`
       (derive `Clone`); delete `SharedTables` and the accessors.
-- [ ] `src/monomorph/lower.rs`: re-point `expression_type`'s function /
+- [x] `src/monomorph/lower.rs`: re-point `expression_type`'s function /
       record / global reads at `self.concrete_functions` (+ on-demand
       `function_signature_types`), `self.concrete_types`
       (`TypeDeclKind::Type`-filtered), and `self.globals` (§5); delete
       `add_function_to_context` and its call site (`lower_expression`, the
       `target != *callee` block); collapse `function_context()`.
-- [ ] Spec sync: update `12_monomorphization.md` again — the
+- [x] Spec sync: update `12_monomorphization.md` again — the
       `add_function_to_context` sentence (`:188-189`) and the seeding
       description now describe live lookups.
-- [ ] Doc sync: append a dated note to `planning/speed.md` §5.2 recording the
+- [x] Doc sync: append a dated note to `planning/speed.md` §5.2 recording the
       root cause and pointing at this plan (the report currently says "Not yet
       root-caused").
-- [ ] Run `cargo check --all-targets` + the fmt pair again.
+- [x] Run `cargo check --all-targets` + the fmt pair again.
+- [x] *(added during execution)* Retire the now-dangling
+      `("src/monomorph/mod.rs", "record_fields")` row in
+      `tests/no_type_strings.rs`'s curated `TYPE_KEYED_TABLES`, which
+      `curated_type_keyed_tables_all_exist` failed on once the map was deleted.
+      See Corrections for the four-question evidence and why no budget moves.
+- [x] *(added during execution)* Fix the dangling
+      `Monomorphizer::function_context` / `add_function_to_context` citation in
+      `function_signature_types`'s doc comment (`src/monomorph/helpers.rs:592`),
+      orphaned by deleting both functions.
 
 Acceptance: same four gates as Phase 1, same thresholds. For this phase a
 non-zero artifact-gate diff is a **real inference-visibility delta** (§3 risk
 analysis): root-cause it individually starting from the diffing fixture's
 `.ast`/`.ir` golden — do not regenerate first, and do not revert the phase; fix
 or consciously accept the specific delta with evidence in the commit.
+
+Measured (2026-09-01, this worktree, macOS arm64):
+(1) `rustup run 1.96.0 cargo test --no-fail-fast` → 90 suites, 4390 passed and
+    one `artifact_gate_all` **refusal** (`exit 98`, a peer session held the
+    machine-wide gate lock — nothing was checked; see Corrections). Re-run
+    uncontended: `cargo test --test golden` → `test artifact_gate_all ... ok`,
+    `1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)`. Every one of
+    the 90 suites is green, 4391 tests passed, 0 real failures;
+(2) `./scripts/test-accept.sh target/release/mfb /tmp/p117-accept2-actual` →
+    `acceptance tests passed (1346 test(s) ran)`, exit 0;
+(3) `./scripts/artifact-gate.sh target/release/mfb all` →
+    `1325 tests, 1487 build(s), 1823 golden(s) checked, 0 diff(s)`, exit 0.
+    **The live-lookup equivalence argument (§3) holds byte-exactly** — the
+    inference-visibility change this phase's risk analysis flagged produces no
+    delta anywhere in the corpus;
+(4) `./target/release/mfb test -vv tests/acceptance` →
+    `monomorphize 101.0ms 101.0ms 1 0.2%` (resolve 375.9ms total),
+    `Tests: 732  Pass: 732  Fail: 0`, same corpus
+    (`HIR functions (generic) 1618` → `(concrete) 1609`).
 Commit: —
 
 ## Validation Plan
@@ -389,14 +417,14 @@ Commit: —
 
 ## Open Decisions
 
-- **Land Phase 2 at all?** Recommended: yes — it deletes the snapshot concept,
-  the O(F²) rebuild, and the overlay patch machinery (net code removal), and
-  its equivalence argument is written out in §3. Alternative: stop after
-  Phase 1 (goal already met, monomorphize ~1.2 s); if so, move the
-  `planning/speed.md` note into Phase 1 and archive. Deciding factor: if
-  Phase 2's artifact-gate surfaces any inference delta that resists a quick
-  root-cause, prefer stopping after Phase 1 and filing the delta as its own
-  bug rather than braiding an investigation into this plan.
+- **Land Phase 2 at all?** ~~Recommended: yes~~ — **RESOLVED: landed.** The
+  deciding factor named here was whether Phase 2's artifact-gate surfaces an
+  inference delta. It surfaced none: `./scripts/artifact-gate.sh
+  target/release/mfb all` → `1325 tests, 1487 build(s), 1823 golden(s) checked,
+  0 diff(s)`. The snapshot→live-lookup change is byte-identical across the whole
+  corpus, so there was nothing to investigate and no delta to file. Phase 2 is a
+  net code removal (the snapshot, the overlay, `function_context`,
+  `add_function_to_context`) and took the row a further 1,207.3 ms → 101.0 ms.
 
 ## Corrections
 
@@ -425,6 +453,49 @@ Commit: —
   (≤ 2,000 ms / under 3 %), and the measurement satisfies it directly:
   `monomorphize 1207.3ms 1207.3ms 1 2.2%`, with the enclosing `resolve` phase at
   1495.2 ms against the plan's 19,002 ms baseline for the same span.
+
+### Phase 2
+
+- **Phase 2 beat its own prediction by ~6×.** §3 estimated the post-Phase-2 span
+  at "~580 ms (1,229.8 − 648.4)", modelling the win as *only* the deleted
+  snapshot rebuild. Measured: **101.0 ms** (`./target/release/mfb test -vv
+  tests/acceptance` → `monomorphize 101.0ms 101.0ms 1 0.2%`). The estimate
+  undercounted because deleting the snapshot also deletes the overlay — so a
+  scope clone drops from `locals` + two maps to `locals` alone — and it retires
+  every one of the 1,609 × 2 `function_signature_types` calls the seeding
+  performed, in favour of one call per actual query. Final: 20.9 % → 0.2 % of the
+  build. This is a miscalibrated *prediction*, corrected here; the plan's Goal
+  (under 3 %) was already met by Phase 1 alone.
+- **`tests/no_type_strings.rs` carried a row that Phase 2 dangles.** The curated
+  `TYPE_KEYED_TABLES` inventory listed `("src/monomorph/mod.rs",
+  "record_fields")`; deleting the map made
+  `curated_type_keyed_tables_all_exist` fail. Not a regression, and not a test
+  weakened to pass — the test is doing exactly its job, and its own assert
+  message prescribes the remedy for a genuine removal. Four-question evidence
+  per `AGENTS.md`: (1) written for plan-111-B's no-type-strings ratchet, to keep
+  the inventory honest; (2) it protects against a listed type-keyed table being
+  silently re-keyed to `String` or vanishing from the census population;
+  (3) the only consumer is `string_keyed_type_maps` (`tests/no_type_strings.rs:762`),
+  and `grep -n 'string_keyed_type_maps", "monomorph' tests/no_type_strings.rs`
+  returns nothing — no budget row exists to lower, because the map was already
+  type-keyed and contributed zero hits; (4) `grep -rn record_fields
+  src/monomorph/` shows no field of that name survives, only the new `fn
+  record_fields` accessor, and the table it now reads through
+  (`concrete_types`) is *already* a listed type-keyed entry, so no population is
+  lost. The one row was removed with that reasoning recorded inline;
+  `cargo test --test no_type_strings` → 7 passed, including the
+  tight-in-both-directions budget assertion, confirming no count moved.
+- **A dangling doc citation in `src/monomorph/helpers.rs`.** The plan did not
+  list it: `function_signature_types`'s doc comment said "Shared by
+  `Monomorphizer::function_context` and `add_function_to_context`", both of which
+  Phase 2 deletes. Rewritten to describe the on-demand call it now serves.
+- **`artifact_gate_all` failed once on lock contention, not on a diff.** The
+  Phase 2 `cargo test --no-fail-fast` reported
+  `artifact-gate.sh could not START: another gate run holds the lock. This is NOT
+  a golden regression -- nothing was checked` (`tests/golden.rs:39`). Re-run
+  uncontended: `cargo test --test golden` → `1325 tests, 1487 build(s), 1823
+  golden(s) checked, 0 diff(s)`, `test artifact_gate_all ... ok`. Recorded so the
+  transient is not mistaken for a phase-2 inference delta.
 
 ## Summary
 
