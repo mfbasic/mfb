@@ -488,7 +488,7 @@ Acceptance: `endcaps.png` matches on the software oracle and on both GPUs within
   which is where this letter's Linux-specific work (the butt segment and the arc cap
   discs in the SPIR-V, and the widened item block) actually executes, plus the
   `--bin mfb` unit tests recorded below.
-Commit: —
+Commit: cca22df71, 610d34e38 (the `examples/emoji` arc main brought in mid-letter)
 
 ## Validation Plan
 
