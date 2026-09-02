@@ -37,9 +37,11 @@ echo "==> building mfb worker package"
 mkdir -p "$here/mfb/packages"
 cp "$here/mfb/workers/bench_workers.mfp" "$here/mfb/packages/bench_workers.mfp"
 
-echo "==> building mfb benchmark"
-"$MFB" build "$here/mfb" >/dev/null
-mfb_out="$here/mfb/build/benchmark.out"
+echo "==> building mfb benchmark (-O1, -O2, -O3)"
+for lvl in 1 2 3; do
+  "$MFB" build -O "$lvl" "$here/mfb" >/dev/null
+  mv "$here/mfb/build/benchmark.out" "$here/mfb/benchmark-O$lvl.out"
+done
 
 echo "==> building c benchmark (-O0 and -O2)"
 c_srcs=("$here/c/main.c" "$here/c/listmatrix.c" "$here/c/mapbench.c" "$here/c/mapmatrix.c" "$here/c/mathbench.c" \
@@ -70,27 +72,32 @@ run_one() {
   "$@" --run "$runs" 2>"$sumsfile" | tee "$logfile"
 }
 
-run_one "mfb"    "mfb"    "$mfb_out"
-run_one "c -O0"  "c-O0"   "$here/c/bench-O0.out"
-run_one "c -O2"  "c-O2"   "$here/c/bench-O2.out"
-run_one "python" "python" python3 "$here/python/main.py"
+run_one "mfb -O1" "mfb-O1" "$here/mfb/benchmark-O1.out"
+run_one "mfb -O2" "mfb-O2" "$here/mfb/benchmark-O2.out"
+run_one "mfb -O3" "mfb-O3" "$here/mfb/benchmark-O3.out"
+run_one "c -O0"   "c-O0"   "$here/c/bench-O0.out"
+run_one "c -O2"   "c-O2"   "$here/c/bench-O2.out"
+run_one "python"  "python" python3 "$here/python/main.py"
 
 echo
 echo "==> logs written (timestamp $ts):"
-for n in mfb c-O0 c-O2 python; do echo "    $here/${n}-${ts}.log"; done
+for n in mfb-O1 mfb-O2 mfb-O3 c-O0 c-O2 python; do echo "    $here/${n}-${ts}.log"; done
 
 # Cross-validate the per-row checksums: every shared `test_<name>` key must
 # agree wherever the README claims bit-for-bit peers (mismatches are listed;
-# a few rows are documented approximations). c-O0 vs c-O2 must ALWAYS agree —
-# a disagreement means the optimizer changed observable work, and is fatal.
+# a few rows are documented approximations). Within one language the
+# optimization levels (mfb -O1/-O2/-O3, c -O0/-O2) must ALWAYS agree — a
+# disagreement means the optimizer changed observable work, and is fatal.
 echo
 echo "==> validating checksums"
-python3 - "$here/mfb-${ts}.sums" "$here/c-O0-${ts}.sums" \
+python3 - "$here/mfb-O1-${ts}.sums" "$here/mfb-O2-${ts}.sums" \
+          "$here/mfb-O3-${ts}.sums" "$here/c-O0-${ts}.sums" \
           "$here/c-O2-${ts}.sums" "$here/python-${ts}.sums" <<'EOF'
 import re, sys
-names = ["mfb", "c-O0", "c-O2", "python"]
+names = ["mfb-O1", "mfb-O2", "mfb-O3", "c-O0", "c-O2", "python"]
+levels = {"mfb": ["mfb-O1", "mfb-O2", "mfb-O3"], "c": ["c-O0", "c-O2"]}
 maps = []
-for p in sys.argv[1:5]:
+for p in sys.argv[1:len(names) + 1]:
     m = {}
     for line in open(p, encoding="utf-8", errors="replace"):
         mm = re.match(r"(test_\w+) = (-?\d+)\s*$", line)
@@ -101,12 +108,13 @@ keys = sorted(set().union(*maps))
 shared = [k for k in keys if sum(k in m for m in maps) > 1]
 bad, hard_bad = [], []
 for k in shared:
-    vals = {names[i]: maps[i][k] for i in range(4) if k in maps[i]}
+    vals = {names[i]: maps[i][k] for i in range(len(names)) if k in maps[i]}
     if len(set(vals.values())) > 1:
         bad.append((k, vals))
-        if vals.get("c-O0") is not None and vals.get("c-O2") is not None \
-           and vals["c-O0"] != vals["c-O2"]:
-            hard_bad.append(k)
+        for lang, lvls in levels.items():
+            got = {vals[n] for n in lvls if n in vals}
+            if len(got) > 1:
+                hard_bad.append("%s (%s)" % (k, lang))
 print("    %d checksum keys, %d shared across >=2 targets, %d mismatched"
       % (len(keys), len(shared), len(bad)))
 for k, vals in bad:
@@ -115,11 +123,13 @@ if bad:
     print("    (a few rows are documented approximations -- see"
           " 'Coverage vs. throughput' in benchmark/README.md)")
 if hard_bad:
-    print("ERROR: c-O0 and c-O2 disagree (same source): " + ", ".join(hard_bad))
+    print("ERROR: optimization levels of one language disagree (same source): "
+          + ", ".join(hard_bad))
     sys.exit(1)
 EOF
 
 # Tidy up build artifacts (all git-ignored, but keep the tree clean).
 rm -f "$here/c/bench-O0.out" "$here/c/bench-O2.out" \
-      "$here/mfb/build/benchmark.out" "$here/mfb/workers/bench_workers.mfp" \
+      "$here/mfb/benchmark-O1.out" "$here/mfb/benchmark-O2.out" \
+      "$here/mfb/benchmark-O3.out" "$here/mfb/workers/bench_workers.mfp" \
       "$here/mfb/packages/bench_workers.mfp"

@@ -1,11 +1,12 @@
 # Benchmarks
 
-A cross-language micro-benchmark suite comparing **MFBASIC** against **C** (at
-`-O0` and `-O2`) and **CPython**. Each language is a single self-contained
-program that times every micro-benchmark internally and prints a grouped
-`median / average / min / max` table in milliseconds.
+A cross-language micro-benchmark suite comparing **MFBASIC** (at `-O1` — the
+default — plus `-O2` and `-O3`) against **C** (at `-O0` and `-O2`) and
+**CPython**. Each language is a single self-contained program that times every
+micro-benchmark internally and prints a grouped `median / average / min / max`
+table in milliseconds.
 
-- `mfb/`    — the MFBASIC project (`mfb build` → `build/benchmark.out`)
+- `mfb/`    — the MFBASIC project (`mfb build -O <level>` → `mfb/benchmark-O<level>.out`; moved out of `build/`, which each build wipes)
 - `c/`      — compiled at `-O0` and `-O2`
 - `python/` — run under `python3`
 - `empty/`  — standalone process-startup benchmark (run `./empty/run.sh`)
@@ -137,19 +138,22 @@ its C column prints `--`; mfb and Python agree because the seed is fixed.
 BENCH_RUNS=50 ./benchmark/run.sh   # environment override
 ```
 
-`run.sh` builds all four targets, runs each in turn, echoes its table, and
-writes a timestamped log per target:
+`run.sh` builds all six targets (mfb at `-O1`/`-O2`/`-O3`, C at `-O0`/`-O2`,
+python), runs each in turn, echoes its table, and writes a timestamped log per
+target:
 
 ```
-mfb-<ts>.log   c-O0-<ts>.log   c-O2-<ts>.log   python-<ts>.log
+mfb-O1-<ts>.log   mfb-O2-<ts>.log   mfb-O3-<ts>.log
+c-O0-<ts>.log     c-O2-<ts>.log     python-<ts>.log
 ```
 
 Each target's stderr (the per-row `test_<name> = <checksum>` lines) is captured
 to a matching `<target>-<ts>.sums` file, and run.sh ends by cross-validating
 every checksum key shared between targets: mismatches are listed (a few rows
-are documented approximations — see below), and a c-O0 vs c-O2 disagreement is
-fatal, because the two are the same source and a divergence means the optimizer
-changed the observable work.
+are documented approximations — see below), and a disagreement between one
+language's optimization levels (mfb -O1/-O2/-O3, c -O0/-O2) is fatal, because
+those are the same source and a divergence means the optimizer changed the
+observable work.
 
 Logs, `.sums` files, built `*.out` binaries, and generated `*.mfp` packages are
 git-ignored.
@@ -167,8 +171,9 @@ column difference is a language/runtime property, not a benchmark artifact:
   `toList`/`keys`/`values` allocates and fills the same structure mfb and Python
   build — never a closed-form count. In C, `bench_opaque()` (an empty asm with a
   memory clobber, `bench.h`) pins each materialized-then-freed result so `-O2`
-  cannot eliminate the build as dead; the run-end c-O0 vs c-O2 checksum equality
-  check is the regression gate for that.
+  cannot eliminate the build as dead; the run-end per-language cross-level
+  checksum equality check (c -O0 vs -O2, mfb -O1 vs -O2 vs -O3) is the
+  regression gate for that.
 - **The `copy` row copies observably.** It copies the 1000-element base, pokes
   element 0, and folds both the count and the poked element into the checksum
   (`lf` = 1499500, `ld` = 1001000), so a copy-on-write share or borrow elision
