@@ -1,0 +1,385 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT math
+IMPORT os
+
+' Emoji — the two Apple faces 🙂 and 🙁, drawn rather than loaded, on the
+' Mode.Canvas surface of an --app build. Press any key to switch moods, q to quit.
+'
+' Build and run it:
+'   mfb build examples/emoji
+'   open examples/emoji/build/emoji.app        (macOS)
+'   ./examples/emoji/build/emoji.AppImage      (Linux)
+'
+' `"mode": "app"` in project.json is what makes this an app build; a plain
+' console build cannot IMPORT app or canvas.
+'
+' canvas is retained, not immediate: canvas::present installs a scene and the
+' runtime keeps drawing it on vsync, resize and damage until the next present.
+' So this program presents once per *change* — a mood switch or a resize — not
+' once per frame, and spends the rest of its time waiting for one.
+'
+' Three of the reference art's features have no primitive here, so each is built
+' from the ones there are. They are worth reading as a set, because they are the
+' same trick three times: the canvas draws flat-filled signed distance fields, so
+' anything else is spelled as a series of them.
+'
+'   the shaded face   the fill is one flat colour, so the gradient is a stack of
+'                     discs (faceDisc)
+'   the oval eyes     Circle is the only curve primitive and Paint.transform is
+'                     not applied, so an oval is a Polygon (ovalPoints)
+'   the round mouth   an Arc's ends are cut square along its radii, so each end
+'     ends            gets a disc of the stroke's own half-width (mouthItems)
+
+' --- Proportions, as fractions of the face radius ---------------------------
+'
+' Everything below is measured off the reference art in units of the face radius,
+' never in pixels, so the whole drawing follows the window instead of being sized
+' for one of them.
+
+LET EYE_DX AS Float = 0.32           ' eye centre, out from the face's axis
+LET EYE_DY AS Float = 0.22           ' eye centre, up from the face's centre
+LET EYE_RX AS Float = 0.090          ' eye half-width  — the eyes are ovals,
+LET EYE_RY AS Float = 0.135          ' eye half-height   taller than they are wide
+LET EYE_SIDES AS Integer = 44        ' vertices in each eye's polygon
+
+LET MOUTH_HALF AS Float = 0.32       ' half the mouth's span
+LET MOUTH_TOP AS Float = 0.24        ' top of the mouth's band, below the centre
+LET MOUTH_SAG AS Float = 0.10        ' how far the curve departs from its chord
+LET MOUTH_THICK AS Float = 0.072     ' the mouth's stroke width
+
+LET RIM_THICK AS Float = 0.020       ' the darker line around the face's edge
+LET SHADE_STEPS AS Integer = 32      ' discs in the shaded face
+LET SHADE_LIFT AS Float = 0.62       ' how far the shading's centre rides above
+LET SHADE_TIGHT AS Float = 0.88      ' how far in the innermost disc shrinks
+
+' --- Proportions of the window ----------------------------------------------
+
+LET FACE_WIDTH_MAX AS Float = 0.40   ' face radius, at most, against the width
+LET CAPTION_SIZE AS Float = 0.26     ' caption em size, against the face radius
+LET CAPTION_GAP AS Float = 0.24      ' face bottom to caption top, ditto
+LET BLOCK_HEIGHT AS Float = 2.75     ' face + caption, in face radii (estimated)
+LET HINT_SIZE AS Float = 0.026       ' hint em size, against the short side
+LET HINT_BAND AS Float = 3.0         ' the strip the hint reserves, in hint ems
+
+' --- The palette ------------------------------------------------------------
+
+' The lit centre of the face, up under the light.
+FUNC skinLit AS canvas::Color
+  RETURN canvas::rgb(254, 228, 116)
+END FUNC
+
+' The face's shaded edge — the colour the lit centre falls off to.
+FUNC skinRim AS canvas::Color
+  RETURN canvas::rgb(240, 158, 46)
+END FUNC
+
+' The line around the outside, a shade deeper again than the edge.
+FUNC skinEdge AS canvas::Color
+  RETURN canvas::rgb(224, 132, 32)
+END FUNC
+
+' The one dark warm brown the eyes and the mouth are drawn in.
+FUNC inkColor AS canvas::Color
+  RETURN canvas::rgb(66, 47, 24)
+END FUNC
+
+' --- Colour arithmetic ------------------------------------------------------
+
+FUNC mixChannel(a AS Integer, b AS Integer, t AS Float) AS Integer
+  RETURN math::round(toFloat(a) + (toFloat(b) - toFloat(a)) * t)
+END FUNC
+
+' `a` at t = 0, `b` at t = 1. Colour channels are Byte, so they come out through
+' toInt before the arithmetic and go back in through canvas::rgb.
+FUNC mixColor(a AS canvas::Color, b AS canvas::Color, t AS Float) AS canvas::Color
+  RETURN canvas::rgb(mixChannel(toInt(a.red), toInt(b.red), t), mixChannel(toInt(a.green), toInt(b.green), t), mixChannel(toInt(a.blue), toInt(b.blue), t))
+END FUNC
+
+' --- The face ---------------------------------------------------------------
+
+' The em size of the hint line along the bottom, which is what fixes the strip the
+' rest of the window may not use.
+FUNC hintSizeFor(surface AS canvas::Size) AS Float
+  MUT shorter AS Integer = surface.width
+  IF surface.height < shorter THEN shorter = surface.height
+  RETURN toFloat(shorter) * HINT_SIZE
+END FUNC
+
+' The face's radius: the largest that leaves room for its caption above the hint
+' strip, and for a margin either side.
+'
+' Both bounds are needed. A tall narrow window is limited by its width and a short
+' wide one by its height, and taking only the shorter side — which is the obvious
+' thing to do, and what this did before — silently ignores the caption, so in a
+' short window the word lands on top of the hint.
+FUNC faceRadiusFor(surface AS canvas::Size) AS Float
+  LET byWidth AS Float = toFloat(surface.width) * FACE_WIDTH_MAX
+  LET byHeight AS Float = usableHeightFor(surface) / BLOCK_HEIGHT
+  MUT r AS Float = byWidth
+  IF byHeight < r THEN r = byHeight
+  RETURN r
+END FUNC
+
+' The window less the hint's strip: the band the face and its caption share.
+FUNC usableHeightFor(surface AS canvas::Size) AS Float
+  RETURN toFloat(surface.height) - hintSizeFor(surface) * HINT_BAND
+END FUNC
+
+' The shaded disc, as a stack of flat ones.
+'
+' A canvas::Paint fills with a single colour — there is no gradient — so the
+' falloff is built rather than described: SHADE_STEPS discs, each a step smaller
+' and a step lighter than the one under it, of which only an annulus survives.
+'
+' The centre creeps upward as the discs shrink (SHADE_LIFT), which is what makes
+' this read as a ball under a light above it rather than as a target: the lit
+' centre sits high, the shaded band is wide along the bottom and narrow across the
+' top. Each disc has to stay inside its predecessor for the annuli to tile, which
+' is why the lift per step is smaller than the shrink per step.
+'
+' At 32 steps no channel moves more than three levels between neighbours, and each
+' disc antialiases against the one below it, so the bands do not read as bands.
+FUNC faceDisc(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  MUT i AS Integer = 0
+  DO WHILE i < SHADE_STEPS
+    LET t AS Float = toFloat(i) / toFloat(SHADE_STEPS - 1)
+    LET disc AS canvas::DrawItem = canvas::Circle[x := cx, y := cy - r * SHADE_LIFT * t, radius := r * (1.0 - SHADE_TIGHT * t), paint := canvas::fill(mixColor(skinRim(), skinLit(), t))]
+    out = collections::append(out, disc)
+    i = i + 1
+  LOOP
+
+  ' The edge line, drawn last so it lands on top of the shading. A stroke straddles
+  ' the path, so the path is pulled in by half a width to keep the ink inside r.
+  LET rim AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := r - r * RIM_THICK / 2.0, paint := canvas::stroke(skinEdge(), r * RIM_THICK)]
+  RETURN collections::append(out, rim)
+END FUNC
+
+' An oval as a closed polygon.
+'
+' Circle is the canvas's only curve, and Paint.transform is not applied to an
+' item's geometry, so there is no way to squash one — the eyes are sampled instead.
+' A polygon is a signed distance field like every other item, so this antialiases
+' exactly as a circle would; at 44 vertices the flats are far under a pixel at any
+' size this face is drawn.
+FUNC ovalPoints(cx AS Float, cy AS Float, rx AS Float, ry AS Float, sides AS Integer) AS List OF canvas::Point
+  MUT pts AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  DO WHILE i < sides
+    LET a AS Float = math::pi * 2.0 * toFloat(i) / toFloat(sides)
+    LET p AS canvas::Point = canvas::Point[x := cx + rx * math::cos(a), y := cy + ry * math::sin(a)]
+    pts = collections::append(pts, p)
+    i = i + 1
+  LOOP
+  RETURN pts
+END FUNC
+
+FUNC eyeAt(cx AS Float, cy AS Float, r AS Float, side AS Float) AS canvas::DrawItem
+  RETURN canvas::Polygon[points := ovalPoints(cx + side * r * EYE_DX, cy - r * EYE_DY, r * EYE_RX, r * EYE_RY, EYE_SIDES), paint := canvas::fill(inkColor())]
+END FUNC
+
+' The mouth: a circular arc through three known points, plus its two round ends.
+'
+' The corners sit MOUTH_HALF either side of the axis and the middle departs from
+' the line joining them by MOUTH_SAG; those three points fix the arc's radius and
+' its sweep, so both moods are the same construction with the middle thrown the
+' other way. Both fill the same band — MOUTH_TOP down to MOUTH_TOP + MOUTH_SAG —
+' which is what makes the switch read as one face changing rather than as two
+' different drawings.
+'
+' `down` is TRUE for a smile: the middle drops away from the eyes. Angles are
+' radians clockwise from +X and Y increases downward, so PI/2 points at the bottom
+' of a circle and 3*PI/2 at the top, and the arc always bulges away from its centre
+' — putting the centre above the mouth curves it down, and below, up.
+FUNC mouthItems(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS List OF canvas::DrawItem
+  LET w AS Float = r * MOUTH_HALF
+  LET s AS Float = r * MOUTH_SAG
+
+  ' Half-chord and sagitta give the circle through the three points: the radius
+  ' from rho = (w^2 + s^2) / 2s, and the half-sweep from sin(theta) = w / rho.
+  LET rho AS Float = (w * w + s * s) / (2.0 * s)
+  LET theta AS Float = math::asin(w / rho)
+
+  ' Place the centre so the arc lands on the band. Its far point is rho from the
+  ' centre and its corners rho*cos(theta), and the difference between those two is
+  ' the sagitta, so pinning the corners pins the whole curve.
+  MUT mid AS Float = math::pi / 2.0
+  MUT ky AS Float = cy + r * MOUTH_TOP - rho * math::cos(theta)
+  IF NOT down THEN
+    mid = math::pi * 1.5
+    ky = cy + r * (MOUTH_TOP + MOUTH_SAG) + rho * math::cos(theta)
+  END IF
+
+  LET a0 AS Float = mid - theta
+  LET a1 AS Float = mid + theta
+  LET arc AS canvas::DrawItem = canvas::Arc[x := cx, y := ky, radius := rho, startAngle := a0, endAngle := a1, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
+
+  ' An arc is cut square along the radii that bound its sweep — the canvas has no
+  ' line caps — so each end gets a disc of the stroke's own half-width, centred on
+  ' the path where it stops. That is exactly what a round cap is, and without them
+  ' the reference art's soft ends come out as two chisel cuts.
+  LET half AS Float = r * MOUTH_THICK / 2.0
+  LET capA AS canvas::DrawItem = canvas::Circle[x := cx + rho * math::cos(a0), y := ky + rho * math::sin(a0), radius := half, paint := canvas::fill(inkColor())]
+  LET capB AS canvas::DrawItem = canvas::Circle[x := cx + rho * math::cos(a1), y := ky + rho * math::sin(a1), radius := half, paint := canvas::fill(inkColor())]
+
+  RETURN [arc, capA, capB]
+END FUNC
+
+' The whole face for one mood, centred on (cx, cy). Items are drawn in list order
+' and a later one paints over an earlier one, so this is back to front: the shaded
+' disc, then the eyes, then the mouth.
+FUNC facePicture(smiling AS Boolean, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = faceDisc(cx, cy, r)
+  out = collections::append(out, eyeAt(cx, cy, r, -1.0))
+  out = collections::append(out, eyeAt(cx, cy, r, 1.0))
+  FOR EACH item IN mouthItems(cx, cy, r, smiling)
+    out = collections::append(out, item)
+  NEXT
+  RETURN out
+END FUNC
+
+' --- The rest of the window -------------------------------------------------
+
+' The first TrueType font on this platform that is actually installed, or "" when
+' none of the candidates is present.
+'
+' canvas::loadFont names a file — there is no font discovery in the runtime, which
+' is what keeps rendering reproducible — so a portable program carries its own list
+' of well-known paths. Every candidate below is a plain .ttf: loadFont reads
+' TrueType outlines and refuses .ttc collections and .otf/CFF outlines.
+FUNC systemFontPath AS String
+  MUT candidates AS List OF String = []
+  IF os::name() = "macos" THEN
+    candidates = ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Verdana.ttf", "/System/Library/Fonts/Geneva.ttf", "/System/Library/Fonts/Monaco.ttf"]
+  ELSE
+    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf"]
+  END IF
+
+  FOR EACH path IN candidates
+    IF fs::fileExists(path) THEN RETURN path
+  NEXT
+  RETURN ""
+END FUNC
+
+' The whole picture for one mood: background, face, caption, and the key hint.
+FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font) AS List OF canvas::DrawItem
+  LET cx AS Float = toFloat(surface.width) / 2.0
+  LET radius AS Float = faceRadiusFor(surface)
+
+  MUT caption AS String = "Smile"
+  IF NOT smiling THEN caption = "Frown"
+  LET textSize AS Float = radius * CAPTION_SIZE
+  LET metrics AS canvas::TextMetrics = canvas::measureText(face, textSize, caption)
+
+  ' The face and the word under it are centred as one block in the band the hint
+  ' leaves, rather than each against the window, so the pair reads as centred.
+  LET block AS Float = radius * (2.0 + CAPTION_GAP) + metrics.height
+  MUT top AS Float = (usableHeightFor(surface) - block) / 2.0
+  IF top < 0.0 THEN top = 0.0
+  LET faceCy AS Float = top + radius
+
+  ' The surface is not cleared to any particular colour on our behalf, so the scene
+  ' paints its own background first — the reference art's white card.
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(surface.width), h := toFloat(surface.height), paint := canvas::fill(canvas::rgb(255, 255, 255))]
+
+  MUT scene AS List OF canvas::DrawItem = [backdrop]
+  FOR EACH item IN facePicture(smiling, cx, faceCy, radius)
+    scene = collections::append(scene, item)
+  NEXT
+
+  ' Text is positioned by the start of its baseline, so centring it horizontally
+  ' means subtracting half the measured advance width, and placing it below the
+  ' face means adding the ascent to the gap under the face.
+  LET label AS canvas::DrawItem = canvas::Text[x := cx - metrics.width / 2.0, y := faceCy + radius + radius * CAPTION_GAP + metrics.ascent, text := caption, font := canvas::fontRef(face), size := textSize, paint := canvas::fill(canvas::rgb(96, 92, 86))]
+  scene = collections::append(scene, label)
+
+  LET hint AS String = "any key switches  \u{00B7}  q quits"
+  LET hintSize AS Float = hintSizeFor(surface)
+  LET hintMetrics AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
+  LET hintItem AS canvas::DrawItem = canvas::Text[x := cx - hintMetrics.width / 2.0, y := toFloat(surface.height) - hintSize * 1.4, text := hint, font := canvas::fontRef(face), size := hintSize, paint := canvas::fill(canvas::rgb(176, 172, 166))]
+  scene = collections::append(scene, hintItem)
+
+  RETURN scene
+END FUNC
+
+' One keypress from the window, or "" when input has ended — end of input is an
+' error rather than an empty result, so the caller wants it turned back into one.
+FUNC readKey AS String
+  RETURN io::readChar()
+  TRAP(e)
+    RETURN ""
+  END TRAP
+END FUNC
+
+' How long to wait for a keypress before looking at the window again, in
+' milliseconds. A resize is not input, so an unbounded io::pollInput() would park
+' here until the next key and only then notice the window had changed shape. A
+' bounded wait keeps the loop responsive without spinning: a tenth of a second is
+' below the threshold at which a redraw reads as lagging behind the drag.
+LET pollMs AS Integer = 100
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+
+  LET fontPath AS String = systemFontPath()
+  IF fontPath = "" THEN
+    io::printError("emoji: no TrueType font found in the usual system locations.")
+    RETURN 1
+  END IF
+
+  ' The font is a resource: it is released when this binding leaves scope. The
+  ' scene never holds it — a Text item carries a canvas::FontRef, which is just the
+  ' id the backend knows the font by — so the picture survives the font going away.
+  RES face AS canvas::Font = canvas::loadFont(fontPath) TRAP(e)
+    io::printError("emoji: cannot load " & fontPath & ": " & e.message)
+    RETURN 1
+  END TRAP
+
+  MUT smiling AS Boolean = TRUE
+  MUT running AS Boolean = TRUE
+
+  ' The scene is laid out from the surface size, so it goes stale on a resize as
+  ' well as on a mood switch. `stale` is TRUE to begin with, which is what draws
+  ' the first frame.
+  MUT stale AS Boolean = TRUE
+
+  DO WHILE running
+    IF stale THEN
+      ' getSize() with no argument is the canvas surface, in the same pixel
+      ' coordinates every DrawItem uses.
+      LET surface AS canvas::Size = canvas::getSize()
+      canvas::present(sceneFor(smiling, surface, face))
+      stale = FALSE
+    END IF
+
+    ' Wait up to pollMs for a key. FALSE just means the wait elapsed — the resize
+    ' check below is what that wait exists for.
+    IF io::pollInput(pollMs) THEN
+      LET key AS String = readKey()
+      IF key = "" OR key = "q" OR key = "Q" THEN
+        running = FALSE
+      ELSE
+        smiling = NOT smiling
+        stale = TRUE
+      END IF
+    END IF
+
+    ' Asking is what acknowledges a resize, so this is polled every pass and its
+    ' result is never dropped. It answers TRUE once per *change*: a window dragged
+    ' through fifty sizes since the last pass reports one, and the AppKit events
+    ' that re-publish a size the window already had report none, so this does not
+    ' re-present a scene that would come out identical.
+    IF canvas::didResize() THEN stale = TRUE
+  LOOP
+
+  RETURN 0
+
+  TRAP(e)
+    io::printError("emoji: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
