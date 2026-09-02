@@ -373,6 +373,22 @@ Commit: 0e5bd7cac
    commonest cleanup shapes; `tests/codegen_shared_cleanup_helpers.rs` pins the
    same guarantee inside the helpers.
 
+## Merge-back gate (2026-09-02)
+
+`main` advanced during the family (bug-467, bug-477, plan-119). Merged before
+landing; the merge conflicted on **116 files, every one a `.ncodesum`** — both
+sides changed backend codegen, so neither side's value is right and the correct
+one is a regeneration from the merged tree (`.ncodesum` is a drift sentinel, per
+`AGENTS.md`). No source file conflicted.
+
+Re-gated on the merged tree:
+
+- `scripts/artifact-gate.sh all` — 1327 tests, 1828 goldens, **0 diffs**
+- `scripts/test-accept.sh` — **1348 test(s) ran**, passed
+- `rustup run 1.96.0 cargo test --no-fail-fast` — **95 suites, 0 failures**
+- acceptance suite — 732 / 732
+- `mfb test -vv` — 3,348,186 machine instructions, 32,733 recursive NIR ops
+
 ## Summary
 
 The deepest cut and the only letter that touches every function's exit path —
