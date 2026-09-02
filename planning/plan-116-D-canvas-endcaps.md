@@ -376,7 +376,7 @@ the same line at Phase 1's commit.
   `rt_canvas_metal` 4/4, and `scripts/test-canvas-vulkan.sh` on box 2228 12/12 with
   `entries=23` (up from 21, so the two new items really did reach the cache) at
   `worst=2 differing=0.7797%`.
-Commit: —
+Commit: 086d06969
 
 ### Phase 3 — The arc cap, all three renderers
 
