@@ -178,6 +178,46 @@ string halves (`resolve_call`, `call_return_type`, `argument_types`,
   round-trip property (`parse(k).name() == k`) does NOT catch it — the real
   question is whether the key you BUILD equals the key the LOOKUP passes.
 
+## The LINK C ABI vocabulary is a `ParameterType` variant (plan-113)
+
+A ctype (`CPtr`, `CInt32`, …) is **not** a `String` after the AST. It is
+`ParameterType::C(CAbiType)` — a closed 16-variant enum in `src/types.rs` —
+and the conversion happens at ONE place, `hir::elaborate_link_block`. Things
+that follow, and that a `grep` for `ctype` will not tell you:
+
+- **A `CSTRUCT`-named `ABI` slot stays a `Named`, deliberately.** The 16 are
+  closed; the slot namespace is NOT — a slot may name any `CSTRUCT` declared in
+  the same `LINK` alias, and six goldens do (`"ctype": "SfFileInfo"`). So
+  `slot.ctype.c_abi()` returning `None` means *either* "a CSTRUCT" *or* "a typo",
+  and the caller distinguishes them by looking the name up in
+  `project.link_cstructs` (`is_cstruct_slot` / `cstruct_of`, which now ask
+  `ctype.is_named(&c.name)`). Do not "simplify" a slot ctype to a `CAbiType`.
+- **The IR carriers are `ParameterType`, not `CAbiType`, and that is load
+  bearing.** `IrAbiSlot.ctype`, `IrCStructField.ctype` and
+  `IrLinkFunction.abi_return_ctype` decode from a crafted `.mfp` where the
+  spelling is attacker-controlled. `ParameterType::parse` is TOTAL, so an
+  unknown spelling decodes to a `Named` and is rejected by the existing
+  `NATIVE_ABI_UNKNOWN_CTYPE` check with its own message and location. Making the
+  decode fail instead would replace that diagnostic with
+  `PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED` — a real behaviour change on the
+  package path, and the reason the `AbiDirection` precedent (whose code has no
+  downstream validator) does not apply here.
+- **The two `is_c_abi_type` reject-lists are 12 and 13 of 16, on purpose.**
+  `resolver::is_c_abi_type` omits `CBool`/`CByte`/`CVoid`/`CBuffer`;
+  `ir::verify::link`'s local copy omits only `CBool`/`CByte`/`CBuffer` (it
+  includes `CVoid`, because a crafted `.mfp` naming it in an MFB signature must
+  be rejected). Rewriting either as `t.c_abi().is_some()` compiles fine and
+  silently widens `NATIVE_CPTR_ESCAPE`. The negative assertions in
+  `is_c_abi_type_recognizes_and_rejects` are the only guard.
+- **A C spelling is a legal template-parameter name.** `TYPE Box OF CPtr`
+  builds, so `with_vars` / `monomorph`'s two leaf-symbol probes carry a `C` arm
+  to keep reclassifying it as a `Var`.
+- **`every_known_ctype_lowers` is not redundant with the exhaustive matches.**
+  A `match` proves each variant has an arm; that test proves the arm actually
+  `lower_link_thunk`s without error, and its `OUT CBuffer` case walks the whole
+  buffer-staging path. Its sibling `ctype_list_is_exhaustive` WAS redundant and
+  is gone.
+
 ## New builtin-package registration seams
 
 Adding a new builtin package (e.g. a resource package like `process`) touches far more than the descriptor. The obvious ones are documented; these are the ones a plan usually MISSES and the compiler/tests catch late:

@@ -57,10 +57,19 @@ END SUB
 /// Every primitive the SDF shader draws, in one scene.
 ///
 /// The smiley from `plan-98-api.md` — the scene that shaped the API — plus a rounded
-/// rect with both a fill and a stroke, a thick line, and a translucent polygon. That
-/// covers each arm of the distance dispatch, both paint channels, the corner-radius
-/// term, an arc's sweep test, and the polygon edge buffer, which between them are
-/// every path the fragment shader has.
+/// rect with both a fill and a stroke, a thick line, and **two** translucent polygons.
+/// That covers each arm of the distance dispatch, both paint channels, the
+/// corner-radius term, an arc's sweep test, and the polygon edge buffer, which between
+/// them are every path the fragment shader has.
+///
+/// **Two polygons, not one, and that is load-bearing since plan-116-A.** Metal's edges
+/// used to be copied into the command buffer per item, so every polygon's array started
+/// at index 0 and the edge base was always zero. They now take a slice of one region
+/// that serves the whole frame, so the base is a real per-item value — and with a single
+/// polygon in the scene the base is *still* zero, so a base that was never written would
+/// pass. The second polygon is the only thing that reads a non-zero one. (The Vulkan
+/// harness has carried two for exactly this reason since plan-98-F; Metal needs it now
+/// for the first time.)
 const PRIMITIVES: &str = r#"IMPORT app
 IMPORT canvas
 
@@ -78,8 +87,13 @@ SUB main()
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(canvas::rgb(0, 0, 255), canvas::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := canvas::stroke(canvas::rgb(255, 128, 0), 9.0)]
   LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(canvas::rgba(0, 200, 255, 180))]
+  ' The second polygon, and concave on purpose: it is the one item in this scene drawn
+  ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
+  ' nearest-edge magnitude on a shape that is not convex -- so a wrong base here shows as
+  ' a wrong FILL, not merely a shifted outline.
+  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fill(canvas::rgba(0, 180, 180, 200))]
 
-  canvas::present([box, rounded, line, tri, face, eyeL, eyeR, smile])
+  canvas::present([box, rounded, line, tri, arrow, face, eyeL, eyeR, smile])
 END SUB
 "#;
 
@@ -107,6 +121,44 @@ SUB main()
   LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(canvas::rgb(0, 200, 255))]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]
   canvas::present([box, ring])
+END SUB
+"#;
+
+/// Many polygons that individually fit but together overflow the frame's edge region.
+///
+/// New in plan-116-A, and it covers a decline that did not exist before it. Metal's
+/// edges used to ride an unbounded per-item `setFragmentBytes:` payload, so the only cap
+/// was per *item*; they now take a slice of one region serving the whole frame
+/// (`METAL_MAX_FRAME_EDGES` = 16384), so the cap is a frame total, exactly as Vulkan's
+/// has always been.
+///
+/// 200 rings of 200 edges is 40,000 edges. Each ring is far inside the per-item
+/// `__CANVAS_METAL_MAX_EDGES` (256), so `TOO_MANY_EDGES` above cannot reach this case —
+/// only the *sum* is over, which is precisely the new condition. The rectangle is there
+/// so the frame is not blank: a fallback that rendered nothing would compare equal to a
+/// fallback that rendered nothing and prove nothing.
+const TOO_MANY_FRAME_EDGES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT math
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]]
+  MUT ring AS Integer = 0
+  WHILE ring < 200
+    MUT points AS List OF canvas::Point = []
+    MUT i AS Integer = 0
+    WHILE i < 200
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 200.0
+      points = collections::append(points, canvas::Point[x := 450.0 + toFloat(ring) + 100.0 * math::cos(a), y := 320.0 + 100.0 * math::sin(a)])
+      i = i + 1
+    END WHILE
+    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(canvas::rgba(0, 200, 255, 60))]
+    scene = collections::append(scene, poly)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
 END SUB
 "#;
 
@@ -299,6 +351,44 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
             "a 300-edge polygon does not fit the shader's edge buffer, so the renderer \
              must decline the whole scene and let the software oracle draw it — the \
              two frames must be byte-identical, but {diff}"
+        );
+    }
+}
+
+/// A frame whose polygons *individually* fit but *together* overflow the edge region is
+/// declined too.
+///
+/// plan-116-A's one named compatibility change, and the test that pins it as a decline
+/// rather than as truncation. Before that letter Metal had no frame-wide edge budget at
+/// all — each polygon's edges were copied into the command buffer as they were recorded
+/// — so this scene rendered on the GPU. It now goes to software, which is the oracle, so
+/// the picture is at least as correct.
+///
+/// Asserted **exactly**, like the per-item decline above: the fallback runs the identical
+/// software renderer on the identical scene, so anything other than byte equality means
+/// the Metal path drew part of a scene it should have refused. Asserting it by pixels
+/// rather than by reading a stats flag is the point — a renderer that silently truncated
+/// at 16384 edges would still report `gpuSelected=TRUE` and look healthy.
+#[test]
+fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_frame_edges", TOO_MANY_FRAME_EDGES);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    assert!(
+        software.pixels.iter().any(|&b| b != 0),
+        "the software render drew nothing, so the comparison would be vacuous",
+    );
+    if let Err(diff) = compare_exact(&gpu, &software) {
+        panic!(
+            "200 rings of 200 edges is 40,000 edges, past METAL_MAX_FRAME_EDGES — the \
+             renderer must decline the whole frame and let the software oracle draw it, \
+             so the two frames must be byte-identical, but {diff}"
         );
     }
 }

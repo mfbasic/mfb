@@ -26,11 +26,13 @@ use crate::codegen::string::validate::*;
 use crate::ir::{IrLinkExpr, IrLinkFunction};
 use crate::target::shared::abi;
 use crate::target::shared::nir::{self, link_thunk_symbol};
+use crate::types::CAbiType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::codegen::collection::layout::emit_alloc_byte_list;
 use crate::codegen::link::locator::LinkLibraries;
+use crate::operators::BinaryOp;
 /// sec-02: bytes of guard region appended past an `OUT CBuffer`'s declared
 /// `SIZE`, stamped with a canary before the native call and checked after. A
 /// callee that writes past `SIZE` clobbers the canary (contiguous writers like
@@ -556,10 +558,12 @@ fn lower_link_thunk(
     // sized buffer in the struct region instead (plan-50-E). Counting structs here
     // would inflate the frame and, worse, desynchronize `expr_offsets` from the
     // staging loop's sequence.
-    let is_struct_ctype = |ctype: &str| {
+    // plan-113: a CSTRUCT-named slot is a `ParameterType::Named`, never a `C` —
+    // that namespace is open, so it stays a nominal and is matched by name here.
+    let is_struct_ctype = |ctype: &crate::types::ParameterType| {
         link_cstructs
             .iter()
-            .any(|c| c.alias == function.alias && c.name == ctype)
+            .any(|c| c.alias == function.alias && ctype.is_named(&c.name))
     };
     let n_out = function
         .abi_slots
@@ -582,10 +586,10 @@ fn lower_link_thunk(
     // CSTRUCT's field ctypes — never transported — so a crafted package cannot
     // dictate an offset.
     let target = "";
-    let cstruct_of = |ctype: &str| -> Option<&crate::ir::IrCStruct> {
+    let cstruct_of = |ctype: &crate::types::ParameterType| -> Option<&crate::ir::IrCStruct> {
         link_cstructs
             .iter()
-            .find(|c| c.alias == function.alias && c.name == ctype)
+            .find(|c| c.alias == function.alias && ctype.is_named(&c.name))
     };
     // (slot index) -> (buffer offset, layout, the CSTRUCT)
     let mut struct_slots: Vec<(usize, usize, crate::ir::CLayout, &crate::ir::IrCStruct)> =
@@ -595,7 +599,7 @@ fn lower_link_thunk(
         let Some(decl) = cstruct_of(&slot.ctype) else {
             continue;
         };
-        let fields: Vec<(String, String)> = decl
+        let fields: Vec<(String, crate::types::ParameterType)> = decl
             .fields
             .iter()
             .map(|f| (f.name.clone(), f.ctype.clone()))
@@ -618,7 +622,12 @@ fn lower_link_thunk(
     let cstr_area = align(struct_cursor, 8);
     let n_cstr = struct_slots
         .iter()
-        .map(|(_, _, _, decl)| decl.fields.iter().filter(|f| f.ctype == "CString").count())
+        .map(|(_, _, _, decl)| {
+            decl.fields
+                .iter()
+                .filter(|f| f.ctype.is_c_abi(CAbiType::Str))
+                .count()
+        })
         .max()
         .unwrap_or(0);
     let cursor_off = cstr_area + n_cstr * 16;
@@ -637,7 +646,7 @@ fn lower_link_thunk(
         .abi_slots
         .iter()
         .enumerate()
-        .filter(|(_, slot)| slot.ctype == "CBuffer")
+        .filter(|(_, slot)| slot.ctype.is_c_abi(CAbiType::Buffer))
         .map(|(idx, _)| idx)
         .collect();
     let cbuffer_size_base = rec_ptr_off + 8;
@@ -670,7 +679,7 @@ fn lower_link_thunk(
         };
         let Some(decl) = link_cstructs
             .iter()
-            .find(|c| c.alias == function.alias && c.name == slot.ctype)
+            .find(|c| c.alias == function.alias && slot.ctype.is_named(&c.name))
         else {
             return false;
         };
@@ -678,13 +687,13 @@ fn lower_link_thunk(
             decl.fields
                 .iter()
                 .find(|f| f.name == field.name)
-                .is_some_and(|f| narrow_signed_bits(&f.ctype).is_some())
+                .is_some_and(|f| f.ctype.c_abi().and_then(narrow_signed_bits).is_some())
         })
     });
     let needs_range = bind_in_needs_range
         || function.abi_slots.iter().any(|slot| {
             !slot.direction.writes_back()
-                && slot.ctype == "CInt32"
+                && slot.ctype.is_c_abi(CAbiType::Int32)
                 && function.params.iter().any(|(name, _)| name == &slot.name)
         });
     // plan-50-F: a `CString` struct field is copied out with the same helper, so
@@ -693,16 +702,16 @@ fn lower_link_thunk(
     let struct_has_cstring_field = function.abi_slots.iter().any(|slot| {
         link_cstructs
             .iter()
-            .find(|c| c.alias == function.alias && c.name == slot.ctype)
-            .is_some_and(|c| c.fields.iter().any(|f| f.ctype == "CString"))
+            .find(|c| c.alias == function.alias && slot.ctype.is_named(&c.name))
+            .is_some_and(|c| c.fields.iter().any(|f| f.ctype.is_c_abi(CAbiType::Str)))
     });
     let needs_encoding = struct_has_cstring_field
         || (returns_value
-            && function.abi_return_ctype == "CPtr"
+            && function.abi_return_ctype.is_c_abi(CAbiType::Ptr)
             && matches!(function.return_type, crate::types::ParameterType::String));
     // `needs_float` gates the `d0`-stash below (a `double` ABI *return* arrives
     // in `d0`, not `x0`), so it must stay narrow to the direct-return case.
-    let needs_float = returns_value && function.abi_return_ctype == "CDouble";
+    let needs_float = returns_value && function.abi_return_ctype.is_c_abi(CAbiType::Double);
     // bug-409: two other marshalling paths branch to the same `nan_fail` /
     // `inf_fail` labels without the ABI return being a `CDouble`, so gating the
     // labels on `needs_float` alone left a dangling branch — a hard build failure
@@ -719,13 +728,17 @@ fn lower_link_thunk(
                 .iter()
                 .find(|(idx, ..)| function.abi_slots[*idx].name == name)
         })
-        .is_some_and(|(_, _, _, decl)| decl.fields.iter().any(|f| f.ctype == "CDouble"));
+        .is_some_and(|(_, _, _, decl)| {
+            decl.fields
+                .iter()
+                .any(|f| f.ctype.is_c_abi(CAbiType::Double))
+        });
     // (2) a `CDouble` OUT-slot result (bug-238) runs the same finiteness gate in
     //     the OUT-slot marshalling arm (`RETURN dblOut`, ABI return a status).
     let out_result_is_cdouble = function.abi_slots.iter().any(|slot| {
         result_var == Some(slot.name.as_str())
             && slot.direction.writes_back()
-            && slot.ctype == "CDouble"
+            && slot.ctype.is_c_abi(CAbiType::Double)
     });
     let needs_float_labels =
         needs_float || struct_result_has_cdouble_field || out_result_is_cdouble;
@@ -981,7 +994,7 @@ fn lower_link_thunk(
     let mut result_out_off: Option<usize> = None;
     // The OUT-slot result's ctype drives the same marshalling the direct-return
     // path applies (bug-238); without it a `CInt32` OUT surfaced -1 as 4294967295.
-    let mut result_out_ctype: Option<String> = None;
+    let mut result_out_ctype: Option<CAbiType> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
         // plan-58-B: a CBuffer was fully staged by the pass above — block
@@ -994,10 +1007,10 @@ fn lower_link_thunk(
         // scalar-OUT arm below overwrites the cslot with `&out_word` and ZEROES
         // the out word that now holds the block pointer, so the two stagings
         // clobber each other and the callee receives a pointer to frame memory.
-        if slot.ctype == "CBuffer" {
+        if slot.ctype.is_c_abi(CAbiType::Buffer) {
             if result_var == Some(slot.name.as_str()) {
                 result_out_off = Some(out_base + out_seq * 8);
-                result_out_ctype = Some(slot.ctype.clone());
+                result_out_ctype = slot.ctype.c_abi();
             }
             out_seq += 1;
             continue;
@@ -1060,7 +1073,7 @@ fn lower_link_thunk(
             ]);
             if result_var == Some(slot.name.as_str()) {
                 result_out_off = Some(out_off);
-                result_out_ctype = Some(slot.ctype.clone());
+                result_out_ctype = slot.ctype.c_abi();
             }
         } else if let Some(value) = const_for.get(slot.name.as_str()) {
             // §12.3: a `CInt32` slot is a signed 32-bit C argument. A param feeding
@@ -1068,7 +1081,7 @@ fn lower_link_thunk(
             // a `CONST` pin is known at compile time, so an out-of-range value is
             // rejected here rather than silently truncated to its low 32 bits
             // (bug-66).
-            if slot.ctype == "CInt32"
+            if slot.ctype.is_c_abi(CAbiType::Int32)
                 && (*value < i64::from(i32::MIN) || *value > i64::from(i32::MAX))
             {
                 return Err(format!(
@@ -1083,7 +1096,7 @@ fn lower_link_thunk(
             ]);
         } else if let Some(&pidx) = param_index.get(slot.name.as_str()) {
             let param_off = param_base + pidx * 8;
-            if slot.ctype == "CString" {
+            if slot.ctype.is_c_abi(CAbiType::Str) {
                 emit_copy_string_to_cstring(
                     &symbol,
                     param_off,
@@ -1092,7 +1105,7 @@ fn lower_link_thunk(
                     &mut instructions,
                     &mut relocations,
                 );
-            } else if slot.ctype == "CInt32" {
+            } else if slot.ctype.is_c_abi(CAbiType::Int32) {
                 // §12.3: the 64-bit MFBASIC Integer must fit signed 32-bit; an
                 // out-of-range value fails rather than silently truncating.
                 instructions.extend([
@@ -1103,7 +1116,7 @@ fn lower_link_thunk(
                     abi::branch_ne(&range_fail),
                     abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
                 ]);
-            } else if slot.ctype == "CPtr"
+            } else if slot.ctype.is_c_abi(CAbiType::Ptr)
                 && function
                     .params
                     .get(pidx)
@@ -1152,7 +1165,7 @@ fn lower_link_thunk(
     let int_slot_count = function
         .abi_slots
         .iter()
-        .filter(|slot| slot.ctype != "CDouble")
+        .filter(|slot| !slot.ctype.is_c_abi(CAbiType::Double))
         .count();
     if int_slot_count > external_int_registers {
         return Err(format!(
@@ -1167,7 +1180,7 @@ fn lower_link_thunk(
     let mut flt_idx = 0usize;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
-        if slot.ctype == "CDouble" {
+        if slot.ctype.is_c_abi(CAbiType::Double) {
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), cslot_off),
                 abi::float_move_d_from_x(abi::fp_argument_register(flt_idx)?, "%v9"),
@@ -1263,7 +1276,7 @@ fn lower_link_thunk(
 
     // Derive the status value (sign-extending a 32-bit native return).
     instructions.push(abi::load_u64("%v9", abi::stack_pointer(), CRET_OFF));
-    if function.abi_return_ctype == "CInt32" {
+    if function.abi_return_ctype.is_c_abi(CAbiType::Int32) {
         instructions.extend([
             abi::shift_left_immediate("%v9", "%v9", 32),
             abi::arithmetic_shift_right_immediate("%v9", "%v9", 32),
@@ -1347,14 +1360,14 @@ fn lower_link_thunk(
         // 8-byte load — otherwise a `CInt32` OUT writing -1 surfaced as
         // 4294967295 (zero-extended) and a `CDouble` OUT bypassed the finiteness
         // rejection an MFBASIC `Float` requires.
-        match result_out_ctype.as_deref().unwrap_or("") {
-            "CInt32" => {
+        match result_out_ctype {
+            Some(CAbiType::Int32) => {
                 instructions.extend([
                     abi::load_u64("%v9", abi::stack_pointer(), out_off),
                     abi::sign_extend_word(RESULT_VALUE_REGISTER, "%v9"),
                 ]);
             }
-            "CBool" => {
+            Some(CAbiType::Bool) => {
                 let set = format!("{symbol}_out_bool_true");
                 let end = format!("{symbol}_out_bool_end");
                 instructions.extend([
@@ -1368,14 +1381,14 @@ fn lower_link_thunk(
                     abi::label(&end),
                 ]);
             }
-            "CByte" => {
+            Some(CAbiType::Byte) => {
                 instructions.extend([
                     abi::load_u64("%v9", abi::stack_pointer(), out_off),
                     abi::move_immediate("%v10", "Integer", "255"),
                     abi::and_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
                 ]);
             }
-            "CDouble" => {
+            Some(CAbiType::Double) => {
                 // Mirrors the direct-return finiteness gate: a non-finite double has
                 // all exponent bits set; the mantissa distinguishes Inf from NaN.
                 let finite = format!("{symbol}_out_float_finite");
@@ -1404,7 +1417,7 @@ fn lower_link_thunk(
             // as `4294967295`. An arm that agrees with the default today still
             // states the intent, and stops a future edit to the default from
             // silently changing what a CBuffer returns.
-            "CBuffer" => {
+            Some(CAbiType::Buffer) => {
                 // Truncate to what the callee actually wrote, then hand back the
                 // block pointer — which IS the wrapper's `List OF Byte`.
                 //
@@ -1468,7 +1481,25 @@ fn lower_link_thunk(
                     abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
                 ]);
             }
-            _ => {
+            // Everything else is a plain 8-byte load of the OUT word. Enumerated
+            // rather than left to a `_` (plan-113): that silent default is
+            // exactly how bug-238 shipped — a `CInt32` OUT fell through it and
+            // surfaced `-1` as `4294967295`. `None` is a CSTRUCT-named slot,
+            // whose ctype is a `Named` and whose result is the buffer address.
+            Some(
+                CAbiType::Ptr
+                | CAbiType::Str
+                | CAbiType::Int8
+                | CAbiType::Int16
+                | CAbiType::Int64
+                | CAbiType::UInt8
+                | CAbiType::UInt16
+                | CAbiType::UInt32
+                | CAbiType::UInt64
+                | CAbiType::Float
+                | CAbiType::Void,
+            )
+            | None => {
                 instructions.push(abi::load_u64(
                     RESULT_VALUE_REGISTER,
                     abi::stack_pointer(),
@@ -1790,8 +1821,19 @@ fn emit_return_passthrough(
 ) -> Result<(), String> {
     let cret_off = m.cret_off;
     let status_off = m.status_off;
-    match function.abi_return_ctype.as_str() {
-        "CPtr" if matches!(function.return_type, crate::types::ParameterType::String) => {
+    // plan-113: exhaustive on `CAbiType`, so a new C type cannot be added
+    // without deciding its return marshalling here. `None` is a spelling outside
+    // the 16, which `ir::verify` already rejected -- kept as the same hard error.
+    let Some(ctype) = function.abi_return_ctype.c_abi() else {
+        return Err(format!(
+            "LINK function '{}.{}' has unknown ABI return ctype '{}'",
+            function.alias,
+            function.name,
+            function.abi_return_ctype.name()
+        ));
+    };
+    match ctype {
+        CAbiType::Ptr if matches!(function.return_type, crate::types::ParameterType::String) => {
             emit_copy_cstring_to_string(
                 symbol,
                 cret_off,
@@ -1801,7 +1843,7 @@ fn emit_return_passthrough(
                 relocations,
             );
         }
-        "CDouble" => {
+        CAbiType::Double => {
             // §12.3: a C `double` may be NaN/Inf, but an MFBASIC `Float` is always
             // finite (04_types.md — an MFBASIC Float is always finite), so reject non-finite results at the boundary.
             // A non-finite double has all exponent bits set (`0x7FF0…`); the
@@ -1822,21 +1864,21 @@ fn emit_return_passthrough(
                 abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
             ]);
         }
-        "CPtr" | "CInt64" => {
+        CAbiType::Ptr | CAbiType::Int64 => {
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
                 cret_off,
             ));
         }
-        "CInt32" => {
+        CAbiType::Int32 => {
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
                 status_off,
             ));
         }
-        "CBool" => {
+        CAbiType::Bool => {
             let set = format!("{symbol}_bool_true");
             let end = format!("{symbol}_bool_end");
             instructions.extend([
@@ -1850,7 +1892,7 @@ fn emit_return_passthrough(
                 abi::label(&end),
             ]);
         }
-        "CByte" => {
+        CAbiType::Byte => {
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), cret_off),
                 abi::move_immediate("%v10", "Integer", "255"),
@@ -1861,21 +1903,34 @@ fn emit_return_passthrough(
         // already delivers them in the low bits of the return register, and the
         // wrapper's MFBASIC type is `Integer`. Listed explicitly (rather than
         // left to a default arm) so an unknown ctype is a hard error — plan-50-A.
-        "CInt8" | "CInt16" | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64" | "CFloat" => {
+        CAbiType::Int8
+        | CAbiType::Int16
+        | CAbiType::UInt8
+        | CAbiType::UInt16
+        | CAbiType::UInt32
+        | CAbiType::UInt64
+        | CAbiType::Float => {
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
                 cret_off,
             ));
         }
-        other => {
-            // Unreachable: `abi_slot_ctype_is_known` gates this at the former source checker and
-            // at `ir::verify` (both paths). This exists so a ctype added to the
-            // allow-list without a marshaling arm fails loudly at build time
-            // instead of silently moving a raw 64-bit value.
+        // The three with no return-side meaning at all. `CString` is the
+        // argument direction (a `char *` return is `CPtr` + a `String` wrapper);
+        // `CVoid` returns nothing, so `returns_value` is false and this is never
+        // called for it; `CBuffer` is rejected as the ABI return proper by
+        // `check_buffer_slots` rule 5. All three are unreachable through
+        // `ir::verify`, and stay the same hard error rather than a silent raw
+        // 64-bit move — plan-50-A. plan-113 made them explicit arms because
+        // `CAbiType` is exhaustively matched; the message is byte-identical to
+        // the `other =>` default it replaced.
+        CAbiType::Str | CAbiType::Void | CAbiType::Buffer => {
             return Err(format!(
-                "LINK function '{}.{}' has unknown ABI return ctype '{other}'",
-                function.alias, function.name
+                "LINK function '{}.{}' has unknown ABI return ctype '{}'",
+                function.alias,
+                function.name,
+                ctype.name()
             ));
         }
     }
@@ -2108,19 +2163,20 @@ fn emit_link_expr(
             let id = *counter;
             *counter += 1;
             let end = format!("{symbol}_cmp{id}_end");
-            let branch = match op.as_str() {
-                "=" => abi::branch_eq(&end),
-                "<>" => abi::branch_ne(&end),
-                "<" => abi::branch_lt(&end),
-                ">" => abi::branch_gt(&end),
-                "<=" => abi::branch_le(&end),
-                ">=" => abi::branch_ge(&end),
-                // Unreachable after validation: the frontend's `lower_link_expr`
-                // only ever emits these six operators, and the package (`.mfp`)
-                // decoder rejects any other via `link_compare_op_valid` (bug-403).
-                // A loud panic here (never a silent `=`) keeps a future decode gap
-                // from miscompiling instead of failing.
-                other => unreachable!("invalid LINK Compare operator {other:?} reached codegen"),
+            // `IrLinkExpr::Compare` carries the operator as the wire spelling,
+            // so this is a decode-side parse, not a stage re-deciding on a
+            // string: the frontend's `lower_link_expr` only ever emits the six
+            // comparisons, and the package (`.mfp`) decoder rejects any other
+            // via `link_compare_op_valid` (bug-403). A loud panic here (never a
+            // silent `=`) keeps a future decode gap from miscompiling.
+            let branch = match BinaryOp::parse(op) {
+                Some(BinaryOp::Equal) => abi::branch_eq(&end),
+                Some(BinaryOp::NotEqual) => abi::branch_ne(&end),
+                Some(BinaryOp::Less) => abi::branch_lt(&end),
+                Some(BinaryOp::Greater) => abi::branch_gt(&end),
+                Some(BinaryOp::LessEqual) => abi::branch_le(&end),
+                Some(BinaryOp::GreaterEqual) => abi::branch_ge(&end),
+                _ => unreachable!("invalid LINK Compare operator {op:?} reached codegen"),
             };
             instructions.push(abi::compare_registers(&lhs_reg, &rhs_reg));
             instructions.push(abi::move_immediate(&dst, "Integer", "1"));
@@ -2199,12 +2255,26 @@ fn emit_link_bool(
 
 /// Emit the sized store for a struct field of `ctype` at `[sp + off]` from `src`
 /// (plan-50-E §4.4).
-fn store_field(ctype: &str, src: &str, off: usize) -> CodeInstruction {
+fn store_field(ctype: CAbiType, src: &str, off: usize) -> CodeInstruction {
     match ctype {
-        "CInt8" | "CUInt8" | "CBool" | "CByte" => abi::store_u8(src, abi::stack_pointer(), off),
-        "CInt16" | "CUInt16" => abi::store_u16(src, abi::stack_pointer(), off),
-        "CInt32" | "CUInt32" | "CFloat" => abi::store_u32(src, abi::stack_pointer(), off),
-        _ => abi::store_u64(src, abi::stack_pointer(), off),
+        CAbiType::Int8 | CAbiType::UInt8 | CAbiType::Bool | CAbiType::Byte => {
+            abi::store_u8(src, abi::stack_pointer(), off)
+        }
+        CAbiType::Int16 | CAbiType::UInt16 => abi::store_u16(src, abi::stack_pointer(), off),
+        CAbiType::Int32 | CAbiType::UInt32 | CAbiType::Float => {
+            abi::store_u32(src, abi::stack_pointer(), off)
+        }
+        // The 8-byte fields, plus the three that are never struct fields at all
+        // (`ctype_size_align` answers `None` for `CVoid`/`CBuffer`, so
+        // `check_cstruct` rejects them before lowering). Enumerated rather than
+        // left to `_` (plan-113) so a new C type must decide its store width.
+        CAbiType::Int64
+        | CAbiType::UInt64
+        | CAbiType::Double
+        | CAbiType::Ptr
+        | CAbiType::Str
+        | CAbiType::Void
+        | CAbiType::Buffer => abi::store_u64(src, abi::stack_pointer(), off),
     }
 }
 
@@ -2213,12 +2283,24 @@ fn store_field(ctype: &str, src: &str, off: usize) -> CodeInstruction {
 /// Every load zero-extends, so a SIGNED narrow field is sign-extended by the
 /// caller — otherwise a `CInt32 sections = -1` surfaces as 4294967295, which is
 /// exactly bug-238.
-fn load_field(ctype: &str, dst: &str, off: usize) -> CodeInstruction {
+fn load_field(ctype: CAbiType, dst: &str, off: usize) -> CodeInstruction {
     match ctype {
-        "CInt8" | "CUInt8" | "CBool" | "CByte" => abi::load_u8(dst, abi::stack_pointer(), off),
-        "CInt16" | "CUInt16" => abi::load_u16(dst, abi::stack_pointer(), off),
-        "CInt32" | "CUInt32" | "CFloat" => abi::load_u32(dst, abi::stack_pointer(), off),
-        _ => abi::load_u64(dst, abi::stack_pointer(), off),
+        CAbiType::Int8 | CAbiType::UInt8 | CAbiType::Bool | CAbiType::Byte => {
+            abi::load_u8(dst, abi::stack_pointer(), off)
+        }
+        CAbiType::Int16 | CAbiType::UInt16 => abi::load_u16(dst, abi::stack_pointer(), off),
+        CAbiType::Int32 | CAbiType::UInt32 | CAbiType::Float => {
+            abi::load_u32(dst, abi::stack_pointer(), off)
+        }
+        // See `store_field`: the 8-byte fields, plus the three that can never be
+        // struct fields.
+        CAbiType::Int64
+        | CAbiType::UInt64
+        | CAbiType::Double
+        | CAbiType::Ptr
+        | CAbiType::Str
+        | CAbiType::Void
+        | CAbiType::Buffer => abi::load_u64(dst, abi::stack_pointer(), off),
     }
 }
 
@@ -2254,13 +2336,25 @@ fn marshal_struct_in(
                 function.alias, function.name, field.name, decl.name
             ));
         };
-        let ctype = decl.fields[pos].ctype.as_str();
+        // `check_cstruct` rejects a field ctype outside the 16 before lowering,
+        // and `compute_c_layout` above would have failed on one, so this is
+        // always `Some` here — but it stays a hard error rather than a default.
+        let Some(ctype) = decl.fields[pos].ctype.c_abi() else {
+            return Err(format!(
+                "LINK function '{}.{}' CSTRUCT '{}' field '{}' has unknown C type '{}'",
+                function.alias,
+                function.name,
+                decl.name,
+                field.name,
+                decl.fields[pos].ctype.name()
+            ));
+        };
         let off = buf_off + layout.offsets[pos];
 
         // plan-50-F: a `CString` field takes an MFBASIC String and gives C a
         // NUL-terminated copy that lives for the call. Handled before the integer
         // path: it is a pointer, not a value to range-check.
-        if ctype == "CString" {
+        if ctype == CAbiType::Str {
             let Some(param) = &field.param else {
                 return Err(format!(
                     "LINK function '{}.{}' BIND IN field '{}' is a CString and must bind a String parameter, not a literal",
@@ -2329,12 +2423,26 @@ fn marshal_struct_in(
 
 /// The bit width of a signed narrow C integer, or `None` when the ctype needs no
 /// range check (64-bit, unsigned, float, or pointer).
-fn narrow_signed_bits(ctype: &str) -> Option<u32> {
+fn narrow_signed_bits(ctype: CAbiType) -> Option<u32> {
     match ctype {
-        "CInt8" => Some(8),
-        "CInt16" => Some(16),
-        "CInt32" => Some(32),
-        _ => None,
+        CAbiType::Int8 => Some(8),
+        CAbiType::Int16 => Some(16),
+        CAbiType::Int32 => Some(32),
+        // Exhaustive rather than a `_` arm (plan-113): a new C integer type must
+        // decide here whether it needs a range check, not silently inherit "no".
+        CAbiType::Int64
+        | CAbiType::UInt8
+        | CAbiType::UInt16
+        | CAbiType::UInt32
+        | CAbiType::UInt64
+        | CAbiType::Bool
+        | CAbiType::Byte
+        | CAbiType::Float
+        | CAbiType::Double
+        | CAbiType::Ptr
+        | CAbiType::Str
+        | CAbiType::Buffer
+        | CAbiType::Void => None,
     }
 }
 
@@ -2393,7 +2501,7 @@ fn marshal_struct_out(
     const ALIGN8_MASK: &str = "18446744073709551608"; // !7u64
 
     // Resolve each record field to its CSTRUCT field once.
-    let mut plan: Vec<(usize, &str, usize)> = Vec::new(); // (rec_idx, ctype, buf offset)
+    let mut plan: Vec<(usize, CAbiType, usize)> = Vec::new(); // (rec_idx, ctype, buf offset)
     for (rec_idx, (rname, _)) in record.iter().enumerate() {
         let Some(cpos) = decl.fields.iter().position(|f| f.name == *rname) else {
             return Err(format!(
@@ -2401,18 +2509,25 @@ fn marshal_struct_out(
                 function.alias, function.name, decl.maps_to
             ));
         };
-        plan.push((
-            rec_idx,
-            decl.fields[cpos].ctype.as_str(),
-            buf_off + layout.offsets[cpos],
-        ));
+        // `check_cstruct` rejected any field outside the 16 before lowering; the
+        // hard error stands in for the `_` a `&str` scrutinee would have needed.
+        let Some(ctype) = decl.fields[cpos].ctype.c_abi() else {
+            return Err(format!(
+                "LINK function '{}.{}' CSTRUCT '{}' field '{rname}' has unknown C type '{}'",
+                function.alias,
+                function.name,
+                decl.name,
+                decl.fields[cpos].ctype.name()
+            ));
+        };
+        plan.push((rec_idx, ctype, buf_off + layout.offsets[cpos]));
     }
 
     // Pass 0: measure. For each CString field stash [char*, len] and validate the
     // bytes as UTF-8 (§12.4). A NULL char* becomes the empty String, len 0.
     let mut cstr_index: HashMap<usize, usize> = HashMap::new();
     for (rec_idx, ctype, off) in &plan {
-        if *ctype != "CString" {
+        if *ctype != CAbiType::Str {
             continue;
         }
         let k = cstr_index.len();
@@ -2461,7 +2576,7 @@ fn marshal_struct_out(
         abi::store_u64("%v9", abi::stack_pointer(), total_off),
     ]);
     for (rec_idx, ctype, _) in &plan {
-        if *ctype != "CString" {
+        if *ctype != CAbiType::Str {
             continue;
         }
         let len_slot = cstr_area + cstr_index[rec_idx] * 16 + 8;
@@ -2496,7 +2611,7 @@ fn marshal_struct_out(
         abi::store_u64("%v9", abi::stack_pointer(), cursor_off),
     ]);
     for (rec_idx, ctype, off) in &plan {
-        if *ctype == "CString" {
+        if *ctype == CAbiType::Str {
             let k = cstr_index[rec_idx];
             let ptr_slot = cstr_area + k * 16;
             let len_slot = ptr_slot + 8;
@@ -2540,18 +2655,18 @@ fn marshal_struct_out(
             ]);
             continue;
         }
-        instructions.push(load_field(ctype, "%v9", *off));
+        instructions.push(load_field(*ctype, "%v9", *off));
         match *ctype {
             // Every load zero-extends, so a signed narrow field must be
             // sign-extended or -1 surfaces as its unsigned reading (bug-238).
-            "CInt8" | "CInt16" | "CInt32" => {
-                let bits = narrow_signed_bits(ctype).unwrap();
+            CAbiType::Int8 | CAbiType::Int16 | CAbiType::Int32 => {
+                let bits = narrow_signed_bits(*ctype).unwrap();
                 instructions.extend([
                     abi::shift_left_immediate("%v9", "%v9", (64 - bits) as u8),
                     abi::arithmetic_shift_right_immediate("%v9", "%v9", (64 - bits) as u8),
                 ]);
             }
-            "CBool" => {
+            CAbiType::Bool => {
                 let set = format!("{symbol}_sf{rec_idx}_true");
                 let end = format!("{symbol}_sf{rec_idx}_end");
                 instructions.extend([
@@ -2564,7 +2679,7 @@ fn marshal_struct_out(
                     abi::label(&end),
                 ]);
             }
-            "CDouble" => {
+            CAbiType::Double => {
                 // An MFBASIC Float is always finite (§3), so reject NaN/Inf at the
                 // boundary exactly as the CDouble return path does.
                 let finite = format!("{symbol}_sf{rec_idx}_finite");
@@ -2581,7 +2696,25 @@ fn marshal_struct_out(
                     abi::label(&finite),
                 ]);
             }
-            _ => {}
+            // No post-load normalization. The unsigned narrows and `CByte` are
+            // already correct zero-extended; `CInt64`/`CUInt64`/`CPtr` fill the
+            // register; `CFloat` is not converted (it rides as raw bits, as it
+            // always has); `CString` was handled by the `continue` above; and
+            // `CVoid`/`CBuffer` can never be struct fields (`ctype_size_align`
+            // answers `None`, so `check_cstruct` rejects them). Enumerated
+            // rather than `_ => {}` (plan-113): this is the exact match where a
+            // silently-defaulted narrow signed field WAS bug-238.
+            CAbiType::UInt8
+            | CAbiType::UInt16
+            | CAbiType::UInt32
+            | CAbiType::UInt64
+            | CAbiType::Int64
+            | CAbiType::Byte
+            | CAbiType::Float
+            | CAbiType::Ptr
+            | CAbiType::Str
+            | CAbiType::Void
+            | CAbiType::Buffer => {}
         }
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), REC_OFF),
@@ -2665,11 +2798,11 @@ mod tests {
             fields: vec![
                 IrCStructField {
                     name: "n".to_string(),
-                    ctype: "CInt32".to_string(),
+                    ctype: crate::types::ParameterType::parse("CInt32"),
                 },
                 IrCStructField {
                     name: "x".to_string(),
-                    ctype: "CDouble".to_string(),
+                    ctype: crate::types::ParameterType::parse("CDouble"),
                 },
             ],
         };
@@ -2692,11 +2825,11 @@ mod tests {
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
                 name: "out".to_string(),
-                ctype: "Pair".to_string(),
+                ctype: crate::types::ParameterType::parse("Pair"),
                 direction: crate::ir::AbiDirection::Out,
             }],
             abi_return_name: "status".to_string(),
-            abi_return_ctype: "CInt32".to_string(),
+            abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
             consts: vec![],
             bind_in: vec![],
             bind_state: None,
@@ -2737,11 +2870,11 @@ mod tests {
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
                 name: "out".to_string(),
-                ctype: "CDouble".to_string(),
+                ctype: crate::types::ParameterType::parse("CDouble"),
                 direction: crate::ir::AbiDirection::Out,
             }],
             abi_return_name: "status".to_string(),
-            abi_return_ctype: "CInt32".to_string(),
+            abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
             consts: vec![],
             bind_in: vec![],
             bind_state: None,
@@ -2839,12 +2972,12 @@ mod tests {
             abi_slots: (0..count)
                 .map(|i| IrAbiSlot {
                     name: format!("a{i}"),
-                    ctype: "CInt64".to_string(),
+                    ctype: crate::types::ParameterType::parse("CInt64"),
                     direction: crate::ir::AbiDirection::In,
                 })
                 .collect(),
             abi_return_name: "return".to_string(),
-            abi_return_ctype: "CInt64".to_string(),
+            abi_return_ctype: crate::types::ParameterType::parse("CInt64"),
             consts: vec![],
             bind_in: vec![],
             bind_state: None,
@@ -2917,13 +3050,13 @@ mod tests {
         // ctype set under test is backend-independent, so any backend serves.
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
 
-        // The full accepted set. `ir::link::tests::ctype_list_is_exhaustive` holds
-        // this in sync with `abi_slot_ctype_is_known`, so a name added to the
-        // authority without an arm here fails there first.
-        const CTYPES: &[&str] = &[
-            "CPtr", "CString", "CBuffer", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8",
-            "CUInt16", "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
-        ];
+        // The full accepted set, taken FROM the vocabulary rather than copied
+        // beside it (plan-113). `ir::link::tests::ctype_list_is_exhaustive` used
+        // to hold a hand-written array in sync with `abi_slot_ctype_is_known`;
+        // seeding from `CAbiType::ALL` removes both the array and the drift it
+        // could suffer. What this test still proves — and what an exhaustive
+        // `match` does NOT — is that each arm actually LOWERS.
+        const CTYPES: [CAbiType; 16] = CAbiType::ALL;
 
         // `CBuffer` is covered by neither loop below, because it fits neither
         // shape: it is invalid as the ABI return (loop 1) and invalid as an IN
@@ -2934,16 +3067,16 @@ mod tests {
         // lower, deliberately rigged to break the moment plan-58-B landed the
         // marshaler — which is exactly what happened, rather than the ctype
         // quietly staying uncovered behind a silent filter.
-        const OWN_SHAPE_ONLY: &[&str] = &["CBuffer"];
+        const OWN_SHAPE_ONLY: &[CAbiType] = &[CAbiType::Buffer];
 
         // Every ctype valid as an ABI *return* must reach a return arm. This is the
         // arm that can `Err`, and it is how the guard caught `CString` having no
         // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
-        for ctype in CTYPES
-            .iter()
-            .filter(|c| abi_ctype_valid_as_return(c) && !OWN_SHAPE_ONLY.contains(c))
-        {
-            let returns_value = *ctype != "CVoid";
+        for ctype in CTYPES.iter().filter(|c| {
+            abi_ctype_valid_as_return(&crate::types::ParameterType::C(**c))
+                && !OWN_SHAPE_ONLY.contains(c)
+        }) {
+            let returns_value = *ctype != CAbiType::Void;
             let function = IrLinkFunction {
                 alias: "lib".to_string(),
                 name: format!("ret_{ctype}"),
@@ -2961,7 +3094,7 @@ mod tests {
                 return_state_type: None,
                 abi_slots: vec![],
                 abi_return_name: if returns_value { "return" } else { "status" }.to_string(),
-                abi_return_ctype: (*ctype).to_string(),
+                abi_return_ctype: crate::types::ParameterType::C(*ctype),
                 consts: vec![],
                 bind_in: vec![],
                 bind_state: None,
@@ -2989,7 +3122,10 @@ mod tests {
 
         // Every ctype valid as an ABI *argument* must stage without error. Pinned
         // with CONST so the slot needs no wrapper parameter.
-        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_argument(c)) {
+        for ctype in CTYPES
+            .iter()
+            .filter(|c| abi_ctype_valid_as_argument(&crate::types::ParameterType::C(**c)))
+        {
             let function = IrLinkFunction {
                 alias: "lib".to_string(),
                 name: format!("arg_{ctype}"),
@@ -3001,11 +3137,11 @@ mod tests {
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
                     name: "pinned".to_string(),
-                    ctype: (*ctype).to_string(),
+                    ctype: crate::types::ParameterType::C(*ctype),
                     direction: crate::ir::AbiDirection::In,
                 }],
                 abi_return_name: "status".to_string(),
-                abi_return_ctype: "CInt32".to_string(),
+                abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
                 consts: vec![("pinned".to_string(), 0)],
                 bind_in: vec![],
                 bind_state: None,
@@ -3050,11 +3186,11 @@ mod tests {
                 return_state_type: None,
                 abi_slots: vec![IrAbiSlot {
                     name: "buf".to_string(),
-                    ctype: (*ctype).to_string(),
+                    ctype: crate::types::ParameterType::C(*ctype),
                     direction: crate::ir::AbiDirection::Out,
                 }],
                 abi_return_name: "status".to_string(),
-                abi_return_ctype: "CInt32".to_string(),
+                abi_return_ctype: crate::types::ParameterType::parse("CInt32"),
                 consts: vec![],
                 bind_in: vec![],
                 bind_state: None,
@@ -3145,11 +3281,11 @@ mod tests {
             return_state_type: None,
             abi_slots: vec![IrAbiSlot {
                 name: "n".to_string(),
-                ctype: "CInt64".to_string(),
+                ctype: crate::types::ParameterType::parse("CInt64"),
                 direction: crate::ir::AbiDirection::In,
             }],
             abi_return_name: "return".to_string(),
-            abi_return_ctype: "CInt64".to_string(),
+            abi_return_ctype: crate::types::ParameterType::parse("CInt64"),
             consts: vec![],
             bind_in: vec![],
             bind_state: None,
@@ -3211,7 +3347,7 @@ mod tests {
             return_state_type: None,
             abi_slots: vec![],
             abi_return_name: "return".to_string(),
-            abi_return_ctype: "CInt64".to_string(),
+            abi_return_ctype: crate::types::ParameterType::parse("CInt64"),
             consts: vec![],
             bind_in: vec![],
             bind_state: None,

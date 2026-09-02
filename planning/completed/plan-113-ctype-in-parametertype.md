@@ -69,9 +69,13 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Tree compiles clean at HEAD | `cargo check --all-targets` → 0 warnings | UNMEASURED — run at kickoff |
-| The type-string gate is green and stays green | `cargo test --test no_type_strings` → 7 passed, 0 failed | MET (measured 2026-08-30) |
-| `artifact-gate all` reads 0 diffs before any edit | `scripts/artifact-gate.sh all` | UNMEASURED — run at kickoff, **before** the first edit |
+| Tree compiles clean at HEAD | `cargo check --all-targets` → 0 warnings | **MET** (measured 2026-09-01 in `.claude/worktrees/P-113` @ `ee12c1bf7`: `Finished dev profile`, 0 warnings) |
+| The type-string gate is green and stays green | `cargo test --test no_type_strings` → 7 passed, 0 failed | **MET** (measured 2026-09-01: `7 passed; 0 failed; 1 ignored`) |
+| `artifact-gate all` reads 0 diffs before any edit | `scripts/artifact-gate.sh all` | **MET** (measured 2026-09-01, before the first edit: `1324 tests, 1486 build(s), 1819 golden(s) checked, 0 diff(s)`, EXIT=0) |
+
+Kickoff acceptance baseline (for the Phase 2/3 `N ran` comparison):
+`./scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` →
+`acceptance tests passed (1345 test(s) ran)`, EXIT=0 (2026-09-01).
 
 The third row is the cheap substitute for a `git archive` baseline build: gate to
 0 first, and every diff after is attributable to this plan.
@@ -103,9 +107,9 @@ Everything below is written against the world where these hold.
   parameters typed `String`/`&str` anywhere after `src/ast/`.
 - **0** comparisons or match arms against a C type spelling outside
   `src/types.rs` and the two IR-binary decode sites.
-- The two hand-maintained exhaustiveness harnesses
-  (`every_known_ctype_lowers`, `ctype_list_is_exhaustive`) are replaced by
-  exhaustive `match`es that rustc checks.
+- `ctype_list_is_exhaustive` is replaced by exhaustive `match`es that rustc
+  checks. **`every_known_ctype_lowers` is kept** and re-seeded from
+  `CAbiType::ALL` — it asserts the arms *lower*, which no `match` proves (C7).
 - `tests/no_type_strings.rs` still passes, and gains a class for the C
   vocabulary so a reintroduced `ctype: String` fails `cargo test`.
 
@@ -159,6 +163,8 @@ A ctype is a `String` from the parser to the thunk emitter, and nothing types it
   | `abi_ctype_valid_as_return` | `src/ir/link.rs:67` | known && `!= "CString"` |
   | `ctype_size_align` | `src/ir/link.rs:119` | `match ctype` → `(size, align)` |
   | `resolver::is_c_abi_type` | `src/resolver/mod.rs:243` | `matches!` over **12** spellings, on `ParameterType::Named` |
+  | `is_c_abi_type` (second copy — **C2**, missed by this table) | `src/ir/verify/link.rs:183` | `matches!` over **13** spellings (the 12 + `CVoid`), on `ParameterType::Named` |
+  | `cstruct_field_mfb_type` (**C2**, missed by this table) | `src/ir/link.rs:203` | `match ctype` → the MFBASIC record field type |
 
 - **Lowered** in `src/codegen/link/thunk/link_thunk.rs` — 49 of the 86 sites,
   the marshaling arms per ctype.
@@ -327,7 +333,7 @@ dead.
 
 | Contract | Change |
 |---|---|
-| IR binary LINK section | **None on the wire.** `put_str(o, &f.ctype)` becomes `put_str(o, f.ctype.name())`; decode becomes `CAbiType::parse(&r.string()?)` for a field, and `ParameterType::parse` for a slot (which may be a CSTRUCT nominal). |
+| IR binary LINK section | **None on the wire.** `put_str(o, &f.ctype)` becomes `put_str(o, &f.ctype.name())`; decode becomes `ParameterType::parse(&r.string()?)` for the field, the slot **and** the ABI return alike (C6 — a `CAbiType::parse` on the field would turn `NATIVE_ABI_UNKNOWN_CTYPE` into a decode error). |
 | `.mfp` type table | **Untouched** — ctype is not in `src/binary_repr/**`. |
 | `.ast` / `.ir` goldens | **Byte-identical.** `name()` renders the same spellings. |
 | `.ncode` / `.ncodesum` | **Byte-identical**, all targets. |
@@ -345,74 +351,103 @@ dead.
 ### Phase 1 — `CAbiType`, the variant, and the `Named` audit
 
 Lands the vocabulary with no carriers retyped, and settles the one thing that
-could invalidate the design. Safe alone: nothing constructs a `C(_)` yet, so no
-`Named(_)` guard can yet see one.
+could invalidate the design. ~~Safe alone: nothing constructs a `C(_)` yet, so no
+`Named(_)` guard can yet see one.~~ **Corrected (C1): `parse` IS the
+constructor**, so the two `is_c_abi_type` guards move into this phase — see
+Corrections.
 
-- [ ] Add `CAbiType` (16 variants, `Clone, Copy, PartialEq, Eq, Hash, Debug`)
+- [x] Add `CAbiType` (16 variants, `Clone, Copy, PartialEq, Eq, Hash, Debug`)
       to `src/types.rs`, with `name(self) -> &'static str` and
       `parse(&str) -> Option<Self>` over the exact 16 spellings from
       `src/ir/link.rs:21-41`.
-- [ ] Add `ParameterType::C(CAbiType)`; add its `name` arm and its `parse` arm
+- [x] Add `ParameterType::C(CAbiType)`; add its `name` arm and its `parse` arm
       (tried in the bare-token path **before** the `Named` fallback, so
       `parse("CInt32")` yields `C(Int32)` and `parse("SfFileInfo")` still yields
       `Named`).
-- [ ] Add `ParameterType::c_abi(self) -> Option<CAbiType>` as the single
+- [x] Add `ParameterType::c_abi(self) -> Option<CAbiType>` as the single
       containment accessor. Do **not** add a broad `is_c()` helper that invites
       the Risk-2 mistake.
-- [ ] **Audit every `Named(_)` guard** for one that means "is this a nominal?"
+- [x] **Audit every `Named(_)` guard** for one that means "is this a nominal?"
       and would change answer now that C spellings are not `Named`. Start from
       the 84 `_ =>` arms and every `matches!(…, Named(_))` in the five stages the
       spec names (resolver, `ir::shape`, `ir::verify`, `monomorph::helpers`,
       the TypeModel builder). Record the real count and each verdict in
       Corrections — this is a deliverable, not a background check.
-- [ ] Tests: `src/types.rs` `#[cfg(test)]` — (a) `parse(name(c)) == Some(c)` for
+      → 28 sites audited, verdicts in Corrections C3; 5 needed a change.
+- [x] **(added — C1)** Convert `resolver::is_c_abi_type` and
+      `ir::verify::link`'s local `is_c_abi_type` to `CAbiType` matches in this
+      phase, not Phase 2: without them `NATIVE_CPTR_ESCAPE` stops firing the
+      moment `parse` mints a `C(_)`. Proven RED first
+      (`ir::verify::tests::rejects_link_cptr_escape_in_{param,return}` FAILED).
+- [x] **(added — C3)** `ParameterType::with_vars`,
+      `monomorph::helpers::leaf_param_symbol` and `monomorph::lower::leaf_symbol`
+      gain a `C` arm: a C spelling is a bare token, so `TYPE Box OF CPtr` may
+      name a template parameter with one. Measured to build on the pre-plan-113
+      binary; without the arms the field reports `SYMBOL_UNKNOWN_TYPE`.
+- [x] Tests: `src/types.rs` `#[cfg(test)]` — (a) `parse(name(c)) == Some(c)` for
       all 16, enumerated explicitly; (b) `parse("SfFileInfo")` is `Named`, not
       `C`; (c) `parse("CPtrX")`, `parse("cptr")`, `parse("")` are not `C`;
       (d) a golden-corpus test asserting every `"ctype"` string in
       `tests/**/*.ast` and `tests/**/*.ir` round-trips byte-exactly through
       `ParameterType::parse`/`name`.
+      → `c_abi_types_round_trip_through_parameter_type`,
+      `a_cstruct_name_stays_a_nominal`, `near_miss_spellings_are_not_c_abi_types`,
+      `every_golden_corpus_ctype_round_trips`,
+      `with_vars_reclassifies_a_c_abi_spelling_used_as_a_template_param`, plus
+      the four Risk-2 negatives added to `is_c_abi_type_recognizes_and_rejects`
+      (which also stopped constructing the now-unreachable `named("CPtr")`
+      shape and uses `parse` instead).
 
 Acceptance: `cargo test --no-fail-fast` green; the round-trip and corpus tests
 pass; `cargo test --test no_type_strings` still 7 passed / 0 failed; the
 `Named(_)` audit is written into Corrections with a verdict per site.
-Commit: —
+Commit: 3da36a576
 
 ### Phase 2 — the five authorities and the front-end carriers
 
 Converts the decision points and the AST/IR carriers. 23 of 86 sites
 (`src/ir/link.rs`) plus the resolver and the AST structs.
 
-- [ ] Retype the AST carriers to `ParameterType`: `CStructField.ctype`
+- [x] ~~Retype the AST carriers to `ParameterType`: `CStructField.ctype`
       (`src/ast/types.rs:299`), `FreeSpec.param_ctype`/`return_ctype`
       (`:364,366`), `AbiSpec.return_ctype` (`:378`), `AbiSlot.ctype` (`:388`);
-      fix the mint site in `src/ast/link_items.rs`.
-- [ ] Retype the IR carriers: `IrCStructField.ctype` (`src/ir/link.rs:97`),
+      fix the mint site in `src/ast/link_items.rs`.~~ **Replaced by C5** — the
+      AST is the name world (it holds zero `ParameterType` today) and
+      `link_items.rs` is not a sanctioned boundary. Instead: **elaborate the
+      C-side carriers at the HIR boundary.** Add `HirAbiSpec`, `HirAbiSlot`,
+      `HirCStructField` and `HirFreeSpec` carrying `ParameterType`, built in
+      `hir::elaborate_link_block` (`src/hir/mod.rs:567`, `BOUNDARY_FILES`
+      entry 3), and correct the `hir/mod.rs:170-171` comment that says the
+      C-side field list is untouched.
+- [x] Retype the IR carriers to **`ParameterType`** (C6, not `CAbiType` —
+      that would move `NATIVE_ABI_UNKNOWN_CTYPE` to a decode error):
+      `IrCStructField.ctype` (`src/ir/link.rs:97`),
       `IrLinkFunction.abi_return_ctype` (`:432`), `IrAbiSlot.ctype` (`:872`).
-- [ ] **Delete `abi_slot_ctype_is_known`** (`src/ir/link.rs:21-41`) — a
+- [x] **Delete `abi_slot_ctype_is_known`** (`src/ir/link.rs:21-41`) — a
       `CAbiType` *is* the proof of knownness. Its three production callers are
       `:51` and `:68` (the two position predicates, which absorb it) and `:345`
       (the CSTRUCT-field check, which becomes "parse failed"), preserving the
       exact `NATIVE_ABI_UNKNOWN_CTYPE` text. Note `:580` emits the same rule
       code for the `CBuffer`-as-ABI-return position rule but does **not** call
       this predicate — leave it alone beyond retyping its `== "CBuffer"`.
-- [ ] Delete the unreachable arm at
+- [x] Delete the unreachable arm at
       `src/codegen/link/thunk/link_thunk.rs:1872`, whose own comment says it is
       gated by `abi_slot_ctype_is_known`. With a `CAbiType` scrutinee the state
       is unrepresentable, so the arm is not merely unreachable but ill-typed.
-- [ ] Convert `abi_ctype_valid_as_argument` (`:50`) and
+- [x] Convert `abi_ctype_valid_as_argument` (`:50`) and
       `abi_ctype_valid_as_return` (`:67`) to `CAbiType` matches. Keep the
       position rules identical: argument = all but `Void` and `Buffer`; return =
       all but `Str`.
-- [ ] Convert `ctype_size_align` (`:119`) to a `CAbiType` match. It returns
+- [x] Convert `ctype_size_align` (`:119`) to a `CAbiType` match. It returns
       `None` for the storage-less types today; keep that, now as explicit arms.
-- [ ] **Convert `resolver::is_c_abi_type` (`src/resolver/mod.rs:243`) to a
+- [x] **Convert `resolver::is_c_abi_type` (`src/resolver/mod.rs:243`) to a
       12-variant `CAbiType` match — NOT `matches!(t, C(_))`.** (§3 Risk 2.) The
       excluded four are `Bool`, `Byte`, `Void`, `Buffer`.
-- [ ] Tests: extend `is_c_abi_type_recognizes_and_rejects`
+- [x] Tests: extend `is_c_abi_type_recognizes_and_rejects`
       (`src/resolver/mod.rs:851`) with **negative** assertions that `CBool`,
       `CByte`, `CVoid` and `CBuffer` are NOT C-ABI types for this predicate. That
       test is the regression guard for Risk 2; write it before the conversion.
-- [ ] `src/ir/verify/link.rs`: `is_cstruct_slot` (`:211`) now compares a
+- [x] `src/ir/verify/link.rs`: `is_cstruct_slot` (`:211`) now compares a
       `Named`'s symbol against the alias's CSTRUCT names; the scalar path takes
       a `CAbiType`.
 
@@ -420,31 +455,38 @@ Acceptance: `cargo test --no-fail-fast` green, including the new negative
 `is_c_abi_type` assertions; all `.ast` and `.ir` goldens byte-identical
 (`scripts/test-accept.sh <target> /tmp/accept-113` → 0 mismatches, same `N ran`
 as the kickoff baseline); the six CSTRUCT-slot goldens still build.
-Commit: —
+Commit: eae8d47a0 — **landed with Phase 3** (C8: they are one compile unit)
 
 ### Phase 3 — codegen marshaling and the wire seam (largest blast radius)
 
 The 49 `link_thunk.rs` sites plus the IR binary codec. Last: this is where a
 wrong arm moves wrong bytes.
 
-- [ ] Convert `src/codegen/link/thunk/link_thunk.rs`'s marshaling arms to
+- [x] Convert `src/codegen/link/thunk/link_thunk.rs`'s marshaling arms to
       `CAbiType`, **one arm at a time in source order**. Do not merge arms in
       the same commit that retypes them (§3 Risk 1).
-- [ ] Convert `src/codegen/engine/builder/mod.rs` (2 sites) and
+- [x] Convert `src/codegen/engine/builder/mod.rs` (2 sites) and
       `src/audit/collect/project.rs` (1 site).
-- [ ] `src/ir/binary.rs`: encode via `name()` at `:310,388,392`; decode at
-      `:615,653,666` via `CAbiType::parse` for a CSTRUCT **field** (closed) and
-      `ParameterType::parse` for an ABI **slot** (may be a CSTRUCT nominal).
-      A decode failure must be an error, never a default — mirror
-      `AbiDirection`'s wire contract (`src/ir/link.rs:842-844`).
-- [ ] **Delete the two hand-maintained exhaustiveness harnesses** now that rustc
-      enforces them: `every_known_ctype_lowers`
-      (`link_thunk.rs:2915`) and `ctype_list_is_exhaustive` (`src/ir/link.rs:946`).
-      Replace with a comment naming the exhaustive `match` that supersedes each.
-      Per `AGENTS.md`, state the proof in the commit: the test protected "a name
-      in the authority list has a lowering arm", which an exhaustive match on a
-      closed enum makes a compile error.
-- [ ] Verify no `_ =>` arm was left on a `CAbiType` match:
+- [x] `src/ir/binary.rs`: encode via `name()` at `:310,388,392`; decode at
+      `:615,653,666` via **`ParameterType::parse` for all three** — field, slot
+      and ABI return alike (C6). `parse` is total, so the codec cannot fail;
+      an unknown spelling decodes to a `Named` and is rejected by the same
+      `NATIVE_ABI_UNKNOWN_CTYPE` check as today, with the same text and
+      location. ~~`CAbiType::parse` for a CSTRUCT field; a decode failure must
+      be an error~~ — moot: that turns a checker diagnostic into a decode
+      error, which the non-goals forbid (see C6 for the exact message it
+      would displace).
+- [x] Delete **`ctype_list_is_exhaustive`** (`src/ir/link.rs:946`) — once the
+      list *is* `CAbiType::ALL` and the authority *is* the enum, both sides of
+      its assertion are the same value. Replace with a comment naming the
+      exhaustive `match` that supersedes it.
+- [x] **KEEP `every_known_ctype_lowers`** (`link_thunk.rs:2915`) — C7: it
+      asserts `lower_link_thunk(...).is_ok()`, which an exhaustive match does
+      **not** prove, and its `OUT CBuffer` case exercises the whole buffer
+      staging path. Retype its hand-copied `CTYPES` array to `CAbiType::ALL`,
+      which is what removes the drift hazard it was compensating for.
+      ~~Delete both hand-maintained exhaustiveness harnesses.~~
+- [x] Verify no `_ =>` arm was left on a `CAbiType` match:
       `grep -rn -B 20 '_ =>' src/codegen/link/thunk/link_thunk.rs src/ir/link.rs`
       reviewed for `CAbiType` scrutinees.
 
@@ -455,46 +497,46 @@ mismatches; `cargo test --no-fail-fast` green; the `rt-behavior/native/**`
 fixtures (`libsnd-open-file-info-rt`, `libsnd-read-samples-rt`,
 `native-struct-scalar-rt`, `native-struct-cstring-rt`) **execute** correctly —
 a same-width arm swap is invisible to byte-identity and only running catches it.
-Commit: —
+Commit: eae8d47a0
 
 ### Phase 4 — lock the gate
 
-- [ ] Extend `tests/no_type_strings.rs` with a C-vocabulary class: **0**
+- [x] Extend `tests/no_type_strings.rs` with a C-vocabulary class: **0**
       `ctype`/`param_ctype`/`return_ctype`/`abi_return_ctype` typed
       `String`/`Option<String>`/`&str` outside `src/ast/`, and **0** comparisons
       or match arms on a C spelling outside `src/types.rs` and the two decode
       sites. Assert hard zero, no budget row.
-- [ ] Re-run every §Measured populations command and paste the new counts into
+- [x] Re-run every §Measured populations command and paste the new counts into
       Corrections. Every line must read 0 except the vocabulary itself.
 
 Acceptance: `cargo test --test no_type_strings` passes with the new class at
 hard zero; the re-measured census reads 0.
-Commit: —
+Commit: eae8d47a0
 
 ### Phase 5 — docs and archive
 
-- [ ] **Fix `src/docs/spec/language/17_native-libraries.md:94`**: the 16 names
+- [x] **Fix `src/docs/spec/language/17_native-libraries.md:94`**: the 16 names
       are the only names for an ABI *return* and for a CSTRUCT *field*, but a
       *slot* may additionally name a CSTRUCT declared in the same LINK alias
       (`src/ir/verify/link.rs:211-216,256-259`; goldens
       `libsnd-open-file-info-rt`, `native-struct-scalar-rt`, +4). Keep the
       citation markers (`[[src/ir/link.rs:abi_slot_ctype_is_known]]` must be
       repointed — that function is deleted in Phase 2).
-- [ ] Sweep for other citations of the deleted `abi_slot_ctype_is_known`:
+- [x] Sweep for other citations of the deleted `abi_slot_ctype_is_known`:
       `grep -rn "abi_slot_ctype_is_known" src/docs .ai planning` → repoint each.
-- [ ] Update `mfb spec architecture type-name-encoding` to list `C(CAbiType)`
+- [x] Update `mfb spec architecture type-name-encoding` to list `C(CAbiType)`
       among the variants and to record that a C ABI spelling is no longer a
       `Named` (the section's own "audit every `Named(_)`" guidance gains a second
       worked example).
-- [ ] `.ai/resources-packages.md`: record that the ctype vocabulary is a
+- [x] `.ai/resources-packages.md`: record that the ctype vocabulary is a
       `ParameterType` variant and that CSTRUCT-named slots remain `Named`.
-- [ ] Move `planning/plan-113-ctype-in-parametertype.md` to `planning/completed/`.
+- [x] Move `planning/plan-113-ctype-in-parametertype.md` to `planning/completed/`.
 
 Acceptance: `mfb spec language native-libraries` renders the corrected prose;
 no dangling citation to `abi_slot_ctype_is_known`
 (`grep -rn "abi_slot_ctype_is_known" src/ .ai planning` → 0 outside this plan's
 Corrections); `cargo test --no-fail-fast` green.
-Commit: —
+Commit: eae8d47a0
 
 ## Validation Plan
 
@@ -546,9 +588,372 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. Every place this plan turned out to be wrong:
-     the claim, what was actually true, and the evidence. Phase 1's `Named(_)`
-     audit result goes here. -->
+### C1 — Phase 1 is NOT safe alone: `parse` is the constructor
+
+**The plan claimed** (Phase 1 preamble): *"Safe alone: nothing constructs a
+`C(_)` yet, so no `Named(_)` guard can yet see one."*
+
+**Actually true:** `ParameterType::parse` *is* the constructor. The instant its
+`CAbiType::parse` arm lands, every source-written or IR-decoded `CPtr` is a
+`C(Ptr)` — and both `is_c_abi_type` copies destructure `ParameterType::Named`,
+so they return `false` for every C type and `NATIVE_CPTR_ESCAPE` silently stops
+firing.
+
+**Evidence** — measured with the `parse` arm in and the guards not yet
+converted:
+
+```
+$ cargo test --no-fail-fast --bin mfb cptr_escape
+test ir::verify::tests::rejects_link_cptr_escape_in_param ... FAILED
+test ir::verify::tests::rejects_link_cptr_escape_in_return ... FAILED
+test result: FAILED. 0 passed; 2 failed
+```
+
+**Repair:** both guard conversions moved from Phase 2 into Phase 1 (added as an
+explicit task). They are not "the five authorities" work — they are the
+`Named(_)` audit's own finding, and the audit is Phase 1's deliverable. After
+conversion both tests pass.
+
+Note the sibling `resolver::tests::is_c_abi_type_recognizes_and_rejects` did
+**not** go red, because it built its inputs with `ParameterType::named("CPtr")`
+— a proxy the compiler no longer mints for a C ABI type. It was rewritten to use
+`parse`, and gained an assertion that `named("CPtr")` is *not* a C ABI type.
+
+### C2 — there are SEVEN spelling-keyed authorities, not five
+
+**The plan's §2 table** lists five: `abi_slot_ctype_is_known`,
+`abi_ctype_valid_as_argument`, `abi_ctype_valid_as_return`, `ctype_size_align`,
+`resolver::is_c_abi_type`.
+
+**Actually true** — two more decide on a C spelling and neither is in the table:
+
+| Authority | Location | Shape |
+|---|---|---|
+| `is_c_abi_type` (a **second, local** copy) | `src/ir/verify/link.rs:183` | `matches!` over **13** spellings — the 12 plus `CVoid` |
+| `cstruct_field_mfb_type` | `src/ir/link.rs:203` | `match ctype` → the MFBASIC record field type |
+
+Measured: `grep -rn "is_c_abi_type" src/ --include="*.rs"` shows the
+`src/ir/verify/link.rs:183` definition alongside `src/resolver/mod.rs:252`;
+`grep -n "cstruct_field_mfb_type" src/ir/link.rs` → `:203`.
+
+The two reject-lists are **12 and 13**, and the difference is deliberate and
+documented in the block comment at `src/ir/verify/link.rs:172-178`
+(*"it deliberately INCLUDES `CVoid` … do not 'unify' by dropping `CVoid`"*). So
+Risk 2 has two instances, not one; both are now variant matches that enumerate
+their own list, each with a comment forbidding `c_abi().is_some()`.
+
+`check_struct_slot`'s `ctype == "CPtr"` (`src/ir/link.rs:255`) and
+`check_buffer_slots`'s `== "CBuffer"` comparisons are position rules rather than
+authorities, and are covered by Phase 2/3's carrier retyping.
+
+### C3 — the `Named(_)` audit: 28 sites, 5 needed a change
+
+The plan asked for "the real count". Measured:
+
+```
+$ grep -rn --include="*.rs" -E "ParameterType::Named\(" src/ \
+    | grep -v _tests.rs | grep -v '/tests.rs' | wc -l
+28        # 21 destructuring + 7 spelled `Named(_)`
+```
+
+Verdicts (production sites only; `_tests.rs` excluded):
+
+| Site | Verdict |
+|---|---|
+| `resolver/mod.rs:252` `is_c_abi_type` | **CHANGED** — see C1. |
+| `ir/verify/link.rs:187` `is_c_abi_type` | **CHANGED** — see C1/C2. |
+| `types.rs:with_vars` | **CHANGED** — a C spelling is a bare token, so it can be a template-parameter name. See C4. |
+| `monomorph/helpers.rs:75` `leaf_param_symbol` | **CHANGED** — same reason as `with_vars`, for a spelling that reached monomorph re-parsed rather than classified. |
+| `monomorph/lower.rs:1776` `leaf_symbol` | **CHANGED** — ditto. |
+| `ir/shape.rs:467` `is_printable` | same — `Named("CPtr")` answered `is_named("Scalar")` = false; `C(_)` falls to `_ => false`. |
+| `ir/shape.rs:925` `validate_package_type` | same — the tail is `other => validate(&named(other.name()))`, which re-wraps `C(Ptr)` into the identical `Named("CPtr")`. |
+| `ir/shape.rs:2598` `is_comparable_seen` | same — identical re-wrap tail (`other => is_comparable_seen(&named(other.name()))`). |
+| `ir/shape.rs:2720` `compatible` | same — the tail is `_ => expected == actual`; `C(Ptr) == C(Ptr)` where `Named("CPtr") == Named("CPtr")` held. No mixed `C`/`Named` pair is constructible, since everything here comes from `parse`/`declared`. |
+| `ir/shape.rs:3381` `with_update_typed` | same — `Named("CPtr")` missed `self.types` and returned false; `C(_)` fails the guard and returns false. |
+| `ir/shape.rs:3430` union-variant guard | same — as above. |
+| `ir/lower.rs:3116` `canonical_import_type` | same — `other => other.clone()`, and a C spelling holds no `.` to qualify. |
+| `registry/mod.rs:1873` `qualify_type_leaves_inner` | same — `other => other.clone()`; no registry descriptor spells a C type. |
+| `registry/mod.rs:3788` `descriptor_named_types_are_bare_nominals` | **strengthened, no change** — it now also catches a descriptor that spells a C type with `named`. Passes. |
+| `engine/types/type_utils.rs:425` `is_unset_type` | same — asks for the EMPTY name; a C spelling is never empty. |
+| `target/shared/plan/lower.rs:206` | same — the name list is `TermColor`/`TermSize`/`Error`/`fs.File`/… , disjoint from the 16. |
+| `builtins/vector/builder_vector_inline.rs:49` `vector_field_count` | same — `Float2`…`Integer4`, disjoint. |
+| `resolver/resolution.rs:1304` | same — `"Result" \| "Ok"`, disjoint. |
+| `monomorph/lower.rs:258` `is_leaf` | same — `Named(sym) => !sym.resolve().contains(' ')` was `true` for a C spelling; `C(_)` falls to `_ => true`. |
+| `monomorph/lower.rs:352` `walk`/`strip` | same — `other => other.clone()`, and `strip` is identity on an unqualified name. |
+| `types.rs:670` `contains_state` / `:696` `is_named` / `:719`, `:253`, `:266`, `:270`, `:760` | same — all are `Named`-only questions about a ` STATE ` clause, a specific nominal name (`grep -rn 'is_named("C' src/` → 0 hits), or the constructor/renderer themselves. |
+
+`resolve_type`'s `_ =>` tail was checked separately and is the reason
+`SYMBOL_UNKNOWN_TYPE` is unchanged: a `C(_)` reaches `resolve_leaf`, renders as
+`"CPtr"`, misses `self.types`, and reports the identical message. Verified
+against the pre-change binary:
+`FUNC helper(a AS CPtr)` → `error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: Type `CPtr`
+is not a built-in or top-level project type.`
+
+### C5 — the AST keeps `ctype: String`; HIR is where it becomes a type
+
+**The plan's Phase 2 task 1 says** *"Retype the AST carriers to `ParameterType`:
+`CStructField.ctype`, `FreeSpec.param_ctype`/`return_ctype`,
+`AbiSpec.return_ctype`, `AbiSlot.ctype`; fix the mint site in
+`src/ast/link_items.rs`."*
+
+**That contradicts the plan's own Goal and Phase 4**, both of which say the zero
+is *after* / *outside* `src/ast/`. The Goal is right and the task is wrong, for
+two measured reasons:
+
+1. **The AST holds no `ParameterType` at all today.**
+   `grep -rn "ParameterType" src/ast/ | wc -l` → `1`, and that single hit is a
+   comment (`src/ast/items.rs:371`). Every AST type carrier is a `String`
+   (`LinkFunction.return_type: Option<String>`, `Param.type_name`, …). The AST
+   is the *name* world by construction.
+2. **`src/ast/link_items.rs` is not a sanctioned boundary.**
+   `tests/no_type_strings.rs`'s `BOUNDARY_FILES` lists exactly eight files, and
+   `boundary_list_is_closed` pins that list. Putting `ParameterType::parse` in
+   `link_items.rs` creates a `parse_sites` hit in a class the gate holds at ZERO
+   tree-wide, and the repair would be to widen the boundary list — the exact
+   creep that test exists to prevent.
+
+**The boundary that already does this job is `hir::elaborate_link_block`**
+(`src/hir/mod.rs:567`) — `BOUNDARY_FILES` entry 3, *"AST->HIR elaborate: the
+string/type boundary"*. It already parses `maps_to`, every parameter type, the
+return type and the STATE type; it merely `clone()`s `abi` and `fields`
+verbatim. That gap is precisely what `src/hir/mod.rs:170-171` documents —
+*"The C-side field list is untouched: a `ctype` is a C ABI slot spelling, not an
+MFBASIC type"* — and which §2 of this plan says it reverses.
+
+**Repair:** Phase 2 task 1 becomes: the AST carriers stay `String`; HIR gains
+elaborated mirrors (`HirAbiSpec`, `HirAbiSlot`, `HirCStructField`,
+`HirFreeSpec`) carrying `ParameterType`, built in `elaborate_link_block`, and
+`hir/mod.rs`'s comment is corrected. Everything from HIR onward is typed, which
+is what the Goal's "0 … after `src/ast/`" asks for.
+
+### C6 — the IR carriers are `ParameterType`, not `CAbiType`
+
+**The plan's Phase 3 says** the IR-binary decode should be
+*"`CAbiType::parse` for a CSTRUCT **field** (closed) … A decode failure must be
+an error, never a default"*, and §Compatibility repeats it.
+
+**That would change a diagnostic**, which the non-goals forbid
+(*"`NATIVE_ABI_UNKNOWN_CTYPE` … must fire on exactly the same inputs as
+today"*). A crafted `.mfp` carrying an unknown CSTRUCT field ctype is decoded
+today and then reported by `check_cstruct`:
+
+```rust
+// src/ir/link.rs:345
+if !abi_slot_ctype_is_known(ctype) {
+    faults.push(fault("NATIVE_ABI_UNKNOWN_CTYPE",
+        format!("CSTRUCT `{name}` field `{field}` uses unknown C type `{ctype}`.")));
+```
+
+Making the decode fail would replace that with
+`PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED` — a different rule, message and
+location, on the package path the check was written for
+(`src/ir/link.rs:294-297`: *"Shared verbatim by the source path and the package
+path so a crafted `.mfp` cannot get a weaker check than source"*).
+
+**Repair:** all three IR carriers (`IrCStructField.ctype`, `IrAbiSlot.ctype`,
+`IrLinkFunction.abi_return_ctype`) are `ParameterType`, so
+`ParameterType::parse` is total and the codec cannot fail. Closed-ness is
+enforced where it already was — at the validating predicate, which now asks
+`c_abi()` — and the `CAbiType` exhaustive matches the plan wants live in
+`link_thunk`, which only ever runs on already-verified functions. The
+`AbiDirection` precedent the plan cites does not apply: a direction code has no
+downstream validator, so its decode genuinely must fail.
+
+This also makes `abi_ctype_valid_as_argument`/`_as_return` take a
+`&ParameterType` and answer `false` for a `Named`, which is exactly what
+preserves `NATIVE_ABI_UNKNOWN_CTYPE` on an unknown spelling.
+
+### C7 — `every_known_ctype_lowers` is NOT redundant and must be kept
+
+**The plan's Phase 3 says** *"**Delete the two hand-maintained exhaustiveness
+harnesses** now that rustc enforces them: `every_known_ctype_lowers`
+(`link_thunk.rs:2915`) and `ctype_list_is_exhaustive` (`src/ir/link.rs:946`)."*
+
+**Half of that is wrong.** Read what `every_known_ctype_lowers` actually
+asserts (`src/codegen/link/thunk/link_thunk.rs:2915-3084`): it builds a real
+`IrLinkFunction` per ctype and calls `lower_link_thunk`, asserting
+`lowered.is_ok()` — three times, for the return position, the argument
+position, and the `OUT CBuffer` shape (which exercises the entire plan-58-B
+buffer-staging path, `BUFFER … SIZE` clause and `RETURN … LENGTH` included).
+
+An exhaustive `match` on a closed enum proves every variant has an **arm**. It
+does not prove the arm *lowers without error*. Those are different properties,
+and only the weaker one is compiler-enforceable. Applying `AGENTS.md`'s
+four-question gate: (1) written by plan-50-A when it closed the namespace and
+turned the default arm into an `Err`; (2) it protects "every accepted ctype
+reaches a real marshaling arm and lowers clean"; (3) `ctype_list_is_exhaustive`
+depends on its `CTYPES` array; (4) **no proof it is wrong** — so the test wins.
+
+**Repair:** keep `every_known_ctype_lowers`, and replace its hand-copied
+`CTYPES: &[&str]` array with `CAbiType::ALL`. That removes the drift hazard the
+test was compensating for (a name in the authority with no entry in the array)
+while keeping the lowering coverage.
+
+`ctype_list_is_exhaustive` **is** genuinely redundant and is deleted: its whole
+content is "the `CTYPES` array agrees with `abi_slot_ctype_is_known`", and once
+the array *is* `CAbiType::ALL` and the authority *is* the enum, the two sides
+are the same value — there is nothing left that could disagree. That is the
+proof the four-question gate asks for.
+
+### C10 — final verification (all phases)
+
+Measured 2026-09-01 in `.claude/worktrees/P-113`, after the last edit:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1324 tests, 1486 build(s), 1819 golden(s) checked, **0 diff(s)**`, EXIT=0 — byte-identical to the kickoff reading |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1345** test(s) ran)`, EXIT=0, 0 `mismatch:` lines — same `N ran` as the kickoff baseline |
+| `cargo test --test no_type_strings` | 7 passed, 0 failed, with the new `c_type_strings` class at hard zero |
+
+**Runtime proof, not just build proof.** The Validation Plan requires the
+`rt-behavior/native/**` fixtures to *execute*, because a same-width arm swap
+(`CInt64`↔`CUInt64`) moves no byte and is invisible to byte-identity. 21 native
+fixtures ran in the acceptance harness (`grep -n "rt-behavior/native"
+/tmp/accept-113-final.txt | wc -l` → 21), and 20 carry a `.run` golden — all
+four the plan names among them:
+
+```
+tests/rt-behavior/native/libsnd-open-file-info-rt/golden/libsnd_open_file_info_rt.run
+tests/rt-behavior/native/libsnd-read-samples-rt/golden/libsnd_read_samples_rt.run
+tests/rt-behavior/native/native-struct-scalar-rt/golden/native_struct_scalar_rt.run
+tests/rt-behavior/native/native-struct-cstring-rt/golden/native_struct_cstring_rt.run
+```
+
+All matched. The `libsnd` fixtures are the end-to-end case the plan asks for:
+they load a real `libsndfile`, marshal an `SF_INFO` `CSTRUCT` in and out, and
+compare printed output.
+
+### C11 — post-merge re-verification (main had advanced)
+
+`main` moved from `ee12c1bf7` to `955ae8779` while this plan ran — plan-115-A/B/C
+landed (`ISOLATED` orthogonal to visibility, `IMPORT self` removed, the
+threading spec/examples rewrite). Per the follow-plan discipline, `main` was
+merged into `worktree-P-113` (`6b74f495c`, **clean, no conflicts**) and every
+gate re-run against the merged tree:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1325 tests, 1487 build(s), **1823** golden(s) checked, **0 diff(s)**`, EXIT=0 |
+| `cargo test --no-fail-fast` | 4368 passed, 0 failed |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1346** test(s) ran)`, EXIT=0, 0 `mismatch:` lines |
+
+The golden count rose 1819 → 1823, the gate fixture count 1324 → 1325 and the
+acceptance count 1345 → 1346: those are plan-115's four new goldens and its new
+fixture, not churn from this plan. Zero diffs and zero mismatches either way.
+
+**One failure needed classification and was NOT a regression.** The first
+post-merge `cargo test` run reported `test artifact_gate_all ... FAILED` in
+`0.19s`. That is the contended-gate signature, and `tests/golden.rs:39` says so
+itself:
+
+```
+Another artifact-gate (pid 43330) is running.
+panicked at tests/golden.rs:39:9:
+artifact-gate.sh could not START: another gate run holds the lock. This is NOT a
+golden regression -- nothing was checked.
+```
+
+Three peer sessions were running gates on the same machine. Re-run uncontended,
+`cargo test --test golden` → `artifact-gate [all]: 1325 tests, 1487 build(s),
+1823 golden(s) checked, 0 diff(s)` / `test artifact_gate_all ... ok`, so the
+post-merge suite is 4368 of 4368.
+
+### C12 — main advanced a second time; re-verified again
+
+While C11's gates ran, `main` moved again to `3e9a51120` (bug-474, the detached
+child reaper — which regenerated four `process` `.ncodesum` goldens). Merged in
+a second time (clean, no conflicts) and everything re-run:
+
+| Gate | Result |
+|---|---|
+| `cargo check --all-targets` | 0 errors, **0 warnings** |
+| `scripts/artifact-gate.sh ./target/release/mfb all` | `1325 tests, 1487 build(s), 1823 golden(s) checked, **0 diff(s)**`, EXIT=0 |
+| `cargo test --no-fail-fast` | **4369 passed, 0 failed** (the in-suite gate also read 0 diffs) |
+| `scripts/test-accept.sh ./target/release/mfb /tmp/accept-113` | `acceptance tests passed (**1346** test(s) ran)`, EXIT=0, 0 `mismatch:` lines |
+
+bug-474's four regenerated `process` ncodesums are already on main and the gate
+reads them as matching, so nothing about this plan touches them.
+
+### C9 — the re-measured census (Phase 4)
+
+Every §Measured-populations command re-run at the end of Phase 3
+(2026-09-01, `.claude/worktrees/P-113`). Production counts exclude `_tests.rs`,
+`tests.rs` **and** in-file `#[cfg(test)]` modules — the last is what
+`tests/no_type_strings.rs` strips with `test_free_lines`, and a plain `grep`
+does not, which is why the two disagree by exactly the test-module hits.
+
+| What | Was | Now | Command |
+|---|---|---|---|
+| `ctype`-family carriers typed `String`/`Option<String>`/`&str` after `src/ast/` | 23 | **0** | the `c_type_strings` scanner's carrier half; `cargo test --test no_type_strings` → the class has no budget row, so any hit fails |
+| C-spelling `==`/`!=` compares outside `src/types.rs` | 63 (with the arms) | **0** | `grep -rnE --include="*.rs" '[!=]= *"C(Ptr\|String\|…)"' src/ \| grep -v '^src/types.rs' \| wc -l` |
+| C-spelling `match` arms outside `src/types.rs` | (same 63) | **0** | `grep -rnE --include="*.rs" '^\s*"C(Ptr\|…)"(\s*\|\s*"[^"]*")*\s*=>' src/ \| grep -v '^src/types.rs' \| wc -l` |
+| `ParameterType` variants | 23 | **24** | `grep -n "pub(crate) enum ParameterType" -A 220 src/types.rs \| grep -cE "^\s*[0-9]+-\s{4}[A-Z][A-Za-z]*(\(\|,\| \{)"` |
+
+One plain-`grep` hit survives and is **not** a violation:
+`src/audit/collect/project.rs:217` `return_ctype: String::new()`. It is a
+*value* (the census regex matches the `String` in `String::new()`), it
+constructs the AST `AbiSpec` — which correctly stays the name world per C5 —
+and it sits inside that file's `#[cfg(test)] mod tests` (which begins at
+`:166`). The gate reads it as 0 for both reasons.
+
+Every remaining C-spelling literal in `src/` outside `src/types.rs` is inside a
+`#[cfg(test)]` module, building an `IrLinkFunction` fixture through
+`ParameterType::parse`. Checked by file:
+`grep -rnoE '"C(Ptr|…)"' src/ | grep -v '^src/types.rs' | cut -d: -f1 | sort | uniq -c`
+→ `ir/link.rs` 41 (all ≥ `:930`, module starts `:922`), `resolver/mod.rs` 25
+(all ≥ `:885`, module starts `:724`), `link_thunk.rs` 12 (all ≥ `:2799`, module
+starts `:2730`), `audit/collect/project.rs` 2 (`:422-423`, module starts
+`:166`), `registry/mod.rs` 1 (`:3637`), `ir/verify/link.rs` 1 (`:181`, a
+comment).
+
+### C8 — Phases 2 and 3 cannot land as separate commits
+
+**The plan splits them** — Phase 2 "the five authorities and the front-end
+carriers", Phase 3 "codegen marshaling and the wire seam" — with a `Commit:`
+line each.
+
+**They are one compile unit.** Retyping `IrAbiSlot.ctype` from `String` to
+`ParameterType` (Phase 2) makes every `slot.ctype == "CInt32"` in
+`link_thunk.rs` a type error (Phase 3). There is no ordering in which the tree
+compiles between them: the carrier and its 49 readers must change together.
+Measured — with only the Phase 2 edits applied, `cargo check --bin mfb` reported
+errors in `link_thunk.rs`, `engine/builder/mod.rs`, `ir/binary.rs` and
+`target/shared/nir/json.rs`.
+
+**Repair:** they land as one commit. The risk discipline the split existed to
+enforce is kept in full — the marshaling arms were converted one at a time in
+source order, and **no two arms were merged**. In fact the arm count went *up*:
+four `_ =>` / `other =>` defaults were replaced by explicit enumerations
+(`emit_return_passthrough`, the OUT-slot result match, `store_field`/`load_field`,
+and `marshal_struct_out`'s post-load normalization), because with a `CAbiType`
+scrutinee the wildcard is no longer needed — and that wildcard is exactly how
+bug-238 shipped (a `CInt32` OUT falling through and surfacing `-1` as
+`4294967295`).
+
+The `Commit:` line under Phase 2 therefore reads "landed with Phase 3".
+
+### C4 — a C spelling can legally be a template parameter name
+
+**Found by the C3 audit, not predicted by the plan.** `TYPE Box OF CPtr` with a
+field `v AS CPtr` **builds today**:
+
+```
+$ /…/target/release/mfb build      # pre-plan-113 binary, /tmp/p113probe
+Building p113probe (executable) for macos-aarch64
+Wrote executable to ./build/p113probe.out
+```
+
+`CPtr` is a bare token, so it is a legal template-parameter name, and
+`with_vars` reclassified the `Named("CPtr")` field type to `Var("CPtr")`.
+Without a `C` arm the field stops being a `Var` and reports
+`SYMBOL_UNKNOWN_TYPE` — a behaviour change the plan's non-goals forbid.
+
+Repair: a guarded `C` arm in `with_vars`, plus the two monomorph leaf-symbol
+probes (`leaf_param_symbol`, `leaf_symbol`) that also had to accept a C spelling
+as a bare param name. Pinned by
+`types::tests::with_vars_reclassifies_a_c_abi_spelling_used_as_a_template_param`.
 
 ## Summary
 

@@ -16,6 +16,129 @@ use crate::intern::Symbol;
 use std::borrow::Cow;
 use std::fmt;
 
+/// The C ABI type vocabulary of a `LINK` binding's `ABI (...)` clause — the
+/// names the marshaling backend acts on (`17_native-libraries.md`).
+///
+/// **Closed, and that is the point.** No user declaration can add one: the set
+/// is exactly what `codegen::link::thunk` implements, so an exhaustive `match`
+/// on this enum is a compile-time proof that every accepted name has a
+/// marshaling arm. Before plan-113 that was a hand-maintained `&str` allow-list
+/// kept in step with the backend by `ir::link::tests::ctype_list_is_exhaustive`.
+/// It does **not** prove the arm *lowers*, which is a strictly stronger
+/// property — `link_thunk::tests::every_known_ctype_lowers` still asserts that,
+/// seeded from [`ALL`](Self::ALL).
+///
+/// **A CSTRUCT-named slot is NOT here.** `ABI (info SfFileInfo)` names a
+/// `CSTRUCT` declared in the same `LINK` alias (`ir::verify::link`'s
+/// `is_cstruct_slot`), and that namespace is open — it stays a
+/// [`ParameterType::Named`]. That open nominal tail is why the vocabulary lives
+/// as a [`ParameterType`] variant rather than as a standalone enum: a standalone
+/// enum would need its own `Named` arm and become a second type grammar.
+///
+/// Three names are position-restricted, and the rules live with the predicates
+/// that express them, not here: [`Void`](Self::Void) is return-only,
+/// [`Str`](Self::Str) argument-only (`ir::link::abi_ctype_valid_as_argument` /
+/// `abi_ctype_valid_as_return`), and [`Buffer`](Self::Buffer) is `OUT`-only with
+/// a `BUFFER … SIZE` clause (`ir::link::check_buffer_slots`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum CAbiType {
+    Ptr,
+    Str,
+    Buffer,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+    Bool,
+    Byte,
+    Float,
+    Double,
+    Void,
+}
+
+impl CAbiType {
+    /// The source spelling. Byte-exact: this renders into the `.ast`/`.ir`
+    /// goldens and the IR binary's LINK section, so the strings do not move.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            CAbiType::Ptr => "CPtr",
+            CAbiType::Str => "CString",
+            CAbiType::Buffer => "CBuffer",
+            CAbiType::Int8 => "CInt8",
+            CAbiType::Int16 => "CInt16",
+            CAbiType::Int32 => "CInt32",
+            CAbiType::Int64 => "CInt64",
+            CAbiType::UInt8 => "CUInt8",
+            CAbiType::UInt16 => "CUInt16",
+            CAbiType::UInt32 => "CUInt32",
+            CAbiType::UInt64 => "CUInt64",
+            CAbiType::Bool => "CBool",
+            CAbiType::Byte => "CByte",
+            CAbiType::Float => "CFloat",
+            CAbiType::Double => "CDouble",
+            CAbiType::Void => "CVoid",
+        }
+    }
+
+    /// The inverse of [`name`](Self::name): `None` for anything that is not one
+    /// of the 16 spellings, which is what makes a CSTRUCT name (or a typo) fall
+    /// through to [`ParameterType::Named`] and be rejected by the checker that
+    /// owns that position.
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "CPtr" => CAbiType::Ptr,
+            "CString" => CAbiType::Str,
+            "CBuffer" => CAbiType::Buffer,
+            "CInt8" => CAbiType::Int8,
+            "CInt16" => CAbiType::Int16,
+            "CInt32" => CAbiType::Int32,
+            "CInt64" => CAbiType::Int64,
+            "CUInt8" => CAbiType::UInt8,
+            "CUInt16" => CAbiType::UInt16,
+            "CUInt32" => CAbiType::UInt32,
+            "CUInt64" => CAbiType::UInt64,
+            "CBool" => CAbiType::Bool,
+            "CByte" => CAbiType::Byte,
+            "CFloat" => CAbiType::Float,
+            "CDouble" => CAbiType::Double,
+            "CVoid" => CAbiType::Void,
+            _ => return None,
+        })
+    }
+
+    /// Every variant, in declaration order — for tests that must enumerate the
+    /// closed set (round-trip, exhaustiveness) without hand-copying it.
+    #[cfg(test)]
+    pub(crate) const ALL: [CAbiType; 16] = [
+        CAbiType::Ptr,
+        CAbiType::Str,
+        CAbiType::Buffer,
+        CAbiType::Int8,
+        CAbiType::Int16,
+        CAbiType::Int32,
+        CAbiType::Int64,
+        CAbiType::UInt8,
+        CAbiType::UInt16,
+        CAbiType::UInt32,
+        CAbiType::UInt64,
+        CAbiType::Bool,
+        CAbiType::Byte,
+        CAbiType::Float,
+        CAbiType::Double,
+        CAbiType::Void,
+    ];
+}
+
+impl fmt::Display for CAbiType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// A [`crate::codegen::registry::Parameter`]'s type. An enum rather than a bare
 /// `&'static str` so future kinds (argument unions, generic placeholders) can be
 /// added without touching every parameter.
@@ -94,6 +217,22 @@ pub(crate) enum ParameterType {
         base: Box<ParameterType>,
         state: Box<ParameterType>,
     },
+    /// A C ABI type from a `LINK` binding's `ABI (...)` clause — `CPtr`,
+    /// `CInt32`, … (plan-113). Closed: see [`CAbiType`].
+    ///
+    /// **These spellings used to be [`Named`](Self::Named)**, and every
+    /// `Named(_)` guard meaning "is this a nominal?" therefore changed answer
+    /// when this variant landed — the same hazard
+    /// [`Stateful`](Self::Stateful) cost a real bug for. The audit is recorded
+    /// in `planning/completed/plan-113-ctype-in-parametertype.md` §Corrections.
+    /// The two production guards that had to move are
+    /// `resolver::is_c_abi_type` and `ir::verify::link`'s local copy, both of
+    /// which enumerate a *narrower* list than the 16 and must NOT be rewritten
+    /// as `matches!(t, C(_))`.
+    ///
+    /// A CSTRUCT-named ABI slot is deliberately **not** here — it is a
+    /// [`Named`](Self::Named), because that namespace is open.
+    C(CAbiType),
     /// A concrete nominal type — a record, union, or user type named by the program.
     /// Matched by name (unlike [`Var`], which is bound). A descriptor names one with a
     /// static literal (`named("CsvReader")`); a concrete nominal argument is built at
@@ -253,6 +392,29 @@ impl ParameterType {
         ParameterType::Named(Symbol::intern(name))
     }
 
+    /// The [`CAbiType`] this type *is*, or `None` for everything else.
+    ///
+    /// The single containment accessor for the C vocabulary. There is
+    /// deliberately no `is_c()` returning a bare `bool`: the two production
+    /// reject-lists (`resolver::is_c_abi_type`, `ir::verify::link`'s local copy)
+    /// are narrower than the 16 on purpose, and a broad predicate is exactly
+    /// what would silently widen `NATIVE_CPTR_ESCAPE`. Ask for the variant and
+    /// enumerate the ones you mean.
+    pub(crate) fn c_abi(&self) -> Option<CAbiType> {
+        match self {
+            ParameterType::C(ctype) => Some(*ctype),
+            _ => None,
+        }
+    }
+
+    /// Whether this type is exactly the C ABI type `ctype` — the variant
+    /// analogue of the `slot.ctype == "CInt32"` compares plan-113 replaced.
+    /// Takes a specific variant, so it cannot be the mistake
+    /// [`c_abi`](Self::c_abi)'s doc warns about.
+    pub(crate) fn is_c_abi(&self, ctype: CAbiType) -> bool {
+        self.c_abi() == Some(ctype)
+    }
+
     /// Reclassify every [`Named`](Self::Named) leaf whose name is one of
     /// `type_params` as a [`Var`](Self::Var) type variable, recursing through the
     /// container/function/thread structure. On an empty `type_params` this is an
@@ -269,6 +431,17 @@ impl ParameterType {
                 } else {
                     ParameterType::Named(*sym)
                 }
+            }
+            // plan-113: a C ABI spelling is a `C`, not a `Named`, but it is still
+            // a bare token — so `TYPE Box OF CPtr` may declare a template
+            // parameter that happens to spell one, and it must reclassify
+            // exactly as any other leaf. Measured on the pre-plan-113 binary:
+            // that program builds (`Wrote executable to ./build/p113probe.out`),
+            // and without this arm the field `v AS CPtr` stops being a `Var`
+            // and reports `SYMBOL_UNKNOWN_TYPE`. Pinned by
+            // `with_vars_reclassifies_a_c_abi_spelling_used_as_a_template_param`.
+            ParameterType::C(ctype) if type_params.iter().any(|param| param == ctype.name()) => {
+                ParameterType::var(ctype.name())
             }
             ParameterType::ListOf(elem) => ParameterType::list_of(elem.with_vars(type_params)),
             ParameterType::SetOf(elem) => ParameterType::set_of(elem.with_vars(type_params)),
@@ -477,6 +650,14 @@ impl ParameterType {
                 base: Box::new(ParameterType::parse(base)),
                 state: Box::new(ParameterType::parse(state)),
             };
+        }
+        // The C ABI vocabulary (plan-113), tried in the bare-token tail BEFORE
+        // the `Named` fallback so `parse("CInt32")` is `C(Int32)` while
+        // `parse("SfFileInfo")` — a CSTRUCT name, an open namespace — is still
+        // `Named`. Ordered after the scalar table below only in reading order:
+        // the two sets are disjoint, so the relative order is immaterial.
+        if let Some(ctype) = CAbiType::parse(name) {
+            return ParameterType::C(ctype);
         }
         match name {
             "AttributeString" => ParameterType::AttributeString,
@@ -757,6 +938,7 @@ impl ParameterType {
             ParameterType::Stateful { base, state } => {
                 Cow::Owned(format!("{} STATE {}", base.name(), state.name()))
             }
+            ParameterType::C(ctype) => Cow::Borrowed(ctype.name()),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
             ParameterType::UserOf(name, args) => Cow::Owned(format!(
                 "{} OF {}",
@@ -1260,6 +1442,172 @@ fn thread_body_len(rest: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// plan-113: every C ABI spelling round-trips `parse` → `name` byte-exact,
+    /// as a `ParameterType::C`. This is what keeps the `.ast`/`.ir` goldens and
+    /// the IR binary's LINK section unchanged — `name()` IS the wire codec.
+    #[test]
+    fn c_abi_types_round_trip_through_parameter_type() {
+        for ctype in CAbiType::ALL {
+            let spelling = ctype.name();
+            assert_eq!(
+                CAbiType::parse(spelling),
+                Some(ctype),
+                "`{spelling}` must parse back to itself"
+            );
+            let parsed = ParameterType::parse(spelling);
+            assert_eq!(
+                parsed,
+                ParameterType::C(ctype),
+                "`{spelling}` must parse to its C variant"
+            );
+            assert_eq!(
+                parsed.name(),
+                spelling,
+                "`{spelling}` must render back byte-exact"
+            );
+            assert_eq!(parsed.c_abi(), Some(ctype));
+        }
+        // All 16 are distinct spellings, so the enum cannot alias two names.
+        let mut spellings: Vec<&str> = CAbiType::ALL.iter().map(|c| c.name()).collect();
+        spellings.sort_unstable();
+        let count = spellings.len();
+        spellings.dedup();
+        assert_eq!(spellings.len(), count, "two CAbiType variants share a name");
+    }
+
+    /// A `CSTRUCT` name is NOT a `C` — that namespace is open (a slot may name
+    /// any `CSTRUCT` declared in the same `LINK` alias), so it must stay a
+    /// nominal. Six committed goldens carry one (`"ctype": "SfFileInfo"`).
+    #[test]
+    fn a_cstruct_name_stays_a_nominal() {
+        for name in ["SfFileInfo", "TimeSpec", "CTm", "CTime"] {
+            let parsed = ParameterType::parse(name);
+            assert!(
+                matches!(parsed, ParameterType::Named(_)),
+                "`{name}` is a CSTRUCT name and must stay Named, got {parsed:?}"
+            );
+            assert_eq!(parsed.c_abi(), None);
+            assert_eq!(parsed.name(), name);
+        }
+    }
+
+    /// Near-misses are not C ABI types: the match is exact and case-sensitive.
+    #[test]
+    fn near_miss_spellings_are_not_c_abi_types() {
+        for name in [
+            "CPtrX",
+            "cptr",
+            "",
+            "CInt",
+            "CInt3",
+            "CInt33",
+            " CPtr",
+            "CPtr ",
+            "C",
+            "CFloat32",
+            "CIntPtr",
+            "CSize",
+            "List OF CPtr",
+        ] {
+            assert_eq!(
+                ParameterType::parse(name).c_abi(),
+                None,
+                "`{name}` must not parse to a C ABI type"
+            );
+        }
+        // A `List OF CPtr` decomposes, and only its ELEMENT is the C type.
+        assert_eq!(
+            ParameterType::parse("List OF CPtr"),
+            ParameterType::list_of(ParameterType::C(CAbiType::Ptr))
+        );
+        assert_eq!(ParameterType::parse("List OF CPtr").name(), "List OF CPtr");
+    }
+
+    /// plan-113 audit finding: a C ABI spelling is a bare token, so a template
+    /// parameter may be named with one (`TYPE Box OF CPtr`) — measured to build
+    /// on the pre-plan-113 binary. `with_vars` must reclassify it to a `Var`
+    /// exactly as it did when the spelling was a `Named`; without this the
+    /// field `v AS CPtr` reports `SYMBOL_UNKNOWN_TYPE`.
+    #[test]
+    fn with_vars_reclassifies_a_c_abi_spelling_used_as_a_template_param() {
+        let params = vec!["CPtr".to_string()];
+        assert_eq!(
+            ParameterType::parse("CPtr").with_vars(&params),
+            ParameterType::var("CPtr")
+        );
+        // Nested in a container, and inside a type that is NOT a declared param.
+        assert_eq!(
+            ParameterType::parse("List OF CPtr").with_vars(&params),
+            ParameterType::list_of(ParameterType::var("CPtr"))
+        );
+        assert_eq!(
+            ParameterType::parse("CInt32").with_vars(&params),
+            ParameterType::C(CAbiType::Int32)
+        );
+        // No declared params: an identity rebuild, C variants preserved.
+        assert_eq!(
+            ParameterType::parse("CInt32").with_vars(&[]),
+            ParameterType::C(CAbiType::Int32)
+        );
+    }
+
+    /// Every `"ctype"` string the committed golden corpus carries round-trips
+    /// byte-exactly through `ParameterType::parse`/`name`. This is the direct
+    /// proof of plan-113's "no golden churn" non-goal: the goldens are the wire
+    /// format, and `name()` is what re-renders them.
+    #[test]
+    fn every_golden_corpus_ctype_round_trips() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let mut seen: Vec<String> = Vec::new();
+        collect_ctypes(&root, &mut seen);
+        assert!(
+            !seen.is_empty(),
+            "no `\"ctype\"` strings found under {} — the corpus scan is broken, \
+             not the corpus",
+            root.display()
+        );
+        for spelling in &seen {
+            assert_eq!(
+                ParameterType::parse(spelling).name(),
+                spelling.as_str(),
+                "golden ctype `{spelling}` does not round-trip"
+            );
+        }
+    }
+
+    /// Recursively collect every `"ctype": "<value>"` value from the `.ast` and
+    /// `.ir` goldens under `dir`.
+    #[cfg(test)]
+    fn collect_ctypes(dir: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_ctypes(&path, out);
+                continue;
+            }
+            let extension = path.extension().and_then(|e| e.to_str());
+            if !matches!(extension, Some("ast") | Some("ir")) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let mut rest = text.as_str();
+            while let Some(at) = rest.find("\"ctype\": \"") {
+                rest = &rest[at + "\"ctype\": \"".len()..];
+                let Some(end) = rest.find('"') else { break };
+                let value = &rest[..end];
+                if !out.iter().any(|s| s == value) {
+                    out.push(value.to_string());
+                }
+                rest = &rest[end..];
+            }
+        }
+    }
 
     /// bug-483: `is_builtin_named` answers the same for a builtin value type
     /// whichever spelling the compiler is holding — the qualified id a member

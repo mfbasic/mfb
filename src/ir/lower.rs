@@ -1,12 +1,15 @@
 use super::*;
 
-use super::fallible::{is_total_literal_negation, operator_can_raise, Fallibility};
+use super::fallible::{
+    is_total_literal_negation, operator_can_raise, unary_operator_can_raise, Fallibility,
+};
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
     HirMatchPattern, HirParam, HirProject, HirStatement, HirTopLevelBinding, HirTypeDecl,
     HirTypeField,
 };
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 /// The type environment `ir::lower`'s `expression_type` oracle consults.
@@ -1722,8 +1725,8 @@ const TRAP_SCRUTINEE_MAX_DEPTH: usize = super::value::VALUE_VISIT_MAX_DEPTH;
 /// position cannot be lifted — hoisting evaluates it unconditionally — so it is
 /// left in place, and `ir::shape` rejects a *fallible* one with
 /// `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` rather than letting its error escape.
-pub(super) fn is_short_circuit_operator(op: &str) -> bool {
-    op == "AND" || op == "OR"
+pub(super) fn is_short_circuit_operator(op: BinaryOp) -> bool {
+    matches!(op, BinaryOp::And | BinaryOp::Or)
 }
 
 /// Lifts the calls nested inside an inline-`TRAP` scrutinee out in front of it,
@@ -1821,7 +1824,7 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
             op, left, right, ..
         } => {
             scan_trap_call(left, fallible, next, out);
-            if !is_short_circuit_operator(op) {
+            if !is_short_circuit_operator(*op) {
                 scan_trap_call(right, fallible, next, out);
             }
         }
@@ -1845,16 +1848,15 @@ fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
         IrValue::Unary {
             op, type_, operand, ..
         } if matches!(operand.as_ref(), IrValue::Const { .. })
-            && is_total_literal_negation(op, type_) =>
+            && is_total_literal_negation(*op, type_) =>
         {
             None
         }
         // A raising operator is always checked: unlike a call there is no
         // declaration to prove it total, and `operator_can_raise` is already the
         // conservative side of that question.
-        IrValue::Binary { op, type_, .. } | IrValue::Unary { op, type_, .. } => {
-            operator_can_raise(op, type_).then_some(true)
-        }
+        IrValue::Binary { op, type_, .. } => operator_can_raise(*op, type_).then_some(true),
+        IrValue::Unary { op, type_, .. } => unary_operator_can_raise(*op, type_).then_some(true),
         _ => None,
     }
 }
@@ -1950,7 +1952,7 @@ fn rewrite_trap_operands(
         IrValue::Binary {
             op, left, right, ..
         } => {
-            let short_circuit = is_short_circuit_operator(op);
+            let short_circuit = is_short_circuit_operator(*op);
             rewrite_trap_call(left, fallible, limit, index, next, hoists, locals, context);
             if !short_circuit {
                 rewrite_trap_call(right, fallible, limit, index, next, hoists, locals, context);
@@ -3025,13 +3027,12 @@ pub(super) fn expression_type(
             right,
             ..
         } => {
-            if matches!(
-                operator.as_str(),
-                "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-            ) {
+            if operator.is_comparison()
+                || matches!(operator, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor)
+            {
                 return Some(ParameterType::Boolean);
             }
-            if operator == "&" {
+            if *operator == BinaryOp::Concat {
                 // plan-89-D: `AttributedString & AttributedString` yields an
                 // AttributedString (both operands attributed); otherwise String.
                 //
@@ -3048,14 +3049,14 @@ pub(super) fn expression_type(
             let left = expression_type(left, locals, context)?;
             let right = expression_type(right, locals, context)?;
             Some(
-                numeric::typed_binary_result_type(operator, &left, &right)
+                numeric::typed_binary_result_type(*operator, &left, &right)
                     .unwrap_or(ParameterType::Integer),
             )
         }
         HirExpression::Unary {
             operator, operand, ..
         } => {
-            if operator == "NOT" {
+            if *operator == UnaryOp::Not {
                 Some(ParameterType::Boolean)
             } else {
                 expression_type(operand, locals, context)
@@ -4213,7 +4214,7 @@ fn lower_expression_with_expected(
             // plan-89-D: `AttributedString & AttributedString` concatenation routes
             // to the `__astrings_concat` source-companion body (text concatenated,
             // right operand's spans shifted by the left's scalar length).
-            if operator == "&" && result_type == attributed_string_type() {
+            if *operator == BinaryOp::Concat && result_type == attributed_string_type() {
                 return IrValue::Call {
                     target: crate::internal_name::internalize("__astrings_concat"),
                     args: vec![
@@ -4250,7 +4251,7 @@ fn lower_expression_with_expected(
             // of 1.25, negated, into a Q32.32 slot and read back as
             // -1074528256.0 (bug-367). Every negative `Fixed` literal was affected;
             // the positive form was always correct, which is why it went unnoticed.
-            let exact_literal_negation = operator == "-"
+            let exact_literal_negation = *operator == UnaryOp::Negate
                 && matches!(
                     expected,
                     Some(ParameterType::Money) | Some(ParameterType::Fixed)
@@ -4275,7 +4276,7 @@ fn lower_expression_with_expected(
             // fits, which is true solely at the min boundary (raw == 2^63), so
             // every in-range negated literal keeps its `Unary` shape and no
             // existing codegen/golden shifts.
-            if operator == "-" {
+            if *operator == UnaryOp::Negate {
                 if let IrValue::Const { type_, value } = &lowered_operand {
                     if matches!(type_, crate::types::ParameterType::Fixed)
                         && numeric::fixed_raw_from_decimal(value).is_err()

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::operators::BinaryOp;
 
 /// The declared type of an optionally-annotated slot: [`ParameterType::Unknown`]
 /// (an absent `AS T` annotation) → `None`, any concrete type → `Some(type)`.
@@ -73,6 +75,12 @@ pub(super) fn constructor_arg_field_type<'a>(
 fn leaf_param_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
     match type_ {
         ParameterType::Var(sym) | ParameterType::Named(sym) => Some(*sym),
+        // plan-113: a C ABI spelling is a bare token like any other leaf, and
+        // `TYPE Box OF CPtr` may name a template parameter with one. Before the
+        // `C` variant it arrived here as a `Named` and matched; a spelling that
+        // reached monomorph re-parsed (rather than classified by `with_vars`)
+        // still must.
+        ParameterType::C(ctype) => Some(crate::intern::Symbol::intern(ctype.name())),
         _ => None,
     }
 }
@@ -1126,7 +1134,7 @@ mod tests {
         // the engine calls the one typed source directly.
         assert_eq!(
             crate::numeric::typed_binary_result_type(
-                "+",
+                BinaryOp::Add,
                 &ParameterType::Integer,
                 &ParameterType::Integer
             ),
@@ -1134,7 +1142,7 @@ mod tests {
         );
         assert_eq!(
             crate::numeric::typed_binary_result_type(
-                "+",
+                BinaryOp::Add,
                 &ParameterType::Integer,
                 &ParameterType::Float
             ),

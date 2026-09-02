@@ -30,6 +30,7 @@ use crate::target::shared::nir::{NirFunction, NirModule, NirOp, NirValue};
 use crate::types::ParameterType;
 
 use super::plans::reads::NameUses;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Apply the tree-level DCE row to the whole module. Self-guarded on its
 /// catalog level (2); the removal count feeds `optimizer::stats`.
@@ -150,13 +151,11 @@ pub(in crate::optimizer::opt1) fn pure_non_trapping(value: &NirValue) -> bool {
             // Comparisons never trap (§4.11; a Float compare is not an
             // observation boundary), and the Boolean connectives are pure.
             // Arithmetic and `&` (allocates) are NOT in the class.
-            matches!(
-                op.as_str(),
-                "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
-            ) && pure_non_trapping(left)
+            (op.is_comparison() || matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Xor))
+                && pure_non_trapping(left)
                 && pure_non_trapping(right)
         }
-        NirValue::Unary { op, operand, .. } => op == "NOT" && pure_non_trapping(operand),
+        NirValue::Unary { op, operand, .. } => *op == UnaryOp::Not && pure_non_trapping(operand),
         _ => false,
     }
 }
@@ -253,12 +252,12 @@ mod tests {
         let trapping = bind(
             "t",
             ParameterType::Integer,
-            Some(binary("+", local("keep"), local("keep"))),
+            Some(binary(BinaryOp::Add, local("keep"), local("keep"))),
         );
         let float_boundary = bind(
             "fb",
             ParameterType::Float,
-            Some(binary("/", local("g"), local("h"))),
+            Some(binary(BinaryOp::Divide, local("g"), local("h"))),
         );
         let non_scalar = bind("s", ParameterType::String, Some(local("other")));
         let assigned = bind("m", ParameterType::Integer, Some(int_const("0")));
@@ -296,10 +295,10 @@ mod tests {
                         bind(
                             "cmp",
                             ParameterType::Boolean,
-                            Some(binary("<", local("keep"), int_const("3"))),
+                            Some(binary(BinaryOp::Less, local("keep"), int_const("3"))),
                         ),
                         NirOp::Eval {
-                            value: unary("NOT", local("keep")),
+                            value: unary(UnaryOp::Not, local("keep")),
                         },
                         NirOp::Return {
                             value: Some(local("keep")),

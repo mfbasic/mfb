@@ -12,7 +12,21 @@
 ' regression re-flakes the sum.
 '
 '   ssize_t pread(int fd, void *buf, size_t nbyte, off_t offset);
+'
+' plan-112 added the third wrapper below. `SIZEOF <CStruct>` is the one unary
+' operator with no other coverage anywhere in the corpus: it is LINK-only, and
+' it folds to its integer during LINK lowering, so it reaches the `.ast` dump
+' (as `"operator": "SIZEOF"`) and nothing after it. Before this fixture the
+' `UnaryOp::SizeOf` variant round-tripped in unit tests and in no golden at all.
 IMPORT io
+
+TYPE PinnedInfo
+  a AS Integer
+  b AS Integer
+  c AS Integer
+  d AS Integer
+  e AS Integer
+END TYPE
 
 LINK "c" AS libc
   ' `nbyte` and `offset` are BOTH abi-slots AND CONST pins, so both are
@@ -38,6 +52,28 @@ LINK "c" AS libc
     CONST offset = 8
     RETURN buf LENGTH got
   END FUNC
+  ' plan-112: a CONST pin whose value is `SIZEOF <CStruct>` rather than a
+  ' literal. Five CInt64 fields make the folded size 40 -- a value distinctive
+  ' enough that it is visibly the fold, not a coincidence, in the `.ncode` dump.
+  ' The pin is what makes the fold observable: `SIZEOF` is evaluated by
+  ' `eval_link_const_opt`, so a regression there materializes a wrong immediate
+  ' (or 0) into the cslot and flips this fixture's `.ncodesum`.
+  CSTRUCT CPinnedInfo AS PinnedInfo
+    a CInt64
+    b CInt64
+    c CInt64
+    d CInt64
+    e CInt64
+  END CSTRUCT
+
+  FUNC preadSizeof(fd AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE nbyte
+    CONST nbyte = SIZEOF CPinnedInfo
+    CONST offset = 0
+    RETURN buf LENGTH got
+  END FUNC
 END LINK
 
 FUNC main() AS Integer
@@ -45,5 +81,7 @@ FUNC main() AS Integer
   io::print(toString(len(a)))
   LET b AS List OF Byte = libc::preadTriple(0)
   io::print(toString(len(b)))
+  LET c AS List OF Byte = libc::preadSizeof(0)
+  io::print(toString(len(c)))
   RETURN 0
 END FUNC

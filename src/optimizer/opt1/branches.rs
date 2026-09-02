@@ -25,6 +25,8 @@
 //! before tree-UCE/DCE, so a now-terminal spliced arm truncates what follows
 //! and stranded bindings get swept.
 
+#[cfg(test)]
+use crate::operators::BinaryOp;
 use crate::target::shared::nir::{NirModule, NirOp, NirValue};
 use crate::types::ParameterType;
 
@@ -155,8 +157,8 @@ mod tests {
         let body = run(
             vec![NirOp::If {
                 condition: boolean(true),
-                then_body: vec![eval(binary("+", local("a"), local("b")))],
-                else_body: vec![eval(binary("/", local("x"), int_const("0")))],
+                then_body: vec![eval(binary(BinaryOp::Add, local("a"), local("b")))],
+                else_body: vec![eval(binary(BinaryOp::Divide, local("x"), int_const("0")))],
             }],
             2,
         );
@@ -164,7 +166,7 @@ mod tests {
         let NirOp::Eval { value } = &body[0] else {
             panic!("expected the spliced then-arm Eval");
         };
-        assert!(matches!(value, NirValue::Binary { op, .. } if op == "+"));
+        assert!(matches!(value, NirValue::Binary { op, .. } if *op == BinaryOp::Add));
     }
 
     /// `IF FALSE` keeps the else-arm; an empty else-arm means the whole IF

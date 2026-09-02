@@ -24,6 +24,7 @@ use crate::ast::LoopKind;
 use crate::target::shared::nir::{NirModule, NirOp, NirValue};
 
 use super::plans::loops::captures_loop_control;
+use crate::operators::UnaryOp;
 
 /// Apply the rotation row to the whole module. Self-guarded on its catalog
 /// level (3); the rotation count feeds `optimizer::stats`.
@@ -76,7 +77,7 @@ fn rotate_in_body(ops: &mut Vec<NirOp>, rotated: &mut u64) {
         }
         let guard = condition.clone();
         let negated = NirValue::Unary {
-            op: "NOT".to_string(),
+            op: UnaryOp::Not,
             operand: Box::new(condition.clone()),
             loc: Default::default(),
         };
@@ -155,7 +156,7 @@ mod tests {
         else {
             panic!("expected the rotated DO..UNTIL");
         };
-        assert!(matches!(until, NirValue::Unary { op, .. } if op == "NOT"));
+        assert!(matches!(until, NirValue::Unary { op, .. } if *op == UnaryOp::Not));
     }
 
     /// Loop control bound to the while (its EXIT would dangle) or to an

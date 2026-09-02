@@ -33,6 +33,7 @@
 
 use crate::codegen::builtins;
 use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirItem, HirProject, HirStatement};
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 use std::collections::HashSet;
 
@@ -130,7 +131,20 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
 /// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`),
 /// comparison and string-concatenation operators produce no domain error and are
 /// deliberately absent.
-const ARITHMETIC_OPERATORS: [&str; 7] = ["+", "-", "*", "/", "DIV", "MOD", "^"];
+const ARITHMETIC_OPERATORS: [BinaryOp; 7] = [
+    BinaryOp::Add,
+    BinaryOp::Subtract,
+    BinaryOp::Multiply,
+    BinaryOp::Divide,
+    BinaryOp::IntDiv,
+    BinaryOp::Mod,
+    BinaryOp::Power,
+];
+
+/// The unary half of [`ARITHMETIC_OPERATORS`]: `-` is the only unary operator
+/// with a numeric domain, so the only one that can raise. `NOT` is
+/// `Boolean`-only and `SIZEOF` folds to a constant before lowering.
+const ARITHMETIC_UNARY_OPERATORS: [UnaryOp; 1] = [UnaryOp::Negate];
 
 /// Whether an operator node can raise a domain error while the expression it
 /// sits in is being evaluated (bug-471).
@@ -153,7 +167,7 @@ const ARITHMETIC_OPERATORS: [&str; 7] = ["+", "-", "*", "/", "DIV", "MOD", "^"];
 /// trapped expression (a `Float` overflow nested in a trapped call escaped the
 /// handler exactly like an integer one before this fix), and `MOD`/`^` raise
 /// `ErrFloatDomain` at the operator itself.
-pub(super) fn operator_can_raise(op: &str, result_type: &ParameterType) -> bool {
+pub(super) fn operator_can_raise(op: BinaryOp, result_type: &ParameterType) -> bool {
     ARITHMETIC_OPERATORS.contains(&op)
         && matches!(
             result_type,
@@ -193,8 +207,23 @@ pub(super) fn operator_can_raise(op: &str, result_type: &ParameterType) -> bool 
 ///   (`TYPE_CALL_ARGUMENT_MISMATCH`), so the shape is unreachable from source —
 ///   but "unreachable" is a weaker guarantee than "cannot raise", and this is
 ///   the side of the line where being wrong is a miscompile.
-pub(super) fn is_total_literal_negation(op: &str, result_type: &ParameterType) -> bool {
-    op == "-" && !matches!(result_type, ParameterType::Byte)
+pub(super) fn is_total_literal_negation(op: UnaryOp, result_type: &ParameterType) -> bool {
+    op == UnaryOp::Negate && !matches!(result_type, ParameterType::Byte)
+}
+
+/// [`operator_can_raise`] for a unary node. Split from the binary form because
+/// the two arities are separate vocabularies: before the split both shared one
+/// `&str` list in which `"-"` stood for subtraction *and* negation at once.
+pub(super) fn unary_operator_can_raise(op: UnaryOp, result_type: &ParameterType) -> bool {
+    ARITHMETIC_UNARY_OPERATORS.contains(&op)
+        && matches!(
+            result_type,
+            ParameterType::Byte
+                | ParameterType::Integer
+                | ParameterType::Fixed
+                | ParameterType::Money
+                | ParameterType::Float
+        )
 }
 
 /// Whether a block can let an error escape to the caller.
@@ -300,14 +329,14 @@ fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> boo
             right,
             ..
         } => {
-            ARITHMETIC_OPERATORS.contains(&operator.as_str())
+            ARITHMETIC_OPERATORS.contains(operator)
                 || expression_escapes(left, verdicts)
                 || expression_escapes(right, verdicts)
         }
         HirExpression::Unary {
             operand, operator, ..
         } => {
-            (operator == "-" && !matches!(operand.as_ref(), HirExpression::Number(_)))
+            (*operator == UnaryOp::Negate && !matches!(operand.as_ref(), HirExpression::Number(_)))
                 || expression_escapes(operand, verdicts)
         }
         HirExpression::Call {

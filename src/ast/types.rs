@@ -1,3 +1,5 @@
+use crate::operators::{BinaryOp, UnaryOp};
+
 #[derive(Clone, Debug)]
 pub struct AstProject {
     pub name: String,
@@ -734,14 +736,14 @@ pub enum Expression {
     Boolean(bool),
     Binary {
         left: Box<Expression>,
-        operator: String,
+        operator: BinaryOp,
         right: Box<Expression>,
         // Internal source location of the operator; not serialized to AST JSON.
         line: usize,
         column: usize,
     },
     Unary {
-        operator: String,
+        operator: UnaryOp,
         operand: Box<Expression>,
         // Internal source location of the operator; not serialized to AST JSON.
         line: usize,

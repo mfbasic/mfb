@@ -13,6 +13,7 @@
 //! here rather than being duplicated across the two module trees (bug-328).
 
 use super::NirValue;
+use crate::operators::BinaryOp;
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
@@ -36,11 +37,12 @@ pub(crate) fn native_constant_value(
                 value,
             })
         }
-        NirValue::Binary { op, .. } if op == "&" => native_static_string_value(value, constants)
-            .map(|value| NirValue::Const {
+        NirValue::Binary { op, .. } if *op == BinaryOp::Concat => {
+            native_static_string_value(value, constants).map(|value| NirValue::Const {
                 type_: ParameterType::String,
                 value,
-            }),
+            })
+        }
         _ => None,
     }
 }
@@ -66,7 +68,7 @@ pub(crate) fn native_static_string_value(
         }
         NirValue::Binary {
             op, left, right, ..
-        } if op == "&" => {
+        } if *op == BinaryOp::Concat => {
             let left = native_static_string_value(left, constants)?;
             let right = native_static_string_value(right, constants)?;
             Some(format!("{left}{right}"))

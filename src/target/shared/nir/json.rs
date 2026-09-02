@@ -400,7 +400,7 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
             format!(
                 "{{ \"name\": {}, \"ctype\": {}, \"out\": {} }}",
                 json_string(&slot.name),
-                json_string(&slot.ctype),
+                json_string(&slot.ctype.name()),
                 slot.direction.writes_back()
             )
         })
@@ -456,7 +456,7 @@ fn link_function_json(function: &crate::ir::IrLinkFunction, indent: usize) -> St
         function.return_resource,
         abi_slots,
         json_string(&function.abi_return_name),
-        json_string(&function.abi_return_ctype),
+        json_string(&function.abi_return_ctype.name()),
         consts,
         success_on,
         result,
@@ -1005,13 +1005,13 @@ impl ToNirJson for NirValue {
                 op, left, right, ..
             } => format!(
                 "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
-                json_string(op),
+                json_string(op.name()),
                 left.to_json(0),
                 right.to_json(0)
             ),
             NirValue::Unary { op, operand, .. } => format!(
                 "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
-                json_string(op),
+                json_string(op.name()),
                 operand.to_json(0)
             ),
         }

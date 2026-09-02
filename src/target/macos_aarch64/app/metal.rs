@@ -49,17 +49,19 @@
 use super::*;
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
+    CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_QUEUE,
+    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
+    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
+    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
+};
+use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
     HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
     HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
     ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
     ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
-};
-use crate::codegen::runtime::canvas::{
-    GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_QUEUE,
-    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
-    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
 };
 
 /// The one-time setup helper's symbol.
@@ -104,6 +106,14 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "using namespace metal;\n",
     "constant float FIXED = 65536.0;\n",
     "constant float PI = 3.141592653589793;\n",
+    // Where the frame buffer's edge region starts, in 32-bit words -- i.e. immediately
+    // past `CANVAS_MAX_FRAME_ITEMS` item blocks. Spelled as a literal because
+    // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
+    // computed value; `the_metal_shader_edge_base_matches_the_buffer_layout` is what
+    // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
+    // anywhere -- every polygon would simply read edges from the wrong place in a
+    // buffer that is entirely valid memory.
+    "constant int METAL_EDGE_BASE = 114688;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",    // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",   // p0..p3 (16.16 px)
@@ -113,13 +123,31 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  int4 arc;\n",     // startAngle, endAngle (16.16 rad), unused, unused
     "  int2 surface;\n", // width, height (px)
     "};\n",
-    "struct VOut { float4 pos [[position]]; };\n",
+    // plan-116-A: the index travels to the fragment stage as a flat varying, because
+    // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
+    // is an index, and interpolating an index across a quad produces a *plausible*
+    // picture drawn from the wrong blocks rather than a failure.
+    "struct VOut { float4 pos [[position]]; uint item [[flat]]; };\n",
     "static float fx(int v) { return float(v) / FIXED; }\n",
+    // `[[instance_id]]` **already includes `baseInstance`**, so a run that begins partway
+    // through the item buffer indexes it directly and needs no other arithmetic — the
+    // same property Vulkan's `gl_InstanceIndex` has. That is measured, not assumed, and
+    // it is the opposite of what plan-116-A predicted: adding a separate
+    // `[[base_instance]]` on top of it double-counted, so `baseInstance = 0` drew
+    // correctly and every non-zero base indexed past the end of the scene's blocks and
+    // drew nothing at all (plan-116-A Correction C5).
+    //
+    // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
+    // sidesteps `MTLBuffer` offset alignment, which a 112-byte stride does not satisfy.
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
-    "                      constant MfbItem &item [[buffer(0)]]) {\n",
+    "                      uint iid [[instance_id]],\n",
+    "                      constant MfbItem *items [[buffer(0)]]) {\n",
+    "  uint index = iid;\n",
+    "  constant MfbItem &item = items[index];\n",
     "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
     "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w));\n",
     "  VOut o;\n",
+    "  o.item = index;\n",
     "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
     "                 1.0 - corner.y / float(item.surface.y) * 2.0, 0.0, 1.0);\n",
     "  return o;\n",
@@ -139,11 +167,16 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
     "  return reflex ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
     "}\n",
-    "static float edgeDistance(constant int *edges, int count, float2 p) {\n",
+    // plan-116-A: `base` is the polygon's first-edge index into the frame buffer's edge
+    // region, the same word (`ITEM_ARC_EDGE_BASE`) Vulkan has always carried. Metal used
+    // to leave it zero because `setFragmentBytes:` copied each item's edges into the
+    // command buffer, so every polygon's array started at 0; one buffer now serves the
+    // whole frame, so each polygon reads its own slice.
+    "static float edgeDistance(constant int *edges, int base, int count, float2 p) {\n",
     "  float best = 1.0e6;\n",
     "  bool inside = false;\n",
     "  for (int e = 0; e < count; ++e) {\n",
-    "    int i = e * 4;\n",
+    "    int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
     "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
     "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
     "    best = min(best, segmentDistance(p, a, b));\n",
@@ -172,7 +205,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }\n",
     "    return abs(length(d) - fx(item.shape.z)) - radius;\n",
     "  }\n",
-    "  return edgeDistance(edges, item.misc.w, p);\n",
+    "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -194,10 +227,18 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // a rounding boundary of each other.
     "  return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));\n",
     "}\n",
+    // `items` and `edges` are the SAME buffer bound twice, at offset zero both times:
+    // one view typed as blocks, one as raw words. Two bindings rather than one pointer
+    // cast because the edge region is reached by a word index and the block region by a
+    // struct index, and letting each keep its own element type is what stops a packing
+    // mistake -- the class of bug that yields a plausible wrong picture, not a fault.
+    // The glyph bitmap stays a per-glyph `setFragmentBytes:` payload: a text item is
+    // already N separate draws, so its payload never has to survive an instanced run.
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
-    "                            constant MfbItem &item [[buffer(0)]],\n",
+    "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
     "                            constant uchar *glyph [[buffer(2)]]) {\n",
+    "  constant MfbItem &item = items[in.item];\n",
     // A glyph has coverage, not a distance: the CPU rasterised its outline once and
     // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
     // returns before `geoDistance` for that reason, and it is fill-only — a stroked
@@ -307,13 +348,43 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
     "_mfb_macapp_sel_setRenderPipelineState",
     "setRenderPipelineState:",
 );
-pub(super) const SEL_SET_VERTEX_BYTES: (&str, &str) = (
-    "_mfb_macapp_sel_setVertexBytes",
-    "setVertexBytes:length:atIndex:",
+/// The only draw this backend issues (plan-116-A) — one call for a whole run of
+/// consecutive non-text items, and one per glyph.
+///
+/// It replaced `drawPrimitives:vertexStart:vertexCount:` and
+/// `setVertexBytes:length:atIndex:` outright, and both are *deleted* rather than kept
+/// for a caller that might want them: every selector in `metal_data_objects` is a C
+/// string emitted into every canvas binary and registered with the ObjC runtime at
+/// startup, so an unsent one is not free.
+///
+/// `baseInstance:` is the load-bearing part, not `instanceCount:`: it is what lets a run
+/// that begins partway through the item buffer name its own blocks. MSL's
+/// `[[instance_id]]` **already includes it** — the same property Vulkan's
+/// `gl_InstanceIndex` has — so the shader indexes with `[[instance_id]]` alone and adds
+/// nothing. That is measured rather than assumed; plan-116-A predicted the opposite, and
+/// the extra `[[base_instance]]` it called for double-counted (Correction C5).
+///
+/// The alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — would put an
+/// `MTLBuffer` offset-alignment requirement on a 112-byte stride that does not meet it.
+pub(super) const SEL_DRAW_PRIMITIVES_INSTANCED: (&str, &str) = (
+    "_mfb_macapp_sel_drawPrimitivesInstanced",
+    "drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:",
 );
-pub(super) const SEL_DRAW_PRIMITIVES: (&str, &str) = (
-    "_mfb_macapp_sel_drawPrimitives",
-    "drawPrimitives:vertexStart:vertexCount:",
+/// `[device newBufferWithLength:options:]` for the frame buffer, and `contents` for
+/// the CPU pointer it is written through.
+pub(super) const SEL_NEW_BUFFER: (&str, &str) = (
+    "_mfb_macapp_sel_newBufferWithLength",
+    "newBufferWithLength:options:",
+);
+pub(super) const SEL_CONTENTS: (&str, &str) = ("_mfb_macapp_sel_contents", "contents");
+/// Bind the frame buffer to a stage, once per frame rather than once per item.
+pub(super) const SEL_SET_VERTEX_BUFFER: (&str, &str) = (
+    "_mfb_macapp_sel_setVertexBuffer",
+    "setVertexBuffer:offset:atIndex:",
+);
+pub(super) const SEL_SET_FRAGMENT_BUFFER: (&str, &str) = (
+    "_mfb_macapp_sel_setFragmentBuffer",
+    "setFragmentBuffer:offset:atIndex:",
 );
 pub(super) const SEL_END_ENCODING: (&str, &str) = ("_mfb_macapp_sel_endEncoding", "endEncoding");
 pub(super) const SEL_COMMIT: (&str, &str) = ("_mfb_macapp_sel_commit", "commit");
@@ -346,6 +417,13 @@ pub(super) const MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB: &str = "81";
 const MTL_BLEND_FACTOR_ONE: &str = "1";
 /// `MTLBlendFactorOneMinusSourceAlpha`.
 const MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: &str = "5";
+
+/// `MTLResourceStorageModeShared` — CPU and GPU see one allocation, no explicit copy.
+///
+/// The frame buffer is written by the CPU every frame and read by the GPU in the same
+/// frame, which is exactly what shared storage is for. `Managed` would need a
+/// `didModifyRange:` per frame and `Private` could not be written from the CPU at all.
+const MTL_RESOURCE_STORAGE_MODE_SHARED: &str = "0";
 
 /// `int _mfb_macapp_metal_init(void)` — build the device, queue and pipeline once.
 ///
@@ -515,12 +593,60 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_eq(&fail));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // pipeline
+
+    // --- the frame buffer (plan-116-A) ---------------------------------------------
+    // `[device newBufferWithLength:METAL_BUFFER_BYTES options:MTLResourceStorageModeShared]`.
+    // Created with the DEVICE and not with the target: its size does not depend on the
+    // surface, so a resize must not tear it down and rebuild it — the same lifecycle
+    // rule the Vulkan edge and item buffers follow.
+    //
+    // `LOCAL[3]` and `LOCAL[4]` are reused here rather than the frame growing two more
+    // saves: `LOCAL[3]` held the shader library and `LOCAL[4]` the pipeline descriptor,
+    // and the pipeline that consumed both was created just above, so neither is live.
+    asm.load_selector(SEL_NEW_BUFFER.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        &METAL_BUFFER_BYTES.to_string(),
+    ));
+    asm.push(abi::move_immediate(
+        abi::c_arg(3),
+        "Integer",
+        MTL_RESOURCE_STORAGE_MODE_SHARED,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1])); // device
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&fail));
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // buffer
+
+    // `contents` once, not once per item: the frame path writes item blocks and edges
+    // through a plain pointer, and a message send per item would put an `objc_msgSend`
+    // in the inner loop of every scene.
+    asm.load_selector(SEL_CONTENTS.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&fail));
+    asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // contents
 
     // Publish device, queue and pipeline for the frame path, and record success.
     // The pipeline is stored last: a frame that races this sees a non-zero pipeline
-    // only once the device and queue it needs are already there.
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0)));
+    // only once the device and queue it needs are already there — and now the frame
+    // buffer too, which the frame path dereferences without checking for the same
+    // reason it does not check the device.
     asm.local_address(abi::c_arg(1), GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::store_u64(
+        abi::LOCAL[3],
+        abi::c_arg(1),
+        GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+    ));
+    asm.push(abi::store_u64(
+        abi::LOCAL[4],
+        abi::c_arg(1),
+        GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
+    ));
     asm.push(abi::store_u64(
         abi::LOCAL[1],
         abi::c_arg(1),
@@ -621,7 +747,12 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // stack area. Getting that wrong is not a subtle mismatch: the callee dereferences
 // whatever is in that register, and a zero there faults inside
 // `-[IOGPUMetalTexture getBytes:…]` with none of our frames in the trace.
-const DRAW_FRAME: usize = 400 + MAX_EDGES * 16;
+//
+// plan-116-A: the frame no longer carries a `MAX_EDGES * 16` edge staging area. Edges
+// are written straight into the frame buffer's edge region, so the stack shrinks by
+// 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
+// buffer is gone with it.
+const DRAW_FRAME: usize = 448;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -631,10 +762,6 @@ const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
 const OFF_TEXTURE: usize = 304;
-/// The edge count, parked because `load_selector` calls through `sel_registerName`
-/// and every scratch register is caller-saved across it.
-const OFF_EDGE_COUNT: usize = 312;
-/// The polygon edge buffer: `MAX_EDGES` edges of four 16.16 ints.
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
@@ -652,7 +779,26 @@ const OFF_GLYPH_Y: usize = 384;
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
 const OFF_GLYPH_SRC: usize = 392;
-const OFF_EDGES: usize = 400;
+/// `[frameBuffer contents]`, loaded once per frame from the graphics state.
+///
+/// Parked rather than kept in a `LOCAL`: every item makes at least one
+/// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
+const OFF_CONTENTS: usize = 400;
+/// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
+/// a glyph run takes one per glyph — and the base of the instanced run currently being
+/// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
+/// to live somewhere the argument staging cannot clobber.
+const OFF_ITEM_CURSOR: usize = 408;
+const OFF_RUN_START: usize = 416;
+const OFF_RUN_COUNT: usize = 424;
+/// The frame's running edge cursor, in edges. Each polygon appends here and records
+/// where it started in its own item block — exactly what the Vulkan emitter has always
+/// done, and what Metal could not do while its edges rode a per-item payload.
+const OFF_EDGE_CURSOR: usize = 432;
+/// Where the glyph currently being drawn published its block, parked so the draw's
+/// `baseInstance:` is staged from memory rather than from a register the staging of an
+/// earlier argument would have overwritten.
+const OFF_GLYPH_INSTANCE: usize = 440;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -939,8 +1085,54 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // --- the frame buffer, bound once (plan-116-A) --------------------------------
+    // Once per frame, not once per item, which is the whole point: a binding that
+    // changed per item could not be shared by the instances of one draw.
+    //
+    // The SAME buffer goes to three places — vertex index 0, fragment index 0, and
+    // fragment index 1 — all at offset zero. Indices 0 read it as `MfbItem` blocks and
+    // index 1 as raw words for the edge region, and each keeping its own element type
+    // is what stops a hand-packed reinterpretation in the shader. Offset zero
+    // throughout is deliberate too: it sidesteps `MTLBuffer` offset alignment, which a
+    // 112-byte block stride would not satisfy, and it is why the edge region is reached
+    // by adding `METAL_EDGE_BASE` in the shader instead.
+    asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
+    asm.push(abi::load_u64(
+        abi::LOCAL[0],
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+    ));
+    for (setter, index) in [
+        (SEL_SET_VERTEX_BUFFER.0, "0"),
+        (SEL_SET_FRAGMENT_BUFFER.0, "0"),
+        (SEL_SET_FRAGMENT_BUFFER.0, "1"),
+    ] {
+        asm.load_selector(setter);
+        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[0])); // buffer
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // offset
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", index));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+
     // --- one quad per item -------------------------------------------------------
     asm.push(abi::move_immediate(abi::LOCAL[2], "Integer", "0"));
+    // The frame's cursors: the item buffer's next free block, the run currently being
+    // accumulated, and the edge region's next free edge.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for slot in [OFF_ITEM_CURSOR, OFF_RUN_START, OFF_EDGE_CURSOR] {
+        asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
+    }
     asm.push(abi::label(&item_head));
     asm.push(abi::compare_registers(abi::LOCAL[2], abi::LOCAL[5]));
     asm.push(abi::branch_ge(&item_done));
@@ -983,82 +1175,49 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_TEXT));
     asm.push(abi::branch_eq(&text_item));
 
-    emit_edge_buffer(&mut asm);
-    asm.push(abi::store_u64(
-        abi::SCRATCH[2],
-        abi::stack_pointer(),
-        OFF_EDGE_COUNT,
-    ));
+    // The block first, then the edges: `emit_item_block` writes all four words of
+    // `ITEM_OFFSET_ARC`, so an edge base stored before it would be overwritten. Same
+    // ordering as the Vulkan emitter.
     emit_item_block(&mut asm);
+    emit_edge_buffer(&mut asm);
+    // Published, not drawn. The draw happens at the end of the run this item joins,
+    // which is what makes consecutive shapes one instanced draw instead of N — and
+    // there is nothing left to bind per item now that the edges ride the frame buffer
+    // too.
+    emit_item_publish(&mut asm, &item_next);
+    asm.push(abi::branch(&item_next));
 
-    // The block goes to both stages: the vertex shader needs the quad and the surface
-    // size, the fragment shader needs everything else.
-    for setter in [SEL_SET_VERTEX_BYTES.0, SEL_SET_FRAGMENT_BYTES.0] {
-        asm.load_selector(setter);
-        asm.push(abi::add_immediate(
-            abi::c_arg(2),
-            abi::stack_pointer(),
-            OFF_ITEM,
-        ));
-        asm.push(abi::move_immediate(
-            abi::c_arg(3),
-            "Integer",
-            &ITEM_BLOCK_SIZE.to_string(),
-        ));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-    }
-
-    let empty_edges = format!("{METAL_DRAW_SYMBOL}_empty_edges");
-    // The edge buffer, always bound even when empty: `setFragmentBytes:length:` will
-    // not take a zero length, and an unbound buffer the shader declares is a
-    // validation failure at draw time rather than a nil the shader can test.
-    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
+    // A glyph run ends the instanced run: its quads are N draws rather than N instances
+    // (still one block each, at the same cursor), so the shapes accumulated so far have
+    // to reach the command stream before them or they would be drawn on top of the text
+    // instead of under it.
+    asm.push(abi::label(&text_item));
+    emit_run_flush(&mut asm, "text");
+    emit_glyph_draws(&mut asm);
+    // The glyphs consumed item-buffer slots of their own, so the next run of shapes
+    // begins after them — not where the flush above left the base. Without this the
+    // trailing shapes are drawn as one run *starting at the first glyph*, so every
+    // glyph quad is drawn a second time.
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        OFF_EDGE_COUNT,
+        OFF_ITEM_CURSOR,
     ));
-    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "16"));
-    asm.push(abi::multiply_registers(
+    asm.push(abi::store_u64(
         abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        abi::SCRATCH[1],
-    ));
-    asm.push(abi::move_register(abi::c_arg(3), abi::SCRATCH[1]));
-    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    asm.push(abi::branch_eq(&empty_edges));
-    asm.push(abi::move_register(abi::c_arg(3), abi::SCRATCH[0]));
-    asm.push(abi::label(&empty_edges));
-    asm.push(abi::add_immediate(
-        abi::c_arg(2),
         abi::stack_pointer(),
-        OFF_EDGES,
+        OFF_RUN_START,
     ));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-
-    asm.load_selector(SEL_DRAW_PRIMITIVES.0);
-    asm.push(abi::move_immediate(
-        abi::c_arg(2),
-        "Integer",
-        MTL_PRIMITIVE_TRIANGLE_STRIP,
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::branch(&item_next));
-
-    asm.push(abi::label(&text_item));
-    emit_glyph_draws(&mut asm);
 
     asm.push(abi::label(&item_next));
     asm.push(abi::add_immediate(abi::LOCAL[2], abi::LOCAL[2], 1));
     asm.push(abi::branch(&item_head));
     asm.push(abi::label(&item_done));
+
+    // The scene's last run — everything published since the final glyph run, or the
+    // whole frame when it contains no text. Without this the trailing shapes are
+    // written into the buffer and never drawn.
+    emit_run_flush(&mut asm, "tail");
 
     // --- submit and wait ---------------------------------------------------------
     for (selector, receiver) in [
@@ -1535,39 +1694,27 @@ fn emit_glyph_draws(asm: &mut Asm) {
         OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_GLYPH_HEIGHT,
     ));
 
-    // --- bind and draw ---------------------------------------------------------------
-    for setter in [SEL_SET_VERTEX_BYTES.0, SEL_SET_FRAGMENT_BYTES.0] {
-        asm.load_selector(setter);
-        asm.push(abi::add_immediate(
-            abi::c_arg(2),
-            abi::stack_pointer(),
-            OFF_ITEM,
-        ));
-        asm.push(abi::move_immediate(
-            abi::c_arg(3),
-            "Integer",
-            &ITEM_BLOCK_SIZE.to_string(),
-        ));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-    }
-
-    // The edge buffer still has to be bound: the fragment function declares it, and an
-    // unbound buffer is a validation failure at draw time rather than a nil the shader
-    // could test. One edge's worth of whatever is in the scratch area is enough — the
-    // glyph arm returns before `geoDistance` ever reads it.
-    asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
-    asm.push(abi::add_immediate(
-        abi::c_arg(2),
+    // --- publish and draw ------------------------------------------------------------
+    // This glyph's block goes into the frame buffer like any other quad's, and the draw
+    // names it through `baseInstance:`. The index is parked *before* the publish,
+    // because publishing advances the cursor past it.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
         abi::stack_pointer(),
-        OFF_EDGES,
+        OFF_ITEM_CURSOR,
     ));
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "16"));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "1"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_INSTANCE,
+    ));
+    emit_item_publish(asm, &next);
 
+    // The edge binding needs no per-glyph send any more: the frame buffer is bound at
+    // fragment index 1 once for the whole frame, and the glyph arm returns before
+    // `geoDistance` would read it anyway. The bitmap below is the ONLY per-draw payload
+    // left on this path — it stays, because a text item is already N separate draws
+    // (`GEO_KIND_TEXT`), so it never has to survive an instanced run.
     asm.load_selector(SEL_SET_FRAGMENT_BYTES.0);
     asm.push(abi::load_u64(
         abi::c_arg(2),
@@ -1593,14 +1740,23 @@ fn emit_glyph_draws(asm: &mut Asm) {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    asm.load_selector(SEL_DRAW_PRIMITIVES.0);
+    // One instance, not a run: a glyph run is N draws by design, and folding it into
+    // the instancing scheme is a change of shape rather than of transport. The block
+    // still rides the buffer, so `baseInstance:` is all that identifies it.
+    asm.load_selector(SEL_DRAW_PRIMITIVES_INSTANCED.0);
     asm.push(abi::move_immediate(
         abi::c_arg(2),
         "Integer",
         MTL_PRIMITIVE_TRIANGLE_STRIP,
     ));
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4"));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // vertexStart
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4")); // vertexCount
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "1")); // instanceCount
+    asm.push(abi::load_u64(
+        abi::c_arg(6),
+        abi::stack_pointer(),
+        OFF_GLYPH_INSTANCE,
+    ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
@@ -1738,22 +1894,180 @@ fn emit_item_block(asm: &mut Asm) {
     }
 }
 
-/// Convert a polygon's cached edge tail into the shader's edge buffer at
-/// `sp + OFF_EDGES`, and leave the edge count in `SCRATCH[2]`.
+/// Copy the item block just built on the stack into the frame buffer at the cursor, and
+/// advance the cursor by one quad.
 ///
-/// `SCRATCH[0]` holds the geometry header. The cache stores each edge as
-/// `x0, y0, dx, dy, invLenSq`; the buffer carries the two **endpoints** instead, and
-/// the shader recomputes the edge vector. That is not lost work: the cache keeps
-/// `invLenSq` to keep a reciprocal off the software path's per-pixel loop, the GPU
-/// has the divide for free, and `invLenSq` is the one header quantity 16.16 fixed
-/// point represents badly — a 100-px edge gives 1e-4, which is 6 in 16.16.
+/// This is what replaced the two `setVertexBytes:`/`setFragmentBytes:` sends that used
+/// to push the block per draw (plan-116-A). The block is still built at `OFF_ITEM`
+/// exactly as before — `emit_item_block` is untouched — and then lands in the buffer
+/// instead of in the command stream, at the index the shaders read it back from
+/// through `[[instance_id]]`, which includes the draw's `baseInstance:`.
 ///
-/// A non-polygon leaves the count at zero and reads nothing: slot 20 is the arc's
-/// start angle for an arc, so walking a tail that is not there would read the *next*
-/// item's header as edge coordinates.
+/// **The cursor counts quads, not scene items.** A shape is one, a glyph run is one per
+/// glyph. That is the same number `__canvas_metalRenderable` sums against
+/// `CANVAS_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
+///
+/// Branches to `full` without writing or advancing when the frame is at capacity —
+/// unreachable, because the predicate already declined such a scene to software, and
+/// kept because the alternative is a write past the buffer.
+///
+/// No `objc_msgSend` happens here, so the scratch bank is safe across it.
+fn emit_item_publish(asm: &mut Asm, full: &str) {
+    let cursor = abi::SCRATCH[0];
+    let target = abi::SCRATCH[1];
+    let value = abi::SCRATCH[2];
+
+    asm.push(abi::load_u64(cursor, abi::stack_pointer(), OFF_ITEM_CURSOR));
+    asm.push(abi::compare_immediate(
+        cursor,
+        &CANVAS_MAX_FRAME_ITEMS.to_string(),
+    ));
+    asm.push(abi::branch_ge(full));
+
+    // target = contents + cursor * ITEM_BLOCK_SIZE. A multiply rather than a second
+    // byte-cursor kept in step with this one: two cursors that must never diverge is
+    // exactly the invariant that breaks silently.
+    asm.push(abi::move_immediate(
+        target,
+        "Integer",
+        &ITEM_BLOCK_SIZE.to_string(),
+    ));
+    asm.push(abi::multiply_registers(target, cursor, target));
+    asm.push(abi::load_u64(value, abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(target, value, target));
+
+    debug_assert_eq!(
+        ITEM_BLOCK_SIZE % 8,
+        0,
+        "the item block is copied to the buffer eight bytes at a time"
+    );
+    for word in 0..ITEM_BLOCK_SIZE / 8 {
+        asm.push(abi::load_u64(
+            value,
+            abi::stack_pointer(),
+            OFF_ITEM + word * 8,
+        ));
+        asm.push(abi::store_u64(value, target, word * 8));
+    }
+
+    asm.push(abi::add_immediate(cursor, cursor, 1));
+    asm.push(abi::store_u64(
+        cursor,
+        abi::stack_pointer(),
+        OFF_ITEM_CURSOR,
+    ));
+}
+
+/// Draw every quad published since the last flush as **one instanced draw**, and start
+/// a new run.
+///
+/// `[encoder drawPrimitives:TriangleStrip vertexStart:0 vertexCount:4
+/// instanceCount:count baseInstance:base]`. MSL's `[[instance_id]]` includes
+/// `baseInstance`, so each instance reads exactly the block this run published into it,
+/// with no index arithmetic in the shader — see `SEL_DRAW_PRIMITIVES_INSTANCED`.
+///
+/// A run ends at a glyph run or at the end of the scene, and nowhere else. Nothing
+/// per-item is bound between instances any more: the edges became a buffer region in
+/// this same letter and the item block became one beside them, so consecutive shapes
+/// have nothing left to separate them.
+///
+/// The encoder is read from `LOCAL[6]`, and the count and base from the stack —
+/// `load_selector` calls through `sel_registerName` and clobbers the whole scratch
+/// bank, so a count computed into a register before it would not survive.
+fn emit_run_flush(asm: &mut Asm, label: &str) {
+    let empty = format!("{METAL_DRAW_SYMBOL}_run_empty_{label}");
+
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM_CURSOR,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_RUN_START,
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_le(&empty));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_RUN_COUNT,
+    ));
+
+    asm.load_selector(SEL_DRAW_PRIMITIVES_INSTANCED.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        MTL_PRIMITIVE_TRIANGLE_STRIP,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // vertexStart
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4")); // vertexCount
+    asm.push(abi::load_u64(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        OFF_RUN_COUNT,
+    ));
+    asm.push(abi::load_u64(
+        abi::c_arg(6),
+        abi::stack_pointer(),
+        OFF_RUN_START,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::label(&empty));
+    // The next run starts wherever this frame has published to, whether or not anything
+    // was drawn just now.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM_CURSOR,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_RUN_START,
+    ));
+}
+
+/// Append a polygon's cached edge tail to the **frame buffer's edge region**, and
+/// record where it landed in the item block's `ITEM_ARC_EDGE_BASE`.
+///
+/// **This used to be a per-item `setFragmentBytes:` payload** copied into the command
+/// buffer at record time, which is why Metal's edge base was always zero: every
+/// polygon's array started at 0 because every polygon got its own copy. plan-116-A had
+/// to change that, and not for tidiness — an instanced draw cannot rebind a per-item
+/// payload between instances, so every polygon would have ended the instanced run, and
+/// plan-116-F's gradient stops and plan-116-H's one-draw-per-group would each have
+/// collided with the same fact. Both backends now carry edges identically.
+///
+/// Runs **after** `emit_item_block`, which writes all four words of `ITEM_OFFSET_ARC`
+/// and would otherwise overwrite the base this stores. That is the same ordering the
+/// Vulkan emitter uses.
+///
+/// The header is reloaded from `OFF_GLYPH_HEADER` rather than taken from `SCRATCH[0]`,
+/// because `emit_item_block` runs in between and owns the scratch bank.
+///
+/// The cache stores each edge as `x0, y0, dx, dy, invLenSq`; the buffer carries the two
+/// **endpoints** instead, and the shader recomputes the edge vector. That is not lost
+/// work: the cache keeps `invLenSq` to keep a reciprocal off the software path's
+/// per-pixel loop, the GPU has the divide for free, and `invLenSq` is the one header
+/// quantity 16.16 fixed point represents badly — a 100-px edge gives 1e-4, which is 6
+/// in 16.16.
+///
+/// A non-polygon zeroes both the count and the base and reads nothing: slot 20 is the
+/// arc's start angle for an arc, so walking a tail that is not there would read the
+/// *next* item's header as edge coordinates.
 fn emit_edge_buffer(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_edge_head");
     let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
+    let empty = format!("{METAL_DRAW_SYMBOL}_edge_empty");
     let convert = format!("{METAL_DRAW_SYMBOL}_edge_convert");
     let header = abi::SCRATCH[0];
     let count = abi::SCRATCH[2];
@@ -1761,6 +2075,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let source = abi::SCRATCH[4];
     let scale = abi::FP_SCRATCH[0];
 
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
     asm.push(abi::move_immediate(count, "Integer", "0"));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
@@ -1772,7 +2091,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::FP_SCRATCH[1],
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYGON));
-    asm.push(abi::branch_ne(&done));
+    asm.push(abi::branch_ne(&empty));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
@@ -1780,13 +2099,77 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
     asm.push(abi::compare_immediate(count, &MAX_EDGES.to_string()));
+    asm.push(abi::branch_gt(&empty));
+    // Would this polygon's edges fit the frame's region? Unreachable — the same
+    // `__canvas_metalRenderable` that declines an over-long polygon now also declines a
+    // frame whose polygons sum past `METAL_MAX_FRAME_EDGES`, so the whole scene went to
+    // software. Kept because the alternative to declining is a write past the buffer.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[5], count));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[6],
+        &METAL_MAX_FRAME_EDGES.to_string(),
+    ));
     asm.push(abi::branch_le(&convert));
-    // Declined upstream by `__canvas_metalRenderable`; clamping here would render a
-    // *different polygon*, so refuse to draw any of it instead.
+
+    // Not a polygon, over the per-item cap, or past the frame's region: draw no edges
+    // and leave the base at zero. Clamping would render a *different polygon*.
+    asm.push(abi::label(&empty));
     asm.push(abi::move_immediate(count, "Integer", "0"));
+    asm.push(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
     asm.push(abi::branch(&done));
 
     asm.push(abi::label(&convert));
+    // The pre-advance cursor is this polygon's first-edge index; the shader reaches its
+    // slice through it. `SCRATCH[5]` still holds it.
+    asm.push(abi::store_u32(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    // target = contents + METAL_EDGE_BASE_WORDS * 4 + base * 16.
+    //
+    // The region offset goes through a register rather than `add_immediate`: it is
+    // 458752 bytes, far past the 12-bit immediate an AArch64 `add` encodes.
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[5],
+        abi::SCRATCH[5],
+        4,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        &(METAL_EDGE_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+
     asm.push(abi::move_immediate(
         abi::SCRATCH[5],
         "Integer",
@@ -1794,11 +2177,6 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
-    asm.push(abi::add_immediate(
-        abi::SCRATCH[6],
-        abi::stack_pointer(),
-        OFF_EDGES,
-    ));
     asm.push(abi::move_immediate(index, "Integer", "0"));
 
     asm.push(abi::label(&head));
@@ -1865,13 +2243,16 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_COMMAND_BUFFER,
         SEL_RENDER_COMMAND_ENCODER,
         SEL_SET_RENDER_PIPELINE_STATE,
-        SEL_SET_VERTEX_BYTES,
-        SEL_DRAW_PRIMITIVES,
         SEL_END_ENCODING,
         SEL_COMMIT,
         SEL_WAIT_UNTIL_COMPLETED,
         SEL_GET_BYTES,
         SEL_SET_FRAGMENT_BYTES,
+        SEL_DRAW_PRIMITIVES_INSTANCED,
+        SEL_NEW_BUFFER,
+        SEL_CONTENTS,
+        SEL_SET_VERTEX_BUFFER,
+        SEL_SET_FRAGMENT_BUFFER,
     ]
 }
 
@@ -2046,6 +2427,32 @@ mod tests {
                  what `newFunctionWithName:` asks for"
             );
         }
+    }
+
+    /// The MSL's `METAL_EDGE_BASE` is `METAL_EDGE_BASE_WORDS`.
+    ///
+    /// The shader cannot see a Rust constant — `METAL_SHADER_SOURCE` is a `concat!` of
+    /// string literals, so the number is spelled twice — and this is the only thing
+    /// standing between the two. A disagreement would not fail anywhere: every polygon
+    /// would simply read its edges from the wrong place in a buffer that is entirely
+    /// valid memory, and the frame would come back with plausible-looking wrong shapes.
+    /// That is the exact failure mode `the_shaders_glyph_base_matches_the_buffer_layout`
+    /// exists for on the Vulkan side.
+    #[test]
+    fn the_metal_shader_edge_base_matches_the_buffer_layout() {
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};"
+            )),
+            "the MSL declares an edge-region base that is not METAL_EDGE_BASE_WORDS \
+             ({METAL_EDGE_BASE_WORDS}); every polygon would read edges from the wrong \
+             offset of a buffer that is entirely valid memory"
+        );
+        assert_eq!(
+            METAL_BUFFER_BYTES,
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the buffer must hold both regions: the blocks the base skips, then the edges"
+        );
     }
 
     /// The render target is an sRGB format.

@@ -704,6 +704,74 @@ fn text_on_the_gpu_matches_the_software_oracle() {
     }
 }
 
+/// Shapes drawn **after** a glyph run land in the right place, and the glyphs are drawn
+/// exactly once.
+///
+/// plan-116-A made consecutive non-text items one instanced draw. A glyph run ends that
+/// run and takes item-buffer slots of its own, so the next run has to restart past them.
+/// If it does not, the trailing shapes are drawn as one run *beginning at the first
+/// glyph* — and every glyph quad is drawn a second time.
+///
+/// **The label is translucent, and that is the whole reason this test can see the bug.**
+/// The fixture glyph is an axis-aligned opaque square, so its coverage is binary, and
+/// compositing an opaque square over itself is idempotent: with an opaque label a
+/// renderer that drew every glyph twice produced a byte-identical frame and no assertion
+/// could tell. At alpha 150 a second composite is arithmetically different from one.
+/// (Measured on the Vulkan harness, which is where this was first caught: bug present →
+/// worst channel delta 27; bug absent → 1.)
+///
+/// The trailing circle is what forces a non-empty final run — with the text last, the
+/// final flush is always empty and the ordering is never exercised.
+const GPU_TEXT_THEN_SHAPE: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(canvas::rgb(40, 60, 90))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
+  LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
+  canvas::present([under, label, tail])
+END SUB
+"#;
+
+#[test]
+fn a_shape_after_a_glyph_run_matches_the_software_oracle() {
+    let software = render_with("canvas_text_tail_sw", GPU_TEXT_THEN_SHAPE, false);
+    let gpu = render_with("canvas_text_tail_hw", GPU_TEXT_THEN_SHAPE, true);
+    if gpu.is_empty() {
+        eprintln!("skip: this host reports no Metal device");
+        return;
+    }
+    assert!(
+        software.iter().any(|&b| b != 0),
+        "the software render drew nothing, so the comparison would be vacuous",
+    );
+
+    let height = (software.len() / 4 / WIDTH) as u32;
+    let want = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: software,
+    };
+    let got = Frame {
+        width: WIDTH as u32,
+        height,
+        pixels: gpu,
+    };
+    if let Err(diff) = compare_within_tolerance(&got, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "a scene of shape, translucent text, shape differs from the software \
+             oracle: {diff:?}\n\
+             A difference concentrated in the text band means the glyph quads were \
+             drawn twice — the instanced run after the glyphs restarted at the wrong \
+             base. A difference at the trailing circle means it was not drawn at all."
+        );
+    }
+}
+
 /// Two scenes of three hundred text items each, presented A, B, A.
 ///
 /// Every size is a distinct glyph-cache key (`__canvas_sizeQ` quantises to 1/16 px and

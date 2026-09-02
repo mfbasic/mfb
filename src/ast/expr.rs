@@ -1,5 +1,6 @@
 use super::pipeline::{contains_placeholder, substitute_placeholder};
 use super::*;
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// Maximum expression-nesting depth. Recursive-descent parsing turns each nesting
 /// level into native stack frames, so an unbounded input (e.g. ~100k nested `(`,
@@ -165,19 +166,17 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_or(&mut self) -> Option<Expression> {
         let mut expression = self.parse_and()?;
         while self.match_any_keywords(&[Keyword::Or, Keyword::Xor]) {
-            let operator = match self.previous().kind {
-                TokenKind::Keyword(Keyword::Or) => "OR",
-                TokenKind::Keyword(Keyword::Xor) => "XOR",
-                // coverage:off — the preceding match_any_keywords guarantees the
-                // previous token is OR or XOR.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any_keywords guarantees the
+            // previous token is OR or XOR, both of which spell an operator.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_and()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -193,7 +192,7 @@ impl<'a> FileParser<'a> {
             let right = self.parse_not()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "AND".to_string(),
+                operator: BinaryOp::And,
                 right: Box::new(right),
                 line,
                 column,
@@ -212,7 +211,7 @@ impl<'a> FileParser<'a> {
             self.leave_expr();
             let operand = operand?;
             return Some(Expression::Unary {
-                operator: "NOT".to_string(),
+                operator: UnaryOp::Not,
                 operand: Box::new(operand),
                 line,
                 column,
@@ -231,23 +230,17 @@ impl<'a> FileParser<'a> {
             TokenKind::Greater,
             TokenKind::GreaterEqual,
         ]) {
-            let operator = match self.previous().kind {
-                TokenKind::Equal => "=",
-                TokenKind::NotEqual => "<>",
-                TokenKind::Less => "<",
-                TokenKind::LessEqual => "<=",
-                TokenKind::Greater => ">",
-                TokenKind::GreaterEqual => ">=",
-                // coverage:off — the preceding match_any guarantees a comparison
-                // operator token here.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any guarantees a comparison
+            // operator token here.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_concat()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -263,7 +256,7 @@ impl<'a> FileParser<'a> {
             let right = self.parse_addition()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "&".to_string(),
+                operator: BinaryOp::Concat,
                 right: Box::new(right),
                 line,
                 column,
@@ -275,18 +268,16 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_addition(&mut self) -> Option<Expression> {
         let mut expression = self.parse_multiplication()?;
         while self.match_any(&[TokenKind::Plus, TokenKind::Minus]) {
-            let operator = match self.previous().kind {
-                TokenKind::Plus => "+",
-                TokenKind::Minus => "-",
-                // coverage:off — the preceding match_any guarantees `+` or `-`.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match_any guarantees `+` or `-`.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_multiplication()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -300,21 +291,17 @@ impl<'a> FileParser<'a> {
         while self.match_any(&[TokenKind::Star, TokenKind::Slash])
             || self.match_any_keywords(&[Keyword::Mod, Keyword::Div])
         {
-            let operator = match self.previous().kind {
-                TokenKind::Star => "*",
-                TokenKind::Slash => "/",
-                TokenKind::Keyword(Keyword::Mod) => "MOD",
-                TokenKind::Keyword(Keyword::Div) => "DIV",
-                // coverage:off — the preceding match guards guarantee `*`, `/`,
-                // MOD, or DIV here.
-                _ => unreachable!(),
-                // coverage:on
+            // coverage:off — the preceding match guards guarantee `*`, `/`,
+            // MOD, or DIV here.
+            let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
+                unreachable!()
             };
+            // coverage:on
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: operator.to_string(),
+                operator,
                 right: Box::new(right),
                 line,
                 column,
@@ -335,7 +322,7 @@ impl<'a> FileParser<'a> {
             let right = right?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "^".to_string(),
+                operator: BinaryOp::Power,
                 right: Box::new(right),
                 line,
                 column,
@@ -354,7 +341,7 @@ impl<'a> FileParser<'a> {
             self.leave_expr();
             let operand = operand?;
             return Some(Expression::Unary {
-                operator: "-".to_string(),
+                operator: UnaryOp::Negate,
                 operand: Box::new(operand),
                 line,
                 column,

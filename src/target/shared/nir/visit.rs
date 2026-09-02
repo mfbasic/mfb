@@ -20,6 +20,8 @@
 //! it into every other analysis.
 
 use super::{NirMatchPattern, NirOp, NirValue};
+#[cfg(test)]
+use crate::operators::{BinaryOp, UnaryOp};
 
 /// A recursive traversal over the NIR tree with complete default recursion.
 ///
@@ -339,13 +341,13 @@ mod tests {
                 member: "m".to_string(),
             },
             NirValue::Binary {
-                op: "+".to_string(),
+                op: BinaryOp::Add,
                 left: boxed(local("binary_left")),
                 right: boxed(local("binary_right")),
                 loc: NirSourceLoc::default(),
             },
             NirValue::Unary {
-                op: "-".to_string(),
+                op: UnaryOp::Negate,
                 operand: boxed(local("unary_child")),
                 loc: NirSourceLoc::default(),
             },

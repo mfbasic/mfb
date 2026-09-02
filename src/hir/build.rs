@@ -5,6 +5,7 @@
 //! exactly what elaborating the equivalent AST tree would produce.
 
 use super::{HirCallArg, HirExpression, HirStatement};
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 pub(crate) fn str_lit(value: String) -> HirExpression {
@@ -23,10 +24,14 @@ pub(crate) fn ident(name: &str) -> HirExpression {
     HirExpression::Identifier(name.to_string())
 }
 
-pub(crate) fn binary(left: HirExpression, operator: &str, right: HirExpression) -> HirExpression {
+pub(crate) fn binary(
+    left: HirExpression,
+    operator: BinaryOp,
+    right: HirExpression,
+) -> HirExpression {
     HirExpression::Binary {
         left: Box::new(left),
-        operator: operator.to_string(),
+        operator,
         right: Box::new(right),
         line: 0,
         column: 0,
@@ -58,14 +63,14 @@ pub(crate) fn concat(parts: Vec<HirExpression>) -> HirExpression {
     let mut iter = parts.into_iter();
     let mut acc = iter.next().expect("concat needs at least one part");
     for part in iter {
-        acc = binary(acc, "&", part);
+        acc = binary(acc, BinaryOp::Concat, part);
     }
     acc
 }
 
 pub(crate) fn not(operand: HirExpression) -> HirExpression {
     HirExpression::Unary {
-        operator: "NOT".to_string(),
+        operator: UnaryOp::Not,
         operand: Box::new(operand),
         line: 0,
         column: 0,
