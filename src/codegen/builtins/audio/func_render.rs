@@ -15,6 +15,10 @@ r#"' audio::render — render a note to mono s16le PCM at 48 kHz (the frame layo
 ' playback surface consumes: one frame is 2 bytes). A sine oscillator shaped by
 ' the note's attack/decay/sustain/release envelope; the release is the final
 ' `releaseFrames` and the middle is held at `sustainLevel`.
+'
+' The little-endian two-byte emit is INLINE for the same reason as
+' `__audio_mmlEncode`: passing the growing `pcm` to a helper copies the whole
+' accumulator per sample and makes the render O(n^2).
 FUNC __audio_render(note AS AudioNote) AS List OF Byte
   MUT pcm AS List OF Byte = []
   LET n AS Integer = note.noteFrames
@@ -36,7 +40,12 @@ FUNC __audio_render(note AS AudioNote) AS List OF Byte
       env = sustain * (toFloat(n - i) / toFloat(r))
     END IF
     LET sample AS Integer = __audio_clampS16(toInt(wave * env * note.gainOverall))
-    pcm = __audio_appendS16LE(pcm, sample)
+    MUT v AS Integer = sample
+    IF v < 0 THEN
+      v = v + 65536
+    END IF
+    pcm = collections::append(pcm, toByte(bits::band(v, 255)))
+    pcm = collections::append(pcm, toByte(bits::band(bits::sr(v, 8), 255)))
   NEXT
   RETURN pcm
 END FUNC"#;

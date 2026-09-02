@@ -66,7 +66,6 @@ mod func_render;
 mod func_write;
 mod func_xruns;
 
-mod helper_append_s16_le;
 mod helper_clamp_s16;
 mod helper_mml_apply_legato;
 mod helper_mml_clamp_fade;
@@ -452,9 +451,10 @@ pub(crate) fn register(r: &mut Registry) {
     // section of the assembled source. Order is preserved from the old single
     // `package.mfb` blob. The value records are registered above (add_record).
     //
-    // Shared s16 primitives + the tone renderer.
+    // The shared s16 clamp. The little-endian two-byte emit is NOT a helper: it is
+    // inline in `__audio_render` and `__audio_mmlEncode`, because handing those
+    // loops' growing `pcm` accumulator to a helper copies it per sample (O(n^2)).
     helper_clamp_s16::register(&mut pkg);
-    helper_append_s16_le::register(&mut pkg);
     // audio::play — a small MML (Music Macro Language) sequencer. A track is a
     // space-separated string of tokens; every token is separated by a single
     // space. Tokens: notes A..G (with a trailing + / - accidental, an inline
@@ -694,6 +694,41 @@ mod tests {
             )),
             Some(super::CLOSE_OUTPUT)
         );
+    }
+
+    /// The PCM accumulators in `__audio_render` and `__audio_mmlEncode` must stay
+    /// same-function locals. `collections::append` mutates a list in place only for
+    /// a local of the function doing the append; handing the growing accumulator to
+    /// a helper (`__audio_appendS16LE(pcm, sample)`, bug-339 C7) passes it BY VALUE,
+    /// so every sample copied the whole list and both loops ran O(n^2) — one second
+    /// of 48 kHz audio took ~10 s of CPU instead of ~12 ms, which read as
+    /// `audio::play` hanging. Assert the emit is inline, not a call taking `pcm`.
+    #[test]
+    fn pcm_accumulators_never_cross_a_call_boundary() {
+        let source = registry()
+            .resolve_package("audio")
+            .expect("audio")
+            .get_mfb();
+        for func in ["FUNC __audio_render(", "FUNC __audio_mmlEncode("] {
+            let start = source
+                .find(func)
+                .unwrap_or_else(|| panic!("{func} in source"));
+            let body = &source[start..];
+            let end = body.find("\nEND FUNC").expect("terminated body");
+            for line in body[..end].lines() {
+                let code = line.trim_start();
+                if code.starts_with('\'') {
+                    continue;
+                }
+                // `collections::append(pcm, …)` on the function's own local IS the
+                // in-place path. Handing `pcm` to an `__audio_*` helper is not.
+                assert!(
+                    !(code.contains("__audio_") && code.contains("(pcm")),
+                    "{func}: `pcm` is passed to a helper — the accumulator is copied \
+                     per sample and the loop is O(n^2): {line}"
+                );
+            }
+        }
     }
 
     #[test]
