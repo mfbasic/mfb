@@ -35,7 +35,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-C complete and archived | `ls planning/completed/plan-116-C-*` → one match | NOT MET |
+| plan-116-C complete and archived | `ls planning/completed/plan-116-C-*` → one match | **MET** (2026-09-02: exactly one match, `planning/completed/plan-116-C-canvas-transform.md`, archived by `e0ac6a472`. Every C phase acceptance measured — 91 test binaries on mac RELEASE, 3707 `--bin mfb` unit tests on box 2228, artifact-gate 1823 goldens 0 diffs, test-accept 1347, Vulkan 12/12 on both 2228 glibc and 2227 musl, man-census 0 unclassified, man-run-examples canvas 21/21.) |
 
 If plan-116-C is not complete, this letter cannot start, full stop. C is the last
 letter to move `HEADER_SLOTS` and `ITEM_BLOCK_SIZE`; D adds one word to each, and
@@ -104,8 +104,8 @@ gate forbids. Recorded in Open Decisions as named future work.
 
 | What | Count | Command |
 |---|---|---|
-| `canvas::Line[` / `canvas::Arc[` construction sites | 11 | `grep -rn 'Line\[\|Arc\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` → 14 hits (2026-09-01), of which 3 (`examples/ai_chat/src/main.mfb:356,366,368`) are a **user-defined** `Line` record, not `canvas::Line`. The 11th canvas site is `examples/emoji/src/main.mfb:219` (an `Arc`), new since this letter was first written — **re-run the census at Phase 1 start**; this count has already moved once. |
-| …in `tests/` | 7 | same command, `tests/` rows |
+| `canvas::Line[` / `canvas::Arc[` construction sites | **14** | `grep -rn 'canvas::Line\[\|canvas::Arc\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/' \| grep -v '\.claude/'` → **14** (re-measured 2026-09-02, merged tree). The unqualified form gives 17; the 3 extra are `examples/ai_chat/src/main.mfb:356,366,368`, a **user-defined** `Line` record — see Verified properties. |
+| …in `tests/` | 10 | same command, `tests/` rows |
 | …in `mfb man` example prose | 2 | `func_stroke.rs:35`, `func_present.rs:50` |
 | …in `cli_canvas_package.rs` | 2 | `:57`, `:59` |
 | `DrawItem` variants (frozen list) | 8 | `mod.rs:884-908` |
@@ -181,8 +181,18 @@ pkg.add_enum(RegistryEnum {
 **after `endAngle`, before `paint`** — keeping `paint` last, which
 `rect_props`/`paint_prop` (`mod.rs:828`, `:863`) already establish as the convention.
 
-Header slot **35** carries the cap (0 or 1); item block takes a free word from the
+Header slot **34** carries the cap (0 or 1); item block takes a free word from the
 `ivec4` plan-116-C added. Neither structure grows.
+
+> **Corrected 2026-09-02 (D1).** This said slot **35**, from an estimate of where C
+> would leave the header. C landed **34** slots, 0–33
+> (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs` → 34,
+> and `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 34`), because
+> Correction C2 replaced `sqrt(|det M|)` with the gradient norm and so needed no
+> per-axis slot. The first free slot is therefore 34, and every slot number below
+> shifts down by one: the arc's sweep endpoints go in **35–38** and `HEADER_SLOTS`
+> becomes **39**, not 40. `ITEM_BLOCK_SIZE` is **160**
+> (`mod.rs:323`), matching what this letter assumed.
 
 ### 4.2 The geometry
 
@@ -218,8 +228,9 @@ already computes `sin`/`cos` of both angles for the sweep vectors
 (`helper_items.rs:170-178` reads slots 20/21 and calls `__canvas_cos`/`__canvas_sin`
 once per arc), so the endpoints are two multiply-adds on top of work already done.
 
-Header slots **36–39** carry `pStartX, pStartY, pEndX, pEndY`. Header becomes **40**
+Header slots **35–38** carry `pStartX, pStartY, pEndX, pEndY`. Header becomes **39**
 slots; the item block takes one more `ivec4` (16.16), reaching **176** bytes.
+(Corrected 2026-09-02 from 36–39 / 40 — see D1 in §4.1.)
 
 The arc's bounds must grow by `half` at the cap ends when `Round` — the existing
 `reach = radius + half + 1.0` hull (`helper_geometry.rs:270`) already covers it, since
@@ -237,7 +248,8 @@ rather than assume.
 - **`canvas::CapStyle` is new exported surface** — `mfb man canvas types` grows.
 - **No pixel change for any existing scene**, provided the 10 sites are updated per
   §3 (`Line` → `Round`, `Arc` → `Butt`).
-- **`HEADER_SLOTS` 35 → 40**, **`ITEM_BLOCK_SIZE` 160 → 176** — internal.
+- **`HEADER_SLOTS` 34 → 39**, **`ITEM_BLOCK_SIZE` 160 → 176** — internal.
+  (Corrected 2026-09-02 from 35 → 40 — see D1 in §4.1.)
 - **`.ncodesum` churn**; both `.spv` blobs regenerate.
 
 ## Phases
@@ -264,7 +276,7 @@ the geometry work are never in the same failing gate.
       `src/codegen/builtins/canvas/func_present.rs:50`,
       `examples/emoji/src/main.mfb:219` (an `Arc` → `Butt`; keeps the example's
       rendering byte-identical).
-- [ ] Header slot 35 carries the cap; `__canvas_segmentHeader`/`__canvas_arcHeader`
+- [ ] Header slot 34 carries the cap; `__canvas_segmentHeader`/`__canvas_arcHeader`
       write it. **Nothing reads it yet.**
 - [ ] Tests: add a case asserting `mfb man canvas types` lists `CapStyle` with both
       variants.
@@ -365,7 +377,32 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **D1 (2026-09-02, pre-Phase 1) — the header slot numbers were estimated from where
+  plan-116-C was *expected* to leave the header, and C landed one slot lower.** This
+  letter said the cap goes in slot 35, the arc endpoints in 36–39, and `HEADER_SLOTS`
+  becomes 40. C landed **34** slots, 0–33
+  (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs` → 34;
+  `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 34`), because C's
+  Correction C2 replaced `sqrt(|det M|)` with the gradient norm and so needed no
+  per-axis slot. Every number shifts down by one: cap in **34**, endpoints in
+  **35–38**, `HEADER_SLOTS` → **39**. `ITEM_BLOCK_SIZE` is 160 as assumed
+  (`mod.rs:323`). Corrected in §4.1, §4.2, §Compatibility and Phase 1.
+
+- **D2 (2026-09-02, pre-Phase 1) — the construction-site census was 11 and is 14, and
+  the extra sites are not the ones the plan predicted.** Re-measured on the merged
+  tree: `grep -rn 'canvas::Line\[\|canvas::Arc\[' … | grep -v '/target/'` → **14**.
+  The plan named `examples/emoji/src/main.mfb:219` as the 11th; that file is **not in
+  the tree** (`ls examples/` has no `emoji` — it exists only as an untracked directory
+  in the shared main checkout, so it is a peer's or the user's work in progress and
+  cannot be edited from here). The four genuinely new sites are
+  `tests/rt_canvas_golden.rs:358-361`, the four blend-mode arcs plan-116-B added after
+  this letter was written.
+
+  Two consequences. The `tests/` row goes 7 → 10. And the plan's warning that "this
+  count has already moved once" is now twice, so **re-run it again at Phase 1** — if a
+  peer lands `examples/emoji`, it arrives with an `Arc` needing `cap := CapStyle.Butt`
+  like every other existing site, and missing it would change that example's rendering
+  rather than fail to compile only if the field were optional, which it is not.
 
 ## Summary
 
