@@ -133,29 +133,38 @@ predicates already short-circuit `cp < 128` before reaching the table.
 
 ## 3. Design Overview
 
-Two independent pieces:
+**CORRECTED 2026-09-01 — piece 1 was impossible as written; see Corrections 1.**
+Both halves now use the same mechanism, which is strictly simpler and touches no
+existing Unicode consumer.
 
-1. **Category via the existing trie.** Extend the packed property with a
-   5-bit general-category index (generator side: `scripts/` +
-   `runtime_tables.rs` encode/decode + the emitted hex blobs), and emit a
-   native lookup — `emit_unicode_property_lookup` then extract bits — plus a
-   30-entry static string table (`"Lu"`, `"Ll"`, …) for the String-returning
-   surface. `__regex_genCat`'s MFBASIC body shrinks to a native call/lookup
-   (an `abi_inline` registry body or a `runtime.*` helper function — see
-   Open Decisions), and `__strings_genCat` is deleted outright in favor of the
-   same lookup.
-2. **Script via a dedicated range table.** Scripts don't fit PackedProperty
-   (150+ values); emit the script ranges as a sorted rodata table
-   (start, end, script-string-index) + a native binary-search helper
-   (`runtime.unicode_script_of`, synthesized once per module via the existing
-   `RuntimeHelper` mechanism — precedent: `runtime.mapProbe`,
-   `builder/mod.rs:2578`).
+Two independent pieces, one shape:
 
-**Correctness risk** concentrates in the packed-property re-encode (every
-existing Unicode consumer — displayWidth, NFC, graphemes, case mapping —
-reads those blobs; a mis-packed bit breaks them all). Schedule it behind the
-full strings/regex suites and the pinned-vector tests. **Design uncertainty**
-is low: both mechanisms have in-tree precedents.
+1. **Category via its own range table.** Emit `unicode_gencat_ranges.txt`
+   (phase 1) as a sorted rodata table of `(run-end codepoint, category index)`
+   records plus a fixed-stride table of the 30 category names as
+   `mfb.string.v1` records, and a native binary search over it. The pinned
+   Unicode 16.0.0 answers are carried by our own generated data, so they cannot
+   drift with a utf8proc bump.
+2. **Script via its own range table.** Identical shape over
+   `unicode_script_ranges.txt`: `(run-end codepoint, script index)` plus a
+   fixed-stride name table (171 names, longest 22 bytes).
+
+Both lookups live as `internal_only: true` registry members with
+`Body::abi_function` bodies, so each is emitted ONCE per module as a runtime
+symbol and every call site is a `bl` — the "one copy" property the plan's Open
+Decision asks for, using the seam `astrings::scalarLen`
+(`builtins/astrings/func_scalar_len.rs`) already establishes for a native
+primitive that only toolchain-provided source may call. `regex` and `strings`
+have no `RuntimeHelper` family of their own, so `abi_function_family` routes
+them to the shared `Abi` family (exactly as `crypto` does).
+
+**Correctness risk** is now confined to the two new lookups: no existing
+Unicode consumer (displayWidth, NFC, graphemes, case mapping) is touched at
+all, because the utf8proc `PackedProperty` record is not re-encoded. The
+remaining risk is the binary search itself — an off-by-one at a run boundary —
+which the pinned-vector tests in the Validation Plan target directly.
+**Design uncertainty** is low: range table + rodata name table + `abi_function`
+member all have in-tree precedents.
 
 This letter's outputs change codegen massively, so **byte-identity is NOT the
 gate**; the gates are behavioral (regex/strings suites, rt fixtures,
@@ -167,7 +176,8 @@ confined to the expected functions.
 Rejected: an MFBASIC `List` table (the generator header's original objection —
 list reads copy); keeping both twins with one shared symbol only (saves 6 %
 but leaves the linear-scan runtime and the 1.06 M instructions of the
-survivor).
+survivor); **packing the category into utf8proc's `PackedProperty`** (the
+plan's own original design — measured impossible, Corrections 1).
 
 ## Phases
 
@@ -268,7 +278,42 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+1. **§3 piece 1 — "category via the existing trie" — is impossible, not merely
+   risky.** The plan proposed packing a 5-bit general-category index into
+   `PackedProperty`'s free `flags` bits 7–11 and reading it through
+   `emit_unicode_property_lookup`. Two measurements kill it:
+
+   * **The two tables disagree on 4,804 scalars.** The vendored utf8proc
+     2.11.3 carries a NEWER UCD than the pinned Unicode 16.0.0 the `.mfb`
+     tables are generated from: 4,803 scalars are `Cn` (unassigned) in 16.0.0
+     and assigned in utf8proc (4,584 of them `Lo`), plus U+0295, `Ll` in 16.0.0
+     and `Lo` in utf8proc. Routing `genCat` through the trie would change 4,804
+     answers — a behavior change this letter's non-goals forbid outright.
+     Measured by decoding utf8proc's two-stage trie in Python and comparing
+     every scalar 0..0x10FFFF against `unicode_gencat.mfb`'s parsed runs
+     (`/tmp/p118_catcheck.py`).
+   * **The trie cannot even represent the pinned answers.** The property
+     records are deduplicated on utf8proc's OWN field set, so a row is shared
+     by scalars that agree there. **19 of the 8,385 rows are shared by scalars
+     whose Unicode 16.0.0 categories differ** — e.g. row 349 is reached by
+     scalars that are `Cn`, `Ll` *and* `Lo` in 16.0.0. No per-row field can
+     hold three values (`/tmp/p118_rowcheck.py`).
+
+   This is a design correction, not a falsified premise: the letter's goal —
+   delete the three IF-chain functions, −2.4 M instructions — is untouched, and
+   the mechanism piece 2 already prescribed for scripts (a dedicated sorted
+   range table + native binary search) covers categories too. It is also
+   strictly better: it re-encodes nothing, so displayWidth / NFC / graphemes /
+   case mapping are not in the blast radius at all, and the pinned answers stay
+   pinned to *our* generated data instead of following a utf8proc bump.
+
+2. **`unicode_script_of.mfb` cannot be deleted outright (phase 3).** It holds
+   two functions, not one: `__regex_scriptOf` (lines 7–1717, the 1,708-arm
+   IF-chain this letter replaces) and `__regex_scriptCanonName` (lines
+   1719–1891, 171 arms mapping a lowercased script name to its canonical
+   spelling). The second is small, is not a per-scalar lookup, and has no
+   reason to move. Phase 3 shrinks the file to that function rather than
+   deleting it.
 
 ## Summary
 
