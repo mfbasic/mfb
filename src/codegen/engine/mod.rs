@@ -4,6 +4,7 @@ pub(crate) mod analysis;
 pub(crate) mod builder;
 pub(crate) mod control;
 pub(crate) mod convert;
+pub(crate) mod expansion;
 pub(crate) mod function;
 pub(crate) mod mir;
 pub(crate) mod operand;

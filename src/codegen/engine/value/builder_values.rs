@@ -72,7 +72,15 @@ impl CodeBuilder<'_> {
         if let Some(loc) = value_loc(value) {
             self.current_loc = loc;
         }
+        // plan-118-A: attribute the instructions this expression emits to its
+        // kind (and call target). Exclusive — an operand's own frame subtracts
+        // itself from this one — so the report partitions the module.
+        crate::codegen::engine::expansion::enter(
+            || crate::codegen::engine::expansion::value_key(value),
+            self.instructions.len(),
+        );
         let mut result = self.lower_value_inner(value);
+        crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             self.register_pending_temp(value, result);

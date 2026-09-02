@@ -371,6 +371,13 @@ impl CodeBuilder<'_> {
             // statement are freed when it finishes (plan-25 temp-lifetime fix), so
             // a hot loop body does not accumulate them until the function returns.
             let temp_watermark = self.pending_temp_frees.len();
+            // plan-118-A: attribute the instructions this statement emits to its
+            // op kind. The closure below is what makes the pairing safe — no `?`
+            // can jump over the `exit`.
+            crate::codegen::engine::expansion::enter(
+                || crate::codegen::engine::expansion::op_key(op).to_string(),
+                self.instructions.len(),
+            );
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
@@ -1405,6 +1412,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(())
             })();
+            crate::codegen::engine::expansion::exit(self.instructions.len());
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             // plan-39 I1: after lowering the op, invalidate range facts. A `Bind`/
             // `Assign` drops just the reassigned local's bounds (its RHS, already

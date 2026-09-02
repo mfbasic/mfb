@@ -179,15 +179,19 @@ machine instructions         17079160
 
 Every §2 number reproduces exactly: 52,548 recursive ops, 29,088 flat, and
 17,079,160 machine instructions → **325:1**, not 585:1.
-Commit: —
+`cargo test --no-fail-fast`: 90 suites, 0 failures.
+`scripts/artifact-gate.sh all`: 1325 tests, 1823 goldens, **0 diffs**.
+Commit: 502fb835f
 
 ### Phase 2 — attribution tally
 
-- [ ] `src/codegen/engine/` new module (production version of the spike's
+- [x] `src/codegen/engine/` new module (production version of the spike's
       `spike.rs`): frame stack + exclusive tally, gated on `trace::enabled()`.
-- [ ] Hook `lower_ops_inner` (per-op) and `lower_value` (per-value/target).
-- [ ] Render a "costliest expansion" section in `trace::render()` (top ~40 rows).
-- [ ] Doc sync: `src/docs/spec/tooling/07_cli-reference.md` `-vv` section
+      — `src/codegen/engine/expansion.rs`, plus `trace::count_tally` (the tally
+      twin of `timed_tally`) landing here with its only consumer.
+- [x] Hook `lower_ops_inner` (per-op) and `lower_value` (per-value/target).
+- [x] Render a "costliest expansion" section in `trace::render()` (top ~40 rows).
+- [x] Doc sync: `src/docs/spec/tooling/07_cli-reference.md` `-vv` section
       (new counter + leaderboard + tally); `planning/speed.md` — append a dated
       correction to §5.1/§5.2-style prose recording the honest 325:1 ratio and
       the attribution table (recommendation 3 is now root-caused).
@@ -196,6 +200,30 @@ Acceptance: the `-vv` report over `tests/acceptance` reproduces §2's table
 within noise (top row `binop:&` ≈ 2.9M exclusive instrs); `cargo test
 --no-fail-fast` green; `scripts/artifact-gate.sh all` 0 diffs;
 `cargo check --all-targets` clean; both-root `cargo fmt` run.
+
+MET, measured 2026-09-01 (`/tmp/p118_vv_phase2.log`). Not "within noise" —
+**exact**, every row:
+
+```
+--- trace: costliest expansion (40 of 1821 keys, 13175351 total, exclusive) ---
+     2907604     17221x  binop:Concat
+     2173050      7876x  val:Constructor
+     2007382     11432x  op:Return
+     1030128      5826x  call:toString
+      826446      3193x  rtcall:io.print
+      551939     12407x  op:Bind
+      319358      4540x  op:Assign
+      255872      3609x  op:Fail
+      245967      1828x  binop:Add
+```
+
+Top five = 8,944,610 = 67.9 % of 13,175,351 attributed, as §2 states.
+`cargo test --no-fail-fast`: 89 suites ok; the 90th (`tests/golden.rs`) hit a
+peer session's artifact-gate lock (exit 98 — "could not START ... nothing was
+checked", not a golden result) and passes uncontended:
+`cargo test --test golden` → ok, 1823 goldens, 0 diffs in 266.68s.
+`scripts/artifact-gate.sh all` standalone: 1325 tests, 1823 goldens, **0 diffs**.
+`cargo check --all-targets`: clean. Both-root `cargo fmt` run.
 Commit: —
 
 ## Validation Plan
@@ -217,7 +245,32 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+1. **The attribution key for concat renders `binop:Concat`, not `binop:&`.**
+   §2 and Phase 2's acceptance spell the row `binop:&`; the key is built from
+   the `NirValue::Binary { op }` debug name (`format!("binop:{op:?}")`), so it
+   prints `binop:Concat`. Same row, same 2,907,604 / 17,221x. Spelled correctly
+   here and in `planning/speed.md`; plan-118-C's acceptance means this row.
+
+2. **`trace::item` cannot carry a size, so the leaderboard needed a twin, not
+   a parameter.** Phase 1 hedged ("size-tally support *if* `timed_tally`/`item`
+   cannot carry a count cleanly"). It cannot: `Bucket` is `Duration` end to end
+   — the insertion-sort comparison, the `total`, and the `millis()` render —
+   so a count would have to be smuggled through a `Duration` and printed as
+   milliseconds. Landed `size_item` + `SizeBucket` (leaderboard twin) and
+   `count_tally` + `CountTally` (tally twin) instead.
+
+3. **`count_tally` landed in Phase 2, not Phase 1.** Phase 1's task list puts
+   the whole of the `trace.rs` work in Phase 1, but `count_tally`'s only caller
+   is Phase 2's attribution module: committing it in Phase 1 would have left a
+   `dead_code` warning in a committed state, which `cargo check --all-targets`
+   is supposed to keep clean. Split so each phase commits only what it uses.
+
+4. **A found bug, fixed alongside (separate commit `ebf13af74`).** The first
+   line of `resolve_link_libraries`' doc comment in
+   `src/codegen/engine/builder/mod.rs` had been stranded on top of
+   `resolve_closer_symbol` by `efba4fa8b` (the src/codegen tier relocation), so
+   one item's doc claimed to resolve `LINK` libraries and the other's opened
+   mid-sentence. Doc comments only; no emitted bytes.
 
 ## Summary
 

@@ -129,6 +129,59 @@ codegen+link                                  53766.2ms  78.1%
 comes down, every row in §4 below `lowering module` is paying for volume. This
 is the single number that, if halved, halves most of the build.
 
+**Correction and root cause (2026-09-01, plan-118-A).** The 585:1 headline is
+partly a measurement artifact, and the expansion is concentrated rather than
+uniform.
+
+*The ratio.* `NIR statements` is a FLAT counter — `sum(function.body.len())`, so
+a loop, `IF` tree or `MATCH` counts as one statement no matter how much is
+nested inside it (`src/target/shared/lower.rs`). It undercounts the tree by
+1.8x. plan-118-A added `NIR ops (recursive)` beside it. Over the same corpus:
+
+```
+NIR statements                  29088
+NIR ops (recursive)             52548
+machine instructions         17079160
+```
+
+so the honest expansion is **325:1**, not 585:1. Still the ceiling; still worth
+attacking. The flat counter is kept unrenamed so the numbers above this line
+keep meaning what they said.
+
+*Where it goes.* plan-118-A also added a `costliest expansion` tally: each
+builder-emitted instruction is attributed to the NIR op / value / call target
+that emitted it, exclusive of its children. Five categories are 67.9 % of all
+13,175,351 attributed instructions:
+
+```
+--- trace: costliest expansion (40 of 1821 keys, 13175351 total, exclusive) ---
+     2907604     17221x  binop:Concat        (169 per site)
+     2173050      7876x  val:Constructor     (276)
+     2007382     11432x  op:Return           (176)
+     1030128      5826x  call:toString       (177)
+      826446      3193x  rtcall:io.print     (259)
+      551939     12407x  op:Bind
+      319358      4540x  op:Assign
+      255872      3609x  op:Fail
+      245967      1828x  binop:Add
+```
+
+Each of those is an inline lowering emitted afresh at every site — an inline
+arena allocation, an inline ~45-instruction allocation-failure error block, and
+(for concat) two byte-at-a-time copy loops. A `RETURN a & b` function is 300
+machine instructions. That is what recommendation 3 turns out to mean, and
+plan-118-C/D/E out-of-line the top five.
+
+The attributed total (13.18 M) is less than the module total (17.08 M): frame
+prologues, regalloc spill code and slot zeroing are emitted outside any
+construct's frame, and the peepholes delete instructions after attribution.
+
+Separately measured and deliberately NOT in plan-118's scope: roughly half of
+every function's instructions are stack round-trips (in the 300-instruction
+`RETURN a & b`, 83 `ldr_u64` + 68 `str_u64` — every intermediate value stored
+and immediately reloaded). Fixing that means a values-in-registers builder, a
+different investigation.
+
 ### 5.2 `monomorphize` is 21 % of a release build and produces almost nothing
 
 The counters straddling it:
@@ -268,10 +321,13 @@ scoped or designed; each is a place the numbers say is worth opening.
    optimized Rust. Everything about its shape says defect rather than volume.
    Highest-value single row that is *not* explained by §5.1.
 
-3. **Attack the 585:1 NIR→machine expansion.** It is the ceiling on §4's entire
+3. **Attack the NIR→machine expansion.** It is the ceiling on §4's entire
    lower half; halving it roughly halves the back end. Broadest and hardest —
    worth understanding before committing to anything, which is why it sits
-   below the two cheap items above rather than at the top.
+   below the two cheap items above rather than at the top. *(Root-caused
+   2026-09-01 — see the correction in §5.1: the honest ratio is 325:1, and five
+   inline lowerings are 68 % of it. plan-118-A landed the instrument; -B..-E
+   attack the categories.)*
 
 4. **Instrument `encoding image`.** 13.7 s / 20 % with zero visibility. Not a
    fix — a prerequisite for knowing whether there is one. Cheap.
@@ -287,7 +343,9 @@ scoped or designed; each is a place the numbers say is worth opening.
 7. **Look at `#regex_genCat` / `#strings_genCat` / `#regex_scriptOf`.** 3.4 s in
    three functions. Generated Unicode tables emitted as code; if they can be
    emitted as data objects instead, this row disappears and §5.1 improves with
-   it.
+   it. *(Sized 2026-09-01: 2,556,471 machine instructions, **15.0 % of the whole
+   module** — the top three rows of the new `largest lower_function`
+   leaderboard. plan-118-B.)*
 
 8. **Type the register operands.** §5.4 — deciding register identity by walking
    x86 and RISC-V name tables with `str::eq`, on an AArch64 host, is the leaf
@@ -308,7 +366,8 @@ cd tests/acceptance && ../../target/release/mfb test -vv
 ```
 
 `-vv` prints the span tree, the slowest-function and costliest-builtin
-leaderboards, and the size counters. It is print-only: `artifact-gate.sh all`
+leaderboards, the largest-function leaderboard, the `costliest expansion`
+attribution tally, and the size counters. It is print-only: `artifact-gate.sh all`
 is 0 diffs over 1780 goldens with it, and
 `artifact_bytes_identical_across_verbosity_levels` pins that a `-vv` build
 emits the same bytes as a default one.
