@@ -605,7 +605,9 @@ run is the one that counts, not a formality.
 - `scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
   — 12/12 ok, `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`, the
   same numbers as pre-merge.
-- Box 2228 (glibc) — recorded below once its run lands.
+- `scripts/test-canvas-vulkan.sh target/release/mfb` (box 2228, glibc) — 12/12 ok,
+  `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`. Both libc worlds
+  therefore agree with the oracle to the same number post-merge as pre-merge.
 
 **A harness defect found here, worth the note (Correction C9).** The first two
 attempts at the Linux `--bin mfb` row failed after ~80 minutes of compiling with
