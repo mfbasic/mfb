@@ -219,9 +219,18 @@ pub(crate) fn native_body(
 /// here (they are not native runtime calls).
 pub(crate) fn runtime_overload_name(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
     let first = arg_types.first().map(String::as_str);
+    // `AudioDevice` reaches this seam under EITHER spelling — the qualified
+    // `audio.AudioDevice` a member signature and a resolver-seeded binding carry
+    // (bug-480 Phase 4b / bug-484), and the bare leaf a record field type and the
+    // injected companion source still carry. This is `ParameterType::is_builtin_named`'s
+    // contract, asked at a seam that holds rendered names rather than types; matching
+    // only the leaf sent every named-device open to the DEFAULT-device body, which read
+    // the device operand as `sampleRate` and raised `ErrInvalidArgument` for every
+    // argument combination.
+    let device = matches!(first, Some(AUDIO_DEVICE_TYPE | AUDIO_DEVICE_TYPE_ID));
     match qualified {
-        "audio.openInput" if first == Some(AUDIO_DEVICE_TYPE) => Some("audio.openInputDevice"),
-        "audio.openOutput" if first == Some(AUDIO_DEVICE_TYPE) => Some("audio.openOutputDevice"),
+        "audio.openInput" if device => Some("audio.openInputDevice"),
+        "audio.openOutput" if device => Some("audio.openOutputDevice"),
         "audio.read" if arg_types.len() == 3 => Some("audio.readTimeout"),
         "audio.poll" if arg_types.len() == 2 => Some("audio.pollTimeout"),
         "audio.close" if first == Some(AUDIO_INPUT_TYPE_ID) => Some(CLOSE_INPUT),
@@ -624,6 +633,50 @@ mod tests {
                 &types(&["audio.AudioOutput", "List OF String"])
             ),
             Some("__audio_playTracks")
+        );
+    }
+
+    /// bug-483's class at the audio seam: `runtime_overload_name` matches on a
+    /// rendered type NAME, and bug-480 Phase 4b made a builtin value type's
+    /// declared identity package-qualified — so an `AudioDevice` argument reaches
+    /// this selector spelled `audio.AudioDevice`. Matching only the bare leaf let
+    /// the named-device open fall through to the DEFAULT-device body, which then
+    /// read the device operand as `sampleRate` and raised `ErrInvalidArgument` for
+    /// every argument combination. Both spellings must select the device form.
+    #[test]
+    fn named_device_open_rewrites_under_either_device_spelling() {
+        for spelling in ["AudioDevice", "audio.AudioDevice"] {
+            assert_eq!(
+                super::runtime_overload_name(
+                    "audio.openOutput",
+                    &strings(&[spelling, "Integer", "Integer", "Integer"])
+                ),
+                Some("audio.openOutputDevice"),
+                "`{spelling}` must select the named-device openOutput"
+            );
+            assert_eq!(
+                super::runtime_overload_name(
+                    "audio.openInput",
+                    &strings(&[spelling, "Integer", "Integer", "Integer"])
+                ),
+                Some("audio.openInputDevice"),
+                "`{spelling}` must select the named-device openInput"
+            );
+        }
+        // The three-argument default-device form keeps its surface name.
+        assert_eq!(
+            super::runtime_overload_name(
+                "audio.openOutput",
+                &strings(&["Integer", "Integer", "Integer"])
+            ),
+            None
+        );
+        assert_eq!(
+            super::runtime_overload_name(
+                "audio.openInput",
+                &strings(&["Integer", "Integer", "Integer"])
+            ),
+            None
         );
     }
 
