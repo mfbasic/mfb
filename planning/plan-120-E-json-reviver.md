@@ -62,7 +62,7 @@ Family gate in plan-120-A.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-120-D landed | `ls planning/plan-120-D* → planning/completed/` | NOT MET |
+| plan-120-D landed | `ls planning/plan-120-D* → planning/completed/` | **MET** — D committed as `b08678cbf` on `worktree-P-120` with every gate green (95 cargo-test binaries / 0 failures, 750/750 acceptance, artifact-gate 1830 goldens / 0 diffs, 16/16 man examples). Family order only, as stated — but D turned out to matter for a reason the plan did not foresee: it fixed the union-wrapping bug (D-C3) that this letter's overload would otherwise have hit too, since `json::parse` also takes/returns the `Json` union. |
 
 ## 1. Goal
 
@@ -161,8 +161,12 @@ deferred).
       `Route`-style workaround (wrap the reviver in a one-field record) is the
       fallback, at the cost of an uglier call site. Try the direct parameter
       first.
-- [ ] `func_parse.rs`: add the 2-arg `Implementation` + `__json_parseRevive`
-      / `__json_revive` helper bodies.
+- [x] `func_parse.rs`: add the 2-arg `Implementation` + `__json_parseRevive`
+      / `__json_revive` helper bodies. The residual matcher risk did NOT
+      materialise: `ParameterType::func(...)` in a member's PARAMETER list is
+      accepted on a `Body::mfb` carrier, so the `Route`-style record wrapper
+      fallback was not needed. Verified by building the overload before writing
+      its body, as the task directed.
 - [ ] Acceptance cases: N07 twin (increment by key), index-key vocabulary
       (array of two, reviver records keys seen → `"0","1",""` order),
       bottom-up order proof (nested object; inner revived before outer),
@@ -186,8 +190,11 @@ Commit: —
 ## Open Decisions
 
 - ~~Key for the root call — `""` (recommended: Node parity) vs omitting the
-  root call entirely.~~ **Leaning CLOSED on `""` (Node parity), pending only
-  the matcher check.** The Node capture in References shows the root call is
+  root call entirely.~~ **CLOSED on `""` (Node parity).** The matcher check
+  passed (see the Phase 1 box above) and the behaviour is confirmed by probe:
+  parsing `{"outer":{"inner":1}}` with a recording reviver logs
+  `inner=1 | outer={"inner":1} | ""={"outer":{"inner":1}} |` — children
+  first, root last under the empty-string key, matching Node v24.12.0. The Node capture in References shows the root call is
   not an incidental extra — it is the only call that sees the whole document,
   and the idiomatic reviver (`(k,v) => k === "" ? finish(v) : v`) depends on
   it. Omitting it would make the common "transform the root once" pattern
@@ -197,7 +204,43 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+- **A missing prerequisite, landed as part of this letter: indirect calls did
+  not propagate errors.** The plan assumed a reviver could simply `FAIL` and
+  have it surface to `json::parse`'s caller. It could not. A `FAIL` inside a
+  function invoked through a `FUNC`-typed VALUE never checked the returned
+  error tag, so per the fallible-call ABI (`mfb spec memory fallible-call-abi`)
+  `x1`'s error CODE came back as the return VALUE:
+
+      applyInt(boomInt, 1)  ->  77050002        (want: trapped)
+
+  For an `Integer` return that is a silently wrong number; for a pointer-typed
+  return — a record, a `List`, or a union such as `json::Json` — the caller
+  dereferences the code as an address and dies with SIGSEGV. That is how it was
+  found: `json::parse(text, reviver)` with a failing reviver crashed, which is
+  exactly this phase's fifth acceptance case.
+
+  Root cause was in `emit_function_value_call`
+  (`src/codegen/engine/builder/builder_emit_helpers.rs`): an
+  `if return_type.is_none()` guard copied from the direct-call emitter
+  `emit_call`, where `Some(..)` legitimately means "raw result — the caller
+  handles the tag itself" (its only `Some` caller is the inline-`TRAP`
+  machinery). The two ordinary indirect call sites pass `Some(..)` only to
+  communicate the declared return type, so propagation was suppressed with
+  nobody materialising the Result. Cousin of bug-448 in the raw path next door
+  (`emit_function_value_call_raw`). Fix: extract an `emit_tag_check` closure and
+  run it unconditionally on both branches.
+
+  Pinned by a new fixture,
+  `tests/rt-behavior/functions/function-value-error-propagates-rt`, which
+  asserts BOTH call forms for `Integer`, record and `List` returns plus the two
+  success paths — the direct form was always correct, so a test checking only
+  the indirect form would pass equally against a fix that broke the direct one.
+  Proven RED against the reverted guard (`indirect-int  value 77050002`, then
+  `exit=139` at the record case) and GREEN with the fix (all seven lines, exit 0).
+
+  Per the skill's table this was a prerequisite no letter covered, not a
+  falsified premise: the design works, it just rested on a compiler guarantee
+  that did not yet hold.
 
 ## Summary
 

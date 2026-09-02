@@ -41,6 +41,7 @@ mod helper_parse_string;
 mod helper_parse_unicode_escape;
 mod helper_parse_value;
 mod helper_require_finite_number_text;
+mod helper_revive;
 mod helper_skip_whitespace;
 mod helper_stringify_indent;
 mod helper_stringify_number;
@@ -281,6 +282,8 @@ pub(crate) fn register(r: &mut Registry) {
     // the same reason as `helper_array_index` above.
     helper_stringify_indent::register(&mut pkg);
     helper_indent_text::register(&mut pkg);
+    // plan-120-E: the reviver walk, appended for the same reason.
+    helper_revive::register(&mut pkg);
 
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);

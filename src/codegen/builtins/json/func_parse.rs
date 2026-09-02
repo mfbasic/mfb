@@ -144,36 +144,81 @@ r#"FUNC __json_parse(value AS String) AS Json
   RETURN parsed.value
 END FUNC"#;
 
+/// plan-120-E: the `parse(text, reviver)` overload. Parses with the untouched
+/// 1-arg body, then walks the finished tree post-order — so a malformed
+/// document fails before the reviver is ever called, exactly as in JavaScript.
+#[rustfmt::skip]
+const FUNC_BODY_REVIVE: &str =
+r#"FUNC __json_parseRevive(value AS String, reviver AS FUNC(String, Json) AS Json) AS Json
+  LET parsed AS Json = __json_parse(value)
+  RETURN __json_revive("", parsed, reviver)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parse",
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: None,
+        // plan-120-E: two overloads, arity-selected (`datetime::parse`'s shape).
+        expected_arguments: Some("String or String, FUNC(String, Json) AS Json"),
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "value",
-                desc: "The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected.",
-                aliases: &["text"],
-                ty: ParameterType::String,
-                default: DefaultValue::None,
-            }],
-            return_type: ParameterType::named("Json"),
-            // plan-120-A: the rendered Errors table is derived from this list,
-            // and nothing cross-checks it against what the body raises — so it
-            // has to be maintained by hand whenever a FAIL site changes code.
-            // `ErrOverflow` is here because `__json_toNumber` re-raises
-            // `toFloat`'s verdict rather than swallowing it; the grammar is
-            // pre-validated, so overflow is the only verdict that gets through.
-            errors: vec![
-                "ErrInvalidFormat",
-                "ErrInvalidSurrogate",
-                "ErrDepthExceeded",
-                "ErrOverflow",
-            ],
-            body: Body::mfb(FUNC_BODY, "__json_parse"),
-        }],
+        implementations: vec![
+            Implementation {
+                params: vec![text_param()],
+                return_type: ParameterType::named("Json"),
+                // plan-120-A: the rendered Errors table is derived from this list,
+                // and nothing cross-checks it against what the body raises — so it
+                // has to be maintained by hand whenever a FAIL site changes code.
+                // `ErrOverflow` is here because `__json_toNumber` re-raises
+                // `toFloat`'s verdict rather than swallowing it; the grammar is
+                // pre-validated, so overflow is the only verdict that gets through.
+                errors: vec![
+                    "ErrInvalidFormat",
+                    "ErrInvalidSurrogate",
+                    "ErrDepthExceeded",
+                    "ErrOverflow",
+                ],
+                body: Body::mfb(FUNC_BODY, "__json_parse"),
+            },
+            // plan-120-E: the reviver form. Parses with the body above, then
+            // walks the finished tree — so it raises exactly the same codes for
+            // exactly the same documents, and the reviver only ever sees a tree
+            // that parsed. An error the reviver itself raises propagates.
+            Implementation {
+                params: vec![
+                    text_param(),
+                    Parameter {
+                        name: "reviver",
+                        desc: "Called once for every parsed value, innermost first, with its key and the already-revived value; its return value is stored in place. The key is the member name inside an object, the index as a decimal string inside an array, and \"\" for the document root, which is called last.",
+                        aliases: &[],
+                        ty: ParameterType::func(
+                            vec![ParameterType::String, ParameterType::named("Json")],
+                            ParameterType::named("Json"),
+                        ),
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::named("Json"),
+                errors: vec![
+                    "ErrInvalidFormat",
+                    "ErrInvalidSurrogate",
+                    "ErrDepthExceeded",
+                    "ErrOverflow",
+                ],
+                body: Body::mfb(FUNC_BODY_REVIVE, "__json_parseRevive"),
+            },
+        ],
     });
+}
+
+/// The `value` parameter, identical in both overloads.
+fn text_param() -> Parameter {
+    Parameter {
+        name: "value",
+        desc: "The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected.",
+        aliases: &["text"],
+        ty: ParameterType::String,
+        default: DefaultValue::None,
+    }
 }
