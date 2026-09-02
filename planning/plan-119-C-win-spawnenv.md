@@ -6,10 +6,22 @@ Depends on: plan-119-A (tail helper + quoting — spawnEnv joins argv through th
 
 Implement the four-argument `process::spawn` overload
 (`args, cwd, env, envReplace` — routed as the `process.spawnEnv` alias) for
-`windows-x86_64`. Today it is compile-time rejected (capability absent) and
-its Windows arm is `unimplemented_on_windows`
-(`func_spawn.rs:494`); the man page says the form is Unix-only
-(`func_spawn.rs:54-58`).
+`windows-x86_64`. Its Windows arm is `unimplemented_on_windows`
+(`func_spawn.rs`); the man page says the form is Unix-only.
+
+**Corrected from the original text (plan-119-B, measured):** it is *not*
+"compile-time rejected (capability absent)". `validate_capabilities` sees the
+base call `process.spawn`, which `win_x86_64` advertises, so the alias never
+faces the capability gate; the build instead fails at link time with
+
+    error: native code internal relocation target
+           '_mfb_rt_process_process_spawnEnv' is not defined
+
+Adding `"process.spawnEnv"` to the capability list is therefore documentation of
+intent rather than the thing that unblocks the call — what unblocks it is the
+helper body. Add the row anyway (the list is the backend's advertised surface,
+and `runtime_calls` is read by more than the validator), but do not expect it to
+change any diagnostic.
 
 No new OS mechanism is needed: `CreateProcessA` takes the two missing pieces
 directly — `lpCurrentDirectory` (stack arg 8, the hard-NULL `0x38` slot) and
@@ -43,8 +55,8 @@ Family gate in plan-119-A, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-119-A landed | `grep -n emit_win_spawn_tail src/codegen/builtins/process/gen_windows.rs` | NOT MET |
-| plan-119-B landed | `grep -n '"process.shell"' src/target/win_x86_64/mod.rs` | NOT MET |
+| plan-119-A landed | `grep -n emit_win_spawn_tail src/codegen/builtins/process/gen_windows.rs` | MET — `gen_windows.rs:196` |
+| plan-119-B landed | `grep -n '"process.shell"' src/target/win_x86_64/mod.rs` | MET — `win_x86_64/mod.rs:290` |
 
 ## 1. Goal
 
@@ -80,7 +92,7 @@ Family gate in plan-119-A, plus:
 | What | Count | Command |
 |---|---|---|
 | Posix spawnEnv body | `func_spawn.rs:180-486` (306 lines) | read |
-| Map-entry layout constants exist for codegen walks | yes — the win spawn body already walks a LIST via `COLLECTION_*`; map twin | Phase 1 verify task (read the map entry constants; UNVERIFIED which constants name key vs value offsets) |
+| Map-entry layout constants exist for codegen walks | yes, VERIFIED | `src/codegen/error/constants/error_constants.rs:974-989`: `COLLECTION_HEADER_SIZE=40`, `COLLECTION_ENTRY_SIZE=40`, entry fields `FLAGS=0`, `KEY_OFFSET=8`, `KEY_LENGTH=16`, `VALUE_OFFSET=24`, `VALUE_LENGTH=32`, `COLLECTION_ENTRY_FLAG_USED=1`. A Map is walked `0..capacity` skipping entries whose `FLAGS & USED` is 0 — NOT `0..count` as a List is (`gen_unix.rs:emit_child_apply_env` is the working precedent). |
 | CreateProcess env/cwd slots | `0x30` / `0x38` | `func_spawn.rs:724-727` |
 
 ### Verified properties

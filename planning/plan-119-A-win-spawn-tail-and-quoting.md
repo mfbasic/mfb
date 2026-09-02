@@ -206,7 +206,7 @@ Acceptance: `scripts/test-winprocess.sh target/release/mfb` passes on box
 `cargo test --no-fail-fast`, `scripts/test-accept.sh`,
 `scripts/artifact-gate.sh all` with re-synced goldens; both-root fmt +
 `cargo check --all-targets`.
-Commit: —
+Commit: 0be618f08
 
 ## Validation Plan
 

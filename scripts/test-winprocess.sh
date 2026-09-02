@@ -109,6 +109,31 @@ SUB runStdin(label AS String, args AS List OF String, a AS String, b AS String)
   io::print(label & ":rc=" & toString(process::waitFor(p)))
 END SUB
 
+SUB runShell(label AS String, cmd AS String)
+  RES p = process::shell(cmd)
+  WHILE TRUE
+    LET line AS String = process::receive(p) TRAP(e)
+      EXIT WHILE
+    END TRAP
+    io::print(label & ":" & strings::trimEnd(line))
+  END WHILE
+  io::print(label & ":rc=" & toString(process::waitFor(p)))
+END SUB
+
+SUB runShellStdin(label AS String, cmd AS String, a AS String, b AS String)
+  RES p = process::shell(cmd)
+  process::send(p, a)
+  process::send(p, b)
+  process::close(p)
+  WHILE TRUE
+    LET line AS String = process::receive(p) TRAP(e)
+      EXIT WHILE
+    END TRAP
+    io::print(label & ":" & strings::trimEnd(line))
+  END WHILE
+  io::print(label & ":rc=" & toString(process::waitFor(p)))
+END SUB
+
 SUB main()
   ' --- plan-119-A Phase 1: the cmd.exe matrix the research spike proved, re-run
   ' through the shared spawn tail. Command sequencing, exit-code propagation,
@@ -128,6 +153,23 @@ SUB main()
   runArgs("q3", ["argdump.exe", "", "after"])
   runArgs("q4", ["argdump.exe", "back\\slash", "tail\\"])
   runArgs("q5", ["argdump.exe", "C:\\my dir\\", "z"])
+
+  ' --- plan-119-B: process::shell, which on Windows is `cmd.exe /S /C "<line>"`.
+  ' Same five shell behaviours the spawn matrix drove through cmd by hand, now
+  ' through the shell surface itself, plus the two quote edges `/S` exists to
+  ' make deterministic.
+  runShell("sh1", "echo one& echo two")
+  runShell("sh2", "exit 7")
+  runShell("sh3", "echo shelled>shellout.txt")
+  runShell("sh4", "type shellout.txt")
+  runShell("sh5", "(echo banana& echo apple) | sort")
+  runShellStdin("sh6", "sort", "banana", "apple")
+  ' A line that STARTS with a quote. Without /S, cmd re-guesses whether to keep
+  ' the quotes by inspecting what is between them; with /S it always strips the
+  ' first and last quote, so this runs the quoted program name.
+  runShell("sh7", "\"cmd\" /C echo quoted")
+  ' A line containing a quoted argument in the middle.
+  runShell("sh8", "echo \"a b\"")
 END SUB
 MFB
 
@@ -138,7 +180,7 @@ echo "--- building argdump + procprobe for windows-x86_64 ---"
 cat > "$work/runner.bat" <<'BAT'
 @echo off
 cd /d C:\mfbproc
-del /q procout.txt 2>nul
+del /q procout.txt shellout.txt 2>nul
 procprobe.exe 2>&1
 echo rc=%errorlevel%
 BAT
@@ -198,6 +240,28 @@ expect "a trailing backslash inside a QUOTED argument is doubled correctly" "q5:
   "the trailing backslash escaped the closing wrap quote and merged the arguments"
 expect "  ...and the path arrives verbatim" "q5:arg=[C:\\my dir\\]" "the doubling leaked into the delivered value"
 expect "  ...with the next argument intact" "q5:arg=[z]" "the run-away quote swallowed it"
+
+# --- plan-119-B: process::shell over cmd.exe /S /C.
+expect "shell sequenced two commands (first)" "sh1:one" "cmd.exe did not run the first command"
+expect "shell sequenced two commands (second)" "sh1:two" "the '&' separator did not reach cmd"
+expect "a shell child's exit code propagates" "sh2:rc=7" "waitFor lost the shell child's status"
+expect "shell redirection wrote the file" "sh4:shelled" "'>' did not redirect, or 'type' could not read it back"
+expect "a shell pipeline ran (sorted first)" "sh5:apple" "'|' did not reach cmd"
+expect "a shell pipeline ran (sorted second)" "sh5:banana" "the pipeline produced only one line"
+expect "stdin streamed into a shell filter (first)" "sh6:apple" "send/close did not reach the shell child's stdin"
+expect "stdin streamed into a shell filter (second)" "sh6:banana" "the second send was lost"
+# The two cases /S exists for. Without it, cmd's legacy heuristic decides whether
+# to keep or strip the wrap quotes by inspecting the quote count, the characters
+# between them, and whether the quoted text names an executable — so a
+# quote-LEADING line is exactly where the two branches disagree.
+expect "a quote-leading line runs (the /S choice)" "sh7:quoted" \
+  "cmd kept the wrap quotes and could not find the program — /S is not in effect"
+# `echo "a b"` in cmd prints the quotes — echo is literal. That is exactly what
+# makes this a useful assertion: the inner quotes reached cmd THROUGH the outer
+# `/S /C "…"` wrap and came back untouched. A wrap that swallowed or doubled them
+# would print `a b`, or nothing at all.
+expect "inner quotes reach cmd through the wrap" 'sh8:"a b"' \
+  "the wrap quote and the inner quotes interfered"
 
 if [ "$fails" -eq 0 ]; then
   echo "windows process runtime tests passed"

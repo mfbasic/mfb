@@ -74,6 +74,37 @@ fn windows_process_lifecycle_compiles_and_imports_win32() {
     }
 }
 
+/// plan-119-B: `process::shell` on Windows is a `cmd.exe /S /C "…"` prologue over
+/// the SAME spawn tail, so its program must reach exactly the same Win32 surface as
+/// the lifecycle program above — no extra import, and none missing. A helper that
+/// silently failed to emit the tail would show up here as an absent
+/// `CreateProcessA`, before anyone ships a PE to the box.
+#[test]
+fn windows_process_shell_compiles_and_imports_the_same_win32_surface() {
+    const SHELL_SOURCE: &str = "IMPORT process\nIMPORT io\n\nFUNC main AS Integer\n  RES sh = process::shell(\"echo hi | sort\")\n  LET line = process::receive(sh)\n  io::print(line)\n  RETURN process::waitFor(sh)\nEND FUNC\n";
+    let project = temp_project("shell", SHELL_SOURCE);
+    let (ok, stdout, stderr) = run_mfb(&project, &["-target", "windows-x86_64", "-nplan"]);
+    assert!(
+        ok,
+        "windows process::shell build failed:\n{stdout}\n{stderr}"
+    );
+    let nplan = std::fs::read_to_string(project.join("shell.nplan")).expect("read nplan");
+    for symbol in [
+        "CreateProcessA",
+        "CreatePipe",
+        "SetHandleInformation",
+        "ReadFile",
+        "WaitForSingleObject",
+        "GetExitCodeProcess",
+        "CloseHandle",
+    ] {
+        assert!(
+            nplan.contains(&format!("\"symbol\": \"{symbol}\"")),
+            "the Windows shell helper must import {symbol}; nplan:\n{nplan}"
+        );
+    }
+}
+
 #[test]
 fn posix_process_backend_does_not_import_win32() {
     // The same program on a POSIX target uses fork/execvp/pipe — none of the Win32
