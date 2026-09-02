@@ -324,8 +324,9 @@ per non-`Normal` stroked+filled item, and the frame-item count in the
 
 Pure plumbing, no behaviour. Lands alone and is provably neutral.
 
-- [ ] `HEADER_SLOTS` 22 → 27 in `src/codegen/runtime/canvas/mod.rs`; add the five
+- [x] `HEADER_SLOTS` 22 → 27 in `src/codegen/runtime/canvas/mod.rs`; add the five
       slot constants with the meanings in §4.1.
+      `HEADER_CLIP_X0/Y0/X1/Y1` (22–25) and `HEADER_BLEND` (26).
 - [ ] Find and update **every** reader of the header length — `__CANVAS_GEO_HEADER`
       in `helper_geometry.rs:53`, the tail-offset arithmetic at `:298` and `:451`,
       `__canvas_headerMatches` at `:489`, and both GPU emitters' `HEADER_SLOTS` uses.
@@ -356,11 +357,28 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
       Proved RED before being trusted: desyncing `__CANVAS_GEO_HEADER` 22 → 27 fails
       with "the tail would be read at the wrong offset, so a polygon's first edge
       coordinate becomes a header field"; restored, green.
-- [ ] `__canvas_paintHeader` writes the resolved clip and the blend tag into slots
+- [x] `__canvas_paintHeader` writes the resolved clip and the blend tag into slots
       22–26 from the `Paint` it is already given.
-- [ ] `ITEM_BLOCK_SIZE` 112 → 128; add the clip `ivec4` and the blend word; extend the
+      The clip is written **unconditionally**, with no zero-area special case: `w = 0`
+      gives `x1 = x + 0 = x`, so the `x0 >= x1` test that means "unclipped" already
+      holds, and an unset `Paint.clip` (an all-zero `Bounds`) satisfies it too. The
+      blend tag is compared variant by variant rather than converted, so `Normal`
+      lands as 0 — the zero value being the no-op is the rule the rest of `Paint`
+      follows, and it is what keeps every existing scene rendering as it did.
+- [x] `ITEM_BLOCK_SIZE` 112 → 128; add the clip `ivec4` and the blend word; extend the
       MSL struct and both GLSL blocks to match; `scripts/regen-spirv.sh`.
-- [ ] Tests: the existing suite must stay green with no golden change.
+      `ITEM_OFFSET_CLIP` 112, `ITEM_SURFACE_BLEND` 8 (i.e. byte 104 — the word
+      plan-116-A's audit found free). Re-measured rather than assumed:
+      `glslangValidator -V -q mfb_canvas.vert` now reports `topLevelArrayStride 128`
+      with `clip` at offset **112**, matching `ITEM_OFFSET_CLIP` exactly. Both
+      emitters write the new fields — the clip rides the existing 16.16 loop unchanged
+      because the header already stores it resolved. **Two follow-on breakages, both
+      caught by tests rather than by review — see Corrections C2 and C3.**
+- [x] Tests: the existing suite must stay green with no golden change.
+      `rt_canvas_metal` 4, `rt_canvas_font` 10, `rt_canvas_golden` 5,
+      `rt_canvas_rasteriser` 10, `rt_canvas_damage` 4, `rt_canvas_graphics_thread` 8,
+      and `scripts/test-canvas-vulkan.sh` 12/12 with `worst=1`.
+      `git status --short tests/golden/canvas/` is empty — `smiley.png` unchanged.
 
 Acceptance: `cargo test --no-fail-fast` green, `tests/golden/canvas/smiley.png`
 unchanged on disk, and a Metal/Vulkan frame for the smiley scene still matches the
@@ -491,6 +509,32 @@ Commit: —
   rule. The `Multiply` factor pair's opaque-destination assumption was also made
   explicit, and the `Picture` variant was discovered to have no renderer at all
   (filed as bug-484) — blend and clip are vacuous for it.
+- **C2 (2026-09-01, Phase 1) — widening the block moved a hardcoded MSL constant.**
+  `METAL_EDGE_BASE` is the frame buffer's edge-region start in words, i.e. immediately
+  past `CANVAS_MAX_FRAME_ITEMS` item blocks — so it is a function of
+  `ITEM_BLOCK_SIZE` and moved 114688 → 131072 when the block went 112 → 128. It is
+  spelled as a literal inside `METAL_SHADER_SOURCE` because that string is a `concat!`
+  of literals and cannot interpolate. Nothing about the change hints at it. Caught
+  immediately by `the_metal_shader_edge_base_matches_the_buffer_layout`, the guard
+  plan-116-A added for exactly this, which named the required value in its failure
+  message. **A later letter that widens the block again must expect this.**
+- **C3 (2026-09-01, Phase 1) — the plan missed that Metal's stack frame is
+  hand-assigned, and the symptom was a completely black GPU frame.**
+  `emit_metal_draw` lays its frame out with hardcoded byte offsets (`DRAW_FRAME`, the
+  `OFF_*` constants). `OFF_ITEM` was 192 and `OFF_TEXTURE` 304 — exactly 112 bytes
+  apart, sized to the old block. At 128 bytes `emit_item_publish`'s copy ran 16 bytes
+  past the item slot and destroyed the texture handle, so every Metal render produced
+  an entirely black frame while still reporting success (`rectangles_match…`: 161300
+  of 576000 pixels differ, max delta 255, first at (10,10) `[0,0,0,255]` vs
+  `[255,0,0,255]`). The Vulkan side was untouched because it allocates with
+  `allocate_stack_object("vk_item", ITEM_BLOCK_SIZE)` and therefore grows on its own.
+  Every slot above the item block moved up 16 and `DRAW_FRAME` went 448 → 464.
+  A new guard, `the_draw_frame_slots_do_not_overlap`, now sorts every hand-assigned
+  slot and asserts none overlaps the next (and that the last fits `DRAW_FRAME`, and
+  that `DRAW_FRAME` stays 16-aligned for AAPCS64). Verified RED against the real bug:
+  restoring `OFF_TEXTURE = 304` fails with "`item` at 192 is 128 bytes, so it runs to
+  320 and overlaps `texture` at 304". Written as a sorted sweep rather than pairwise
+  asserts so a slot added later is covered without anyone remembering to extend it.
 
 ## Summary
 

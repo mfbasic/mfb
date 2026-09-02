@@ -59,10 +59,11 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
     GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
     GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
-    HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT,
-    ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD,
-    ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, VULKAN_BUFFER_BYTES,
+    HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1,
+    HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF,
+    HEADER_STROKE_R, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
+    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES,
     VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
@@ -3235,7 +3236,7 @@ const SUBPASS_CONTENTS_INLINE: &str = "0";
 /// colour's alpha.
 const FLOAT_ONE_BITS_F32: &str = "1065353216";
 
-/// Fill the 112-byte item block at `sp + off_item` from the geometry header whose
+/// Fill the 128-byte item block at `sp + off_item` from the geometry header whose
 /// address is in `SCRATCH[0]`.
 ///
 /// The Vulkan-flavoured twin of the Metal emitter in
@@ -3285,6 +3286,18 @@ fn emit_item_block(
         (
             ITEM_OFFSET_ARC,
             [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
+        ),
+        // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
+        // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
+        // the bounds above, and no arithmetic repeated per item.
+        (
+            ITEM_OFFSET_CLIP,
+            [
+                HEADER_CLIP_X0,
+                HEADER_CLIP_Y0,
+                HEADER_CLIP_X1,
+                HEADER_CLIP_Y1,
+            ],
         ),
     ] {
         for (index, slot) in slots.into_iter().enumerate() {
@@ -3368,6 +3381,24 @@ fn emit_item_block(
             off_item + ITEM_OFFSET_SURFACE + index * 4,
         ));
     }
+
+    // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
+    // so an item that never set `Paint.blend` writes the value the pipeline it selects
+    // has always had.
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_BLEND * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_SURFACE + ITEM_SURFACE_BLEND,
+    ));
 }
 
 /// Append this item's polygon edges to the frame's edge buffer and record where they
@@ -5385,9 +5416,10 @@ mod tests {
     /// block is an `ivec4` rather than packed.
     ///
     /// Measured against the real compiler rather than reasoned about alone:
-    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 112` with
-    /// members at 0/16/32/48/64/80/96 (2026-09-01, glslang 11:15.2.0). A later letter
-    /// that widens the block must re-run that and keep this equality.
+    /// `glslangValidator -V -q mfb_canvas.vert` reports `topLevelArrayStride 128` with
+    /// members at 0/16/32/48/64/80/96/112 (2026-09-01, glslang 11:15.2.0) — re-measured
+    /// when plan-116-B took the block from 112 to 128 for the clip rectangle. A later
+    /// letter that widens it again must re-run that and keep this equality.
     #[test]
     fn the_item_block_matches_the_std430_stride() {
         assert_eq!(

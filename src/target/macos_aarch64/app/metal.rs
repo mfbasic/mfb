@@ -58,10 +58,12 @@ use crate::codegen::runtime::canvas::{
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
-    HEADER_AUX1, HEADER_BOUNDS, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE,
-    HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
-    ITEM_OFFSET_ARC, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, MAX_EDGES, METAL_MAX_GLYPH_SAMPLES,
+    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
+    HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
+    HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
+    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_SURFACE_BLEND, MAX_EDGES,
+    METAL_MAX_GLYPH_SAMPLES,
 };
 
 /// The one-time setup helper's symbol.
@@ -107,21 +109,26 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "constant float FIXED = 65536.0;\n",
     "constant float PI = 3.141592653589793;\n",
     // Where the frame buffer's edge region starts, in 32-bit words -- i.e. immediately
-    // past `CANVAS_MAX_FRAME_ITEMS` item blocks. Spelled as a literal because
+    // past `CANVAS_MAX_FRAME_ITEMS` item blocks, so it MOVES whenever `ITEM_BLOCK_SIZE`
+    // does (114688 -> 131072 when plan-116-B widened the block to 128 bytes). Spelled
+    // as a literal because
     // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
     // computed value; `the_metal_shader_edge_base_matches_the_buffer_layout` is what
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 114688;\n",
+    "constant int METAL_EDGE_BASE = 131072;\n",
     "struct MfbItem {\n",
-    "  int4 quad;\n",    // bounds minX, minY, maxX, maxY (16.16 px)
-    "  int4 shape;\n",   // p0..p3 (16.16 px)
-    "  int4 fill;\n",    // RGBA 0..255
-    "  int4 stroke;\n",  // RGBA 0..255
-    "  int4 misc;\n",    // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    "  int4 arc;\n",     // startAngle, endAngle (16.16 rad), unused, unused
-    "  int2 surface;\n", // width, height (px)
+    "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
+    "  int4 shape;\n",    // p0..p3 (16.16 px)
+    "  int4 fill;\n",     // RGBA 0..255
+    "  int4 stroke;\n",   // RGBA 0..255
+    "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
+    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), unused, unused
+    "  int2 surface;\n",  // width, height (px)
+    "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
+    "  int surfacePad;\n",
+    "  int4 clip;\n", // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -752,7 +759,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 448;
+const DRAW_FRAME: usize = 464;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -761,44 +768,44 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 304;
+const OFF_TEXTURE: usize = 320;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 320;
-const OFF_GLYPH_COV: usize = 328;
-const OFF_GLYPH_INDEX: usize = 336;
-const OFF_GLYPH_COUNT: usize = 344;
-const OFF_GLYPH_HEADER: usize = 352;
-const OFF_GLYPH_W: usize = 360;
-const OFF_GLYPH_H: usize = 368;
-const OFF_GLYPH_X: usize = 376;
-const OFF_GLYPH_Y: usize = 384;
+const OFF_GLYPH_META: usize = 328;
+const OFF_GLYPH_COV: usize = 336;
+const OFF_GLYPH_INDEX: usize = 344;
+const OFF_GLYPH_COUNT: usize = 352;
+const OFF_GLYPH_HEADER: usize = 360;
+const OFF_GLYPH_W: usize = 368;
+const OFF_GLYPH_H: usize = 376;
+const OFF_GLYPH_X: usize = 384;
+const OFF_GLYPH_Y: usize = 392;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 392;
+const OFF_GLYPH_SRC: usize = 400;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 400;
+const OFF_CONTENTS: usize = 408;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
 /// to live somewhere the argument staging cannot clobber.
-const OFF_ITEM_CURSOR: usize = 408;
-const OFF_RUN_START: usize = 416;
-const OFF_RUN_COUNT: usize = 424;
+const OFF_ITEM_CURSOR: usize = 416;
+const OFF_RUN_START: usize = 424;
+const OFF_RUN_COUNT: usize = 432;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 432;
+const OFF_EDGE_CURSOR: usize = 440;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 440;
+const OFF_GLYPH_INSTANCE: usize = 448;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -1810,6 +1817,18 @@ fn emit_item_block(asm: &mut Asm) {
             ITEM_OFFSET_ARC,
             [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
         ),
+        // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
+        // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
+        // the bounds above, and no arithmetic repeated per item.
+        (
+            ITEM_OFFSET_CLIP,
+            [
+                HEADER_CLIP_X0,
+                HEADER_CLIP_Y0,
+                HEADER_CLIP_X1,
+                HEADER_CLIP_Y1,
+            ],
+        ),
     ] {
         for (index, slot) in slots.into_iter().enumerate() {
             asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
@@ -1892,6 +1911,24 @@ fn emit_item_block(asm: &mut Asm) {
             OFF_ITEM + ITEM_OFFSET_SURFACE + index * 4,
         ));
     }
+
+    // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
+    // so an item that never set `Paint.blend` writes the value the pipeline it selects
+    // has always had.
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_BLEND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_SURFACE + ITEM_SURFACE_BLEND,
+    ));
 }
 
 /// Copy the item block just built on the stack into the frame buffer at the cursor, and
@@ -2427,6 +2464,70 @@ mod tests {
                  what `newFunctionWithName:` asks for"
             );
         }
+    }
+
+    /// The frame's hand-assigned stack slots do not overlap, and the item block fits.
+    ///
+    /// `DRAW_FRAME` and every `OFF_*` are hand-written byte offsets, so widening
+    /// anything they hold is a silent overrun rather than a compile error. plan-116-B
+    /// walked straight into it: taking `ITEM_BLOCK_SIZE` from 112 to 128 made
+    /// `emit_item_publish`'s copy run 16 bytes past `OFF_ITEM` into `OFF_TEXTURE`, and
+    /// the symptom was an entirely BLACK GPU frame — the texture handle destroyed, so
+    /// nothing was drawn into, with the renderer still reporting success.
+    ///
+    /// Checked as a sorted sweep rather than a list of pairwise asserts so a slot added
+    /// later is covered without anyone remembering to extend this.
+    #[test]
+    fn the_draw_frame_slots_do_not_overlap() {
+        // (offset, size, name) for every hand-assigned slot in the frame.
+        let mut slots = vec![
+            (OFF_REGION, 48, "region"),
+            (OFF_LR, 8, "lr"),
+            (OFF_SAVES, 8 * 8, "saves"),
+            (OFF_SURFACE, 8, "surface"),
+            (OFF_WIDTH, 8, "width"),
+            (OFF_HEIGHT, 8, "height"),
+            (OFF_POOL, 8, "pool"),
+            (OFF_ITEM, ITEM_BLOCK_SIZE, "item"),
+            (OFF_TEXTURE, 8, "texture"),
+            (OFF_GLYPH_META, 8, "glyphMeta"),
+            (OFF_GLYPH_COV, 8, "glyphCov"),
+            (OFF_GLYPH_INDEX, 8, "glyphIndex"),
+            (OFF_GLYPH_COUNT, 8, "glyphCount"),
+            (OFF_GLYPH_HEADER, 8, "glyphHeader"),
+            (OFF_GLYPH_W, 8, "glyphW"),
+            (OFF_GLYPH_H, 8, "glyphH"),
+            (OFF_GLYPH_X, 8, "glyphX"),
+            (OFF_GLYPH_Y, 8, "glyphY"),
+            (OFF_GLYPH_SRC, 8, "glyphSrc"),
+            (OFF_CONTENTS, 8, "contents"),
+            (OFF_ITEM_CURSOR, 8, "itemCursor"),
+            (OFF_RUN_START, 8, "runStart"),
+            (OFF_RUN_COUNT, 8, "runCount"),
+            (OFF_EDGE_CURSOR, 8, "edgeCursor"),
+            (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
+        ];
+        slots.sort_by_key(|&(offset, _, _)| offset);
+
+        for pair in slots.windows(2) {
+            let (offset, size, name) = pair[0];
+            let (next_offset, _, next_name) = pair[1];
+            assert!(
+                offset + size <= next_offset,
+                "`{name}` at {offset} is {size} bytes, so it runs to {} and overlaps \
+                 `{next_name}` at {next_offset} — a hand-assigned frame slot was \
+                 widened without moving the ones above it",
+                offset + size,
+            );
+        }
+
+        let (last_offset, last_size, last_name) = *slots.last().expect("slots is not empty");
+        assert!(
+            last_offset + last_size <= DRAW_FRAME,
+            "`{last_name}` runs to {} but DRAW_FRAME is only {DRAW_FRAME}",
+            last_offset + last_size,
+        );
+        assert_eq!(DRAW_FRAME % 16, 0, "AAPCS64 wants a 16-byte-aligned frame");
     }
 
     /// The MSL's `METAL_EDGE_BASE` is `METAL_EDGE_BASE_WORDS`.

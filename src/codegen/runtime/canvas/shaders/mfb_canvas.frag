@@ -22,7 +22,8 @@ struct ItemBlock {
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
     ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, unused
-    ivec4 surface;
+    ivec4 surface; // width, height, blendMode, unused
+    ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
