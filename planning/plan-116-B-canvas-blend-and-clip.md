@@ -407,17 +407,43 @@ Commit: 9a94d5ce7
 
 ### Phase 2 — The clip, software path only
 
-- [ ] Fold the clip into `__canvas_drawGeometry`'s four loop-bound expressions
+- [x] Fold the clip into `__canvas_drawGeometry`'s four loop-bound expressions
       (`helper_items.rs:184-187`).
-- [ ] Add the fractional-edge coverage multiply, gated on the item having a clip.
-- [ ] Add a `__canvas_hasClip(offset)` slot read so the gate is one compare.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` gains cases for — a clip that cuts a
+      `toInt` truncation, deliberately, rather than the `ceil`/`floor` pair §4.2
+      suggested: a clip starting at x = 10.3 must still *visit* pixel 10, which covers
+      [10, 11) and is 70% inside, and `ceil` would drop that column entirely. A clip
+      ending at x = 20.0 visits pixel 20 and then contributes nothing there, because
+      its centre 20.5 is outside. Visiting one pixel too many is free; missing one
+      clips a whole column.
+- [x] Add the fractional-edge coverage multiply, gated on the item having a clip.
+      Applied to the fill coverage, the stroke band, **and the glyph blit** — the last
+      is not in the task list but is required by §4.2's own text, and without it a
+      clipped `Text` item would ignore its clip.
+- [x] Add a `__canvas_hasClip(offset)` slot read so the gate is one compare.
+      It tests **both** extents (`x0 < x1 AND y0 < y1`) rather than comparing against
+      zero, which also rejects a negative extent — `Bounds` cannot forbid `w := -5.0`,
+      and that must mean "draws nothing", not "draws everything".
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` gains cases for — a clip that cuts a
       circle in half; a clip on a fractional pixel boundary; a zero-area clip (must be
       identical to no clip); a clip entirely outside the item (must draw nothing); a
       clip larger than the item (must be identical to no clip).
 
 Acceptance: the five new rasteriser cases pass, and the pre-existing rasteriser and
 golden cases are unchanged byte for byte.
+
+**MET.** `rt_canvas_rasteriser` 15 passed (10 pre-existing + 5 new),
+`rt_canvas_golden` 5, `rt_canvas_font` 10.
+
+The five were proved to be a real gate, and the result is worth recording because it
+is the split the plan wanted rather than a uniform one. With `__canvas_hasClip` stubbed
+to `RETURN FALSE`, **three** fail — `a_clip_cuts_a_circle_in_half`,
+`a_fractional_clip_edge_is_antialiased`, `a_clip_outside_the_item_draws_nothing` — and
+**two pass**: `a_zero_area_clip_is_identical_to_no_clip` and
+`a_clip_larger_than_the_item_changes_nothing`. That is correct, not a weakness: those
+two assert the clip is *inert*, so they must hold with and without the feature. They
+are the pair that pins what must not change, and they are whole-frame byte
+comparisons rather than samples, because every `Paint` built before this letter carries
+a zero-area clip — one wrong pixel there is every existing scene changing.
 Commit: —
 
 ### Phase 3 — The four blend modes, software path only, and the reference scene
