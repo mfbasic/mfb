@@ -300,6 +300,48 @@ test, because a future maintainer regenerating those certificates with a longer
 life would break only the macOS positive case, for a reason with nothing to do
 with this flag.
 
+### 6. Golden delta — proven, not assumed
+
+`scripts/regen-ncodesum.sh ./target/release/mfb macos-aarch64` refreshed **132**
+goldens. Exactly **15** changed — three fixtures across all five targets:
+
+```
+tests/byte-identity/tls/golden/tls_codegen_cover_rt.{5 targets}.ncodesum
+tests/byte-identity/http/golden/http_codegen_cover_rt.{5 targets}.ncodesum
+tests/byte-identity/resource-xfer-slots/golden/resource_xfer_slots_cover_rt.{5 targets}.ncodesum
+```
+
+The other **117 are byte-identical**, which is the containment proof. And the
+three that moved are exactly the three fixtures that call the changed member:
+
+```
+$ grep -rln "tls::" tests/byte-identity/*/src/*.mfb
+tests/byte-identity/tls/src/main.mfb
+tests/byte-identity/http/src/main.mfb
+tests/byte-identity/resource-xfer-slots/src/main.mfb
+```
+
+So the delta is confined to `tls::connect` call sites and their emitters, with no
+collateral drift anywhere else in the tree. Each is accounted for:
+
+- **tls** — the emitter changed on all three backends *and* the cover fixture
+  gained four new calls (both overloads at both flag values), so this one is
+  expected to move the most.
+- **http** — `helper_start_exchange.rs` calls `tls::connect` with four arguments
+  and now pads a fifth. The padded constant is pinned as `Boolean false` by
+  `rt_http_https_still_verifies::the_padded_flag_is_false`.
+- **resource-xfer-slots** — calls `tls::connect("8.8.8.8", 443, 30000,
+  "dns.google")`, so it pads the fifth argument too.
+
+Note this change is deliberately **not** byte-identical at `FALSE`, and the Goal
+section anticipated that ("if a constant-fold cannot make it byte-identical, the
+`.ncodesum` delta must be shown to be nothing but the new predicate"). It cannot
+be: the flag is a runtime frame slot, so every backend gains a spill and a
+branch, Linux gains two `dlsym` name strings plus the callback body, and macOS
+gains the verify-block plumbing. Per `AGENTS.md`, byte-identity is a drift
+sentinel rather than a design constraint here — the requirement is that the
+delta be explained, which the containment above does.
+
 ## Failing Reproduction
 
 The two examples added alongside this bug are the reproduction. Terminal 1:

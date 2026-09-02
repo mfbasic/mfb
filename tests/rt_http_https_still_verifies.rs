@@ -11,12 +11,12 @@
 //!
 //! Two independent checks, because each catches a different mistake:
 //!
-//! 1. `the_padded_flag_is_false` reads the lowered IR of an `http::get` and
+//! 1. `the_padded_flag_is_false` reads the lowered IR of an `http::read` and
 //!    asserts the padded constant. This catches the pad table being given the
 //!    wrong value, which is the mistake most likely to be made and least likely
 //!    to be noticed.
 //! 2. `https_to_a_self_signed_peer_still_fails` is the behavioural proof: point
-//!    `http::get` at a self-signed TLS server and require it to fail. If the pad
+//!    `http::read` at a self-signed TLS server and require it to fail. If the pad
 //!    ever became `TRUE`, this connects.
 //!
 //! The second is macOS/Linux-only for the same reason as
@@ -60,8 +60,8 @@ fn the_padded_flag_is_false() {
     let root = std::env::temp_dir().join(format!("mfb_bug477_httpsir_{}", nonce()));
     write_project(
         &root,
-        "IMPORT http\n\nFUNC main AS Integer\n\
-        \x20 LET r = http::get(\"https://example.com/\")\n\
+        "IMPORT http\nIMPORT net\n\nFUNC main AS Integer\n\
+        \x20 LET r = http::read(net::toUrl(\"https://example.com/\"))\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -73,7 +73,7 @@ fn the_padded_flag_is_false() {
         .expect("run mfb build -ir");
     assert!(
         output.status.success(),
-        "an http::get program must build:\n{}",
+        "an http::read program must build:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     let ir_path = String::from_utf8(output.stdout)
@@ -88,7 +88,7 @@ fn the_padded_flag_is_false() {
     let calls: Vec<&str> = ir.match_indices("\"target\": \"tls.connect\"").map(|(i, _)| &ir[i..]).collect();
     assert!(
         !calls.is_empty(),
-        "bug-477: http::get(https://…) must still lower a tls.connect — if this \
+        "bug-477: http::read(https://…) must still lower a tls.connect — if this \
          fires, the HTTPS path moved and this guard is watching nothing"
     );
     for call in calls {
@@ -104,7 +104,7 @@ fn the_padded_flag_is_false() {
     let _ = fs::remove_dir_all(&root);
 }
 
-/// The behavioural half: `http::get` against a self-signed TLS peer must fail.
+/// The behavioural half: `http::read` against a self-signed TLS peer must fail.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn https_to_a_self_signed_peer_still_fails() {
@@ -166,8 +166,8 @@ fn https_to_a_self_signed_peer_still_fails() {
     write_project(
         &root,
         &format!(
-            "IMPORT http\nIMPORT io\n\nFUNC main AS Integer\n\
-            \x20 LET r = http::get(\"https://localhost:{port}/\") TRAP\n\
+            "IMPORT http\nIMPORT io\nIMPORT net\n\nFUNC main AS Integer\n\
+            \x20 LET r = http::read(net::toUrl(\"https://localhost:{port}/\")) TRAP\n\
             \x20   io::print(\"result=raised\")\n\
             \x20   RETURN 0\n\
             \x20 END TRAP\n\
