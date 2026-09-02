@@ -349,7 +349,7 @@ phases removed their whole categories; C removed the part that was actually
 concat/toString code (−606,396 and −261,144 attributed, −1.65 M of module) and
 proved the rest is one shared block. C+E remains accountable for the full
 number.
-Commit: —
+Commit: 1fe91ed9c
 
 ## Validation Plan
 
@@ -369,11 +369,16 @@ Commit: —
 
 ## Open Decisions
 
-- Tiny-operand fast path: keep a short inline path for concat where one side
-  is a static string ≤ 8 bytes? Recommended: NO in Phase 1 (measure first;
-  add only if the benchmark gate demands it).
-- Whether `to*` conversions (toInt/toFixed/…, ~0.2 M combined) ride Phase 2 or
-  a follow-up — decide from Phase 2's census of shared formatting bodies.
+- ~~Tiny-operand fast path~~ — **DECIDED: no.** The benchmark gate did not
+  demand it: `string concat` and `strbuild concat` were unchanged and every
+  other string row was neutral-to-faster (worst +1.1 %). Adding a static-operand
+  inline path would put back exactly the per-site expansion this letter removed,
+  for a case the measurement says costs nothing.
+- ~~Whether `to*` conversions ride Phase 2~~ — **DECIDED: no, and not as a
+  follow-up either** (Corrections 5). The census found they share no formatting
+  body with `toString`: `toInt`/`toFixed`/… are *parsers* (String → number) and
+  reach none of the renderers. Their expansion is a different shape and is not
+  in this letter's scope.
 
 ## Corrections
 
