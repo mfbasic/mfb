@@ -224,7 +224,7 @@ checked", not a golden result) and passes uncontended:
 `cargo test --test golden` → ok, 1823 goldens, 0 diffs in 266.68s.
 `scripts/artifact-gate.sh all` standalone: 1325 tests, 1823 goldens, **0 diffs**.
 `cargo check --all-targets`: clean. Both-root `cargo fmt` run.
-Commit: —
+Commit: f86af39a7
 
 ## Validation Plan
 
@@ -238,10 +238,11 @@ Commit: —
 
 ## Open Decisions
 
-- Whether the attribution tally lands permanently or stays a diff kept in this
-  plan directory — **recommended: land it** (one branch per op when `-vv` is
-  off; it is the instrument every later letter's acceptance uses, and B–E
-  regress silently without it).
+- ~~Whether the attribution tally lands permanently or stays a diff kept in this
+  plan directory~~ — **DECIDED: landed permanently** (`src/codegen/engine/expansion.rs`,
+  commit `f86af39a7`). Cost when `-vv` is off is one relaxed atomic load per op
+  and per value; `artifact-gate.sh all` is 0 diffs over 1823 goldens with it in
+  the tree, and it is the instrument B–E's acceptance criteria are stated in.
 
 ## Corrections
 
