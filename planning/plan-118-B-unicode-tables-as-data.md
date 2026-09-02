@@ -207,7 +207,10 @@ Acceptance: census table filled in; generated data artifacts reproduce under
 
 MET: `./scripts/check-generated.sh` → exit 0, all five artifacts `ok:`
 (173 vector bodies, both `.mfb`s, both new `.txt`s).
-Commit: —
+`scripts/artifact-gate.sh all`: 1325 tests, 1823 goldens, **0 diffs** — no Rust
+changed in this phase (`git diff --stat HEAD -- '*.rs'` empty), so nothing
+consumes the new data yet.
+Commit: e8bd233c3
 
 ### Phase 2 — genCat through the trie
 
