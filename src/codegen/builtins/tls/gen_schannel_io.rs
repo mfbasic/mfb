@@ -87,6 +87,8 @@ fn emit_verify_hostname(
     symbol: &str,
     state_off: usize,
     snamew_off: usize,
+    // bug-477 `allowSelfSigned`: frame slot holding the flag (0/1).
+    allow_off: usize,
     fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -164,6 +166,25 @@ fn emit_verify_hostname(
         abi::store_u64(&v9, &v8, POLICYPARA + 8), // pvExtraPolicyPara
         abi::move_immediate(&v9, "Integer", "16"), // status cbSize
         abi::store_u32(&v9, &v8, STATUS),
+    ]);
+    {
+        // bug-477: CERT_CHAIN_POLICY_PARA::dwFlags is at POLICYPARA + 4 and the
+        // blanket zeroing loop above leaves it 0 (the strict default). With
+        // `allowSelfSigned` set, put ALLOW_UNKNOWN_CA there and nothing else, so
+        // the SSL policy forgives an untrusted root while `pwszServerName` still
+        // drives the name match and CERT_E_EXPIRED still surfaces in dwError.
+        let strict = format!("{symbol}_policy_strict");
+        ins.extend([
+            abi::load_u64(&v9, abi::stack_pointer(), allow_off),
+            abi::compare_immediate(&v9, "0"),
+            abi::branch_eq(&strict),
+            abi::move_immediate(&v9, "Integer", CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG),
+            abi::store_u32(&v9, &v8, POLICYPARA + 4),
+            abi::label(&strict),
+        ]);
+    }
+    load_base(ins);
+    ins.extend([
         // CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chainCtx, &para, &status)
         abi::move_immediate(abi::return_register(), "Integer", CERT_CHAIN_POLICY_SSL),
         abi::load_u64(abi::c_arg(1), &v8, CHAINCTX),
@@ -191,6 +212,60 @@ mod verify_hostname_tests {
     use crate::arch::ops::CodeOp;
     use std::collections::HashMap;
 
+    // bug-477: `allowSelfSigned` must relax the chain policy by EXACTLY one bit.
+    //
+    // The tempting Schannel shortcut is to widen CERT_CHAIN_POLICY_PARA::dwFlags
+    // to the whole CERT_CHAIN_POLICY_IGNORE_* family, or to drop the dwError == 0
+    // requirement. Either silently stops the name and expiry checks — the exact
+    // MITM hazard bug-477 forbids — and neither shows up in a positive
+    // "self-signed is accepted" fixture. This pins the emitted constant.
+    #[test]
+    fn relaxation_sets_only_the_unknown_ca_flag() {
+        const POLICYPARA: usize = 0x60; // must match emit_verify_hostname's local const
+        let imports = HashMap::new();
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        let mut vregs = Vregs::new();
+        emit_verify_hostname(
+            "t_vh", 8, 200, 208, "t_vh_fail", &imports, &TestPlatform,
+            &mut ins, &mut rel, &mut vregs,
+        )
+        .expect("lower emit_verify_hostname");
+
+        // Every immediate written into dwFlags (POLICYPARA + 4).
+        let written: Vec<String> = ins
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                i.op == CodeOp::StrU32
+                    && i.get("offset").as_deref()
+                        == Some((POLICYPARA + 4).to_string().as_str())
+            })
+            .filter_map(|(idx, i)| {
+                let src = i.get("src")?;
+                ins[..idx].iter().rev().find_map(|prev| {
+                    (prev.op == CodeOp::MovImm && prev.get("dst")? == src)
+                        .then(|| prev.get("value"))?
+                })
+            })
+            .collect();
+        assert_eq!(
+            written,
+            vec![CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG.to_string()],
+            "bug-477: dwFlags must receive ALLOW_UNKNOWN_CA and nothing else — any \
+             other CERT_CHAIN_POLICY_IGNORE_* bit would stop the name or expiry \
+             check that `allowSelfSigned` is required to preserve"
+        );
+
+        // The post-policy `dwError == 0` requirement must survive: relaxing that
+        // instead of dwFlags would accept EVERY policy failure.
+        assert!(
+            ins.iter().any(|i| i.op == CodeOp::BranchNe
+                && i.get("target").as_deref() == Some("t_vh_fail")),
+            "bug-477: the dwError != 0 -> fail branch must still be emitted"
+        );
+    }
+
     // bug-413: the wide server-name pointer must be stored into
     // SSL_EXTRA_CERT_CHAIN_POLICY_PARA::pwszServerName, which on Win64 (with the
     // declared `cbSize = 24` four-field x64 layout: cbSize@0, dwAuthType@4,
@@ -202,6 +277,7 @@ mod verify_hostname_tests {
     fn server_name_pointer_stored_at_pwsz_server_name_offset() {
         const SSLPARA: usize = 0x40; // must match emit_verify_hostname's local const
         const SNAMEW_OFF: usize = 200; // distinctive frame slot for the wide name ptr
+        const ALLOW_OFF: usize = 208; // bug-477 allowSelfSigned slot
         let imports = HashMap::new();
         let mut ins = Vec::new();
         let mut rel = Vec::new();
@@ -210,6 +286,7 @@ mod verify_hostname_tests {
             "t_vh",
             8,
             SNAMEW_OFF,
+            ALLOW_OFF,
             "t_vh_fail",
             &imports,
             &TestPlatform,

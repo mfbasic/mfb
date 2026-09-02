@@ -7,7 +7,6 @@
 /// socket/connect (imported via ws2_32). Scratch frame slots hints/res/hostcstr
 /// are caller-provided.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn socket_connect(
     symbol: &str,
     host_off: usize,
@@ -405,6 +404,27 @@ pub(crate) fn lower_tls_connect(
         abi::move_immediate(&v9, "Integer", SCHANNEL_CRED_VERSION),
         abi::store_u32(&v9, &v18, st::SC_CRED),
         abi::move_immediate(&v9, "Integer", SCH_CRED_FLAGS),
+    ]);
+    {
+        // bug-477: with `allowSelfSigned` set, swap AUTO_CRED_VALIDATION for
+        // MANUAL_CRED_VALIDATION so InitializeSecurityContext stops refusing an
+        // untrusted chain outright. That does not accept the certificate — it
+        // defers the decision to the manual
+        // CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL) that
+        // `emit_verify_hostname` already performs post-handshake, which keeps
+        // checking the name and the dates. SCH_USE_STRONG_CRYPTO is retained in
+        // both values, so the TLS >= 1.2 floor is untouched.
+        let strict = format!("{symbol}_cred_strict");
+        ins.extend([
+            abi::load_u64(&v10, abi::stack_pointer(), ALLOW),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_eq(&strict),
+            abi::move_immediate(&v9, "Integer", SCH_CRED_FLAGS_ALLOW_SELF_SIGNED),
+            abi::label(&strict),
+        ]);
+    }
+    ins.extend([
+        abi::load_u64(&v18, abi::stack_pointer(), STATE),
         abi::store_u32(&v9, &v18, st::SC_CRED + 72),
     ]);
     // Marshal the SNI / certificate-validation name -> wide cstr (SNAMEW) for
@@ -686,7 +706,9 @@ pub(crate) fn lower_tls_connect(
     ]);
 
     // Enforce the HOSTNAME against the negotiated chain (bug: easy to omit).
-    emit_verify_hostname(symbol, STATE, SNAMEW, &fail, imports, platform, &mut ins, &mut rel, &mut vregs)?;
+    emit_verify_hostname(
+        symbol, STATE, SNAMEW, ALLOW, &fail, imports, platform, &mut ins, &mut rel, &mut vregs,
+    )?;
 
     // Store state ptr in the resource, return the resource.
     ins.extend([

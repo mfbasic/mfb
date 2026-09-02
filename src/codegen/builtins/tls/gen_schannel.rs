@@ -36,6 +36,19 @@ const SECPKG_CRED_OUTBOUND: &str = "2";
 const SCHANNEL_CRED_VERSION: &str = "4";
 // SCH_CRED_AUTO_CRED_VALIDATION (0x20) | SCH_USE_STRONG_CRYPTO (0x400000).
 const SCH_CRED_FLAGS: &str = "4194336";
+// bug-477 `allowSelfSigned`: SCH_CRED_MANUAL_CRED_VALIDATION (0x8) |
+// SCH_USE_STRONG_CRYPTO (0x400000). Swapping AUTO for MANUAL stops Schannel
+// rejecting an untrusted chain inside `InitializeSecurityContext`, which is the
+// only way the post-handshake check below ever gets to run. It does NOT relax
+// anything else: `emit_verify_hostname` still performs the whole
+// `CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)` evaluation, with
+// `pwszServerName` set, and still requires `dwError == 0`.
+pub(crate) const SCH_CRED_FLAGS_ALLOW_SELF_SIGNED: &str = "4194312";
+// CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG. Set in CERT_CHAIN_POLICY_PARA::dwFlags
+// so the SSL policy forgives an untrusted root and NOTHING else — deliberately
+// not the sibling `..._IGNORE_WRONG_USAGE`/`..._INVALID_NAME`/`..._INVALID_DATE`
+// flags, so `CERT_E_CN_NO_MATCH` and `CERT_E_EXPIRED` still surface in `dwError`.
+pub(crate) const CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG: &str = "256";
 // ISC_REQ_SEQUENCE_DETECT|REPLAY_DETECT|CONFIDENTIALITY|ALLOCATE_MEMORY|STREAM.
 const ISC_REQ_FLAGS: &str = "33052"; // 0x811C
 const SECBUFFER_EMPTY: &str = "0";

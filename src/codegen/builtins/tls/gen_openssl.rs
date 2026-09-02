@@ -12,6 +12,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::emit_data_address;
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
@@ -537,7 +538,60 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&tls_fail),
     ]);
-    // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
+    // bug-477: the mode stays SSL_VERIFY_PEER in BOTH forms — only the callback
+    // argument changes. NULL is today's behaviour (abort on the first chain
+    // error); with `allowSelfSigned` set it is `_mfb_tls_verify_cb`, which
+    // forgives the three trust-anchor codes and returns 1 so verification
+    // CONTINUES into the hostname and validity-date checks. Dropping to
+    // SSL_VERIFY_NONE instead — the shape the bug document originally proposed —
+    // was measured to make a name-mismatched self-signed certificate
+    // indistinguishable from a name-correct one (both report 18), which is why
+    // this is a callback and not a mode change.
+    instructions.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    {
+        let strict = format!("{symbol}_verify_strict");
+        instructions.extend([
+            abi::load_u64(&v10, abi::stack_pointer(), ALLOW),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_eq(&strict),
+        ]);
+        // Publish the two X509_STORE_CTX accessors the callback needs. It receives
+        // no user pointer, so they travel through a process-global slot pair
+        // rather than a capture; concurrent connects all store the same values.
+        for (name, slot) in [
+            ("X509_STORE_CTX_get_error", VFN_GET_ERROR),
+            ("X509_STORE_CTX_set_error", VFN_SET_ERROR),
+        ] {
+            emit_dlsym(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                HANDLE_OFFSET,
+                name,
+                FNPTR_OFFSET,
+                &load_fail,
+            )?;
+            emit_data_address(symbol, &v10, TLS_VERIFY_FNS, &mut instructions, &mut relocations);
+            instructions.extend([
+                abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+                abi::store_u64(&v9, &v10, slot),
+            ]);
+        }
+        emit_data_address(
+            symbol,
+            abi::c_arg(2),
+            TLS_VERIFY_CB,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::label(&strict));
+    }
+    // SSL_set_verify's own fnptr is re-resolved here because the loop above
+    // reused FNPTR_OFFSET for the two accessors.
     emit_dlsym(
         &mut EmitCtx {
             symbol,
@@ -554,7 +608,6 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", SSL_VERIFY_PEER),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
     ]);
