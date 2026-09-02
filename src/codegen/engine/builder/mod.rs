@@ -1886,6 +1886,18 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
+    // plan-118-C: the shared `String` concat. Same demand gate as the map
+    // helpers — an internal `bl` target, emitted iff a lowered function
+    // relocates against it.
+    let uses_string_concat = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == STRING_CONCAT_SYMBOL)
+    });
+    if uses_string_concat {
+        code_functions.push(lower_string_concat_helper());
+    }
     // The in-tree Float decimal formatter (float_format.rs): an internal `bl`
     // target emitted by `emit_float_to_string_value` call sites, so gate on the
     // relocations like the map-hash helpers.
@@ -2481,6 +2493,130 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
 /// equality is byte-wise over `keyLength` bytes — identical to the linear-scan
 /// comparison it replaces. Has a one-slot frame to preserve the link register
 /// across the build call.
+/// `_mfb_rt_string_concat(left, right) -> block | 0` — the shared two-operand
+/// `String` concatenation (plan-118-C).
+///
+/// `binop:Concat` was the single largest expansion category in the module:
+/// 2,907,604 builder-emitted instructions over 17,221 sites, 169 each, because
+/// every `a & b` inlined the length loads, the arena allocation, the header
+/// store, and TWO byte-at-a-time copy loops. All of that is here once; a call
+/// site becomes two argument moves, a `bl`, and a null check.
+///
+/// The copies are word-at-a-time where the alignment permits it. An arena block
+/// is 8-aligned and both payloads start at `+8`, so copying the LEFT operand
+/// keeps both cursors aligned for as long as 8 bytes remain. The RIGHT operand's
+/// destination is only aligned when the left length is a multiple of 8, so that
+/// case is tested at run time and falls back to bytes otherwise — rather than
+/// issuing an unaligned word access, which a riscv64 target may service by a
+/// kernel trap.
+///
+/// The allocation error stays at the call site: an `ErrOutOfMemory` carries the
+/// `ErrorLoc` of the concatenation that failed, and a shared helper has no line
+/// or column. So this returns a null pointer and the site raises.
+pub(crate) fn lower_string_concat_helper() -> CodeFunction {
+    let symbol = STRING_CONCAT_SYMBOL;
+    let fail = format!("{symbol}_fail");
+    let left_word = format!("{symbol}_left_word");
+    let left_byte = format!("{symbol}_left_byte");
+    let left_done = format!("{symbol}_left_done");
+    let right_word = format!("{symbol}_right_word");
+    let right_byte = format!("{symbol}_right_byte");
+    let right_done = format!("{symbol}_right_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        // Park both operands before the allocation call: `_mfb_arena_alloc`
+        // clobbers the argument registers (and on x86-64 rdx via its own
+        // arithmetic), exactly as `lower_map_probe_helper` documents.
+        abi::move_register("%v20", abi::c_arg(0)),
+        abi::move_register("%v21", abi::c_arg(1)),
+        abi::load_u64("%v22", "%v20", 0), // left byteLength
+        abi::load_u64("%v23", "%v21", 0), // right byteLength
+        abi::add_registers("%v24", "%v22", "%v23"),
+        // `mfb.string.v1` is `u64 byteLength; bytes; NUL`, so 8 + len + 1.
+        abi::add_immediate(abi::c_arg(0), "%v24", 9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(&fail),
+        abi::move_register("%v25", abi::mfb_return(1)), // new block
+        abi::store_u64("%v24", "%v25", 0),
+        abi::add_immediate("%v26", "%v25", 8), // write cursor
+        abi::add_immediate("%v27", "%v20", 8), // left payload
+        abi::add_immediate("%v28", "%v21", 8), // right payload
+        // --- left operand: aligned words, then the tail ---
+        abi::move_register("%v29", "%v22"),
+        abi::label(&left_word),
+        abi::compare_immediate("%v29", "8"),
+        abi::branch_lo(&left_byte),
+        abi::load_u64("%v30", "%v27", 0),
+        abi::store_u64("%v30", "%v26", 0),
+        abi::add_immediate("%v27", "%v27", 8),
+        abi::add_immediate("%v26", "%v26", 8),
+        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::branch(&left_word),
+        abi::label(&left_byte),
+        abi::compare_immediate("%v29", "0"),
+        abi::branch_eq(&left_done),
+        abi::load_u8("%v30", "%v27", 0),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::add_immediate("%v27", "%v27", 1),
+        abi::add_immediate("%v26", "%v26", 1),
+        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::branch(&left_byte),
+        abi::label(&left_done),
+        // --- right operand: words only if the write cursor is still aligned ---
+        abi::move_register("%v29", "%v23"),
+        abi::move_immediate("%v31", "Integer", "7"),
+        abi::and_registers("%v30", "%v22", "%v31"),
+        abi::compare_immediate("%v30", "0"),
+        abi::branch_ne(&right_byte),
+        abi::label(&right_word),
+        abi::compare_immediate("%v29", "8"),
+        abi::branch_lo(&right_byte),
+        abi::load_u64("%v30", "%v28", 0),
+        abi::store_u64("%v30", "%v26", 0),
+        abi::add_immediate("%v28", "%v28", 8),
+        abi::add_immediate("%v26", "%v26", 8),
+        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::branch(&right_word),
+        abi::label(&right_byte),
+        abi::compare_immediate("%v29", "0"),
+        abi::branch_eq(&right_done),
+        abi::load_u8("%v30", "%v28", 0),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::add_immediate("%v28", "%v28", 1),
+        abi::add_immediate("%v26", "%v26", 1),
+        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::branch(&right_byte),
+        abi::label(&right_done),
+        abi::move_immediate("%v30", "Integer", "0"),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::move_register(abi::mfb_return(0), "%v25"),
+        abi::return_(),
+        abi::label(&fail),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
+        abi::return_(),
+    ];
+    let relocations = vec![CodeRelocation {
+        from: symbol.to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    }];
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    CodeFunction {
+        name: "runtime.stringConcat".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "String".to_string(),
+        frame,
+        stack_slots,
+        instructions,
+        relocations,
+    }
+}
+
 pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let symbol = MAP_PROBE_SYMBOL;
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();

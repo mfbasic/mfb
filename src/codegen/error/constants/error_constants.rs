@@ -1004,6 +1004,11 @@ pub(crate) const MAP_BUCKET_SIZE: usize = 8;
 pub(crate) const MAP_BUILD_BUCKETS_SYMBOL: &str = "_mfb_rt_map_build_buckets";
 pub(crate) const MAP_BUCKET_PUT_SYMBOL: &str = "_mfb_rt_map_bucket_put";
 pub(crate) const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
+/// plan-118-C: the shared two-operand `String` concatenation. Takes the two
+/// operand block pointers, returns the new block pointer, or **0** when the
+/// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the
+/// call site's `ErrorLoc`, so it cannot move into the helper).
+pub(crate) const STRING_CONCAT_SYMBOL: &str = "_mfb_rt_string_concat";
 /// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
 pub(crate) const FNV1A_BASIS: &str = "14695981039346656037";
 pub(crate) const FNV1A_PRIME: &str = "1099511628211";

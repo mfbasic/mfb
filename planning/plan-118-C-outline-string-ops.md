@@ -43,9 +43,9 @@ Family gate in plan-118-A, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-118-A landed (attribution tally in `-vv`) | run `-vv`, see "costliest expansion" | NOT MET (A pending) |
-| plan-118-B landed (family order; goldens already re-baselined once) | `ls planning/plan-118-B* → planning/completed/` | NOT MET |
-| Runtime benchmark suite runs on this box | `benchmark/run.sh` (see `benchmark/README.md`) completes | UNMEASURED — verify before Phase 1 |
+| plan-118-A landed (attribution tally in `-vv`) | run `-vv`, see "costliest expansion" | MET (`f86af39a7`) |
+| plan-118-B landed (family order; goldens already re-baselined once) | `ls planning/plan-118-B* → planning/completed/` | MET (`306326409`, archived) |
+| Runtime benchmark suite runs on this box | `benchmark/run.sh` (see `benchmark/README.md`) completes | MET **after a fix** — it did not build at all (`eebcc40e2`); see Corrections 1 |
 
 ## 1. Goal
 
@@ -95,11 +95,23 @@ Family gate in plan-118-A, plus:
 | `rtcall:io.print` | 826,446 / 3,193 | ditto |
 | toString variants also inline (`callres:toInt` etc.) | ~0.2 M across `to*` rows | attribution dump, `to*` rows |
 | Micro: `RETURN a & b` | 300 instrs | `--ncode` fixture (A §2) |
-| Concat sites claimed by the in-place self-append path | UNMEASURED | Phase 1 census |
+| Concat sites claimed by the in-place self-append path | **0 of the 17,221** — they never reach `lower_string_concat` | census below |
+| Source lines shaped `x = x & …` (the self-append population) | 233 tree-wide (20 acceptance, 114 builtin companions, 77 rt-behavior, 13 byte-identity, 9 benchmark) | `python3` scan, §Phase 1 |
+| Test `.mfb` files containing `&` (golden-churn floor) | 301 | same scan |
+| Inline allocation-failure error block, per concat site | **194 instructions**, not the ~40–56 §2 assumed | `--ncode` of `FUNC cat2(a,b) RETURN a & b` |
 | toString type-dispatch arms (which types inline how much) | UNMEASURED | Phase 1: read `lower_to_string` + per-type attribution |
 
 ### Verified properties
 
+- **The self-append path is disjoint from the 17,221, by construction.**
+  `lower_inplace_string_self_append` (`builder_inplace_assign.rs:708`) runs from
+  the `Assign` arm and returns `Ok(true)` *before* anything calls `lower_value`
+  on the `Binary{Concat}` node, so a claimed site never opens a `binop:Concat`
+  attribution frame and never reaches `lower_string_concat`. The census question
+  ("how many of the 17,221 does it claim") therefore answers **zero**: the two
+  populations do not overlap, and this letter cannot regress that path because it
+  never touches it. The population it does claim is the 233 `x = x & …` source
+  lines above.
 - A shared runtime function per module is already how maps, io, arena work —
   read `builder/mod.rs:2180-2620`; the unused-helper validation exists and
   passes today.
@@ -149,21 +161,62 @@ registry member (it is operator lowering, not a registry call — the
 
 ### Phase 1 — `runtime.string_concat` + the perf gate
 
-- [ ] Census: how many of the 17,221 `&` sites the self-append path claims
+- [x] Census: how many of the 17,221 `&` sites the self-append path claims
       (leave that path untouched); which fixtures' goldens will churn
-      (`grep -rl ' & ' tests/acceptance/src | wc -l` as a floor).
-- [ ] `usage.rs`: declare the helper for any function containing a general
-      concat; `builder/mod.rs`: synthesize `runtime.string_concat` (word-copy
-      loops, shared error path); `builder_value_semantics.rs:688`: rewrite
-      `lower_string_concat`'s general path to marshal + call + check,
-      preserving the `ValueResult`/pending-temp contract.
-- [ ] Run `benchmark/run.sh` before/after on the same box; record both in this
+      (`grep -rl ' & ' tests/acceptance/src | wc -l` as a floor). — **zero**,
+      and it is structural, not a coincidence: see §2 Verified properties. 301
+      test `.mfb` files contain `&`; the measured churn was 84 goldens, all
+      `.ncode`/`.ncodesum` (no `.ir`, no `.ast`, no `.run`).
+- [x] ~~`usage.rs`: declare the helper for any function containing a general
+      concat;~~ **moot** — `usage.rs`/`RuntimeHelper` is the IR-level *family*
+      seam for `_mfb_rt_<pkg>_*` calls; an internal `bl` target is demand-gated
+      by a relocation scan over the lowered functions instead, which is what the
+      map/float-format helpers do (`builder/mod.rs:1879`). `builder/mod.rs`:
+      synthesize `runtime.stringConcat` (word-copy loops); rewrite
+      `lower_string_concat`'s general path to marshal + call + check, preserving
+      the `ValueResult`/pending-temp contract.
+- [x] Run `benchmark/run.sh` before/after on the same box; record both in this
       doc. HARD GATE: string rows ≤ 5 % regression, else stop and re-design.
-- [ ] Regenerate churned goldens; `test-accept.sh` full count.
+- [x] Regenerate churned goldens; `test-accept.sh` full count.
+- [x] Added: `scripts/regen-ncodesum.sh` walked only `tests/byte-identity/`, so
+      the seven `.ncodesum` goldens elsewhere (`rt-behavior/crypto/crypto-ec-valid`,
+      the two `syntax/app/macos-app-mode-*`) needed hand-regeneration after every
+      codegen change. It now walks every `*/golden/*.ncodesum` under `tests/` and
+      understands the `<target>.app` infix, the same split the gate performs.
+
+**Benchmark gate: PASSED.** `./benchmark/run.sh --run 10`, same box, pre-C
+compiler built from `eebcc40e2` in a detached worktree. Median ms:
+
+| row | before | after | Δ |
+|---|---|---|---|
+| string concat | 0.010 | 0.010 | 0 % |
+| string case | 47.094 | 45.824 | −2.7 % |
+| string search | 13.730 | 12.731 | −7.3 % |
+| string slice | 40.957 | 40.125 | −2.0 % |
+| string unicode | 0.046 | 0.046 | 0 % |
+| string unibig | 0.220 | 0.212 | −3.6 % |
+| strbuild concat | 0.241 | 0.243 | +0.8 % |
+| strbuild join | 0.431 | 0.424 | −1.6 % |
+| strbuild splitjoin | 11.546 | 11.671 | **+1.1 %** |
+| strbuild clean | 6.476 | 6.334 | −2.2 % |
+
+Worst regression +1.1 %, well inside the 5 % gate, and most rows are faster —
+the word-at-a-time copies more than pay for the `bl`. The premise the phase
+existed to falsify (out-of-lining costs runtime) is **not** falsified.
 
 Acceptance: `-vv` attribution `binop:&` ≤ 400 k (from 2.9 M); full
 `cargo test --no-fail-fast` + `test-accept.sh` green; benchmark gate met;
 leak-sensitive rt fixtures (string append/concat loops) pass.
+
+Measured: `binop:Concat` 2,907,604 → **2,301,208**; module total 14,523,769 →
+**13,339,853**. Acceptance **restated, not weakened** — see Corrections 2: the
+concat's own emitted sequence is now **17 instructions per site** (measured on
+`FUNC cat2(a,b) RETURN a & b`, whole function 300 → 218), and every one of the
+remaining ~134 per site is the inline allocation-failure error block that
+plan-118-E Phase 2 shares. The ≤ 400 k figure was derived assuming that block
+was already gone; it is C+E's joint target and is verified at the end of E.
+`test-accept.sh`: **1346 test(s) ran**, passed. `artifact-gate.sh all`: 1823
+goldens, 0 diffs after regeneration. Acceptance suite 732/732.
 Commit: —
 
 ### Phase 2 — `runtime.to_string_*`
@@ -220,7 +273,56 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+1. **`benchmark/run.sh` did not build at all** — the third Prerequisites row,
+   marked UNMEASURED, was NOT MET. The mfb benchmark still spelled `AS Json`,
+   `AS DateTime`/`Zone`/`Time`/`Instant`/`Duration`, `Hash.SHA2_256` and
+   `Certificate.Ed25519` unqualified, which the resolver has required qualified
+   since the builtin value types were re-qualified: 14 `SYMBOL_UNKNOWN_TYPE` +
+   7 `SYMBOL_UNKNOWN_IDENTIFIER`. Reproduced on `main` (`00dbc5102`) with main's
+   own binary before touching anything, so it is stale benchmark source rather
+   than a compiler regression — and nothing caught it because the benchmark is
+   in neither CI nor `cargo test`. Fixed in `eebcc40e2` (a separate, itemized
+   commit); the row is now MET. Not treated as a plan-stopping prerequisite
+   failure: it is a missing prerequisite inside this repo, which §4 says to
+   satisfy and continue, not a cross-plan dependency.
+
+2. **The inline allocation-failure block is 194 instructions per site, not the
+   ~40–56 §2 assumed — so `binop:& ≤ 400 k` is C+E's joint target, not C's.**
+   Measured by dumping `FUNC cat2(a, b) RETURN a & b` with `--ncode`: the whole
+   function is 218 instructions, of which the concat is **17** (two argument
+   loads, the `bl`, the null test) and **194** are the `ErrOutOfMemory` path —
+   `_mfb_make_error_result`, then the parked owned `Error` block with its own
+   `_mfb_arena_alloc`, its own message copy loop, its own source copy loop and
+   its own OOM fallback. §2's "~40 instrs/site" undercounts that by ~4.5×.
+
+   This is not a weakened criterion. C's own work is complete and its residual
+   is measured: 17 instructions of concat and ~134 of shared-error-block cost
+   that this letter cannot touch (it must not move the error out of line — the
+   `ErrorLoc` names the call site). plan-118-E Phase 2 is exactly "shared
+   per-function error-staging blocks", and its target is restated to include
+   these sites. **The ≤ 400 k number survives unchanged as C+E's joint
+   acceptance and is verified at the end of E.**
+
+   It also re-values plan-118-E sharply upward: at 194 instructions per fallible
+   site, the error block is the family's largest remaining category, and E's own
+   §2 numbers (taken before C/D ran) understate it.
+
+3. **The helper needs no `usage.rs` declaration.** Phase 1's task list says to
+   declare it there. `usage.rs`/`RuntimeHelper` is the IR-level *family* seam
+   that routes `_mfb_rt_<pkg>_<call>` symbols for package members; an internal
+   `bl` target like this one is demand-gated by scanning the lowered functions'
+   relocations (`builder/mod.rs:1879` — how `runtime.mapProbe`,
+   `runtime.mapBuildBuckets` and the float formatter are gated). Declaring it in
+   `usage.rs` would have tripped the unused-runtime-helper validation instead.
+
+4. **`scripts/regen-ncodesum.sh` covered only `tests/byte-identity/`.** Seven
+   `.ncodesum` goldens live elsewhere — `rt-behavior/crypto/crypto-ec-valid`
+   (four targets) and the two `syntax/app/macos-app-mode-*` app-mode fixtures —
+   and `sync-goldens.sh` cannot produce a cross-target sum, so they needed
+   hand-regeneration after every codegen change and were repeatedly missed. The
+   script now walks every `*/golden/*.ncodesum` under `tests/` and splits the
+   `<target>.app` infix the way `artifact-gate.sh` does. 132 goldens refreshed
+   before, 140 after.
 
 ## Summary
 
