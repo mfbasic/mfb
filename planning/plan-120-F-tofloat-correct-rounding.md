@@ -119,6 +119,7 @@ Family gate in plan-120-A, plus:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-120-A landed (codes propagate) | `grep -n "err.code" src/codegen/builtins/json/helper_to_number.rs` | **MET** — re-run 2026-09-02 on `worktree-P-120`: line 21 is `FAIL error(err.code, "JSON number " & value & " is not representable: " & err.message)`, i.e. the TRAP now re-raises `toFloat`'s own code instead of the generic 77050003. |
+| A way to compare two `Float`s bit-exactly from MFBASIC exists | `mfb man bits` / `mfb man encoding` — grep for a float→bits or float→bytes member | **NOT MET as written, SATISFIED by construction — see Correction F-C3.** There is no float-reinterpret anywhere in the language; the affordance is built out of exact decimal rendering plus exact power-of-two scaling instead. |
 
 ## 1. Goal
 
@@ -190,6 +191,19 @@ like the map helpers) implementing:
 3. **Eisel–Lemire**: 128-bit product against the static powers-of-ten table
    (rodata data object, ~[−342, 308] range × 16 bytes); accept when the
    rounding is unambiguous.
+
+   **Emission precedent located (plan-120-A execution):** `raw_data_object`
+   (`src/codegen/memory/data/data_objects.rs:924-940`) builds an arbitrary
+   rodata blob from `(symbol, layout, size, hex value, alignment)`, and the
+   Unicode runtime tables are the working consumers — e.g. the u32 flattened
+   casefold-sequence table at `:915-919`, emitted from
+   `unicode::runtime_tables::casefold_sequences_hex()` with 4-byte alignment.
+   The powers-of-ten table is the same shape with 16-byte entries. Note this
+   is a *different* mechanism from `money`'s `CORDIC_ATAN_TABLE`
+   (`gen_fixed_math.rs:1076`), which is a Rust `const [i64; N]` whose values
+   are baked into instructions at emission time — that works only for a
+   compile-time-known index, and Eisel–Lemire indexes by a runtime decimal
+   exponent, so it needs the rodata object rather than baked immediates.
 4. **Fallback**: exact big-decimal comparison using the limb loops to decide
    the boundary bit (rare inputs only).
 5. Overflow → the existing `ErrOverflow` route; underflow → correct
@@ -225,16 +239,104 @@ territory, deferred).
       The rejection the review saw came from `json::stringify`'s 25-place search
       (`helper_stringify_number.rs:49`), which plan-120-G replaces. Both values
       stay in this letter's corpus as correctness vectors.
-- [ ] Land the pinned vector corpus as a RED-capable test: a host-run rt
-      fixture asserting `toFloat` bit-exactness (via
-      `bits`-level comparison or stringify round-trip once G lands — use
-      float bit compare now) over ~100 vectors incl. the torture cases;
-      currently-failing vectors marked and counted (the RED baseline).
-- [ ] Census fixtures whose goldens will drift (grep float-printing fixtures
+- [x] Land the pinned vector corpus as a RED-capable test: a host-run rt
+      fixture asserting `toFloat` bit-exactness (~~via `bits`-level
+      comparison~~ — no such affordance exists, see Correction F-C3; via exact
+      decimal rendering plus exact 2^1000 scaling instead) over ~~~100~~ **27**
+      vectors incl. the torture cases; currently-failing vectors marked and
+      counted (the RED baseline).
+
+      **LANDED** as `tests/rt-behavior/conversions/tofloat-correct-rounding-corpus-rt`
+      with all four goldens (`build.log`, `.ast`, `.ir`, `.run`); scoped
+      `test-accept.sh` → `acceptance tests passed (1 test(s) ran)`. The
+      `build.log` golden pins the tally line `checked=27 wrong=5`, so Phase 2
+      turning it to `wrong=0` is the visible gate.
+
+      Count corrected from the plan's "~100" to **27**: the vectors are chosen
+      for distinct failure MODES (exact dyadic, repeating fraction, half-ULP
+      tie, 2^53 boundary, power-of-ten, normal/subnormal boundary, underflow
+      half-way, signed zero, 30-digit accumulation), not for volume. Padding to
+      100 would add rows that exercise nothing the 27 do not; Phase 2 can grow
+      it if a new failure mode turns up.
+
+      **Designed and its oracle generated** (the corpus table and expected
+      renderings are in References above, produced from the exact
+      `man × 2^e2` decomposition with ties-to-even, not from JS `toFixed` —
+      F-C3 records the two traps that makes necessary). **Remaining: write the
+      fixture files and its four goldens, and record the RED count.** Held
+      back from the plan-120-B commit only so the two letters stay separable;
+      it lands as F's own commit.
+
+      **RED baseline measured: `checked=27 wrong=5`.** The fixture is written
+      and runs (`tests/rt-behavior/conversions/tofloat-correct-rounding-corpus-rt`);
+      only its four goldens remain. The five failing vectors are far more
+      damning than the single `1e-7` the review reported:
+
+      | Vector | Want | Got | What it means |
+      |---|---|---|---|
+      | `1e-7` | `…099999999999999995474811` | `…100000000000000021944591` | the known I3 1-ULP defect |
+      | `123456789012345678901234567890` | `…677877719597056.00` | `…660285533552640.00` | **many** ULP out, not one — 30 significant digits accumulate error through 30 multiply steps |
+      | `2.2250738585072014e-308` (`DBL_MIN`) | `…5625000000…` | `…5626588186…` | the smallest normal is misparsed |
+      | `2.2250738585072011e-308` (largest subnormal) | `…5624470604…` | `…5626588186…` | misparsed — **and to the same value as `DBL_MIN` above**, so two distinct doubles collapse into one |
+      | `2.4703282292062328e-324` | `…529395592033937712` | `0.000…0` | just-over-half rounds to **zero** instead of up to the min subnormal |
+
+      Two of these are worse than the plan's "~1 ULP" framing. The
+      normal/subnormal boundary pair collapsing to a single value means the
+      parser cannot distinguish `DBL_MIN` from the largest subnormal at all,
+      and the underflow row loses a representable value entirely. Both are in
+      exactly the region Eisel–Lemire's fallback path exists to get right.
+
+      Fixture shape, settled: an `rt-behavior/conversions/` fixture whose
+      `main` calls two helpers — `check(text, places, expected)` for vectors
+      the formatter can reach directly, and `checkTiny(...)` which applies
+      `scale1000` (a `WHILE` doing 1000 exact `v = v * 2.0` doublings) before
+      rendering. Both print `OK`/`WRONG` per vector and `main` prints a
+      `checked=N wrong=M` tally, so the `.run` golden IS the RED baseline
+      count and Phase 2 turning it to `wrong=0` is the visible gate. Per the
+      "new rt fixture needs FOUR goldens" rule this needs `build.log`, `.ast`,
+      `.ir` and `.run`, none of which `sync-goldens.sh` will create — they
+      must be added by hand or the fixture silently reports `unexpected
+      actual` and only a FULL `test-accept.sh` notices.
+- [x] Census fixtures whose goldens will drift (grep float-printing fixtures
       using parsed floats).
+
+      Measured:
+      `grep -rl "toFloat(" tests/{rt-behavior,byte-identity,rt-error} | grep src/main.mfb`
+      → **16 fixtures**, classified in §2 above into 8 that pin an ERROR (no
+      value to drift), 7 behaviour fixtures that print or store a parsed Float
+      (the real candidates), and `byte-identity/general` whose `.ncode` drifts
+      structurally when the inline emitter becomes a `bl`.
+
+      That is the census this task asks for — a grep over call sites. The
+      *actual* drifted-golden list cannot be produced until the new parser
+      exists, since a fixture only drifts if its particular literals are among
+      the wrong-rounded set; that list is Phase 2's `inspect + regenerate every
+      drifted golden` step, and §3's direction rule (every drifted value must
+      move TOWARD the correctly-rounded one) is how each is judged.
 
 Acceptance: corpus test in-tree with the failing set enumerated; no
 compiler change yet (`artifact-gate` 0 diffs).
+
+**MET.** The corpus fixture is in-tree at
+`tests/rt-behavior/conversions/tofloat-correct-rounding-corpus-rt` with all four
+goldens, and a scoped `test-accept.sh` reports
+`acceptance tests passed (1 test(s) ran)`. The failing set is enumerated by the
+fixture's own output, pinned in its `build.log` golden, ending
+`checked=27 wrong=5`; the five vectors and what each proves are tabulated in the
+Phase 1 task above.
+
+No compiler change: this phase touched only `tests/` and `planning/`.
+`scripts/artifact-gate.sh all` → **1828 goldens checked, 0 diffs** (the run
+reports 1328 tests rather than the previous 1327 — that is this new fixture
+being picked up, and it passes).
+
+One mechanic worth recording for the next person adding an rt fixture: the four
+goldens are not independent. The first harness run produced a `build.log`
+containing ONLY the `-ast -ir` stage, because with no `.run` marker present the
+harness never executes the program. Creating the empty `.run` marker made it
+execute, which changed `build.log` — so the `build.log` captured before the
+marker existed was immediately stale and had to be re-captured. Create the `.run`
+marker FIRST, then capture `build.log`.
 Commit: —
 
 ### Phase 2 — the helper
@@ -337,6 +439,107 @@ call-site count suggests.
 Aside, for whoever curates the memory note "toFloat is ~1 ULP off even for exact
 dyadics": on this build exact dyadics are fine (`0.5`, `2.5` both `OK`). The
 wording overstates the defect; `1e-7` is the honest example.
+
+**F-C3 — "bit-exactness via `bits`-level comparison" has no affordance; build
+one.** Phase 1 says to assert bit-exactness "via `bits`-level comparison". There
+is no such thing: `mfb man bits` is integer-only (`band`/`bor`/`sl`/`sra`/…, no
+reinterpret), and `mfb man encoding` has no float→bytes member either. Nothing in
+the language turns a `Float` into its IEEE bit pattern. Per the skill's rule, a
+provability gap is a **missing prerequisite** — added to the table above — and
+the continuation is to build the affordance, not to weaken the assertion.
+
+The affordance, in two parts, needing no compiler change:
+
+1. **Exact decimal rendering.** `toString(v, toByte(p))` is documented exact
+   (`float_format.rs` header — it is the classical exact fixed-format
+   algorithm), so two doubles one ULP apart render differently at enough
+   places. This already worked as a discriminator in F-C1b's probe: `1e-7`
+   showed `…0000021944591` against the oracle's `…9999995474811` at 30 places.
+   The cap is 255 fraction digits (`float_format.rs:38-48`).
+
+2. **Exact power-of-two scaling, for the subnormal tail.** 255 places cannot
+   reach `5e-324` (which needs 1074). Multiplying a finite double by 2 is
+   EXACT in IEEE — it only increments the exponent — so repeated doubling
+   moves a subnormal into the normal range with its mantissa bit-for-bit
+   intact, and a 1-ULP difference survives the scaling unchanged. Scale by
+   2^1000 (≈1.07e301, comfortably in range; `5e-324 × 2^1000 ≈ 5.35e-23`)
+   and then render. Build the scale factor by repeated doubling in MFBASIC
+   rather than with `^`, so the fixture does not depend on `pow` returning an
+   exactly-representable power of two.
+
+Verified before committing to the approach (scaling the min subnormal and the
+value two ULP above it by 2^1000, then rendering):
+
+```
+5e-324 * 2^1000 = 0.0000000000000000000000529395592033937712
+1e-323 * 2^1000 = 0.0000000000000000000001058791184067875424
+distinguishable: true    finite: true
+```
+
+Together these give a total, exact discriminator over the whole corpus without
+adding language surface.
+
+**Two traps found while generating the expected strings — do not produce the
+oracle with JavaScript's `toFixed`:**
+
+1. **`Number.prototype.toFixed` is not fixed-point for `|x| ≥ 1e21`** — it falls
+   back to exponential, so it emitted `1e+21`, `1e+23`, `1.2345678901234568e+29`
+   and `1.7976931348623157e+308` where MFB's exact formatter prints every digit.
+   The large-magnitude vectors' expectations must come from an exact BigInt
+   expansion of the double (the same `man × 2^e2` decomposition the corpus-bits
+   table above was built from), not from `toFixed`.
+2. **`-0.0` renders differently on the two sides.** Node's `(-0).toFixed(4)` is
+   `"0.0000"`; MFB's formatter deliberately keeps the sign (`float_format.rs`
+   header: "`-0.0` renders with the sign"), so the expectation is `-0.0000`.
+   Take the sign from the bit pattern rather than from the rendered oracle.
+
+Neither is a defect in MFB — both are JS output quirks that would silently bake
+a wrong expectation into the fixture. Flagged here because the corpus is meant
+to be the permanent gate, and a wrong expectation in it is worse than no gate.
+
+**The corrected oracle**, generated from the exact `man × 2^e2` decomposition
+with round-half-to-even and MFB's sign convention (no `toFixed` anywhere). These
+are the strings the Phase 1 fixture asserts — `S` marks a vector scaled by
+2^1000 first:
+
+| Vector | places | | Expected `toString(toFloat(v), places)` |
+|---|---|---|---|
+| `1e-7` | 30 | | `0.000000099999999999999995474811` |
+| `0.1` | 30 | | `0.100000000000000005551115123126` |
+| `0.2` | 30 | | `0.200000000000000011102230246252` |
+| `0.3` | 30 | | `0.299999999999999988897769753748` |
+| `0.7` | 30 | | `0.699999999999999955591079014994` |
+| `0.5` | 20 | | `0.50000000000000000000` |
+| `2.5` | 20 | | `2.50000000000000000000` |
+| `1024` | 6 | | `1024.000000` |
+| `1.0000000000000002` | 20 | | `1.00000000000000022204` |
+| `1.000000000000000011102230246251565404236316680908203125` | 20 | | `1.00000000000000000000` (exact half-ULP → ties-to-even → 1) |
+| `3.141592653589793238462643383279` | 30 | | `3.141592653589793115997963468544` |
+| `9007199254740992` | 4 | | `9007199254740992.0000` |
+| `9007199254740993` | 4 | | `9007199254740992.0000` (2^53+1 is not representable) |
+| `1e21` | 4 | | `1000000000000000000000.0000` |
+| `1e23` | 4 | | `99999999999999991611392.0000` |
+| `123456789012345678901234567890` | 2 | | `123456789012345677877719597056.00` |
+| `1e-30` | 45 | | `0.000000000000000000000000000001000000000000000` |
+| `1e-21` | 36 | | `0.000000000000000000001000000000000000` |
+| `2.2250738585072014e-308` | 40 | S | `0.0000002384185791015625000000000000000000` |
+| `2.2250738585072011e-308` | 40 | S | `0.0000002384185791015624470604407966062288` |
+| `5e-324` | 40 | S | `0.0000000000000000000000529395592033937712` |
+| `2.4703282292062327e-324` | 40 | S | `0.0000000000000000000000000000000000000000` (rounds to 0) |
+| `2.4703282292062328e-324` | 40 | S | `0.0000000000000000000000529395592033937712` |
+| `1e-323` | 40 | S | `0.0000000000000000000001058791184067875424` |
+| `-1e-30` | 45 | | `-0.000000000000000000000000000001000000000000000` |
+| `-0.0` | 4 | | `-0.0000` (MFB keeps the sign) |
+| `0.0` | 4 | | `0.0000` |
+| `8.98846567431158e307` | 0 | | a 308-digit integer |
+| `1.7976931348623157e308` | 0 | | a 309-digit integer |
+
+Two of these are worth keeping for their own sake even after F lands: `1e23`
+shows the nearest double is `99999999999999991611392`, not `1e23`, and
+`9007199254740993` shows 2^53+1 collapsing onto 2^53 — both are exactly the
+kind of value a "looks right" spot check waves through. The corpus table above therefore records the correct
+BITS (for provenance and for whoever implements the Eisel–Lemire path) while the
+fixture asserts the corresponding exact decimal renderings.
 
 **F-C2 — the emitter read, confirming the header's algorithm claim and pinning
 where each verdict comes from** (`builder_conversions.rs:1519-1556`, read during

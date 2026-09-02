@@ -1,0 +1,154 @@
+{
+  "project": "tofloat_correct_rounding_corpus_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 27 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "checked", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 29 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "wrong", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 30 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "scale1000",
+      "line": 33,
+      "params": [
+      { "name": "value", "type": "Float", "default": null, "line": 33 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "v", "type": "Float", "value": { "kind": "identifier", "value": "value" }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 35 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1000" } },
+        "line": 36,
+        "body": [
+        { "kind": "assignment", "name": "v", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "2.0" } }, "line": 37 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 38 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "v" }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "check",
+      "line": 43,
+      "params": [
+      { "name": "text", "type": "String", "default": null, "line": 43 },
+      { "name": "places", "type": "Integer", "default": null, "line": 43 },
+      { "name": "expected", "type": "String", "default": null, "line": 43 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "assignment", "name": "checked", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "checked" }, "right": { "kind": "number", "value": "1" } }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "places" }] }] }, "line": 46 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "expected" } },
+        "line": 47,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "OK    " }, "right": { "kind": "identifier", "value": "text" } }] }, "line": 48 }
+        ],
+        "else": [
+        { "kind": "assignment", "name": "wrong", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "wrong" }, "right": { "kind": "number", "value": "1" } }, "line": 50 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "WRONG " }, "right": { "kind": "identifier", "value": "text" } }] }, "line": 51 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  want " }, "right": { "kind": "identifier", "value": "expected" } }] }, "line": 52 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  got  " }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 53 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "checkTiny",
+      "line": 58,
+      "params": [
+      { "name": "text", "type": "String", "default": null, "line": 58 },
+      { "name": "places", "type": "Integer", "default": null, "line": 58 },
+      { "name": "expected", "type": "String", "default": null, "line": 58 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "assignment", "name": "checked", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "checked" }, "right": { "kind": "number", "value": "1" } }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Float", "value": { "kind": "call", "callee": "scale1000", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "identifier", "value": "text" }] }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "places" }] }] }, "line": 61 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "expected" } },
+        "line": 62,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "OK    " }, "right": { "kind": "identifier", "value": "text" } }, "right": { "kind": "string", "value": " (scaled)" } }] }, "line": 63 }
+        ],
+        "else": [
+        { "kind": "assignment", "name": "wrong", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "wrong" }, "right": { "kind": "number", "value": "1" } }, "line": 65 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "WRONG " }, "right": { "kind": "identifier", "value": "text" } }, "right": { "kind": "string", "value": " (scaled)" } }] }, "line": 66 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  want " }, "right": { "kind": "identifier", "value": "expected" } }] }, "line": 67 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  got  " }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 68 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 72,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1e-7" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "0.000000099999999999999995474811" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.1" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "0.100000000000000005551115123126" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.2" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "0.200000000000000011102230246252" }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.3" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "0.299999999999999988897769753748" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.7" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "0.699999999999999955591079014994" }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.5" }, { "kind": "number", "value": "20" }, { "kind": "string", "value": "0.50000000000000000000" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "2.5" }, { "kind": "number", "value": "20" }, { "kind": "string", "value": "2.50000000000000000000" }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1024" }, { "kind": "number", "value": "6" }, { "kind": "string", "value": "1024.000000" }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1.0000000000000002" }, { "kind": "number", "value": "20" }, { "kind": "string", "value": "1.00000000000000022204" }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1.000000000000000011102230246251565404236316680908203125" }, { "kind": "number", "value": "20" }, { "kind": "string", "value": "1.00000000000000000000" }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "9007199254740992" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "9007199254740992.0000" }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "9007199254740993" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "9007199254740992.0000" }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1e21" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "1000000000000000000000.0000" }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1e23" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "99999999999999991611392.0000" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "123456789012345678901234567890" }, { "kind": "number", "value": "2" }, { "kind": "string", "value": "123456789012345677877719597056.00" }] }, "line": 96 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "3.141592653589793238462643383279" }, { "kind": "number", "value": "30" }, { "kind": "string", "value": "3.141592653589793115997963468544" }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1e-21" }, { "kind": "number", "value": "36" }, { "kind": "string", "value": "0.000000000000000000001000000000000000" }] }, "line": 102 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "1e-30" }, { "kind": "number", "value": "45" }, { "kind": "string", "value": "0.000000000000000000000000000001000000000000000" }] }, "line": 103 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-1e-30" }, { "kind": "number", "value": "45" }, { "kind": "string", "value": "-0.000000000000000000000000000001000000000000000" }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "-0.0" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "-0.0000" }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "0.0" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "0.0000" }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "2.2250738585072014e-308" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000002384185791015625000000000000000000" }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "2.2250738585072011e-308" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000002384185791015624470604407966062288" }] }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "5e-324" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000000000000000000000529395592033937712" }] }, "line": 113 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "2.4703282292062327e-324" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000000000000000000000000000000000000000" }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "2.4703282292062328e-324" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000000000000000000000529395592033937712" }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "checkTiny", "arguments": [{ "kind": "string", "value": "1e-323" }, { "kind": "number", "value": "40" }, { "kind": "string", "value": "0.0000000000000000000001058791184067875424" }] }, "line": 116 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "checked=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "checked" }] } }, "right": { "kind": "string", "value": " wrong=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "wrong" }] } }] }, "line": 118 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 119 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 120,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unexpected trap: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }] }, "line": 121 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 122 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

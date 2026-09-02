@@ -1,0 +1,124 @@
+' plan-120-F Phase 1: the pinned correctly-rounded `toFloat` corpus.
+'
+' RED baseline. `toFloat(String)` applies a decimal exponent by repeated
+' multiply/divide by 10.0 in binary64 (`emit_parse_decimal_string_to_double`,
+' builder_conversions.rs:1519-1556), which double-rounds: each of the |exp10|
+' steps rounds, so some inputs land one ULP away from the correctly-rounded
+' double. This fixture pins the correct answer for a torture corpus so the
+' Eisel-Lemire replacement in Phase 2 has something to turn green.
+'
+' HOW THE COMPARISON WORKS. MFBASIC has no float-to-bits reinterpret (`bits` is
+' integer-only, `encoding` has no float member), so bit-exactness is asserted
+' through the EXACT formatter instead: `toString(v, places)` is the classical
+' exact fixed-format algorithm, so two doubles one ULP apart render differently
+' at enough places. That covers everything down to about 1e-250.
+'
+' Below that, 255 fraction digits (the formatter's cap) cannot reach the first
+' significant digit -- the min subnormal needs 1074. So a subnormal vector is
+' first scaled by 2^1000. Multiplying a finite double by two is EXACT in IEEE
+' (it only increments the exponent), so scaling moves the value into the normal
+' range with its mantissa bit-for-bit intact and a one-ULP difference survives.
+'
+' Expected strings are the exact decimal expansion of the correctly-rounded
+' double, computed from its `man * 2^e2` decomposition with round-half-to-even.
+' They are NOT JavaScript `toFixed` output: `toFixed` goes exponential above
+' 1e21, and it drops the sign of -0.0, both of which would bake a wrong
+' expectation into what is meant to be a permanent gate.
+IMPORT io
+
+MUT checked AS Integer = 0
+MUT wrong AS Integer = 0
+
+' Multiply by 2^1000, one exact doubling at a time.
+FUNC scale1000(value AS Float) AS Float
+  MUT v AS Float = value
+  MUT i AS Integer = 0
+  WHILE i < 1000
+    v = v * 2.0
+    i = i + 1
+  END WHILE
+  RETURN v
+END FUNC
+
+SUB check(text AS String, places AS Integer, expected AS String)
+  checked = checked + 1
+  LET v AS Float = toFloat(text)
+  LET got AS String = toString(v, toByte(places))
+  IF got = expected THEN
+    io::print("OK    " & text)
+  ELSE
+    wrong = wrong + 1
+    io::print("WRONG " & text)
+    io::print("  want " & expected)
+    io::print("  got  " & got)
+  END IF
+END SUB
+
+' A vector too small to render directly: scale by 2^1000 first.
+SUB checkTiny(text AS String, places AS Integer, expected AS String)
+  checked = checked + 1
+  LET v AS Float = scale1000(toFloat(text))
+  LET got AS String = toString(v, toByte(places))
+  IF got = expected THEN
+    io::print("OK    " & text & " (scaled)")
+  ELSE
+    wrong = wrong + 1
+    io::print("WRONG " & text & " (scaled)")
+    io::print("  want " & expected)
+    io::print("  got  " & got)
+  END IF
+END SUB
+
+FUNC main AS Integer
+  ' --- the review's I3 vector, and its neighbours -------------------------
+  check("1e-7", 30, "0.000000099999999999999995474811")
+  check("0.1", 30, "0.100000000000000005551115123126")
+  check("0.2", 30, "0.200000000000000011102230246252")
+  check("0.3", 30, "0.299999999999999988897769753748")
+  check("0.7", 30, "0.699999999999999955591079014994")
+
+  ' --- exact dyadics: these must be exact, not merely close ---------------
+  check("0.5", 20, "0.50000000000000000000")
+  check("2.5", 20, "2.50000000000000000000")
+  check("1024", 6, "1024.000000")
+
+  ' --- half-ULP boundaries, where ties-to-even decides --------------------
+  check("1.0000000000000002", 20, "1.00000000000000022204")
+  check("1.000000000000000011102230246251565404236316680908203125", 20, "1.00000000000000000000")
+
+  ' --- 2^53 and 2^53+1: the second is not representable -------------------
+  check("9007199254740992", 4, "9007199254740992.0000")
+  check("9007199254740993", 4, "9007199254740992.0000")
+
+  ' --- powers of ten whose nearest double is NOT the round number ---------
+  check("1e21", 4, "1000000000000000000000.0000")
+  check("1e23", 4, "99999999999999991611392.0000")
+  check("123456789012345678901234567890", 2, "123456789012345677877719597056.00")
+
+  ' --- pi to more digits than binary64 holds ------------------------------
+  check("3.141592653589793238462643383279", 30, "3.141592653589793115997963468544")
+
+  ' --- small magnitudes still inside the formatter's reach ----------------
+  check("1e-21", 36, "0.000000000000000000001000000000000000")
+  check("1e-30", 45, "0.000000000000000000000000000001000000000000000")
+  check("-1e-30", 45, "-0.000000000000000000000000000001000000000000000")
+
+  ' --- signed zero: MFB keeps the sign ------------------------------------
+  check("-0.0", 4, "-0.0000")
+  check("0.0", 4, "0.0000")
+
+  ' --- the subnormal tail, via exact 2^1000 scaling -----------------------
+  checkTiny("2.2250738585072014e-308", 40, "0.0000002384185791015625000000000000000000")
+  checkTiny("2.2250738585072011e-308", 40, "0.0000002384185791015624470604407966062288")
+  checkTiny("5e-324", 40, "0.0000000000000000000000529395592033937712")
+  checkTiny("2.4703282292062327e-324", 40, "0.0000000000000000000000000000000000000000")
+  checkTiny("2.4703282292062328e-324", 40, "0.0000000000000000000000529395592033937712")
+  checkTiny("1e-323", 40, "0.0000000000000000000001058791184067875424")
+
+  io::print("checked=" & toString(checked) & " wrong=" & toString(wrong))
+  RETURN 0
+TRAP(e)
+  io::print("unexpected trap: " & toString(e.code) & " " & e.message)
+  RETURN 1
+END TRAP
+END FUNC

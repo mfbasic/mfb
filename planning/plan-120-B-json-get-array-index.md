@@ -1,6 +1,6 @@
 # plan-120-B: json::get / json::getOr — array-index path steps
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 Effort: medium (1h–2h)
 Depends on: plan-120-A (family order only; no design dependency)
 
@@ -136,12 +136,17 @@ variant: JsonNum 20      <- MATCHed, so it is the JsonNum the goal names,
   and the two `JsonArr` arms. Regenerated with `sync-goldens.sh` (22 files
   across 8 tests) and `regen-ncodesum.sh` (141 refreshed, only the 5 json sums
   changed).
-- `scripts/artifact-gate.sh all` after regeneration → **1327 tests, 1490
-  builds, 1828 goldens checked, 0 diffs.**
+- `scripts/artifact-gate.sh all` after regeneration → **1828 goldens checked,
+  0 diffs** (1328 tests, 1491 builds — one more than letter A's run, which is
+  plan-120-F's new corpus fixture being picked up; it passes).
+- `cargo test --no-fail-fast` → **exit 0, 95 binaries, 0 failures** (3728 unit
+  tests). `golden.rs` inside that run re-verified every regenerated golden:
+  all seven affected fixtures PASSED, with 0 `mismatch:` and 0
+  `unexpected actual` across 809 fixtures.
 - `cargo fmt` both roots: one cosmetic rewrap of `func_get.rs`'s `INTRO`
   assignment (the widened intro line pushed past the width). The string VALUE
   is unchanged, so no golden is affected.
-Commit: —
+Commit: 0d393b0b6
 
 ## Validation Plan
 
