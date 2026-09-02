@@ -26,15 +26,23 @@ const INTRO: &str =
     r#"Run a command line through the platform shell, returning a handle to the child."#;
 const DESC: &str = r#"`process::shell` runs `cmd` as a shell command line and returns a `Process`
 handle to the resulting child. Unlike `process::spawn`, which execs a program
-directly, `shell` hands the string to the platform shell — `/bin/sh -c` on Unix —
-so shell features work: pipelines (`|`), redirection (`>`, `<`), globbing (`*`),
-command sequencing (`;`, `&&`), quoting, and environment-variable expansion are all
-interpreted by the shell.
+directly, `shell` hands the string to the platform shell, so shell features work:
+pipelines (`|`), redirection (`>`, `<`), globbing, command sequencing, quoting,
+and environment-variable expansion are all interpreted by the shell.
 
-**`process::shell` is Unix-only.** A program that calls it does not build for
-Windows: the compiler rejects it with `native backend does not support runtime
-call 'process.shell'`. Use `process::spawn` for anything that has to run on
-Windows too.
+Which shell depends on the platform: `/bin/sh -c` on Unix, `cmd.exe /S /C` on
+Windows. The string is handed over unchanged — `shell` does not translate between
+dialects, so a command line has to be written for the shell that will read it.
+`echo hi | sort` works on both; `ls -l` and `dir` do not. When a program must run
+on both and the command is simple, `process::spawn` avoids the question entirely.
+
+On Windows a line is wrapped in quotes before `cmd` sees it and `/S` makes `cmd`
+strip exactly that wrap, so a command line containing quotes — or starting with
+one — reaches the shell intact.
+
+`process::receive` returns each line as the child wrote it. Windows programs end
+their lines `\r\n`, so a line read from a Windows child keeps its trailing `\r`;
+trim it if the value is compared or printed inline.
 
 
 Because the string is parsed by a shell, values interpolated into `cmd` are subject
@@ -47,14 +55,15 @@ The child is wired to three pipes for its standard streams exactly as with
 `process::spawn`, and the returned handle behaves the same way: it closes itself
 when its binding goes out of scope, force-killing and reaping a still-running child unless
 it is first awaited with `process::waitFor` or ended with `process::detach`."#;
-const EX: &str = r#"Run a pipeline and read the result:
+const EX: &str = r#"Run a pipeline and read the result. `echo` and `sort` are spelled the
+same way in both shells, so this line runs unchanged on Unix and on Windows:
 
 ```
 IMPORT process
 IMPORT io
 
 FUNC main AS Integer
-  RES sh = process::shell("echo hello | tr a-z A-Z")
+  RES sh = process::shell("echo hello | sort")
   io::print(process::receive(sh))
   RETURN 0
 END FUNC
@@ -67,7 +76,7 @@ IMPORT process
 IMPORT io
 
 FUNC main AS Integer
-  RES sh = process::shell("true")
+  RES sh = process::shell("exit 0")
   io::print(toString(process::waitFor(sh)))
   RETURN 0
 END FUNC

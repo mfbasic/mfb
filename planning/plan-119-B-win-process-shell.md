@@ -147,17 +147,28 @@ Commit: —
 
 ### Phase 2 — docs
 
-- [ ] `func_shell.rs` DESC/EX: delete the Unix-only paragraph; state the
+- [x] `func_shell.rs` DESC/EX: delete the Unix-only paragraph; state the
       per-platform shell (`/bin/sh -c` on Unix, `cmd.exe /S /C` on Windows),
       the dialect caveat, and the CRLF note for `receive` on Windows
       children; keep the injection warning. Verify with `mfb man process
       shell` + `scripts/man-census.sh --memory-scope` +
       `scripts/man-run-examples.sh process` (examples must stay
-      Unix-runnable on the host or be dialect-neutral like `sort`).
-- [ ] `mod.rs` MODULE_DESC: extend "(`/bin/sh -c` on Unix)" with the Windows
+      Unix-runnable on the host or be dialect-neutral like `sort`). Both
+      examples were made dialect-neutral rather than merely host-runnable
+      (`tr a-z A-Z` → `sort`, `true` → `exit 0`), so the page's own claim that
+      the two shells agree on simple lines is demonstrated by its examples.
+      `man-census.sh --memory-scope` unchanged at 8 unclassified hits (all
+      pre-existing, all `canvas`); `man-run-examples.sh process --run` 18/18.
+- [x] `mod.rs` MODULE_DESC: extend "(`/bin/sh -c` on Unix)" with the Windows
       shell.
-- [ ] `planning/todo.md`: drop/adjust the "Two undocumented Windows limits"
-      note's shell half (coordinate with the uncommitted main-checkout edit).
+- [x] ~~`planning/todo.md`: drop/adjust the "Two undocumented Windows limits"
+      note's shell half (coordinate with the uncommitted main-checkout
+      edit).~~ — moot: the note is not on this branch and never was.
+      `git show main:planning/todo.md | grep -c -i "undocumented Windows
+      limits"` → 0. It exists **only** as an uncommitted edit in the shared
+      main checkout (`planning/todo.md` is `M` there), i.e. a peer session's
+      in-progress work, which this plan must not touch. Recorded in
+      Corrections and surfaced in the final report instead.
 
 Acceptance: rendered pages show the new wording; man gates green; full suite
 re-run green.
@@ -205,6 +216,16 @@ Commit: —
   is the *stronger* evidence — it shows the inner quotes survived the outer
   `/S /C "…"` wrap intact — so the expectation was corrected to match cmd's real
   behavior and the comment explains why that is the assertion worth making.
+- **The `planning/todo.md` task had no target on this branch.** Both this letter
+  and letter C were to edit a "Two undocumented Windows limits" note. That note
+  is absent from committed `main` (`git show main:planning/todo.md | grep -c -i
+  "undocumented Windows limits"` → 0) and present only in the shared main
+  checkout's *uncommitted* `planning/todo.md` — a peer session's work in
+  progress. Editing it from this plan would entangle someone else's uncommitted
+  changes, so both tasks are marked moot with that evidence and the staleness is
+  reported at the end for whoever owns that edit. Its claim ("`process::shell`
+  and the four-argument `process::spawn` are Unix-only and fail the Windows
+  build at compile time") is false in both halves once plan-119 lands.
 
 ## Summary
 
