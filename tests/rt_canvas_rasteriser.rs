@@ -931,3 +931,208 @@ fn measure_the_transformed_distance_correction() {
         "the gradient form must never be worse than sqrt(|det M|)"
     );
 }
+
+/// A 90°-rotated rectangle lands where the matrix says, not where its bounds were.
+///
+/// A rotation is the case that proves the bounds are transformed too: the item's
+/// generator computes a shape-space box, and a renderer that clipped to *that* would
+/// keep only the overlap of the rotated shape with its own unrotated box — which for a
+/// 90° rotation of a wide, short rectangle is a small square in the middle.
+///
+/// 90° exactly, so every assertion is a whole pixel and none of them is a judgement
+/// call about an antialiased edge. `Transform` is `[a, b, c, d, tx, ty]` applied as
+/// `x' = a*x + c*y + tx`, so a 90° rotation about the origin is `a=0, b=1, c=-1, d=0`,
+/// and `tx`/`ty` put it back on screen.
+#[test]
+fn a_rotated_rectangle_lands_where_the_matrix_says() {
+    let (frame, _) = render(
+        "canvas_xform_rot",
+        &scene(
+            "  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 100.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 0, 0)) { transform := t }\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 40.0, paint := p]\n  \
+             canvas::present([bar])\n",
+        ),
+    );
+
+    // The shape-space rectangle is x 0..200, y 0..40. After the rotation and the
+    // translation it occupies surface x 360..400, y 100..300.
+    assert_eq!(
+        pixel(&frame, 380, 200),
+        (255, 0, 0, 255),
+        "the middle of the ROTATED bar"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 110),
+        (255, 0, 0, 255),
+        "near the rotated bar's top — 200 px from the pivot, so only a transformed \
+         BOUNDS reaches here"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 290),
+        (255, 0, 0, 255),
+        "near the rotated bar's bottom"
+    );
+    // Where the UNROTATED rectangle would have been.
+    assert_eq!(
+        pixel(&frame, 100, 20),
+        (0, 0, 0, 255),
+        "the untransformed position must be empty — the transform moved the item, it \
+         did not draw it twice"
+    );
+    assert_eq!(
+        pixel(&frame, 420, 200),
+        (0, 0, 0, 255),
+        "just outside the rotated bar"
+    );
+}
+
+/// A 2× uniform scale doubles the radius **and** the stroke.
+///
+/// §4.3's decision, asserted rather than assumed: the stroke scales with the shape,
+/// because the band is `|d| - half` evaluated in shape space and scaling `d` scales the
+/// band. A renderer that corrected the stroke separately would keep it 10 px wide here.
+#[test]
+fn a_uniform_scale_scales_the_shape_and_its_stroke() {
+    let (frame, _) = render(
+        "canvas_xform_scale",
+        &scene(
+            "  LET t AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 2.0, tx := 0.0, ty := 0.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::stroke(canvas::rgb(0, 255, 0), 10.0) { transform := t }\n  \
+             LET ring AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 150.0, radius := 50.0, paint := p]\n  \
+             canvas::present([ring])\n",
+        ),
+    );
+
+    // Centre (150,150) and radius 50 scale to centre (300,300) and radius 100; the
+    // 10 px stroke becomes 20 px, so the band spans radius 90..110.
+    let lit = |x: usize, y: usize| pixel(&frame, x, y).1 > 0;
+    assert!(
+        lit(400, 300),
+        "the scaled ring's rightmost band, radius 100"
+    );
+    assert!(lit(395, 300), "inside the scaled band (radius 95)");
+    assert!(lit(405, 300), "outside-ish, still in the band (radius 105)");
+    assert!(
+        !lit(300, 300),
+        "the centre must be hollow — a stroke-only paint fills nothing"
+    );
+    assert!(
+        lit(200, 300),
+        "radius 100 on the OTHER side of the scaled centre — the ring is a ring, so \
+         both sides are lit"
+    );
+    assert!(
+        !lit(440, 300),
+        "radius 140: outside the scaled band's outer edge at 110"
+    );
+    assert!(
+        !lit(250, 300),
+        "radius 50 — where the UNSCALED ring would have been"
+    );
+}
+
+/// An all-zero `Transform` is byte-identical to naming no transform at all.
+///
+/// The compatibility case, and the reason `__canvas_invertTransform` maps all-zero to
+/// the identity in one place rather than each renderer deciding: every `Paint` built
+/// before this letter carries exactly this value, so one wrong pixel here is every
+/// existing scene changing. Whole-frame equality, including the antialiased edge.
+#[test]
+fn an_all_zero_transform_is_identical_to_no_transform() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 90.0, paint := {paint}]\n  \
+             canvas::present([dot])\n"
+        ))
+    };
+    let (unset, _) = render(
+        "canvas_xform_unset",
+        &body("canvas::fill(canvas::rgb(255, 200, 0))"),
+    );
+    let (zero, _) = render(
+        "canvas_xform_zero",
+        &body(
+            "WITH canvas::fill(canvas::rgb(255, 200, 0)) { transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0] }",
+        ),
+    );
+    assert_eq!(
+        unset, zero,
+        "the all-zero Transform is the documented identity spelling; it must render \
+         byte-identically to naming no transform"
+    );
+}
+
+/// A singular transform renders untransformed rather than invisible.
+///
+/// §4.4's choice, and it is about debuggability rather than mathematics: an item that
+/// vanishes is indistinguishable from one that was never presented, whereas an
+/// obviously untransformed item is a visible bug. It also keeps an infinity out of the
+/// distance field, which would poison the whole frame rather than one item.
+///
+/// `[1, 2, 2, 4]` has determinant zero — it collapses the plane onto a line.
+#[test]
+fn a_singular_transform_renders_untransformed() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 120.0, h := 80.0, paint := {paint}]\n  \
+             canvas::present([box])\n"
+        ))
+    };
+    let (plain, _) = render(
+        "canvas_xform_plain",
+        &body("canvas::fill(canvas::rgb(0, 200, 255))"),
+    );
+    let (singular, _) = render(
+        "canvas_xform_singular",
+        &body(
+            "WITH canvas::fill(canvas::rgb(0, 200, 255)) { transform := canvas::Transform[a := 1.0, b := 2.0, c := 2.0, d := 4.0, tx := 0.0, ty := 0.0] }",
+        ),
+    );
+    assert_eq!(
+        singular, plain,
+        "a determinant-zero transform must fall back to the identity, not collapse the \
+         item to a line or draw nothing"
+    );
+}
+
+/// A rotated shape is not clipped to its untransformed bounds.
+///
+/// The sharpest bounds case: a 45° rotation makes a square's diagonal its widest
+/// extent, so the transformed hull is ~1.41× the original box in both axes. A renderer
+/// that kept the shape-space bounds would slice all four corners off.
+#[test]
+fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
+    // cos 45 = sin 45 = 0.7071067811865476
+    let (frame, _) = render(
+        "canvas_xform_hull",
+        &scene(
+            "  LET k AS Float = 0.7071067811865476\n  \
+             LET t AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 300.0, ty := 300.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }\n  \
+             LET sq AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 100.0, y := 0.0 - 100.0, w := 200.0, h := 200.0, paint := p]\n  \
+             canvas::present([sq])\n",
+        ),
+    );
+
+    // The square is 200x200 about the origin; rotated 45° its corners reach
+    // ±141 along each axis from (300,300), while its untransformed box reached ±100.
+    assert_eq!(
+        pixel(&frame, 300, 170),
+        (255, 255, 255, 255),
+        "130 px above the centre — inside the rotated diamond, but OUTSIDE the \
+         untransformed box's half-height of 100. This is the pixel a stale bounds \
+         rectangle would have cut."
+    );
+    assert_eq!(
+        pixel(&frame, 430, 300),
+        (255, 255, 255, 255),
+        "130 px right of the centre, same argument"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 380),
+        (0, 0, 0, 255),
+        "the diamond's flank: inside the untransformed box's corner, outside the \
+         rotated shape — so the bounds were widened, not the shape"
+    );
+}

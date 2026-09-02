@@ -223,8 +223,48 @@ FUNC __canvas_strokeAsFill(h AS List OF Float) AS List OF Float
   RETURN out
 END FUNC
 
+' The bounds are computed in SHAPE space by every generator. Under a transform the item
+' covers the FORWARD-mapped rectangle, so the header has to carry that rectangle's
+' axis-aligned hull instead -- a rotated square whose bounds were left untransformed
+' would be clipped to its own unrotated box, losing its corners.
+'
+' The forward matrix is recovered by inverting the stored inverse rather than carried in
+' six more slots. Two reasons that is safe: a bounding box only has to be CONSERVATIVE,
+' so the float32 round-trip's last-bit error cannot matter, and the result is padded by
+' a pixel anyway. Extra pixels cost a coverage evaluation that returns 0; missing ones
+' cut the shape.
 FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, maxX AS Float, maxY AS Float) AS List OF Float
   MUT out AS List OF Float = h
+  IF collections::getOr(h, 33, 0.0) > 0.5 THEN
+    LET ia AS Float = __canvas_f32FromBits(collections::getOr(h, 27, 0.0))
+    LET ib AS Float = __canvas_f32FromBits(collections::getOr(h, 28, 0.0))
+    LET ic AS Float = __canvas_f32FromBits(collections::getOr(h, 29, 0.0))
+    LET id AS Float = __canvas_f32FromBits(collections::getOr(h, 30, 0.0))
+    LET itx AS Float = __canvas_f32FromBits(collections::getOr(h, 31, 0.0))
+    LET ity AS Float = __canvas_f32FromBits(collections::getOr(h, 32, 0.0))
+    LET fwd AS List OF Float = __canvas_forwardOf(ia, ib, ic, id, itx, ity)
+    LET fa AS Float = collections::getOr(fwd, 0, 1.0)
+    LET fb AS Float = collections::getOr(fwd, 1, 0.0)
+    LET fc AS Float = collections::getOr(fwd, 2, 0.0)
+    LET fd AS Float = collections::getOr(fwd, 3, 1.0)
+    LET ftx AS Float = collections::getOr(fwd, 4, 0.0)
+    LET fty AS Float = collections::getOr(fwd, 5, 0.0)
+    IF TRUE THEN
+      LET x0 AS Float = fa * minX + fc * minY + ftx
+      LET y0 AS Float = fb * minX + fd * minY + fty
+      LET x1 AS Float = fa * maxX + fc * minY + ftx
+      LET y1 AS Float = fb * maxX + fd * minY + fty
+      LET x2 AS Float = fa * minX + fc * maxY + ftx
+      LET y2 AS Float = fb * minX + fd * maxY + fty
+      LET x3 AS Float = fa * maxX + fc * maxY + ftx
+      LET y3 AS Float = fb * maxX + fd * maxY + fty
+      out = collections::set(out, 16, __canvas_minF(__canvas_minF(x0, x1), __canvas_minF(x2, x3)) - 1.0)
+      out = collections::set(out, 17, __canvas_minF(__canvas_minF(y0, y1), __canvas_minF(y2, y3)) - 1.0)
+      out = collections::set(out, 18, __canvas_maxF(__canvas_maxF(x0, x1), __canvas_maxF(x2, x3)) + 1.0)
+      out = collections::set(out, 19, __canvas_maxF(__canvas_maxF(y0, y1), __canvas_maxF(y2, y3)) + 1.0)
+      RETURN out
+    END IF
+  END IF
   out = collections::set(out, 16, minX)
   out = collections::set(out, 17, minY)
   out = collections::set(out, 18, maxX)

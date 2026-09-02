@@ -420,26 +420,52 @@ Commit: —
 
 ### Phase 3 — The software renderer transforms
 
-- [ ] `__canvas_drawGeometry`: when `hasTransform`, map `(px, py)` through the
+- [x] `__canvas_drawGeometry`: when `hasTransform`, map `(px, py)` through the
       inverse before `__canvas_geoDistance` and divide the result by `‖∇d‖`, taken by
       central differences of the composed field (§4.2 as re-derived in Phase 1 — **not**
       by a precomputed `sqrt(|det M|)`, which measured 37/255 wrong). Gate on the flag
       so the identity path adds one compare per item, not per pixel, and pays for
       neither the mapping nor the two extra distance evaluations.
-- [ ] Transform the bounds: `__canvas_boundsHeader` takes the four transformed
+      Five distance evaluations for a transformed item, not three: the central
+      difference needs `d(p±εx)` and `d(p±εy)` as well as `d(p)`. ε is 0.5, so the
+      `/2ε` divisor is exactly 1 and the gradient is a plain difference — the same ε
+      Phase 1's harness measured with, and the shaders must use it too because it is
+      part of the specified result rather than a tuning knob.
+- [x] Transform the bounds: `__canvas_boundsHeader` takes the four transformed
       corners' axis-aligned hull when a transform is present.
-- [ ] `__canvas_drawGeometry`'s `__CANVAS_GEO_TEXT` arm: when `hasTransform`, map
+      The forward matrix is recovered from the stored inverse by `__canvas_forwardOf`
+      rather than carried in six more slots, and the hull is padded by a pixel. Both are
+      safe because a bounding box only has to be **conservative**: extra pixels cost a
+      coverage evaluation that returns 0, missing ones cut the shape.
+- [x] `__canvas_drawGeometry`'s `__CANVAS_GEO_TEXT` arm: when `hasTransform`, map
       the pixel through the inverse and nearest-sample the glyph coverage per §4.5;
       transform the glyph run's blit bounds.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` gains — a 45°-rotated square (assert the
+      The loop **inverts**: untransformed, the blit walks the bitmap and writes each
+      sample to its surface pixel, which under a rotation leaves holes because the
+      mapping is no longer one sample per pixel. Transformed, it walks the surface
+      region and samples backwards. Per **glyph**, not per run — scanning every glyph
+      over the whole run's hull would be quadratic in the string length.
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` gains — a 45°-rotated square (assert the
       corners land where the matrix says); a 2× uniform scale (assert the radius
       doubles and the stroke doubles, per §4.3); an all-zero transform (must be
       byte-identical to the same scene with no transform named); a singular transform
       (must render untransformed, per §4.4); a rotated shape whose transformed bounds
       exceed its untransformed ones (must not be clipped).
+      Plus a **sixth**, in `rt_canvas_font.rs` where the font fixture lives:
+      `a_rotated_text_run_draws_rotated`, which the §4.5 task above needs and the test
+      list omitted. Verified RED by stubbing the flag: 1134 pixels stay in the upright
+      band.
 
 Acceptance: the five new cases pass, and every pre-existing canvas golden and
 rasteriser case is byte-identical.
+
+**MET.** `rt_canvas_rasteriser` 22 passed (+1 ignored), `rt_canvas_font` 11,
+`rt_canvas_golden` 6, `rt_canvas_metal` 4, and
+`git status --short tests/golden/canvas/` empty.
+
+One of the five caught a real conflict between §4.2 and §4.3 — see **Correction C4**:
+correcting the distance *before* the stroke test holds the outline at a constant surface
+width, which is the opposite of §4.3's decision that the stroke scales with the shape.
 Commit: —
 
 ### Phase 4 — Metal and Vulkan transform
@@ -522,6 +548,21 @@ Commit: —
 
 ## Corrections
 
+- **C4 (2026-09-01, Phase 3) — §4.2's correction and §4.3's stroke rule contradict each
+  other, and the test found it.** §4.3 decides that the stroke scales with the shape,
+  and argues it "falls out of the design for free — the stroke band is `|d| - half`
+  evaluated in shape space, so scaling `d` scales the band". But §4.2's correction
+  divides the distance by the local scale *before* anything else uses it, and the stroke
+  arm then computes `|d_surface| - half` — which holds the outline at a constant
+  **surface** width, the other defensible reading and the one §4.3 explicitly rejected.
+  Caught by `a_uniform_scale_scales_the_shape_and_its_stroke`, which asserts a 2× scale
+  turns a 10 px outline into a 20 px one: the band came out at radius 95–105 instead of
+  90–110.
+  Fixed by keeping the shape-space distance and the scale as a pair: the fill uses
+  `dRaw / dScale` and the stroke `(|dRaw| - half) / dScale`, so `half` is applied in
+  shape space and converted afterwards. Untransformed, `dScale` is 1.0 and both
+  expressions are *identical* to the ones they replaced — not merely equivalent, which
+  is what keeps every existing golden byte-for-byte.
 - **C3 (2026-09-01, Phase 2) — §4.1's "the CPU side needs no conversion either" is
   false, and float32 is not free.** A `Float` is an IEEE **double**; the item block
   needs **binary32**; and the assemblers have no double→single convert and no 32-bit

@@ -133,6 +133,33 @@ r#"FUNC __canvas_invertTransform(t AS Transform) AS List OF Float
   RETURN [toFloat(__canvas_float32Bits(ia)), toFloat(__canvas_float32Bits(ib)), toFloat(__canvas_float32Bits(ic)), toFloat(__canvas_float32Bits(id)), toFloat(__canvas_float32Bits(0.0 - (ia * t.tx + ic * t.ty))), toFloat(__canvas_float32Bits(0.0 - (ib * t.tx + id * t.ty))), 1.0]
 END FUNC"#;
 
+/// The forward transform, recovered from the six inverse terms.
+///
+/// Two callers need it and neither has the original `Transform`: the bounds builder,
+/// which maps a shape-space box to the hull the item actually covers, and the glyph
+/// blit, which does the same for one glyph's bitmap box. Recovering it beats carrying
+/// six more header slots — a bounding box only has to be *conservative*, so the
+/// float32 round-trip's last bit cannot matter — and one helper beats two copies of a
+/// 2×2 inversion that would eventually disagree.
+///
+/// Returns `[fa, fb, fc, fd, ftx, fty]`, or the identity if the inverse is somehow
+/// singular. It cannot be, in practice: `__canvas_invertTransform` already refused a
+/// singular input, and the inverse of an invertible matrix is invertible. The arm is
+/// here so this helper cannot be the one place that divides by zero.
+#[rustfmt::skip]
+const FORWARD_OF: &str =
+r#"FUNC __canvas_forwardOf(ia AS Float, ib AS Float, ic AS Float, id AS Float, itx AS Float, ity AS Float) AS List OF Float
+  LET det AS Float = ia * id - ib * ic
+  IF __canvas_absF(det) < 0.000000000001 THEN
+    RETURN [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+  END IF
+  LET fa AS Float = id / det
+  LET fb AS Float = (0.0 - ib) / det
+  LET fc AS Float = (0.0 - ic) / det
+  LET fd AS Float = ia / det
+  RETURN [fa, fb, fc, fd, 0.0 - (fa * itx + fc * ity), 0.0 - (fb * itx + fd * ity)]
+END FUNC"#;
+
 /// A zero-area `Bounds`, which means "no clip".
 #[rustfmt::skip]
 const NO_CLIP: &str =
@@ -149,4 +176,5 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         INVERT_TRANSFORM,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_float32Bits", FLOAT32_BITS));
+    pkg.add_helper(RegistryHelper::always("canvas_forwardOf", FORWARD_OF));
 }

@@ -876,3 +876,104 @@ fn eviction_frees_unpinned_glyphs_and_changes_no_pixel() {
         panic!("a frame drawn under cache pressure differs from the same frame drawn without it: {diff:?}");
     }
 }
+
+/// A rotated text run draws rotated, and where the matrix says.
+///
+/// plan-116-C §4.5. A glyph's pixels come from a cached coverage bitmap, and under a
+/// transform the blit has to invert: walk the surface region the glyph now covers and
+/// sample the bitmap, rather than walk the bitmap and write surface pixels. Walking the
+/// bitmap under a rotation leaves holes, because the mapping is no longer one sample
+/// per pixel.
+///
+/// The fixture glyph is a solid square, which makes this checkable without judging an
+/// antialiased edge: a 90° rotation of a horizontal row of squares is a *vertical*
+/// column of squares, so "is there ink here" is a whole-pixel question.
+///
+/// 90° exactly, so nearest sampling is exact too — the point here is the inverted loop
+/// and the transformed per-glyph bounds, not the sampling filter.
+const ROTATED_TEXT: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
+  LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := p]
+  canvas::present([label])
+END SUB
+"#;
+
+/// The same run with no transform, so the two can be compared as pictures.
+const UPRIGHT_TEXT: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::present([label])
+END SUB
+"#;
+
+#[test]
+fn a_rotated_text_run_draws_rotated() {
+    let upright = render_with("canvas_text_upright", UPRIGHT_TEXT, false);
+    let rotated = render_with("canvas_text_rotated", ROTATED_TEXT, false);
+    assert!(
+        upright.iter().any(|&b| b != 0),
+        "the upright run drew nothing, so the comparison would be vacuous"
+    );
+
+    let lit = |frame: &[u8], x: usize, y: usize| {
+        frame[(y * WIDTH + x) * 4 + 3] != 0 && frame[(y * WIDTH + x) * 4] != 0
+    };
+    // Ink in the upright run's own band, which the rotated one must have vacated.
+    let mut upright_ink = 0usize;
+    let mut rotated_there = 0usize;
+    for y in 20..60 {
+        for x in 40..240 {
+            if lit(&upright, x, y) {
+                upright_ink += 1;
+            }
+            if lit(&rotated, x, y) {
+                rotated_there += 1;
+            }
+        }
+    }
+    assert!(
+        upright_ink > 500,
+        "the upright run should fill its band; found {upright_ink} lit pixels"
+    );
+    assert_eq!(
+        rotated_there, 0,
+        "the rotated run must have left the upright band entirely — {rotated_there} \
+         pixels of it are still lit, so the transform did not move the glyphs"
+    );
+
+    // And it must be SOMEWHERE: a transform that dropped the run would also vacate
+    // the band, so count the rotated run's own ink and check it matches.
+    let total = |frame: &[u8]| {
+        (0..WIDTH * (frame.len() / 4 / WIDTH))
+            .filter(|i| frame[i * 4 + 3] != 0 && frame[i * 4] != 0)
+            .count()
+    };
+    let (up, rot) = (total(&upright), total(&rotated));
+    assert!(
+        rot > 0,
+        "the rotated run drew nothing at all — the inverted blit found no samples"
+    );
+    // A 90° rotation is area-preserving, and the glyph is a solid square, so the ink
+    // count should match closely. Allow a small margin for the boundary pixels that
+    // nearest sampling rounds differently.
+    let diff = (up as i64 - rot as i64).abs();
+    assert!(
+        diff * 20 < up as i64,
+        "a 90-degree rotation preserves area, so the rotated run should have about as \
+         much ink as the upright one: upright {up}, rotated {rot}"
+    );
+}
