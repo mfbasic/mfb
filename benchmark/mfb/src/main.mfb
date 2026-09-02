@@ -848,7 +848,7 @@ FUNC test_parse_json(run AS Integer, tests AS List OF BenchResult) AS List OF Be
   FOR r = 0 TO run - 1
     LET text AS String = fs::readText(path)
     LET t0 AS Integer = datetime::monotonicNanos()
-    LET value AS Json = json::parse(text)
+    LET value AS json::Json = json::parse(text)
     LET tail AS String = json::stringify(json::get(value, ["tail"]))
     LET t1 AS Integer = datetime::monotonicNanos()
     checksum = tail

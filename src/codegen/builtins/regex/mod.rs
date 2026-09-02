@@ -9,8 +9,10 @@ use crate::types::ParameterType;
 
 mod func_find;
 mod func_find_all;
+mod func_gen_cat;
 mod func_match;
 mod func_replace;
+mod func_script_of;
 
 mod helper_all_digits;
 mod helper_anchor_match;
@@ -904,16 +906,16 @@ pub(crate) fn register(r: &mut Registry) {
     helper_make_class::register(&mut pkg);
     helper_required_first_cp::register(&mut pkg);
 
-    // The two generated Unicode tables shared from `src/codegen/unicode/` (the
-    // general-category table `__regex_genCat` and the Script-property table
-    // `__regex_scriptOf` / `__regex_scriptCanonName`).
+    // plan-118-B: the general-category and Script *scalar* tables are no longer
+    // generated MFBASIC -- `regex::genCat` / `regex::scriptOf` look them up in
+    // rodata instead of compiling 5,807 IF arms per program. What is left of the
+    // generated file is `__regex_scriptCanonName`, which maps a lowercased script
+    // NAME to its canonical spelling (171 arms, not a per-scalar lookup).
+    func_gen_cat::register(&mut pkg);
+    func_script_of::register(&mut pkg);
     pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "regex_unicode_gencat",
-        include_str!("../../string/unicode/unicode_gencat.mfb"),
-    ));
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "regex_unicode_script_of",
-        include_str!("../../string/unicode/unicode_script_of.mfb"),
+        "regex_unicode_script_canon_name",
+        include_str!("../../string/unicode/unicode_script_names.mfb"),
     ));
 
     func_find::register(&mut pkg);
@@ -928,10 +930,33 @@ pub(crate) fn register(r: &mut Registry) {
 mod tests {
     use crate::codegen::registry::{self, registry};
 
+    /// plan-118-B split the member list in two, so this asserts the split by
+    /// NAME rather than by a bare count: four PUBLIC members, and two
+    /// `internal_only` Unicode lookups the companion resolves through but user
+    /// source must never reach. A bare count could not tell a new public member
+    /// (a language change) from a new internal one (an implementation detail),
+    /// and accidentally publishing `genCat` is exactly the mistake worth
+    /// catching.
     #[test]
     fn regex_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("regex").expect("regex package");
-        assert_eq!(pkg.functions().len(), 4);
+        let mut public: Vec<&str> = pkg
+            .functions()
+            .iter()
+            .filter(|function| !function.internal_only)
+            .map(|function| function.name)
+            .collect();
+        public.sort_unstable();
+        assert_eq!(public, ["find", "findAll", "match", "replace"]);
+        let mut internal: Vec<&str> = pkg
+            .functions()
+            .iter()
+            .filter(|function| function.internal_only)
+            .map(|function| function.name)
+            .collect();
+        internal.sort_unstable();
+        assert_eq!(internal, ["genCat", "scriptOf"]);
+        assert_eq!(pkg.functions().len(), 6);
     }
 
     #[test]

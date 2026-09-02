@@ -10,7 +10,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' \d \D \w \W \s \S — kind 1..6.
 FUNC __regex_shorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
-  LET cat AS String = __regex_genCat(cp)
+  LET cat AS String = regex::genCat(cp)
   IF kind = 1 THEN
     RETURN cat = "Nd"
   END IF

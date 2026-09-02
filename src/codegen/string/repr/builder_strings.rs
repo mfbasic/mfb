@@ -821,6 +821,27 @@ impl CodeBuilder<'_> {
         // exactly `List OF Byte`), so the reordering the variant patterns impose
         // is not observable — `Scalar` and `AttributedString` are `Named`, which
         // no scalar variant can also match.
+        // plan-118-C: which arm each `toString` site takes, so "out-line the
+        // expensive kinds" is chosen from the corpus rather than from the
+        // static size of the emitters. Counted under `-vv` only.
+        crate::trace::count(
+            match &value.type_ {
+                ParameterType::String => "toString arm: String",
+                ParameterType::Boolean => "toString arm: Boolean",
+                ParameterType::Byte => "toString arm: Byte",
+                ParameterType::Integer => "toString arm: Integer",
+                ParameterType::Fixed => "toString arm: Fixed",
+                ParameterType::Float => "toString arm: Float",
+                ParameterType::Money => "toString arm: Money",
+                type_ if type_.is_named("Scalar") => "toString arm: Scalar",
+                type_ if type_.is_named("AttributedString") => "toString arm: AttributedString",
+                ParameterType::ListOf(element) if **element == ParameterType::Byte => {
+                    "toString arm: List OF Byte"
+                }
+                _ => "toString arm: (unsupported)",
+            },
+            1,
+        );
         match &value.type_ {
             ParameterType::String => Ok(ValueResult {
                 origin: None,
@@ -830,8 +851,21 @@ impl CodeBuilder<'_> {
             }),
             ParameterType::Boolean => self.lower_boolean_to_string(&value_register),
             ParameterType::Byte => self.emit_integer_to_string_value(&value_register, false),
-            type_ if type_.is_named("Scalar") => self.emit_scalar_to_string_value(&value_register),
+            type_ if type_.is_named("Scalar") => self.emit_to_string_helper_call(
+                ToStringHelper::Scalar,
+                &value_register,
+                None,
+                "toString(Scalar)",
+            ),
             ParameterType::Integer => self.emit_integer_to_string_value(&value_register, true),
+            // NOT out-of-lined, unlike the three arms around it. This one can fail
+            // TWO ways — `ErrEncoding` for invalid UTF-8 as well as
+            // `ErrOutOfMemory` — and the helper contract collapses any failure
+            // into the single code the call site re-raises. Routing it through a
+            // helper turned `toString(<invalid bytes>)` from "Text encoding or
+            // decoding failed" into "Allocation failed", caught by
+            // `rt-error/general/toString_invalid_encoding`. See plan-118-C
+            // Corrections.
             ParameterType::ListOf(element) if **element == ParameterType::Byte => {
                 self.emit_byte_list_to_string_value(&value_register)
             }
@@ -842,7 +876,12 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     precision_slot,
                 ));
-                self.emit_fixed_to_string_value(&value_register, &precision)
+                self.emit_to_string_helper_call(
+                    ToStringHelper::Fixed,
+                    &value_register,
+                    Some(Operand::from(precision.render())),
+                    "toString(Fixed)",
+                )
             }
             ParameterType::Float => {
                 let precision = self.allocate_register();
@@ -860,7 +899,12 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     precision_slot,
                 ));
-                self.emit_money_to_string_value(&value_register, &precision)
+                self.emit_to_string_helper_call(
+                    ToStringHelper::Money,
+                    &value_register,
+                    Some(Operand::from(precision.render())),
+                    "toString(Money)",
+                )
             }
             type_ if type_.is_named("AttributedString") => {
                 // The visible text is the inlined `text` String field (index 0):
@@ -908,145 +952,48 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// `toString(Integer)` / `toString(Byte)` — marshal, call, check.
+    ///
+    /// plan-118-C: the digit loop, the sign, the arena allocation and the copy
+    /// used to be emitted at every site (~100 instructions each, over 5,826
+    /// `toString` sites). They are `_mfb_rt_int_to_string` now, exactly as the
+    /// `Float` arm beside this one has always called `_mfb_rt_float_to_string`,
+    /// and with the same Result ABI so both sites read the same.
+    ///
+    /// The `ErrOutOfMemory` raise stays here: its `ErrorLoc` names the
+    /// `toString` the program wrote, and a shared helper has no line or column.
     pub(crate) fn emit_integer_to_string_value(
         &mut self,
         source_register: impl Into<Operand>,
         signed: bool,
     ) -> Result<ValueResult, String> {
-        let buffer_slot = self.allocate_stack_object("to_string_integer_buffer", 40);
-        let length_slot = self.allocate_stack_object("to_string_integer_length", 8);
-        let start_slot = self.allocate_stack_object("to_string_integer_start", 8);
-        let result_slot = self.allocate_stack_object("to_string_integer_result", 8);
-
-        // Virtual registers (not physical `x8`–`x15`): the allocator places them
-        // in safe, distinct per-ISA registers. On x86 the physical names collided
-        // (`x8`/`x9` both → `rax`) and the `div`/`msub` pair needs the dividend to
-        // survive the `div` (which clobbers `rax`/`rdx`) — vregs, never colored to
-        // `rax`/`rdx`, satisfy both.
-        let value_s = self.allocate_register();
-        let negative_s = self.allocate_register();
-        let length_s = self.allocate_register();
-        let cursor_s = self.allocate_register();
-        let divisor_s = self.allocate_register();
-        let quotient_s = self.allocate_register();
-        let digit_s = self.allocate_register();
-        let dst_s = self.allocate_register();
-        let value = &value_s;
-        let negative = &negative_s;
-        let length = &length_s;
-        let cursor = &cursor_s;
-        let divisor = &divisor_s;
-        let quotient = &quotient_s;
-        let digit = &digit_s;
-        let dst = &dst_s;
-        let done = self.label("int_string_done");
-        let nonnegative = self.label("int_string_nonnegative");
-        let zero = self.label("int_string_zero");
-        let loop_start = self.label("int_string_loop");
-        let digits_done = self.label("int_string_digits_done");
-        let sign_done = self.label("int_string_sign_done");
         let alloc_ok = self.label("int_string_alloc_ok");
-        let copy_loop = self.label("int_string_copy_loop");
-        let copy_done = self.label("int_string_copy_done");
-
-        self.emit(abi::move_register(value, source_register));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::move_immediate(length, "Integer", "0"));
-        self.emit(abi::compare_immediate(value, "0"));
-        self.emit(abi::branch_eq(&zero));
-        if signed {
-            self.emit(abi::branch_ge(&nonnegative));
-            self.emit(abi::subtract_registers(value, abi::ZERO, value));
-            self.emit(abi::move_immediate(negative, "Integer", "1"));
-            self.emit(abi::label(&nonnegative));
-        }
-        self.emit(abi::add_immediate(
-            cursor,
-            abi::stack_pointer(),
-            buffer_slot + 39,
-        ));
-        self.emit(abi::move_immediate(divisor, "Integer", "10"));
-        self.emit(abi::label(&loop_start));
-        self.emit(abi::compare_immediate(value, "0"));
-        self.emit(abi::branch_eq(&digits_done));
-        self.emit(abi::unsigned_divide_registers(quotient, value, divisor));
-        self.emit(abi::multiply_subtract_registers(
-            digit, quotient, divisor, value,
-        ));
-        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
-        self.emit(abi::store_u8(digit, cursor, 0));
-        self.emit(abi::subtract_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(length, length, 1));
-        self.emit(abi::move_register(value, quotient));
-        self.emit(abi::branch(&loop_start));
-
-        self.emit(abi::label(&zero));
-        self.emit(abi::add_immediate(
-            cursor,
-            abi::stack_pointer(),
-            buffer_slot + 39,
-        ));
+        self.emit(abi::move_register(abi::c_arg(0), source_register));
         self.emit(abi::move_immediate(
-            digit,
+            abi::c_arg(1),
             "Integer",
-            &(b'0' as u64).to_string(),
+            if signed { "1" } else { "0" },
         ));
-        self.emit(abi::store_u8(digit, cursor, 0));
-        self.emit(abi::subtract_immediate(cursor, cursor, 1));
-        self.emit(abi::move_immediate(length, "Integer", "1"));
-
-        self.emit(abi::label(&digits_done));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&sign_done));
-        self.emit(abi::move_immediate(
-            digit,
-            "Integer",
-            &(b'-' as u64).to_string(),
+        self.emit(abi::branch_link(INT_TO_STRING_SYMBOL));
+        self.push_internal_call_relocation(INT_TO_STRING_SYMBOL);
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
         ));
-        self.emit(abi::store_u8(digit, cursor, 0));
-        self.emit(abi::subtract_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(length, length, 1));
-        self.emit(abi::label(&sign_done));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(cursor, abi::stack_pointer(), start_slot));
-
-        // plan-71-C Family-1a: alloc size is arg 0 of the arena-alloc call → `%arg0`.
-        self.emit(abi::add_immediate(abi::c_arg(0), length, 9));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            result_slot,
-        ));
-        self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, abi::mfb_return(1), 0));
-        self.emit(abi::add_immediate(dst, abi::mfb_return(1), 8));
-        self.emit(abi::load_u64(cursor, abi::stack_pointer(), start_slot));
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8(digit, cursor, 0));
-        self.emit(abi::store_u8(digit, dst, 0));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::add_immediate(dst, dst, 1));
-        self.emit(abi::subtract_immediate(length, length, 1));
-        self.emit(abi::branch(&copy_loop));
-        self.emit(abi::label(&copy_done));
-        self.emit(abi::move_immediate(digit, "Integer", "0"));
-        self.emit(abi::store_u8(digit, dst, 0));
         let result = self.allocate_register();
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        self.emit(abi::label(&done));
+        self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
             location: Operand::from(result.render()),
-            text: "toString(Integer)".to_string(),
+            text: if signed {
+                "toString(Integer)".to_string()
+            } else {
+                "toString(Byte)".to_string()
+            },
         })
     }
 

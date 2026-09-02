@@ -785,6 +785,49 @@ pub(crate) fn unicode_runtime_data_objects(
             2,
         ));
     }
+    // plan-118-B: the general-category and Script run tables. Unlike the utf8proc
+    // objects above these are OUR generated artifacts, pinned to Unicode 16.0.0
+    // independently of the vendored library (see `unicode::range_tables` for the
+    // 4,804-scalar disagreement that makes them separate tables and not a field
+    // on the trie).
+    for (runs_symbol, names_symbol, table, property) in [
+        (
+            UNICODE_GENCAT_RANGES_SYMBOL,
+            UNICODE_GENCAT_NAMES_SYMBOL,
+            crate::unicode::range_tables::gencat(),
+            "general category",
+        ),
+        (
+            UNICODE_SCRIPT_RANGES_SYMBOL,
+            UNICODE_SCRIPT_NAMES_SYMBOL,
+            crate::unicode::range_tables::script(),
+            "Script",
+        ),
+    ] {
+        if keep(runs_symbol) {
+            objects.push(raw_data_object(
+                runs_symbol,
+                &format!(
+                    "mfb.unicode.range.v1 {{ u32 lastCodepoint; u32 nameIndex }} ({property})"
+                ),
+                table.runs.len() * 8,
+                table.runs_hex(),
+                4,
+            ));
+        }
+        if keep(names_symbol) {
+            objects.push(raw_data_object(
+                names_symbol,
+                &format!(
+                    "mfb.string.v1 records, {} bytes each ({property} names)",
+                    table.name_stride()
+                ),
+                table.names.len() * table.name_stride(),
+                table.names_hex(),
+                8,
+            ));
+        }
+    }
     if keep(UNICODE_COMBINATIONS_SECOND_SYMBOL) {
         objects.push(raw_data_object(
             UNICODE_COMBINATIONS_SECOND_SYMBOL,
@@ -1638,10 +1681,24 @@ mod tests {
     /// only the base trie) must NOT carry the six case-mapping tables nor the
     /// NFD/composition tables; a case-mapping-only program must NOT carry the base
     /// trie. `None` still emits every table (the coarse fallback).
+    ///
+    /// plan-118-B added the general-category and Script run tables, which are the
+    /// largest objects here (46 KB together) and are read by `regex`/`strings`
+    /// property queries only — so they join the leak check below, not just the
+    /// count.
     #[test]
     fn unicode_runtime_data_objects_emit_only_referenced_tables() {
         let all = unicode_runtime_data_objects(None);
-        assert_eq!(all.len(), 13, "None must emit every unicode table");
+        assert_eq!(all.len(), 17, "None must emit every unicode table");
+        let every: HashSet<&str> = all.iter().map(|o| o.symbol.as_str()).collect();
+        for added in [
+            UNICODE_GENCAT_RANGES_SYMBOL,
+            UNICODE_GENCAT_NAMES_SYMBOL,
+            UNICODE_SCRIPT_RANGES_SYMBOL,
+            UNICODE_SCRIPT_NAMES_SYMBOL,
+        ] {
+            assert!(every.contains(added), "None must emit `{added}`");
+        }
 
         let base: HashSet<&str> = [
             UNICODE_STAGE1_SYMBOL,
@@ -1665,6 +1722,12 @@ mod tests {
             UNICODE_LOWERCASE_SEQUENCES_SYMBOL,
             UNICODE_NFD_ENTRIES_SYMBOL,
             UNICODE_COMBINATIONS_SECOND_SYMBOL,
+            // plan-118-B: 46 KB of category/script runs a grapheme walk never
+            // reads. The relocation scan is what keeps them out; this pins it.
+            UNICODE_GENCAT_RANGES_SYMBOL,
+            UNICODE_GENCAT_NAMES_SYMBOL,
+            UNICODE_SCRIPT_RANGES_SYMBOL,
+            UNICODE_SCRIPT_NAMES_SYMBOL,
         ] {
             assert!(
                 !emitted.contains(dead),

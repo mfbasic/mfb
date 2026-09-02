@@ -1004,6 +1004,27 @@ pub(crate) const MAP_BUCKET_SIZE: usize = 8;
 pub(crate) const MAP_BUILD_BUCKETS_SYMBOL: &str = "_mfb_rt_map_build_buckets";
 pub(crate) const MAP_BUCKET_PUT_SYMBOL: &str = "_mfb_rt_map_bucket_put";
 pub(crate) const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
+/// plan-118-C: the shared two-operand `String` concatenation. Takes the two
+/// operand block pointers, returns the new block pointer, or **0** when the
+/// allocation failed (the caller raises `ErrOutOfMemory` — the error carries the
+/// call site's `ErrorLoc`, so it cannot move into the helper).
+pub(crate) const STRING_CONCAT_SYMBOL: &str = "_mfb_rt_string_concat";
+/// plan-118-E: build the owned `Error` block from the loose error registers and
+/// park it in the arena's current-error slot. Takes and returns the standard
+/// error registers (code / message / source), leaving the `ERR_BLOCK` tag.
+/// Position-independent — it touches only those registers, its own frame, and
+/// the per-thread arena slot — which is why it can be ONE function per module
+/// rather than a block per function.
+pub(crate) const PARK_ERROR_SYMBOL: &str = "_mfb_rt_park_error";
+/// plan-118-E: drop one owned `String` slot — null-check, size from the block
+/// header, `arena_free`, then null the slot. `x0` is the slot's ADDRESS, not the
+/// pointer, so the helper can do the free-and-null itself.
+pub(crate) const DROP_OWNED_STRING_SYMBOL: &str = "_mfb_rt_drop_owned_string";
+/// plan-118-E: drop one owned flat collection slot. `x0` is the slot ADDRESS,
+/// `x1` the entry stride, `x2` non-zero when the block carries a hash-bucket
+/// region (`Map`/`Set`, never `List`). Those two are the only things the flat
+/// size formula varies on.
+pub(crate) const DROP_OWNED_COLLECTION_SYMBOL: &str = "_mfb_rt_drop_owned_collection";
 /// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
 pub(crate) const FNV1A_BASIS: &str = "14695981039346656037";
 pub(crate) const FNV1A_PRIME: &str = "1099511628211";
@@ -1059,6 +1080,15 @@ pub(crate) const UNICODE_LOWERCASE_ENTRIES_SYMBOL: &str = "_mfb_unicode_lowercas
 pub(crate) const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowercase_sequences";
 pub(crate) const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
 pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
+
+// plan-118-B: the pinned general-category / Script run tables, read as data
+// instead of compiled as 5,807 arms of generated MFBASIC. Two objects per
+// property: the runs, and the property values as `mfb.string.v1` records the
+// lookup can return a pointer into.
+pub(crate) const UNICODE_GENCAT_RANGES_SYMBOL: &str = "_mfb_unicode_gencat_ranges";
+pub(crate) const UNICODE_GENCAT_NAMES_SYMBOL: &str = "_mfb_unicode_gencat_names";
+pub(crate) const UNICODE_SCRIPT_RANGES_SYMBOL: &str = "_mfb_unicode_script_ranges";
+pub(crate) const UNICODE_SCRIPT_NAMES_SYMBOL: &str = "_mfb_unicode_script_names";
 
 // ===========================================================================
 // Threads

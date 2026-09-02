@@ -717,93 +717,38 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             right_slot,
         ));
-        let total_slot = self.allocate_stack_object("concat_total", 8);
 
+        // plan-118-C: the allocation, the header store and both copy loops are
+        // in `_mfb_rt_string_concat`, emitted once per module. This was 169
+        // instructions per site over 17,221 sites — the largest single expansion
+        // category in the compiler. Both operands are reloaded from their slots
+        // rather than used from their registers: the call clobbers the
+        // caller-saved set, and the slots are already there because the right
+        // operand's lowering could clobber the left's register anyway.
         let alloc_ok = self.label("string_concat_alloc_ok");
-        let left_loop = self.label("string_concat_left_loop");
-        let left_done = self.label("string_concat_left_done");
-        let right_loop = self.label("string_concat_right_loop");
-        let right_done = self.label("string_concat_right_done");
-
-        // Copy-loop scratch: one vreg per logical value, colored per-ISA by the
-        // allocator. The arena_alloc ABI argument/result register stays physical
-        // across that call only; result_ptr is already a vreg.
-        let left_len_v = self.temporary_vreg();
-        let right_len_v = self.temporary_vreg();
-        let total_len_v = self.temporary_vreg();
-        let left_cur_v = self.temporary_vreg();
-        let write_cur_v = self.temporary_vreg();
-        let l8_v = self.temporary_vreg();
-        let remaining_v = self.temporary_vreg();
-        let right_cur_v = self.temporary_vreg();
-        let byte_v = self.temporary_vreg();
-        let left_len = &left_len_v;
-        let right_len = &right_len_v;
-        let total_len = &total_len_v;
-        let left_cur = &left_cur_v;
-        let write_cur = &write_cur_v;
-        let l8 = &l8_v;
-        let remaining = &remaining_v;
-        let right_cur = &right_cur_v;
-        let byte = &byte_v;
-
-        self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(write_cur, abi::stack_pointer(), right_slot));
-        self.emit(abi::add_immediate(l8, left_cur, 8));
-        self.emit(abi::add_immediate(right_cur, write_cur, 8));
-        self.emit(abi::load_u64(left_len, left_cur, 0));
-        self.emit(abi::load_u64(right_len, write_cur, 0));
-        self.emit(abi::add_registers(total_len, left_len, right_len));
-        self.emit(abi::store_u64(total_len, abi::stack_pointer(), total_slot));
-        // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
-        self.emit(abi::add_immediate(abi::c_arg(0), total_len, 9));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            left_slot,
+        ));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            right_slot,
+        ));
+        self.emit(abi::branch_link(STRING_CONCAT_SYMBOL));
+        self.push_internal_call_relocation(STRING_CONCAT_SYMBOL);
+        // Capture the result before raising: `raise_error_bare` emits a call of
+        // its own, and the physical return register does not survive it.
+        let result_ptr = self.allocate_register();
+        self.emit(abi::move_register(&result_ptr, abi::mfb_return(0)));
+        self.emit(abi::compare_immediate(&result_ptr, "0"));
+        self.emit(abi::branch_ne(&alloc_ok));
+        // Null means the arena allocation failed. The error is raised HERE, not
+        // in the helper, so its `ErrorLoc` names the concatenation the program
+        // actually wrote.
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
-        // Capture the allocation result into a register while x1 is
-        // unambiguously the call result at this boundary. The physical return
-        // register is fragile to hold across the copy loops below: on ISAs
-        // whose result/argument registers differ (x86-64), the loop back-edges
-        // break the result-vs-argument dataflow, so a later consumer would
-        // arg-map the value. A neutral register carries it safely.
-        let result_ptr = self.allocate_register();
-        self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
-        self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
-        self.emit(abi::add_immediate(right_cur, right_cur, 8));
-        self.emit(abi::load_u64(left_len, left_cur, 0));
-        self.emit(abi::add_immediate(left_cur, left_cur, 8));
-        self.emit(abi::load_u64(right_len, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(right_len, right_len, 0));
-        self.emit(abi::load_u64(total_len, abi::stack_pointer(), total_slot));
-        self.emit(abi::store_u64(total_len, &result_ptr, 0));
-        self.emit(abi::add_immediate(write_cur, &result_ptr, 8));
-        self.emit(abi::move_register(remaining, left_len));
-        self.emit(abi::label(&left_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&left_done));
-        self.emit(abi::load_u8(byte, left_cur, 0));
-        self.emit(abi::store_u8(byte, write_cur, 0));
-        self.emit(abi::add_immediate(left_cur, left_cur, 1));
-        self.emit(abi::add_immediate(write_cur, write_cur, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&left_loop));
-        self.emit(abi::label(&left_done));
-        self.emit(abi::move_register(remaining, right_len));
-        self.emit(abi::label(&right_loop));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&right_done));
-        self.emit(abi::load_u8(byte, right_cur, 0));
-        self.emit(abi::store_u8(byte, write_cur, 0));
-        self.emit(abi::add_immediate(right_cur, right_cur, 1));
-        self.emit(abi::add_immediate(write_cur, write_cur, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&right_loop));
-        self.emit(abi::label(&right_done));
-        self.emit(abi::move_immediate(byte, "Integer", "0"));
-        self.emit(abi::store_u8(byte, write_cur, 0));
 
         Ok(ValueResult {
             origin: None,

@@ -38,7 +38,7 @@ END FUNC
 ' many times: escape + number formatting + map iteration-order emission.
 ' Arena-gated (plan-64-A): per-call String building (arena quadratic fixed by A1).
 FUNC test_serialize_json(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET tree AS Json = json::parse(serializeJsonText())
+  LET tree AS json::Json = json::parse(serializeJsonText())
   LET reps AS Integer = 200
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -68,7 +68,7 @@ FUNC test_serialize_roundtrip(run AS Integer, tests AS List OF BenchResult) AS L
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR rep = 0 TO reps - 1
-      LET tree AS Json = json::parse(text)
+      LET tree AS json::Json = json::parse(text)
       acc = acc + len(json::stringify(tree))
     NEXT
     checksum = acc

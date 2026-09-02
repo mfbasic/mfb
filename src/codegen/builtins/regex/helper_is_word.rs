@@ -9,7 +9,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __regex_isWord(cp AS Integer) AS Boolean
-  RETURN __regex_isWordCp(cp, __regex_genCat(cp))
+  RETURN __regex_isWordCp(cp, regex::genCat(cp))
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

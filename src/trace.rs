@@ -22,6 +22,12 @@
 //!   quadratic in a stream that is itself 50x too long is a different bug from a
 //!   pass that is slow per instruction, and only a size number tells them apart.
 //!
+//! Leaderboards and tallies each have a **size twin** — [`size_item`] and
+//! [`count_tally`] — that ranks and sums emitted machine instructions instead of
+//! nanoseconds. "Which function is biggest" and "which kind of source construct
+//! expands into the most code" are not answerable from wall clock: a category
+//! can be cheap to lower and still be a third of the module.
+//!
 //! # Disabled by default, and observably inert
 //!
 //! Everything here is behind one relaxed [`AtomicBool`]. When `-vv` is not
@@ -50,6 +56,12 @@ use std::time::{Duration, Instant};
 /// a distribution's shape (one outlier vs. a uniformly slow population) without
 /// turning the report into a listing.
 const TOP_ITEMS: usize = 20;
+
+/// How many rows a *size* tally prints. Wider than [`TOP_ITEMS`] because a
+/// size tally's keys are construct kinds, not names: the population is a few
+/// dozen rows total, and the question it answers ("what fraction of the module
+/// do the top categories account for") needs the tail visible.
+const TALLY_ROWS: usize = 40;
 
 /// Tree rows below this are folded into one summary line. A build worth
 /// profiling is seconds long, so a millisecond is under a tenth of a percent of
@@ -123,11 +135,39 @@ struct Tally {
     rows: std::collections::HashMap<String, (Duration, u64)>,
 }
 
+/// A top-N leaderboard measured in *size* rather than time: the size twin of
+/// [`Bucket`]. "Which function emitted the most machine instructions" is the
+/// same shape of question as "which function took longest", asked of the other
+/// axis — and a module can be dominated by one function on one axis and a
+/// different one on the other, so neither leaderboard substitutes for the other.
+struct SizeBucket {
+    name: &'static str,
+    /// `(amount, label)`, largest first, truncated to [`TOP_ITEMS`].
+    top: Vec<(u64, String)>,
+    /// Total over *every* item, not just the retained top.
+    total: u64,
+    count: u64,
+}
+
+/// A per-key size aggregate — the size twin of [`Tally`], for "which kind of
+/// source construct emitted the most machine instructions in total".
+///
+/// Unlike [`Tally`], the amounts recorded here are **exclusive**: a caller that
+/// nests these sites subtracts a child's amount from its parent's before
+/// recording, so the rows partition the measured total instead of counting a
+/// nested site once per enclosing level.
+struct CountTally {
+    name: &'static str,
+    rows: std::collections::HashMap<String, (u64, u64)>,
+}
+
 #[derive(Default)]
 struct State {
     root: Option<Node>,
     buckets: Vec<Bucket>,
+    size_buckets: Vec<SizeBucket>,
     tallies: Vec<Tally>,
+    count_tallies: Vec<CountTally>,
     counters: Vec<(&'static str, u64)>,
 }
 
@@ -371,6 +411,86 @@ pub(crate) fn timed_tally<T>(
     value
 }
 
+/// Record one individually-named work unit into the `bucket` *size*
+/// leaderboard — the size twin of [`item`].
+///
+/// `label` is a closure for the same reason it is there: these call sites sit
+/// in per-function loops, and an unconditional `format!` would slow every
+/// un-traced build.
+pub(crate) fn size_item(bucket: &'static str, label: impl FnOnce() -> String, amount: u64) {
+    if !enabled() {
+        return;
+    }
+    let mut guard = STATE.lock().expect("trace state");
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    let index = match state
+        .size_buckets
+        .iter()
+        .position(|entry| entry.name == bucket)
+    {
+        Some(index) => index,
+        None => {
+            state.size_buckets.push(SizeBucket {
+                name: bucket,
+                top: Vec::new(),
+                total: 0,
+                count: 0,
+            });
+            state.size_buckets.len() - 1
+        }
+    };
+    let entry = &mut state.size_buckets[index];
+    entry.total += amount;
+    entry.count += 1;
+    // Insertion sort into a TOP_ITEMS-capped list, as in `item`: bounds the
+    // memory the tracer holds for a module with tens of thousands of functions.
+    if entry.top.len() < TOP_ITEMS || amount > entry.top[entry.top.len() - 1].0 {
+        let at = entry
+            .top
+            .iter()
+            .position(|(entry_amount, _)| *entry_amount < amount)
+            .unwrap_or(entry.top.len());
+        entry.top.insert(at, (amount, label()));
+        entry.top.truncate(TOP_ITEMS);
+    }
+}
+
+/// Add `amount` to the `bucket` size-tally row named `key`, counting one
+/// occurrence — the size twin of [`timed_tally`].
+///
+/// It takes the amount rather than measuring a body because the quantity being
+/// attributed (instructions emitted) is only known by subtracting two counts the
+/// caller holds, and because the caller is responsible for making the amounts
+/// exclusive (see [`CountTally`]).
+pub(crate) fn count_tally(bucket: &'static str, key: impl FnOnce() -> String, amount: u64) {
+    if !enabled() {
+        return;
+    }
+    let mut guard = STATE.lock().expect("trace state");
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    let index = match state
+        .count_tallies
+        .iter()
+        .position(|entry| entry.name == bucket)
+    {
+        Some(index) => index,
+        None => {
+            state.count_tallies.push(CountTally {
+                name: bucket,
+                rows: std::collections::HashMap::new(),
+            });
+            state.count_tallies.len() - 1
+        }
+    };
+    let row = state.count_tallies[index].rows.entry(key()).or_default();
+    row.0 += amount;
+    row.1 += 1;
+}
+
 /// Add `amount` to the `name` counter — a size, not a time.
 pub(crate) fn count(name: &'static str, amount: u64) {
     if !enabled() {
@@ -444,6 +564,21 @@ pub(crate) fn render() {
             eprintln!("{:>10}  {label}", millis(*elapsed));
         }
     }
+    for bucket in &state.size_buckets {
+        if bucket.count == 0 {
+            continue;
+        }
+        eprintln!(
+            "--- trace: largest {} ({} of {} items, {} total) ---",
+            bucket.name,
+            bucket.top.len().min(TOP_ITEMS),
+            bucket.count,
+            bucket.total
+        );
+        for (amount, label) in &bucket.top {
+            eprintln!("{amount:>12}  {label}");
+        }
+    }
     for tally in &state.tallies {
         let mut rows: Vec<(&String, &(Duration, u64))> = tally.rows.iter().collect();
         rows.sort_by(|left, right| right.1 .0.cmp(&left.1 .0));
@@ -457,6 +592,20 @@ pub(crate) fn render() {
         );
         for (key, (elapsed, count)) in rows.iter().take(TOP_ITEMS) {
             eprintln!("{:>10} {count:>8}x  {key}", millis(*elapsed));
+        }
+    }
+    for tally in &state.count_tallies {
+        let mut rows: Vec<(&String, &(u64, u64))> = tally.rows.iter().collect();
+        rows.sort_by(|left, right| right.1 .0.cmp(&left.1 .0));
+        let total: u64 = rows.iter().map(|(_, (amount, _))| *amount).sum();
+        eprintln!(
+            "--- trace: costliest {} ({} of {} keys, {total} total, exclusive) ---",
+            tally.name,
+            rows.len().min(TALLY_ROWS),
+            rows.len(),
+        );
+        for (key, (amount, count)) in rows.iter().take(TALLY_ROWS) {
+            eprintln!("{amount:>12} {count:>9}x  {key}");
         }
     }
     if !state.counters.is_empty() {
@@ -575,6 +724,8 @@ mod tests {
             let _span = span("ignored");
             count("ignored", 5);
             item("ignored", || "ignored".to_string(), Duration::from_secs(1));
+            size_item("ignored", || "ignored".to_string(), 5);
+            count_tally("ignored", || "ignored".to_string(), 5);
         }
         assert!(STATE.lock().expect("trace state").is_none());
         assert!(!enabled());
@@ -659,6 +810,58 @@ mod tests {
         assert_eq!(tally.rows.len(), 2);
         assert_eq!(tally.rows["strings.upper"].1, 3);
         assert_eq!(tally.rows["math.rand"].1, 1);
+        drop(guard);
+        disable_for_test();
+    }
+
+    /// The size leaderboard keeps the largest items, in order, and its totals
+    /// count every item — including the ones that did not make the cut.
+    #[test]
+    fn size_items_keep_the_largest() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        disable_for_test();
+        enable();
+        for index in 0..(TOP_ITEMS + 10) {
+            size_item("test-sizes", || format!("f{index}"), index as u64);
+        }
+        let guard = STATE.lock().expect("trace state");
+        let state = guard.as_ref().expect("enabled");
+        let bucket = state
+            .size_buckets
+            .iter()
+            .find(|bucket| bucket.name == "test-sizes")
+            .expect("bucket");
+        assert_eq!(bucket.count as usize, TOP_ITEMS + 10);
+        assert_eq!(bucket.top.len(), TOP_ITEMS);
+        // Largest first, and the largest overall item is the last one recorded.
+        assert_eq!(bucket.top[0].1, format!("f{}", TOP_ITEMS + 9));
+        assert!(bucket.top[0].0 >= bucket.top[1].0);
+        // The total covers the ten items the leaderboard dropped, too.
+        let every: u64 = (0..(TOP_ITEMS + 10) as u64).sum();
+        assert_eq!(bucket.total, every);
+        drop(guard);
+        disable_for_test();
+    }
+
+    /// A size tally sums amounts and occurrences per key.
+    #[test]
+    fn count_tallies_sum_by_key() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        disable_for_test();
+        enable();
+        count_tally("test-expansion", || "binop:&".to_string(), 100);
+        count_tally("test-expansion", || "binop:&".to_string(), 60);
+        count_tally("test-expansion", || "op:Return".to_string(), 5);
+        let guard = STATE.lock().expect("trace state");
+        let state = guard.as_ref().expect("enabled");
+        let tally = state
+            .count_tallies
+            .iter()
+            .find(|tally| tally.name == "test-expansion")
+            .expect("tally");
+        assert_eq!(tally.rows.len(), 2);
+        assert_eq!(tally.rows["binop:&"], (160, 2));
+        assert_eq!(tally.rows["op:Return"], (5, 1));
         drop(guard);
         disable_for_test();
     }

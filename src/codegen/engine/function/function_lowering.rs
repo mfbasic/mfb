@@ -825,6 +825,8 @@ pub(crate) fn lower_function(
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     callback_referenced_functions: &HashSet<String>,
+    // plan-118-D: the record types with their own `construct.T` function.
+    synthesized_constructors: &HashSet<ParameterType>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
     let params = function
@@ -881,6 +883,8 @@ pub(crate) fn lower_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: synthesized_constructors.clone(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1113,6 +1117,17 @@ pub(crate) fn lower_function(
         )
     };
     crate::trace::count("machine instructions", instructions.len() as u64);
+    // plan-118-A: the size twin of the "slowest lower_function" leaderboard a
+    // few lines of instrumentation up the stack. Lowering time and emitted size
+    // are different axes — a function can be slow to lower because it is
+    // quadratic in something small, or fast to lower and still be 6% of the
+    // module — so "is the expansion one pathological function or all of them?"
+    // is only answerable from this one.
+    crate::trace::size_item(
+        "lower_function",
+        || function.name.clone(),
+        instructions.len() as u64,
+    );
 
     Ok(CodeFunction {
         name: function.name.clone(),
@@ -1160,8 +1175,8 @@ pub(crate) fn lower_builtin_function_wrapper(
         type_: params[0].name().into_owned(),
         location: abi::argument_register(0)?,
     };
-    let mut builder = CodeBuilder {
-        current_symbol: symbol.to_string(),
+    let mut builder = CodeBuilder::for_synthetic_function(
+        symbol,
         function_symbols,
         functions,
         package_return_types,
@@ -1169,61 +1184,9 @@ pub(crate) fn lower_builtin_function_wrapper(
         platform,
         build_mode,
         globals,
-        type_model,
         string_symbols,
-        locals: HashMap::new(),
-        instructions: vec![abi::label("entry")],
-        relocations: Vec::new(),
-        stack_slots: Vec::new(),
-        used_callee_saved: Vec::new(),
-        stack_size: 0,
-        next_register: 8,
-        next_vreg: 0,
-        next_fp_vreg: 0,
-        float_residents: HashMap::new(),
-        promoted_float_locals: HashMap::new(),
-        address_taken_locals: HashSet::new(),
-        value_used_locals: HashSet::new(),
-        borrow_get_locals: HashSet::new(),
-        borrow_get_result: false,
-        current_returns_param_borrow: false,
-        callback_referenced_functions: HashSet::new(),
-        next_label: 0,
-        trap: None,
-        loop_stack: Vec::new(),
-        active_cleanups: Vec::new(),
-        cleanup_scope_starts: Vec::new(),
-        pending_result_slots: None,
-        escaping_value_slot: None,
-        error_arena_restore_slot: None,
-        raw_result_capture: None,
-        trap_discard_error_results: HashSet::new(),
-        raw_result_discard_error: false,
-        suppress_resource_source_flag: false,
-        emitting_error_route: false,
-        building_error_block: false,
-        current_file: String::new(),
-        current_loc: NirSourceLoc::default(),
-        resource_owners: HashMap::new(),
-        owner_containers: HashSet::new(),
-        owned_list_heads: HashMap::new(),
-        owned_value_slots: Vec::new(),
-        pending_temp_frees: Vec::new(),
-        for_each_iterable_locals: Vec::new(),
-        for_each_iterable_state_fields: Vec::new(),
-        for_each_iterable_record_fields: Vec::new(),
-        string_capacity_slots: HashMap::new(),
-        math_pool_base_vreg: None,
-        vector_natives: HashMap::new(),
-        next_vector_native: 0,
-        promoted_vector_locals: HashMap::new(),
-        promotable_vector_locals: HashSet::new(),
-        integer_lower_bounds: HashMap::new(),
-        integer_strict_upper: std::collections::HashSet::new(),
-        for_bound_expr: HashMap::new(),
-        len_of_local: HashMap::new(),
-        provable_index_locals: HashMap::new(),
-    };
+        type_model,
+    );
 
     let stack_offset = builder.allocate_stack_object("value", 8);
     builder.locals.insert(
@@ -1357,6 +1320,8 @@ pub(crate) fn lower_abi_function_helper(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: HashSet::new(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1500,6 +1465,8 @@ pub(crate) fn lower_thread_copy_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
+        // A helper body constructs nothing through the NIR arm.
+        synthesized_constructors: HashSet::new(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),

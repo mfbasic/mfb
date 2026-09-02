@@ -9,9 +9,9 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' plan-77 R2: a scalar is in script `name` iff its generated Script property
-' (`__regex_scriptOf`) equals `name`.
+' (`regex::scriptOf`) equals `name`.
 FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
-  RETURN __regex_scriptOf(cp) = name
+  RETURN regex::scriptOf(cp) = name
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

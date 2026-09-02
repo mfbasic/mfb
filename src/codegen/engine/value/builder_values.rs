@@ -72,7 +72,15 @@ impl CodeBuilder<'_> {
         if let Some(loc) = value_loc(value) {
             self.current_loc = loc;
         }
+        // plan-118-A: attribute the instructions this expression emits to its
+        // kind (and call target). Exclusive — an operand's own frame subtracts
+        // itself from this one — so the report partitions the module.
+        crate::codegen::engine::expansion::enter(
+            || crate::codegen::engine::expansion::value_key(value),
+            self.instructions.len(),
+        );
         let mut result = self.lower_value_inner(value);
+        crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             self.register_pending_temp(value, result);
@@ -226,7 +234,28 @@ impl CodeBuilder<'_> {
     pub(crate) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
         Self::value_is_aliasing_source(value)
             || self.static_string_value(value).is_some()
+            || Self::call_returns_rodata_string(value)
             || self.call_returns_param_borrow(value)
+    }
+
+    /// plan-118-B: whether `value` is a call to one of the internal Unicode
+    /// property lookups, whose result is a pointer INTO A RODATA name table
+    /// rather than a fresh arena block.
+    ///
+    /// `static_string_value` cannot see these: it classifies by knowing the
+    /// string at compile time, and the category of a runtime scalar is only
+    /// known at runtime. But the ownership consequence is identical to a string
+    /// literal's — an owning store must deep-copy, and a bare temp must not be
+    /// freed — and getting it wrong is the same crash a `typeName` fold mismatch
+    /// causes a few lines below: scope-drop `arena_free`s a read-only constant,
+    /// which writes the free list into rodata and takes SIGBUS. Observed exactly
+    /// that on `LET cat AS String = regex::genCat(cp)` before this arm existed.
+    fn call_returns_rodata_string(value: &NirValue) -> bool {
+        matches!(
+            value,
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. }
+                if matches!(target.as_str(), "regex.genCat" | "regex.scriptOf" | "strings.genCat")
+        )
     }
 
     /// plan-86 K1: whether `value` is a call to a user function that returns a borrow
@@ -1207,6 +1236,15 @@ impl CodeBuilder<'_> {
                 // freeing them, orphaning it (a per-caught-error leak). Free those
                 // consumed arg temps right here so the record is self-contained on
                 // every path (plan-25 comment: a record temp is a single arena_free).
+                // plan-118-D: the per-TYPE census behind the synthesis threshold.
+                // `val:Constructor` in the expansion tally is the aggregate; this
+                // splits it by record/variant type so "which types are constructed
+                // often enough for a shared function to amortize" is a measurement
+                // rather than an assumption. Inclusive of the arguments' own
+                // lowering (the aggregate row is the exclusive one), which is the
+                // right reading here: the question is what a construction site
+                // costs in total. Counted under `-vv` only.
+                let census_start = self.instructions.len();
                 let arg_temp_watermark = self.pending_temp_frees.len();
                 let mut arg_values = Vec::new();
                 let mut arg_slots = Vec::new();
@@ -1227,7 +1265,18 @@ impl CodeBuilder<'_> {
                     // A record inlines its `String` fields into a trailing data
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
-                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
+                    //
+                    // plan-118-D: for a type constructed often enough to amortize
+                    // it, all of that — the allocation, the failure block, the
+                    // field stores, a byte-copy loop per String field — is in
+                    // `construct.T` and this site marshals and calls. The helper
+                    // is built by replaying THIS emitter, so the layout law is
+                    // not forked.
+                    let register = if self.synthesized_constructors.contains(type_) {
+                        self.emit_construct_helper_call(type_, &arg_slots)?
+                    } else {
+                        self.emit_build_inlined_record(type_, &arg_slots)?
+                    };
                     // The record now owns byte-inlined copies of every field, so the
                     // consumed nested arg blocks are dead — free them (the record
                     // register is live across these frees and preserved by the vreg
@@ -1238,6 +1287,11 @@ impl CodeBuilder<'_> {
                     self.drop_pending_temps_to(arg_temp_watermark)?;
                     let result = self.temporary_vreg();
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+                    crate::trace::count_tally(
+                        "constructor type",
+                        || format!("record {type_}"),
+                        (self.instructions.len() - census_start) as u64,
+                    );
                     return Ok(ValueResult {
                         origin: None,
                         type_: type_.clone(),
@@ -1319,6 +1373,11 @@ impl CodeBuilder<'_> {
                     ));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                crate::trace::count_tally(
+                    "constructor type",
+                    || format!("variant {type_}"),
+                    (self.instructions.len() - census_start) as u64,
+                );
                 Ok(ValueResult {
                     origin: None,
                     type_: union_name.clone(),

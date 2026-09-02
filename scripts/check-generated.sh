@@ -51,7 +51,12 @@ check() {
 # {func_,helper_}*.rs since the package.mfb split; a dedicated checker extracts
 # and compares them per-FUNC instead of a single-artifact byte compare.
 if python3 scripts/check_vector_bodies.py; then :; else status=1; fi
-check scripts/gen_regex_unicode.py src/codegen/string/unicode/unicode_gencat.mfb
-check scripts/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_of.mfb
+# plan-118-B: the per-SCALAR general-category and Script tables are rodata run
+# tables now, not generated MFBASIC. `gen_unicode_script_table.py` imports
+# `gen_regex_scripts.runs()` rather than re-reading the UCD, so the script name
+# table and the script run table cannot disagree about a scalar.
+check scripts/gen_unicode_gencat_table.py src/codegen/string/unicode/unicode_gencat_ranges.txt
+check scripts/gen_unicode_script_table.py src/codegen/string/unicode/unicode_script_ranges.txt
+check scripts/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_names.mfb
 
 exit "$status"

@@ -223,15 +223,31 @@ flavor).[[src/target.rs:write_executable]]
 Repeating the flag — `-vv`, `-v -v`, or `--verbose --verbose` — selects `Trace`,
 the compile profiler.[[src/trace.rs]] It prints everything `-v` does, adds a
 `codegen: <stage> <N>ms` completion line after each live sub-stage, and, once the
-build finishes, three reports on stderr: a **span tree** of nested named regions
+build finishes, four reports on stderr: a **span tree** of nested named regions
 with total/self/count/share per row (front-end phases and their sub-steps, the
 codegen sub-stages, per-function lowering, register allocation and its four
 stages, and every Opt1/Opt2 pass by catalog-row name); **leaderboards** naming the
-slowest individual functions and runtime helpers, and the costliest builtins by
-total inline-lowering time; and **counters** for the input sizes (source files,
-HIR functions either side of monomorphization, IR/NIR functions, NIR statements,
-emitted machine instructions). Tree rows under 1ms are folded into one summary
-line that states how many were folded and their total. Like every other level it
+slowest individual functions and runtime helpers, the costliest builtins by
+total inline-lowering time, and — measured in emitted instructions rather than
+time — the **largest** individual functions; a **`costliest expansion`** tally
+attributing every builder-emitted instruction to the NIR construct that produced
+it (`binop:Concat`, `val:Constructor`, `op:Return`, `call:toString`, …), summed
+per construct kind and **exclusive**, so a nested operand's instructions are
+credited to it and not again to each enclosing level; and **counters** for the
+input sizes (source files, HIR functions either side of monomorphization, IR/NIR
+functions, NIR statements, the recursive NIR op count, emitted machine
+instructions). Tree rows under 1ms are folded into one summary line that states
+how many were folded and their total.
+
+The two NIR counters differ on purpose. `NIR statements` is flat — it sums each
+function's top-level statement count, so a loop body or an `IF` tree counts as
+one — while `NIR ops (recursive)` counts every op at every nesting level. The
+recursive one is the honest denominator for an instructions-per-op expansion
+ratio; the flat one is kept because the historical numbers in
+`planning/speed.md` are stated against it. The `costliest expansion` total is
+smaller than the `machine instructions` counter: frame prologues, register-
+allocator spill code and slot zeroing are emitted outside any construct's frame,
+and the peepholes delete instructions after attribution. Like every other level it
 is print-only — spans are inert unless `-vv` armed them, and the emitted artifact
 bytes are unchanged.
 

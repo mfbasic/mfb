@@ -17,8 +17,8 @@ IMPORT collections
 ' end-of-month clamping) and daysInMonth, and measure a multi-year span via
 ' between. Phase 1 (not arena-sensitive: fixed-size DateTime records, no strings).
 FUNC test_datetime_civil(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET z AS Zone = datetime::utc()
-  LET midnight AS Time = datetime::time(0, 0)
+  LET z AS datetime::Zone = datetime::utc()
+  LET midnight AS datetime::Time = datetime::time(0, 0)
   LET days AS Integer = 2000
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -26,15 +26,15 @@ FUNC test_datetime_civil(run AS Integer, tests AS List OF BenchResult) AS List O
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     ' day-by-day walk from 2000-01-01
-    MUT dt AS DateTime = datetime::civil(datetime::date(2000, 1, 1), midnight, z)
+    MUT dt AS datetime::DateTime = datetime::civil(datetime::date(2000, 1, 1), midnight, z)
     FOR i = 0 TO days - 1
       dt = datetime::addDays(dt, 1)
       acc = acc + dt.date.year + dt.date.month + dt.date.day
     NEXT
     ' addMonths sweep from Jan 31 (exercises day clamping to 28/29/30)
-    MUT dm AS DateTime = datetime::civil(datetime::date(2000, 1, 31), midnight, z)
+    MUT dm AS datetime::DateTime = datetime::civil(datetime::date(2000, 1, 31), midnight, z)
     FOR k = 0 TO 47
-      LET d2 AS DateTime = datetime::addMonths(dm, k)
+      LET d2 AS datetime::DateTime = datetime::addMonths(dm, k)
       acc = acc + d2.date.day + d2.date.month
     NEXT
     ' daysInMonth over 2000 and 2100 (leap vs non-leap century)
@@ -42,9 +42,9 @@ FUNC test_datetime_civil(run AS Integer, tests AS List OF BenchResult) AS List O
       acc = acc + datetime::daysInMonth(2000, m) + datetime::daysInMonth(2100, m)
     NEXT
     ' span in days between 2000-01-01 and 2020-01-01 via between()
-    LET a AS Instant = datetime::resolve(datetime::civil(datetime::date(2000, 1, 1), midnight, z))
-    LET b AS Instant = datetime::resolve(datetime::civil(datetime::date(2020, 1, 1), midnight, z))
-    LET span AS Duration = datetime::between(a, b)
+    LET a AS datetime::Instant = datetime::resolve(datetime::civil(datetime::date(2000, 1, 1), midnight, z))
+    LET b AS datetime::Instant = datetime::resolve(datetime::civil(datetime::date(2020, 1, 1), midnight, z))
+    LET span AS datetime::Duration = datetime::between(a, b)
     acc = acc + span.seconds / 86400
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -57,18 +57,18 @@ END FUNC
 ' ISO format/parse round-trip. Arena-gated (plan-44-J): per-call String churn,
 ' arena quadratic fixed by plan-64-A1 (successor to plan-44-J); `reps` raised to target.
 FUNC test_datetime_iso(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET z AS Zone = datetime::utc()
+  LET z AS datetime::Zone = datetime::utc()
   LET reps AS Integer = 2000
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
-    MUT dt AS DateTime = datetime::civil(datetime::date(2023, 1, 1), datetime::time(14, 30, 45), z)
+    MUT dt AS datetime::DateTime = datetime::civil(datetime::date(2023, 1, 1), datetime::time(14, 30, 45), z)
     FOR rep = 0 TO reps - 1
       dt = datetime::addDays(dt, 1)
       LET iso AS String = datetime::toIso(dt)
-      LET back AS DateTime = datetime::parseIso(iso)
+      LET back AS datetime::DateTime = datetime::parseIso(iso)
       acc = acc + back.date.year + back.date.month + back.date.day
       acc = acc + back.time.hour + back.time.minute + back.time.second
     NEXT

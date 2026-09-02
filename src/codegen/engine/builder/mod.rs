@@ -13,6 +13,7 @@ use crate::codegen::builtins::vector::builder_simd_float_math;
 use crate::codegen::engine::mir;
 use crate::codegen::link::locator as link_locator;
 use crate::codegen::link::thunk as link_thunk;
+use crate::codegen::memory::marshal::construct_helpers::*;
 use crate::codegen::term::core as term;
 use crate::target::shared::abi;
 use crate::target::shared::nir::{self, NirFunction, NirModule, NirSourceLoc, NirValue};
@@ -29,6 +30,9 @@ use crate::codegen::collection::sort::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::park_error_helper::{
+    lower_drop_owned_collection_helper, lower_drop_owned_string_helper, lower_park_error_helper,
+};
 use crate::codegen::error::result::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::os::process::*;
@@ -186,6 +190,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
+    /// plan-118-D: record types this module constructs often enough to get their
+    /// own `construct.T` function. A construction of a type in here marshals and
+    /// calls instead of inlining the allocation, the failure block, the field
+    /// stores and a byte-copy loop per `String` field. Computed once per module
+    /// from the NIR, so caller and callee cannot disagree about which types are
+    /// synthesized. Shared verbatim across all functions in the build.
+    pub(crate) synthesized_constructors: HashSet<ParameterType>,
     pub(crate) next_label: usize,
     pub(crate) trap: Option<TrapState>,
     pub(crate) loop_stack: Vec<LoopLabels>,
@@ -394,6 +405,97 @@ pub(crate) struct CodeBuilder<'a> {
     /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
     /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
     pub(crate) provable_index_locals: HashMap<String, (String, i64)>,
+}
+
+impl<'a> CodeBuilder<'a> {
+    /// A builder for a **synthesized** function — one the compiler emits that no
+    /// NIR function corresponds to: a builtin `FunctionRef` wrapper, or one of
+    /// plan-118's out-of-line `runtime.*` helpers.
+    ///
+    /// Everything not passed is the empty/default state a fresh function starts
+    /// in. Factored out because three sites already spelled this ~60-field
+    /// literal by hand, and plan-118 adds more: a new `CodeBuilder` field that a
+    /// synthesized function forgets to initialize is a silent miscompile in
+    /// exactly the code paths no NIR fixture covers.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_synthetic_function(
+        symbol: &str,
+        function_symbols: &'a HashMap<String, String>,
+        functions: &'a HashMap<String, &'a NirFunction>,
+        package_return_types: &'a HashMap<String, ParameterType>,
+        platform_imports: &'a HashMap<String, String>,
+        platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
+        build_mode: crate::target::NativeBuildMode,
+        globals: &'a HashMap<String, GlobalValue>,
+        string_symbols: &'a HashMap<String, String>,
+        type_model: TypeModel,
+    ) -> Self {
+        CodeBuilder {
+            current_symbol: symbol.to_string(),
+            function_symbols,
+            functions,
+            package_return_types,
+            platform_imports,
+            platform,
+            build_mode,
+            globals,
+            type_model,
+            string_symbols,
+            locals: HashMap::new(),
+            instructions: vec![abi::label("entry")],
+            relocations: Vec::new(),
+            stack_slots: Vec::new(),
+            used_callee_saved: Vec::new(),
+            stack_size: 0,
+            next_register: 8,
+            next_vreg: 0,
+            next_fp_vreg: 0,
+            float_residents: HashMap::new(),
+            promoted_float_locals: HashMap::new(),
+            address_taken_locals: HashSet::new(),
+            value_used_locals: HashSet::new(),
+            borrow_get_locals: HashSet::new(),
+            borrow_get_result: false,
+            current_returns_param_borrow: false,
+            callback_referenced_functions: HashSet::new(),
+            synthesized_constructors: HashSet::new(),
+            next_label: 0,
+            trap: None,
+            loop_stack: Vec::new(),
+            active_cleanups: Vec::new(),
+            cleanup_scope_starts: Vec::new(),
+            pending_result_slots: None,
+            escaping_value_slot: None,
+            error_arena_restore_slot: None,
+            raw_result_capture: None,
+            trap_discard_error_results: HashSet::new(),
+            raw_result_discard_error: false,
+            suppress_resource_source_flag: false,
+            emitting_error_route: false,
+            building_error_block: false,
+            current_file: String::new(),
+            current_loc: NirSourceLoc::default(),
+            resource_owners: HashMap::new(),
+            owner_containers: HashSet::new(),
+            owned_list_heads: HashMap::new(),
+            owned_value_slots: Vec::new(),
+            pending_temp_frees: Vec::new(),
+            for_each_iterable_locals: Vec::new(),
+            for_each_iterable_state_fields: Vec::new(),
+            for_each_iterable_record_fields: Vec::new(),
+            string_capacity_slots: HashMap::new(),
+            math_pool_base_vreg: None,
+            vector_natives: HashMap::new(),
+            next_vector_native: 0,
+            promoted_vector_locals: HashMap::new(),
+            promotable_vector_locals: HashSet::new(),
+            integer_lower_bounds: HashMap::new(),
+            integer_strict_upper: std::collections::HashSet::new(),
+            for_bound_expr: HashMap::new(),
+            len_of_local: HashMap::new(),
+            provable_index_locals: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1360,6 +1462,17 @@ pub(crate) fn lower_module_for_platform(
     let callback_referenced_functions = crate::trace::timed("collect function refs", || {
         collect_function_ref_names(module)
     });
+    // plan-118-D: which record types get their own `construct.T`. Decided ONCE
+    // for the module, before any function lowers, so a construction site and the
+    // synthesis below cannot disagree about whether the function exists.
+    let constructor_types = crate::trace::timed("census constructor types", || {
+        synthesized_constructor_types(module, &type_model)
+    });
+    let synthesized_constructors = synthesized_constructor_set(&constructor_types);
+    crate::trace::count(
+        "synthesized construct.T",
+        synthesized_constructors.len() as u64,
+    );
     for function in &module.functions {
         // `-vv` (`crate::trace`): the per-function codegen cost, recorded twice —
         // aggregated into the span tree (so its sub-stages nest underneath) and
@@ -1382,6 +1495,7 @@ pub(crate) fn lower_module_for_platform(
                     &globals,
                     &string_symbols,
                     &callback_referenced_functions,
+                    &synthesized_constructors,
                     type_model.clone(),
                 )
             },
@@ -1898,6 +2012,106 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
+    // plan-118-D: one `construct.T` per record type the census qualified, gated
+    // on the relocation like every other internal `bl` target — a type can
+    // qualify on site count and still have every site fold away.
+    for (type_, arity) in &constructor_types {
+        let symbol = construct_symbol(type_);
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == symbol)
+        });
+        if used {
+            code_functions.push(lower_construct_helper(
+                type_,
+                *arity,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+    }
+    // plan-118-E: the shared owned flat-collection scope drop. Same gate.
+    let uses_drop_owned_collection = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_COLLECTION_SYMBOL)
+    });
+    if uses_drop_owned_collection {
+        code_functions.push(lower_drop_owned_collection_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // plan-118-E: the shared owned-`String` scope drop. Same relocation gate.
+    let uses_drop_owned_string = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == DROP_OWNED_STRING_SYMBOL)
+    });
+    if uses_drop_owned_string {
+        code_functions.push(lower_drop_owned_string_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // plan-118-E: the shared error-block park, the single largest shape left in
+    // the module after B/C/D. Same relocation gate.
+    let uses_park_error = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == PARK_ERROR_SYMBOL)
+    });
+    if uses_park_error {
+        code_functions.push(lower_park_error_helper(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // plan-118-C: the shared `String` concat. Same demand gate as the map
+    // helpers — an internal `bl` target, emitted iff a lowered function
+    // relocates against it.
+    let uses_string_concat = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == STRING_CONCAT_SYMBOL)
+    });
+    if uses_string_concat {
+        code_functions.push(lower_string_concat_helper());
+    }
     // The in-tree Float decimal formatter (float_format.rs): an internal `bl`
     // target emitted by `emit_float_to_string_value` call sites, so gate on the
     // relocations like the map-hash helpers.
@@ -1910,6 +2124,42 @@ pub(crate) fn lower_module_for_platform(
     if uses_float_to_string {
         code_functions.push(lower_float_to_string_helper());
     }
+    // plan-118-C: the integer twin of the float formatter, same gate.
+    let uses_int_to_string = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == INT_TO_STRING_SYMBOL)
+    });
+    if uses_int_to_string {
+        code_functions.push(lower_int_to_string_helper());
+    }
+    // plan-118-C: the synthesized `toString` renderers (Fixed/Money/byte-list/
+    // Scalar). Same relocation gate; each is built by replaying the very emitter
+    // the call site used to inline, so nothing can drift between them.
+    for kind in ToStringHelper::every() {
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == kind.symbol())
+        });
+        if used {
+            code_functions.push(lower_to_string_helper(
+                kind,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+    }
+
     if module_uses_call(module, "fs.pathJoin") {
         code_functions
             .push(crate::codegen::builtins::fs::gen_path_builder::lower_fs_path_join_helper());
@@ -1982,6 +2232,27 @@ pub(crate) fn lower_module_for_platform(
             size: words.len() * 16,
             value: builder_simd_float_math::math_const_pool_data_value(),
         });
+    }
+
+    // A synthesized function (plan-118-C's `toString` renderers, plan-118-D's
+    // `construct.T`) has no source file, so its allocation-failure path builds
+    // an `ErrorLoc` with an empty filename and relocates against the
+    // empty-string constant — which the module's own code may never have
+    // required. Same force-emit the recursive-copy functions above need, and for
+    // the same reason; without it the link dies on an undefined
+    // `_mfb_str_empty`. Scanned over EVERY function rather than a suffix: the
+    // synthesis sites are interleaved with the demand gates, and an earlier
+    // version that only looked at the tail missed `construct.T` entirely.
+    if code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == EMPTY_STRING_SYMBOL)
+    }) && !data_objects
+        .iter()
+        .any(|object| object.symbol == EMPTY_STRING_SYMBOL)
+    {
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
 
     // Unicode property/mapping tables (`strings::upper/lower/caseFold/
@@ -2493,6 +2764,130 @@ pub(crate) fn lower_map_bucket_put_helper() -> CodeFunction {
 /// equality is byte-wise over `keyLength` bytes — identical to the linear-scan
 /// comparison it replaces. Has a one-slot frame to preserve the link register
 /// across the build call.
+/// `_mfb_rt_string_concat(left, right) -> block | 0` — the shared two-operand
+/// `String` concatenation (plan-118-C).
+///
+/// `binop:Concat` was the single largest expansion category in the module:
+/// 2,907,604 builder-emitted instructions over 17,221 sites, 169 each, because
+/// every `a & b` inlined the length loads, the arena allocation, the header
+/// store, and TWO byte-at-a-time copy loops. All of that is here once; a call
+/// site becomes two argument moves, a `bl`, and a null check.
+///
+/// The copies are word-at-a-time where the alignment permits it. An arena block
+/// is 8-aligned and both payloads start at `+8`, so copying the LEFT operand
+/// keeps both cursors aligned for as long as 8 bytes remain. The RIGHT operand's
+/// destination is only aligned when the left length is a multiple of 8, so that
+/// case is tested at run time and falls back to bytes otherwise — rather than
+/// issuing an unaligned word access, which a riscv64 target may service by a
+/// kernel trap.
+///
+/// The allocation error stays at the call site: an `ErrOutOfMemory` carries the
+/// `ErrorLoc` of the concatenation that failed, and a shared helper has no line
+/// or column. So this returns a null pointer and the site raises.
+pub(crate) fn lower_string_concat_helper() -> CodeFunction {
+    let symbol = STRING_CONCAT_SYMBOL;
+    let fail = format!("{symbol}_fail");
+    let left_word = format!("{symbol}_left_word");
+    let left_byte = format!("{symbol}_left_byte");
+    let left_done = format!("{symbol}_left_done");
+    let right_word = format!("{symbol}_right_word");
+    let right_byte = format!("{symbol}_right_byte");
+    let right_done = format!("{symbol}_right_done");
+    let mut instructions = vec![
+        abi::label("entry"),
+        // Park both operands before the allocation call: `_mfb_arena_alloc`
+        // clobbers the argument registers (and on x86-64 rdx via its own
+        // arithmetic), exactly as `lower_map_probe_helper` documents.
+        abi::move_register("%v20", abi::c_arg(0)),
+        abi::move_register("%v21", abi::c_arg(1)),
+        abi::load_u64("%v22", "%v20", 0), // left byteLength
+        abi::load_u64("%v23", "%v21", 0), // right byteLength
+        abi::add_registers("%v24", "%v22", "%v23"),
+        // `mfb.string.v1` is `u64 byteLength; bytes; NUL`, so 8 + len + 1.
+        abi::add_immediate(abi::c_arg(0), "%v24", 9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(&fail),
+        abi::move_register("%v25", abi::mfb_return(1)), // new block
+        abi::store_u64("%v24", "%v25", 0),
+        abi::add_immediate("%v26", "%v25", 8), // write cursor
+        abi::add_immediate("%v27", "%v20", 8), // left payload
+        abi::add_immediate("%v28", "%v21", 8), // right payload
+        // --- left operand: aligned words, then the tail ---
+        abi::move_register("%v29", "%v22"),
+        abi::label(&left_word),
+        abi::compare_immediate("%v29", "8"),
+        abi::branch_lo(&left_byte),
+        abi::load_u64("%v30", "%v27", 0),
+        abi::store_u64("%v30", "%v26", 0),
+        abi::add_immediate("%v27", "%v27", 8),
+        abi::add_immediate("%v26", "%v26", 8),
+        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::branch(&left_word),
+        abi::label(&left_byte),
+        abi::compare_immediate("%v29", "0"),
+        abi::branch_eq(&left_done),
+        abi::load_u8("%v30", "%v27", 0),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::add_immediate("%v27", "%v27", 1),
+        abi::add_immediate("%v26", "%v26", 1),
+        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::branch(&left_byte),
+        abi::label(&left_done),
+        // --- right operand: words only if the write cursor is still aligned ---
+        abi::move_register("%v29", "%v23"),
+        abi::move_immediate("%v31", "Integer", "7"),
+        abi::and_registers("%v30", "%v22", "%v31"),
+        abi::compare_immediate("%v30", "0"),
+        abi::branch_ne(&right_byte),
+        abi::label(&right_word),
+        abi::compare_immediate("%v29", "8"),
+        abi::branch_lo(&right_byte),
+        abi::load_u64("%v30", "%v28", 0),
+        abi::store_u64("%v30", "%v26", 0),
+        abi::add_immediate("%v28", "%v28", 8),
+        abi::add_immediate("%v26", "%v26", 8),
+        abi::subtract_immediate("%v29", "%v29", 8),
+        abi::branch(&right_word),
+        abi::label(&right_byte),
+        abi::compare_immediate("%v29", "0"),
+        abi::branch_eq(&right_done),
+        abi::load_u8("%v30", "%v28", 0),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::add_immediate("%v28", "%v28", 1),
+        abi::add_immediate("%v26", "%v26", 1),
+        abi::subtract_immediate("%v29", "%v29", 1),
+        abi::branch(&right_byte),
+        abi::label(&right_done),
+        abi::move_immediate("%v30", "Integer", "0"),
+        abi::store_u8("%v30", "%v26", 0),
+        abi::move_register(abi::mfb_return(0), "%v25"),
+        abi::return_(),
+        abi::label(&fail),
+        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
+        abi::return_(),
+    ];
+    let relocations = vec![CodeRelocation {
+        from: symbol.to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    }];
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    CodeFunction {
+        name: "runtime.stringConcat".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "String".to_string(),
+        frame,
+        stack_slots,
+        instructions,
+        relocations,
+    }
+}
+
 pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     let symbol = MAP_PROBE_SYMBOL;
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
@@ -2615,7 +3010,6 @@ pub(crate) fn lower_map_probe_helper() -> CodeFunction {
     }
 }
 
-/// Resolve every logical `LINK` library this module names to the concrete
 /// The thunk symbol a resource's registered `CLOSE BY` op resolves to, or `None`
 /// when the name routes to nothing in this module.
 ///
@@ -2647,6 +3041,7 @@ pub(crate) fn resolve_closer_symbol(
     function_symbols.get(rest).cloned()
 }
 
+/// Resolve every logical `LINK` library this module names to the concrete
 /// `source` the declaring binding declared for this build's `(os, arch, libc)`
 /// (plan-46-C §4.2).
 ///

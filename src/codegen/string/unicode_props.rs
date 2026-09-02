@@ -399,6 +399,124 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(property.clone(), property, index));
     }
 
+    /// Look `codepoint` up in one of the pinned Unicode **run tables** and leave
+    /// a `String` pointer to its property value in `output`.
+    ///
+    /// `runs_symbol` names an ascending array of `(u32 lastCodepoint, u32
+    /// nameIndex)` records covering `0 ..= 0x10FFFF`; `names_symbol` names
+    /// `mfb.string.v1` records at a fixed `name_stride`. The search is the
+    /// standard lower-bound bisection — invariant: the answer is in
+    /// `lo ..= hi` — so it is `ceil(log2(runs))` iterations: **12** for the
+    /// 4,099-run general-category table, against the up-to-4,099 compares the
+    /// generated `__regex_genCat` IF-chain it replaces performed (plan-118-B).
+    ///
+    /// `output` is a rodata pointer, not an allocation: the callers compare the
+    /// returned category/script and drop it, and a bare `String` temp is never
+    /// freed (`builder_values.rs::register_pending_temp`), so nothing tries to
+    /// return this pointer to the arena.
+    pub(crate) fn emit_unicode_range_lookup(
+        &mut self,
+        codepoint: impl Into<Operand>,
+        output: impl Into<Operand>,
+        runs_symbol: &str,
+        names_symbol: &str,
+        runs: usize,
+        name_stride: usize,
+    ) {
+        let codepoint: Operand = codepoint.into();
+        let output: Operand = output.into();
+        let low = self.temporary_vreg();
+        let high = self.temporary_vreg();
+        let mid = self.temporary_vreg();
+        let addr = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let (low, high, mid, addr, scratch) = (&low, &high, &mid, &addr, &scratch);
+
+        let loop_label = self.label("unicode_range_loop");
+        let take_upper = self.label("unicode_range_upper");
+        let found = self.label("unicode_range_found");
+
+        self.emit(abi::move_immediate(low, "Integer", "0"));
+        self.emit(abi::move_immediate(
+            high,
+            "Integer",
+            &(runs.saturating_sub(1)).to_string(),
+        ));
+
+        self.emit(abi::label(&loop_label));
+        // `lo >= hi` means the range has collapsed onto the answer.
+        self.emit(abi::compare_registers(low, high));
+        self.emit(abi::branch_ge(&found));
+        self.emit(abi::add_registers(mid, low, high));
+        self.emit(abi::shift_right_immediate(mid, mid, 1));
+        // `RUNS[mid].lastCodepoint`
+        self.emit(abi::shift_left_immediate(addr, mid, 3));
+        self.emit_load_data_address(scratch, runs_symbol);
+        self.emit(abi::add_registers(addr, addr, scratch));
+        self.emit(abi::load_u32(scratch, addr, 0));
+        self.emit(abi::compare_registers(codepoint.clone(), scratch));
+        self.emit(abi::branch_gt(&take_upper));
+        // cp <= end: `mid` still covers it, so it becomes the new upper bound.
+        self.emit(abi::move_register(high, mid));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&take_upper));
+        self.emit(abi::add_immediate(low, mid, 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&found));
+        // `RUNS[lo].nameIndex`, then `NAMES + index * stride`.
+        self.emit(abi::shift_left_immediate(addr, low, 3));
+        self.emit_load_data_address(scratch, runs_symbol);
+        self.emit(abi::add_registers(addr, addr, scratch));
+        self.emit(abi::load_u32(addr, addr, 4));
+        self.emit(abi::move_immediate(
+            scratch,
+            "Integer",
+            &name_stride.to_string(),
+        ));
+        self.emit(abi::multiply_registers(addr, addr, scratch));
+        self.emit_load_data_address(output.clone(), names_symbol);
+        self.emit(abi::add_registers(output.clone(), output, addr));
+    }
+
+    /// The shared body of the `genCat` / `scriptOf` internal members: look the
+    /// one `Integer` argument up in `table` and produce its property value as a
+    /// `String`.
+    ///
+    /// `regex` and `strings` each register their own member over the same
+    /// table (a package's injected companion may only call its OWN package's
+    /// members -- the `astrings::scalarLen` pattern -- and making one import the
+    /// other to share a symbol would drag a whole package into every program
+    /// using the other). Both route here, so there is one lowering.
+    pub(crate) fn lower_unicode_range_member(
+        &mut self,
+        call: &str,
+        args: &[ValueResult],
+        table: &crate::unicode::range_tables::RangeTable,
+        runs_symbol: &str,
+        names_symbol: &str,
+    ) -> Result<ValueResult, String> {
+        if args.len() != 1 {
+            return Err(format!("{call}: no native lowering for these arguments"));
+        }
+        let result = self.allocate_register();
+        let codepoint = args[0].location.clone();
+        self.emit_unicode_range_lookup(
+            codepoint,
+            result.render(),
+            runs_symbol,
+            names_symbol,
+            table.runs.len(),
+            table.name_stride(),
+        );
+        Ok(ValueResult {
+            origin: None,
+            type_: crate::types::ParameterType::String,
+            location: Operand::from(result.render()),
+            text: call.to_string(),
+        })
+    }
+
     pub(crate) fn emit_unicode_property_boundclass(
         &mut self,
         property: impl Into<Operand>,

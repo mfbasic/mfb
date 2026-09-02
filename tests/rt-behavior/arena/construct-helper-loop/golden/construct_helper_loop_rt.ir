@@ -1,0 +1,117 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "construct_helper_loop_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 19,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 20, "name": "label", "type": "String" },
+    { "visibility": null, "line": 21, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 22, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 25,
+    "visibility": "public",
+    "name": "Wide",
+    "fields": [
+    { "visibility": null, "line": 26, "name": "a", "type": "Integer" },
+    { "visibility": null, "line": 27, "name": "b", "type": "Integer" },
+    { "visibility": null, "line": 28, "name": "c", "type": "Integer" },
+    { "visibility": null, "line": 29, "name": "d", "type": "Integer" },
+    { "visibility": null, "line": 30, "name": "e", "type": "Integer" },
+    { "visibility": null, "line": 31, "name": "f", "type": "Integer" },
+    { "visibility": null, "line": 32, "name": "g", "type": "Integer" },
+    { "visibility": null, "line": 33, "name": "h", "type": "Integer" },
+    { "visibility": null, "line": 34, "name": "i", "type": "Integer" },
+    { "visibility": null, "line": 35, "name": "tail", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "mkPoint",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 38, "type": "Integer", "default": null }
+    ],
+    "returns": "Point",
+    "body": [
+    { "op": "return", "line": 39, "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "String", "value": "pt" }, { "kind": "local", "name": "n" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] } }
+    ]
+  },
+  {
+    "name": "mkWide",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 42, "type": "Integer", "default": null }
+    ],
+    "returns": "Wide",
+    "body": [
+    { "op": "return", "line": 43, "value": { "kind": "constructor", "type": "Wide", "args": [{ "kind": "local", "name": "n" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "7" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "8" } }, { "kind": "const", "type": "String", "value": "tail" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 46,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 49, "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 50, "mutable": true, "name": "labels", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 51, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 52,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "20000" } },
+      "body": [
+      { "op": "bind", "line": 53, "mutable": false, "name": "p", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "mkPoint", "args": [{ "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 54, "mutable": false, "name": "w", "type": "Wide", "value": { "kind": "call", "type": "Wide", "target": "mkWide", "args": [{ "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 55, "name": "sum", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "sum" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "y" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "w" }, "member": "i" } } },
+      {
+        "op": "if",
+        "line": 56,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "label" }, "right": { "kind": "const", "type": "String", "value": "pt" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "w" }, "member": "tail" }, "right": { "kind": "const", "type": "String", "value": "tail" } } },
+        "then": [
+        { "op": "assign", "line": 57, "name": "labels", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "labels" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 59, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "sum" }] } }] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "labels=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "labels" }] } }] } },
+    { "op": "bind", "line": 65, "mutable": false, "name": "blank", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "blank" }, "member": "label" } }, "right": { "kind": "const", "type": "String", "value": "]" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "blank" }, "member": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "blank" }, "member": "y" }] } }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "one", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "mkPoint", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "two", "type": "Point", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "one" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "much-longer-label" } }] } },
+    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "one" }, "member": "label" }, "right": { "kind": "const", "type": "String", "value": "|" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "two" }, "member": "label" } }, "right": { "kind": "const", "type": "String", "value": "|" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "one" }, "member": "y" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "two" }, "member": "y" }] } }] } },
+    { "op": "bind", "line": 74, "mutable": false, "name": "w1", "type": "Wide", "value": { "kind": "call", "type": "Wide", "target": "mkWide", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "bind", "line": 75, "mutable": false, "name": "w2", "type": "Wide", "value": { "kind": "call", "type": "Wide", "target": "mkWide", "args": [{ "kind": "const", "type": "Integer", "value": "200" }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "w1" }, "member": "a" }] }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "w1" }, "member": "i" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "w1" }, "member": "tail" } }] } },
+    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "w2" }, "member": "a" }] }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "w2" }, "member": "i" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "w2" }, "member": "tail" } }] } },
+    { "op": "return", "line": 78, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

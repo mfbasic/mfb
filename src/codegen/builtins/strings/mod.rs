@@ -41,6 +41,7 @@ mod func_ends_with;
 mod func_ends_with_any;
 mod func_find;
 mod func_from_scalars;
+mod func_gen_cat;
 mod func_grapheme_at;
 mod func_graphemes;
 mod func_graphemes_count;
@@ -161,6 +162,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_grapheme_at::register(&mut pkg);
     func_graphemes_count::register(&mut pkg);
     func_display_width::register(&mut pkg);
+    func_gen_cat::register(&mut pkg);
     func_trim_chars::register(&mut pkg);
     func_to_bytes::register(&mut pkg);
 

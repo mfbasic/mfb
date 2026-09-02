@@ -457,7 +457,7 @@ impl CodeBuilder<'_> {
         // and origin have been deep-copied into the caller arena and stamped. Build
         // the single owned Error block (in the caller arena) and park it so the
         // catcher ADOPTS it, matching every other propagated error.
-        self.emit_park_error_block_from_registers()?;
+        self.emit_park_error_call();
         Ok(())
     }
 
@@ -507,7 +507,7 @@ impl CodeBuilder<'_> {
         // origin. Build the single owned Error block and park it so the catcher
         // ADOPTS it (freed once) rather than rebuilding — the same funnel every
         // domain error uses.
-        self.emit_park_error_block_from_registers()?;
+        self.emit_park_error_call();
         Ok(())
     }
 
@@ -582,7 +582,7 @@ impl CodeBuilder<'_> {
         // is no memory to park a block, so those stay the loose `RESULT_ERR_TAG`
         // legacy path that the catcher rebuilds.
         if !self.building_error_block && !self.emitting_error_route {
-            self.emit_park_error_block_from_registers()?;
+            self.emit_park_error_call();
         }
         // Inside a raw-capture region (inline `TRAP` on an inline built-in) the
         // error is not propagated: leave the raw `Result` in the standard

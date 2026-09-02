@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""Generate src/codegen/unicode/unicode_script_of.mfb — the full Unicode Script property
-table used by the regex engine's `\\p{Script=...}` (see `mfb spec stdlib regex`).
+"""Generate src/codegen/string/unicode/unicode_script_names.mfb — the canonical
+spelling of each Unicode Script name, for the regex engine's `\\p{Script=...}`
+(see `mfb spec stdlib regex`).
 
-The 10 hand-written script ranges the engine shipped with are replaced by two
-generated functions:
+  * `__regex_scriptCanonName(low)` — the canonical name for a lowercased script
+                                     name, or "" when it is not a script.
 
-  * `__regex_scriptOf(cp)`        — the canonical Script name for a scalar, or
-                                    "Unknown" for scalars with no assigned script.
-  * `__regex_scriptCanonName(low) — the canonical name for a lowercased script
-                                    name, or "" when it is not a script.
+It also exposes `runs()` for `gen_unicode_script_table.py`, which emits the
+per-SCALAR half of the property (`unicode_script_ranges.txt`) as rodata. That
+half used to be generated here too, as `__regex_scriptOf` — a 1,708-arm
+MFBASIC IF-chain compiled into every program at 440,905 machine instructions and
+scanned linearly per query (plan-118-B). One `runs()`, two artifacts, so they
+cannot disagree about a scalar. This 171-arm name table stays MFBASIC: it is
+looked up once per pattern compile, by name, not per scalar.
 
-Emitted as MFBASIC source (flat IF-chains) for the same reason as the
-general-category table (`gen_regex_unicode.py`): MFBASIC list reads copy the
-whole list and the native backends cannot hold a large constant array cheaply.
+Python's `unicodedata` exposes NO Script property, so the data comes from a
+VENDORED copy of the Unicode Character Database `Scripts.txt`, pinned to Unicode
+16.0.0 (`third_party/unicode/Scripts-16.0.0.txt`). Because the generator reads
+only that committed file — never the network or the interpreter's Unicode tables
+— its output is reproducible under any Python 3, so
+`scripts/check-generated.sh` verifies it the same way it verifies the other
+generated artifacts.
 
-Unlike the general-category table, Python's `unicodedata` exposes NO Script
-property, so the data comes from a VENDORED copy of the Unicode Character
-Database `Scripts.txt`, pinned to Unicode 16.0.0
-(`third_party/unicode/Scripts-16.0.0.txt`). Because the generator reads only that
-committed file — never the network or the interpreter's Unicode tables — its
-output is reproducible under any Python 3, so `scripts/check-generated.sh`
-verifies it the same way it verifies the other generated artifacts.
-
-    python3 scripts/gen_regex_scripts.py > src/codegen/unicode/unicode_script_of.mfb
+    python3 scripts/gen_regex_scripts.py > src/codegen/string/unicode/unicode_script_names.mfb
 """
 import os
 import sys
@@ -59,33 +59,40 @@ def parse_scripts():
     return scripts, version
 
 
-def main():
-    scripts, version = parse_scripts()
+def runs():
+    """`(runs, names, version)` — contiguous (lo, hi, script) runs covering
+    0 .. 0x10FFFF, the sorted non-`Unknown` script names, and the pinned Unicode
+    version.
 
-    runs = []
+    Shared with `gen_unicode_script_table.py`, which emits the same runs as a
+    native rodata range table (plan-118-B). One computation, two artifacts, so
+    they cannot disagree about a scalar.
+    """
+    scripts, version = parse_scripts()
+    out = []
     start = 0
     cur = scripts[0]
     for cp in range(1, MAX):
         if scripts[cp] != cur:
-            runs.append((start, cp - 1, cur))
+            out.append((start, cp - 1, cur))
             start = cp
             cur = scripts[cp]
-    runs.append((start, MAX - 1, cur))
-
+    out.append((start, MAX - 1, cur))
     names = sorted(name for name in set(scripts) if name != "Unknown")
+    return out, names, version
+
+
+def main():
+    _runs, names, version = runs()
 
     out = []
     out.append("REM GENERATED FILE — do not edit by hand.")
     out.append("REM Source: scripts/gen_regex_scripts.py")
     out.append(f"REM Pinned Unicode version: {version}")
     out.append("REM Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).")
-    out.append("REM Runs are contiguous and cover 0 .. 0x10FFFF (Unknown = no script).")
-    out.append("")
-    out.append("FUNC __regex_scriptOf(cp AS Integer) AS String")
-    for _lo, hi, name in runs:
-        out.append(f'  IF cp <= {hi} THEN RETURN "{name}"')
-    out.append('  RETURN "Unknown"')
-    out.append("END FUNC")
+    out.append("REM Maps a lowercased script name to its canonical spelling, for `\\p{Script=…}`.")
+    out.append("REM The per-scalar table that used to head this file is now the rodata run table")
+    out.append("REM `unicode_script_ranges.txt`, looked up by `regex::scriptOf` (plan-118-B).")
     out.append("")
     out.append("FUNC __regex_scriptCanonName(low AS String) AS String")
     for name in names:
@@ -95,9 +102,7 @@ def main():
     out.append("")
 
     sys.stdout.write("\n".join(out))
-    sys.stderr.write(
-        f"{len(runs)} runs, {len(names)} scripts, Unicode {version}\n"
-    )
+    sys.stderr.write(f"{len(names)} scripts, Unicode {version}\n")
 
 
 if __name__ == "__main__":
