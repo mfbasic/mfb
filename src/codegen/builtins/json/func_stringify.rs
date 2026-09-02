@@ -38,14 +38,23 @@ round-trips: the whole-number form is tried first, so an integral value emits as
 `100` rather than `100.0`, and otherwise the *shortest* fractional rendering that
 parses back to exactly the same `Float` is searched for and used. The round trip
 is verified rather than assumed — `3.141592653589793` serializes with all of its
-digits intact, not truncated to a fixed precision. If no rendering round-trips,
-the call fails rather than emitting a silently lossy number.
+digits intact, not truncated to a fixed precision.
 
-The number path also guards against a non-finite `Float`, but that guard is
-unreachable from ordinary MFBASIC code: no user-accessible `Float` is non-finite,
-because storing a `NaN` or an infinity into a record field is an observation
-boundary that fails first with `ErrFloatNaN` or `ErrFloatOverflow`. A `json::JsonNum`
-therefore cannot be constructed around a non-finite value in the first place.
+The renderings searched are fixed-point ones of up to 25 decimal places, so a
+`Float` too small to reach its first significant digit within 25 places has no
+candidate that round-trips — `1e-30` and `5e-324` are the sort of value this
+reaches. Rather than emit a silently lossy number, the call fails with
+`errorCode::ErrInvalidFormat`. Such a value parses in and can be read back out of
+a `json::Json`; it is only writing it as text that has no answer here.
+
+The number path also guards against a non-finite `Float`, failing with
+`errorCode::ErrFloatNaN` for a `NaN` and `errorCode::ErrFloatInf` for an infinity.
+That guard is unreachable from ordinary MFBASIC code: no user-accessible `Float`
+is non-finite, because storing a `NaN` or an infinity into a record field is an
+observation boundary that fails first with `ErrFloatNaN` or `ErrFloatOverflow`. A
+`json::JsonNum` therefore cannot be constructed around a non-finite value in the
+first place, and the guard stands only so that any future path that could reach
+it says which non-finite value it was.
 
 The argument accepts the `json::Json` union or any one of its six member types
 (`json::JsonNull`, `json::JsonBool`, `json::JsonNum`, `json::JsonStr`, `json::JsonArr`, `json::JsonObj`) directly, so
@@ -149,13 +158,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                    desc: "The value to read from. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; traversal only succeeds through JsonObj members.",
+                desc: "The value to serialize. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; arrays and objects are serialized recursively, so one call renders a whole tree.",
                 aliases: &[],
                 ty: ParameterType::named("Json"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            // plan-120-A: this was empty, so the page rendered no Errors section
+            // at all even though `stringify` has always been able to fail —
+            // `ErrInvalidFormat` when no fixed-point rendering round-trips (a
+            // Float too small to reach a significant digit in 25 places, e.g.
+            // 1e-30). The two non-finite codes are unreachable from ordinary
+            // MFBASIC (see the DESC) but are what the guard raises, and a
+            // handler matching on them should be able to find them documented.
+            errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
             body: Body::mfb(FUNC_BODY, "__json_stringify"),
         }],
     });

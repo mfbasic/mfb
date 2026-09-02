@@ -24,7 +24,6 @@ mod helper_expect_literal_at;
 mod helper_hex_digit;
 mod helper_is_digit;
 mod helper_is_high_surrogate;
-mod helper_is_invalid_number_text;
 mod helper_is_low_surrogate;
 mod helper_is_non_zero_digit;
 mod helper_is_raw_control_char;
@@ -39,6 +38,7 @@ mod helper_parse_object_items;
 mod helper_parse_string;
 mod helper_parse_unicode_escape;
 mod helper_parse_value;
+mod helper_require_finite_number_text;
 mod helper_skip_whitespace;
 mod helper_stringify_number;
 mod helper_to_number;
@@ -69,9 +69,15 @@ The package defines the `json::Json` union and its six member types. `json::Json
 `String`, `json::JsonArr` holds a `List OF json::Json`, and `json::JsonObj` holds a
 `Map OF String TO json::Json`. Every JSON form maps to exactly one variant, and
 `json::stringify` accepts either the `json::Json` union or any one of its member types
-directly. Because numbers are carried as `Float`, very large or very precise
-values may lose precision in a parse/stringify round trip, and a `json::JsonNum`
-holding a non-finite `Float` (NaN or infinity) has no JSON form.
+directly. Because numbers are carried as `Float`, a number carrying more digits
+than binary64 holds is rounded to the nearest `Float` at parse time — a real
+precision loss, silent by design, exactly as it is in JavaScript. Magnitude is
+not silent: a number too large for `Float` (`1e400`) fails at parse with
+`errorCode::ErrOverflow`, and one too small to render in 25 decimal places
+(`1e-30`) parses but fails at `json::stringify` with `errorCode::ErrInvalidFormat`.
+A `json::JsonNum` holding a non-finite `Float` (NaN or infinity) has no JSON form
+at all; it cannot be built in the first place, because a non-finite `Float` fails
+at the observation boundary before it reaches a record field.
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
 preserves array item order, emits object pairs in the map's iteration order, and
@@ -229,7 +235,7 @@ pub(crate) fn register(r: &mut Registry) {
     // its own `helper_*.rs` and registers via `add_helper`; order preserved from
     // the old `package.mfb` blob so the compiled `.ncode` stays byte-identical.
     helper_stringify_number::register(&mut pkg);
-    helper_is_invalid_number_text::register(&mut pkg);
+    helper_require_finite_number_text::register(&mut pkg);
     helper_trim_float_text::register(&mut pkg);
     helper_trim_float_text_at::register(&mut pkg);
     helper_escape_string::register(&mut pkg);

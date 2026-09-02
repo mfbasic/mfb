@@ -17,8 +17,11 @@ r#"FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS In
   ' untrusted-input boundary (HTTP bodies, files), so that was a remote crash.
   ' Capping here turns it into an ordinary catchable failure well before the stack
   ' runs out, mirroring the regex engine's __REGEX_DEPTH_LIMIT guard (bug-315).
+  ' plan-120-A: reported as 77050024 ErrDepthExceeded rather than the generic
+  ' 77050003, because the document is well-formed -- it is only nested deeper
+  ' than this reader descends, which is a limit the caller can act on.
   IF depth > __JSON_DEPTH_LIMIT THEN
-    FAIL error(77050003, "invalid JSON format: nested too deeply")
+    FAIL error(77050024, "invalid JSON format: nested too deeply")
   END IF
   LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
   IF nextIndex >= len(chars) THEN

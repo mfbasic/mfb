@@ -10,7 +10,9 @@ IMPORT errorCode
 ' every scalar and aggregate JSON form, number formatting, the full escape set,
 ' \uXXXX and surrogate pairs, duplicate keys, whitespace, complex nested
 ' documents, DEEP nesting up to the 257-frame limit (258 traps), and every error
-' path (parse -> ErrInvalidFormat, get -> ErrNotFound). Expected values were
+' path (parse -> ErrInvalidFormat for a grammar mistake, ErrInvalidSurrogate for
+' an unpaired \u escape, ErrDepthExceeded past the nesting cap, and toFloat's own
+' code for an out-of-range number; get -> ErrNotFound). Expected values were
 ' determined by probing the documented semantics against an independent mental
 ' model of JSON/RFC-8259, not harvested to "just pass".
 '
@@ -180,15 +182,39 @@ TESTING
         expectTrap(pv("tru"), errorCode::ErrInvalidFormat)
         expectTrap(pv("nul"), errorCode::ErrInvalidFormat)
       END TCASE
-      TCASE "string errors: unterminated, lone surrogate, raw controls, bad escape"
+      TCASE "string errors: unterminated, raw controls, bad escape"
         expectTrap(pv("\"abc"), errorCode::ErrInvalidFormat)
-        expectTrap(pv("\"\\uD83D\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("'a'"), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"\\x\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & controlChar(0) & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & controlChar(31) & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & "\n" & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & "\t" & "\""), errorCode::ErrInvalidFormat)
+      END TCASE
+      ' plan-120-A: an unpaired surrogate escape is its own diagnosis. The escape
+      ' is well-formed JSON grammar; what it names is not a Unicode scalar, and
+      ' MFB strings are Unicode text. These cases used to expect ErrInvalidFormat
+      ' — the inputs still fail, the CODE is what moved.
+      TCASE "lone surrogate escapes are ErrInvalidSurrogate, not ErrInvalidFormat"
+        expectTrap(pv("\"\\uD83D\""), errorCode::ErrInvalidSurrogate)
+        expectTrap(pv("\"\\uD800\""), errorCode::ErrInvalidSurrogate)
+        expectTrap(pv("\"\\uDC00\""), errorCode::ErrInvalidSurrogate)
+        ' A high surrogate followed by a NON-surrogate escape is still unpaired.
+        expectTrap(pv("\"\\uD800\\u0041\""), errorCode::ErrInvalidSurrogate)
+        ' A high surrogate followed by a literal (unescaped) character, likewise.
+        expectTrap(pv("\"\\uD800A\""), errorCode::ErrInvalidSurrogate)
+        ' A well-formed pair is NOT an error: U+1F600.
+        expectNTrap(pv("\"\\uD83D\\uDE00\""))
+      END TCASE
+      ' plan-120-A: a number outside Float's range is a RANGE verdict from
+      ' `toFloat`, not a grammar mistake — `__json_toNumber` used to discard that
+      ' verdict and re-raise the generic ErrInvalidFormat.
+      TCASE "out-of-range numbers propagate toFloat's own code"
+        expectTrap(pv("1e400"), errorCode::ErrOverflow)
+        expectTrap(pv("-1e400"), errorCode::ErrOverflow)
+        ' A malformed number is still a grammar mistake.
+        expectTrap(pv("01"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("1e"), errorCode::ErrInvalidFormat)
       END TCASE
       TCASE "well-formed input does not trap"
         expectNTrap(pv("{\"a\":[1,2,{\"b\":null}]}"))
@@ -285,7 +311,7 @@ TESTING
 
     ' -----------------------------------------------------------------------
     ' Deep structural nesting. The parser's hard ceiling is 257 frames (258
-    ' traps ErrInvalidFormat) — but recursing to that limit needs more native
+    ' traps ErrDepthExceeded, plan-120-A) — but recursing to that limit needs more native
     ' stack than this shared runner has after its hundreds of earlier tests, so
     ' the exact over-limit trap is verified from a shallow main() in the csv/json
     ' smoke instead. Here the recursive parse+stringify is exercised at a

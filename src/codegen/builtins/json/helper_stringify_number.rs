@@ -14,17 +14,19 @@ r#"' bug-304: the fractional path used a fixed `toString(value, toByte(9))`. Nin
 ' on numbers -- 3.141592653589793 came back as 3.141592654. Only the integer path
 ' was round-trip-checked.
 '
-' The plain `toString(Float)` is the in-tree shortest-round-trip formatter
-' (`_mfb_rt_float_to_string`), so it already emits the shortest decimal that parses
-' back to the same Float. The integer form is still tried first, so a whole number
-' stays `100` rather than `100.0`. The round-trip is then VERIFIED rather than
-' assumed: a representation that does not parse back exactly is a formatter fault,
-' and emitting silently-wrong JSON is what this bug was.
+' The fix searches renderings and VERIFIES the round trip rather than assuming it:
+' a representation that does not parse back exactly is a formatter fault, and
+' emitting silently-wrong JSON is what this bug was. The integer form is tried
+' first, so a whole number stays `100` rather than `100.0`.
+'
+' plan-120-A corrected the claim that used to stand here, that plain
+' `toString(Float)` is "the in-tree shortest-round-trip formatter". It is not:
+' `_mfb_rt_float_to_string` is an exact FIXED-POINT formatter whose no-places form
+' renders two decimal places (`src/codegen/string/format/float_format.rs:1-3`),
+' which is why this body has to search `places` at all.
 FUNC __json_stringifyNumber(value AS Float) AS String
   LET integerText AS String = toString(value, toByte(0))
-  IF __json_isInvalidNumberText(integerText) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
+  __json_requireFiniteNumberText(integerText)
   IF toFloat(integerText) = value THEN
     RETURN integerText
   END IF
@@ -35,9 +37,7 @@ FUNC __json_stringifyNumber(value AS Float) AS String
   MUT places AS Integer = 1
   WHILE places <= 25
     LET candidate AS String = toString(value, toByte(places))
-    IF __json_isInvalidNumberText(candidate) THEN
-      FAIL error(77050003, "invalid JSON format")
-    END IF
+    __json_requireFiniteNumberText(candidate)
     LET shortened AS String = __json_trimFloatText(candidate)
     IF toFloat(shortened) = value THEN
       RETURN shortened

@@ -37,20 +37,39 @@ union:
 **Strings.** The escapes `\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, and
 `\uXXXX` are decoded. A `\u` escape must be exactly four hex digits; a high
 surrogate must be followed immediately by `\u` and a low surrogate, and the pair
-is combined into one code point. A lone low surrogate, an unpaired high
-surrogate, an unknown escape letter, a truncated escape, or a code point outside
-`0`–`1114111` is rejected. A raw control character (code point below `32`) that
-appears unescaped inside a string is also rejected, as JSON requires.
+is combined into one code point. An unknown escape letter, a truncated escape, or
+a code point outside `0`–`1114111` is rejected with `errorCode::ErrInvalidFormat`.
+A raw control character (code point below `32`) that appears unescaped inside a
+string is also rejected, as JSON requires.
+
+An unpaired surrogate — a lone low surrogate, or a high surrogate not followed by
+a low one — gets its own code, `errorCode::ErrInvalidSurrogate`. Such an escape is
+well-formed JSON; what it names is half of a code point rather than a whole one,
+and an MFBASIC `String` holds Unicode text, so there is nothing to decode it to.
+A document from a system that emits lone surrogates must be repaired before it
+can be read here, and the separate code is what tells you that is the problem.
 
 **Numbers.** The token is validated against the JSON number grammar before it is
 converted: an optional leading `-`, then either a single `0` or a nonzero digit
 followed by further digits, then an optional `.` with at least one digit, then an
 optional `e`/`E` with an optional sign and at least one digit. A leading `+`, a
 leading `.`, a trailing `.`, a superfluous leading zero such as `01`, and the
-JavaScript spellings `NaN` and `Infinity` are all rejected. The accepted token is
-then converted to a `Float` (IEEE 754 binary64), so a value with more precision
-or magnitude than binary64 can carry is approximated at parse time rather than
-rejected.
+JavaScript spellings `NaN` and `Infinity` are all rejected — all with
+`errorCode::ErrInvalidFormat`, because those are grammar mistakes.
+
+The accepted token is then converted to a `Float` (IEEE 754 binary64), and the two
+ways that can go wrong are reported differently:
+
+- **More precision than binary64 carries** is approximated, not rejected.
+  `3.14159265358979311599796346854` parses; it becomes the nearest `Float`.
+- **More magnitude than binary64 carries** is rejected. `1e400` is a valid JSON
+  number with no `Float` anywhere near it, and MFBASIC has no observable infinity
+  to stand in for it, so the conversion's own verdict is raised —
+  `errorCode::ErrOverflow` here. Whatever `toFloat` would say about the same text
+  is what `json::parse` says, so a `TRAP` can tell "this number does not fit" from
+  "this is not JSON" by the code alone.
+
+This is a real difference from JavaScript, which turns `1e400` into `Infinity`.
 
 The parser is iterative rather than recursive at every *scanning* level —
 whitespace runs, digit runs, string bodies, and the sibling elements of a single
@@ -59,10 +78,12 @@ per character.
 
 Structural *nesting*, by contrast, does descend one call per level, so it is
 bounded: a document nested beyond a fixed structural depth (256 levels of arrays
-and objects combined) is rejected with `77050003` rather than being allowed to
-exhaust the native stack. Any realistic document is far within this limit; the cap
-exists only so that adversarial deeply-nested input fails cleanly instead of
-crashing the process.
+and objects combined) is rejected with `errorCode::ErrDepthExceeded` rather than
+being allowed to exhaust the native stack. Any realistic document is far within
+this limit; the cap exists only so that adversarial deeply-nested input fails
+cleanly instead of crashing the process. The code is separate from
+`ErrInvalidFormat` on purpose — the text is well-formed JSON, it is simply nested
+deeper than this reader descends, which is something a caller can act on.
 
 The argument may also be passed by the name `text`."#;
 
@@ -140,7 +161,18 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named("Json"),
-            errors: vec!["ErrInvalidFormat"],
+            // plan-120-A: the rendered Errors table is derived from this list,
+            // and nothing cross-checks it against what the body raises — so it
+            // has to be maintained by hand whenever a FAIL site changes code.
+            // `ErrOverflow` is here because `__json_toNumber` re-raises
+            // `toFloat`'s verdict rather than swallowing it; the grammar is
+            // pre-validated, so overflow is the only verdict that gets through.
+            errors: vec![
+                "ErrInvalidFormat",
+                "ErrInvalidSurrogate",
+                "ErrDepthExceeded",
+                "ErrOverflow",
+            ],
             body: Body::mfb(FUNC_BODY, "__json_parse"),
         }],
     });
