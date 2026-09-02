@@ -58,8 +58,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Windows box reachable | `ssh -p 2230 test@127.0.0.1 "echo ok"` | MET (spike) |
-| Cross-build produces a runnable PE | `mfb build --target windows-x86_64` + box run | MET (spike ran 3 PEs) |
+| Windows box reachable | `ssh -p 2230 test@127.0.0.1 "echo ok"` | MET (re-run 2026-09-01, prints `ok`) |
+| Cross-build produces a runnable PE | `mfb build --target windows-x86_64` + box run | MET (re-run 2026-09-01: `argdump.exe` + `spawner.exe` both built and executed on 2230) |
 
 ## 1. Goal
 
@@ -103,7 +103,7 @@ References:
 | Windows spawn body size | 334 lines | `func_spawn.rs:488-820` |
 | Capability rows for `process.` on win | 19 (no shell/spawnEnv) | `grep -c '"process\.' src/target/win_x86_64/mod.rs` → 19 |
 | Quoting defect repro | argc=3 for `["argdump.exe","a b","c"]` | box 2230 run, 2026-09-01 (probe PEs from `mfb build --target windows-x86_64`) |
-| Windows `.ncodesum` fixtures that will churn | UNMEASURED | Phase 1: `grep -rln process tests/byte-identity` + windows-target goldens census |
+| Windows `.ncodesum` fixtures that will churn | **0** | full 132-golden census (`tests/byte-identity/*/golden/*.ncodesum`, each rebuilt for its own target and sha-compared): `unchanged: 132`, zero DIFF. `tests/byte-identity/process` has no `windows-x86_64.ncodesum` at all — the fixture calls `shell` and 4-arg `spawn`, so it cannot build for Windows until B and C land. See Corrections. |
 
 ### Verified properties
 
@@ -150,13 +150,24 @@ plan — every sibling helper is A-API).
 
 ### Phase 1 — refactor to the shared tail (no quoting change yet)
 
-- [ ] `gen_windows.rs`: add `emit_win_spawn_tail` (+ move/share the frame
-      constants); re-emit the 1-arg spawn body through it.
-- [ ] Census + re-sync the churned windows `.ncodesum`/goldens
+- [x] `gen_windows.rs`: add `emit_win_spawn_tail` (+ move/share the frame
+      constants); re-emit the 1-arg spawn body through it. The joiner came out
+      too — `emit_win_build_cmdline` — since letter C needs the same argv build.
+      The 334-line body is now 80 lines of prologue + two shared calls.
+- [x] Census + re-sync the churned windows `.ncodesum`/goldens
       (`regen-ncodesum.sh`; expect ONLY windows-target, process-using
-      fixtures — prove the delta list matches the census).
-- [ ] Ship the spike's probe program (spawn `cmd.exe /C …` matrix) to box
-      2230 and re-run: identical output to the recorded spike baseline.
+      fixtures — prove the delta list matches the census). **0 churned**, so
+      nothing to re-sync; the census is in Measured populations and the
+      *absence* of Windows process coverage is filed in Corrections.
+- [x] Ship the spike's probe program (spawn `cmd.exe /C …` matrix) to box
+      2230 and re-run: identical output to the recorded spike baseline. Landed
+      as `scripts/test-winprocess.sh` (Phase 2's home too) rather than a
+      throwaway: `seq:one`/`seq:two`, `exit:rc=7`, `cat:filed`,
+      `pipe:apple`/`pipe:banana`, `stdin:apple`/`stdin:banana` — 9/9 ok.
+- [x] Added: a standalone argv probe (`argdump.exe` driven by a spawner) run
+      BEFORE and AFTER the refactor — byte-for-byte identical output
+      (`A:argc=3 / arg=[a] / arg=[b]`), proving the code motion changed no
+      behavior. It is the Phase 2 fixture too.
 
 Acceptance: `cargo test --no-fail-fast` green (incl.
 `cli_process_windows_build.rs` nplan assertions);
@@ -203,7 +214,27 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+- **"Windows `.ncodesum` fixtures that will churn: UNMEASURED" → measured 0.**
+  Every one of the 132 `tests/byte-identity/*/golden/*.ncodesum` goldens was
+  rebuilt for its own target and sha-compared: zero differ. The reason is not
+  that the refactor was byte-identical (it is not — slots moved and label names
+  changed); it is that **the Windows `process` backend has no byte-identity
+  coverage at all.** `tests/byte-identity/process/golden/` holds
+  `linux-{x86_64,aarch64,riscv64}` and `macos-aarch64` sums and no
+  `windows-x86_64` one, because the fixture calls `process::shell` and the
+  four-argument `process::spawn` unconditionally and both are compile-time
+  rejected on Windows today. The drift sentinel this plan family would most
+  like to have is the one the family's own subject makes possible — so a new
+  task lands in **plan-119-C Phase 3**, once B and C have made the fixture
+  buildable for `windows-x86_64`.
+- **Phase 1 also factored out the command-line joiner, not just the tail.**
+  The plan's §3 scoped `emit_win_spawn_tail` alone and left the joiner inside
+  `func_spawn.rs`. But letter C builds the *same* quoted argv (its §3 says so
+  explicitly: "argv build (A's quoted builder)"), so leaving it in
+  `func_spawn.rs` would have forced C to either duplicate it or reach across
+  files into a `func_*.rs`. It is now `emit_win_build_cmdline` in
+  `gen_windows.rs`, beside the tail, with its own scratch-slot block
+  (`WIN_CMD_*`) and `WIN_CMDLINE_SCRATCH_END` for callers that need more.
 
 ## Summary
 
