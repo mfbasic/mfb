@@ -314,13 +314,13 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 128` with members at
-/// 0/16/32/48/64/80/96/112 (`glslangValidator -V -q mfb_canvas.vert`, re-measured
-/// 2026-09-01 when plan-116-B added the clip `ivec4`), matching the
+/// `ItemBlock` reports `topLevelArrayStride 176` with members at
+/// 0/16/32/48/64/80/96/112/128/144/160 (`glslangValidator -V -q mfb_canvas.vert`,
+/// re-measured 2026-09-02 when plan-116-D added the arc cap `ivec4`), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 128;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 176;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -350,6 +350,15 @@ pub(crate) const ITEM_ARC_EDGE_BASE: usize = 8;
 /// A glyph reads neither arc angle, so `arc.x` carries the height beside `misc.w`'s
 /// width — the same per-kind reuse the arc/polygon pair already makes of this block.
 pub(crate) const ITEM_ARC_GLYPH_HEIGHT: usize = 0;
+/// The word inside `ITEM_OFFSET_ARC` holding the `CapStyle` tag, 0 or 1 (plan-116-D).
+///
+/// The block's last free word, and the right one: only `Line` and `Arc` read it, and
+/// they are the two kinds this block already serves — a polygon reads
+/// `ITEM_ARC_EDGE_BASE`, a glyph reads `ITEM_ARC_GLYPH_HEIGHT`, and none of the three
+/// uses overlaps another because no item is two kinds at once. Taking a word here is
+/// what keeps `ITEM_BLOCK_SIZE` at 160 rather than growing every item in every scene
+/// to carry one bit for two primitives.
+pub(crate) const ITEM_ARC_CAP: usize = 12;
 /// The surface's width and height, in whole pixels, then the blend mode.
 pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
 /// The word inside `ITEM_OFFSET_SURFACE` holding the `BlendMode` tag, 0..3
@@ -371,6 +380,37 @@ pub(crate) const ITEM_SURFACE_BLEND: usize = 8;
 /// A zero-area rectangle means **unclipped** and is recognised by `x0 >= x1 || y0 >=
 /// y1`, the same test the geometry header uses, so the two agree by construction.
 pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
+/// The inverted transform, as **raw IEEE-754 `float32` bits** in two `ivec4`s
+/// (plan-116-C): `ia, ib, ic, id` at 128 and `itx, ity, hasTransform, unused` at 144.
+///
+/// **Not 16.16, unlike every other geometric field in the block.** An item scaled up
+/// 100× has inverse terms near `0.01`, which 16.16 holds to about four significant
+/// digits — a precision cliff exactly where a transform is doing the most work. Float32
+/// has no such cliff, costs the same four bytes, needs no conversion on the CPU side
+/// (the header slots are already `Float`), and is what the shader arithmetic uses
+/// anyway. The shaders decode with `intBitsToFloat` / `as_type<float>`.
+///
+/// `hasTransform` is a whole 0 or 1, not a float bit pattern: it is compared, never
+/// arithmetic.
+pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
+/// An arc's two sweep endpoints in 16.16 surface pixels — `startX, startY, endX, endY`
+/// (plan-116-D).
+///
+/// The eleventh `ivec4`, and the one member of the block that had to grow it: the
+/// per-kind `arc` block's last free word went to the cap tag, and four coordinates do
+/// not fit in the two words left elsewhere. 160 → 176 bytes, which stays a multiple of
+/// 16 so std430's array stride still equals the size —
+/// `the_item_block_matches_the_std430_stride` is what pins that.
+///
+/// Only a `Round`-capped arc reads them. Every item pays 16 bytes of buffer for it,
+/// which is the trade: the alternative is a per-pixel `sin`/`cos` pair in three
+/// renderers, and the deterministic series the oracle requires is far more expensive
+/// than a fetch.
+pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
+// The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
+// positionally by the same loop that writes the six terms — a named offset for it
+// would be a second way to say where it lives, and one of the two would eventually be
+// wrong. The shaders read it as `xform1.z`, which the struct comment records.
 
 /// `__CANVAS_GEO_POLYGON` — the one geometry kind whose payload does not fit in the
 /// item block, so both backends have to test for it by hand.
@@ -411,7 +451,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 27-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 39-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -441,19 +481,70 @@ pub(crate) const HEADER_CLIP_X0: usize = 22;
 pub(crate) const HEADER_CLIP_Y0: usize = 23;
 pub(crate) const HEADER_CLIP_X1: usize = 24;
 pub(crate) const HEADER_CLIP_Y1: usize = 25;
+/// The item's transform, **already inverted**, as `ia, ib, ic, id, itx, ity`
+/// (plan-116-C).
+///
+/// Applied as `x' = ia*x + ic*y + itx`, `y' = ib*x + id*y + ity` — the same convention
+/// `canvas::Transform` documents for the forward matrix.
+///
+/// Inverted **once, on the CPU, at header-build time**, because the renderers need
+/// `T⁻¹` and nothing else: a shape is drawn by evaluating its distance field at the
+/// inverse-mapped query point. Inverting per pixel, or per frame in each of three
+/// renderers, would be the same arithmetic done between 1 and 10^6 times more often —
+/// and would be three places for the all-zero-means-identity rule to live.
+/// `__canvas_invertTransform` is that single place.
+pub(crate) const HEADER_TRANSFORM_IA: usize = 27;
+pub(crate) const HEADER_TRANSFORM_IB: usize = 28;
+pub(crate) const HEADER_TRANSFORM_IC: usize = 29;
+pub(crate) const HEADER_TRANSFORM_ID: usize = 30;
+pub(crate) const HEADER_TRANSFORM_ITX: usize = 31;
+pub(crate) const HEADER_TRANSFORM_ITY: usize = 32;
+/// 1 when the item carries a transform that is not the identity, 0 otherwise
+/// (plan-116-C).
+///
+/// A flag rather than six compares, because the per-pixel gate is what an *untransformed*
+/// item pays — and that is every item in every scene written before this letter. It is
+/// also what gates the two extra distance evaluations the gradient correction needs
+/// (`ITEM_OFFSET_TRANSFORM`), which are the real cost.
+pub(crate) const HEADER_HAS_TRANSFORM: usize = 33;
 /// The item's `BlendMode`, as the enum tag 0..3 (plan-116-B).
 ///
 /// `BlendMode.Normal` is 0, so an unset `Paint.blend` is the source-over behaviour
 /// every scene had before this field was read — the zero value is the no-op, the same
 /// rule the rest of `Paint` follows.
 pub(crate) const HEADER_BLEND: usize = 26;
+/// The item's `CapStyle`, as the enum tag 0..1 (plan-116-D).
+///
+/// Only `Line` and `Arc` write it; every other kind leaves it at the blank header's
+/// zero. That is safe rather than merely unread — a kind with no ends never reaches a
+/// cap branch in any of the three renderers.
+///
+/// **The zero is not "today's behaviour" for both variants**, which is the thing to
+/// know here. A `Line` was round before this letter (`__canvas_segmentDistance` clamps
+/// `t` to `0..1`) and an `Arc` was butt (the sweep test cuts it along a radius), so
+/// preserving today's rendering meant splitting the existing sites: `Line` → `Round`,
+/// `Arc` → `Butt`. `Butt` is still the enum's zero, because that is how the feature was
+/// specified and a defaulted `cap` cannot arise — MFBASIC named construction requires
+/// every field.
+pub(crate) const HEADER_CAP: usize = 34;
+/// An arc's two sweep endpoints in surface pixels, `startX, startY, endX, endY`
+/// (plan-116-D).
+///
+/// Only a `Round`-capped arc reads them, but they are written by every arc, because a
+/// per-shape constant computed once at header-build time is the cheap half of this
+/// letter: a cap disc centred on the endpoint would otherwise need a `sin`/`cos` pair
+/// **per pixel** in each of three renderers, and `__canvas_cos`/`__canvas_sin` are the
+/// deterministic Taylor series the oracle needs rather than libm. The arc header
+/// already calls them for its sweep vectors, so this costs two multiply-adds each.
+pub(crate) const HEADER_CAP_START_X: usize = 35;
+pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// The fixed header length in slots — where a polygon's edge tail begins.
 ///
 /// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry.rs`), with no
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 27;
+pub(crate) const HEADER_SLOTS: usize = 39;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.

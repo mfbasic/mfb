@@ -107,6 +107,67 @@ r#"FUNC __canvas_segmentDistance(px AS Float, py AS Float, ax AS Float, ay AS Fl
   RETURN math::sqrt(dx * dx + dy * dy)
 END FUNC"#;
 
+/// The same segment, cut square at each endpoint instead of capped with a disc.
+///
+/// A **sibling** rather than a parameter on `__canvas_segmentDistance`, because that
+/// function is also the polygon edge walk's inner loop (`helper_draw.rs`), where a cap
+/// is meaningless — threading a flag through it would put a per-edge argument and a
+/// per-edge branch on the hottest path in the rasteriser to serve a primitive that
+/// never calls it.
+///
+/// A butt-capped stroke is the round-capped **band** intersected with the slab between
+/// the two end planes, and the SDF of an intersection of convex sets is the `max` of
+/// their SDFs. So this returns the finished band distance and takes `half` as an
+/// argument, rather than returning a distance the caller then subtracts `half` from:
+///
+/// ```text
+/// d = max( d_round - half , -t*|v| , (t-1)*|v| )
+/// ```
+///
+/// where `t` is the **unclamped** projection. Past the start, `-t*|v|` is the positive
+/// distance back to the start plane; past the end, `(t-1)*|v|` is the distance forward
+/// from the end plane; between them both are negative and the band wins.
+///
+/// **Subtracting `half` afterwards instead is the bug this was written with**, and it
+/// is worth stating because it looks right and is nearly right. `max(d_round, plane)`
+/// then has `half` taken off the whole thing, which compares the plane distance against
+/// the *stroke's half-width* rather than against zero — so the cap does not cut until a
+/// pixel is more than `half` past the endpoint. Measured on a 20 px line ending at
+/// `x = 400`: the pixel at 405 stayed painted, because `max(5.52, 5.5) - 10 < 0`. The
+/// end plane has to be `max`'d against a distance that is already zero *at the edge of
+/// the band*.
+///
+/// Both terms stay true signed distances, so the result composes with
+/// `clamp(0.5 - d, 0, 1)` like any other edge and a butt end is **antialiased**, not
+/// stair-stepped.
+///
+/// A zero-length butt segment is empty: with `len2` at 0 there is no direction for the
+/// planes to be perpendicular to, so it answers "far outside" rather than dividing by
+/// zero. That is the deliberate difference from a zero-length *round* segment, which is
+/// a dot — both are asserted, because "the degenerate case does something sensible" is
+/// exactly what a `max` of three terms can get wrong.
+#[rustfmt::skip]
+const SEGMENT_DISTANCE_BUTT: &str =
+r#"FUNC __canvas_segmentDistanceButt(px AS Float, py AS Float, ax AS Float, ay AS Float, bx AS Float, by AS Float, half AS Float) AS Float
+  LET vx AS Float = bx - ax
+  LET vy AS Float = by - ay
+  LET wx AS Float = px - ax
+  LET wy AS Float = py - ay
+  LET len2 AS Float = vx * vx + vy * vy
+  IF len2 <= 0.0 THEN
+    RETURN 1000000.0
+  END IF
+  LET length AS Float = math::sqrt(len2)
+  LET t AS Float = (wx * vx + wy * vy) / len2
+  LET clamped AS Float = __canvas_minF(__canvas_maxF(t, 0.0), 1.0)
+  LET dx AS Float = wx - vx * clamped
+  LET dy AS Float = wy - vy * clamped
+  MUT d AS Float = math::sqrt(dx * dx + dy * dy) - half
+  d = __canvas_maxF(d, 0.0 - t * length)
+  d = __canvas_maxF(d, (t - 1.0) * length)
+  RETURN d
+END FUNC"#;
+
 /// Deterministic `sin`/`cos`, used to turn an arc's start and end **angles** into
 /// direction vectors.
 ///
@@ -220,6 +281,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always(
         "canvas_segmentDistance",
         SEGMENT_DISTANCE,
+    ));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_segmentDistanceButt",
+        SEGMENT_DISTANCE_BUTT,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_trig", TRIG));
     pkg.add_helper(RegistryHelper::always("canvas_arcSweep", ARC_SWEEP));

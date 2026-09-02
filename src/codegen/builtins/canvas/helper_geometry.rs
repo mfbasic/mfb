@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 27-float header carrying the
+//! draws. Generation turns one into the other: a fixed 39-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 27-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 39-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 27 float compares
+//! is worse than a common slow one, and the confirmation costs 39 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,12 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 27
+r#"LET __CANVAS_GEO_HEADER AS Integer = 39
+LET __CANVAS_GEO_CAP AS Integer = 34
+LET __CANVAS_GEO_CAPSTARTX AS Integer = 35
+LET __CANVAS_GEO_CAPSTARTY AS Integer = 36
+LET __CANVAS_GEO_CAPENDX AS Integer = 37
+LET __CANVAS_GEO_CAPENDY AS Integer = 38
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
@@ -118,7 +123,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 27 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 39 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -133,7 +138,7 @@ r#"FUNC __canvas_headerFor(item AS DrawItem) AS List OF Float
     CASE Circle(c)
       RETURN __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
     CASE Line(l)
-      RETURN __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, l.paint)
+      RETURN __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
     CASE Arc(a)
       RETURN __canvas_arcHeader(a)
     CASE Polygon(p)
@@ -160,6 +165,21 @@ FUNC __canvas_emptyHeader() AS List OF Float
   h = collections::set(h, 0, toFloat(__CANVAS_GEO_NONE))
   h = collections::set(h, 1, toFloat(__CANVAS_GEO_HEADER))
   RETURN h
+END FUNC
+
+' plan-116-D: a CapStyle as the 0..1 tag the header slot carries.
+'
+' A function rather than an inline IF at each of the two call sites, because `Line`
+' and `Arc` must agree on the encoding: they read the same slot and the renderers
+' branch on it with one comparison for both kinds. Butt is 0 for the same reason
+' BlendMode.Normal is -- it is the enum's zero -- but note that unlike blend, the zero
+' is NOT what preserved today's rendering for both variants: a Line was round before
+' this letter and an Arc was butt, so the existing sites had to be split.
+FUNC __canvas_capTag(cap AS CapStyle) AS Integer
+  IF cap = CapStyle.Round THEN
+    RETURN 1
+  END IF
+  RETURN 0
 END FUNC
 
 FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
@@ -200,6 +220,16 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
     blend = 3.0
   END IF
   out = collections::set(out, 26, blend)
+  ' plan-116-C: the transform, INVERTED once here rather than per pixel in each of
+  ' three renderers. `__canvas_invertTransform` is also the only place that knows an
+  ' all-zero `Transform` means the identity, and the only place that decides what a
+  ' singular one does.
+  LET inv AS List OF Float = __canvas_invertTransform(paint.transform)
+  MUT ti AS Integer = 0
+  WHILE ti < 7
+    out = collections::set(out, 27 + ti, collections::getOr(inv, ti, 0.0))
+    ti = ti + 1
+  END WHILE
   RETURN out
 END FUNC
 
@@ -213,8 +243,48 @@ FUNC __canvas_strokeAsFill(h AS List OF Float) AS List OF Float
   RETURN out
 END FUNC
 
+' The bounds are computed in SHAPE space by every generator. Under a transform the item
+' covers the FORWARD-mapped rectangle, so the header has to carry that rectangle's
+' axis-aligned hull instead -- a rotated square whose bounds were left untransformed
+' would be clipped to its own unrotated box, losing its corners.
+'
+' The forward matrix is recovered by inverting the stored inverse rather than carried in
+' six more slots. Two reasons that is safe: a bounding box only has to be CONSERVATIVE,
+' so the float32 round-trip's last-bit error cannot matter, and the result is padded by
+' a pixel anyway. Extra pixels cost a coverage evaluation that returns 0; missing ones
+' cut the shape.
 FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, maxX AS Float, maxY AS Float) AS List OF Float
   MUT out AS List OF Float = h
+  IF collections::getOr(h, 33, 0.0) > 0.5 THEN
+    LET ia AS Float = __canvas_f32FromBits(collections::getOr(h, 27, 0.0))
+    LET ib AS Float = __canvas_f32FromBits(collections::getOr(h, 28, 0.0))
+    LET ic AS Float = __canvas_f32FromBits(collections::getOr(h, 29, 0.0))
+    LET id AS Float = __canvas_f32FromBits(collections::getOr(h, 30, 0.0))
+    LET itx AS Float = __canvas_f32FromBits(collections::getOr(h, 31, 0.0))
+    LET ity AS Float = __canvas_f32FromBits(collections::getOr(h, 32, 0.0))
+    LET fwd AS List OF Float = __canvas_forwardOf(ia, ib, ic, id, itx, ity)
+    LET fa AS Float = collections::getOr(fwd, 0, 1.0)
+    LET fb AS Float = collections::getOr(fwd, 1, 0.0)
+    LET fc AS Float = collections::getOr(fwd, 2, 0.0)
+    LET fd AS Float = collections::getOr(fwd, 3, 1.0)
+    LET ftx AS Float = collections::getOr(fwd, 4, 0.0)
+    LET fty AS Float = collections::getOr(fwd, 5, 0.0)
+    IF TRUE THEN
+      LET x0 AS Float = fa * minX + fc * minY + ftx
+      LET y0 AS Float = fb * minX + fd * minY + fty
+      LET x1 AS Float = fa * maxX + fc * minY + ftx
+      LET y1 AS Float = fb * maxX + fd * minY + fty
+      LET x2 AS Float = fa * minX + fc * maxY + ftx
+      LET y2 AS Float = fb * minX + fd * maxY + fty
+      LET x3 AS Float = fa * maxX + fc * maxY + ftx
+      LET y3 AS Float = fb * maxX + fd * maxY + fty
+      out = collections::set(out, 16, __canvas_minF(__canvas_minF(x0, x1), __canvas_minF(x2, x3)) - 1.0)
+      out = collections::set(out, 17, __canvas_minF(__canvas_minF(y0, y1), __canvas_minF(y2, y3)) - 1.0)
+      out = collections::set(out, 18, __canvas_maxF(__canvas_maxF(x0, x1), __canvas_maxF(x2, x3)) + 1.0)
+      out = collections::set(out, 19, __canvas_maxF(__canvas_maxF(y0, y1), __canvas_maxF(y2, y3)) + 1.0)
+      RETURN out
+    END IF
+  END IF
   out = collections::set(out, 16, minX)
   out = collections::set(out, 17, minY)
   out = collections::set(out, 18, maxX)
@@ -259,7 +329,7 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
 END FUNC
 
-FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, paint AS Paint) AS List OF Float
+FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint) AS List OF Float
   LET half AS Float = __canvas_strokeHalf(paint)
   IF half <= 0.0 THEN
     RETURN __canvas_emptyHeader()
@@ -272,6 +342,7 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, 4, x2)
   out = collections::set(out, 5, y2)
   out = collections::set(out, 6, half)
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
   out = __canvas_paintHeader(out, paint)
   out = __canvas_strokeAsFill(out)
   LET pad AS Float = half + 1.0
@@ -297,6 +368,16 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.cap)))
+  ' plan-116-D: the two sweep endpoints, in surface pixels. Per-shape constants, so
+  ' they are computed ONCE here rather than per pixel in each of three renderers --
+  ' which is the same reason the sweep vectors are turned into sin/cos here. The two
+  ' extra multiply-adds ride on `__canvas_cos`/`__canvas_sin` calls the arc already
+  ' makes, so a round-capped arc costs no extra transcendental.
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTX, a.x + a.radius * __canvas_cos(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTY, a.y + a.radius * __canvas_sin(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDX, a.x + a.radius * __canvas_cos(a.endAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDY, a.y + a.radius * __canvas_sin(a.endAngle))
   LET reach AS Float = a.radius + half + 1.0
   RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
 END FUNC
@@ -834,7 +915,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::runtime::canvas::{GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_SLOTS};
+    use crate::codegen::runtime::canvas::{
+        GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_SLOTS,
+    };
 
     /// The decimal literal `GEO_LAYOUT` binds to `name`.
     fn declared(name: &str) -> usize {
@@ -869,6 +952,27 @@ mod tests {
             "the MFBASIC header length and the emitters' HEADER_SLOTS disagree: the \
              tail would be read at the wrong offset, so a polygon's first edge \
              coordinate becomes a header field",
+        );
+        // plan-116-D. Both GPU emitters read the cap out of this slot now, so the
+        // equality is the real guard; the two bounds below stay because they name what
+        // goes wrong, and both failures draw a plausible wrong picture rather than
+        // failing outright.
+        let cap = declared("__CANVAS_GEO_CAP");
+        assert_eq!(
+            cap, HEADER_CAP,
+            "the MFBASIC cap slot and the emitters' HEADER_CAP disagree, so a Line or \
+             Arc writes its cap where the GPU paths do not look — and they read \
+             whatever the neighbouring field happens to hold",
+        );
+        assert!(
+            cap < HEADER_SLOTS,
+            "__CANVAS_GEO_CAP {cap} is past the end of a {HEADER_SLOTS}-slot header, so \
+             a Line or Arc would write its cap over a polygon's first edge coordinate",
+        );
+        assert!(
+            cap > HEADER_HAS_TRANSFORM,
+            "__CANVAS_GEO_CAP {cap} collides with a slot the emitters already read \
+             (the last named one is HEADER_HAS_TRANSFORM at {HEADER_HAS_TRANSFORM})",
         );
         for (name, kind) in [
             ("__CANVAS_GEO_TEXT", GEO_KIND_TEXT),

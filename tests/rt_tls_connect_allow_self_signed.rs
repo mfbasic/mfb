@@ -50,7 +50,7 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Wall-clock bound on the whole client run. Generous on purpose: this turns a
@@ -164,9 +164,24 @@ fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
     (cert, key)
 }
 
+/// Serializes "pick a port" through "`s_server` has that port bound".
+///
+/// `free_port` has to *release* the port before `s_server` can bind it, and the four
+/// cases in this file run concurrently — so without this gate two of them can be
+/// handed the same ephemeral port inside that window. See `start_peer` for why that
+/// is not merely a flake.
+fn port_gate() -> &'static Mutex<()> {
+    static GATE: OnceLock<Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(()))
+}
+
 /// A port nothing is listening on yet. `s_server` is then told to bind it.
-/// Racy in principle, unique-in-practice, and the alternative (parsing
-/// `s_server`'s banner) is markedly less stable across OpenSSL versions.
+///
+/// Inherently a bind-then-release: the listener has to be dropped so `s_server` can
+/// take the port, so the port is free for a moment. `port_gate` narrows that window
+/// to one case at a time and `start_peer` detects a loser, which together is what
+/// makes this safe — see the note there. (Parsing `s_server`'s banner instead is
+/// markedly less stable across OpenSSL versions.)
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind an ephemeral port")
@@ -175,34 +190,69 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// Start `openssl s_server` on `port` with the given identity and wait until it
-/// is actually accepting, so the client never races the listen(2).
-fn start_peer(root: &Path, peer: Peer, port: u16) -> Child {
+/// Serve `peer` on a fresh port and return the child once it is accepting.
+///
+/// **The readiness probe cannot be the only check, and that is the whole point of the
+/// retry.** If two cases are handed the same port, one `s_server` wins the bind and
+/// the other exits immediately — and the loser's probe then connects to the *winner's*
+/// server, reports ready, and the loser's client completes a handshake against the
+/// wrong identity. That does not fail loudly: it silently returns the other case's
+/// verification outcome, so `still_rejects_a_name_mismatch` can report `connected` and
+/// `accepts_a_self_signed_peer` can report `raised`. Both were observed on this file
+/// under load, in the same session, on different runs.
+///
+/// So a live child is part of the readiness condition. A child that has already
+/// exited lost the bind; take a new port and try again rather than probing a server
+/// that is not ours.
+fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
     let (cert, key) = write_cert(root, peer);
-    let child = Command::new("openssl")
-        .args([
-            "s_server",
-            "-quiet",
-            "-accept",
-            &port.to_string(),
-            "-cert",
-            cert.to_str().unwrap(),
-            "-key",
-            key.to_str().unwrap(),
-            "-naccept",
-            "4",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn openssl s_server");
-    for _ in 0..200 {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return child;
+    for _ in 0..10 {
+        let guard = port_gate().lock().expect("the port gate is not poisoned");
+        let port = free_port();
+        let mut child = Command::new("openssl")
+            .args([
+                "s_server",
+                "-quiet",
+                "-accept",
+                &port.to_string(),
+                "-cert",
+                cert.to_str().unwrap(),
+                "-key",
+                key.to_str().unwrap(),
+                "-naccept",
+                "4",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn openssl s_server");
+        let mut lost = false;
+        for _ in 0..200 {
+            match child.try_wait().expect("poll openssl s_server") {
+                // Exited before accepting: it could not bind, so whatever is listening
+                // on that port belongs to another case.
+                Some(_) => {
+                    lost = true;
+                    break;
+                }
+                None => {
+                    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                        drop(guard);
+                        return (child, port);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
-        std::thread::sleep(Duration::from_millis(25));
+        drop(guard);
+        if !lost {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("openssl s_server never began accepting on port {port}");
+        }
+        let _ = child.wait();
     }
-    panic!("openssl s_server never began accepting on port {port}");
+    panic!("openssl s_server lost the bind on ten consecutive ports");
 }
 
 /// Build a client that connects to `port` and prints exactly one line:
@@ -302,8 +352,7 @@ fn run_client(exe: &Path) -> String {
 fn outcome(peer: Peer, allow: Option<bool>) -> String {
     let root = std::env::temp_dir().join(format!("mfb_bug477_{}", nonce()));
     fs::create_dir_all(&root).expect("create temp root");
-    let port = free_port();
-    let mut server = start_peer(&root, peer, port);
+    let (mut server, port) = start_peer(&root, peer);
     let exe = build_client(&root, port, allow);
     let token = run_client(&exe);
     let _ = server.kill();

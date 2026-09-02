@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -68,15 +68,43 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     RETURN math::sqrt(cdx * cdx + cdy * cdy) - p2 - radius
   END IF
   IF kind = __CANVAS_KIND_SEGMENT THEN
-    RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+    ' plan-116-D. Round is 1 and is what a Line did before this letter, so the branch
+    ' is written round-first: the pre-existing behaviour reads as the straight path
+    ' rather than as the exception.
+    '
+    ' The butt arm returns the finished band distance and so does NOT subtract `radius`
+    ' again -- a butt cap is the band intersected with the slab between the end planes,
+    ' and that intersection has to be taken against a distance that is already zero at
+    ' the band's edge. See `__canvas_segmentDistanceButt` for the measured consequence
+    ' of subtracting afterwards instead.
+    IF cap = 1 THEN
+      RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+    END IF
+    RETURN __canvas_segmentDistanceButt(px, py, p0, p1, p2, p3, radius)
   END IF
   IF kind = __CANVAS_GEO_ARC THEN
     LET adx AS Float = px - p0
     LET ady AS Float = py - p1
+    MUT arcD AS Float = 1000000.0
     IF __canvas_arcInSweep(adx, ady, sx, sy, ex, ey, reflex) THEN
-      RETURN __canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius
+      arcD = __canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius
     END IF
-    RETURN 1000000.0
+    ' plan-116-D. Butt is 0 and is what an Arc did before this letter -- the sweep test
+    ' already cuts the band along a radius at each end -- so the untouched path is the
+    ' one that returns here, and a butt arc is byte-for-byte what it was.
+    IF cap = 0 THEN
+      RETURN arcD
+    END IF
+    ' Round unions a disc of the stroke's half-width at each sweep endpoint. A union of
+    ' SDFs is their `min`, and the endpoints are per-shape constants the header carries
+    ' (`__CANVAS_GEO_CAPSTARTX`..), so this costs two distances per pixel and no
+    ' transcendental at all.
+    LET s0x AS Float = px - capSX
+    LET s0y AS Float = py - capSY
+    LET e0x AS Float = px - capEX
+    LET e0y AS Float = py - capEY
+    arcD = __canvas_minF(arcD, math::sqrt(s0x * s0x + s0y * s0y) - radius)
+    RETURN __canvas_minF(arcD, math::sqrt(e0x * e0x + e0y * e0y) - radius)
   END IF
   RETURN __canvas_edgeDistance(tail, edges, px, py)
 END FUNC"#;

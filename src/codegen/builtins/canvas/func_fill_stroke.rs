@@ -35,7 +35,38 @@ SUB main()
   LET dot AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
   canvas::present([dot])
 END SUB
-```"#;
+```
+
+The same paint turned 45°. Give the item coordinates around `(0, 0)` and put its
+position in `tx` and `ty`, because a rotation turns about the item's own origin —
+the diamond below is centred at 220, 120. The two squares are drawn with one paint
+apart from the transform, so the difference in the picture is the transform's alone:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT math
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET body AS canvas::Color = canvas::rgb(120, 190, 255)
+  LET edge AS canvas::Color = canvas::rgb(20, 40, 90)
+  LET look AS canvas::Paint = canvas::fillStroke(body, edge, 4.0)
+
+  LET turn AS Float = math::pi / 4.0
+  LET spin AS canvas::Transform = canvas::Transform[a := math::cos(turn), b := math::sin(turn), c := 0.0 - math::sin(turn), d := math::cos(turn), tx := 220.0, ty := 120.0]
+
+  LET upright AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 80.0, w := 80.0, h := 80.0, paint := look]
+  LET diamond AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 40.0, y := 0.0 - 40.0, w := 80.0, h := 80.0, paint := WITH look { transform := spin }]
+
+  canvas::present([upright, diamond])
+END SUB
+```
+
+A rotation keeps lengths, so both outlines come out 4 pixels wide. Under a **scale**
+they would not: a stroke is transformed with the shape it outlines, so doubling an
+item draws its 4-pixel outline 8 pixels wide. Divide the width by the scale if you
+want it to stay put."#;
 
 #[rustfmt::skip]
 const BODY: &str =
