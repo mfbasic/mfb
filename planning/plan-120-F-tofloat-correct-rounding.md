@@ -337,7 +337,7 @@ harness never executes the program. Creating the empty `.run` marker made it
 execute, which changed `build.log` — so the `build.log` captured before the
 marker existed was immediately stale and had to be re-captured. Create the `.run`
 marker FIRST, then capture `build.log`.
-Commit: —
+Commit: a979053ce
 
 ### Phase 2 — the helper
 
