@@ -433,21 +433,61 @@ Commit: 32b983bdb
 
 ### Phase 4 — GPU parity, docs, and the gates
 
-- [ ] Confirm neither `*Renderable` predicate needs to decline a cap — by test, on a
-      scene containing both cap styles on both variants.
-- [ ] New reference image `tests/golden/canvas/endcaps.png`: butt and round, line and
-      arc, at a stroke width wide enough to read.
-- [ ] `mod.rs` — `CapStyle`'s and both `cap` fields' descriptions. Say what each cap
+- [x] Confirm neither `*Renderable` predicate needs to decline a cap — by test, on a
+      scene containing both cap styles on both variants. → neither predicate reads a
+      slot past `offset + 20`, and the cap is 34; confirmed at runtime by
+      `the_gpu_draws_the_endcap_scene_the_reference_shows`, whose scene carries butt
+      *and* round on *both* `Line` and `Arc` and which asserts `gpuSelected=TRUE`
+      **before** comparing a pixel — a fallback to software would otherwise reproduce
+      the reference perfectly and pass.
+- [x] New reference image `tests/golden/canvas/endcaps.png`: butt and round, line and
+      arc, at a stroke width wide enough to read. → four rows at stroke 28, each style
+      beside its twin with everything else equal. The line row carries a thin white
+      marker at each endpoint, because the whole claim about `Butt` is *where it stops*
+      and an unmarked end is only checkable against arithmetic. Row 4 is the degenerate
+      pair, and the butt half is deliberately **empty** — an absence that is part of the
+      reference.
+- [x] `mod.rs` — `CapStyle`'s and both `cap` fields' descriptions. Say what each cap
       does in terms a developer observes; no memory vocabulary
-      (`scripts/man-census.sh --memory-scope` → 0 unclassified hits).
-- [ ] `src/docs/spec/app/06_canvas.md` §"Rendering conventions" — the two cap
-      geometries, and the note that `Polygon` has no join style.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      (`scripts/man-census.sh --memory-scope` → 0 unclassified hits). → done in Phase 1
+      with the type; census re-run here → **0 unclassified** (15 CARVE-1, 23 CARVE-2).
+- [x] `src/docs/spec/app/06_canvas.md` §"Rendering conventions" — the two cap
+      geometries, and the note that `Polygon` has no join style. → a new
+      **`Line.cap` and `Arc.cap` shape the two ends of a stroke** block above the
+      transform one, carrying both geometries as distances, the zero-length rule, the
+      `Polygon` has-no-join note, and the asymmetry (a `Line` was round and an `Arc`
+      butt before this letter) that decides which value is the compatible one. See
+      **D8** for why its bullets are one source line each.
+- [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's. → **141 refreshed,
+      0 missing**, and `git status --porcelain tests/byte-identity/` empty afterwards.
+      As in plan-116-C the delta is nil rather than merely accounted for: no
+      byte-identity fixture imports `canvas`.
 
 Acceptance: `endcaps.png` matches on the software oracle and on both GPUs within
 `Tolerance::GPU_DEFAULT` with `MFB_CANVAS_STATS` confirming the GPU path ran;
 `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG;
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs.
+
+**MET.**
+
+- `endcaps_match_their_reference_exactly` — the software oracle reproduces the
+  reference byte for byte.
+- `the_gpu_draws_the_endcap_scene_the_reference_shows` — **Metal**, compared against
+  the committed reference rather than a same-run oracle, inside
+  `Tolerance::GPU_DEFAULT`, with `gpuSelected=TRUE` asserted first. `rt_canvas_golden`
+  is 10/10.
+- **Vulkan, both libc worlds**, with butt and round on both variants in the scene:
+  box 2228 glibc and box 2227 musl, 12/12 each, `vulkanReady=TRUE gpuSelected=TRUE`,
+  `worst=2 differing=0.7818%`.
+- `cargo test --release --no-fail-fast` — **95 test binaries, 0 failures, exit 0.**
+- `bash scripts/test-accept.sh` — **1348 test(s) ran**.
+- `scripts/artifact-gate.sh target/release/mfb all` — 1327 tests, 1490 builds,
+  **1828 goldens, 0 diffs**.
+- The linux+DEBUG half is covered as plan-116-A established and B and C repeated,
+  because box 2228 is a single core: the Vulkan harness on **both** Linux libc worlds,
+  which is where this letter's Linux-specific work (the butt segment and the arc cap
+  discs in the SPIR-V, and the widened item block) actually executes, plus the
+  `--bin mfb` unit tests recorded below.
 Commit: —
 
 ## Validation Plan
@@ -484,6 +524,26 @@ Commit: —
   styles stay mutually consistent.
 
 ## Corrections
+
+- **D8 (2026-09-02, Phase 4) — a spec bullet must be ONE source line.** The embedded
+  spec renderer treats leading spaces as list **nesting**, not as a lazy continuation
+  (`src/docs/render.rs:14`), so a bullet wrapped across source lines renders its first
+  line as a bullet and every later line as a fresh paragraph at column 0. Written as
+  four indented lines, this letter's cap bullets came out as
+
+  ```
+   • A butt line is the round band intersected with the slab between the two
+     planes
+  through its endpoints, perpendicular to the segment. As a distance that is max(d
+  ```
+
+  Not a defect introduced here — it is how every multi-line bullet in the document
+  already renders, including `## Retained, not immediate`'s three, which predate
+  plan-116 entirely — and not a renderer bug to fix in this letter either, since the
+  nesting-by-indent rule is deliberate and changing it would reflow the whole embedded
+  spec. The authoring rule is the fix: **keep a bullet on one source line**, however
+  long. Recorded because the source looks correct and only rendering shows it is not,
+  which is the same class of trap as every other prose field in this project.
 
 - **D7 (2026-09-02, Phase 3) — growing `ITEM_BLOCK_SIZE` moves two Metal constants
   that nothing else relates to it, and both guards fired.** The block went 160 → 176 for

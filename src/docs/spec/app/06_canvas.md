@@ -150,6 +150,32 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
+**`Line.cap` and `Arc.cap` shape the two ends of a stroke.** They are the only two
+`DrawItem` variants with ends — both are drawn entirely from `Paint.stroke` and have no
+interior — so the field is on those records rather than on `Paint`, and a shape with no
+ends cannot carry one.
+
+`CapStyle.Butt` cuts the stroke square at the endpoint. `CapStyle.Round` extends it by a
+half-disc of `Paint.strokeWidth / 2` centred there. Both are defined on the same signed
+distance the coverage rule already uses, so a cap edge is antialiased exactly as any
+other edge is:
+
+* A **butt line** is the round band intersected with the slab between the two planes through its endpoints, perpendicular to the segment — as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the unclamped projection. The half-width is subtracted *before* the intersection, because the planes bound the band and not the centre line.
+* A **round arc** is the band unioned with a disc of `half` at each sweep endpoint, i.e. the `min` of the three distances. A **butt arc** is the band alone: the sweep already ends it along a radius.
+
+**A zero-length butt-capped line draws nothing**, and a zero-length round-capped one is a
+dot of `half`. There is no direction for a butt cap's planes to be perpendicular to, and
+an empty result is the honest answer rather than an arbitrary orientation.
+
+**Note the asymmetry with what each variant did before this field existed**, because it
+decides which value is the compatible one: a `Line` was round and an `Arc` was butt.
+`Butt` is nonetheless the enum's zero value. That is not a contradiction — MFBASIC named
+construction requires every field, so no item can have a defaulted `cap`, and the zero is
+only a tag number.
+
+`Polygon` has no cap and no **join** style; its corners are whatever the crossing-count
+fill rule produces. A join is a separate concept and no variant exposes one.
+
 **`Paint.transform` maps the item's coordinates onto the surface.** The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that

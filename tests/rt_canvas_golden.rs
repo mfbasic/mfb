@@ -118,6 +118,11 @@ fn render_gpu_with_font(name: &str, source: &str) -> (Frame, String) {
     render_inner(name, source, true, &[("MFB_CANVAS_GPU", "1")])
 }
 
+/// The same, for a scene that needs no font.
+fn render_gpu(name: &str, source: &str) -> (Frame, String) {
+    render_inner(name, source, false, &[("MFB_CANVAS_GPU", "1")])
+}
+
 fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) -> (Frame, String) {
     let project = common::temp_project(name, source);
     if font {
@@ -544,6 +549,142 @@ fn the_gpu_draws_the_transform_scene_the_reference_shows() {
              is a stale vertex quad, an ellipse whose stroke thickens along one axis \
              is the distance correction, and a label that vanished or landed upright \
              is the glyph inverse-sample arm."
+        );
+    }
+}
+
+/// Butt and round, on a line and on an arc, at a stroke width wide enough to read
+/// (plan-116-D).
+///
+/// Each style is drawn beside its twin with everything else held equal, so the picture
+/// shows the cap's effect rather than just its result — and so a reader can see at a
+/// glance whether the pair differs the way the type says. That matters more here than
+/// for the other references, because the two variants are asymmetric: a `Line` was
+/// **round** before this letter and an `Arc` was **butt**, so "the new one" is the
+/// right-hand shape in one row and the left-hand shape in the other.
+///
+/// The stroke is 28 px, so a cap is a 14 px feature — large enough that a wrong cap is
+/// a visible block rather than an antialiasing argument. Endpoints are marked with a
+/// thin crossing line at each end of the horizontal pair, because the whole claim about
+/// `Butt` is *where it stops*, and an unmarked end is only checkable against arithmetic.
+///
+/// The bottom row is the degenerate pair from the rasteriser tests, at reference scale:
+/// a zero-length round line is a dot and a zero-length butt line is nothing at all. The
+/// empty half is deliberately present in the picture as an absence — a reader comparing
+/// against the type's description should find nothing there.
+const ENDCAPS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(64, 68, 78))]
+
+  ' Row 1 -- lines. Butt left, round right, same geometry and paint otherwise.
+  LET ink AS canvas::Color = canvas::rgb(255, 214, 92)
+  LET buttLine AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 120.0, x2 := 340.0, y2 := 120.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(ink, 28.0)]
+  LET roundLine AS canvas::DrawItem = canvas::Line[x1 := 540.0, y1 := 120.0, x2 := 760.0, y2 := 120.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(ink, 28.0)]
+
+  ' The endpoints, marked. A butt cap's claim is that the stroke stops HERE, which is
+  ' only readable against something that says where "here" is.
+  LET mark AS canvas::Color = canvas::rgb(255, 255, 255)
+  LET markA AS canvas::DrawItem = canvas::Line[x1 := 340.0, y1 := 88.0, x2 := 340.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
+  LET markB AS canvas::DrawItem = canvas::Line[x1 := 760.0, y1 := 88.0, x2 := 760.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
+
+  ' Row 2 -- arcs, swept 0..0.6*PI so both ends are in view. Butt left, round right.
+  LET arcInk AS canvas::Color = canvas::rgb(120, 226, 255)
+  LET buttArc AS canvas::DrawItem = canvas::Arc[x := 230.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Butt, paint := canvas::stroke(arcInk, 28.0)]
+  LET roundArc AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(arcInk, 28.0)]
+
+  ' Row 3 -- a diagonal pair, so a cap is checked on an axis the two rows above miss.
+  LET diagInk AS canvas::Color = canvas::rgb(228, 148, 255)
+  LET buttDiag AS canvas::DrawItem = canvas::Line[x1 := 140.0, y1 := 470.0, x2 := 320.0, y2 := 560.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(diagInk, 28.0)]
+  LET roundDiag AS canvas::DrawItem = canvas::Line[x1 := 560.0, y1 := 470.0, x2 := 740.0, y2 := 560.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(diagInk, 28.0)]
+
+  ' Row 4 -- the degenerate pair. The butt one draws nothing, and its absence is part
+  ' of the reference.
+  LET dotInk AS canvas::Color = canvas::rgb(160, 255, 170)
+  LET buttDot AS canvas::DrawItem = canvas::Line[x1 := 230.0, y1 := 610.0, x2 := 230.0, y2 := 610.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(dotInk, 28.0)]
+  LET roundDot AS canvas::DrawItem = canvas::Line[x1 := 650.0, y1 := 610.0, x2 := 650.0, y2 := 610.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(dotInk, 28.0)]
+
+  canvas::present([ground, buttLine, roundLine, markA, markB, buttArc, roundArc, buttDiag, roundDiag, buttDot, roundDot])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The endcap reference renders exactly.
+///
+/// Same rule as the other three references: a mismatch is a bug hunt, not a
+/// re-baseline.
+#[test]
+fn endcaps_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_endcaps", ENDCAPS);
+    let reference = golden_path("endcaps");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the endcap scene no longer renders to its reference image: {diff}\n\
+             Localize by row: rows 1 and 3 are the line cap (butt left, round right), \
+             row 2 is the arc cap — and note the asymmetry, because a Line was ROUND \
+             before plan-116-D and an Arc was BUTT, so the pre-existing shape is on \
+             opposite sides in the two. Row 4 is the degenerate pair; the left half is \
+             meant to be empty."
+        );
+    }
+}
+
+/// The hardware backend draws the endcap scene the reference shows.
+///
+/// plan-116-D Phase 4's acceptance, in the form the plan states it. The same reasoning
+/// as the transform scene's GPU test: compared against the **committed reference**
+/// rather than a same-run oracle, so a change that broke both in the same direction
+/// cannot pass, and gated on `gpuSelected=TRUE` first, because a backend that declined
+/// the scene would fall back to software and reproduce the reference perfectly.
+#[test]
+fn the_gpu_draws_the_endcap_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_endcaps_gpu", ENDCAPS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuSelected=TRUE"),
+        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+         predicate declined a cap, and every pixel below would then be the software \
+         renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("endcaps");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's endcap scene disagrees with the reference: {diff}\n\
+             A butt end that still domes is the shader reading the wrong cap word; a \
+             round end that is cut square is the same in reverse. An arc whose cap \
+             disc is in the wrong place is the `arcCaps` ivec4 — check the vertex and \
+             fragment declarations of ItemBlock agree, since only one of them sets the \
+             std430 stride."
         );
     }
 }
