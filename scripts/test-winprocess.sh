@@ -119,6 +119,15 @@ SUB main()
   runArgs("cat", ["cmd.exe", "/C", "type procout.txt"])
   runArgs("pipe", ["cmd.exe", "/C", "(echo banana& echo apple) | sort"])
   runStdin("stdin", ["cmd.exe", "/C", "sort"], "banana", "apple")
+
+  ' --- plan-119-A Phase 2: argv quoting. Each case is a boundary the bare-space
+  ' joiner destroyed. argdump.exe reports what its CRT actually parsed, so
+  ' `argc` alone distinguishes "one argument containing a space" from "two".
+  runArgs("q1", ["argdump.exe", "a b", "c"])
+  runArgs("q2", ["argdump.exe", "q\"uote", "plain"])
+  runArgs("q3", ["argdump.exe", "", "after"])
+  runArgs("q4", ["argdump.exe", "back\\slash", "tail\\"])
+  runArgs("q5", ["argdump.exe", "C:\\my dir\\", "z"])
 END SUB
 MFB
 
@@ -165,6 +174,30 @@ expect "a pipeline ran (sorted first)" "pipe:apple" "'|' did not reach cmd"
 expect "a pipeline ran (sorted second)" "pipe:banana" "the pipeline produced only one line"
 expect "stdin streamed into a filter (sorted first)" "stdin:apple" "send/close did not reach the child's stdin"
 expect "stdin streamed into a filter (sorted second)" "stdin:banana" "the second send was lost"
+
+# --- plan-119-A Phase 2: the argv the child's CRT actually parsed.
+#
+# The `argc` assertions are the load-bearing ones. Before the fix, q1 reported
+# `argc=3` with `arg=[a]` and `arg=[b]`, q2 collapsed to one `arg=[quote plain]`,
+# and q3 lost the empty argument entirely.
+expect "an argument containing a space stays ONE argument" "q1:argc=2" \
+  "a bare-space join splits it; this is the shipped bug plan-119-A fixes"
+expect "  ...and arrives with its space intact" "q1:arg=[a b]" "the wrap quotes leaked or the space was eaten"
+expect "  ...and the next argument still follows" "q1:arg=[c]" "the separator was lost"
+reject "  ...and it did NOT arrive split" "q1:arg=[a]" "the joiner is still splitting on the embedded space"
+expect "an embedded quote survives as one argument" "q2:argc=2" "an unescaped quote merges the arguments"
+expect "  ...with the quote itself delivered" "q2:arg=[q\"uote]" "the quote was dropped or doubled"
+expect "  ...and the following argument intact" "q2:arg=[plain]" "the quote swallowed the next argument"
+expect "an EMPTY argument survives" "q3:argc=2" "an empty argument vanished — it needs an explicit \"\" wrap"
+expect "  ...as an empty string" "q3:arg=[]" "the empty argument came through as something else"
+expect "  ...followed by the real one" "q3:arg=[after]" "the argument after the empty one was lost"
+expect "backslashes with no space pass through literally" "q4:argc=2" "a backslash was treated as an escape outside a wrap"
+expect "  ...mid-string" "q4:arg=[back\\slash]" "the backslash was doubled where it should stay literal"
+expect "  ...and trailing" "q4:arg=[tail\\]" "a trailing backslash was doubled or eaten"
+expect "a trailing backslash inside a QUOTED argument is doubled correctly" "q5:argc=2" \
+  "the trailing backslash escaped the closing wrap quote and merged the arguments"
+expect "  ...and the path arrives verbatim" "q5:arg=[C:\\my dir\\]" "the doubling leaked into the delivered value"
+expect "  ...with the next argument intact" "q5:arg=[z]" "the run-away quote swallowed it"
 
 if [ "$fails" -eq 0 ]; then
   echo "windows process runtime tests passed"

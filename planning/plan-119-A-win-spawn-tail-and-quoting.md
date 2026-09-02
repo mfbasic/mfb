@@ -173,20 +173,33 @@ Acceptance: `cargo test --no-fail-fast` green (incl.
 `cli_process_windows_build.rs` nplan assertions);
 box run reproduces the spike baseline byte-for-byte (`rc-b=7`, sorted
 `apple`/`banana`, …).
-Commit: —
+Commit: 407ea3bdf
 
 ### Phase 2 — argv quoting
 
-- [ ] Implement the CRT quoting in the cmdline build loop (worst-case length
-      pre-scan; wrap/escape emit).
-- [ ] Add the argdump quoting probe as a scripted box check: new
+- [x] Implement the CRT quoting in the cmdline build loop (worst-case length
+      pre-scan; wrap/escape emit). `emit_win_build_cmdline` sizes at
+      `n + Σ(2·vlen + 2)` and emits per argument: pass-through when non-empty
+      and free of space/tab/quote, else a `"`-wrap with backslash runs doubled
+      before a `"` and before the closing quote and an embedded `"` written
+      `\"`.
+- [x] Add the argdump quoting probe as a scripted box check: new
       `scripts/test-winprocess.sh` (sibling of `test-winapp.sh`: builds a
       console argdump.exe + a spawner, ships both, asserts `argc=2`,
       `arg=[a b]`, plus a quote-containing and an empty argument case).
-- [ ] Re-sync churned windows goldens (same census discipline).
-- [ ] Doc sync: `func_spawn.rs` DESC — the "no quoting … interpreted" promise
+      Landed in Phase 1; Phase 2 adds q1–q5 (space, embedded quote, empty,
+      literal backslashes, and a trailing backslash *inside* a wrap) plus a
+      `reject` assertion that `q1:arg=[a]` never appears again.
+- [x] Re-sync churned windows goldens (same census discipline). Census re-run
+      after the quoting landed: `unchanged: 132`, 0 churned — same reason as
+      Phase 1 (no Windows `process` byte-identity fixture exists yet), so
+      again nothing to re-sync.
+- [x] Doc sync: `func_spawn.rs` DESC — the "no quoting … interpreted" promise
       now holds on Windows too; note that the joined line is re-parsed by the
-      child's CRT using the standard rules.
+      child's CRT using the standard rules. Rendered with `mfb man process
+      spawn`; `man-census.sh --memory-scope` unchanged (8 unclassified hits,
+      all pre-existing and all in `canvas`); `man-run-examples.sh process
+      --run` 18 built / 18 ran / 0 failed.
 
 Acceptance: `scripts/test-winprocess.sh target/release/mfb` passes on box
 2230 (argc=2 / `a b` / `c`, quote and empty-arg cases); full
@@ -227,6 +240,16 @@ Commit: —
   like to have is the one the family's own subject makes possible — so a new
   task lands in **plan-119-C Phase 3**, once B and C have made the fixture
   buildable for `windows-x86_64`.
+- **The `/S /C` question letter B raises is already answered by Phase 2's
+  matrix.** Quoting the argv changes what `spawn(["cmd.exe","/C","echo a | sort"])`
+  sends: the line becomes `cmd.exe /C "echo a | sort"`. `cmd`'s own documented
+  rule (`cmd /?`) then applies — the wrapped text holds `|`, a special
+  character, so the "preserve the quotes" case cannot apply and `cmd` strips the
+  leading quote and the last quote instead, recovering the original command.
+  The whole Phase 1 `cmd.exe` matrix (sequencing, `exit 7`, redirect + `type`,
+  `| sort` pipeline, stdin filter) was re-run AFTER quoting landed and is still
+  9/9 green, so the two changes compose. Keeping the matrix in the same script
+  as the quoting cases is what makes that a standing regression pin.
 - **Phase 1 also factored out the command-line joiner, not just the tail.**
   The plan's §3 scoped `emit_win_spawn_tail` alone and left the joiner inside
   `func_spawn.rs`. But letter C builds the *same* quoted argv (its §3 says so

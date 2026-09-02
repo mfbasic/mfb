@@ -33,6 +33,17 @@ argument that contains spaces or shell metacharacters reaches the program as one
 literal argument. Use `process::shell` when you need a shell to parse a command
 line.
 
+Windows hands a child one command line instead of a vector, so on Windows
+`spawn` builds that line and quotes each element the way the child's C runtime
+will un-quote it: an element containing a space, a tab, or a `"` is wrapped in
+quotes, an empty element becomes `""`, and backslashes are doubled exactly where
+the runtime would otherwise read them as escapes. A child that splits its command
+line the standard way — which includes every program built against a C runtime,
+and anything using `CommandLineToArgvW` — therefore parses back the same vector
+you passed, so the "one literal argument" promise above holds on Windows too. A
+program that parses its own command line instead (`cmd.exe` is the notable one)
+sees the quoted form.
+
 The child is created with three pipes wired to its standard input, output, and
 error, so the parent can `process::send` to it and `process::receive` from it.
 Creation forks and execs; an exec failure in the child (for example a program that
