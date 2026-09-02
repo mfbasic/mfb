@@ -766,6 +766,47 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "RoundedRect",
                 description: "A rectangle with rounded corners.",
             },
+            // plan-116-E. Appended LAST deliberately: the order fixes each variant's
+            // tag, so inserting `Ellipse` beside `Circle` where it reads better would
+            // renumber `Arc`, `Text` and `RoundedRect`.
+            UnionVariant {
+                name: "Ellipse",
+                description: "An ellipse, optionally rotated.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "Ellipse",
+        export: true,
+        description: "An ellipse given by its centre, two radii and a rotation.                       `radiusX = radiusY` with `angle := 0.0` is a circle, and draws                       identically to `canvas::Circle` of that radius — so an                       animation that squashes a circle can use one item type                       throughout. Rotation is about the centre, so an ellipse is                       placed by `x`/`y` and oriented by `angle` independently. A                       radius of `0.0` or less draws nothing, the same rule                       `canvas::Circle` follows.",
+        props: vec![
+            RecordProp {
+                name: "x",
+                ty: ParameterType::Float,
+                description: "The centre's X coordinate in pixels.",
+            },
+            RecordProp {
+                name: "y",
+                ty: ParameterType::Float,
+                description: "The centre's Y coordinate in pixels.",
+            },
+            RecordProp {
+                name: "radiusX",
+                ty: ParameterType::Float,
+                description: "The radius along the ellipse's own X axis, in pixels —                               before `angle` rotates it.",
+            },
+            RecordProp {
+                name: "radiusY",
+                ty: ParameterType::Float,
+                description: "The radius along the ellipse's own Y axis, in pixels.",
+            },
+            RecordProp {
+                name: "angle",
+                ty: ParameterType::Float,
+                description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+            },
+            paint_prop(),
         ],
     });
 
@@ -940,10 +981,19 @@ mod tests {
     use crate::codegen::registry::registry;
     use crate::types::ParameterType;
 
-    /// The eight `DrawItem` variants are a **closed set** (plan-98-A invariant 6):
-    /// adding one later stops a user's `SELECT CASE` being exhaustive, which is a
-    /// breaking change. Pinning the exact list — and its order, which fixes the
-    /// tags — makes any addition a deliberate, visible act rather than a silent one.
+    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
+    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
+    /// change. Pinning the exact list — and its order, which fixes the tags — makes
+    /// any addition a deliberate, visible act rather than a silent one.
+    ///
+    /// It has been extended exactly once, and this is the record of it: **plan-116-E
+    /// appended `Ellipse`**, ninth and last. Appended rather than inserted beside
+    /// `Circle` where it reads better, because the order fixes the tags and inserting
+    /// would renumber `Arc`, `Text` and `RoundedRect`.
+    ///
+    /// Note what this amendment is not: the assertion did not become laxer. The list
+    /// grew by one entry that a reader can see, the message keeps its warning, and the
+    /// next addition is exactly as visible as this one was.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         let pkg = registry()
@@ -966,6 +1016,7 @@ mod tests {
                 "Arc",
                 "Text",
                 "RoundedRect",
+                "Ellipse",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );

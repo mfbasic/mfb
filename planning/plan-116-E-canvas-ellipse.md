@@ -120,7 +120,7 @@ An ellipse's payload fits the item block, so it needs no such constant.
 | What | Count | Command |
 |---|---|---|
 | `DrawItem` variants today | 8 | `mod.rs:884-908` |
-| Exhaustive `MATCH`es over `DrawItem` in canvas | 2 | `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs` → `:128`, `:340` |
+| Exhaustive `MATCH`es over `DrawItem` in canvas | **7** | `grep -rn "AS DrawItem\|OF DrawItem" src/codegen/builtins/canvas/*.rs` (re-measured 2026-09-02 — the plan's `grep -n 'MATCH item'` keys on the parameter name and finds five; see **E4**) |
 | Geometry kinds in use | 7 (0–6) | `helper_draw.rs:24-26`, `helper_geometry.rs:53-57` |
 | Tests pinning the variant list | 1 | `mod.rs:884` |
 | Tests iterating the variant list | 2 | `mod.rs:913` (`every_draw_item_variant_has_a_record`), `:935` (`…carries_a_paint`) |
@@ -406,26 +406,39 @@ Commit: 5ef61834f
 
 ### Phase 2 — The type, the variant, and the frozen-set amendment
 
-- [ ] Add the `Ellipse` record to `mod.rs` with the six props and their descriptions.
-- [ ] Append `Ellipse` **last** to the `DrawItem` union's variant list.
-- [ ] Amend `draw_item_variant_set_is_frozen` (`mod.rs:884`): add `"Ellipse"` at the
+- [x] Add the `Ellipse` record to `mod.rs` with the six props and their descriptions.
+- [x] Append `Ellipse` **last** to the `DrawItem` union's variant list.
+- [x] Amend `draw_item_variant_set_is_frozen` (`mod.rs:884`): add `"Ellipse"` at the
       end of the pinned list, and extend the doc comment to name plan-116-E as the
       deliberate extension. **Keep the assertion message's warning intact** — the test
-      does not become laxer, it records a new decision.
-- [ ] Add the `Ellipse` arm to `__canvas_headerFor` (`helper_geometry.rs:127`) and
+      does not become laxer, it records a new decision. → done; the doc comment now
+      says what was added, that it was appended rather than inserted and why, and
+      that the next addition stays exactly as visible as this one.
+- [x] Add the `Ellipse` arm to `__canvas_headerFor` (`helper_geometry.rs:127`) and
       `__canvas_tailFor` (`:339`) — the exhaustive `MATCH`es will not compile without
-      them, which is the design working.
-- [ ] Add `__canvas_ellipseHeader` writing kind 7, the five shape values, the
+      them, which is the design working. → **seven `MATCH`es, not two** (see **E4**),
+      and the design did work: each missing arm was a named compile error naming the
+      variant it lacked.
+- [x] Add `__canvas_ellipseHeader` writing kind 7, the five shape values, the
       precomputed `cos`/`sin`, the paint, and the §4.1 bounds; degenerate radii return
       `__canvas_emptyHeader()`.
-- [ ] `HEADER_SLOTS` → 41; every `__CANVAS_GEO_HEADER` reader updated.
-- [ ] Tests: `tests/cli_canvas_package.rs` constructs an `Ellipse` and compiles;
+- [x] `HEADER_SLOTS` → 41; every `__CANVAS_GEO_HEADER` reader updated.
+- [x] Tests: `tests/cli_canvas_package.rs` constructs an `Ellipse` and compiles;
       `every_draw_item_variant_has_a_record` and `…carries_a_paint` stay green with no
-      edit.
+      edit. → both stayed green untouched, as §2 predicted. The construction needed
+      two more edits than the box implies: that scene asserts its own item count
+      (`IF len(scene) <> 8`), twice, so adding an item is not additive there.
 
 Acceptance: an `Ellipse` in a scene compiles and **draws nothing** (kind 7 has no
 distance arm yet, so it falls through to the `1.0e6` default), every existing golden is
 byte-identical, and `cargo test --no-fail-fast` is green.
+
+**MET.** A scene whose only item is
+`canvas::Ellipse[x := 450, y := 320, radiusX := 200, radiusY := 80, angle := 0.4, …]`
+compiles and renders **0 lit pixels of 576000** — the kind falls through to the
+`1.0e6` default exactly as intended. `rt_canvas_golden` 10/10 with
+`git status --short tests/golden/canvas/` empty, `cli_canvas_package` 7/7,
+`draw_item_variant_set_is_frozen` and its two sibling iterating tests green.
 Commit: —
 
 ### Phase 3 — The software SDF, and the circle equivalence
@@ -517,6 +530,27 @@ Commit: —
   not loosen the tolerance — it is the gate that caught a real backend lie before.
 
 ## Corrections
+
+- **E4 (2026-09-02, Phase 2) — there are seven exhaustive `MATCH`es over `DrawItem`,
+  not the two the census names, and the census's own command cannot find them.** §2
+  says "Exhaustive `MATCH`es over `DrawItem` in canvas | 2 |
+  `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`". That grep
+  keys on the *parameter name*: it finds five, and misses `__canvas_deferredHash` and
+  `__canvas_hashItem`, whose `MATCH`es are on differently-shaped bindings. The real
+  population is **seven**, all in `helper_geometry.rs`:
+  `__canvas_headerFor`, `__canvas_tailFor`, `__canvas_tailMatches`,
+  `__canvas_headerIsDeferred`, `__canvas_deferredHeader`, `__canvas_deferredHash`,
+  `__canvas_hashItem`. The census that finds them is by *type* —
+  `grep -rn "AS DrawItem\|OF DrawItem" src/codegen/builtins/canvas/*.rs`.
+
+  This one cost nothing, which is the point worth recording: MFBASIC's exhaustiveness
+  check caught every omission by name
+  (`error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: MATCH on UNION canvas.DrawItem does
+  not cover canvas.Ellipse`), so the wrong count was a wrong *estimate* and never a
+  wrong *result*. Contrast plan-116-D's D5, where the missed sites were in a shell
+  script no compiler reads and the census error would have shipped. **A census over
+  something a compiler checks is advisory; a census over something it does not is
+  load-bearing.**
 
 - **E3 (2026-09-02, Phase 1) — the seam check the plan specifies asks the wrong
   question.** It says to "compare the guard arm against the `N`-step solve at

@@ -451,7 +451,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 39-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 41-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -544,7 +544,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 39;
+pub(crate) const HEADER_SLOTS: usize = 41;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.
