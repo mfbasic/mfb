@@ -396,6 +396,96 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) provable_index_locals: HashMap<String, (String, i64)>,
 }
 
+impl<'a> CodeBuilder<'a> {
+    /// A builder for a **synthesized** function — one the compiler emits that no
+    /// NIR function corresponds to: a builtin `FunctionRef` wrapper, or one of
+    /// plan-118's out-of-line `runtime.*` helpers.
+    ///
+    /// Everything not passed is the empty/default state a fresh function starts
+    /// in. Factored out because three sites already spelled this ~60-field
+    /// literal by hand, and plan-118 adds more: a new `CodeBuilder` field that a
+    /// synthesized function forgets to initialize is a silent miscompile in
+    /// exactly the code paths no NIR fixture covers.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_synthetic_function(
+        symbol: &str,
+        function_symbols: &'a HashMap<String, String>,
+        functions: &'a HashMap<String, &'a NirFunction>,
+        package_return_types: &'a HashMap<String, ParameterType>,
+        platform_imports: &'a HashMap<String, String>,
+        platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
+        build_mode: crate::target::NativeBuildMode,
+        globals: &'a HashMap<String, GlobalValue>,
+        string_symbols: &'a HashMap<String, String>,
+        type_model: TypeModel,
+    ) -> Self {
+        CodeBuilder {
+            current_symbol: symbol.to_string(),
+            function_symbols,
+            functions,
+            package_return_types,
+            platform_imports,
+            platform,
+            build_mode,
+            globals,
+            type_model,
+            string_symbols,
+            locals: HashMap::new(),
+            instructions: vec![abi::label("entry")],
+            relocations: Vec::new(),
+            stack_slots: Vec::new(),
+            used_callee_saved: Vec::new(),
+            stack_size: 0,
+            next_register: 8,
+            next_vreg: 0,
+            next_fp_vreg: 0,
+            float_residents: HashMap::new(),
+            promoted_float_locals: HashMap::new(),
+            address_taken_locals: HashSet::new(),
+            value_used_locals: HashSet::new(),
+            borrow_get_locals: HashSet::new(),
+            borrow_get_result: false,
+            current_returns_param_borrow: false,
+            callback_referenced_functions: HashSet::new(),
+            next_label: 0,
+            trap: None,
+            loop_stack: Vec::new(),
+            active_cleanups: Vec::new(),
+            cleanup_scope_starts: Vec::new(),
+            pending_result_slots: None,
+            escaping_value_slot: None,
+            error_arena_restore_slot: None,
+            raw_result_capture: None,
+            trap_discard_error_results: HashSet::new(),
+            raw_result_discard_error: false,
+            suppress_resource_source_flag: false,
+            emitting_error_route: false,
+            building_error_block: false,
+            current_file: String::new(),
+            current_loc: NirSourceLoc::default(),
+            resource_owners: HashMap::new(),
+            owner_containers: HashSet::new(),
+            owned_list_heads: HashMap::new(),
+            owned_value_slots: Vec::new(),
+            pending_temp_frees: Vec::new(),
+            for_each_iterable_locals: Vec::new(),
+            for_each_iterable_state_fields: Vec::new(),
+            for_each_iterable_record_fields: Vec::new(),
+            string_capacity_slots: HashMap::new(),
+            math_pool_base_vreg: None,
+            vector_natives: HashMap::new(),
+            next_vector_native: 0,
+            promoted_vector_locals: HashMap::new(),
+            promotable_vector_locals: HashSet::new(),
+            integer_lower_bounds: HashMap::new(),
+            integer_strict_upper: std::collections::HashSet::new(),
+            for_bound_expr: HashMap::new(),
+            len_of_local: HashMap::new(),
+            provable_index_locals: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct LocalValue {
     pub(crate) type_: ParameterType,
@@ -1909,6 +1999,61 @@ pub(crate) fn lower_module_for_platform(
     });
     if uses_float_to_string {
         code_functions.push(lower_float_to_string_helper());
+    }
+    // plan-118-C: the integer twin of the float formatter, same gate.
+    let uses_int_to_string = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == INT_TO_STRING_SYMBOL)
+    });
+    if uses_int_to_string {
+        code_functions.push(lower_int_to_string_helper());
+    }
+    // plan-118-C: the synthesized `toString` renderers (Fixed/Money/byte-list/
+    // Scalar). Same relocation gate; each is built by replaying the very emitter
+    // the call site used to inline, so nothing can drift between them.
+    let synthesized_before = code_functions.len();
+    for kind in ToStringHelper::every() {
+        let used = code_functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == kind.symbol())
+        });
+        if used {
+            code_functions.push(lower_to_string_helper(
+                kind,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                type_model.clone(),
+            )?);
+        }
+    }
+    // A synthesized function has no source file, so its allocation-failure path
+    // builds an `ErrorLoc` with an empty filename and relocates against the
+    // empty-string constant — which the module's own code may never have
+    // required. Same force-emit the recursive-copy functions above need, and for
+    // the same reason; without it the link dies on an undefined
+    // `_mfb_str_empty`.
+    if code_functions.len() > synthesized_before
+        && code_functions[synthesized_before..].iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == EMPTY_STRING_SYMBOL)
+        })
+        && !data_objects
+            .iter()
+            .any(|object| object.symbol == EMPTY_STRING_SYMBOL)
+    {
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
     if module_uses_call(module, "fs.pathJoin") {
         code_functions

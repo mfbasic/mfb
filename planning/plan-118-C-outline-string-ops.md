@@ -99,7 +99,30 @@ Family gate in plan-118-A, plus:
 | Source lines shaped `x = x & …` (the self-append population) | 233 tree-wide (20 acceptance, 114 builtin companions, 77 rt-behavior, 13 byte-identity, 9 benchmark) | `python3` scan, §Phase 1 |
 | Test `.mfb` files containing `&` (golden-churn floor) | 301 | same scan |
 | Inline allocation-failure error block, per concat site | **194 instructions**, not the ~40–56 §2 assumed | `--ncode` of `FUNC cat2(a,b) RETURN a & b` |
-| toString type-dispatch arms (which types inline how much) | UNMEASURED | Phase 1: read `lower_to_string` + per-type attribution |
+| toString type-dispatch arms (which types inline how much) | see the arm census below | new `-vv` `toString arm: …` counters + `--ncode` of a one-arm-per-function fixture |
+
+**toString arm census.** `-vv` over `tests/acceptance` (5,811 sites, counted by a
+permanent per-arm counter in `lower_to_string`), with each arm's per-site cost
+measured from `FUNC ts(n AS T) AS String RETURN toString(n)` at `--ncode`:
+
+| arm | sites | whole fn, before | of which inline render | after |
+|---|---|---|---|---|
+| Integer | 3,675 | 315 | ~100 | 215 |
+| String | 678 | — | 0 (identity) | — |
+| Float | 469 | 216 | 0 (already out-of-line) | 216 |
+| Boolean | 438 | 21 | ~0 (two rodata pointers) | 21 |
+| Fixed | 231 | 445 | ~230 | ~215 |
+| Money | 157 | 449 | ~234 | ~215 |
+| AttributedString | 98 | — | a deep copy, not a render | — |
+| Byte | 50 | 311 | ~100 (shares Integer) | 215 |
+| List OF Byte | 12 | 682 | ~467 | 682 (stays inline — Corrections 6) |
+| Scalar | 3 | 328 | ~113 | ~215 |
+
+The **215 floor** is the point: a site that cannot fail is 21 instructions
+(`Boolean`), and every fallible one carries ~194 of inline allocation-failure
+block. After this phase every out-of-lined arm sits on that floor, so what is
+left of `call:toString` is not `toString` — it is plan-118-E's shared error
+block.
 
 ### Verified properties
 
@@ -221,15 +244,55 @@ Commit: —
 
 ### Phase 2 — `runtime.to_string_*`
 
-- [ ] Census `lower_to_string`'s runtime arms; per-kind helper for each;
-      constant-fold paths untouched.
-- [ ] Rewrite `lower_to_string` runtime paths to call the helpers; same for
+- [x] Census `lower_to_string`'s runtime arms; per-kind helper for each;
+      constant-fold paths untouched. — census table in §2, landed as permanent
+      `-vv` counters. Helpers: `_mfb_rt_int_to_string` (Integer + Byte,
+      hand-written beside the float formatter it twins) and three **synthesized**
+      renderers for Fixed / Money / Scalar. `String`, `Boolean` and `Float`
+      needed nothing; `List OF Byte` must stay inline (Corrections 6).
+- [x] Rewrite `lower_to_string` runtime paths to call the helpers; same for
       the `callres:to*` conversion twins if the census shows they share the
-      formatting bodies.
-- [ ] Regenerate goldens; benchmark re-run (toString-heavy rows).
+      formatting bodies. — the `to*` twins do NOT share them: `callres:toInt`
+      and friends are *parsers*, not renderers, and reach
+      `emit_integer_to_string_value` nowhere. Left to the Open Decision below,
+      now closed against.
+- [x] Regenerate goldens; benchmark re-run (toString-heavy rows).
+- [x] Added: `CodeBuilder::for_synthetic_function`. Three sites already spelled
+      the ~60-field builder literal by hand and this phase needed a fourth; a
+      field a synthesized function forgets to initialize is a silent miscompile
+      in exactly the paths no NIR fixture covers.
+- [x] Added: force-emit `_mfb_str_empty` when a synthesized function relocates
+      against it. A synthesized function has no source file, so its
+      allocation-failure path builds an `ErrorLoc` with an empty filename — and
+      the link died on an undefined `_mfb_str_empty` for any module whose own
+      code never needed one. Same force-emit the recursive-copy functions
+      already carry, for the same reason.
 
 Acceptance: `call:toString` attribution ≤ 150 k (from 1.03 M); suites green;
 benchmark gate met.
+
+Measured: `call:toString` 1,030,128 → **768,984** (−25.4 %); module 13,339,853 →
+**12,872,114**. As in phase 1 the ≤ 150 k figure is C+E's joint target, not C's
+(Corrections 2): every out-of-lined arm now sits on the 215-instruction floor,
+~194 of which is the shared error block plan-118-E Phase 2 removes.
+
+Benchmark gate **PASSED**, measured A/B rather than from the suite: the box was
+running three peer sessions, and `benchmark/run.sh`'s untouched control rows
+(`string case`, `string slice` — no `toString` at all) moved 20–120 % between
+runs, so the suite could not resolve a 5 % effect. Instead, one 12 M-conversion
+program (Integer, negative Integer, Fixed, Money) compiled by the pre-phase-2
+compiler (`0310b278d`, detached worktree) and by this one, run **interleaved**
+7× so drift hits both equally, best-of and median:
+
+| | before | after |
+|---|---|---|
+| min | 1.254 s | **1.222 s** (−2.5 %) |
+| median | 1.366 s | **1.239 s** (−9.3 %) |
+
+Faster, not slower — the same result phase 1 got, for the same reason (one copy
+of the formatter is cache-resident where 3,675 copies were not).
+`scripts/test-accept.sh`: 1346 test(s) ran, passed. `artifact-gate.sh all`: 1823
+goldens, 0 diffs after regenerating the 144 that churned. Acceptance 732/732.
 Commit: —
 
 ### Phase 3 — print marshalling
@@ -323,6 +386,37 @@ Commit: —
    script now walks every `*/golden/*.ncodesum` under `tests/` and splits the
    `<target>.app` infix the way `artifact-gate.sh` does. 132 goldens refreshed
    before, 140 after.
+
+5. **The `to*` conversion twins share nothing with `toString`** — the Open
+   Decision asking whether `callres:toInt`/`toFixed`/… should ride phase 2 is
+   closed **against**. They are *parsers* (String → number), not renderers; none
+   of them reaches `emit_integer_to_string_value` or the decimal emitters, so
+   there is no shared formatting body to out-line. Their own expansion is a
+   separate shape and is not in this letter.
+
+6. **`toString(List OF Byte)` cannot use the synthesized-helper contract, and
+   trying it was a real regression.** The contract is: the helper returns an
+   error Result, and the call site re-raises ONE fixed code with its own
+   `ErrorLoc`. That is sound only for an arm whose sole failure is allocation.
+   `emit_byte_list_to_string_value` also raises `ErrEncoding` for invalid UTF-8,
+   so routing it through a helper turned
+
+       toString(<invalid bytes>)  ->  "Text encoding or decoding failed" (7-702-0004)
+
+   into `"Allocation failed"` (7-701-0001) — caught by
+   `rt-error/general/toString_invalid_encoding`,
+   `rt-error/encoding/func_encoding_hexDecode_valid` and
+   `rt-behavior/security/unicode-03-ingress-utf8-invariant` in the acceptance
+   harness, all three as `build.log` mismatches. Reverted to inline, with the
+   single-error precondition now stated in the helper module's own docs and each
+   remaining arm checked against it: Fixed and Money reach only
+   `emit_decimal_alloc_and_copy_integer`, Scalar only
+   `emit_materialize_string_from_bytes`, and both raise `ErrOutOfMemory` and
+   nothing else.
+
+   This is why the harness matters more than the byte gate here: `artifact-gate`
+   was 0 diffs across the regeneration, because a wrong error CODE is a
+   perfectly deterministic artifact.
 
 ## Summary
 
