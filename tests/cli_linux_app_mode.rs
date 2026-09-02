@@ -69,10 +69,25 @@ fn linux_app_mode_plan_declares_gtk_libraries() {
             "nplan should import the GTK bootstrap symbol {symbol}"
         );
     }
-    // App mode omits the console SIGINT/SIGTERM handler import (plan-05 §6.1).
+    // App mode registers no console SIGINT/SIGTERM handler (plan-05 §6.1): it has
+    // a window-driven finish path instead. That invariant is about the HANDLER, so
+    // assert the handler symbol directly.
+    //
+    // This used to assert `!nplan.contains("\"signal\"")` and used the libc import
+    // as a proxy for "no handler is registered". bug-467 broke the proxy without
+    // touching the invariant: the program entry now calls `signal(SIGPIPE, SIG_IGN)`
+    // on every POSIX target, app mode included, so that a socket peer cannot kill
+    // the process — an app-mode program owns sockets just the same. So `signal` IS
+    // imported now and is genuinely referenced, while the console handler still is
+    // not. The proxy was disproved; the invariant it stood for is unchanged and is
+    // pinned here more precisely than before.
     assert!(
-        !nplan.contains("\"signal\""),
-        "app mode should not import the console signal handler"
+        !nplan.contains("_mfb_rt_signal_handler"),
+        "app mode should not register the console SIGINT/SIGTERM handler"
+    );
+    assert!(
+        nplan.contains("\"signal\""),
+        "app mode must still import `signal` for the bug-467 SIGPIPE disposition"
     );
 }
 

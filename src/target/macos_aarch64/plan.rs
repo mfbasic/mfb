@@ -1107,13 +1107,30 @@ mod tests {
     }
 
     /// bug-71: `io.flush` is drain-only (`lower_io_flush_helper` never fsyncs /
-    /// reads errno), so its runtime import arm must be empty — no dead
-    /// `_fsync`/`___error` libSystem symbols.
+    /// reads errno), so it declares no `_fsync` and no write of its own.
+    ///
+    /// bug-467 replaced the original `is_empty()` assertion. The arm is no longer
+    /// empty and correctly so: `io.flush` runs the shared stdout drain, and the
+    /// drain now classifies its own `EPIPE` — restoring `SIG_DFL` and re-raising
+    /// SIGPIPE — so that `prog | head` still ends a CLI the way it always has,
+    /// despite the process-wide `SIG_IGN` the entry installs to stop a socket peer
+    /// from killing the process. That block genuinely references `_signal`,
+    /// `_raise` and `___error`, so declaring them is required, not dead weight
+    /// (the emission is pinned by the `.nplan`/`.mir` goldens).
+    ///
+    /// Pinned as an exact set rather than a subset: that keeps the original
+    /// guard's whole point — no arm may declare a symbol its code unit never
+    /// references — so a stray or resurrected `_fsync` still fails here.
     #[test]
-    fn io_flush_imports_nothing() {
+    fn io_flush_imports_only_the_sigpipe_classification() {
         let spec =
             crate::target::shared::runtime::spec_for_call("io.flush").expect("io.flush spec");
-        assert!(Platform.runtime_imports(spec).is_empty());
+        let symbols: Vec<String> = Platform
+            .runtime_imports(spec)
+            .into_iter()
+            .map(|imp| imp.symbol)
+            .collect();
+        assert_eq!(symbols, vec!["_signal", "_raise", "___error"]);
     }
 
     /// bug-410: `term::sync` presents the frame with a libc `_write` on macOS and
