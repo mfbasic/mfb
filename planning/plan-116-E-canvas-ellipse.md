@@ -41,7 +41,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-D complete and archived | `ls planning/completed/plan-116-D-*` → one match | NOT MET |
+| plan-116-D complete and archived | `ls planning/completed/plan-116-D-*` → one match | **MET** (2026-09-02: exactly one match, `planning/completed/plan-116-D-canvas-endcaps.md`, archived by `c85876287` and landed on main at `c704db4da`. Every D phase acceptance measured — 96 test binaries on mac RELEASE, 3722 `--bin mfb` unit tests on box 2228, artifact-gate 1828 goldens 0 diffs, test-accept 1348, Vulkan 12/12 on both 2228 glibc and 2227 musl, `endcaps.png` matched exactly by the oracle and within `Tolerance::GPU_DEFAULT` by Metal, man-census 0 unclassified, man-run-examples canvas 21/21.) |
 
 If plan-116-D is not complete, this letter cannot start, full stop. D is the last
 letter before this one to grow `HEADER_SLOTS` / `ITEM_BLOCK_SIZE`, and D also
@@ -198,11 +198,22 @@ canvas-emitting target, both `.spv` blobs, and `mfb man canvas types`.
 New geometry kind `__CANVAS_GEO_ELLIPSE = 7`, declared beside the others in
 `helper_geometry.rs:53` and mirrored in `helper_draw.rs`'s kind block.
 
-Header (40 slots after plan-116-D) uses the existing shape slots 2–5 for
-`x, y, radiusX, radiusY` and **slot 40** for `angle`'s cosine and **41** for its sine —
+Header (**39** slots after plan-116-D, 0–38) uses the existing shape slots 2–5 for
+`x, y, radiusX, radiusY` and **slot 39** for `angle`'s cosine and **40** for its sine —
 precomputed once per ellipse, as `__canvas_arcHeader` already precomputes its sweep
-vectors. Header becomes **42**; the item block takes one more `ivec4`, reaching
+vectors. Header becomes **41**; the item block takes one more `ivec4`, reaching
 **192** bytes.
+
+> **Corrected 2026-09-02 (E1).** This said 40 slots after D, cos/sin at 40–41, header
+> → 42. plan-116-D landed **39**
+> (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs` → 39,
+> `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 39`), because D's own
+> Correction D1 found the same one-slot overestimate inherited from plan-116-C. Every
+> number here shifts down by one. `ITEM_BLOCK_SIZE` is 176 as this letter assumed
+> (`mod.rs:323`), so 176 → 192 stands. **The pattern is now three letters deep** —
+> C, D and E each wrote slot numbers predicting where the previous letter would land,
+> and each was one high — so a later letter should take the header size from the
+> constant rather than from its own prose.
 
 Storing `cos`/`sin` rather than the angle keeps the only `__canvas_cos`/`__canvas_sin`
 calls out of the per-pixel path and out of the shaders, which matters for the oracle:
@@ -285,7 +296,8 @@ The iteration is short and branch-free, so all three get the same code shape:
   `mod.rs:160` describes. Deliberate and user-directed.
 - **`canvas::Ellipse` is new exported surface**; `mfb man canvas types` grows.
 - **No existing scene changes.** No existing record, field or kind is touched.
-- **`HEADER_SLOTS` 40 → 42**, **`ITEM_BLOCK_SIZE` 176 → 192** — internal.
+- **`HEADER_SLOTS` 39 → 41**, **`ITEM_BLOCK_SIZE` 176 → 192** — internal.
+  (Corrected 2026-09-02 from 40 → 42; see E1 in §4.1.)
 - **`.ncodesum` churn**; both `.spv` blobs regenerate.
 
 ## Phases
@@ -334,7 +346,7 @@ Commit: —
 - [ ] Add `__canvas_ellipseHeader` writing kind 7, the five shape values, the
       precomputed `cos`/`sin`, the paint, and the §4.1 bounds; degenerate radii return
       `__canvas_emptyHeader()`.
-- [ ] `HEADER_SLOTS` → 42; every `__CANVAS_GEO_HEADER` reader updated.
+- [ ] `HEADER_SLOTS` → 41; every `__CANVAS_GEO_HEADER` reader updated.
 - [ ] Tests: `tests/cli_canvas_package.rs` constructs an `Ellipse` and compiles;
       `every_draw_item_variant_has_a_record` and `…carries_a_paint` stay green with no
       edit.
@@ -434,7 +446,22 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **E1 (2026-09-02, pre-Phase 1) — the header slot numbers were one high, for the third
+  letter running.** This letter says the header is 40 slots after plan-116-D and puts
+  `angle`'s cosine and sine at 40–41, making it 42. D landed **39**
+  (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs` → 39;
+  `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 39`). Corrected to
+  cos/sin at **39–40** and `HEADER_SLOTS` → **41** in §4.1, §Compatibility and Phase 2.
+  `ITEM_BLOCK_SIZE` was assumed correctly at 176.
+
+  The interesting part is that this is the *same* defect D recorded as its own D1, and
+  C's Correction C2 is the root of both: C predicted it would need a per-axis slot for
+  the distance correction, measured that it did not, and landed one slot lower than
+  every later letter had assumed. Each subsequent letter then wrote its numbers
+  relative to a header that was never that size. **The general fix is not to write
+  absolute slot numbers in a plan at all** — take the base from `HEADER_SLOTS` and
+  describe the new slots as offsets from it. Letters F–J should be read with that in
+  mind; each is checked against the constant at its own Phase 1.
 
 ## Summary
 
