@@ -22,17 +22,19 @@ IMPORT os
 ' So this program presents once per *change* — a mood switch or a resize — not
 ' once per frame, and spends the rest of its time waiting for one.
 '
-' Three of the reference art's features have no primitive here, so each is built
-' from the ones there are. They are worth reading as a set, because they are the
-' same trick three times: the canvas draws flat-filled signed distance fields, so
+' Two of the reference art's features have no primitive here, so each is built
+' from the ones there are. They are worth reading as a pair, because they are the
+' same trick twice: the canvas draws flat-filled signed distance fields, so
 ' anything else is spelled as a series of them.
 '
 '   the shaded face   the fill is one flat colour, so the gradient is a stack of
 '                     discs (faceDisc)
 '   the oval eyes     Circle is the only curve primitive and Paint.transform is
 '                     not applied, so an oval is a Polygon (ovalPoints)
-'   the round mouth   an Arc's ends are cut square along its radii, so each end
-'     ends            gets a disc of the stroke's own half-width (mouthItems)
+'
+' The mouth's soft ends are not in that set. They were once a third instance of
+' the trick — a disc of the stroke's half-width dropped at each end of the arc —
+' and are now one field: canvas::CapStyle.Round caps the Arc itself (mouthArc).
 
 ' --- Proportions, as fractions of the face radius ---------------------------
 '
@@ -182,7 +184,7 @@ FUNC eyeAt(cx AS Float, cy AS Float, r AS Float, side AS Float) AS canvas::DrawI
   RETURN canvas::Polygon[points := ovalPoints(cx + side * r * EYE_DX, cy - r * EYE_DY, r * EYE_RX, r * EYE_RY, EYE_SIDES), paint := canvas::fill(inkColor())]
 END FUNC
 
-' The mouth: a circular arc through three known points, plus its two round ends.
+' The mouth: a circular arc through three known points, round-capped.
 '
 ' The corners sit MOUTH_HALF either side of the axis and the middle departs from
 ' the line joining them by MOUTH_SAG; those three points fix the arc's radius and
@@ -195,7 +197,7 @@ END FUNC
 ' radians clockwise from +X and Y increases downward, so PI/2 points at the bottom
 ' of a circle and 3*PI/2 at the top, and the arc always bulges away from its centre
 ' — putting the centre above the mouth curves it down, and below, up.
-FUNC mouthItems(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS List OF canvas::DrawItem
+FUNC mouthArc(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS canvas::DrawItem
   LET w AS Float = r * MOUTH_HALF
   LET s AS Float = r * MOUTH_SAG
 
@@ -214,19 +216,12 @@ FUNC mouthItems(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS List O
     ky = cy + r * (MOUTH_TOP + MOUTH_SAG) + rho * math::cos(theta)
   END IF
 
-  LET a0 AS Float = mid - theta
-  LET a1 AS Float = mid + theta
-  LET arc AS canvas::DrawItem = canvas::Arc[x := cx, y := ky, radius := rho, startAngle := a0, endAngle := a1, cap := canvas::CapStyle.Butt, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
-
-  ' An arc is cut square along the radii that bound its sweep — the canvas has no
-  ' line caps — so each end gets a disc of the stroke's own half-width, centred on
-  ' the path where it stops. That is exactly what a round cap is, and without them
-  ' the reference art's soft ends come out as two chisel cuts.
-  LET half AS Float = r * MOUTH_THICK / 2.0
-  LET capA AS canvas::DrawItem = canvas::Circle[x := cx + rho * math::cos(a0), y := ky + rho * math::sin(a0), radius := half, paint := canvas::fill(inkColor())]
-  LET capB AS canvas::DrawItem = canvas::Circle[x := cx + rho * math::cos(a1), y := ky + rho * math::sin(a1), radius := half, paint := canvas::fill(inkColor())]
-
-  RETURN [arc, capA, capB]
+  ' CapStyle.Round is what gives the reference art's soft ends. A butt cap is the
+  ' arc's band alone, cut square along the radii that bound the sweep, so the mouth
+  ' would finish in two chisel corners; Round unions a half-disc of the stroke's
+  ' half-width at each sweep endpoint, on the same signed distance the rest of the
+  ' item is drawn from, so the dome antialiases like every other edge here.
+  RETURN canvas::Arc[x := cx, y := ky, radius := rho, startAngle := mid - theta, endAngle := mid + theta, cap := canvas::CapStyle.Round, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
 END FUNC
 
 ' The whole face for one mood, centred on (cx, cy). Items are drawn in list order
@@ -236,10 +231,7 @@ FUNC facePicture(smiling AS Boolean, cx AS Float, cy AS Float, r AS Float) AS Li
   MUT out AS List OF canvas::DrawItem = faceDisc(cx, cy, r)
   out = collections::append(out, eyeAt(cx, cy, r, -1.0))
   out = collections::append(out, eyeAt(cx, cy, r, 1.0))
-  FOR EACH item IN mouthItems(cx, cy, r, smiling)
-    out = collections::append(out, item)
-  NEXT
-  RETURN out
+  RETURN collections::append(out, mouthArc(cx, cy, r, smiling))
 END FUNC
 
 ' --- The rest of the window -------------------------------------------------

@@ -1,0 +1,59 @@
+' SPIKE 4 -- is the O(N^2) String fold inherent, or is the fast mechanism
+' simply unreachable from `reduce`?
+'
+' `try_inplace_concat_assign` already lowers `acc = acc & x` on a plain MUT
+' String local to an amortized-O(1) self-append. `reduce`'s accumulator is a
+' lambda parameter returned by value, so it cannot reach that path. If the hand
+' loop is linear and reduce is quadratic over the SAME data, the fix is to give
+' reduce the accumulator representation the hand loop already gets.
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC catFn(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+FUNC buildStrs(n AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, "abcde")
+  NEXT
+  RETURN xs
+END FUNC
+
+' Hand-written accumulate loop -- reaches try_inplace_concat_assign.
+FUNC handLoop(xs AS List OF String) AS Integer
+  LET t0 AS Integer = datetime::monotonicNanos()
+  MUT acc AS String = ""
+  FOR EACH s IN xs
+    acc = acc & s
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("hand " & toString(len(acc)))
+  RETURN t1 - t0
+END FUNC
+
+' The same fold through collections::reduce.
+FUNC viaReduce(xs AS List OF String) AS Integer
+  LET t0 AS Integer = datetime::monotonicNanos()
+  LET acc AS String = collections::reduce(xs, "", catFn)
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("reduce " & toString(len(acc)))
+  RETURN t1 - t0
+END FUNC
+
+FUNC main() AS Integer
+  io::print("# spike 4: same fold, two spellings. us for ONE fold over N elements.")
+  io::print("#   linear in N => O(N); x4 per doubling => O(N^2)")
+  LET sizes AS List OF Integer = [1000, 2000, 4000, 8000]
+  io::print("")
+  FOR EACH n IN sizes
+    LET xs AS List OF String = buildStrs(n)
+    LET h AS Integer = handLoop(xs)
+    LET r AS Integer = viaReduce(xs)
+    io::print("  N=" & toString(n) & "   hand=" & toString(h / 1000) & "us   reduce=" & toString(r / 1000) & "us")
+  NEXT
+  RETURN 0
+END FUNC

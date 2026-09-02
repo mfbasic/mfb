@@ -1,0 +1,129 @@
+' SPIKE 1 -- what does `collections::set` cost, and does it scale with N?
+'
+' Every variant performs the SAME number of set calls (CALLS) while N varies.
+' If set is O(1) the reported time is flat in N; if each set copies the whole
+' list the time grows linearly with N.
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+TYPE RecInt
+  before AS Integer
+  xs AS List OF Integer
+  after AS Integer
+END TYPE
+
+TYPE RecStr
+  before AS Integer
+  xs AS List OF String
+  after AS Integer
+END TYPE
+
+FUNC buildInts(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildStrs(n AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, "s" & toString(i))
+  NEXT
+  RETURN xs
+END FUNC
+
+' A: plain MUT local, Integer element
+FUNC setPlainInt(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    LET v AS Integer = collections::get(xs, j)
+    xs = collections::set(xs, j, v + 1)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("A " & toString(collections::get(xs, 0)))
+  RETURN t1 - t0
+END FUNC
+
+' B: plain MUT local, String element
+FUNC setPlainStr(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF String = buildStrs(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    LET v AS String = collections::get(xs, j)
+    xs = collections::set(xs, j, v)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("B " & toString(len(collections::get(xs, 0))))
+  RETURN t1 - t0
+END FUNC
+
+' C: list held in a record field, Integer element
+FUNC setRecInt(n AS Integer, calls AS Integer) AS Integer
+  MUT rec AS RecInt = RecInt[1, buildInts(n), 2]
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    LET cur AS List OF Integer = rec.xs
+    LET v AS Integer = collections::get(cur, j)
+    rec = WITH rec { xs := collections::set(cur, j, v + 1) }
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  LET fin AS List OF Integer = rec.xs
+  io::printError("C " & toString(collections::get(fin, 0)))
+  RETURN t1 - t0
+END FUNC
+
+' D: plain MUT local, String element, but the value written is a FRESH string
+'    (isolates "copy the list" from "copy the element bytes")
+FUNC setPlainStrFresh(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF String = buildStrs(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    LET j AS Integer = i MOD n
+    xs = collections::set(xs, j, "q" & toString(i))
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("D " & toString(len(collections::get(xs, 0))))
+  RETURN t1 - t0
+END FUNC
+
+FUNC row(label AS String, n AS Integer, ns AS Integer, calls AS Integer) AS Integer
+  LET per AS Integer = ns / calls
+  io::print(label & "  N=" & toString(n) & "  total=" & toString(ns / 1000) & "us  per_set=" & toString(per) & "ns")
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET calls AS Integer = 2000
+  io::print("# spike 1: cost of collections::set, CALLS held constant at " & toString(calls))
+  io::print("# flat per_set => O(1); per_set growing with N => whole-list copy")
+  LET sizes AS List OF Integer = [50, 100, 200, 400, 800, 1600]
+  io::print("")
+  io::print("A plain local, Integer")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  A", n, setPlainInt(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("B plain local, String (write back the value just read)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  B", n, setPlainStr(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("C record field, Integer")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  C", n, setRecInt(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("D plain local, String (write a fresh string)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  D", n, setPlainStrFresh(n, calls), calls)
+  NEXT
+  RETURN 0
+END FUNC
