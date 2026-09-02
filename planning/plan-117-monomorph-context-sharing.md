@@ -392,7 +392,7 @@ Measured (2026-09-01, this worktree, macOS arm64):
     `monomorphize 101.0ms 101.0ms 1 0.2%` (resolve 375.9ms total),
     `Tests: 732  Pass: 732  Fail: 0`, same corpus
     (`HIR functions (generic) 1618` → `(concrete) 1609`).
-Commit: —
+Commit: 81982a91c
 
 ## Validation Plan
 
