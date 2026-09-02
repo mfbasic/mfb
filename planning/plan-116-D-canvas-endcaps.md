@@ -292,7 +292,31 @@ Acceptance: `cargo test --no-fail-fast` green; **every** canvas golden byte-iden
 on disk; `scripts/man-run-examples.sh canvas --run` passes (the two man examples now
 name a cap). Any pixel movement here means a site got the wrong cap value — fix the
 site, do not re-baseline.
-Commit: —
+
+**MET.**
+
+- `cargo test --release --no-fail-fast` — **95 test binaries, 0 failures, exit 0.**
+- **Every canvas golden byte-identical**: `git status --short tests/golden/canvas/` is
+  empty and `rt_canvas_golden` is 8/8, including the two exact-match references and
+  the GPU-vs-reference one. This is the box that would have caught a site given the
+  wrong cap, and it is the reason the 12 `Arc` sites take `Butt` while the 2 `Line`
+  sites take `Round`.
+- `scripts/man-run-examples.sh canvas --run` — **21/21 built and ran**.
+- `mfb man canvas types` lists `canvas::CapStyle` with both variants and shows `cap`
+  on `Line` and `Arc` only.
+
+That run also surfaced a **flaky test in bug-477's
+`tests/rt_tls_connect_allow_self_signed.rs`** — unrelated to canvas, and fixed here
+rather than left (AGENTS.md). `free_port()` releases its ephemeral port before
+`openssl s_server` binds it, so two of the four concurrent cases can be handed the
+same number; the loser of the bind has its readiness probe answered by the *winner's*
+server and silently reports that case's TLS verdict. Seen in both directions in one
+session. A live child is now part of the readiness condition (an exited child lost the
+bind → take a new port) with a mutex spanning pick-through-bind. Measured: 2 failures
+in 2 loaded runs before, 10/10 green idle before (so it does not reproduce on demand),
+3/3 green under 12-way load plus a full green suite after. Recorded in
+`.ai/testing-gates.md`.
+Commit: 5f7d1ca93, 65a99632e
 
 ### Phase 2 — The line cap, all three renderers
 
