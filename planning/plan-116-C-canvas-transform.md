@@ -649,6 +649,27 @@ before starting a long build is a one-second check that replaces an hour-long on
 
 ## Corrections
 
+- **C9 (2026-09-02, merge-back) — `rsync --exclude target` also excludes
+  `src/target/`, and the bill arrives 80 minutes later.** The Linux `--bin mfb` row is
+  run by syncing the worktree to box 2228 and building there. The sync used
+  `--exclude target` to leave the build directory behind; an unanchored rsync pattern
+  matches **any** path component, so it also dropped `src/target/` — every
+  per-architecture backend. The sync reports success, `cargo` spends ~80 minutes
+  compiling the dependency graph, and only then fails with a wall of
+  `error[E0583]: file not found for module linux_common / linux_gtk / linux_riscv64 /
+  macos_aarch64 / package_mfp` against `src/target.rs`.
+
+  Worth recording because nothing in that failure names rsync, and the natural first
+  reading is that main is broken or the merge went wrong — exactly the misattribution
+  that costs a second 80-minute cycle. `--exclude '/target'` anchors it to the transfer
+  root. The cheap guard is to verify one path the exclude could have eaten *before*
+  starting the build: `ssh … 'ls ~/mfb-p116/src/target | head'`.
+
+  A second, smaller trap in the same repair: the replacement run and the killed one
+  both redirected to `~/p116-unit.log` with `>`, so the survivor's output interleaved
+  with the dead run's `Killed` / `exit=137` and the log stopped being readable
+  evidence. Two runs must not share one log file.
+
 - **C8 (2026-09-01, Phase 5) — a record's own `description` was rendered by no `mfb man`
   page, so this phase's first box could not have been verified as written.** The phase
   asks that "the `Transform` and `Paint.transform` descriptions describe behaviour".
