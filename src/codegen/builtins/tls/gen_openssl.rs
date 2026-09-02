@@ -12,6 +12,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::emit_data_address;
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
@@ -47,6 +48,8 @@ pub(crate) fn lower_tls_connect_openssl(
     const SOLEN_OFFSET: usize = 176; // getsockopt option length
     const TIMEVAL_OFFSET: usize = 184; // 184..200: tv_sec (8) + tv_usec (8)
     const HSTOFLAG: usize = 200; // plan-73-D: 1 if the handshake recv timed out (SO_*TIMEO)
+    const ALLOW: usize = 208; // bug-477: allowSelfSigned (0/1)
+    const VCB: usize = 216; // bug-477: SSL_set_verify's callback argument (0 or &cb)
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let net_fail = format!("{symbol}_net_fail");
@@ -70,8 +73,8 @@ pub(crate) fn lower_tls_connect_openssl(
     let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
-    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
-    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName.
+    // Host form: x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName; x4 = allowSelfSigned.
+    // Address form: x0 = net::Address; x1 = timeoutMs; x2 = serverName; x3 = allowSelfSigned.
     instructions.extend(super::gen_shared::connect_arg_prologue(
         address,
         &v9,
@@ -79,6 +82,7 @@ pub(crate) fn lower_tls_connect_openssl(
         PORT_OFFSET,
         TIMEOUT_OFFSET,
         SNAME_OFFSET,
+        ALLOW,
     ));
     instructions.extend([
         // Sentinel-initialise the fd (-1) and the SSL/SSL_CTX slots (0) so the
@@ -535,7 +539,74 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&tls_fail),
     ]);
-    // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
+    // bug-477: the mode stays SSL_VERIFY_PEER in BOTH forms — only the callback
+    // argument changes. NULL is today's behaviour (abort on the first chain
+    // error); with `allowSelfSigned` set it is `_mfb_tls_verify_cb`, which
+    // forgives the three trust-anchor codes and returns 1 so verification
+    // CONTINUES into the hostname and validity-date checks. Dropping to
+    // SSL_VERIFY_NONE instead — the shape the bug document originally proposed —
+    // was measured to make a name-mismatched self-signed certificate
+    // indistinguishable from a name-correct one (both report 18), which is why
+    // this is a callback and not a mode change.
+    // The callback argument is staged into a FRAME SLOT, not into `c_arg(2)`,
+    // and only loaded into the register after the last `dlsym` below. Every
+    // `emit_dlsym` is a C call and a C call clobbers the argument registers, so
+    // writing `c_arg(2)` here and calling `dlsym` afterwards destroys it —
+    // measured on box 2223, where the handshake never started and the peer
+    // logged "0 server accepts". See `.ai/arch-abi.md`, "Stage ABI args via
+    // temporaries".
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), VCB));
+    {
+        let strict = format!("{symbol}_verify_strict");
+        instructions.extend([
+            abi::load_u64(&v10, abi::stack_pointer(), ALLOW),
+            abi::compare_immediate(&v10, "0"),
+            abi::branch_eq(&strict),
+        ]);
+        // Publish the two X509_STORE_CTX accessors the callback needs. It receives
+        // no user pointer, so they travel through a process-global slot pair
+        // rather than a capture; concurrent connects all store the same values.
+        for (name, slot) in [
+            ("X509_STORE_CTX_get_error", VFN_GET_ERROR),
+            ("X509_STORE_CTX_set_error", VFN_SET_ERROR),
+        ] {
+            emit_dlsym(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                HANDLE_OFFSET,
+                name,
+                FNPTR_OFFSET,
+                &load_fail,
+            )?;
+            emit_data_address(
+                symbol,
+                &v10,
+                TLS_VERIFY_FNS,
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([
+                abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+                abi::store_u64(&v9, &v10, slot),
+            ]);
+        }
+        emit_data_address(
+            symbol,
+            &v10,
+            TLS_VERIFY_CB,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::store_u64(&v10, abi::stack_pointer(), VCB));
+        instructions.push(abi::label(&strict));
+    }
+    // SSL_set_verify's own fnptr is re-resolved here because the loop above
+    // reused FNPTR_OFFSET for the two accessors.
     emit_dlsym(
         &mut EmitCtx {
             symbol,
@@ -552,7 +623,8 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", SSL_VERIFY_PEER),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        // Loaded HERE, after the last dlsym, for the reason given at VCB.
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), VCB),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
     ]);
@@ -2462,12 +2534,20 @@ pub(crate) fn lower_tls_write_openssl(
     const REMAINING_OFFSET: usize = 24;
     const HANDLE_OFFSET: usize = 32;
     const FNPTR_OFFSET: usize = 40;
+    // bug-467: `SSL_write`'s return, spilled before the failure branch so the
+    // classification below can hand it to `SSL_get_error` without reading the
+    // aligned result bank across an external call (bug-452, and the same reason
+    // `lower_tls_read_openssl` spills its `n`).
+    const N_OFFSET: usize = 48;
 
     let closed = format!("{symbol}_closed");
     let load_fail = format!("{symbol}_load_fail");
     let write_loop = format!("{symbol}_write_loop");
     let write_done = format!("{symbol}_write_done");
     let write_fail = format!("{symbol}_write_fail");
+    let write_classify = format!("{symbol}_write_classify");
+    let write_timeout = format!("{symbol}_write_timeout");
+    let peer_closed = format!("{symbol}_peer_closed");
     let done = format!("{symbol}_done");
 
     let mut instructions: Vec<CodeInstruction> = Vec::new();
@@ -2542,8 +2622,9 @@ pub(crate) fn lower_tls_write_openssl(
         abi::branch_link_register(&v9),
         // SSL_write returns a C int; sign-extend before the signed <=0 test (bug-102).
         abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&write_fail),
+        abi::branch_le(&write_classify),
         abi::load_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
         abi::load_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
         abi::add_registers(&v11, &v11, abi::return_register()),
@@ -2555,10 +2636,78 @@ pub(crate) fn lower_tls_write_openssl(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
+    // bug-467: classify the failure instead of collapsing every one of them into
+    // `ErrTlsFailed`. Until this bug, a write to a peer that had gone away never
+    // got here at all -- libssl's internal `write(2)` delivered SIGPIPE and the
+    // process died -- so the only reachable failures were load/protocol ones and
+    // one blanket code was enough. With SIGPIPE ignored the peer's disappearance
+    // now arrives here as a return value, and `tcp` and `tls` are documented
+    // drop-in mirrors: `tcp::write` raises `ErrConnectionClosed` for it, and
+    // `tls::read`/`tcp::read` already agree on that code at end of stream
+    // (bug-465, rt-behavior/{tcp,tls}/*-read-eof-raises-rt). `SSL_get_error` is
+    // the only way to tell the three cases apart:
+    //
+    //   2/3  WANT_READ / WANT_WRITE -- the SO_SNDTIMEO deadline `tls::setWriteTimeout`
+    //        installs expired. The session is intact; the convention is ErrTimeout
+    //        (plan-110-D). Letting this fall into the closed-connection arm would
+    //        report a slow peer as a broken one -- a new bug, not an old one.
+    //   5/6  SYSCALL / ZERO_RETURN -- the transport is gone (EPIPE, ECONNRESET) or
+    //        the peer sent close_notify. Mirrors `tcp::write`, which maps every
+    //        errno that is not EAGAIN/EINTR to ErrConnectionClosed.
+    //   else the protocol failure `ErrTlsFailed` has always meant.
+    //
+    // Reusing FNPTR_OFFSET for `SSL_get_error` is safe because every arm below is
+    // terminal: nothing re-enters `write_loop`, which is the only reader of the
+    // `SSL_write` pointer. `lower_tls_read_openssl` does exactly the same.
+    instructions.push(abi::label(&write_classify));
+    emit_dlsym(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        HANDLE_OFFSET,
+        "SSL_get_error",
+        FNPTR_OFFSET,
+        &load_fail,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register(&v9),
+        abi::sign_extend_word(&v10, abi::c_return(0)),
+        abi::compare_immediate(&v10, "2"), // SSL_ERROR_WANT_READ
+        abi::branch_eq(&write_timeout),
+        abi::compare_immediate(&v10, "3"), // SSL_ERROR_WANT_WRITE
+        abi::branch_eq(&write_timeout),
+        abi::compare_immediate(&v10, "5"), // SSL_ERROR_SYSCALL
+        abi::branch_eq(&peer_closed),
+        abi::compare_immediate(&v10, "6"), // SSL_ERROR_ZERO_RETURN
+        abi::branch_eq(&peer_closed),
+    ]);
     instructions.push(abi::label(&write_fail));
     emit_fail(
         symbol,
         "ErrTlsFailed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&peer_closed));
+    emit_fail(
+        symbol,
+        "ErrConnectionClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&write_timeout));
+    emit_fail(
+        symbol,
+        "ErrTimeout",
         &mut instructions,
         &mut relocations,
         &done,

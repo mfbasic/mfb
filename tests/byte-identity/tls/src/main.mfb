@@ -10,6 +10,24 @@ FUNC main() AS Integer
   RES sock2 AS tls::Socket = tls::connect("example.com", 443, 5000)
   RES sock3 AS tls::Socket = tls::connect("example.com", 443, 5000, "example.com")
 
+  ' bug-477: allowSelfSigned, in BOTH overloads and at BOTH values. A
+  ' `codegen_cover` fixture that does not mention a member never hashes it
+  ' (.ai/testing-gates.md), and the flag selects between two emitted code paths
+  ' -- the strict one and the relaxed one -- so a fixture carrying only the
+  ' default would leave the entire relaxed path outside the drift gate. The
+  ' `net::Address` form is spelled out separately because the two overloads do
+  ' not share a positional layout: `allowSelfSigned` is parameter 4 of the
+  ' host/port form and parameter 3 of the Address form.
+  RES sockStrict AS tls::Socket = tls::connect("example.com", 443, 5000, "example.com", FALSE)
+  RES sockRelaxed AS tls::Socket = tls::connect("example.com", 443, 5000, "example.com", TRUE)
+  LET peer AS net::Address = net::lookup("example.com", 443)
+  RES sockAddr AS tls::Socket = tls::connect(peer, 5000, "example.com")
+  RES sockAddrRelaxed AS tls::Socket = tls::connect(peer, 5000, "example.com", TRUE)
+  tls::close(sockStrict)
+  tls::close(sockRelaxed)
+  tls::close(sockAddr)
+  tls::close(sockAddrRelaxed)
+
   ' read / write (List OF Byte)
   LET got = tls::read(sock, 64)
   tls::write(sock, got)

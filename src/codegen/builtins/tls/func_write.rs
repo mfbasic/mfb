@@ -22,7 +22,14 @@ and does not close the socket.
 partial write that cannot be completed is reported as an error rather than a
 count. Pass a `String` to send its UTF-8 bytes without first converting it to a
 `List OF Byte` — that is the second overload of this same call — and use
-`tls::read` to receive the peer's reply."#;
+`tls::read` to receive the peer's reply.
+
+Writing to a socket whose peer has already gone away raises
+`ErrConnectionClosed`, the same code `tcp::write` and both `read` calls use, so a
+`TRAP` around the write is what a server uses to survive a client that
+disconnects. As on a plain socket it is not reported on the *first* such write —
+that one is accepted locally, and a later write in the same loop is the one that
+raises."#;
 const EX: &str = r#"Send a raw request over a connected TLS socket:
 
 ```

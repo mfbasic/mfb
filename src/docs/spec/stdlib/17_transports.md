@@ -128,6 +128,16 @@ plus a handshake and a peer identity.
   the host trust store and checks the name; a chain it cannot verify raises
   rather than connecting. The optional `serverName` sets SNI, defaulting to the
   host.
+* **One narrow opt-out, off by default.** The optional `Boolean`
+  `allowSelfSigned` accepts a chain that fails *only* because its root is not in
+  the host trust store — a self-signed certificate, or a private CA. It is not a
+  "skip verification" switch: the server name, the certificate validity dates and
+  the TLS 1.2 floor remain enforced on every backend, so a name mismatch or an
+  expired certificate still raises. It defaults to `FALSE`, so no existing call
+  changes behaviour; it cannot be set by environment variable or manifest key, so
+  it is always visible at the call site; and `mfb audit` reports each use as
+  `AUDIT-TLS-RELAXED-TRUST`. `http::` does not expose it — HTTPS through `http::`
+  always verifies fully.
 * **The server presents, and does not request.** `tls::listen` loads a
   certificate chain and private key into a server context that every accepted
   connection borrows; it does not request or verify a client certificate.

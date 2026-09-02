@@ -20,7 +20,12 @@ FUNC main AS Integer
   tls::setWriteTimeout(1, "2")
   tls::setWriteTimeout(1, 2, 3)
 
-  ' `connect` has no 5-argument form in either shape, and no zero-argument one.
+  ' bug-477 gave `connect` a 5th parameter (`allowSelfSigned AS Boolean`), so
+  ' this is no longer an ARITY error -- 5 arguments is now a valid shape. It
+  ' still fails, and for a sharper reason: `1` is an Integer where the 5th
+  ' parameter is a Boolean, so it is a TYPE_CALL_ARGUMENT_MISMATCH. The case is
+  ' kept (rather than retired) because it now pins the flag's TYPE, which is
+  ' what stops a caller passing a truthy Integer and believing they enabled it.
   LET tooManyConnect = tls::connect("example.com", 443, 5000, "example.com", 1)
   LET noArgs = tls::connect()
   RETURN 0

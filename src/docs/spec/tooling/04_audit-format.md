@@ -205,6 +205,7 @@ Category rank (lower sorts first):[[src/audit/report.rs:category_rank]]
 | `AUDIT-PKG-STATE-EXPORTED-MUT` | package | warning | package exports mutable global state |
 | `AUDIT-RESOURCE-SECONDARY-CLOSE` | resource | info | a package cleanup records secondary close failures |
 | `AUDIT-RESOURCE-CLOSE-MAY-FAIL` | resource | info | a resource is closed by lexical drop, so a close failure is unobservable without an explicit close op |
+| `AUDIT-TLS-RELAXED-TRUST` | network | warning | a `tls::connect` call passes `allowSelfSigned := TRUE`, so a chain whose root is not in the host trust store is accepted (the server name, the validity dates and the TLS 1.2 floor stay enforced) |
 | `AUDIT-PERM-FILESYSTEM` | permission | info | project uses the filesystem capability |
 | `AUDIT-PERM-NETWORK` | permission | info | network capability |
 | `AUDIT-PERM-TERMINAL` | permission | info | terminal capability |

@@ -18,16 +18,33 @@ resolved IPv4 address is used. Once the socket is connected the handshake
 negotiates TLS 1.2 or later — older protocol versions are refused — against the
 system trust store loaded from the default certificate verification paths.
 
-The peer's certificate is always verified: the certificate chain must validate
-against the system trust store and the certificate must match the expected
-server name. By default the expected name is `host`; supply a non-empty
-`serverName` to validate against a different name and to send it as the TLS
-Server Name Indication (SNI) extension, which is useful when connecting to a
-literal IP address or to a virtual host whose certificate name differs from the
-`host` argument. A handshake that fails for any reason — chain validation, name
+The peer's certificate is verified: the certificate chain must validate against
+the system trust store and the certificate must match the expected server name.
+By default the expected name is `host`; supply a non-empty `serverName` to
+validate against a different name and to send it as the TLS Server Name
+Indication (SNI) extension, which is useful when connecting to a literal IP
+address or to a virtual host whose certificate name differs from the `host`
+argument. A handshake that fails for any reason — chain validation, name
 mismatch, protocol negotiation, or a refused or reset connection during the
 handshake — raises `ErrTlsFailed`, and the underlying socket is closed before
 the error is returned.
+
+`allowSelfSigned` is the one exception, and it is narrow. Passing `TRUE` accepts
+a chain that fails **only** because its root is not in the system trust store —
+a self-signed certificate, or one issued by a private certificate authority.
+Everything else is still checked: the certificate must still match the expected
+server name, must still be inside its validity dates, and the peer must still
+negotiate TLS 1.2 or later. It is for reaching a development server, a private
+CA, or an air-gapped host; on a public network it accepts a certificate nobody
+vouched for, so a caller who can instead install the issuing certificate in the
+system trust store should do that. It defaults to `FALSE`, it must be written at
+the call site, and `mfb audit` reports every call that passes it as
+`AUDIT-TLS-RELAXED-TRUST`.
+
+One platform note: macOS additionally requires a server certificate to carry a
+`serverAuth` extended key usage and a validity window under about 398 days. A
+certificate outside those limits is refused there even with `allowSelfSigned`
+set, while Linux and Windows accept it.
 
 `timeoutMs` follows the language timeout convention (see
 `mfb spec language builtin-functions` → "Timeout convention"). When it is
@@ -73,6 +90,18 @@ SUB main()
   RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 5000, serverName := "example.com")
   ' conn closes itself when this scope ends
 END SUB
+```
+
+Reach a development server that serves its own self-signed certificate. The name
+is still checked, so `serverName` must be a name the certificate carries:
+
+```
+IMPORT tls
+
+SUB main()
+  RES conn = tls::connect("127.0.0.1", 7413, serverName := "localhost", allowSelfSigned := TRUE)
+  ' conn closes itself when this scope ends
+END SUB
 ```"#;
 
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
@@ -106,7 +135,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("String, Integer, Integer, String or Address, Integer, String"),
+        expected_arguments: Some(
+            "String, Integer, Integer, String, Boolean or Address, Integer, String, Boolean",
+        ),
         internal_only: false,
         implementations: vec![
             Implementation {
@@ -127,6 +158,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     timeout_param(),
                     server_name_param(false),
+                    allow_self_signed_param(),
                 ],
                 return_type: ret(),
                 errors: vec![],
@@ -146,6 +178,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     timeout_param(),
                     server_name_param(true),
+                    allow_self_signed_param(),
                 ],
                 return_type: ret(),
                 errors: vec![],
@@ -167,6 +200,30 @@ fn timeout_param() -> Parameter {
         default: DefaultValue::Fill {
             type_name: ParameterType::Integer,
             expr: super::SENTINEL,
+        },
+    }
+}
+
+/// The shared optional `allowSelfSigned` parameter (bug-477).
+///
+/// **The default must stay `FALSE`, and the spelling must stay lowercase.** The
+/// `Fill` reaches `ir/lower.rs` as `IrValue::Const { type_: Boolean, value: expr }`
+/// and ends at `arch/encode_operand.rs::immediate`, whose Boolean vocabulary is
+/// exactly `"true"`/`"false"` — `"FALSE"` is `invalid immediate` (the uppercase
+/// spelling is only the *rendered* display form). And the value matters far
+/// beyond this member: `http::`'s HTTPS path reaches `tls::connect` through
+/// `helper_start_exchange.rs` with this argument padded, so a pad of anything but
+/// `false` silently turns every HTTPS client in the language into a MITM target,
+/// with no compile error and no golden diff to catch it.
+fn allow_self_signed_param() -> Parameter {
+    Parameter {
+        name: "allowSelfSigned",
+        desc: "Optional. When TRUE, accept a certificate chain that fails validation only because its root is not in the host trust store — a self-signed certificate, or one issued by a private CA. The server name, the validity dates and the TLS 1.2 floor are still enforced. Defaults to FALSE, which requires a chain the host already trusts.",
+        aliases: &[],
+        ty: ParameterType::Boolean,
+        default: DefaultValue::Fill {
+            type_name: ParameterType::Boolean,
+            expr: "false",
         },
     }
 }

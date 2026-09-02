@@ -1809,14 +1809,27 @@ pub(crate) fn lower_module_for_platform(
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —
     // mirroring `connectTcpAddr`. It shares the process libc imports.
-    // plan-90-D: these synthesized overload helpers (spawnEnv / *Timeout / *From)
-    // are Unix-only; the Windows backend handles overloads in its own emission, so
-    // do NOT force-emit the Unix helper bodies on Windows (they are stubs there).
-    let process_synth = platform.family() != PlatformFamily::Windows;
-    if process_synth
-        && runtime_symbols
-            .iter()
-            .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
+    //
+    // plan-119-C: this used to be skipped on Windows, on the premise that the
+    // synthesized helpers "are stubs there". That premise was wrong for four of
+    // the five and is now wrong for all of them. `sendTimeout`,
+    // `sendBytesTimeout`, `pollFrom`, `receiveFrom` and `receiveBytesFrom` always
+    // had real Windows bodies — each `*_win` entry fn branches on the runtime-call
+    // name exactly as its posix twin does — and `win_x86_64` has advertised every
+    // one of them in its capability list since plan-90-D. Skipping the push meant
+    // the capability was advertised, the call passed validation, and the build
+    // then died at link time:
+    //
+    //     error: native code internal relocation target
+    //            '_mfb_rt_process_process_sendTimeout' is not defined
+    //
+    // reproduced on `main` with a three-argument `process::send` built for
+    // `windows-x86_64`. Only `spawnEnv` was genuinely a stub, and plan-119-C gave
+    // it a body, so the exclusion has no remaining justification. Emitting these
+    // on Windows is what makes the advertised surface true.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_process_process_spawn")
         && !runtime_symbols
             .iter()
             .any(|symbol| symbol == "_mfb_rt_process_process_spawnEnv")
@@ -1848,8 +1861,7 @@ pub(crate) fn lower_module_for_platform(
             "_mfb_rt_process_process_receiveFrom",
         ),
     ] {
-        if process_synth
-            && runtime_symbols.iter().any(|symbol| symbol == base)
+        if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == timed)
         {
             runtime_symbols.push(timed.to_string());

@@ -505,6 +505,22 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             .emit_thread_trampoline(self, platform_imports, uses_stdin, arena_init)
     }
 
+    /// bug-477: the OpenSSL `SSL_set_verify` callback for `allowSelfSigned`.
+    ///
+    /// The same "fixed-ABI function a foreign runtime calls back into" category
+    /// the macOS block trampolines occupy, which is why it rides this hook — the
+    /// register layout is OpenSSL's, not the allocator's. Unlike the macOS ones
+    /// the body is written with the arch-neutral `abi` tokens, so one emitter
+    /// serves linux-aarch64, linux-x86_64 and linux-riscv64.
+    ///
+    /// Emitted whenever a module uses TLS at all, not only when a call passes the
+    /// flag: the code form is chosen per call site during lowering and this hook
+    /// cannot see argument values. `server` is irrelevant — the callback is
+    /// client-side verification.
+    fn emit_tls_block_trampolines(&self, _server: bool) -> Vec<CodeFunction> {
+        vec![crate::codegen::builtins::tls::gen_shared::tls_verify_callback_function()]
+    }
+
     // --- GTK4 app mode (plan-05-linux-app.md) -------------------------------
     //
     // Each hook dispatches on `LinuxArch::app()`. On an `Unsupported` backend

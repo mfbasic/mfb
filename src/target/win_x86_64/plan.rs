@@ -630,6 +630,10 @@ impl NativePlanPlatform for Platform {
                     import("TerminateProcess", KERNEL32, required_by),
                     import("CloseHandle", KERNEL32, required_by),
                     import("GetLastError", KERNEL32, required_by),
+                    // plan-119-C: merge-mode `spawnEnv` reads the inherited
+                    // environment as one block and gives it back.
+                    import("GetEnvironmentStringsA", KERNEL32, required_by),
+                    import("FreeEnvironmentStringsA", KERNEL32, required_by),
                 ]
             }
             // WASAPI audio (plan-66 G+H). ole32 provides the COM runtime and object

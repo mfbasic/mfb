@@ -8,8 +8,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Decode an image file and hold it as an `Image` resource."#;
 
 const DESC: &str = r#"`loadImage` reads the file at `path`, decodes it to RGBA8, and returns the same
-`Image` resource `canvas::createImage` produces — owned, bound with `RES`, released
-when it leaves scope or when `canvas::destroyImage` is called. A `canvas::Picture` item names
+`Image` resource `canvas::createImage` produces — bound with `RES`, closing by itself
+when it leaves scope, or sooner with `canvas::destroyImage`. A `canvas::Picture` item names
 it through a `canvas::ImageRef`, never directly.
 
 **PNG.** All five colour types (greyscale, truecolour, palette, greyscale+alpha,

@@ -64,6 +64,57 @@ r#"FUNC __canvas_blendChannel(dst AS Byte, src AS Byte, alpha AS Integer) AS Byt
   RETURN __canvas_linearToSrgb(mixed)
 END FUNC"#;
 
+/// The same over-operator, with a `BlendMode` applied to the source first.
+///
+/// **Mode `0` is bit-for-bit `__canvas_blendChannel`.** That is the whole
+/// compatibility contract of plan-116-B: `BlendMode.Normal` is the zero value, every
+/// `Paint` ever built carries it, and every existing golden renders through it. The
+/// `Normal` arm therefore does not merely *compute* the same thing — it is the same
+/// expression, so it cannot drift by a rounding step.
+///
+/// The three others are the standard separable blend functions on **linear** values
+/// (`06_canvas.md` §"Rendering conventions" defines them there, not on sRGB bytes),
+/// applied to the source and then composited over the destination by the ordinary
+/// alpha step. Writing it in that order is what makes a partially-covered pixel right:
+/// coverage scales *how much of the blended result lands*, it does not scale the
+/// operands.
+///
+/// The linear table runs `0..65535`, so a product needs the `+ 32767` round-to-nearest
+/// and a divide by 65535 — not 65536. Dividing by 65536 (a shift) would make
+/// `multiply(x, white)` come out one step below `x`, and white is exactly the
+/// destination a `Multiply` item is most often tested against.
+#[rustfmt::skip]
+const BLEND_CHANNEL_MODE: &str =
+r#"FUNC __canvas_blendChannelMode(dst AS Byte, src AS Byte, alpha AS Integer, mode AS Integer) AS Byte
+  LET dstLin AS Integer = collections::getOr(__CANVAS_SRGB, toInt(dst), 0)
+  LET srcLin AS Integer = collections::getOr(__CANVAS_SRGB, toInt(src), 0)
+  MUT blended AS Integer = srcLin
+  IF mode = 1 THEN
+    blended = (srcLin * dstLin + 32767) / 65535
+  END IF
+  IF mode = 2 THEN
+    blended = srcLin + dstLin - (srcLin * dstLin + 32767) / 65535
+  END IF
+  ' `Add` is the one mode that does NOT go through the lerp below, and the reason is
+  ' reproducibility rather than taste. Additive blending means "add the COVERED source
+  ' to the destination, then clamp" -- coverage scales how much source is added, which
+  ' is the premultiplied-source form every GPU expresses as the factor pair (One, One).
+  '
+  ' Lerping towards a pre-clamped sum instead -- `dst + (min(src+dst,1) - dst)*a` --
+  ' agrees at full coverage and diverges by up to 0.15 in linear at partial coverage
+  ' over a bright destination, which no fixed-function blend can reproduce. That would
+  ' have made `Add` the one mode the GPU backends had to decline (plan-116-B C6).
+  IF mode = 3 THEN
+    LET added AS Integer = dstLin + (srcLin * alpha + 127) / 255
+    IF added > 65535 THEN
+      RETURN __canvas_linearToSrgb(65535)
+    END IF
+    RETURN __canvas_linearToSrgb(added)
+  END IF
+  LET mixed AS Integer = dstLin + ((blended - dstLin) * alpha + 127) / 255
+  RETURN __canvas_linearToSrgb(mixed)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_srgbTable", SRGB_TABLE));
     pkg.add_helper(RegistryHelper::always(
@@ -71,6 +122,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         LINEAR_TO_SRGB,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_blendChannel", BLEND_CHANNEL));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_blendChannelMode",
+        BLEND_CHANNEL_MODE,
+    ));
 }
 
 #[cfg(test)]
