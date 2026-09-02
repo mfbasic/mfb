@@ -608,6 +608,18 @@ run is the one that counts, not a formality.
 - `scripts/test-canvas-vulkan.sh target/release/mfb` (box 2228, glibc) — 12/12 ok,
   `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7797%`. Both libc worlds
   therefore agree with the oracle to the same number post-merge as pre-merge.
+**Second merge-back (main advanced another 18 commits: bug-477).** bug-477 landed a
+backend codegen change — a padded 5th argument, with `.ir` goldens regenerated — while
+this letter was finishing, so main was merged again (`22eb4acbd`) and the local gates
+re-run on that tree: `cargo test --release --no-fail-fast` **93 test binaries, 0
+failures, exit 0** (93 rather than 91 because bug-477 added
+`rt_tls_connect_allow_self_signed.rs` and `rt_http_https_still_verifies.rs`), and
+`test-accept.sh` **1347 test(s) ran**. The Linux row below stands on the first merge
+(`3ee3ef107`) and is not re-run for this one: bug-477 gated its own change on the same
+boxes, and re-running a 2-hour single-core row for every peer landing is a treadmill
+that outruns main rather than a check — what this merge needed to answer is whether
+the two changes interact, which the local suite and the acceptance harness answer.
+
 - **Linux `--bin mfb` unit tests, box 2228** — `cargo test --release --no-fail-fast
   --bin mfb` on the merged tree: **3707 passed, 0 failed** (4436.78s; the box was
   time-shared with a peer session at load ~4, against plan-116-A's 2718s uncontended).
