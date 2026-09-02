@@ -265,6 +265,41 @@ the certificate self-signed and untrusted, so it is not the forbidden "ship a
 publicly-trusted certificate" shortcut — and it is why `certs/` gains a
 regeneration script rather than only a longer-lived key.
 
+### 5. The macOS verify block, as built — and the overlap bug it hid behind
+
+Implemented and measured on macOS 24.6 (aarch64) against `openssl s_server`:
+
+| case | flag | result |
+| --- | --- | --- |
+| compliant self-signed, name matches | TRUE | **connected** |
+| compliant self-signed, name mismatch | TRUE | raised |
+| self-signed, expired 2020 | TRUE | raised |
+| compliant self-signed | FALSE | raised |
+| compliant self-signed | omitted | raised |
+
+**The bug that nearly shipped.** Growing the configure block from 64 to 88 bytes
+(three new captures: the verify block, the setter, the queue) put those captures
+on top of the frame slots that followed it — `CFG_CAP_VBLOCK` landed exactly on
+`TIMEOUT`, `CFG_CAP_SETVERIFYFN` on `DEADLINE`, and `CFG_CAP_QUEUE` on `ALLOW`.
+Storing the queue therefore **zeroed the flag**, and `allowSelfSigned := TRUE`
+behaved identically to omitting it.
+
+What makes this worth writing down is how it presented: all three negative cases
+still reported the required `raised`, and the only case that moved was the
+positive one. A test suite with a weaker positive — or one that checked "does the
+flag change anything" rather than "does it connect" — would have gone green with
+the feature completely inert. The frame is now guarded at compile time:
+
+```rust
+const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= TIMEOUT);
+```
+
+**Certificate shape.** The positive case needs `extendedKeyUsage=serverAuth` and
+`-days 397`; see §4. This is now commented at `write_cert` in the regression
+test, because a future maintainer regenerating those certificates with a longer
+life would break only the macOS positive case, for a reason with nothing to do
+with this flag.
+
 ## Failing Reproduction
 
 The two examples added alongside this bug are the reproduction. Terminal 1:
