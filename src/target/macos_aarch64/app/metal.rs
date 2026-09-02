@@ -50,10 +50,11 @@ use super::*;
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
     CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE, GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
-    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_QUEUE,
-    GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
-    GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
-    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
+    GRAPHICS_OFFSET_MTL_ITEM_CONTENTS, GRAPHICS_OFFSET_MTL_PIPELINE,
+    GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE, GRAPHICS_OFFSET_MTL_READY,
+    GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT, GRAPHICS_OFFSET_MTL_TEX_WIDTH,
+    GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES, METAL_EDGE_BASE_WORDS,
+    METAL_MAX_FRAME_EDGES,
 };
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
@@ -234,6 +235,21 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // a rounding boundary of each other.
     "  return covered(rgba, int(clamp(0.5 - distance, 0.0, 1.0) * 255.0 + 0.5));\n",
     "}\n",
+    // The clip's own antialiased coverage, 0..255 (plan-116-B). The same rectangle SDF
+    // and the same quantization the shape edges use, so a fractional clip edge is
+    // antialiased identically to a shape edge -- which is what lets the oracle and this
+    // shader agree on it rather than merely come close. `__canvas_clipCoverage` in
+    // `helper_items.rs` and `clipCoverage` in `mfb_canvas.frag` are the same three
+    // lines. A zero-area rectangle means unclipped and returns 255, matching
+    // `__canvas_hasClip`: testing both extents also rejects a negative one, which
+    // `Bounds` cannot forbid.
+    "static int clipCoverage(constant MfbItem &item, float2 p) {\n",
+    "  if (item.clip.x >= item.clip.z || item.clip.y >= item.clip.w) { return 255; }\n",
+    "  float2 lo = float2(fx(item.clip.x), fx(item.clip.y));\n",
+    "  float2 hi = float2(fx(item.clip.z), fx(item.clip.w));\n",
+    "  float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);\n",
+    "  return int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5);\n",
+    "}\n",
     // `items` and `edges` are the SAME buffer bound twice, at offset zero both times:
     // one view typed as blocks, one as raw words. Two bindings rather than one pointer
     // cast because the edge region is reached by a word index and the block region by a
@@ -253,18 +269,29 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     //
     // Outside the bitmap is zero rather than clamped: the quad can cover a pixel the
     // bitmap does not, and clamping would smear the border row outward.
+    // The clip multiplies the shape's own coverage, exactly as the oracle's
+    // `(coverage * clipCov) / 255` does. Integer, and by 255 rather than a shift, so
+    // the two quantize identically -- a float multiply here would disagree on the
+    // boundary pixels, which are the only ones a clip can affect.
+    "  int clipCov = clipCoverage(item, in.pos.xy);\n",
     "  if (item.misc.x == 6) {\n",
     "    int ix = int(in.pos.x) - item.shape.x;\n",
     "    int iy = int(in.pos.y) - item.shape.y;\n",
     "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
     "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
-    "    return covered(item.fill, cov);\n",
+    "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
     "  float d = geoDistance(item, edges, in.pos.xy);\n",
-    "  float4 colour = premultiplied(item.fill, d);\n",
+    "  float4 colour = covered(item.fill,\n",
+    "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
     "  if (halfWidth > 0.0) {\n",
-    "    float4 s = premultiplied(item.stroke, abs(d) - halfWidth);\n",
+    // plan-116-B: this stroke-over-fill composition equals the oracle's two sequential
+    // blends only under `Normal`, which is why a non-`Normal` item that both fills and
+    // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
+    // time such an item reaches here it is fill-only or stroke-only.
+    "    float4 s = covered(item.stroke,\n",
+    "      (int(clamp(0.5 - (abs(d) - halfWidth), 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -424,6 +451,16 @@ pub(super) const MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB: &str = "81";
 const MTL_BLEND_FACTOR_ONE: &str = "1";
 /// `MTLBlendFactorOneMinusSourceAlpha`.
 const MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: &str = "5";
+/// `MTLBlendFactorOneMinusSourceColor` (3) and `MTLBlendFactorDestinationColor` (6) —
+/// the two extra factors plan-116-B's `Screen` and `Multiply` pipelines need.
+///
+/// From `MTLBlendFactor`: 0 Zero, 1 One, 2 SourceColor, 3 OneMinusSourceColor,
+/// 4 SourceAlpha, 5 OneMinusSourceAlpha, 6 DestinationColor. Note these are NOT the
+/// same numbers as Vulkan's `VkBlendFactor` — there `DstColor` is 4 and
+/// `OneMinusSrcAlpha` is 7 — so the two backends' tables cannot be copied between each
+/// other, and a value that looks familiar from the other file is probably wrong.
+const MTL_BLEND_FACTOR_ONE_MINUS_SRC_COLOR: &str = "3";
+const MTL_BLEND_FACTOR_DST_COLOR: &str = "6";
 
 /// `MTLResourceStorageModeShared` — CPU and GPU see one allocation, no explicit copy.
 ///
@@ -450,12 +487,16 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     let fail = format!("{METAL_INIT_SYMBOL}_fail");
     let done = format!("{METAL_INIT_SYMBOL}_done");
     let build = format!("{METAL_INIT_SYMBOL}_build");
-    let saves: [(&str, usize); 5] = [
+    // `LOCAL[5]` joins the saved set for plan-116-B: the four-pipeline loop needs a
+    // register that survives `local_address` to hold each handle between creating it
+    // and storing it. The frame is 64 bytes and offsets 48 and 56 were spare.
+    let saves: [(&str, usize); 6] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
         (abi::LOCAL[2], 24),
         (abi::LOCAL[3], 32),
         (abi::LOCAL[4], 40),
+        (abi::LOCAL[5], 48),
     ];
 
     asm.push(abi::label("entry"));
@@ -569,18 +610,21 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // attachment
+    // The attachment lands in `LOCAL[3]`, not `LOCAL[0]`: it has to stay live across
+    // all four pipeline creations below, and `LOCAL[0]` is the objc temporary every one
+    // of those sends clobbers. `LOCAL[3]` held the shader library, which the
+    // `newFunctionWithName:` sends above already consumed.
+    asm.push(abi::move_register(abi::LOCAL[3], abi::c_arg(0))); // attachment
 
-    // The colour chain, all on that attachment: sRGB target, premultiplied `over`.
+    // The colour chain that is the SAME for every mode: sRGB target, blending on, and
+    // the alpha factors. The alpha pair stays `One`/`OneMinusSourceAlpha` under every
+    // mode — the modes are defined on COLOUR, and the oracle writes surface alpha 255
+    // everywhere, so a mode that also rewrote alpha would make the two disagree about a
+    // channel neither is trying to blend.
     for (setter, value) in [
         (SEL_SET_PIXEL_FORMAT.0, MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB),
         (SEL_SET_BLENDING_ENABLED.0, "1"),
-        (SEL_SET_SRC_RGB_FACTOR.0, MTL_BLEND_FACTOR_ONE),
         (SEL_SET_SRC_ALPHA_FACTOR.0, MTL_BLEND_FACTOR_ONE),
-        (
-            SEL_SET_DST_RGB_FACTOR.0,
-            MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        ),
         (
             SEL_SET_DST_ALPHA_FACTOR.0,
             MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
@@ -588,19 +632,67 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     ] {
         asm.load_selector(setter);
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
 
-    // pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:NULL]
-    asm.load_selector(SEL_NEW_PIPELINE_STATE.0);
-    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
-    asm.push(abi::branch_eq(&fail));
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // pipeline
+    // --- one pipeline per blend mode (plan-116-B) ----------------------------------
+    // A blend mode is per-PIPELINE state here exactly as it is on Vulkan: it lives on
+    // the descriptor's colour attachment, which is baked in at creation. So "per-item
+    // blend" is four pipelines chosen per draw, not a shader branch. All four share one
+    // vertex function, one fragment function and one descriptor — only the two RGB
+    // factors below differ, which is why the descriptor is edited and re-submitted
+    // rather than rebuilt.
+    for (mode, src_rgb, dst_rgb) in [
+        (
+            0usize,
+            MTL_BLEND_FACTOR_ONE,
+            MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        ),
+        (
+            1,
+            MTL_BLEND_FACTOR_DST_COLOR,
+            MTL_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        ),
+        (
+            2,
+            MTL_BLEND_FACTOR_ONE,
+            MTL_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+        ),
+        (3, MTL_BLEND_FACTOR_ONE, MTL_BLEND_FACTOR_ONE),
+    ] {
+        for (setter, value) in [
+            (SEL_SET_SRC_RGB_FACTOR.0, src_rgb),
+            (SEL_SET_DST_RGB_FACTOR.0, dst_rgb),
+        ] {
+            asm.load_selector(setter);
+            asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
+            asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[3]));
+            asm.call_external("_objc_msgSend", LIB_OBJC);
+        }
+
+        // pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:NULL]
+        asm.load_selector(SEL_NEW_PIPELINE_STATE.0);
+        asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[4]));
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+        asm.push(abi::branch_eq(&fail));
+        asm.push(abi::move_register(abi::LOCAL[5], abi::c_arg(0)));
+        asm.local_address(abi::c_arg(1), GRAPHICS_STATE_SYMBOL);
+        asm.push(abi::store_u64(
+            abi::LOCAL[5],
+            abi::c_arg(1),
+            GRAPHICS_OFFSET_MTL_PIPELINE_MODES + mode * 8,
+        ));
+        if mode == 0 {
+            // `Normal`'s handle is what the publish block below stores into the legacy
+            // `…_MTL_PIPELINE` slot, LAST, so a frame racing this still sees a non-zero
+            // pipeline only once everything it needs is already there.
+            asm.push(abi::move_register(abi::LOCAL[0], abi::LOCAL[5]));
+        }
+    }
 
     // --- the frame buffer (plan-116-A) ---------------------------------------------
     // `[device newBufferWithLength:METAL_BUFFER_BYTES options:MTLResourceStorageModeShared]`.
@@ -759,7 +851,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 464;
+const DRAW_FRAME: usize = 480;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -806,6 +898,16 @@ const OFF_EDGE_CURSOR: usize = 440;
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
 const OFF_GLYPH_INSTANCE: usize = 448;
+/// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
+/// two-instance split (plan-116-B).
+///
+/// `strokeHalf` is on the stack rather than in a register for a reason that cost a
+/// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
+/// registers, so a value saved across it comes back as a mapped address — and as a
+/// stroke width that reads like an enormous band the oracle never drew.
+const OFF_BOUND_MODE: usize = 456;
+const OFF_ITEM_MODE: usize = 464;
+const OFF_SAVED_STROKE: usize = 472;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -1137,7 +1239,15 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // The frame's cursors: the item buffer's next free block, the run currently being
     // accumulated, and the edge region's next free edge.
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    for slot in [OFF_ITEM_CURSOR, OFF_RUN_START, OFF_EDGE_CURSOR] {
+    // `OFF_BOUND_MODE` starts at 0 because the once-per-frame
+    // `setRenderPipelineState:` above bound `Normal`'s pipeline, so an all-`Normal`
+    // scene issues exactly the one bind it always did.
+    for slot in [
+        OFF_ITEM_CURSOR,
+        OFF_RUN_START,
+        OFF_EDGE_CURSOR,
+        OFF_BOUND_MODE,
+    ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
     }
     asm.push(abi::label(&item_head));
@@ -1163,13 +1273,101 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::SCRATCH[0],
     ));
 
-    // A glyph run is not one draw: it forks here, before the item block is built,
-    // because the block a glyph needs describes the *glyph* and not the run.
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_GLYPH_HEADER,
     ));
+
+    // --- the blend mode, before the kind fork so a glyph run takes it too -----------
+    // A mode change ends the instanced run and binds that mode's pipeline. Ending the
+    // run first is what preserves paint order: the quads already published draw under
+    // the pipeline they were recorded with. Batching is adjacent-run only, so nothing
+    // is ever reordered — a scene that alternates modes just issues more binds.
+    {
+        let same_mode = format!("{METAL_DRAW_SYMBOL}_same_mode");
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[1],
+            abi::SCRATCH[0],
+            HEADER_BLEND * 8,
+        ));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM_MODE,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[2],
+            abi::stack_pointer(),
+            OFF_BOUND_MODE,
+        ));
+        asm.push(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[2]));
+        asm.push(abi::branch_eq(&same_mode));
+
+        emit_run_flush(&mut asm, "mode");
+        // handle = *(state + …_MTL_PIPELINE_MODES + mode * 8) — contiguous and 0-based,
+        // so a shift and an add rather than a four-way branch.
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_ITEM_MODE,
+        ));
+        asm.push(abi::shift_left_immediate(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            3,
+        ));
+        asm.local_address(abi::SCRATCH[1], GRAPHICS_STATE_SYMBOL);
+        asm.push(abi::add_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+            abi::SCRATCH[0],
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            GRAPHICS_OFFSET_MTL_PIPELINE_MODES,
+        ));
+        // Parked before `load_selector`, which calls `sel_registerName` and clobbers
+        // the whole scratch bank.
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_SAVED_STROKE,
+        ));
+        asm.load_selector(SEL_SET_RENDER_PIPELINE_STATE.0);
+        asm.push(abi::load_u64(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            OFF_SAVED_STROKE,
+        ));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_ITEM_MODE,
+        ));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_BOUND_MODE,
+        ));
+        asm.push(abi::label(&same_mode));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_GLYPH_HEADER,
+        ));
+    }
+
+    // A glyph run is not one draw: it forks here, before the item block is built,
+    // because the block a glyph needs describes the *glyph* and not the run.
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         abi::SCRATCH[0],
@@ -1191,7 +1389,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // which is what makes consecutive shapes one instanced draw instead of N — and
     // there is nothing left to bind per item now that the edges ride the frame buffer
     // too.
-    emit_item_publish(&mut asm, &item_next);
+    emit_split_or_publish(&mut asm, &item_next);
     asm.push(abi::branch(&item_next));
 
     // A glyph run ends the instanced run: its quads are N draws rather than N instances
@@ -1995,6 +2193,103 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
     ));
 }
 
+/// Publish this item's block — as **two** records when the fragment shader's
+/// stroke-over-fill composition would not equal the oracle's two sequential blends.
+///
+/// The MSL composes stroke over fill in-shader and hands the hardware one source,
+/// which equals the oracle's two writes only because `over` is associative. **That is
+/// `Normal`-only.** The oracle applies the mode twice per pixel — fill into the
+/// surface, then stroke into the result — and
+/// `M(M(D, fill), stroke) = M(D, over(stroke, fill))` holds for `over` and for none of
+/// `Multiply`, `Screen` or `Add` wherever the stroke band covers filled pixels.
+///
+/// So a non-`Normal` item that both fills and strokes becomes two adjacent records:
+/// the first with `strokeHalf` zeroed (fill only), the second with the fill alpha
+/// zeroed (stroke only), in that order. Each reaches the fixed-function unit as a
+/// single source, and paint order is exactly the oracle's. The shader needs no change
+/// — a zero `strokeHalf` skips the stroke arm, a zero fill alpha premultiplies to
+/// nothing.
+///
+/// The twin of `emit_split_or_publish` in `runtime/canvas/vulkan.rs`; the two must
+/// split the same items or the backends disagree on exactly the scenes this letter
+/// adds.
+fn emit_split_or_publish(asm: &mut Asm, full: &str) {
+    let single = format!("{METAL_DRAW_SYMBOL}_publish_single");
+    let done = format!("{METAL_DRAW_SYMBOL}_publish_done");
+
+    // Split only when the mode is not `Normal`...
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM_MODE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_eq(&single));
+    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16)...
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 8,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_le(&single));
+    // ...and actually fills. A `Line` or an `Arc` arrives with its stroke colour
+    // already moved into the fill slots and `strokeHalf` negative
+    // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_FILL + 12,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_le(&single));
+
+    // Record one: the fill, with the stroke switched off. `strokeHalf` is parked on the
+    // STACK — `emit_item_publish` owns the low scratch registers, so a register saved
+    // across it comes back holding a mapped address.
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 8,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SAVED_STROKE,
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 8,
+    ));
+    emit_item_publish(asm, full);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_SAVED_STROKE,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC + 8,
+    ));
+
+    // Record two: the stroke, with the fill made fully transparent.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_FILL + 12,
+    ));
+    emit_item_publish(asm, full);
+    asm.push(abi::branch(&done));
+
+    asm.push(abi::label(&single));
+    emit_item_publish(asm, full);
+    asm.push(abi::label(&done));
+}
+
 /// Draw every quad published since the last flush as **one instanced draw**, and start
 /// a new run.
 ///
@@ -2506,6 +2801,9 @@ mod tests {
             (OFF_RUN_COUNT, 8, "runCount"),
             (OFF_EDGE_CURSOR, 8, "edgeCursor"),
             (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
+            (OFF_BOUND_MODE, 8, "boundMode"),
+            (OFF_ITEM_MODE, 8, "itemMode"),
+            (OFF_SAVED_STROKE, 8, "savedStroke"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 
