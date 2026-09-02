@@ -156,7 +156,10 @@ those are the same source and a divergence means the optimizer changed the
 observable work.
 
 Logs, `.sums` files, built `*.out` binaries, and generated `*.mfp` packages are
-git-ignored.
+git-ignored — except `baseline/`, which holds the committed reference results
+from a full `./benchmark/run.sh 10` (see `baseline/README.md` for the host,
+commit, and regeneration steps). Compare a new run against those numbers only
+on comparable hardware.
 **Prefer the median** — the average is dragged up by occasional OS-scheduling
 outliers. Use a higher `--run` (e.g. 50+) when you care about the stats
 columns; a single-sample run leaves `median == average`.
