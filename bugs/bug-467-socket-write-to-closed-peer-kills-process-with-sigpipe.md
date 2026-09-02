@@ -35,7 +35,8 @@ same code the read side already raises at end of stream — and never delivers a
 signal. `TRAP` sees it, scope drop runs, and the process survives to serve its
 other connections.
 
-## STATUS: FIXED (0a81c3846, 434c1be01, 7334b1606, 0c031db41, 5928cb3dd, 12621e706, a1aef8539, 272870ddd)
+## STATUS: FIXED (0a81c3846, 434c1be01, 7334b1606, 0c031db41, 5928cb3dd,
+12621e706, a1aef8539, 272870ddd, 031a36af1, 2084678ce)
 
 `lower_program_entry` installs `signal(SIGPIPE, SIG_IGN)` on every POSIX target
 for every program, app mode included. The `io::` stdout/stderr write paths
@@ -91,7 +92,7 @@ the STATUS line.
    failed at all — a golden mismatch on a CORRECT build. A flaky golden is worse
    than a weak one, because it makes the whole suite untrustworthy.
 
-   Fixed by changing what the loop writes (`5ca5d9f65`). The chunk is now 64 KiB
+   Fixed by changing what the loop writes (`2084678ce`). The chunk is now 64 KiB
    rather than 32 bytes, which fills the send buffer within a few iterations so
    the write BLOCKS waiting for ACKs a departed peer will never send — and a
    blocked write is exactly where the failure surfaces. Measured on the fixed
