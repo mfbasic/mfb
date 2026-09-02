@@ -637,17 +637,28 @@ before starting a long build is a one-second check that replaces an hour-long on
 
 ## Open Decisions
 
-- **`sqrt(|det M|)` as the distance correction (§4.2).** Recommended, pending
-  Phase 1's measurement. Exact for similarities; approximate for shear and
-  non-uniform scale. If Phase 1 shows more than one coverage step of error, the
-  fallback is to carry the two singular values of `M` and correct per axis — more
-  words in the block, same shape of change.
-- **Nearest sampling for transformed glyphs (§4.5).** Recommended and effectively
-  decided — it is the only sampling all three renderers reproduce exactly under the
-  oracle's arithmetic rules. Filtered sampling, if ever wanted, is its own letter.
-- **Stroke scales with the shape (§4.3).** Recommended and effectively decided — the
-  alternative is materially more work on both GPUs. Recorded here because both
-  readings are defensible and a user will ask.
+All three are now **closed**; kept rather than deleted, with what closed each.
+
+- **~~`sqrt(|det M|)` as the distance correction (§4.2).~~ REJECTED by Phase 1's
+  measurement.** It was the recommendation pending that measurement, with a fallback
+  of carrying the two singular values and correcting per axis. Neither is what landed:
+  `sqrt(|det M|)` measured **37 of 255 coverage steps** wrong on a 2:1 scale, and the
+  per-axis fallback needs an extra header slot. The third option — the gradient norm
+  by explicit central differences at a fixed epsilon — is better than both and needs
+  no slot at all, so the header is 34 rather than 35. §4.2 was rewritten to it. See
+  the Phase 1 correction; the measurement is re-runnable as the `#[ignore]`d
+  `measure_the_transformed_distance_correction`.
+- **Nearest sampling for transformed glyphs (§4.5). CONFIRMED** — it is the only
+  sampling all three renderers reproduce exactly under the oracle's arithmetic rules,
+  and the Metal and both Vulkan rows agree with the oracle on a rotated run. Filtered
+  sampling, if ever wanted, is its own letter.
+- **Stroke scales with the shape (§4.3). CONFIRMED, and it did not come for free** —
+  §4.3 claimed it "falls out of the design", which Correction C4 shows is false:
+  correcting the distance before the stroke test holds the outline at constant
+  *surface* width, the opposite reading. It took the `dRaw`/`dScale` pair to actually
+  get it, and `a_uniform_scale_scales_the_shape_and_its_stroke` is what pins it.
+  Recorded here because both readings are defensible and a user will ask; the
+  behaviour is now stated on `Paint.transform` and in `06_canvas.md`.
 
 ## Corrections
 
