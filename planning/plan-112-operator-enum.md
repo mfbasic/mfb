@@ -484,11 +484,11 @@ per `optimizer-rows-need-giant-function-stress`).
   is empty. See Corrections C9.
 - `cargo check --all-targets` → 0 warnings, 0 errors;
   `rustup run 1.96.0 cargo fmt --all` clean.
-Commit: —
+Commit: `3ad1096e2`
 
 ### Phase 5 — lock the gate, docs, archive
 
-- [ ] Write `tests/no_operator_strings.rs`, mirroring
+- [x] Write `tests/no_operator_strings.rs`, mirroring
       `tests/no_type_strings.rs`'s structure (scan roots, `#[cfg(test)]`-aware
       line stripper, exemption fn pinned by its own test). Assert **hard zero**,
       no budget table, for: (a) an operator spelling in a `match` arm or `==`
@@ -497,13 +497,13 @@ Commit: —
       files: `src/operators.rs` (defines the vocabulary) and `src/ast/expr.rs`
       + `src/ast/link_items.rs` (mint from tokens — or zero files, if Open
       Decision 1 lands as recommended and the parser never sees a spelling).
-- [ ] Add a test that the exemption list is exactly the intended files
+- [x] Add a test that the exemption list is exactly the intended files
       (mirroring `the_grammar_file_is_exactly_one`).
-- [ ] Re-run the §Measured populations commands and paste the new counts into
+- [x] Re-run the §Measured populations commands and paste the new counts into
       Corrections. Every line must read 0. Do not annotate a non-zero line.
-- [ ] If Phase 1 found no `SIZEOF` golden, add a `link-const-pins` fixture that
+- [x] If Phase 1 found no `SIZEOF` golden, add a `link-const-pins` fixture that
       covers it, and sync its goldens.
-- [ ] Doc sync: `.ai/codegen-invariants.md` — record that operators are a closed
+- [x] Doc sync: `.ai/codegen-invariants.md` — record that operators are a closed
       enum and the two mint sites are the only construction points. Check
       whether `src/docs/spec/**` states the operator set; if it does, it is
       prose and needs no change, but verify it agrees with the 20 variants.
@@ -512,6 +512,37 @@ Commit: —
 Acceptance: `cargo test --test no_operator_strings` passes with hard zeros;
 `cargo test --no-fail-fast` green; `scripts/artifact-gate.sh all` → 0 diffs;
 every §Measured populations line re-measures to 0.
+
+**Measured — the §Measured populations re-run, `src/operators.rs` added to the
+plan's own exclusion list (it is the vocabulary; the census excluded
+`src/ast/`/`src/lexer.rs` for the same reason):**
+
+| What | Was | Now | Note |
+|---|---|---|---|
+| Operator decision sites, post-AST | 196 | **6 → 0** | all 6 are `#[cfg(test)]`; see C14 |
+| Carrier fields to retype | 6 | **0** | `grep -rn 'operator: String,\|op: String,' src/hir/mod.rs src/ir/value.rs src/target/shared/nir/mod.rs` |
+| Mint sites in `src/ast` | 12 | **0** | the plan's own `grep -rnE 'operator: (operator\.to_string\(\)\|"[^"]*"\.to_string\(\))' src/ast` |
+| Operator fallback error arms | 10 (C2) | **0** | no `'{other}'`/`'{op}'` operator message survives |
+
+- `cargo test --test no_operator_strings` → **8 passed, 0 failed**, every class a
+  hard zero with no budget table.
+- `cargo test --no-fail-fast -- --skip artifact_gate_all` → exit 0, 0 failures.
+- `scripts/artifact-gate.sh ./target/release/mfb all` →
+  `1324 tests, 1486 build(s), 1819 golden(s) checked, 0 diff(s)` (with the new
+  `link-const-pins` goldens in place).
+- `scripts/test-accept.sh` → `acceptance tests passed (1345 test(s) ran)` — the
+  same `N ran` as before the fixture grew, because the `SIZEOF` wrapper extends
+  an existing fixture rather than adding one.
+- **Runtime proof** (§Validation Plan): a purpose-built `operator_matrix`
+  project exercises all 17 binary and both expression-level unary operators at
+  every operand type they accept (Integer, Byte, Float, Fixed, Money, Boolean,
+  String), plus 9 precedence/associativity cases and both short-circuit
+  operands. Built and run under **both** the fork-point compiler and this
+  branch: the 91 output lines are **identical**, and the two linked executables
+  are **byte-identical** (one distinct `shasum -a 256` across both). Repeated at
+  `-O3`, where the `opt1` folding rows fire: identical again, and identical to
+  the `-O1` output. An enum conversion that compiles can still have two arms
+  swapped; this is what rules that out.
 Commit: —
 
 ## Validation Plan
@@ -750,6 +781,49 @@ implementation; retyping them would destroy the independence that makes
 `typed_binary_result_type_matches_the_legacy_table_exhaustively` (1,700 pairs)
 meaningful. They are `#[cfg(test)]` and the typed side now calls them through
 `operator.name()`.
+
+**C14 — the §Measured populations census cannot see a `#[cfg(test)]` block, and
+six sites hide there.** Re-running the plan's own pipeline at the end of Phase 5
+(with `src/operators.rs` added to its exclusion list, on the same grounds as
+`src/ast/`) returns **6**, not 0 — all six in `src/numeric.rs:1134-1178`, inside
+`mod tests`, in the frozen `legacy_binary_result_type`/`legacy_money_result_type`
+oracles (C13). The pipeline filters test *files* (`grep -v _tests.rs`) but a
+production file's `#[cfg(test)]` module is invisible to it. Applying
+`tests/no_operator_strings.rs`'s `test_free_lines` filter — which strips each
+`#[cfg(test)]` item by brace depth — all six are stripped and the count is **0**.
+That filter, not the raw grep, is the gate's instrument, which is why
+`cargo test --test no_operator_strings` reads a hard zero. The plan's census
+command is a *census*, not the gate; recorded so the next reader does not chase
+six sites that are deliberately frozen test oracles.
+
+**C15 — the gate's own scanners were wrong on first write, and its self-tests
+caught it.** Three defects in `tests/no_operator_strings.rs`, all found by the
+`scanners_fire_on_their_own_needles` / line-filter self-tests before the hard
+zero was trusted: (a) `str_operator_param` only matched a parameter at the start
+of a line, so a one-line `fn f(op: &str)` — the exact shape of
+`link_compare_op_valid` — slipped through; (b) the line-filter test asserted the
+stripped item's closing `}` survived, which it does not and should not; (c) the
+spelling count was written as 20 when 19 spellings are **distinct** (`-` is
+shared by `Subtract` and `Negate`). `no_operator_strings` was green *before* (a)
+was fixed and stayed green after — but a scan test that only sees line starts is
+not a closure proof, exactly the lesson `tests/no_type_strings.rs`'s
+`immediate_operand_class_vocabulary_is_closed` records.
+
+**C16 — the `SIZEOF` fixture goes in the existing `link-const-pins`, and its
+`.ncodesum` goldens need hand regeneration.** `tests/byte-identity/link-const-pins`
+gains a `CSTRUCT CPinnedInfo` (five `CInt64` fields → 40 bytes, a distinctive
+immediate) and a third wrapper whose pin is `CONST nbyte = SIZEOF CPinnedInfo`.
+The `.ast` golden now carries `"operator": "SIZEOF"` — the first golden anywhere
+to do so — and the `.ncode` carries the folded `40`, verified by extracting every
+`mov_imm` Integer immediate from the dump. `sync-goldens.sh` refreshed
+`.ast`/`.ir` (`build.log` was unchanged: no `.run` golden, so the harness does not
+run the exe); the four `<pkg>.<target>.ncodesum` files were regenerated by hand
+per `.ai/testing-gates.md`. Two traps hit on the way: `sync-goldens.sh` and
+`artifact-gate.sh` both return **98** ("another run holds the lock") under peer
+contention — a refusal, not a result, so the call is retried, never interpreted;
+and a `for`-loop building `TA="-target $t"` then passing `$TA` fails under zsh,
+which does no word splitting, so the cross-target builds silently "failed" until
+each `-target` was written out.
 
 ## Summary
 
