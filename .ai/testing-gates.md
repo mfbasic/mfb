@@ -163,6 +163,26 @@ translucent source, and ideally one item drawn *after* the thing whose ordering 
 under test — with the text last, a trailing run flush is always empty and the
 ordering is never exercised at all.
 
+### A reference captured without `MFB_CANVAS_SYNC` silently loses its TEXT
+
+A canvas harness that sets `MFB_CANVAS_DUMP` must also set `MFB_CANVAS_SYNC=1`.
+Without it the process tears down while the graphics thread is still reading the
+scene: the geometry survives (the ring holds a published copy) but a `canvas::Font`'s
+outlines do not, because they live in the worker's per-thread arena
+(`.ai/canvas-threading.md` §1). The frame lands with every shape and **no text**.
+
+This is not a flake, which is what makes it dangerous as a *reference*-capture bug.
+Measured on plan-116-C's transform scene: five consecutive runs without `SYNC` gave 0
+text pixels every time, so `compare_exact` called the truncated frame a match, the
+reference was regenerated from it, and the suite was green. With `SYNC` — or without
+it but with an `os::sleep(1500)` after `present`, which is what identifies teardown
+rather than the font path as the mechanism — the same scene gives 840.
+
+`tests/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
+caught it for two letters because `smiley.png` and `blendmodes.png` load no font and
+are byte-identical either way. **A scene with no font is not evidence that a harness
+waits.**
+
 Two comparators, in `tests/common/canvas_image.rs`:
 
 * `compare_exact` — the gate for the software rasteriser.
