@@ -80,7 +80,7 @@ Family gate in plan-120-A.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-120-B landed | `ls planning/plan-120-B* → planning/completed/` | NOT MET |
+| plan-120-B landed | `ls planning/plan-120-B* → planning/completed/` | **MET** — B committed as `0d393b0b6` on `worktree-P-120` with every gate green (95 cargo-test binaries / 0 failures, 741/741 acceptance, artifact-gate 1828 goldens / 0 diffs, 14/14 man examples). As for letter A, "landed" means landed on the integration branch this letter builds on; the archive move happens when the branch merges. |
 
 ## 1. Goal
 
@@ -195,21 +195,68 @@ emitting integer-first order (JS-object artifact).
 
 ### Phase 1 — the three edits
 
-- [ ] `helper_escape_string.rs`: drop the `/` arm.
-- [ ] `helper_stringify_number.rs`: `-0` → `0` with the IEEE-equality
+- [x] `helper_escape_string.rs`: drop the `/` arm.
+      No other arm needed touching — the fallthrough was verified by reading
+      before editing (see §3.1): the remaining C0 arms cannot match `/`, and
+      `__json_isRawControlChar` answers FALSE for U+002F, so it reaches the
+      `ELSE` pass-through.
+- [x] `helper_stringify_number.rs`: `-0` → `0` with the IEEE-equality
       round-trip note; unit-style acceptance case proving `stringify` of a
       parsed `-0` is `0` and re-parses to `-0.0`.
-- [ ] `func_stringify.rs` DESC: new escape/order/`-0` contract text.
-- [ ] `tests/acceptance/src/json.mfb`: flip the `\/` and `-0` pins; ADD the
+      `integerText` became `MUT` so the mapping happens before the round-trip
+      check; the check still passes for the reason §3.2 predicted and that was
+      confirmed by reading the lowering (§3.2's note on `abi::float_compare_d`).
+- [x] `func_stringify.rs` DESC: new escape/order/`-0` contract text.
+      Three separate paragraphs: a new **Object member order** section stating
+      the json-level promise and naming the JS divergence with Node's actual
+      output; the **String escaping** paragraph's `\/` clause replaced with why
+      a literal `/` is emitted and the note that parse still accepts `\/`; and a
+      `-0` paragraph under **Numbers** saying `toString` is unaffected.
+- [x] `tests/acceptance/src/json.mfb`: flip the `\/` and `-0` pins; ADD the
       order pin (parse `{"b":1,"a":2,"10":3,"2":4}` → stringify equals the
       input byte-for-byte).
-- [ ] Regenerate churned goldens; man render + example gates for the json
+      Both `\/` pins flipped (131 and 242), the `-0` pin flipped, and each
+      gained a companion: a literal-slash input case, and a `-0.0` case. The
+      order pin became its own `TGROUP` of two `TCASE`s — see Correction C-C1
+      for why one assertion was not enough.
+- [x] Regenerate churned goldens; man render + example gates for the json
       pages.
 
 Acceptance: goal example exact bytes; the order pin green; full
 `cargo test --no-fail-fast` + `scripts/test-accept.sh` full count +
 `scripts/artifact-gate.sh all` (regenerated, delta confined); fmt + check
 `--all-targets`.
+
+**MET.** §1's goal, run end to end and checked against Node v24.12.0 side by
+side (Correction C-C2 has the transcript): `{"b":1,"a":"x/y"}` byte-for-byte,
+`-0` → `0`, `"a/b"` unescaped — all three identical to `JSON.stringify`. The
+order pin is green, including the `{"b":1,"a":2,"10":3,"2":4}` case that Node
+reorders and MFB deliberately does not.
+
+- `mfb test tests/acceptance` → **743 pass, 0 fail** (741 before; the flipped
+  pins and the new order `TGROUP`).
+- `scripts/test-accept.sh` → **1349 ran, 7 mismatches**, the same
+  json-importing set as letters A and B. **Every one is a `.ir` dump** — no
+  `build.log` or `.run` output golden moved, which is itself informative: the
+  existing json fixtures never exercised `\/` or `-0` in their printed output,
+  so this letter's byte-shape change had no observable effect on them. Delta
+  confined exactly as §3 predicted.
+- The `.ir` diff was inspected before regenerating and contains exactly two
+  semantic changes: `#json_escapeString` loses its `/` arm (each later `ELSEIF`
+  shifting up one nesting level, which accounts for most of the textual diff),
+  and `#json_stringifyNumber` gains the `integerText = "-0"` guard with its
+  `{ "op": "assign", "name": "integerText", "value": … "0" }`. Everything else
+  is line-number shift.
+- Regenerated with `sync-goldens.sh` (22 files across 8 tests) and
+  `regen-ncodesum.sh` (141 refreshed, only the 5 json sums changed).
+- `scripts/artifact-gate.sh all` → **1830 goldens checked, 0 diffs.** All seven
+  regenerated fixtures PASSED, and so did plan-120-F's corpus fixture —
+  confirming this letter did not disturb `toFloat`, which shares the number
+  path.
+- `cargo check --all-targets` clean; `cargo fmt` both roots, no churn.
+- `scripts/man-run-examples.sh json --run` → **14/14**, with `json::stringify`
+  example 2 now printing `"a/b"` where it printed `"a\/b"`.
+  `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
 Commit: —
 
 ## Validation Plan
@@ -223,13 +270,60 @@ Commit: —
 
 ## Open Decisions
 
-- None — the `-0`→`0` choice is settled above (Node parity) unless review
+- ~~None — the `-0`→`0` choice is settled above (Node parity) unless review
   during execution surfaces a consumer relying on `-0`; if one exists,
-  reopen with that evidence.
+  reopen with that evidence.~~ **CLOSED: no such consumer exists.** Searched
+  the json fixtures for any non-golden source depending on a `-0` rendering
+  (`grep -rln '\-0' tests/rt-behavior/json tests/byte-identity/json | grep -v
+  golden`) → no hits, and the only `-0` pin in the whole tree was the single
+  acceptance line this letter flipped. Nothing to reopen; the Node-parity
+  choice stands.
+
+  Worth noting the choice is narrower than it first reads: it changes JSON
+  OUTPUT only. `toString(-0.0)` still renders the sign, because the native
+  formatter documents that as deliberate — so a program that needs the sign
+  can still see it, just not through JSON, which has no way to carry it that
+  readers agree on anyway.
 
 ## Corrections
 
-*(fill during execution)*
+**C-C1 — one order assertion is not a tripwire; this letter needs several.**
+Phase 1 asked for "the order pin (parse `{"b":1,"a":2,"10":3,"2":4}` →
+stringify equals the input byte-for-byte)" — a single case. That input is
+well chosen (it is the one JavaScript reorders), but as the *only* pin it would
+catch a JS-style integer-key hoist and miss every other way order could change.
+The letter's own §Non-goals explain why that matters: the guarantee is a
+json-level promise sitting on top of a Map contract that explicitly reserves the
+right to reorder (`map.md`: "Creating a changed map value may choose a different
+order"), so the pin IS the mechanism that turns a future layout change from a
+silent rewrite of every emitted document into a loud failure.
+
+Promoted to a `TGROUP` of two `TCASE`s covering four distinct ways order could
+break:
+
+- the JS-divergence case the plan named (integer-like keys not hoisted);
+- reverse-alphabetical keys not re-sorted (catches an accidental sort);
+- nested objects each keeping their own order (catches a depth-dependent walk);
+- **duplicate keys collapsing last-wins at the FIRST position** —
+  `{"a":1,"b":2,"a":3}` → `{"a":3,"b":2}`. The surviving VALUE is the last one
+  but it occupies the slot the key first appeared in. That is a real,
+  observable consequence of insertion-order storage that no other test pins and
+  that a reordering would silently change.
+
+**C-C2 — the goal's "byte-identical to Node" claim was verified, not assumed.**
+§1 asserts all three fixes make MFB and Node agree "for these inputs". Checked
+directly rather than trusting the earlier oracle capture:
+
+```
+            MFB                      Node
+goal:  {"b":1,"a":"x/y"}        {"b":1,"a":"x/y"}
+neg0:  0                        0
+esc:   "a/b"                    "a/b"
+```
+
+plus a stability check the plan did not ask for — feeding the new output back
+through `parse`/`stringify` returns the same bytes, so the change did not make
+the round trip non-idempotent.
 
 ## Summary
 

@@ -8,15 +8,21 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_escapeString(value AS String) AS String
+r#"' plan-120-C: `/` is NOT escaped. RFC 8259 permits `\/` but never requires it,
+' and no other JSON writer emits it -- Node's JSON.stringify("a/b") is "a/b".
+' Emitting it made every MFB document differ byte-for-byte from every other
+' producer's for no gain. Parsing still ACCEPTS `\/`, since it is valid input.
+'
+' `/` needs no arm of its own to fall through: it is U+002F = 47, so the C0
+' arms below cannot match it and `__json_isRawControlChar` (single scalar < 32)
+' answers FALSE, leaving the ELSE pass-through.
+FUNC __json_escapeString(value AS String) AS String
   MUT out AS String = ""
   FOR EACH ch IN strings::graphemes(value)
     IF ch = "\"" THEN
       out = out & "\\\""
     ELSEIF ch = "\\" THEN
       out = out & "\\\\"
-    ELSEIF ch = "/" THEN
-      out = out & "\\/"
     ELSEIF ch = "\n" THEN
       out = out & "\\n"
     ELSEIF ch = "\t" THEN

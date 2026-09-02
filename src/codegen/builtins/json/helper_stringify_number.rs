@@ -24,9 +24,23 @@ r#"' bug-304: the fractional path used a fixed `toString(value, toByte(9))`. Nin
 ' `_mfb_rt_float_to_string` is an exact FIXED-POINT formatter whose no-places form
 ' renders two decimal places (`src/codegen/string/format/float_format.rs:1-3`),
 ' which is why this body has to search `places` at all.
+'
+' plan-120-C: `-0` is emitted as `0`. The native formatter deliberately keeps
+' the sign (float_format.rs: "-0.0 renders with the sign"), which is right for
+' toString and stays untouched -- this maps it only on the way into JSON, where
+' Node's JSON.stringify(-0) is `0` and interop is the point. The information
+' loss is identical to Node's own round trip.
+'
+' The round-trip check below still passes after the mapping: `=` on Float lowers
+' to abi::float_compare_d (an IEEE fcmp), under which +0.0 == -0.0, so
+' toFloat("0") = -0.0 is TRUE and the integer branch returns "0" rather than
+' falling through to the fractional search.
 FUNC __json_stringifyNumber(value AS Float) AS String
-  LET integerText AS String = toString(value, toByte(0))
+  MUT integerText AS String = toString(value, toByte(0))
   __json_requireFiniteNumberText(integerText)
+  IF integerText = "-0" THEN
+    integerText = "0"
+  END IF
   IF toFloat(integerText) = value THEN
     RETURN integerText
   END IF

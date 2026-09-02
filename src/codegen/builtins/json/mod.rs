@@ -81,10 +81,11 @@ at all; it cannot be built in the first place, because a non-finite `Float` fail
 at the observation boundary before it reaches a record field.
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
-preserves array item order, emits object pairs in the map's iteration order, and
-applies the standard JSON string escapes. Parsing reads one complete document,
-allows surrounding JSON whitespace, and rejects any trailing non-whitespace
-content.
+preserves array item order, emits object members in the order the object holds
+them — document order, for anything `json::parse` produced — and applies the
+standard JSON string escapes, leaving `/` unescaped. Parsing reads one complete
+document, allows surrounding JSON whitespace, and rejects any trailing
+non-whitespace content.
 
 The path readers walk a whole tree. `json::get` and `json::getOr` follow a
 `List OF String` left to right from `value`; a step is an object key on a

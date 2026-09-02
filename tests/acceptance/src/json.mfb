@@ -99,7 +99,13 @@ TESTING
       END TCASE
       TCASE "number formatting"
         expectString(pv("0"), "0")
-        expectString(pv("-0"), "-0")
+        ' plan-120-C: `-0` serializes as `0`, matching JSON.stringify. The pin
+        ' flipped deliberately; the value still PARSES to a negative zero, it is
+        ' only the JSON rendering that drops the sign.
+        expectString(pv("-0"), "0")
+        ' The round trip still holds under IEEE equality: re-parsing `0` yields a
+        ' value equal to -0.0, so the integer branch is what returned it.
+        expectString(pv("-0.0"), "0")
         expectString(pv("1"), "1")
         expectString(pv("-1"), "-1")
         expectString(pv("1.5"), "1.5")
@@ -128,7 +134,12 @@ TESTING
         expectString(pv("\"\\b\""), "\"\\b\"")
         expectString(pv("\"\\f\""), "\"\\f\"")
         expectString(pv("\"\\r\""), "\"\\r\"")
-        expectString(pv("\"a\\/b\""), "\"a\\/b\"")
+        ' plan-120-C: `\/` is still ACCEPTED on input (it is valid JSON), but is
+        ' no longer EMITTED — the slash comes back literal, as every other JSON
+        ' writer produces it. This pin flipped deliberately.
+        expectString(pv("\"a\\/b\""), "\"a/b\"")
+        ' A literal slash in, a literal slash out.
+        expectString(pv("\"a/b\""), "\"a/b\"")
         expectString(pv("\"\\\"\\\\\""), "\"\\\"\\\\\"")
       END TCASE
       TCASE "\\uXXXX and surrogate pairs decode to UTF-8"
@@ -239,7 +250,10 @@ TESTING
       END TCASE
       TCASE "escape set: quote, backslash, slash, and the named controls"
         LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
-        expectString(json::stringify(json::JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
+        ' plan-120-C: the `\/` run is gone from the middle; every OTHER escape in
+        ' the set is unchanged, which is what makes this the right pin for
+        ' "only the slash arm was removed".
+        expectString(json::stringify(json::JsonStr[escaped]), "\"\\\"\\\\/\\n\\t\\r\\b\\f\"")
       END TCASE
       TCASE "all C0 control characters escape as named or \\uXXXX"
         expectString(json::stringify(json::JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
@@ -398,6 +412,32 @@ TESTING
         expectString(json::stringify(json::getOr(v, ["0"], fb)), "\"zero\"")
         expectString(json::stringify(json::getOr(v, ["01"], fb)), "\"oh-one\"")
         expectString(json::stringify(json::getOr(v, ["2"], fb)), "\"fallback\"")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' plan-120-C promoted object member order from an observed accident to a
+    ' pinned json-level contract. These cases are the TRIPWIRE: if the Map
+    ' implementation ever reorders, they fail loudly and force the conversation,
+    ' rather than silently changing every document MFB emits. The Map type's own
+    ' contract is unchanged and still says implementation-defined.
+    TGROUP "order — object members keep document order"
+      TCASE "a parsed document re-serializes in its own order"
+        ' Deliberately NOT the order JavaScript would produce: Node emits
+        ' {"2":4,"10":3,"b":1,"a":2}, hoisting the integer-like keys and sorting
+        ' them numerically. MFBASIC has no JS object semantics and keeps
+        ' document order, which is the documented, permanent divergence.
+        expectString(pv("{\"b\":1,\"a\":2,\"10\":3,\"2\":4}"), "{\"b\":1,\"a\":2,\"10\":3,\"2\":4}")
+        ' Reverse alphabetical stays reverse alphabetical — not re-sorted.
+        expectString(pv("{\"z\":1,\"y\":2,\"x\":3}"), "{\"z\":1,\"y\":2,\"x\":3}")
+        ' Nested objects each keep their own order independently.
+        expectString(pv("{\"b\":{\"d\":1,\"c\":2},\"a\":3}"), "{\"b\":{\"d\":1,\"c\":2},\"a\":3}")
+      END TCASE
+      TCASE "duplicate keys collapse last-wins, at the FIRST position"
+        ' The surviving value is the last one, but it occupies the slot the key
+        ' first appeared in — a consequence of insertion order that would be
+        ' invisible without an explicit pin.
+        expectString(pv("{\"a\":1,\"b\":2,\"a\":3}"), "{\"a\":3,\"b\":2}")
       END TCASE
     END TGROUP
 

@@ -21,14 +21,27 @@ Each variant maps to its JSON form: `json::JsonNull` emits `null`; `json::JsonBo
 emits `[`, its items in list order separated by `,`, and `]`; `json::JsonObj` emits
 `{`, its members as `"key":value` separated by `,`, and `}`, with each key
 escaped as a JSON string. An empty `json::JsonArr` emits `[]` and an empty `json::JsonObj`
-emits `{}`. Object members are emitted in the map's iteration order, which is not
-guaranteed to be insertion order or sorted order — do not rely on it for stable
-output or for byte-comparison of two documents.
+emits `{}`.
 
-**String escaping.** `"` and `\` are escaped, and so is `/` — every forward slash
-is emitted as `\/`. That is valid JSON and parses back identically, but it means
-`json::stringify` output is not byte-identical to what most other JSON writers
-produce. The C0 escapes `\b`, `\t`, `\n`, `\f`, and `\r` are used where they
+**Object member order.** Members are emitted in the order the `json::JsonObj`'s
+map holds them, which for a document that came from `json::parse` is the order
+the members appeared in the text. So `json::stringify(json::parse(doc))` returns
+the members in the document's own order, and round-tripping a document through
+this pair does not shuffle it.
+
+This is a promise `json` makes and pins with its own tests, not a promise the
+`Map` type makes — `mfb man types map` still describes iteration order as
+implementation-defined. Note it differs from JavaScript, which emits keys that
+look like array indexes first, in ascending numeric order:
+`JSON.stringify({b:1, a:2, "10":3, "2":4})` gives `{"2":4,"10":3,"b":1,"a":2}`
+in Node, where `json::stringify` keeps `{"b":1,"a":2,"10":3,"2":4}`. MFBASIC has
+no JavaScript object semantics to justify that reordering, so it does not copy it.
+
+**String escaping.** `"` and `\` are escaped. `/` is **not** — a forward slash is
+emitted literally. RFC 8259 permits `\/` but never requires it, and no widely-used
+writer emits it, so a literal `/` is what makes `json::stringify` output comparable
+byte-for-byte with other producers. (`json::parse` still accepts `\/` on input, as
+it must.) The C0 escapes `\b`, `\t`, `\n`, `\f`, and `\r` are used where they
 apply, and any remaining control character below code point `32` is emitted as a
 `\u00XX` escape. Everything else, including all non-ASCII text, is emitted
 literally as UTF-8 rather than as `\u` escapes.
@@ -39,6 +52,11 @@ round-trips: the whole-number form is tried first, so an integral value emits as
 parses back to exactly the same `Float` is searched for and used. The round trip
 is verified rather than assumed — `3.141592653589793` serializes with all of its
 digits intact, not truncated to a fixed precision.
+
+Negative zero emits as `0`, not `-0`, matching `JSON.stringify` — JSON has no
+way to mark a zero's sign that readers agree on, and the same information is lost
+by a JavaScript round trip. `toString(-0.0)` is unaffected and still shows the
+sign; this rule applies only to JSON output.
 
 The renderings searched are fixed-point ones of up to 25 decimal places, so a
 `Float` too small to reach its first significant digit within 25 places has no
