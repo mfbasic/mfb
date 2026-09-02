@@ -266,7 +266,7 @@ died with its fixture; what stays is
 dataset, all 1.1 M scalars — the bisection off-by-one class), with
 `scripts/check-generated.sh` owning the "are the runs really Unicode 16.0.0"
 half by regenerating both artifacts from `unicodedata` / the vendored UCD.
-Commit: —
+Commit: 306326409
 
 ### Phase 3 — scriptOf as a range table
 
@@ -312,7 +312,7 @@ goldens, **0 diffs** after regeneration; `regen-ncodesum.sh` refreshed 132 and
 exactly **10** differed — the five per-target sums of `byte-identity/regex` and
 `byte-identity/strings`, nothing else. `scripts/check-generated.sh`: all four
 artifacts reproduce.
-Commit: —
+Commit: 306326409
 
 ## Validation Plan
 
