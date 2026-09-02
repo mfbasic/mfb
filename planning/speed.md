@@ -176,6 +176,37 @@ The attributed total (13.18 M) is less than the module total (17.08 M): frame
 prologues, regalloc spill code and slot zeroing are emitted outside any
 construct's frame, and the peepholes delete instructions after attribution.
 
+**Running total (2026-09-02).** plan-118-B and -C have landed:
+
+```
+                        A (baseline)   after B      after C
+machine instructions      17,079,160   14,523,769   12,872,114   -24.6 %
+binop:Concat               2,907,604    2,907,604    2,301,208
+call:toString              1,030,128    1,030,128      768,984
+val:Constructor            2,173,050    2,173,050    2,173,050   (plan-118-D)
+rtcall:io.print              826,446      826,446      826,446
+```
+
+And the single most important thing the letters measured: **the residue of every
+one of those categories is one shared block.** Out-of-lining `a & b` took its
+site from ~155 emitted instructions to **17**; `toString(Integer)` from ~100 to
+**~5**; an `io::print(s)` site is **4** instructions of marshalling. What is left
+at each of those sites is the ~194-instruction inline allocation-failure /
+error-propagation block:
+
+```
+FUNC cat2(a, b) RETURN a & b       218 instructions:  17 concat + 194 error + 7 frame
+FUNC ts(n AS Integer) RETURN ...   215 instructions:   5 render + 194 error + 16
+FUNC p(s) io::print(s)             213 instructions:   4 marshal + 202 error +  7
+```
+
+§5.1's "the expansion is concentrated" is therefore sharper than the original
+attribution suggested: after B and C it is concentrated in **one** shape, the
+error path, which plan-118-E Phase 2 shares per function. That is now the
+family's largest remaining item by a wide margin — larger than plan-118-E's own
+§2 numbers imply, because those were taken before C measured the block at 194
+rather than the ~40 it was assumed to be.
+
 Separately measured and deliberately NOT in plan-118's scope: roughly half of
 every function's instructions are stack round-trips (in the 300-instruction
 `RETURN a & b`, 83 `ldr_u64` + 68 `str_u64` — every intermediate value stored

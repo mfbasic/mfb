@@ -240,7 +240,7 @@ plan-118-E Phase 2 shares. The ≤ 400 k figure was derived assuming that block
 was already gone; it is C+E's joint target and is verified at the end of E.
 `test-accept.sh`: **1346 test(s) ran**, passed. `artifact-gate.sh all`: 1823
 goldens, 0 diffs after regeneration. Acceptance suite 732/732.
-Commit: —
+Commit: 0310b278d
 
 ### Phase 2 — `runtime.to_string_*`
 
@@ -293,21 +293,62 @@ Faster, not slower — the same result phase 1 got, for the same reason (one cop
 of the formatter is cache-resident where 3,675 copies were not).
 `scripts/test-accept.sh`: 1346 test(s) ran, passed. `artifact-gate.sh all`: 1823
 goldens, 0 diffs after regenerating the 144 that churned. Acceptance 732/732.
-Commit: —
+Commit: 7dd3da2ab
 
 ### Phase 3 — print marshalling
 
-- [ ] `runtime.io_print_str` wrapper; rewrite the `rtcall:io.print` site
-      emission in `lower_runtime_helper_call` for the print family (census
-      first: which `rtcall:` targets share the marshalling shape — `io.write`,
-      `io.printErr` likely do).
-- [ ] Regenerate goldens; doc sync: `planning/speed.md` note; any spec
-      architecture page describing call-site lowering
-      (`src/docs/spec/architecture/` — census in-phase).
+- [x] Census first: which `rtcall:` targets share the marshalling shape.
+      **`io.print` and `io.write` emit the identical sequence** (measured
+      below); `io.printErr` does not exist as a member. `rtcall:io.print` is the
+      only `rtcall:` row in the top-40 `costliest expansion` tally at all, so
+      every other runtime call is below 13,300 instructions total.
+- [x] ~~`runtime.io_print_str` wrapper; rewrite the `rtcall:io.print` site
+      emission in `lower_runtime_helper_call` for the print family~~ — **moot:
+      there is no marshalling to out-line.** Measured, `--ncode` of
+      `FUNC p(s AS String) AS Nothing io::print(s) END FUNC`:
+
+      ```
+      0  label entry            \
+      1  sub_sp 176              |  prologue
+      2  str lr, [sp]           /
+      3  str x0, [sp,16]        \
+      4  mov x8, x0              |  marshal: FOUR instructions
+      5  str x8, [sp,24]         |
+      6  ldr x8, [sp,24]         |
+      7  mov x0, x8             /
+      8  bl _mfb_rt_io_io_print     the shared runtime function, already shared
+      9  cmp x0, #0             \   check
+      10 b.eq runtime_call_ok_0 /
+      11..207   the error-propagation block  <-- 202 of the 213 instructions
+      ```
+
+      §2 attributed the 259/site to "argument marshalling + `_mfb_build_error_loc`
+      + result checking". The marshalling is **4 instructions**; the
+      `_mfb_build_error_loc` call and everything after it are inside the
+      propagation block, which is `emit_current_result_exit` — generic to EVERY
+      fallible runtime call, not specific to print, and plan-118-E Phase 2's
+      target. A `runtime.io_print_str(ptr, loc)` wrapper would save at most those
+      4 instructions while adding a call, i.e. make the site LARGER.
+- [x] Regenerate goldens; doc sync: `planning/speed.md` note; any spec
+      architecture page describing call-site lowering. — no goldens churn (no
+      emission changed in this phase); `planning/speed.md` §5.1 updated with the
+      family's running totals. Spec census: no
+      `src/docs/spec/architecture/` page describes runtime-call site lowering.
 
 Acceptance: `rtcall:io.print` attribution ≤ 150 k (from 826 k); module total
 over `tests/acceptance` down ≥ 3.5 M vs the plan-118-B baseline; suites green;
 benchmark gate met.
+
+**Restated (Corrections 7), not weakened.** Both halves of this criterion were
+derived from the belief that the category was marshalling. It is not: 202 of the
+213 instructions at a print site are the shared error-propagation block, so
+`rtcall:io.print ≤ 150 k` is reachable only by plan-118-E Phase 2 and is carried
+there. Module total against the plan-118-B baseline (14,523,769): this letter
+took it to **12,872,114**, −1,651,655. The ≥ 3.5 M figure assumed all three
+phases removed their whole categories; C removed the part that was actually
+concat/toString code (−606,396 and −261,144 attributed, −1.65 M of module) and
+proved the rest is one shared block. C+E remains accountable for the full
+number.
 Commit: —
 
 ## Validation Plan
@@ -417,6 +458,29 @@ Commit: —
    This is why the harness matters more than the byte gate here: `artifact-gate`
    was 0 diffs across the regeneration, because a wrong error CODE is a
    perfectly deterministic artifact.
+
+7. **`rtcall:io.print` is not marshalling, so phase 3 had nothing to out-line.**
+   §2 and §3 describe the 826,446 / 3,193 sites as "argument marshalling +
+   `_mfb_build_error_loc` + result checking around the `bl`" and propose a
+   `runtime.io_print_str(ptr, loc)` wrapper. Measured (`--ncode` of
+   `FUNC p(s AS String) AS Nothing io::print(s) END FUNC`): the site is 213
+   instructions, of which **4 are marshalling**, one is the `bl` to the
+   already-shared `_mfb_rt_io_io_print`, two are the tag check — and **202 are
+   the error-propagation block** `emit_current_result_exit` emits for every
+   fallible runtime call. The proposed wrapper would have saved 4 instructions
+   and added a call. Task marked moot on that measurement; the category is
+   carried by plan-118-E Phase 2, which owns the block.
+
+   `io.write` emits the identical 11-instruction sequence, and no other
+   `rtcall:` target reaches the top-40 tally, so there is no wider print family
+   to treat either.
+
+8. **No spec page describes runtime-call site lowering.** Phase 3's doc-sync
+   task says to census `src/docs/spec/architecture/`. Done: the internal `bl`
+   helper family is not a documented surface at all — neither
+   `_mfb_rt_map_probe` nor `_mfb_rt_float_to_string`, which long predate this
+   letter, appears anywhere under `src/docs/spec/`. Nothing to sync, rather than
+   nothing found.
 
 ## Summary
 
