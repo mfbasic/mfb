@@ -327,7 +327,7 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
 - [x] `HEADER_SLOTS` 22 → 27 in `src/codegen/runtime/canvas/mod.rs`; add the five
       slot constants with the meanings in §4.1.
       `HEADER_CLIP_X0/Y0/X1/Y1` (22–25) and `HEADER_BLEND` (26).
-- [ ] Find and update **every** reader of the header length — `__CANVAS_GEO_HEADER`
+- [x] Find and update **every** reader of the header length — `__CANVAS_GEO_HEADER`
       in `helper_geometry.rs:53`, the tail-offset arithmetic at `:298` and `:451`,
       `__canvas_headerMatches` at `:489`, and both GPU emitters' `HEADER_SLOTS` uses.
       Grep for `HEADER_SLOTS` and `__CANVAS_GEO_HEADER` and fix all hits; a missed one
@@ -338,6 +338,10 @@ Pure plumbing, no behaviour. Lands alone and is provably neutral.
       through the *symbol*, so they follow the one definition. The literal `22` appears
       only at `helper_geometry.rs:53` (the definition) and in four doc comments
       (`:4`, `:36`, `:39`, `:121`), which must be updated too or they will lie.
+      All five moved to 27; verified after the fact by
+      `grep -c "22-float\|22 slots\|22 float" helper_geometry.rs` → **0**, and both
+      spellings read 27 (`__CANVAS_GEO_HEADER` and `HEADER_SLOTS`) with the pin above
+      green.
 - [x] **Pin `HEADER_SLOTS` == `__CANVAS_GEO_HEADER` with a unit test, before changing
       either.** They are the same number spelled once in Rust and once in MFBASIC with
       no compiler between them, and **no test currently relates them** (`grep -rn
@@ -403,7 +407,7 @@ test failure rather than a rendering one.
 
 Full suite on the merged tree: `cargo test --release --no-fail-fast` → **88 test
 binaries, 0 failures**.
-Commit: 9a94d5ce7
+Commit: 9a94d5ce7 (acceptance recorded in 0fbfaa3a6)
 
 ### Phase 2 — The clip, software path only
 
@@ -444,7 +448,7 @@ two assert the clip is *inert*, so they must hold with and without the feature. 
 are the pair that pins what must not change, and they are whole-frame byte
 comparisons rather than samples, because every `Paint` built before this letter carries
 a zero-area clip — one wrong pixel there is every existing scene changing.
-Commit: —
+Commit: 347c4d3ad
 
 ### Phase 3 — The four blend modes, software path only, and the reference scene
 
@@ -489,7 +493,7 @@ did not move by a byte); `rt_canvas_rasteriser` 17 passed. The reference was ins
 rather than merely generated: `Multiply` is visibly the darkest pair, `Screen` and
 `Add` the two lightest and distinguishable from each other, and the arcs below show
 the same four on the stroke channel.
-Commit: —
+Commit: afc4f7667, with ed17769e5 correcting Add
 
 ### Phase 4 — Four pipelines on Metal and Vulkan
 
@@ -548,7 +552,7 @@ scene both match the software oracle within `Tolerance::GPU_DEFAULT`, with
   `metalReady=TRUE` and `gpuSelected=TRUE` before comparing, so a declined backend
   fails rather than passing vacuously.
 - `rt_canvas_font` 10, `rt_canvas_golden` 6, `rt_canvas_rasteriser` 17.
-Commit: —
+Commit: f245f29e9 (Vulkan) and 3837a24a9 (Metal)
 
 ### Phase 5 — Docs, and the promise closed
 
@@ -589,7 +593,26 @@ Commit: —
 Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
 `scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs, and
 `mfb man canvas types` describes behaviour that the tests in Phases 2–4 prove.
-Commit: —
+
+**MET.**
+- `cargo test --release --no-fail-fast` — **88 test binaries**, the only failure
+  `artifact_gate_all` refusing to start behind a peer session's lock, whose own message
+  says "NOT a golden regression -- nothing was checked". Run standalone:
+  `scripts/artifact-gate.sh target/release/mfb all` → 1325 tests, 1487 builds,
+  **1823 goldens, 0 diffs**.
+- `bash scripts/test-accept.sh target/release/mfb …` → "acceptance tests passed
+  (**1346** test(s) ran)".
+- `bash scripts/man-census.sh --memory-scope` → **0** unclassified hits.
+- `bash scripts/man-run-examples.sh canvas --run` → **20 built, 20 ran, 0 failed**.
+- `mfb man canvas types` renders the new `blend` and `clip` prose, and `mfb spec app
+  canvas` renders the four equations — both checked by rendering, which is the only
+  verification these `&'static str` fields have.
+- The linux+DEBUG half is covered the way plan-116-A established and for the same
+  reason (that box is one core): mac+DEBUG via `cargo test --no-fail-fast --bin mfb`,
+  and Linux via `scripts/test-canvas-vulkan.sh` on box 2228, which is where this
+  letter's Linux-specific behaviour — four Vulkan pipelines, the clip in the SPIR-V —
+  actually runs.
+Commit: 97c751058
 
 ## Validation Plan
 
