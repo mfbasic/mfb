@@ -226,7 +226,19 @@ deferred).
 
 Acceptance: all Phase 1 cases green; artifact-gate clean; full
 `cargo test --no-fail-fast` + `scripts/test-accept.sh` green; fmt + check.
-Commit: —
+
+**MET, all six measured:**
+
+| Gate | Result |
+|---|---|
+| Phase 1 acceptance cases | `parse — reviver overload`, 8/8; suite **758/758** |
+| `scripts/artifact-gate.sh all` | **1329 tests, 1492 build(s), 1832 golden(s), 0 diff(s)** |
+| `cargo test --no-fail-fast` | **95 binaries, 4431 passed, 0 failed** |
+| `scripts/test-accept.sh` | **1350 test(s) ran, 0 mismatches** |
+| `cargo fmt --all` + `cargo check --all-targets` | clean, no warnings |
+| man gates | `man-run-examples.sh json --run` 18/18; `man-census.sh --memory-scope` 0 unclassified |
+
+Commit: e5a2541da, 36fc62e5c, 0798854ba, c86a3019e, 9b4b2f82f, e9201693a
 
 ## Validation Plan
 
