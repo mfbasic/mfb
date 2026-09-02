@@ -216,6 +216,55 @@ against the right layout in both. This bug touches none of the files bug-476
 edits (`builder_values.rs`, `builder_value_semantics.rs`), so the two merge
 cleanly in either order.
 
+### 4. macOS: the verify block works — and macOS is *stricter* than the others
+
+Prototyped in C against Network.framework before emitting a single instruction
+(`/tmp/b477-nw.c`), because this is the backend the document calls the risk
+concentration. The design that works, and which the emitter implements:
+
+```c
+sec_protocol_options_set_verify_block(o, ^(metadata, trust_ref, complete) {
+    SecTrustRef trust = sec_trust_copy_ref(trust_ref);
+    SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, cfServerName));
+    /* trust exactly what the peer offered as its own root, and nothing else */
+    CFArrayRef chain = SecTrustCopyCertificateChain(trust);
+    root = CFArrayGetValueAtIndex(chain, CFArrayGetCount(chain) - 1);
+    SecTrustSetAnchorCertificates(trust, CFArrayCreate(NULL, &root, 1, ...));
+    SecTrustSetAnchorCertificatesOnly(trust, true);
+    complete(SecTrustEvaluateWithError(trust, NULL));
+}, queue);
+```
+
+Note what this is *not*: it never calls `complete(true)` unconditionally, and it
+never touches `sec_protocol_options_set_peer_authentication_required`. It
+re-runs the **full** SSL policy — hostname, `notBefore`/`notAfter`, chain
+signatures — with the peer's own root as the anchor. Measured:
+
+| case | flag | result |
+| --- | --- | --- |
+| compliant self-signed, name matches | ON | **ACCEPTED** |
+| compliant self-signed, name mismatch | ON | **REJECTED** — "certificate name does not match input" |
+| self-signed, expired 2020 | ON | **REJECTED** — "certificate is expired" |
+| compliant self-signed, name matches | OFF | **REJECTED** |
+
+**Platform difference, and it is a real one.** macOS additionally enforces
+Apple's TLS certificate *shape* policy, which OpenSSL does not: a server
+certificate must carry an `extendedKeyUsage` of `serverAuth` and a validity
+window no longer than ~398 days. A 10-year self-signed certificate is rejected
+with "certificate is not standards compliant" **even with the flag set** — the
+`SecTrustSetAnchorCertificates` exemption applies to keychain-installed roots,
+not to a programmatic anchor, and there is no API to opt out.
+
+This does not violate any requirement in this document: every property the flag
+must preserve (name, dates, TLS 1.2 floor) holds, and macOS merely enforces
+*more*. It fails closed. But it does have a consequence the Goal section did not
+anticipate: **the shipped `examples/network-server/certs/cert.pem` is a 10-year
+certificate, so the Failing Reproduction cannot succeed on macOS until that pair
+is regenerated** within Apple's limits. That regeneration is in scope — it keeps
+the certificate self-signed and untrusted, so it is not the forbidden "ship a
+publicly-trusted certificate" shortcut — and it is why `certs/` gains a
+regeneration script rather than only a longer-lived key.
+
 ## Failing Reproduction
 
 The two examples added alongside this bug are the reproduction. Terminal 1:
