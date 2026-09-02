@@ -44,11 +44,22 @@ const SCH_CRED_FLAGS: &str = "4194336";
 // `CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL)` evaluation, with
 // `pwszServerName` set, and still requires `dwError == 0`.
 pub(crate) const SCH_CRED_FLAGS_ALLOW_SELF_SIGNED: &str = "4194312";
-// CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG. Set in CERT_CHAIN_POLICY_PARA::dwFlags
-// so the SSL policy forgives an untrusted root and NOTHING else — deliberately
-// not the sibling `..._IGNORE_WRONG_USAGE`/`..._INVALID_NAME`/`..._INVALID_DATE`
-// flags, so `CERT_E_CN_NO_MATCH` and `CERT_E_EXPIRED` still surface in `dwError`.
-pub(crate) const CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG: &str = "256";
+// SECURITY_FLAG_IGNORE_UNKNOWN_CA, set in
+// `SSL_EXTRA_CERT_CHAIN_POLICY_PARA::fdwChecks` (SSLPARA + 8).
+//
+// **This is fdwChecks, not `CERT_CHAIN_POLICY_PARA::dwFlags`.** For
+// `CERT_CHAIN_POLICY_SSL` the per-check ignore bits live on the SSL *extra*
+// parameter, and putting `CERT_CHAIN_POLICY_ALLOW_UNKNOWN_CA_FLAG` in `dwFlags`
+// instead has no effect at all — measured on box 2230, where the handshake
+// completed but `CertVerifyCertificateChainPolicy` still returned a non-zero
+// `dwError` for a chain whose only defect Windows itself reports as exactly
+// `UntrustedRoot`.
+//
+// It forgives an untrusted root and NOTHING else: deliberately not the sibling
+// `SECURITY_FLAG_IGNORE_CERT_CN_INVALID` (0x1000) or
+// `SECURITY_FLAG_IGNORE_CERT_DATE_INVALID` (0x2000), so `CERT_E_CN_NO_MATCH`
+// and `CERT_E_EXPIRED` still surface in `dwError` and still fail the connect.
+pub(crate) const SECURITY_FLAG_IGNORE_UNKNOWN_CA: &str = "256";
 // ISC_REQ_SEQUENCE_DETECT|REPLAY_DETECT|CONFIDENTIALITY|ALLOCATE_MEMORY|STREAM.
 const ISC_REQ_FLAGS: &str = "33052"; // 0x811C
 const SECBUFFER_EMPTY: &str = "0";
