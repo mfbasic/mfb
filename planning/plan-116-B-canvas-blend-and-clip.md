@@ -385,7 +385,25 @@ unchanged on disk, and a Metal/Vulkan frame for the smiley scene still matches t
 oracle to the same pixel count as at this letter's base commit. Nothing reads the new
 slots yet, so **any** rendering change here is a plumbing bug — most likely a missed
 `__CANVAS_GEO_HEADER` site — to be root-caused, not re-baselined.
-Commit: —
+
+**MET.** The pixel count is **identical**, not merely close:
+`differing_pixels: 80, max_channel_delta: 1, first (225, 17)` — the same three numbers
+plan-116-A measured for this same fixed scene both at its own base commit and after
+its change, so the comparison spans two letters. Measured with a temporary
+`compare_exact` probe over a held-fixed one-polygon primitive scene (the scene has to
+be pinned because both letters edit `PRIMITIVES`), removed afterwards.
+`git status --short tests/golden/canvas/` is empty.
+
+And the plan's warning was right twice over — this phase produced **two** rendering
+changes, both plumbing bugs, both root-caused rather than re-baselined (C2 and C3).
+Neither was the missed `__CANVAS_GEO_HEADER` site it predicted: that one is now
+impossible, because the `the_geo_layout_constants_match_their_rust_counterparts` pin
+added at the top of this phase makes a half-applied header edit a compile-time-visible
+test failure rather than a rendering one.
+
+Full suite on the merged tree: `cargo test --release --no-fail-fast` → **88 test
+binaries, 0 failures**.
+Commit: 9a94d5ce7
 
 ### Phase 2 — The clip, software path only
 
