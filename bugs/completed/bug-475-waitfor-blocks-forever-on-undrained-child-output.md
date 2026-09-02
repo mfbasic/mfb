@@ -2,8 +2,9 @@
 
 - **Severity:** MEDIUM — a hang, not a wrong answer, and the program has a way
   to avoid it once it knows. But nothing reports it: the program just stops.
-- **Status:** FIXED (fb9fbc8c4 + the Windows/doc/golden follow-up on the same
-  branch) — see "Resolution" at the bottom.
+- **Status:** FIXED (fb9fbc8c4 Unix, a662ac1ae Windows + man pages + goldens,
+  82bd0bb76 the drop-path release, 0ed7a574c the bug-474 merge) — see
+  "Resolution" at the bottom.
 - **Found by:** plan-108 letter E cross-model review of the `process` man pages
   (the review disproved the page's claim that unread output "is discarded when
   the pipe buffer fills").
@@ -127,9 +128,25 @@ that drained output counts as readable, and the package overview says `waitFor`
 keeps reading while it waits. `scripts/man-run-examples.sh process --run` →
 18 built, 18 ran, 0 failed.
 
+### The spill blocks are released, not retained
+
+Found while reviewing the above, and fixed here rather than left: a drain buffer
+can reach 16 MiB and nothing handed it back, so a program supervising several
+chatty children retained one pair per child for the rest of its run.
+`process.__drop` now `arena_free`s both blocks (reading each block's own capacity
+for the size) and zeroes the slots, on the same path that closes the pipe fds —
+the handle is closed there, so no reader can reach them afterwards.
+
+Measured with 90 children each producing 4 MiB, every handle dropped inside a
+`SUB`: peak RSS 17,907,712 B on the host — byte-identical to the same program at
+30 children, i.e. flat rather than proportional. Alpine x86_64 (box 2227) agrees
+at 16,724 KiB.
+
 ### Files
 
 - `src/codegen/builtins/process/func_wait_for.rs` — both drain loops.
+- `src/codegen/builtins/process/gen_unix.rs`, `gen_windows.rs` — `__drop` hands
+  the spill blocks back to the arena.
 - `src/codegen/builtins/process/gen_shared.rs` — spill-block layout, the
   `emit_spill_*` reader helpers, record slots 80/88 named.
 - `src/codegen/builtins/process/func_receive.rs`,
@@ -159,12 +176,27 @@ The Windows child was `cmd.exe /c type …\etc\services` (17,635 bytes against a
 default 4 KiB anonymous pipe); the pre-fix binary was built from a `git archive`
 of the base commit, not from a sibling worktree.
 
-### Gates
+### bug-474 landed on main mid-fix
 
-- `cargo test --release --no-fail-fast`: all binaries ok.
+`main` advanced with bug-474 (`detach` reaps its one child on a dedicated thread
+instead of setting `SIGCHLD` to `SIG_IGN`) — the same package. Merged into this
+branch; only the four `process` `.ncodesum` goldens conflicted, and they are
+derived, so they were regenerated rather than hand-resolved. The two fixes do not
+interact: bug-474's reaper waits one specific pid on its own thread, and
+`waitFor` waits its own pid, so neither can consume the other's status. Every
+gate below was re-run **after** the merge.
+
+### Gates (post-merge)
+
+- `cargo test --release --no-fail-fast`: 89 test binaries, all `ok`, exit 0.
 - `scripts/artifact-gate.sh <mfb> all`: 1325 tests, 1487 builds, 1823 goldens,
-  **0 diffs** after regenerating the four `process` `.ncodesum` goldens. Those
-  four were the *only* golden drift in the tree (132 refreshed, 4 changed).
+  **0 diffs**. The four `process` `.ncodesum` files were the *only* golden drift
+  the change produced (`regen-ncodesum.sh` refreshed 132 and changed 4).
+- `scripts/test-accept.sh <mfb> <scratch>` (the acceptance harness, which
+  `cargo test` does not run): **1346 tests ran, all passed**, exit 0.
+- The 14 `tests/rt-behavior/process/*` fixtures were also run directly and each
+  reproduces its committed `build.log` output exactly.
+- `scripts/man-run-examples.sh process --run`: 18 built, 18 ran, 0 failed.
 - `scripts/man-census.sh --memory-scope`: 8 unclassified hits, all pre-existing
   in `canvas`; the `process` pages add none.
 
