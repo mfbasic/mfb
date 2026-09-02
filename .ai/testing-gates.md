@@ -342,3 +342,62 @@ Two lasting lessons survive from the citation-test baseline history:
 
 - **A file/symbol move MUST sweep its `[[path:symbol]]` citations in BOTH** `src/docs/man/` (symbol-level, strict — fails `cargo test`) and `src/docs/spec/` (file-level). A move that commits the rename but skips the sweep turns the citation tests red on its own branch AND surfaces only when merged. When a citation test is red, run it, read the `[[path:symbol]]` list, and check whether each symbol simply MOVED (repoint by hand; `fix_citations.py` is broken). (See the "Splits must sweep man AND spec citations" section — the mechanics live there.)
 - **`std::ptr::eq` on a `const`-promoted `&[...]` is unstable.** The promoted allocation is duplicated across call sites (inlining), so the same logical element resolves to two different addresses. `supported_helper_specs()` returned such a promoted array; a diagnostic showed the slice was pointer-stable across two *direct* calls yet `spec_for_call()` (a separate fn) returned a different address for the same spec. Fix = a single named `static`. If you ever compare catalogued data by pointer identity, it MUST live in a named `static`, never a promoted `&[...]`.
+
+## A zero-byte golden asserts nothing, and `sync-goldens.sh` will not save you
+
+`sync-goldens.sh` only ever **overwrites an existing** golden; it never creates
+one. That is the documented shape-preserving behaviour, and it has a sharp edge:
+a golden committed as a **zero-byte placeholder** is indistinguishable from a
+real one to every regeneration sweep, so it survives forever while asserting
+nothing. bug-467 shipped `rt-behavior/tcp/tcp-write-peer-closed-raises-rt` with
+all four goldens at 0 bytes, against the sibling `tcp-read-eof-raises-rt`'s
+523 / 7004 / 58725 / 0.
+
+**How to apply:** after adding an rt fixture, `wc -c` its goldens and compare
+against a sibling in the same directory. Only `.run` may legitimately be empty
+(it is the marker — see above). A `build.log`, `.ast` or `.ir` of 0 bytes means
+the fixture was never synced, and *nothing* in `cargo test` will tell you: the
+acceptance harness is not part of the cargo suite, so a green `cargo test` is
+silent about it.
+
+## A network-timing fixture can be flaky in BOTH directions
+
+A "peer went away" fixture has two independent failure modes, and fixing one
+trades against the other. Measured on bug-467, macOS + Linux, small writes
+(32 bytes, 200 of them) after the peer's close:
+
+* against a **broken** build it is RED on ~8 runs in 10 — the other 2 surface
+  `ECONNRESET` rather than `EPIPE`, which raises without a signal and reads as a
+  pass. So it under-detects.
+* against a **correct** build it printed `completed=TRUE` under the load of a
+  full 1347-fixture acceptance sweep — every small write was absorbed by the
+  local send buffer before the RST arrived, so nothing failed and the **golden
+  mismatched on a correct build**. It was green on an idle machine and red under
+  load, which is the worst possible signal.
+
+**Why:** whether a write fails at all depends on the peer's RST racing the loop,
+and whether it fails *by signal* depends on the RST having landed before the
+write is issued. Neither is under the fixture's control.
+
+**How to apply — give the two tests different jobs, do not try to make one do
+both:**
+
+* the **golden fixture** takes the shape that is DETERMINISTIC. Write chunks
+  large enough to fill the send buffer (64 KiB × 200 works) so the write BLOCKS
+  waiting for ACKs a departed peer will never send; a blocked write is where the
+  failure reliably surfaces. Measured 12/12 idle and 15/15 under eight spinning
+  CPU hogs. Cost: a blocked write tends to see `ECONNRESET` rather than take the
+  signal, so this shape is RED on only ~4 runs in 10 against a broken build.
+* the **Rust test** takes the sensitive shape (small writes) and runs the program
+  **N times**, asserting the invariant on every run. Ten runs at ~80% per-run
+  detection is a ~1e-7 miss, against ~20% for a single run.
+* assert only what is ALWAYS true per run — for bug-467 that is "no signal, exit
+  0", not "a raise happened", because a completed loop is a legitimate outcome of
+  a correct build. Assert the raise happened **once across the N runs**, so the
+  probe cannot silently stop reproducing the condition and pass for the wrong
+  reason.
+
+Measure both directions before trusting any such fixture: run it ~10× against a
+compiler built from the unfixed base AND ~15× under `for i in $(seq 8); do (while
+:; do :; done) & done` load against the fixed one. An idle-machine 10/10 proves
+nothing about a full sweep.
