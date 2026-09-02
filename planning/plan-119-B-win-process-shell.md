@@ -143,7 +143,7 @@ ever reported); translating to PowerShell (different, bigger contract).
 
 Acceptance: `scripts/test-winprocess.sh` passes on box 2230 including the
 shell matrix; full `cargo test --no-fail-fast` green.
-Commit: —
+Commit: 6fb5099ad
 
 ### Phase 2 — docs
 
@@ -172,7 +172,7 @@ Commit: —
 
 Acceptance: rendered pages show the new wording; man gates green; full suite
 re-run green.
-Commit: —
+Commit: 2f75fb969
 
 ## Validation Plan
 

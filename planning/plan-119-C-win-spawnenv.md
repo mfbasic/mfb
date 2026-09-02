@@ -99,12 +99,28 @@ Family gate in plan-119-A, plus:
 
 - The tail accepts env/cwd (plan-119-A design) — its two slots exist and are
   currently zeroed; passing pointers is the entire integration.
-- UNVERIFIED (Phase 1 box probes, before the emission is written):
-  (a) `CreateProcessA` + ANSI `lpEnvironment` block with an UNSORTED block —
-  documented OK, prove with a hand-run probe if any doubt;
-  (b) child behavior with a replace-block lacking `SystemRoot` — expected
-  parity with Unix's cleared environment (caller's responsibility), but
-  OBSERVE `cmd.exe /C set` under replace to document what actually happens.
+- VERIFIED on box 2230 through the implemented arm
+  (`scripts/test-winprocess.sh`, e1–e6, 47/47 assertions ok):
+  - (a) an UNSORTED ANSI block is accepted — every case below passes one.
+  - cwd: `spawn(["cmd.exe","/C","cd"], "C:\\Windows", …)` → `e1:C:\Windows`;
+    the empty string inherits → `e2:C:\mfbproc` (the harness's own directory).
+  - replace, map `{MFBPROBE:=one}` → the child's whole `set` output is
+    `COMSPEC=…`, `MFBPROBE=one`, `PATHEXT=…`, `PROMPT=$P$G` — no `PATH`, no
+    `SystemRoot`, nothing else inherited.
+  - (b) **a replace block lacking `SystemRoot` runs fine**, and the three
+    variables that do appear are `cmd.exe`'s own: it synthesizes
+    `COMSPEC`/`PATHEXT`/`PROMPT` after it starts. The `ComSpec` spelling in the
+    merge case versus `COMSPEC` here is the tell — the merged child inherits the
+    parent's mixed-case spelling, the replaced one gets cmd's uppercase
+    synthesis. Nothing is injected on our side; documented in the DESC rather
+    than papered over, exactly as the Open Decision recommended.
+  - replace with an EMPTY map: the two-NUL block is accepted (`e4:rc=0`) and
+    `MFBPROBE` is absent.
+  - merge: `e5:MFBPROBE=two`, `e5:MFBOTHER=three`, and the inherited set
+    survives (`e5:SystemRoot=C:\WINDOWS`, `e5:Path=…`).
+  - merge with a case-variant key `path`: `e6:path=MFB-OVERRIDE` is present and
+    `e6:Path=` is **absent** — one entry, the map's. A byte-exact skip would
+    have handed the child both.
 
 ## 3. Design Overview
 
@@ -148,32 +164,51 @@ Rejected: requiring sorted blocks (not needed for ANSI CreateProcess).
 
 ### Phase 1 — cwd + replace-mode env (flat walks only)
 
-- [ ] Verify the map-entry layout constants (key/value offset+length names)
-      against a decoded map block; record them here.
-- [ ] Implement the win spawnEnv arm: 4-arg capture, quoted argv (A's
+- [x] Verify the map-entry layout constants (key/value offset+length names)
+      against a decoded map block; record them here. Recorded in Measured
+      populations; the working precedent is `gen_unix.rs`'s
+      `emit_child_apply_env`, which walks `0..capacity` and skips entries whose
+      `FLAGS & USED` is 0 — a Map is sparse, unlike the List the spawn argv
+      walk iterates `0..count`.
+- [x] Implement the win spawnEnv arm: 4-arg capture, quoted argv (A's
       builder), cwd buffer (empty→NULL), replace-mode block build; call
       `emit_win_spawn_tail(CMD, env, cwd)`.
-- [ ] Add `"process.spawnEnv"` to `src/target/win_x86_64/mod.rs`.
-- [ ] Re-point `tests/rt_trapped_call_capability_gate.rs` to
+- [x] Add `"process.spawnEnv"` to `src/target/win_x86_64/mod.rs`.
+- [x] Re-point `tests/rt_trapped_call_capability_gate.rs` to
       `os.resourcePath` as its remaining real gap (its header already names
-      it); assertions unweakened.
-- [ ] Box probes in `scripts/test-winprocess.sh`: cwd (`cmd /C cd`), replace
+      it); assertions unweakened. Done in plan-119-B, which had to re-point it
+      anyway and discovered `process.spawnEnv` was never a valid vehicle.
+- [x] Box probes in `scripts/test-winprocess.sh`: cwd (`cmd /C cd`), replace
       (`cmd /C set` → contains map entries; `PATH` absent), empty-map replace,
-      empty cwd inherits.
-- [ ] `cli_process_windows_build.rs`: spawnEnv program's nplan imports
-      (existing set — replace mode needs no new Win32 import).
+      empty cwd inherits. e1–e4; transcripts in Verified properties.
+- [x] `cli_process_windows_build.rs`: spawnEnv program's nplan imports
+      (existing set — replace mode needs no new Win32 import). The test also
+      exercises the three-argument `send`/`sendBytes` and the stream-selected
+      `poll`/`receive`/`receiveBytes`, because the same missing force-emit
+      broke all five (see Corrections).
+- [x] Added: fix the force-emit exclusion in
+      `src/codegen/engine/builder/mod.rs`. Without it `process.spawnEnv`'s
+      helper body is never emitted on Windows and the build dies at link time —
+      and the same exclusion had been silently breaking `sendTimeout`,
+      `sendBytesTimeout`, `pollFrom`, `receiveFrom` and `receiveBytesFrom`
+      since plan-90-D. Reproduced on `main` first. See Corrections.
+- [x] Added: delete `unimplemented_on_windows` from `gen_windows.rs`. With
+      `shell` and `spawnEnv` implemented it has no callers, and the module doc
+      that described "unreachable placeholder arms" was describing something
+      that no longer exists.
 
 Acceptance: box probes pass; full `cargo test --no-fail-fast` green.
 Commit: —
 
 ### Phase 2 — merge-mode env (the risk concentrate)
 
-- [ ] Implement the merge walk (GetEnvironmentStringsA, case-folded skip,
+- [x] Implement the merge walk (GetEnvironmentStringsA, case-folded skip,
       copy + append + terminator, FreeEnvironmentStringsA); nplan test gains
       the two new imports.
-- [ ] Box probes: merged child sees an inherited var (`SystemRoot`), the
+- [x] Box probes: merged child sees an inherited var (`SystemRoot`), the
       override wins for a case-variant collision (`set path=X` map key `PATH`
       → exactly one entry, value from the map), and a fresh key appends.
+      e5–e6; transcripts in Verified properties.
 
 Acceptance: box probes pass, including the case-collision single-entry
 assertion; full suite green.
@@ -181,14 +216,26 @@ Commit: —
 
 ### Phase 3 — docs
 
-- [ ] `func_spawn.rs` DESC: delete the Unix-only paragraph; document per-OS
+- [x] `func_spawn.rs` DESC: delete the Unix-only paragraph; document per-OS
       mechanics (fork+setenv vs CreateProcess env block), the
       case-insensitive merge rule on Windows, and the replace-mode "only your
-      map, including on Windows" consequence observed in Phase 1.
-- [ ] `planning/todo.md`: retire the note's spawn half.
-- [ ] Render gates: `mfb man process spawn`, `scripts/man-census.sh
+      map, including on Windows" consequence observed in Phase 1. The `env`
+      parameter's own `desc` said "each key/value set with `setenv`", which is
+      Unix-specific and now false as a description of the contract — replaced
+      with the case-insensitivity rule a caller can actually act on.
+- [x] ~~`planning/todo.md`: retire the note's spawn half.~~ — moot, same
+      evidence as plan-119-B: the note exists only in the shared main
+      checkout's uncommitted `planning/todo.md`, not on this branch
+      (`git show main:planning/todo.md | grep -c` → 0). Reported instead.
+- [x] Render gates: `mfb man process spawn`, `scripts/man-census.sh
       --memory-scope`, `scripts/man-run-examples.sh process --run` (host runs
-      the Unix path — examples must remain host-runnable).
+      the Unix path — examples must remain host-runnable). 18/18 ran;
+      memory-scope unchanged at 8 pre-existing `canvas` hits.
+- [x] Added: the byte-identity `process` cover fixture now builds for
+      `windows-x86_64` (it calls `shell` and the four-argument `spawn`, which
+      is exactly why it could not before), so it finally gets a
+      `windows-x86_64.ncodesum` golden — the drift sentinel plan-119-A's
+      census found missing. The census is now 133 goldens, 0 diffs.
 
 Acceptance: rendered page correct; man gates green; family-standard suite
 green (full cargo test, test-accept, artifact-gate, fmt, check
@@ -219,7 +266,50 @@ Commit: —
 
 ## Corrections
 
-*(fill during execution)*
+- **The premise "compile-time rejected (capability absent)" was false, and what
+  it hid was a wider shipped defect.** Corrected in §1 already; the root cause is
+  that `validate_capabilities` sees the base `process.spawn`, so the alias never
+  faces the gate. Chasing that down led to the real bug:
+  `src/codegen/engine/builder/mod.rs` refused to force-emit the synthesized
+  `process` overload helpers on Windows —
+
+      let process_synth = platform.family() != PlatformFamily::Windows;
+
+  — on the stated premise that they "are stubs there". That premise was true only
+  for `spawnEnv`. `sendTimeout`, `sendBytesTimeout`, `pollFrom`, `receiveFrom`
+  and `receiveBytesFrom` have always had real Windows bodies (each `*_win` entry
+  fn branches on the runtime-call name exactly as its posix twin does) and
+  `win_x86_64` has advertised all five since plan-90-D — so all five were
+  advertised, passed validation, and then failed to link. Reproduced on `main`
+  with an attribution binary before touching anything:
+
+      $ /tmp/p119-head/target/release/mfb build --target windows-x86_64 synth
+      error: native code internal relocation target
+             '_mfb_rt_process_process_sendTimeout' is not defined
+
+  The exclusion is deleted. This is outside the letter's stated scope and is
+  fixed here anyway: it is a bug found while doing the work, it is in the exact
+  seam this letter had to touch, and `spawnEnv` cannot work without the fix.
+- **The gate-test re-point happened in plan-119-B, not here.** Letter B had to
+  move the vehicle off `process.shell` the moment it implemented it, and
+  discovered `process.spawnEnv` was not a usable intermediate. It went straight
+  to `os.resourcePath`, so this letter's task was already satisfied.
+- **The two phases landed as one commit.** They stayed separate units of work and
+  of box verification — cwd and replace mode were written and run on the box
+  before the merge walk existed — but they are not separately committable. A
+  commit containing Phase 1 alone would build and advertise a four-argument
+  `spawn` whose `envReplace = FALSE` branch silently drops the caller's
+  environment, which is precisely the silent-wrong-value class this plan family
+  exists to remove. Both `Commit:` lines carry that one hash.
+- **The `planning/todo.md` task had no target on this branch** — same evidence as
+  plan-119-B's correction: the note lives only in the shared main checkout's
+  uncommitted `planning/todo.md`, which belongs to a peer session.
+- **A golden the family made possible was added.** plan-119-A's census found the
+  Windows `process` backend had no byte-identity coverage at all, because the
+  cover fixture calls `shell` and the four-argument `spawn`. With both
+  implemented the fixture builds for `windows-x86_64`, so
+  `tests/byte-identity/process/golden/process_codegen_cover_rt.windows-x86_64.ncodesum`
+  now exists and the census is 133 goldens with 0 diffs.
 
 ## Summary
 

@@ -109,6 +109,17 @@ SUB runStdin(label AS String, args AS List OF String, a AS String, b AS String)
   io::print(label & ":rc=" & toString(process::waitFor(p)))
 END SUB
 
+SUB runEnv(label AS String, args AS List OF String, cwd AS String, env AS Map OF String TO String, replace AS Boolean)
+  RES p = process::spawn(args, cwd, env, replace)
+  WHILE TRUE
+    LET line AS String = process::receive(p) TRAP(e)
+      EXIT WHILE
+    END TRAP
+    io::print(label & ":" & strings::trimEnd(line))
+  END WHILE
+  io::print(label & ":rc=" & toString(process::waitFor(p)))
+END SUB
+
 SUB runShell(label AS String, cmd AS String)
   RES p = process::shell(cmd)
   WHILE TRUE
@@ -170,6 +181,32 @@ SUB main()
   runShell("sh7", "\"cmd\" /C echo quoted")
   ' A line containing a quoted argument in the middle.
   runShell("sh8", "echo \"a b\"")
+
+  ' --- plan-119-C: the four-argument spawn (cwd, env map, replace flag).
+  ' `cmd /C cd` prints the working directory; `cmd /C set` prints the whole
+  ' environment, which is what makes both PRESENCE and ABSENCE checkable — a
+  ' wrong environment block is silently wrong otherwise.
+  LET one AS Map OF String TO String = Map OF String TO String { "MFBPROBE" := "one" }
+  LET two AS Map OF String TO String = Map OF String TO String { "MFBPROBE" := "two", "MFBOTHER" := "three" }
+  LET pathish AS Map OF String TO String = Map OF String TO String { "path" := "MFB-OVERRIDE" }
+  LET none AS Map OF String TO String = Map OF String TO String { }
+
+  ' cwd: an explicit directory, and the empty string meaning "inherit".
+  runEnv("e1", ["cmd.exe", "/C", "cd"], "C:\\Windows", none, TRUE)
+  runEnv("e2", ["cmd.exe", "/C", "cd"], "", none, FALSE)
+
+  ' replace: ONLY the map. PATH must be gone.
+  runEnv("e3", ["cmd.exe", "/C", "set"], "", one, TRUE)
+  ' replace with an EMPTY map: a block of two NULs, so the child sees nothing
+  ' of ours. cmd still injects its own PROMPT/COMSPEC-style variables, so the
+  ' assertion is that OUR probe is absent, not that `set` prints nothing.
+  runEnv("e4", ["cmd.exe", "/C", "set"], "", none, TRUE)
+
+  ' merge: the map wins, everything else is inherited.
+  runEnv("e5", ["cmd.exe", "/C", "set"], "", two, FALSE)
+  ' merge with a case-VARIANT key. Windows env names are case-insensitive, so a
+  ' byte-exact skip would hand the child both `Path` and `path`.
+  runEnv("e6", ["cmd.exe", "/C", "set"], "", pathish, FALSE)
 END SUB
 MFB
 
@@ -262,6 +299,30 @@ expect "a quote-leading line runs (the /S choice)" "sh7:quoted" \
 # would print `a b`, or nothing at all.
 expect "inner quotes reach cmd through the wrap" 'sh8:"a b"' \
   "the wrap quote and the inner quotes interfered"
+
+# --- plan-119-C: cwd + environment block.
+#
+# Every environment case asserts PRESENCE **and** ABSENCE. A block that is merely
+# plausible — right variables, wrong survivors — is the failure mode here, and
+# only the absence checks can see it.
+expect "an explicit cwd reaches the child" "e1:C:\\Windows" \
+  "lpCurrentDirectory did not take effect"
+expect "an empty cwd inherits the parent's" "e2:C:\\mfbproc" \
+  "an empty cwd string must mean inherit, not chdir-to-nothing"
+expect "replace mode delivers the map" "e3:MFBPROBE=one" "the replace block did not reach the child"
+reject "replace mode drops the inherited environment" "e3:PATH=" \
+  "envReplace=TRUE must hand the child ONLY the map — PATH survived"
+reject "an empty replace map delivers nothing of ours" "e4:MFBPROBE=" \
+  "an empty map must produce an empty block, not a stale or inherited one"
+expect "  ...and the child still runs" "e4:rc=0" "the two-NUL empty block was rejected by CreateProcess"
+expect "merge mode delivers the map (first key)" "e5:MFBPROBE=two" "a merged map entry is missing"
+expect "merge mode delivers the map (second key)" "e5:MFBOTHER=three" "the second map entry is missing"
+expect "merge mode keeps an inherited variable" "e5:SystemRoot=" \
+  "envReplace=FALSE must keep what it did not override"
+expect "a case-variant key overrides the inherited one" "e6:path=MFB-OVERRIDE" \
+  "the map key did not win"
+reject "  ...and the inherited spelling is NOT also present" "e6:Path=" \
+  "the override skip is byte-exact, so the child got BOTH Path and path"
 
 if [ "$fails" -eq 0 ]; then
   echo "windows process runtime tests passed"

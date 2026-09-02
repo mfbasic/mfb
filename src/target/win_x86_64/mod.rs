@@ -285,9 +285,11 @@ const RUNTIME_CALLS: &[&str] = &[
     "audio.closeOutput",
     // plan-90-D: the Windows process surface — lifecycle (CreateProcessA + 3 pipes),
     // I/O (WriteFile/ReadFile/PeekNamedPipe), signals & detach (TerminateProcess/
-    // CloseHandle). plan-119-B adds `shell` over `cmd.exe /S /C`; spawnEnv remains
-    // Unix-only for now.
+    // CloseHandle). plan-119-B adds `shell` over `cmd.exe /S /C`; plan-119-C adds
+    // the four-argument `spawn` (`process.spawnEnv`) over `CreateProcessA`'s
+    // `lpEnvironment`/`lpCurrentDirectory`.
     "process.spawn",
+    "process.spawnEnv",
     "process.shell",
     "process.pid",
     "process.isRunning",

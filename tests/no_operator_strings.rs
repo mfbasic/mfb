@@ -29,7 +29,7 @@
 //!   and 4 only. Two kinds of entry: the one genuine wire boundary
 //!   (`src/ir/link.rs`), and the places where an identifier named `op` denotes
 //!   something that is not a language operator at all — a `CodeOp` mnemonic, a
-//!   `vector::` member name, a `process::` operation label. The list is
+//!   `vector::` member name, an AudioUnit property label. The list is
 //!   asserted exactly (`operator_shaped_exemptions_are_closed`), so it cannot
 //!   grow quietly.
 //!
@@ -141,10 +141,6 @@ const OPERATOR_SHAPED_NON_OPERATORS: &[(&str, &str)] = &[
     (
         "src/codegen/builtins/vector/builder_vector_inline.rs",
         "a `vector::` member name (`add`/`dot`/…)",
-    ),
-    (
-        "src/codegen/builtins/process/gen_windows.rs",
-        "the name of the unsupported `process::` operation, for its message",
     ),
 ];
 
@@ -631,7 +627,10 @@ fn operator_shaped_exemptions_are_closed() {
             "src/codegen/builtins/audio/gen_macos_shared.rs",
             "src/codegen/builtins/collections/gen_mutate.rs",
             "src/codegen/builtins/vector/builder_vector_inline.rs",
-            "src/codegen/builtins/process/gen_windows.rs",
+            // `src/codegen/builtins/process/gen_windows.rs` was here for
+            // `unimplemented_on_windows(op)`. plan-119 implemented the last two
+            // Windows `process` members, that function has no callers left, and
+            // deleting it took the file's only `op` site with it.
         ],
         "the operator-shaped exemption list is closed. Adding an entry means \
          claiming the identifier is not a language operator — not that the site \

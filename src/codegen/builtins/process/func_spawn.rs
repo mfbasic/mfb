@@ -61,11 +61,24 @@ The empty argument list is rejected with `ErrInvalidArgument` — there is no pr
 to run.
 
 
-**The four-argument form is Unix-only.** A program that passes a working
-directory, an environment map, and the replace flag does not build for Windows:
-the compiler rejects it with `native backend does not support runtime call
-'process.spawnEnv'`. The one-argument form builds and runs on every supported
-platform."#;
+The four-argument form takes a working directory, an environment map, and a
+replace flag, and works on every supported platform — but the two systems reach
+the same result by different routes, and one detail is visible to a caller. Unix
+applies both in the child after the fork (`chdir`, then `unsetenv`/`setenv`);
+Windows builds a single environment block up front and hands it to the child,
+because that is what `CreateProcess` accepts.
+
+That makes the merge rule a real distinction. On Windows, environment names are
+case-insensitive, so a map key overrides an inherited variable that differs only
+in case: a map containing `path` replaces the inherited `Path`, and the child
+gets one entry, not two. The comparison folds ASCII letters only. On Unix names
+are case-sensitive, so `path` and `Path` are two different variables there.
+
+With `envReplace` TRUE the child gets **only** the map, on both systems — the
+inherited environment is not merged in and nothing is added back. On Windows a
+child that is itself `cmd.exe` will still show a few variables of its own making
+(`COMSPEC`, `PATHEXT`, `PROMPT`): those are synthesized by the shell after it
+starts, not inherited, and a non-shell child sees only what the map contained."#;
 const EX: &str = r#"Run a program and read its first line of output:
 
 ```
@@ -161,7 +174,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                     Parameter {
                         name: "env",
-                        desc: "(full form) Environment variables for the child, each key/value set with `setenv`.",
+                        desc: "(full form) Environment variables for the child. On Windows a name matches an inherited one case-insensitively, so a key here replaces an inherited variable that differs only in case.",
                         aliases: &[],
                         ty: ParameterType::map_of(ParameterType::String, ParameterType::String),
                         default: DefaultValue::None,
@@ -502,7 +515,89 @@ pub(crate) fn lower_process_spawn_helper_win(
     platform: &dyn CodegenPlatform,
 ) -> Result<ProcBodyParts, String> {
     if call == "process.spawnEnv" {
-        unimplemented_on_windows("spawn")
+        // plan-119-C: the four-argument overload. Unix applies the working
+        // directory and the environment IN the fork child (`chdir`, then
+        // `unsetenv`/`setenv` loops); `CreateProcessA` instead reads both as
+        // pointers before the child exists, so both are materialized here — one
+        // NUL-terminated path and one `name=value\0…\0\0` ANSI block — and the
+        // merge semantics are reproduced by *building* the block.
+        //
+        // Same shared frame and depth-1, no-vreg discipline as the one-argument
+        // arm below; `spawnEnv` just reaches further up it (`WIN_ENV_*`).
+        const FRAME: usize = 0x220; // covers WIN_ENV_SCRATCH_END, 16-aligned
+        const _: () = assert!(FRAME >= WIN_ENV_SCRATCH_END && FRAME % 16 == 0);
+        let sp = abi::stack_pointer();
+
+        let invalid = format!("{symbol}_invalid");
+        let alloc_fail = format!("{symbol}_alloc_fail");
+        let spawn_fail = format!("{symbol}_spawn_fail");
+        let done = format!("{symbol}_done");
+
+        let mut relocations = Vec::new();
+        // All four arguments are stashed BEFORE anything else runs: every helper
+        // call clobbers the argument bank, and writing one of these registers
+        // early destroys an argument that has not been read yet
+        // (`.ai/arch-abi.md`).
+        let mut instructions = vec![
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::return_register(), sp, WIN_CMD_LIST),
+            abi::store_u64(abi::mfb_arg(1), sp, WIN_ENV_CWDSTR),
+            abi::store_u64(abi::mfb_arg(2), sp, WIN_ENV_MAP),
+            abi::store_u64(abi::mfb_arg(3), sp, WIN_ENV_REPLACE),
+        ];
+        emit_win_build_cmdline(
+            symbol,
+            "argv",
+            &invalid,
+            &alloc_fail,
+            &mut instructions,
+            &mut relocations,
+        );
+        emit_win_build_cwd(symbol, &alloc_fail, &mut instructions, &mut relocations);
+        emit_win_build_env_block(
+            symbol,
+            &alloc_fail,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        emit_win_spawn_tail(
+            symbol,
+            &alloc_fail,
+            &spawn_fail,
+            &done,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::label(&spawn_fail));
+        emit_fail(
+            symbol,
+            "ErrSpawnFailed",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+        instructions.push(abi::label(&invalid));
+        emit_fail(
+            symbol,
+            "ErrInvalidArgument",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+        instructions.push(abi::label(&alloc_fail));
+        emit_fail(
+            symbol,
+            "ErrOutOfMemory",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+        instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
+        Ok((instructions, relocations, 0))
     } else {
         // The body is two shared pieces (plan-119-A): `emit_win_build_cmdline`
         // joins the argv list into one `lpCommandLine`, and `emit_win_spawn_tail`
