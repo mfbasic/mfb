@@ -122,6 +122,100 @@ References:
 - `bugs/completed/bug-177-net-tls-crypto-robustness-nits.md:38` — the prior audit that certified "no verification bypass exists" on either backend. This bug deliberately introduces one, opt-in; bug-177's finding must be re-stated, not silently invalidated.
 - Found while writing `examples/network-client` (the TLS attempt against `examples/network-server --tls` cannot succeed; the example's header comment documents the limitation and points at `--server-name`).
 
+## Phase 1 measurements (2026-09-01, this session)
+
+Every unknown this document flagged, answered by running it. Two of the three
+answers contradict the Fix Design above; both are corrected here, and the
+corrections are the reason the fix is safe.
+
+### 1. The OpenSSL design in the table above is UNSAFE — measured, not argued
+
+The doc's own hedge ("That is a claim, not a measurement") was right to hedge.
+**The claim is false.** `/tmp/b477-verify.c`, linked against OpenSSL 3.6.2 and
+run against `examples/network-server --tls certs/cert.pem` on :7413:
+
+```
+SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL); SSL_set1_host(ssl, name);
+  name = "localhost"      (matches)   -> handshake rc=1, SSL_get_verify_result=18
+  name = "wrong.example"  (MISMATCH)  -> handshake rc=1, SSL_get_verify_result=18
+```
+
+The two are **indistinguishable**. With a NULL callback the store's default
+`verify_cb` returns `ok` (0) on the first error, so `X509_verify_cert` stops
+inside `build_chain` and `check_id` — the hostname check — never runs. Accepting
+`{0, 18, 19, 20}` under `SSL_VERIFY_NONE` therefore accepts a **name-mismatched**
+certificate: exactly the silent MITM hazard this document forbids.
+
+`openssl s_client` is NOT a valid probe for this and initially suggested the
+opposite (it reports 62 for the same cert) — because `s_client` installs its own
+verify callback that returns 1, which is a different configuration from the one
+the emitter uses.
+
+**Corrected OpenSSL design — the doc's own stated fallback, now measured GOOD.**
+Keep `SSL_VERIFY_PEER` and pass a *callback* instead of NULL, which clears only
+the three trust-anchor errors and lets verification continue:
+
+```c
+if (preverify_ok) return 1;
+int err = X509_STORE_CTX_get_error(ctx);
+if (err == 18 || err == 19 || err == 20) { X509_STORE_CTX_set_error(ctx, 0); return 1; }
+return 0;   /* everything else still aborts the handshake */
+```
+
+`/tmp/b477-cb.c`, same library, four servers:
+
+| case | result |
+| --- | --- |
+| self-signed, name matches | rc=1, verify=0 — **ACCEPTED** |
+| self-signed, name mismatch | rc=-1, verify=62 — **REJECTED** |
+| cert `CN=wrong.example`, expect `localhost` | rc=-1, verify=62 — **REJECTED** |
+| self-signed, **expired** (notAfter 2020) | rc=-1, verify=10 — **REJECTED** |
+
+This is precisely the required semantics. It also has a property the
+`SSL_VERIFY_NONE` design lacks: because the callback resets the error to
+`X509_V_OK`, `SSL_get_verify_result` still returns **0** on the accept path, so
+the existing `gen_openssl.rs:661` comparison needs **no change at all**. The only
+edit is which value goes into `SSL_set_verify`'s third argument.
+
+### 2. `DefaultValue::Fill` with a Boolean: `expr` must be `"false"`, not `"FALSE"`
+
+The Fix Design's `expr: "FALSE"` **does not encode**. `default_argument_padding`
+hands the `Fill` pair to `ir/lower.rs` (~:3690) which builds
+`IrValue::Const { type_: Boolean, value: expr }`; that reaches
+`abi::move_immediate(dst, "Boolean", value)` and finally
+`src/arch/encode_operand.rs:42 immediate()`, whose Boolean vocabulary is exactly:
+
+```rust
+"true" => Ok(1), "false" => Ok(0), _ => value.parse::<u64>()
+```
+
+so `"FALSE"` is `invalid immediate 'FALSE'`. Lowercase is the canonical IR
+spelling everywhere (`HirExpression::Boolean(value) => value.to_string()` at
+`ir/lower.rs:3485`); `"TRUE"`/`"FALSE"` are only the *rendered display* forms
+produced by `static_primitive_text` (`builder_value_semantics.rs:1090`,
+`type_utils.rs:293`). **Resolved: `expr: "false"`.** No `Fill`-lowering change is
+needed; Boolean was already supported, only the doc's spelling was wrong.
+
+### 3. The bug-476 sequencing prerequisite is satisfied in substance
+
+bug-476 is NOT on main (checked: `git log --oneline main | grep bug-476` finds
+only this document's own commit). Its fix lives on the unlanded peer branch
+`worktree-B-476` (`eb64ebfce`). This bug proceeds anyway, because the specific
+hazard §Sequencing names does not exist:
+
+- The hazard was `tls::connect(addressReturningCall(), ...)` selecting the
+  host/port form and binding named arguments against the wrong layout.
+- bug-476's own commit message records the measurement: "`tcp::connect`'s
+  host/port-vs-`Address` shape is exercised but did NOT reproduce — a
+  record-returning call is spilled to a temporary before the selector runs, so it
+  already sees a `Local`". `tls::connect` reads the identical selector line
+  (`builder_values.rs:2285`), so the same spill protects it.
+
+So the `Address` form already selects correctly, and the new parameter binds
+against the right layout in both. This bug touches none of the files bug-476
+edits (`builder_values.rs`, `builder_value_semantics.rs`), so the two merge
+cleanly in either order.
+
 ## Failing Reproduction
 
 The two examples added alongside this bug are the reproduction. Terminal 1:
