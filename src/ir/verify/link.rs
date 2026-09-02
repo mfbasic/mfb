@@ -98,7 +98,7 @@ impl TypeEnv {
                     ),
                 );
             }
-            let fields: Vec<(String, String)> = cstruct
+            let fields: Vec<(String, ParameterType)> = cstruct
                 .fields
                 .iter()
                 .map(|f| (f.name.clone(), f.ctype.clone()))
@@ -181,38 +181,45 @@ impl TypeEnv {
         // package (`.mfp`) path a crafted `return_type: "CVoid"` SHOULD be rejected.
         // So they are kept separate on purpose; do not "unify" by dropping `CVoid`.
         fn is_c_abi_type(t: &ParameterType) -> bool {
-            // plan-111-B: every C ABI spelling is a nominal (none has a
-            // variant), so this is the same reject-list asked of the interned
-            // `Symbol` the `Named` already holds.
-            let ParameterType::Named(name) = t else {
-                return false;
-            };
+            use crate::types::CAbiType;
+            // plan-113: every C ABI spelling is now a `ParameterType::C`, so
+            // this asks the variant instead of the interned `Symbol` a `Named`
+            // used to hold.
+            //
+            // **13 of the 16, and must NOT become `t.c_abi().is_some()`.** It
+            // deliberately includes `CVoid` (see the block comment above) but
+            // excludes `CBool`, `CByte` and `CBuffer`; widening it changes what
+            // `NATIVE_CPTR_ESCAPE` rejects on the `.mfp` path.
             matches!(
-                name.resolve(),
-                "CPtr"
-                    | "CString"
-                    | "CInt8"
-                    | "CInt16"
-                    | "CInt32"
-                    | "CInt64"
-                    | "CUInt8"
-                    | "CUInt16"
-                    | "CUInt32"
-                    | "CUInt64"
-                    | "CFloat"
-                    | "CDouble"
-                    | "CVoid"
+                t.c_abi(),
+                Some(
+                    CAbiType::Ptr
+                        | CAbiType::Str
+                        | CAbiType::Int8
+                        | CAbiType::Int16
+                        | CAbiType::Int32
+                        | CAbiType::Int64
+                        | CAbiType::UInt8
+                        | CAbiType::UInt16
+                        | CAbiType::UInt32
+                        | CAbiType::UInt64
+                        | CAbiType::Float
+                        | CAbiType::Double
+                        | CAbiType::Void
+                )
             )
         }
         let spans = self.function_spans(function);
         let file = spans.file.as_str();
         let slot_line = |i: usize| spans.slots.get(i).copied().unwrap_or(0);
         let param_line = |i: usize| spans.params.get(i).copied().unwrap_or(0);
-        let is_cstruct_slot = |ctype: &str| {
+        // plan-113: a CSTRUCT-named slot stays a `Named` -- that namespace is
+        // open, unlike the closed 16 the `C` variant holds.
+        let is_cstruct_slot = |ctype: &ParameterType| {
             project
                 .link_cstructs
                 .iter()
-                .any(|c| c.alias == function.alias && c.name == ctype)
+                .any(|c| c.alias == function.alias && ctype.is_named(&c.name))
         };
 
         for (index, (pname, ptype)) in function.params.iter().enumerate() {
@@ -473,7 +480,7 @@ impl TypeEnv {
                 project
                     .link_cstructs
                     .iter()
-                    .find(|c| c.alias == function.alias && c.name == s.ctype)
+                    .find(|c| c.alias == function.alias && s.ctype.is_named(&c.name))
             });
             let writes_back = slot.is_some_and(|s| s.direction.writes_back());
             if slot.is_none() || cstruct.is_none() || !writes_back {
@@ -540,11 +547,11 @@ impl TypeEnv {
         let spans = self.function_spans(function);
         let file = spans.file.as_str();
         let slot_line = |i: usize| spans.slots.get(i).copied().unwrap_or(0);
-        let find_cstruct = |ctype: &str| {
+        let find_cstruct = |ctype: &ParameterType| {
             project
                 .link_cstructs
                 .iter()
-                .find(|c| c.alias == function.alias && c.name == ctype)
+                .find(|c| c.alias == function.alias && ctype.is_named(&c.name))
         };
 
         for (index, slot) in function.abi_slots.iter().enumerate() {
@@ -579,7 +586,7 @@ impl TypeEnv {
                 );
                 continue;
             };
-            let cfields: Vec<(String, String)> = decl
+            let cfields: Vec<(String, ParameterType)> = decl
                 .fields
                 .iter()
                 .map(|f| (f.name.clone(), f.ctype.clone()))
@@ -747,7 +754,7 @@ impl TypeEnv {
             slots: function
                 .abi_slots
                 .iter()
-                .map(|s| (s.name.as_str(), s.ctype.as_str(), s.direction))
+                .map(|s| (s.name.as_str(), &s.ctype, s.direction))
                 .collect(),
             buffers: function
                 .buffers
