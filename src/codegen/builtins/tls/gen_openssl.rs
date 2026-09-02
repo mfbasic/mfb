@@ -595,7 +595,13 @@ pub(crate) fn lower_tls_connect_openssl(
                 abi::store_u64(&v9, &v10, slot),
             ]);
         }
-        emit_data_address(symbol, &v10, TLS_VERIFY_CB, &mut instructions, &mut relocations);
+        emit_data_address(
+            symbol,
+            &v10,
+            TLS_VERIFY_CB,
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.push(abi::store_u64(&v10, abi::stack_pointer(), VCB));
         instructions.push(abi::label(&strict));
     }

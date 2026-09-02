@@ -764,7 +764,11 @@ pub(crate) fn lower_tls_listen_macos(
         // shared invoke to skip that step; leaving stack garbage here would have
         // it call a wild pointer.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_VBLOCK),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETVERIFYFN),
+        abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            CFGBLOCK + CFG_CAP_SETVERIFYFN,
+        ),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CFGBLOCK + CFG_CAP_QUEUE),
     ]);
     // cfg = *_nw_parameters_configure_protocol_default_configuration
