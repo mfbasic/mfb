@@ -429,7 +429,7 @@ arc at Phase 1's commit.
   `rt_canvas_golden` 8/8, `rt_canvas_font` 12/12, and `scripts/test-canvas-vulkan.sh`
   on box 2228 12/12 with `entries=24` at `worst=2 differing=0.7818%` — up from
   0.7797%, which is the round arc's antialiased cap edges rather than a no-op.
-Commit: —
+Commit: 32b983bdb
 
 ### Phase 4 — GPU parity, docs, and the gates
 
