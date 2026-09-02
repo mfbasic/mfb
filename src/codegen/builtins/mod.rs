@@ -539,6 +539,17 @@ pub(crate) fn argument_types_typed(callee: &str) -> Option<Vec<crate::types::Par
     crate::codegen::registry::argument_types_typed(callee)
 }
 
+/// The expected type of argument `index` when every overload of `callee` agrees on
+/// it (plan-120-D). Answers the position `argument_types_typed` declines for an
+/// overload set, so union wrapping survives a member gaining a second overload —
+/// see [`crate::codegen::registry::agreed_argument_type`] for why that matters.
+pub(crate) fn agreed_argument_type(
+    callee: &str,
+    index: usize,
+) -> Option<crate::types::ParameterType> {
+    crate::codegen::registry::agreed_argument_type(callee, index)
+}
+
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never

@@ -2913,6 +2913,45 @@ pub(crate) fn argument_types_typed(qualified: &str) -> Option<Vec<ParameterType>
     Some(params.iter().map(|param| param.ty.clone()).collect())
 }
 
+/// The expected type of argument `index` when EVERY overload agrees on it, for an
+/// overloaded member that [`argument_types_typed`] declines to answer for.
+///
+/// plan-120-D. `argument_types_typed` returns `None` for an overload set because
+/// the positions can disagree, and IR lowering uses it to decide per-argument
+/// expected types — **including union wrapping**. So the moment a member gains a
+/// second overload, a union-typed parameter stops being wrapped, and a call that
+/// passes a union MEMBER type silently lowers the bare record where the callee
+/// expects a tagged union. The symptom is not a diagnostic: it is wrong output.
+/// `json::stringify(json::JsonNull[NOTHING])` returned "" and
+/// `json::stringify(json::JsonStr["Ada"])` returned "null" — the tag read from the
+/// wrong place — the moment `stringify` gained its indent overloads.
+///
+/// The safe answer is the one no overload disputes: if every implementation that
+/// has a parameter at `index` declares the SAME type there, that type is the
+/// expected type whichever overload is eventually selected, so wrapping against it
+/// is correct without knowing the selection. Positions where the overloads differ
+/// (`stringify`'s `indent`, `Integer` vs `String`) return `None` exactly as before,
+/// leaving those to the existing selection path.
+pub(crate) fn agreed_argument_type(qualified: &str, index: usize) -> Option<ParameterType> {
+    let function = &registry().resolve_func(qualified)?.function;
+    if function.implementations.len() < 2 {
+        return None;
+    }
+    let mut agreed: Option<&ParameterType> = None;
+    for implementation in &function.implementations {
+        let param = implementation.params.get(index)?;
+        if contains_var(&param.ty) || matches!(param.ty, ParameterType::Arg(_)) {
+            return None;
+        }
+        match agreed {
+            None => agreed = Some(&param.ty),
+            Some(seen) if seen == &param.ty => {}
+            Some(_) => return None,
+        }
+    }
+    agreed.cloned()
+}
+
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     let function = &registry().resolve_func(qualified)?.function;
     // A hand-authored phrasing on the descriptor wins — the union/range/generic-`or`
@@ -5153,5 +5192,46 @@ mod tests {
             echoed.map(|type_| type_.name().into_owned()),
             Some("List OF RES fs.File".to_string())
         );
+    }
+
+    /// plan-120-D. `argument_types_typed` declines for an overload SET, and IR
+    /// lowering uses it to decide union wrapping — so without an answer for the
+    /// positions the overloads AGREE on, a member that gains a second overload
+    /// silently stops wrapping a union-typed argument. That failure has no
+    /// diagnostic: `json::stringify(json::JsonNull[NOTHING])` returned `""` and
+    /// `json::stringify(json::JsonStr["Ada"])` returned `"null"`, the tag read
+    /// from the wrong place.
+    ///
+    /// This pins both halves of the rule, so a future overload cannot quietly
+    /// reintroduce it: agreement answers, disagreement stays `None`.
+    #[test]
+    fn agreed_argument_type_answers_where_overloads_agree() {
+        // `json::stringify` is overloaded three ways and every one takes `Json`
+        // first — the position that must stay wrapped.
+        assert_eq!(
+            agreed_argument_type("json.stringify", 0).map(|t| t.name().into_owned()),
+            Some("json.Json".to_string()),
+            "position 0 is `Json` in all three overloads and must be answered"
+        );
+        // Position 1 is `Integer` in one overload and `String` in another, so
+        // there is no single expected type and the honest answer is `None`.
+        assert_eq!(
+            agreed_argument_type("json.stringify", 1),
+            None,
+            "position 1 disagrees (Integer vs String) and must NOT be guessed"
+        );
+        // Past every overload's parameter list.
+        assert_eq!(agreed_argument_type("json.stringify", 2), None);
+        // A single-implementation member is `argument_types_typed`'s job; this
+        // function deliberately declines so the two cannot both answer.
+        assert_eq!(agreed_argument_type("json.parse", 0), None);
+        // And it agrees with `argument_types_typed` about what position 0 IS,
+        // for a member where that function does answer.
+        assert_eq!(
+            argument_types_typed("json.parse").and_then(|p| p.first().cloned()),
+            Some(ParameterType::String)
+        );
+        // An unknown member is not an answer.
+        assert_eq!(agreed_argument_type("nope.missing", 0), None);
     }
 }

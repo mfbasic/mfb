@@ -23,6 +23,7 @@ mod helper_escape_string;
 mod helper_expect_literal;
 mod helper_expect_literal_at;
 mod helper_hex_digit;
+mod helper_indent_text;
 mod helper_is_digit;
 mod helper_is_high_surrogate;
 mod helper_is_low_surrogate;
@@ -41,6 +42,7 @@ mod helper_parse_unicode_escape;
 mod helper_parse_value;
 mod helper_require_finite_number_text;
 mod helper_skip_whitespace;
+mod helper_stringify_indent;
 mod helper_stringify_number;
 mod helper_to_number;
 mod helper_trim_float_text;
@@ -275,6 +277,10 @@ pub(crate) fn register(r: &mut Registry) {
     // plan-120-B. Appended rather than slotted next to the other predicates so
     // the helpers above keep the order the old `package.mfb` blob had.
     helper_array_index::register(&mut pkg);
+    // plan-120-D: the indented renderer and its two clamp helpers, appended for
+    // the same reason as `helper_array_index` above.
+    helper_stringify_indent::register(&mut pkg);
+    helper_indent_text::register(&mut pkg);
 
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);

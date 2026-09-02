@@ -4,7 +4,7 @@ $ mfb build -ast -ir tests/syntax/json/func_json_stringify_invalid
    4 |   LET missing AS String = json::stringify()
      | ^
 tests/syntax/json/func_json_stringify_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `json.stringify` has 0 argument(s), expected 1.
+               Call to `json.stringify` has 0 argument(s), expected 1 to 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS String = json::stringify()
@@ -16,7 +16,7 @@ tests/syntax/json/func_json_stringify_invalid/src/main.mfb:4 error[2-203-0043 TY
    5 |   LET wrongType AS String = json::stringify("x")
      | ^
 tests/syntax/json/func_json_stringify_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.stringify` has argument type(s) (String), expected json.Json.
+               Call to `json.stringify` has argument type(s) (String), expected Json or Json, Integer or Json, String.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = json::stringify()
    5 |   LET wrongType AS String = json::stringify("x")
@@ -27,8 +27,8 @@ tests/syntax/json/func_json_stringify_invalid/src/main.mfb:5 error[2-203-0043 TY
    5 |   LET wrongType AS String = json::stringify("x")
    6 |   LET tooMany AS String = json::stringify(json::JsonNull[NOTHING], json::JsonNull[NOTHING])
      | ^
-tests/syntax/json/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `json.stringify` has 2 argument(s), expected 1.
+tests/syntax/json/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `json.stringify` has argument type(s) (json.JsonNull, json.JsonNull), expected Json or Json, Integer or Json, String.
    4 |   LET missing AS String = json::stringify()
    5 |   LET wrongType AS String = json::stringify("x")
    6 |   LET tooMany AS String = json::stringify(json::JsonNull[NOTHING], json::JsonNull[NOTHING])

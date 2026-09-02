@@ -257,7 +257,7 @@ reorders and MFB deliberately does not.
 - `scripts/man-run-examples.sh json --run` → **14/14**, with `json::stringify`
   example 2 now printing `"a/b"` where it printed `"a\/b"`.
   `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
-Commit: —
+Commit: eba44c00e
 
 ## Validation Plan
 

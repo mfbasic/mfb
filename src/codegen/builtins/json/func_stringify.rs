@@ -10,11 +10,39 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Serialize a `json::Json` value as compact JSON text"#;
+const INTRO: &str = r#"Serialize a `json::Json` value as JSON text, compact or indented"#;
 
-const DESC: &str = r#"`json::stringify` serializes `value` into a single JSON document with no
-indentation, no line breaks, and no whitespace between tokens. Arrays and objects
-are serialized recursively, so one call renders a whole tree.
+const DESC: &str = r#"`json::stringify` serializes `value` into a single JSON document. Called with one
+argument it produces compact text: no indentation, no line breaks, and no
+whitespace between tokens. Arrays and objects are serialized recursively, so one
+call renders a whole tree.
+
+**Indented output.** Pass a second argument to spread the document over multiple
+lines — either a number of spaces to indent each level by, or the text to indent
+with:
+
+```
+json::stringify(doc, 2)     ' two spaces per level
+json::stringify(doc, "\t")  ' one tab per level
+```
+
+The layout is JavaScript's, exactly: one member per line, the indent repeated
+once per level, `": "` after each object key, and the closing bracket back at the
+parent's indentation. An empty array or object stays on one line as `[]` or `{}`
+even in this mode, at any depth. For the same tree, this produces the same bytes
+as `JSON.stringify(value, null, space)` does in Node.
+
+The second argument's limits are JavaScript's too. A count is clamped to 0
+through 10, and a text indent is truncated to its first 10 characters — a larger
+request is not an error, it simply stops growing. A count of `0` (or a negative
+one) and an empty text both mean "compact", producing exactly what the one-argument
+form produces, so a program can decide at run time whether to indent without
+branching:
+
+```
+LET pretty AS Integer = 2   ' or 0 to turn indenting off
+io::print(json::stringify(doc, pretty))
+```
 
 Each variant maps to its JSON form: `json::JsonNull` emits `null`; `json::JsonBool` emits
 `true` or `false`; `json::JsonStr` emits a double-quoted escaped string; `json::JsonArr`
@@ -115,6 +143,53 @@ SUB main
   LET items AS List OF json::Json = [json::JsonNum[1.0], json::JsonNum[2.5]]
   io::print(json::stringify(json::JsonArr[items]))
 END SUB
+```
+
+Indent by two spaces:
+
+```
+IMPORT json
+IMPORT io
+
+SUB main
+  LET doc AS json::Json = json::parse("{\"name\":\"Ada\",\"tags\":[\"x\",\"y\"]}")
+  io::print(json::stringify(doc, 2))
+END SUB
+```
+
+prints:
+
+```
+{
+  "name": "Ada",
+  "tags": [
+    "x",
+    "y"
+  ]
+}
+```
+
+Indent with a tab instead, and note that an empty container stays on one line:
+
+```
+IMPORT json
+IMPORT io
+
+SUB main
+  LET doc AS json::Json = json::parse("{\"a\":[],\"b\":{\"c\":1}}")
+  io::print(json::stringify(doc, "\t"))
+END SUB
+```
+
+prints:
+
+```
+{
+	"a": [],
+	"b": {
+		"c": 1
+	}
+}
 ```"#;
 
 #[rustfmt::skip]
@@ -165,32 +240,108 @@ r#"FUNC __json_stringify(value AS Json) AS String
   END MATCH
 END FUNC"#;
 
+/// plan-120-D: the `stringify(value, indent AS Integer)` overload. Clamps to
+/// JavaScript's 0..=10 and falls back to the compact body at 0, so the 1-arg
+/// output stays reachable through the 2-arg form without duplicating it.
+#[rustfmt::skip]
+const FUNC_BODY_COUNT: &str =
+r#"FUNC __json_stringifyCount(value AS Json, indent AS Integer) AS String
+  LET pad AS String = __json_indentFromCount(indent)
+  IF pad = "" THEN
+    RETURN __json_stringify(value)
+  END IF
+  RETURN __json_stringifyIndent(value, pad, 0)
+END FUNC"#;
+
+/// plan-120-D: the `stringify(value, indent AS String)` overload. Same shape as
+/// the Integer form; an empty indent (after clamping) means compact, which is
+/// what `JSON.stringify(v, null, "")` does.
+#[rustfmt::skip]
+const FUNC_BODY_TEXT: &str =
+r#"FUNC __json_stringifyText(value AS Json, indent AS String) AS String
+  LET pad AS String = __json_indentFromText(indent)
+  IF pad = "" THEN
+    RETURN __json_stringify(value)
+  END IF
+  RETURN __json_stringifyIndent(value, pad, 0)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "stringify",
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: None,
+        // plan-120-D: three overloads whose positional layouts differ, so the
+        // per-position render would only show the first. The `"or"`-joined
+        // string names all three forms (the net/audio overloaded idiom).
+        expected_arguments: Some("Json or Json, Integer or Json, String"),
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "value",
-                desc: "The value to serialize. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; arrays and objects are serialized recursively, so one call renders a whole tree.",
-                aliases: &[],
-                ty: ParameterType::named("Json"),
-                default: DefaultValue::None,
-            }],
-            return_type: ParameterType::String,
-            // plan-120-A: this was empty, so the page rendered no Errors section
-            // at all even though `stringify` has always been able to fail —
-            // `ErrInvalidFormat` when no fixed-point rendering round-trips (a
-            // Float too small to reach a significant digit in 25 places, e.g.
-            // 1e-30). The two non-finite codes are unreachable from ordinary
-            // MFBASIC (see the DESC) but are what the guard raises, and a
-            // handler matching on them should be able to find them documented.
-            errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
-            body: Body::mfb(FUNC_BODY, "__json_stringify"),
-        }],
+        implementations: vec![
+            // Compact form. Untouched by plan-120-D — the pretty overloads route
+            // back into this body when their indent clamps to empty, so there is
+            // exactly one compact renderer and it cannot drift from itself.
+            Implementation {
+                params: vec![value_param()],
+                return_type: ParameterType::String,
+                // plan-120-A: this was empty, so the page rendered no Errors section
+                // at all even though `stringify` has always been able to fail —
+                // `ErrInvalidFormat` when no fixed-point rendering round-trips (a
+                // Float too small to reach a significant digit in 25 places, e.g.
+                // 1e-30). The two non-finite codes are unreachable from ordinary
+                // MFBASIC (see the DESC) but are what the guard raises, and a
+                // handler matching on them should be able to find them documented.
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                body: Body::mfb(FUNC_BODY, "__json_stringify"),
+            },
+            // plan-120-D: indent by a number of spaces. Same arity as the String
+            // form below, distinguished by parameter TYPE — the `crypto::hash`
+            // pattern (`(Hash, List OF Byte)` vs `(Hash, String)`), not
+            // `datetime::parse`'s arity split. Each carries its own `Body::mfb`
+            // function name, so unlike two `AbiFunction` overloads they cannot
+            // collapse onto one helper symbol.
+            Implementation {
+                params: vec![
+                    value_param(),
+                    Parameter {
+                        name: "indent",
+                        desc: "How many spaces to indent each level by. Clamped to 0 through 10, as in JavaScript; 0 produces the compact form.",
+                        aliases: &["space"],
+                        ty: ParameterType::Integer,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::String,
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                body: Body::mfb(FUNC_BODY_COUNT, "__json_stringifyCount"),
+            },
+            // plan-120-D: indent by a literal string, e.g. a tab.
+            Implementation {
+                params: vec![
+                    value_param(),
+                    Parameter {
+                        name: "indent",
+                        desc: "The text to indent each level with, such as a tab. Truncated to its first 10 characters, as in JavaScript; an empty string produces the compact form.",
+                        aliases: &["space"],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::String,
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                body: Body::mfb(FUNC_BODY_TEXT, "__json_stringifyText"),
+            },
+        ],
     });
+}
+
+/// The `value` parameter, identical across all three overloads.
+fn value_param() -> Parameter {
+    Parameter {
+        name: "value",
+        desc: "The value to serialize. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; arrays and objects are serialized recursively, so one call renders a whole tree.",
+        aliases: &[],
+        ty: ParameterType::named("Json"),
+        default: DefaultValue::None,
+    }
 }
