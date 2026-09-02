@@ -213,6 +213,35 @@ all of them. They are generated Unicode category/script tables. The tail is
 flat and unremarkable, which is what says the problem is these three
 specifically and not a general per-function cost.
 
+**Resolved 2026-09-01 (plan-118-B).** All three are gone. They were the
+general-category and Script property tables emitted as generated MFBASIC — one
+flat `IF cp <= N THEN RETURN "Lu"` arm per run, 5,807 arms in total, with the
+category table compiled TWICE because `regex` and `strings` each embedded the
+same generated source under its own name (proven identical instruction-for-
+instruction, not just equal in count). They are now two read-only run tables in
+the emitted program, binary-searched by the internal native members
+`regex::genCat` / `regex::scriptOf` / `strings::genCat`. Over the same corpus:
+
+```
+                        before        after
+machine instructions  17,079,160   14,523,769     -2,555,391  (-15.0 %)
+NIR ops (recursive)       52,548       32,733
+largest lower_function  #regex_genCat 1,057,783  -> gone
+                        #strings_genCat 1,057,783 -> gone
+                        #regex_scriptOf  440,905  -> gone
+```
+
+The leaderboard's new top row is `__mfb_test_case_266` at 71,647 — i.e. the
+distribution is now the flat tail this section described, with no outlier. The
+query is also asymptotically better at runtime: 12 compares instead of up to
+4,099.
+
+They were NOT folded into the vendored utf8proc property trie, which already
+carries a general-category field: its UCD is newer than the pinned Unicode
+16.0.0 and disagrees on 4,804 scalars, and 19 of its deduplicated property rows
+are shared by scalars whose 16.0.0 categories differ, so the field could not
+represent the pinned answers at all. See plan-118-B's Corrections.
+
 ### 5.4 Register colouring is dominated by string comparison
 
 The `sample` capture of the debug run puts these at the top of self-time:
@@ -340,12 +369,12 @@ scoped or designed; each is a place the numbers say is worth opening.
    duplication is structural rather than incidental. Needs a decision about
    which seam owns the invariant, not new logic.
 
-7. **Look at `#regex_genCat` / `#strings_genCat` / `#regex_scriptOf`.** 3.4 s in
-   three functions. Generated Unicode tables emitted as code; if they can be
-   emitted as data objects instead, this row disappears and §5.1 improves with
-   it. *(Sized 2026-09-01: 2,556,471 machine instructions, **15.0 % of the whole
-   module** — the top three rows of the new `largest lower_function`
-   leaderboard. plan-118-B.)*
+7. ~~**Look at `#regex_genCat` / `#strings_genCat` / `#regex_scriptOf`.**~~
+   **DONE (plan-118-B, 2026-09-01).** They were 2,556,471 machine instructions,
+   15.0 % of the whole module, and the top three rows of the `largest
+   lower_function` leaderboard. Re-emitted as read-only run tables with a native
+   binary search: module down to 14,523,769 instructions and all three rows
+   gone. See §5.3.
 
 8. **Type the register operands.** §5.4 — deciding register identity by walking
    x86 and RISC-V name tables with `str::eq`, on an AArch64 host, is the leaf

@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """Generate src/codegen/string/unicode/unicode_gencat_ranges.txt — the pinned
-Unicode general-category table as DATA, for the native rodata lookup that
-replaces the generated `__regex_genCat` / `__strings_genCat` IF-chains
-(plan-118-B).
+Unicode general-category table, read as rodata by `regex::genCat` /
+`strings::genCat` (plan-118-B).
 
-Same runs, same pinned Unicode version, same interpreter requirement as
-`gen_regex_unicode.py` — this script imports that generator's `runs()` rather
-than recomputing the categories, so the two artifacts cannot disagree about a
-scalar. The artifact is pinned to **Unicode 16.0.0**, i.e. **Python 3.14.x**;
-`scripts/check-generated.sh` reproduces it there.
+Replaces `gen_regex_unicode.py`, which emitted the same runs as one flat
+MFBASIC IF-chain function per package -- 4,099 `IF cp <= N THEN RETURN "Lu"`
+arms, compiled into every program at 1,057,783 machine instructions per copy,
+and a linear scan of up to 4,099 compares per query.
+
+The general categories come from the running interpreter's bundled
+`unicodedata`, whose Unicode version is tied to the Python *minor* version
+(3.12 -> 15.0.0, 3.13 -> 15.1.0, 3.14 -> 16.0.0). So this script's output -- and
+the `Pinned Unicode version` header it records -- is only reproducible under the
+same Python that produced the checked-in artifact. The artifact is pinned to
+**Unicode 16.0.0**, i.e. **Python 3.14.x**; `scripts/check-generated.sh` (and CI,
+which pins `actions/setup-python` to 3.14) reproduce it there. Regenerate under
+Python 3.14 after a Unicode bump -- a different interpreter silently drifts the
+table:
 
     python3.14 scripts/gen_unicode_gencat_table.py > src/codegen/string/unicode/unicode_gencat_ranges.txt
 
@@ -20,14 +28,32 @@ Worse, 19 of its 8,385 deduplicated property rows are shared by scalars whose
 16.0.0 categories differ, so a category field packed into that record cannot
 even represent these answers. The trie's row identity is utf8proc's, not ours.
 """
-import os
 import sys
+import unicodedata
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+MAX = 0x110000
 
-import unicodedata  # noqa: E402
 
-from gen_regex_unicode import runs  # noqa: E402
+def gc(cp):
+    # Surrogates have no chr(); Unicode assigns them general category Cs.
+    if 0xD800 <= cp <= 0xDFFF:
+        return "Cs"
+    return unicodedata.category(chr(cp))
+
+
+def runs():
+    """The contiguous (lo, hi, category) runs covering 0 .. 0x10FFFF."""
+    out = []
+    start = 0
+    cur = gc(0)
+    for cp in range(1, MAX):
+        g = gc(cp)
+        if g != cur:
+            out.append((start, cp - 1, cur))
+            start = cp
+            cur = g
+    out.append((start, MAX - 1, cur))
+    return out
 
 
 def main():
@@ -38,11 +64,10 @@ def main():
     out.append("# GENERATED FILE — do not edit by hand.")
     out.append("# Source: scripts/gen_unicode_gencat_table.py")
     out.append(f"# Pinned Unicode version: {unicodedata.unidata_version}")
-    out.append("# The same runs as unicode_gencat.mfb, as data: one line per run,")
-    out.append("# `<last codepoint of the run, decimal> <two-letter category>`, in")
-    out.append("# ascending order, contiguous, covering 0 .. 0x10FFFF (Cs = surrogate,")
-    out.append("# Cn = unassigned). A lookup binary-searches for the first line whose")
-    out.append("# codepoint is >= the query.")
+    out.append("# One line per run, ascending and contiguous over 0 .. 0x10FFFF:")
+    out.append("# `<last codepoint of the run, decimal> <two-letter category>`")
+    out.append("# (Cs = surrogate, Cn = unassigned). A lookup binary-searches for the")
+    out.append("# first line whose codepoint is >= the query.")
     out.append(f"# categories: {' '.join(categories)}")
     for _lo, hi, category in table:
         out.append(f"{hi} {category}")

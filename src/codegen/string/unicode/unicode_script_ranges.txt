@@ -2,11 +2,10 @@
 # Source: scripts/gen_unicode_script_table.py
 # Pinned Unicode version: 16.0.0
 # Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).
-# The same runs as unicode_script_of.mfb, as data: one line per run,
-# `<last codepoint of the run, decimal> <canonical script name>`, in
-# ascending order, contiguous, covering 0 .. 0x10FFFF (Unknown = no
-# script). A lookup binary-searches for the first line whose codepoint
-# is >= the query.
+# One line per run, ascending and contiguous over 0 .. 0x10FFFF:
+# `<last codepoint of the run, decimal> <canonical script name>`
+# (Unknown = no script). A lookup binary-searches for the first line
+# whose codepoint is >= the query.
 # scripts: 171
 64 Common
 90 Latin

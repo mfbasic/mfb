@@ -3,13 +3,18 @@
 The `regex` package is a pure-MFBASIC regular-expression engine: a recursive-descent
 parser builds an AST of `__regex_Node` values, and a continuation-passing backtracking
 matcher walks that AST in leftmost-first (greedy-by-default) preference order. The
-Unicode general-category table is a generated companion file; the rest of the engine is
-hand-written MFBASIC. All matching is over Unicode scalar values.[[src/codegen/builtins/regex/mod.rs:__regex_Node]]
+engine is hand-written MFBASIC; the Unicode general-category and Script tables are
+pinned generated data the compiler reads natively. All matching is over Unicode scalar
+values.[[src/codegen/builtins/regex/mod.rs:__regex_Node]]
 
-The package ships as two physical files that compile as one source unit: the engine
-(`regex_package.mfb`) and the generated general-category table (`unicode_gencat.mfb`,
-pinned to Unicode 16.0.0). They must be intra-file because `__regex_genCat` is a
-file-local `FUNC` and package visibility is not valid in an executable.[[src/codegen/builtins/regex/mod.rs:source_file]]
+The scalar-keyed Unicode properties are **data, not code**: `regex::genCat` and
+`regex::scriptOf` are internal native members that binary-search a read-only run table
+emitted with the program (`unicode_gencat_ranges.txt`, `unicode_script_ranges.txt`, both
+pinned to Unicode 16.0.0), so a category or script query costs `O(log runs)` and adds
+nothing to the compiled program beyond the table. One generated companion file remains
+intra-file with the engine — `unicode_script_names.mfb`, the canonical spelling of each
+script name, which is looked up once per pattern compile rather than per
+scalar.[[src/codegen/builtins/regex/mod.rs:source_file]]
 
 ## Public Surface
 
@@ -206,14 +211,16 @@ implement, so those POSIX classes effectively never match a scalar.[[src/codegen
 - Binary properties `White_Space` (alias `whitespace`) and `Alphabetic` (alias `alpha`).
 - Any Unicode Script name (all 170 of Unicode 16.0.0 — `Latin`, `Greek`, `Han`,
   `Armenian`, `Thai`, `Devanagari`, …), matched against the scalar's Script
-  property. `__regex_scriptTest(name, cp)` returns `__regex_scriptOf(cp) = name`.[[src/codegen/builtins/regex/helper_script_test.rs:__regex_scriptTest]]
+  property. `__regex_scriptTest(name, cp)` returns `regex::scriptOf(cp) = name`.[[src/codegen/builtins/regex/helper_script_test.rs:__regex_scriptTest]]
 - `key=value` form with `gc`/`general_category` or `sc`/`script` keys.
 
-Unknown property names are parse errors. The general-category lookup `__regex_genCat`
-maps each scalar to its two-letter category via contiguous ranges over `0..0x10FFFF`,
-generated from Unicode 16.0.0.[[src/codegen/string/unicode/unicode_gencat.mfb:__regex_genCat]] The
-Script lookup `__regex_scriptOf` is the analogous run-length table, generated from the
-vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/string/unicode/unicode_script_of.mfb:__regex_scriptOf]]
+Unknown property names are parse errors. The general-category lookup `regex::genCat`
+maps each scalar to its two-letter category through contiguous runs over `0..0x10FFFF`,
+generated from Unicode 16.0.0.[[src/codegen/string/unicode/unicode_gencat_ranges.txt]] The
+Script lookup `regex::scriptOf` is the analogous run table, generated from the vendored
+UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/string/unicode/unicode_script_ranges.txt]]
+Both are read from the emitted program's read-only data by a binary search over the
+runs.[[src/codegen/string/unicode_props.rs:emit_unicode_range_lookup]]
 
 ## Flags
 

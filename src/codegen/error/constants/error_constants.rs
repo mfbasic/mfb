@@ -1060,6 +1060,15 @@ pub(crate) const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowerc
 pub(crate) const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
 pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
 
+// plan-118-B: the pinned general-category / Script run tables, read as data
+// instead of compiled as 5,807 arms of generated MFBASIC. Two objects per
+// property: the runs, and the property values as `mfb.string.v1` records the
+// lookup can return a pointer into.
+pub(crate) const UNICODE_GENCAT_RANGES_SYMBOL: &str = "_mfb_unicode_gencat_ranges";
+pub(crate) const UNICODE_GENCAT_NAMES_SYMBOL: &str = "_mfb_unicode_gencat_names";
+pub(crate) const UNICODE_SCRIPT_RANGES_SYMBOL: &str = "_mfb_unicode_script_ranges";
+pub(crate) const UNICODE_SCRIPT_NAMES_SYMBOL: &str = "_mfb_unicode_script_names";
+
 // ===========================================================================
 // Threads
 // ===========================================================================

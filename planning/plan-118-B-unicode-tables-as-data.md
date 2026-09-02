@@ -212,18 +212,44 @@ changed in this phase (`git diff --stat HEAD -- '*.rs'` empty), so nothing
 consumes the new data yet.
 Commit: e8bd233c3
 
-### Phase 2 — genCat through the trie
+### Phase 2 — genCat through its own range table
 
-- [ ] `runtime_tables.rs`: pack the category index into flags bits 7–11;
+Phases 2 and 3 landed together: after Correction 1 both halves use one
+mechanism, one data-object seam, one golden regeneration, and the script half
+also forces the `unicode_script_of.mfb` split (Correction 2). Splitting the
+commit would have left the tree with two lookup styles for one property pair.
+
+- [x] ~~`runtime_tables.rs`: pack the category index into flags bits 7–11;
       update `encode_le`/decode + the hex-blob generator; add a
-      `category()` accessor; extend the pinned-property unit tests.
-- [ ] Emit the 30-entry category string table as data objects; add the native
-      lookup emission (mirror `emit_unicode_property_lookup`).
-- [ ] Re-point every `__regex_genCat`/`__strings_genCat` call site at the
+      `category()` accessor; extend the pinned-property unit tests.~~ — **moot:
+      impossible, measured.** utf8proc's categories disagree with pinned Unicode
+      16.0.0 on 4,804 scalars, and 19 of its 8,385 deduplicated property rows are
+      shared by scalars whose 16.0.0 categories differ, so no per-row field can
+      hold the answers (Corrections 1). Replaced by `src/unicode/range_tables.rs`,
+      which reads our own generated runs and touches no existing consumer.
+- [x] Emit the 30-entry category string table as data objects; add the native
+      lookup emission (mirror `emit_unicode_property_lookup`). —
+      `_mfb_unicode_gencat_ranges` (4,099 × `(u32 end, u32 index)`) and
+      `_mfb_unicode_gencat_names` (30 × 16-byte `mfb.string.v1` records);
+      `CodeBuilder::emit_unicode_range_lookup` is the 12-step bisection.
+- [x] Re-point every `__regex_genCat`/`__strings_genCat` call site at the
       native lookup; delete the IF-chain from both packages' injected sources;
       delete `unicode_gencat.mfb` and its generator arm once nothing embeds it.
-- [ ] Regenerate churned goldens (`sync-goldens.sh`, `regen-ncodesum.sh`);
+      — 9 sites; `unicode_gencat.mfb` and `scripts/gen_regex_unicode.py` deleted
+      (its `gc()`/`runs()` moved into `gen_unicode_gencat_table.py`).
+- [x] Regenerate churned goldens (`sync-goldens.sh`, `regen-ncodesum.sh`);
       prove the `.ncodesum` delta is confined to regex/strings-using fixtures.
+- [x] Added: classify the lookups' result as a **rodata String** in
+      `value_needs_owning_copy`. Without it `LET cat AS String = regex::genCat(cp)`
+      binds the local straight to the rodata pointer and scope-drop `arena_free`s
+      a read-only constant — reproduced as SIGBUS (exit 138) on `\d`. Same class
+      the `typeName`-fold comment beside it warns about.
+- [x] Added: strengthen the two shape assertions this change extends rather than
+      re-baselining them — `regex_registered_on_the_clean_room_registry` now
+      asserts the public/internal split BY NAME (so publishing `genCat` by
+      accident fails), and `unicode_runtime_data_objects_emit_only_referenced_tables`
+      adds the four new symbols to its leak check (46 KB a grapheme walk must not
+      carry) as well as its count.
 
 Acceptance: full `cargo test --no-fail-fast` green (regex + strings suites in
 particular); `scripts/test-accept.sh` full-count green; `-vv` over
@@ -231,23 +257,61 @@ particular); `scripts/test-accept.sh` full-count green; `-vv` over
 machine instructions down ≥ 2.0 M; pinned category answers spot-checked against
 Python 3.14 `unicodedata` for a sampled scalar set (add a unit test doing this
 against the vendored table, not live Python).
+
+MET, and the pinned-answer check is **exhaustive rather than sampled**: while
+the IF-chains still existed, `range_tables` was checked against their parsed
+arms for all 1,114,112 scalars of both tables and matched everywhere. That form
+died with its fixture; what stays is
+`binary_search_matches_a_linear_scan_for_every_scalar` (two algorithms, one
+dataset, all 1.1 M scalars — the bisection off-by-one class), with
+`scripts/check-generated.sh` owning the "are the runs really Unicode 16.0.0"
+half by regenerating both artifacts from `unicodedata` / the vendored UCD.
 Commit: —
 
 ### Phase 3 — scriptOf as a range table
 
-- [ ] Emit the script range table + string table as data objects; synthesize
+- [x] Emit the script range table + string table as data objects; ~~synthesize
       `runtime.unicode_script_of` via the `RuntimeHelper` mechanism
-      (spec + builder arm, mirroring `runtime.mapProbe`).
-- [ ] Re-point `__regex_scriptOf` call sites; delete the IF-chain and
-      `unicode_script_of.mfb`.
-- [ ] Regenerate churned goldens as in Phase 2.
-- [ ] Doc sync: `mfb spec stdlib regex` (pinned-table wording), the generator
+      (spec + builder arm, mirroring `runtime.mapProbe`)~~ — corrected to an
+      `internal_only` registry member with an `abi_inline` body (Corrections 3):
+      a `runtime.*` function is only reachable from a native lowering seam, and
+      these lookups are called from MFBASIC companion source.
+- [x] Re-point `__regex_scriptOf` call sites; delete the IF-chain and
+      ~~`unicode_script_of.mfb`~~ — shrink it: the file also holds
+      `__regex_scriptCanonName`, which stays (Corrections 2). Renamed to
+      `unicode_script_names.mfb`; `gen_regex_scripts.py` emits that now and
+      exposes `runs()` for the data generator.
+- [x] Regenerate churned goldens as in Phase 2.
+- [x] Doc sync: `mfb spec stdlib regex` (pinned-table wording), the generator
       README headers, and `planning/speed.md` §5.3 (append: resolved by this
       letter, with the new numbers).
 
 Acceptance: as Phase 2 plus `#regex_scriptOf` gone; total module instructions
 over `tests/acceptance` down ≥ 2.4 M vs the plan-118-A baseline; a regex
 `\p{Script}` rt fixture still passes.
+
+MET. `cd tests/acceptance && ../../target/release/mfb test -vv`:
+
+```
+                        plan-118-A      this letter
+machine instructions    17,079,160      14,523,769    -2,555,391
+NIR ops (recursive)         52,548          32,733
+largest lower_function  #regex_genCat   __mfb_test_case_266
+                          1,057,783           71,647
+                        #strings_genCat
+                          1,057,783   -> gone
+                        #regex_scriptOf
+                            440,905   -> gone
+```
+
+Tests: 732 pass / 0 fail. `scripts/test-accept.sh`: **1346 test(s) ran**, passed
+(`rt-behavior/regex/regex-posix-classes-rt` and `regex-from-string-rt` among
+them). `cargo test --no-fail-fast`: 89 suites green + the 2 shape assertions
+above, both strengthened and passing. `scripts/artifact-gate.sh all`: 1823
+goldens, **0 diffs** after regeneration; `regen-ncodesum.sh` refreshed 132 and
+exactly **10** differed — the five per-target sums of `byte-identity/regex` and
+`byte-identity/strings`, nothing else. `scripts/check-generated.sh`: all four
+artifacts reproduce.
 Commit: —
 
 ## Validation Plan
@@ -261,6 +325,18 @@ Commit: —
 - Runtime proof: a regex benchmark from `benchmark/` (or a small script doing
   10^6 `genCat` queries) — expected FASTER (linear chain → table lookup);
   record before/after.
+
+  **Measured** (`/tmp/p118bench`, 600 k non-ASCII `strings::isLetter`/`isUpper`/
+  `isDigit` queries past the `cp < 128` fast path, so every one reaches the
+  table; identical output `hits=200000` from both binaries):
+
+  | | before (main `00dbc5102`) | after |
+  |---|---|---|
+  | runtime, best of 3 | 2.90 s | **0.04 s** (~73x) |
+  | compile `tests/byte-identity/regex`, best of 2 | 6.60 s | **1.75 s** (~3.8x) |
+
+  Both directions of the win, and the runtime one is the asymptotic change: up
+  to 4,099 compares per query becomes 12.
 - Doc sync: as Phase 3.
 - Acceptance: full `cargo test --no-fail-fast`, `scripts/test-accept.sh`,
   `scripts/artifact-gate.sh all` with regenerated goldens, both-root fmt,
@@ -268,16 +344,29 @@ Commit: —
 
 ## Open Decisions
 
-- **Where the native lookup lives** — an `abi_inline` registry body on the
-  regex/strings members vs a synthesized `runtime.*` function each call site
-  `bl`s to. Recommended: `runtime.*` function (one copy; call sites shrink to
-  a call), consistent with this family's direction; `abi_inline` re-inlines
-  per site, which is the disease this family treats.
-- **String returns** — return the interned static 2-char string (rodata
-  pointer, zero alloc) vs allocate per call as today. Recommended: static
-  (callers compare/consume immediately; verify no caller frees it — the
-  "standalone String temps are never freed" rule at
-  `builder_values.rs:register_pending_temp` already exempts bare Strings).
+- ~~**Where the native lookup lives**~~ — **DECIDED: `abi_inline` on
+  `internal_only` registry members**, not a synthesized `runtime.*` function.
+  The recommendation was the other way, on the grounds that `abi_inline`
+  re-inlines per site. Two facts overrode it:
+  1. A `runtime.*` function is reachable only from a native lowering seam
+     (`NirValue::RuntimeCall`). These lookups are called from **MFBASIC
+     companion source**, which cannot name one. The seam that source CAN name
+     is a registry member, and `internal_only: true` keeps it unreachable from
+     user code — the pattern `astrings::scalarLen` already establishes.
+  2. The re-inlining objection does not bite here: there are **9 call sites in
+     total** and the lookup is ~22 instructions, so all the inlining together
+     is ~200 instructions against the 2,556,471 removed. `abi_function` would
+     have bought ~180 instructions in exchange for the runtime-call catalog,
+     the per-target `SUPPORTED_RUNTIME_CALLS` gates and the symbol-routing seam.
+- ~~**String returns**~~ — **DECIDED: static**, the rodata pointer, zero alloc.
+  The verification the decision asked for found the opposite of what it
+  expected: the `register_pending_temp` exemption covers a bare *temp*, but a
+  `LET cat AS String = regex::genCat(cp)` binds an **owned slot**, and scope-drop
+  `arena_free`d the read-only constant — SIGBUS on `\d`, reproduced before the
+  fix. Resolved by classifying these calls in `value_needs_owning_copy`, which
+  deep-copies at an owning store (as a string literal already does) and leaves
+  bare temps unfreed. 7 of the 9 sites are bare temps and allocate nothing; the
+  2 that bind a local allocate exactly what the old IF-chain allocated anyway.
 
 ## Corrections
 
@@ -316,7 +405,35 @@ Commit: —
    1719–1891, 171 arms mapping a lowercased script name to its canonical
    spelling). The second is small, is not a per-scalar lookup, and has no
    reason to move. Phase 3 shrinks the file to that function rather than
-   deleting it.
+   deleting it. It is renamed `unicode_script_names.mfb` to say what it now is.
+
+3. **A `runtime.*` synthesized function cannot serve these lookups.** §3 piece 2
+   and the Open Decisions both prescribed one ("`runtime.unicode_script_of`,
+   synthesized once per module via the existing `RuntimeHelper` mechanism —
+   precedent: `runtime.mapProbe`"). A `runtime.*` function is reachable only
+   through `NirValue::RuntimeCall`, which a native lowering seam emits; these
+   lookups are called from **MFBASIC companion source**, which has no way to
+   name one. The seam that source can name is a registry member, so they are
+   `internal_only` members with `abi_inline` bodies — the `astrings::scalarLen`
+   pattern. See the Open Decisions for why the per-site inlining objection does
+   not bite at 9 call sites.
+
+4. **Returning a rodata pointer needs an ownership classification, and the
+   plan's stated reason it was safe was wrong.** The Open Decision said the
+   "standalone String temps are never freed" rule already exempts bare Strings.
+   It exempts a bare *temp*; a `LET cat AS String = regex::genCat(cp)` binds an
+   **owned slot**, whose scope-drop `arena_free`d the read-only constant.
+   Reproduced as SIGBUS (exit 138) on `regex::match("5", "\\d")` before the fix.
+   Fixed by a `call_returns_rodata_string` arm in `value_needs_owning_copy`,
+   which is the same classification a string literal gets: deep-copy at an
+   owning store, no free of a bare temp. The `typeName`-fold comment a few lines
+   away in `builder_value_semantics.rs` documents this exact crash class.
+
+5. **Phases 2 and 3 landed in one commit.** After Correction 1 the two halves
+   share one mechanism, one data-object seam, one golden regeneration and the
+   `unicode_script_of.mfb` split; landing them apart would have left the tree
+   with two lookup styles for one property pair. Both phases' acceptance
+   criteria are recorded and met separately.
 
 ## Summary
 

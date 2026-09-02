@@ -94,21 +94,21 @@ Build fixture programs, run them, and diff their behavior against goldens.
 
 ## Generated sources
 
-- **gen_regex_unicode.py** — Generates
-  `src/codegen/string/unicode/unicode_gencat.mfb`, the pinned Unicode
-  general-category table the regex package resolves through. Output is tied to
-  the interpreter's Unicode version, so regenerate only under Python 3.14
-  (Unicode 16.0.0).
+- **gen_unicode_gencat_table.py** — Generates
+  `src/codegen/string/unicode/unicode_gencat_ranges.txt`, the pinned Unicode
+  general-category runs that `regex::genCat` / `strings::genCat` binary-search in
+  the emitted program's read-only data. Output is tied to the interpreter's
+  Unicode version, so regenerate only under Python 3.14 (Unicode 16.0.0).
+- **gen_unicode_script_table.py** — Generates
+  `src/codegen/string/unicode/unicode_script_ranges.txt`, the same shape for the
+  Script property behind `\p{Script=…}`. Imports `gen_regex_scripts.runs()`
+  rather than re-reading the UCD, so the script run table and the script name
+  table cannot disagree about a scalar.
 - **gen_regex_scripts.py** — Generates
-  `src/codegen/string/unicode/unicode_script_of.mfb`, the Unicode Script property
-  table behind `\p{Script=…}`, from the vendored
-  `third_party/unicode/Scripts-16.0.0.txt` (never the interpreter's tables, so
-  any Python 3 reproduces it).
-- **gen_unicode_gencat_table.py** / **gen_unicode_script_table.py** — The same two
-  run tables as DATA (`unicode_gencat_ranges.txt`, `unicode_script_ranges.txt`),
-  for the native rodata lookup that replaces the generated IF-chains
-  (plan-118-B). Each imports its `.mfb` generator's `runs()` instead of
-  recomputing, so the code and data forms cannot disagree about a scalar.
+  `src/codegen/string/unicode/unicode_script_names.mfb`, the canonical spelling of
+  each script name (looked up once per pattern compile, by name), from the
+  vendored `third_party/unicode/Scripts-16.0.0.txt` — never the interpreter's
+  tables, so any Python 3 reproduces it.
 - **gen_vector_package.py** — Generates `src/builtins/vector_package.mfb`: the
   nine vector records and ~170 overloaded geometry/utility functions, keeping the
   per-(element-type, dimension) patterns and evaluation order uniform.

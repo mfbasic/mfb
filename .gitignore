@@ -59,3 +59,7 @@ examples/**/*.lock
 # fixtures; the drift sentinel that IS tracked is the 65-byte .ncodesum.
 *.ncode
 !**/golden/*.ncode
+
+# plan-118-B: `gen_unicode_script_table.py` imports `gen_regex_scripts` for its
+# runs, so running a generator (or `check-generated.sh`) byte-compiles it here.
+__pycache__/

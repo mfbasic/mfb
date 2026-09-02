@@ -234,7 +234,28 @@ impl CodeBuilder<'_> {
     pub(crate) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
         Self::value_is_aliasing_source(value)
             || self.static_string_value(value).is_some()
+            || Self::call_returns_rodata_string(value)
             || self.call_returns_param_borrow(value)
+    }
+
+    /// plan-118-B: whether `value` is a call to one of the internal Unicode
+    /// property lookups, whose result is a pointer INTO A RODATA name table
+    /// rather than a fresh arena block.
+    ///
+    /// `static_string_value` cannot see these: it classifies by knowing the
+    /// string at compile time, and the category of a runtime scalar is only
+    /// known at runtime. But the ownership consequence is identical to a string
+    /// literal's — an owning store must deep-copy, and a bare temp must not be
+    /// freed — and getting it wrong is the same crash a `typeName` fold mismatch
+    /// causes a few lines below: scope-drop `arena_free`s a read-only constant,
+    /// which writes the free list into rodata and takes SIGBUS. Observed exactly
+    /// that on `LET cat AS String = regex::genCat(cp)` before this arm existed.
+    fn call_returns_rodata_string(value: &NirValue) -> bool {
+        matches!(
+            value,
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. }
+                if matches!(target.as_str(), "regex.genCat" | "regex.scriptOf" | "strings.genCat")
+        )
     }
 
     /// plan-86 K1: whether `value` is a call to a user function that returns a borrow

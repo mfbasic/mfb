@@ -4,7 +4,7 @@ Unicode Script property as DATA, for the native rodata lookup that replaces the
 generated `__regex_scriptOf` IF-chain (plan-118-B).
 
 Imports `gen_regex_scripts.runs()` rather than re-reading the UCD, so this
-artifact and `unicode_script_of.mfb` cannot disagree about a scalar. The data is
+artifact and the script NAME table cannot disagree about a scalar. The data is
 the vendored `third_party/unicode/Scripts-16.0.0.txt`, never the network or the
 interpreter's tables, so the output is reproducible under any Python 3 —
 `scripts/check-generated.sh` verifies it the same way it verifies the .mfb.
@@ -30,11 +30,10 @@ def main():
     out.append("# Source: scripts/gen_unicode_script_table.py")
     out.append(f"# Pinned Unicode version: {version}")
     out.append("# Data: third_party/unicode/Scripts-16.0.0.txt (UCD Script property).")
-    out.append("# The same runs as unicode_script_of.mfb, as data: one line per run,")
-    out.append("# `<last codepoint of the run, decimal> <canonical script name>`, in")
-    out.append("# ascending order, contiguous, covering 0 .. 0x10FFFF (Unknown = no")
-    out.append("# script). A lookup binary-searches for the first line whose codepoint")
-    out.append("# is >= the query.")
+    out.append("# One line per run, ascending and contiguous over 0 .. 0x10FFFF:")
+    out.append("# `<last codepoint of the run, decimal> <canonical script name>`")
+    out.append("# (Unknown = no script). A lookup binary-searches for the first line")
+    out.append("# whose codepoint is >= the query.")
     out.append(f"# scripts: {len(every)}")
     for _lo, hi, name in table:
         out.append(f"{hi} {name}")

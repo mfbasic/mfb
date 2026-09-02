@@ -10,7 +10,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' Property test against a canonical property name (see __regex_canonProp).
 FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
-  LET cat AS String = __regex_genCat(cp)
+  LET cat AS String = regex::genCat(cp)
   IF name = "L" THEN
     RETURN strings::startsWith(cat, "L")
   END IF

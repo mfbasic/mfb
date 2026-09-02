@@ -1,11 +1,10 @@
 # GENERATED FILE — do not edit by hand.
 # Source: scripts/gen_unicode_gencat_table.py
 # Pinned Unicode version: 16.0.0
-# The same runs as unicode_gencat.mfb, as data: one line per run,
-# `<last codepoint of the run, decimal> <two-letter category>`, in
-# ascending order, contiguous, covering 0 .. 0x10FFFF (Cs = surrogate,
-# Cn = unassigned). A lookup binary-searches for the first line whose
-# codepoint is >= the query.
+# One line per run, ascending and contiguous over 0 .. 0x10FFFF:
+# `<last codepoint of the run, decimal> <two-letter category>`
+# (Cs = surrogate, Cn = unassigned). A lookup binary-searches for the
+# first line whose codepoint is >= the query.
 # categories: Cc Cf Cn Co Cs Ll Lm Lo Lt Lu Mc Me Mn Nd Nl No Pc Pd Pe Pf Pi Po Ps Sc Sk Sm So Zl Zp Zs
 31 Cc
 32 Zs
