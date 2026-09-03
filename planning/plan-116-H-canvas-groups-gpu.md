@@ -232,8 +232,14 @@ draw:
   declarations in one step, with both stages consuming it — vertex offsets, fragment
   subtracts — or the layout is invalid in a way that only shows on a box with the
   validation layers on.
-- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer
-  index. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
+- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer index.
+  **`setVertexBytes:length:atIndex:` no longer exists and must be re-added (H5)**:
+  plan-116-A *deleted* the selector from `metal_data_objects` rather than leaving it
+  unused, because *"every selector in `metal_data_objects` is a C string emitted into
+  every canvas binary and registered with the ObjC runtime at startup, so an unsent one
+  is not free"* (`sed -n 570,588p src/target/macos_aarch64/app/metal.rs`).
+  `setFragmentBytes:` survives — the glyph bitmaps still ride it — so only the vertex
+  one is missing. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
   removed was per-ITEM payloads inside one instanced draw; the offset changes only
   between draws, which is exactly what `setBytes:` is for (and what the glyph
   draws still use for their bitmaps).
@@ -443,6 +449,29 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H5 (2026-09-03, pre-execution) — `setVertexBytes:` is not available to bind the Metal
+offset; plan-116-A deleted it.** §4.2 names `setVertexBytes:` and `setFragmentBytes:` as
+though both were on hand. `grep -n 'setVertexBytes' src/target/macos_aarch64/app/metal.rs`
+finds it only inside a doc comment explaining its removal: plan-116-A replaced
+`drawPrimitives:vertexStart:vertexCount:` and `setVertexBytes:length:atIndex:` with the
+instanced draw and *deleted* both selectors, on the stated grounds that an unsent
+selector still costs a C string and a runtime registration in every canvas binary.
+`setFragmentBytes:` is still there, carrying the glyph bitmaps.
+
+So Phase 3 re-adds one selector to `metal_data_objects` alongside the shader change. The
+failure if it is missed is not a compile error — the emitter would send to a selector
+that was never registered.
+
+Two things next to it that are *not* problems, checked while here: the instanced draw
+already carries `baseInstance:`, which is exactly the "name your own blocks" mechanism a
+per-group draw needs, and MSL's `[[instance_id]]` already includes it (plan-116-A
+Correction C5 measured that, having predicted the opposite). And the comment's rejected
+alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — is still rejected: it
+cites a "112-byte stride", which is stale (plan-116-A/C/D/E/F have grown
+`ITEM_BLOCK_SIZE` to 208), but 208 no more meets the `MTLBuffer` offset alignment than
+112 did, so the conclusion survives its own arithmetic. The stale number is being
+corrected by plan-116-F's close-out.
 
 **H4 (2026-09-03, pre-execution) — the Vulkan push-constant range was deleted, not
 vacated.** §4.2 says *"the item block left the push-constant range in plan-116-A, so the
