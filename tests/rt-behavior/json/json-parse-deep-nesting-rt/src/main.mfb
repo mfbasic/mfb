@@ -33,7 +33,9 @@ END FUNC
 
 FUNC main AS Integer
   ' Deeply-nested arrays/objects far past the cap: used to SIGSEGV, now a clean
-  ' error 77050003. 5000 levels is ~5x the ~1000-frame crash threshold.
+  ' error. 5000 levels is ~5x the ~1000-frame crash threshold. plan-120-A gave the
+  ' cap its own code, 77050024 ErrDepthExceeded, so a caller can tell "this
+  ' document is too deep for this reader" from "this is not JSON" (77050003).
   io::print("deep array: " & tryParse(deepArray(5000)))
   io::print("deep object: " & tryParse(deepObject(5000)))
 

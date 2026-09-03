@@ -56,7 +56,8 @@ source then flows through the same resolver / monomorphization / codegen path as
 user code. [[src/codegen/builtins/json/mod.rs:augmented_project]]
 
 The seam also models the four public calls (`json.parse`, `json.stringify`,
-`json.get`, `json.getOr`) for type resolution: `resolve_call` maps an exact
+`json.get`, `json.getOr`; `parse` and `stringify` each carry overloads) for type
+resolution: `resolve_call` maps an exact
 argument-type signature to a return type, and `implementation_name` rewrites each
 public call to its `__json_*` source FUNC. The `Json*` family is registered as
 built-in types, and `is_json_value_type` treats `Json` and all six variant record
@@ -72,7 +73,7 @@ See `./mfb spec architecture frontend` for the injection ordering and
 
 `__json_parse` graphemizes the input, skips leading whitespace, parses one value,
 skips trailing whitespace, and requires the cursor to be exactly at end-of-input;
-any trailing non-whitespace fails. All failures raise error `77050003`
+any trailing non-whitespace fails. Most failures raise error `77050003`
 ("invalid JSON format"). [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
 
 The accepted grammar (RFC-8259-aligned, with the noted deviations):
@@ -117,13 +118,26 @@ Notable parse rules and deviations:
   tail-call optimization, an adversarially deep document would overflow that stack
   and crash the process, so the parser caps structural nesting at an explicit fixed
   depth (256 levels of arrays and objects combined) and rejects anything deeper
-  with `77050003`. [[src/codegen/builtins/json/helper_parse_value.rs:__json_parseValue]]
+  with `77050024` (`ErrDepthExceeded`), which is deliberately distinct from
+  `77050003`: the text is well-formed JSON, it is simply nested deeper than this
+  reader descends, and a caller can act on that.
+  [[src/codegen/builtins/json/helper_parse_value.rs:__json_parseValue]]
 
 ## Stringify output form
 
 `__json_stringify` is a recursive, deterministic serializer producing compact
 output — no spaces, no newlines, no indentation.
 [[src/codegen/builtins/json/func_stringify.rs:__json_stringify]]
+
+`json::stringify` also has two indented overloads, `stringify(value, count)` and
+`stringify(value, indent)`, which render through `__json_stringifyIndent` — a
+depth-carrying twin of the walk below that emits `\n` and one indent per level,
+with `": "` after each object key. Empty arrays and objects stay inline (`[]`,
+`{}`) at every depth. A count clamps to `0..=10` and a string indent is truncated
+to its first 10 characters; `0` and `""` mean compact and are byte-identical to
+the one-argument form. The leaf renderings (numbers, escaped strings) are shared
+with the compact body rather than reimplemented, so the rules below hold in both.
+[[src/codegen/builtins/json/helper_stringify_indent.rs:__json_stringifyIndent]]
 
 | Kind | Output |
 | --- | --- |
@@ -140,51 +154,136 @@ string values.
 
 ### Number formatting
 
-`__json_stringifyNumber` first renders the value with zero fractional digits
-(`toString(value, 0)`); if that integer text round-trips back to the same `Float`
-(`toFloat(text) = value`), it is emitted as-is (integral values print without a
-decimal point). Otherwise the value is rendered with 9 fractional digits and then
-trailing zeros — and a trailing `.` — are trimmed by `__json_trimFloatText`. NaN
-and ±infinity (`"nan"`, `"-nan"`, `"inf"`, `"-inf"`) are rejected with error
-`77050003`, since JSON has no representation for them.
+Numbers are written exactly as ECMAScript's `Number::toString` writes them, so a
+document produced here is byte-comparable with one produced by `JSON.stringify`.
+
+The digits come from significant-digit machinery, not from a count of decimal
+places. `json::sciParts` returns the first 18 significant digits of the
+magnitude — truncated, never rounded — together with the decimal exponent and a
+sticky flag saying whether anything non-zero follows, encoded as
+`"<sticky><18 digits>e<exponent>"`. That single call then serves the whole
+search: `__json_stringifyNumber` rounds those digits to `p` places for
+`p = 1..17`, and takes the first rendering that reads back as the same `Float`.
+Rounding an 18-digit truncation at `p`, with the sticky recomputed from the
+digits being dropped, is exactly rounding the true value at `p`, so nothing is
+lost by performing it on text.
+
+Rounding is **half-to-even**. Where two equally short renderings both read back
+exactly, ECMA-262 requires the candidate whose last digit is even, and rounding
+half away from zero instead would disagree with JavaScript on a small fraction
+of values.
+
+Placement follows ECMAScript. Writing `n` for `exponent + 1`: `1 <= n <= 21`
+prints plainly, with the point inside the digits or zeros padded out to it;
+`-6 < n <= 0` prints `0.` then `-n` zeros then the digits; anything else prints
+exponentially with one digit before the point and an explicit, unpadded exponent
+sign. So `1e20` is `100000000000000000000` and `1e21` is `1e+21`; `0.000001` is
+plain and `1e-7` is not. A whole number needs no special case: it falls out of
+the `n >= count` branch, which pads the digits out to the point.
+
+Negative zero is mapped to `0`, matching `JSON.stringify(-0)`; the native
+formatter itself keeps the sign, and that is untouched.
+
+**Every finite `Float` has a rendering.** 17 significant digits identify a
+binary64, so the search always succeeds; the `FAIL` at the end of the body is an
+invariant guard that cannot be reached. This is a change: rendering used to
+search fixed-point forms of up to 25 decimal places, so a value too small to
+reach a significant digit within 25 places — `1e-30`, `5e-324` — had no
+representation at all and the call failed.
+
+NaN and ±infinity are rejected before any of this, with their own codes —
+`77050013` (`ErrFloatNaN`) and `77050014` (`ErrFloatInf`) — since JSON has no
+representation for them.
 [[src/codegen/builtins/json/helper_stringify_number.rs:__json_stringifyNumber]]
+[[src/codegen/builtins/json/helper_round_digits.rs:__json_roundDigits]]
+[[src/codegen/builtins/json/helper_place_digits.rs:__json_placeDigits]]
+[[src/codegen/string/format/float_format_sci.rs:lower_float_to_string_sci_helpers]]
+[[src/codegen/builtins/json/helper_require_finite_number_text.rs:__json_requireFiniteNumberText]]
 
 ### String escaping
 
 `__json_escapeString` iterates graphemes and escapes `"` → `\"`, `\` → `\\`,
-`/` → `\/`, newline → `\n`, tab → `\t`, carriage return → `\r`, backspace
-(U+0008) → `\b`, form feed (U+000C) → `\f`. Any remaining control character
-(code point `< 32`) is emitted as a `\u00XX` escape; all other characters pass
-through unchanged (non-ASCII is left as raw UTF-8, not `\u`-escaped). Note the
-solidus `/` is always escaped on output even though it is optional in JSON.
+newline → `\n`, tab → `\t`, carriage return → `\r`, backspace (U+0008) → `\b`,
+form feed (U+000C) → `\f`. Any remaining control character (code point `< 32`)
+is emitted as a `\u00XX` escape; all other characters pass through unchanged
+(non-ASCII is left as raw UTF-8, not `\u`-escaped).
+
+The solidus `/` is **not** escaped on output. Escaping it is permitted by JSON
+but not required, and `JSON.stringify` does not do it, so a document produced
+here is byte-comparable with one produced by JavaScript. `\/` is still *accepted*
+on input, since it remains valid JSON.
 [[src/codegen/builtins/json/helper_escape_string.rs:__json_escapeString]]
+
+## Revival: `parse(text, reviver)`
+
+The two-argument `parse` runs `__json_parse` to completion and then walks the
+finished tree through `__json_revive`, calling the caller's
+`FUNC(String, Json) AS Json` once per value and storing what it returns in place.
+The walk is post-order, so a container is revived after its elements or members
+and receives the already-revived children; the document root is revived last,
+under the key `""`. An array element's key is its index rendered as a decimal
+string, an object member's key is its name.
+
+Because revival runs after parsing rather than during it, a malformed document
+fails before the reviver is called at all, and every parse helper is untouched.
+Duplicate keys have already collapsed last-wins into the map, so the reviver sees
+each surviving key once. There is no deletion: MFBASIC has no `undefined`, so
+returning `JsonNull[NOTHING]` stores a JSON null rather than dropping the member —
+the one divergence from `JSON.parse`'s reviver.
+[[src/codegen/builtins/json/helper_revive.rs:__json_revive]]
 
 ## Path-based access: `get` / `getOr`
 
-Both accessors take a `Json` root and a `List OF String` *path* of object keys
-and walk it left to right. The path addresses object fields only — there is no
-array-index step; each path element is looked up as a key in the current value's
-`JsonObj.fields`. [[src/codegen/builtins/json/func_get.rs:__json_get]]
+Both accessors take a `Json` root and a `List OF String` *path* and walk it left
+to right. What a path element means depends only on the variant underfoot: on a
+`JsonObj` it is an object key matched exactly, and on a `JsonArr` it is a
+zero-based decimal index, the way RFC 6901 spells one.
+
+The index grammar is strict — an optional `0` alone, or a nonzero digit followed
+by digits, at most 18 characters. A leading `+` or `-`, a leading zero such as
+`01`, whitespace, and anything non-numeric are all rejected, and the digits are
+matched by code point rather than by string equality so a decorated grapheme such
+as `1` followed by a combining mark is not mistaken for a digit. A token that is
+not a valid index simply misses, which is what keeps `getOr`'s never-fails
+contract intact.
+
+A key that looks like a number is still a key on an object, so no program that
+worked before changes behaviour: reaching an array used to fail unconditionally.
+[[src/codegen/builtins/json/func_get.rs:__json_get]]
+[[src/codegen/builtins/json/helper_array_index.rs:__json_arrayIndex]]
 
 | Step state | `get` | `getOr` |
 | --- | --- | --- |
 | current is `JsonObj`, key present | descend to field | descend to field |
 | current is `JsonObj`, key absent | fail `77050004` | return `defaultValue` |
-| current is not `JsonObj` | fail `77050004` ("not found") | return `defaultValue` |
+| current is `JsonArr`, index in range | descend to element | descend to element |
+| current is `JsonArr`, index out of range | fail `77050004` | return `defaultValue` |
+| current is `JsonArr`, token is not a valid index | fail `77050004` | return `defaultValue` |
+| current is a scalar variant | fail `77050004` ("not found") | return `defaultValue` |
 | path exhausted | return current `Json` | return current `Json` |
 
 An empty path returns the root value unchanged. `get` raises error `77050004`
-("not found") on any missing key or non-object traversal; `getOr` never fails for
-those cases and instead returns the supplied `defaultValue` (itself a `Json`).
+("not found") on any missing key, out-of-range or malformed index, or traversal
+into a scalar; `getOr` never fails for those cases and instead returns the
+supplied `defaultValue` (itself a `Json`).
 The returned value is the full `Json` subtree at the path, including the variant
 tag. [[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 ## Error codes
 
-| Code | Raised by | Meaning |
-| --- | --- | --- |
-| `77050003` | parse, stringify-number | invalid JSON format / unrepresentable number |
-| `77050004` | `get` | path not found / non-object traversal |
+| Code | Constant | Raised by | Meaning |
+| --- | --- | --- | --- |
+| `77050003` | `ErrInvalidFormat` | parse | invalid JSON format. `stringify` retains the code as an unreachable invariant guard: since plan-120-G every finite `Float` renders |
+| `77050004` | `ErrNotFound` | `get` | path not found: missing key, bad or out-of-range index, or traversal into a scalar |
+| `77050010` | `ErrOverflow` | parse | a valid JSON number with no `Float` anywhere near it (`1e400`); re-raised from `toFloat` rather than swallowed |
+| `77050013` | `ErrFloatNaN` | stringify | NaN has no JSON representation |
+| `77050014` | `ErrFloatInf` | stringify | ±infinity has no JSON representation |
+| `77050024` | `ErrDepthExceeded` | parse | well-formed but nested deeper than 256 levels |
+| `77050025` | `ErrInvalidSurrogate` | parse | a `\u` escape naming an unpaired surrogate |
+
+An error raised by a `parse` reviver is not caught and surfaces at the call site
+with whatever code the reviver used, so this table is not exhaustive for the
+two-argument form.
 
 ## See Also
 

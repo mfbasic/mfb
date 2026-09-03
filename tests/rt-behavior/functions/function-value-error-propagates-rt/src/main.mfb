@@ -1,0 +1,132 @@
+' plan-120-E: a FAIL inside a function called through a FUNC-typed VALUE must
+' propagate to the caller's TRAP, exactly as it does when the same function is
+' called directly by name.
+'
+' `mfb man lambda` documents the form: "A binding of function type is called like
+' any function", with `RETURN f(f(x))`. It did not propagate. Per the fallible-call
+' ABI (`mfb spec memory fallible-call-abi`) `x1` carries the success value OR the
+' error code, and the indirect path never checked `x0`'s tag -- so a failing
+' callee's error CODE came back as the return VALUE:
+'
+'   apply(boom, 1)  ->  77050002        (want: trapped)
+'
+' For an Integer return that is a silently wrong number. For a pointer-typed
+' return (a record, a union such as `json::Json`, a List) the caller dereferences
+' that code as an address and dies with SIGSEGV, which is how it was found --
+' `json::parse(text, reviver)` with a failing reviver crashed.
+'
+' Root cause was a guard copied from the direct-call emitter, where
+' `return_type: Some(..)` doubles as "raw result, I handle the tag myself".
+' The two ordinary indirect call sites pass `Some(..)` only to communicate the
+' declared return type, so propagation was suppressed with nobody materialising
+' the Result. Cousin of bug-448 in the raw path next door.
+'
+' Every case below is asserted for BOTH call forms, because the direct form was
+' always correct: a test that only checked the indirect form would pass just as
+' well against a fix that broke the direct one.
+IMPORT io
+
+FUNC boomInt(v AS Integer) AS Integer
+  FAIL error(77050002, "boom-int")
+END FUNC
+
+FUNC okInt(v AS Integer) AS Integer
+  RETURN v + 1
+END FUNC
+
+TYPE Box
+  value AS Integer
+END TYPE
+
+FUNC boomBox(v AS Integer) AS Box
+  FAIL error(77050003, "boom-box")
+END FUNC
+
+FUNC okBox(v AS Integer) AS Box
+  RETURN Box[v + 1]
+END FUNC
+
+FUNC boomList(v AS Integer) AS List OF Integer
+  FAIL error(77050004, "boom-list")
+END FUNC
+
+FUNC applyInt(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
+  RETURN f(x)
+END FUNC
+
+FUNC applyBox(f AS FUNC(Integer) AS Box, x AS Integer) AS Box
+  RETURN f(x)
+END FUNC
+
+FUNC applyList(f AS FUNC(Integer) AS List OF Integer, x AS Integer) AS List OF Integer
+  RETURN f(x)
+END FUNC
+
+' --- Integer return: the silently-wrong-value shape ------------------------
+FUNC directInt() AS String
+  RETURN "value " & toString(boomInt(1))
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+FUNC indirectInt() AS String
+  RETURN "value " & toString(applyInt(boomInt, 1))
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+' --- Record return: the SIGSEGV shape (a pointer, not a scalar) ------------
+FUNC directBox() AS String
+  RETURN "value " & toString(boomBox(1).value)
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+FUNC indirectBox() AS String
+  RETURN "value " & toString(applyBox(boomBox, 1).value)
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+' --- Collection return: the other pointer-typed shape ----------------------
+FUNC indirectList() AS String
+  LET r AS List OF Integer = applyList(boomList, 1)
+  RETURN "value " & toString(len(r))
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+' --- The success path must be untouched by the tag check -------------------
+FUNC successInt() AS String
+  RETURN "value " & toString(applyInt(okInt, 1))
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+FUNC successBox() AS String
+  RETURN "value " & toString(applyBox(okBox, 1).value)
+TRAP(e)
+  RETURN "trapped " & toString(e.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("direct-int    " & directInt())
+  io::print("indirect-int  " & indirectInt())
+  io::print("direct-box    " & directBox())
+  io::print("indirect-box  " & indirectBox())
+  io::print("indirect-list " & indirectList())
+  io::print("success-int   " & successInt())
+  io::print("success-box   " & successBox())
+  RETURN 0
+TRAP(e)
+  io::print("escaped to main: " & toString(e.code))
+  RETURN 1
+END TRAP
+END FUNC

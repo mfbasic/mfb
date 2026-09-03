@@ -2124,6 +2124,31 @@ pub(crate) fn lower_module_for_platform(
     if uses_float_to_string {
         code_functions.push(lower_float_to_string_helper());
     }
+    // plan-120-G: the significant-digit stream behind json's number rendering,
+    // and the two limb helpers it calls. Same relocation gate.
+    let uses_sci = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to
+                == crate::codegen::string::format::float_format_sci::FLOAT_TO_STRING_SCI_SYMBOL
+        })
+    });
+    if uses_sci {
+        code_functions.extend(
+            crate::codegen::string::format::float_format_sci::lower_float_to_string_sci_helpers(),
+        );
+    }
+    // plan-120-F: the correctly-rounded String -> Float parser and the four
+    // helpers it calls. Same relocation gate; the family is all-or-nothing
+    // because the entry point is the only caller of the rest.
+    let uses_string_to_float = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to == crate::codegen::string::format::float_parse::STRING_TO_FLOAT_SYMBOL
+        })
+    });
+    if uses_string_to_float {
+        code_functions
+            .extend(crate::codegen::string::format::float_parse::lower_string_to_float_helpers());
+    }
     // plan-118-C: the integer twin of the float formatter, same gate.
     let uses_int_to_string = code_functions.iter().any(|function| {
         function
@@ -2285,6 +2310,19 @@ pub(crate) fn lower_module_for_platform(
         // every table read). Fall back to the full set rather than risk an
         // undefined symbol.
         data_objects.extend(unicode_runtime_data_objects(None));
+    }
+
+    // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a
+    // runtime decimal exponent. Same relocation gate as the unicode tables, and
+    // for the same reason — it is 10 KiB, and a program that never converts text
+    // to a Float should not carry it.
+    let uses_powers_of_ten = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to == crate::codegen::string::format::float_parse_table::POWERS_OF_TEN_SYMBOL
+        })
+    });
+    if uses_powers_of_ten {
+        data_objects.push(crate::codegen::memory::data::powers_of_ten_data_object());
     }
 
     // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted

@@ -3150,6 +3150,14 @@ fn call_argument_expected_type(
     if let Some(params) = builtins::argument_types_typed(&canonical_callee) {
         return params.get(index).cloned();
     }
+    // plan-120-D: `argument_types_typed` declines for an overload SET, but the
+    // positions the overloads agree on still have one expected type — and this
+    // function decides union wrapping, so declining there silently lowers a bare
+    // record where a tagged union is expected. Ask for the agreed type before
+    // falling through to the user-function paths below.
+    if let Some(agreed) = builtins::agreed_argument_type(&canonical_callee, index) {
+        return Some(agreed);
+    }
     context
         .function_params
         .get(callee)

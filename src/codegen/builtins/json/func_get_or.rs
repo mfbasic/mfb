@@ -10,20 +10,25 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Read a nested `json::Json` value by key path, falling back to a default"#;
+const INTRO: &str = r#"Read a nested `json::Json` value by path, falling back to a default"#;
 
-const DESC: &str = r#"`json::getOr` walks `path` through nested JSON objects exactly as `json::get`
+const DESC: &str = r#"`json::getOr` walks `path` through a nested JSON tree exactly as `json::get`
 does, but returns `defaultValue` instead of failing whenever traversal cannot
-continue. Starting from `value`, each element of `path` is treated as an object
-key: the current value must be a `json::JsonObj` that has that key, and the member
-stored under it becomes the current value before the next element is applied.
+continue. Starting from `value`, each element of `path` selects one member of the
+current value, which becomes the current value before the next element is applied.
 
-Traversal stops and `defaultValue` is returned in exactly two situations: a path
-element names a key that is absent from the current `json::JsonObj`, or traversal
-reaches a `json::JsonNull`, `json::JsonBool`, `json::JsonNum`, `json::JsonStr`, or `json::JsonArr` while path
-elements remain. As with `json::get`, only object members are traversable —
-array elements cannot be reached, so a path that descends into a `json::JsonArr`
-returns the default.
+As in `json::get`, what a path element means depends on what it lands on: an
+object key on a `json::JsonObj`, and a zero-based decimal array index on a
+`json::JsonArr`, spelled the RFC 6901 way (a single `0`, or a nonzero digit
+followed by further digits — never `"01"`, `"+1"`, `"-1"` or `"1 "`).
+
+Traversal stops and `defaultValue` is returned whenever the current step finds
+nothing: a key absent from the current `json::JsonObj`, an index outside the
+current `json::JsonArr`, a token on an array that is not spelled as an index, or
+a `json::JsonNull`, `json::JsonBool`, `json::JsonNum` or `json::JsonStr` reached
+while path elements remain.
+
+`json::getOr` never fails, whatever `path` contains.
 
 An empty `path` performs no traversal and returns `value` unchanged, whatever
 variant it is; `defaultValue` is never consulted in that case.
@@ -63,6 +68,30 @@ SUB main
 END SUB
 ```
 
+An array index that is out of range, or a token that is not spelled as an index,
+returns the default rather than failing:
+
+```
+IMPORT json
+IMPORT io
+
+SUB main
+  LET doc AS json::Json = json::parse("{\"items\":[10,20]}")
+  LET miss AS json::Json = json::JsonStr["none"]
+  io::print(json::stringify(json::getOr(doc, ["items", "1"], miss)))
+  io::print(json::stringify(json::getOr(doc, ["items", "9"], miss)))
+  io::print(json::stringify(json::getOr(doc, ["items", "01"], miss)))
+END SUB
+```
+
+prints:
+
+```
+20
+"none"
+"none"
+```
+
 Pass the arguments by name:
 
 ```
@@ -89,6 +118,16 @@ r#"FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json
         ELSE
           RETURN defaultValue
         END IF
+      CASE JsonArr(arr)
+        ' plan-120-B: the `json::get` arm, with the FAIL replaced by the default
+        ' -- these two bodies are one contract written twice and must stay
+        ' structurally parallel. `__json_arrayIndex` never fails, so getOr stays
+        ' total for every token including an overlong digit run.
+        LET index AS Integer = __json_arrayIndex(key)
+        IF index < 0 OR index >= len(arr.items) THEN
+          RETURN defaultValue
+        END IF
+        nextValue = collections::get(arr.items, index)
       CASE ELSE
         RETURN defaultValue
     END MATCH
@@ -109,14 +148,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The value to read from. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; traversal only succeeds through JsonObj members.",
+                    desc: "The value to read from. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; traversal steps through JsonObj members and JsonArr elements.",
                     aliases: &[],
                     ty: ParameterType::named("Json"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "path",
-                    desc: "The object keys to follow, from the root inward. Each element selects a member by exact String key. An empty list selects value itself.",
+                    desc: "The steps to follow, from the root inward. On an object a step is an exact String key; on an array it is a zero-based decimal index (RFC 6901 spelling: 0, or a nonzero digit then digits). An empty list selects value itself.",
                     aliases: &["key"],
                     ty: ParameterType::list_of(ParameterType::String),
                     default: DefaultValue::None,

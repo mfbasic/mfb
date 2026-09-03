@@ -335,14 +335,36 @@ impl CodeBuilder<'_> {
         let result_type = return_type
             .map(ParameterType::declared)
             .unwrap_or(ParameterType::Unknown);
+        // plan-120-E: the error-tag check is UNCONDITIONAL here, unlike
+        // [`Self::emit_call`], where `return_type: Some(..)` doubles as "raw result
+        // — the caller stores tag/value/message/source itself and handles the tag"
+        // (`builder_values.rs`'s inline-TRAP machinery is its only `Some` caller).
+        //
+        // This function is the ORDINARY indirect-call path; the raw one is the
+        // separate [`Self::emit_function_value_call_raw`]. But both of its callers
+        // pass `Some(&return_type.name())` simply to communicate the callee's
+        // declared return type, which — with the old `if return_type.is_none()`
+        // guard copied from `emit_call` — silently suppressed propagation with
+        // nobody materializing the `Result`.
+        //
+        // The effect was not a diagnostic. Per the fallible-call ABI, `x1` holds
+        // the success value OR the error code, so an unchecked failing call
+        // returned the CODE as the value: `apply(boom, 1)` with
+        // `FUNC boom(v AS Integer) AS Integer` that FAILs returned `77050002`, and
+        // for a pointer-typed return (`json::Json`) the caller dereferenced that
+        // code and SIGSEGVed. Same callee called DIRECTLY by name trapped
+        // correctly, which is what isolated it to this path. Cousin of bug-448,
+        // fixed in the raw path next door.
+        let emit_tag_check = |builder: &mut Self| -> Result<(), String> {
+            let ok_label = builder.label("call_value_ok");
+            builder.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            builder.emit(abi::branch_eq(&ok_label));
+            builder.emit_current_result_exit(builder.error_exit_destination())?;
+            builder.emit(abi::label(&ok_label));
+            Ok(())
+        };
         if result_type == ParameterType::Nothing {
-            if return_type.is_none() {
-                let ok_label = self.label("call_value_ok");
-                self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-                self.emit(abi::branch_eq(&ok_label));
-                self.emit_current_result_exit(self.error_exit_destination())?;
-                self.emit(abi::label(&ok_label));
-            }
+            emit_tag_check(self)?;
             for arg in args {
                 self.maybe_deactivate_moved_thread_local(arg);
             }
@@ -354,13 +376,7 @@ impl CodeBuilder<'_> {
                 text: format!("call {target}({})", join_texts(&arg_values)),
             });
         }
-        if return_type.is_none() {
-            let ok_label = self.label("call_value_ok");
-            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-            self.emit(abi::branch_eq(&ok_label));
-            self.emit_current_result_exit(self.error_exit_destination())?;
-            self.emit(abi::label(&ok_label));
-        }
+        emit_tag_check(self)?;
         for arg in args {
             self.maybe_deactivate_moved_thread_local(arg);
         }
