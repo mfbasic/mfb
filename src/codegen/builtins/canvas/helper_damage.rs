@@ -46,6 +46,14 @@ MUT __CANVAS_KEPT_H AS Integer = 0
 MUT __CANVAS_FRAMES AS Integer = 0
 MUT __CANVAS_SKIPPED AS Integer = 0
 MUT __CANVAS_PARTIAL AS Integer = 0
+' Frames a GPU backend actually rendered (plan-116-F).
+'
+' `gpuSelected` is `canvas::useGpu()` -- whether the PROGRAM asked for the GPU -- so it
+' says nothing about whether a backend drew. A test that asserts it is asserting that
+' it set its own environment variable. This counter is the real signal, and it is what
+' separates "the GPU drew this and it matches" from "a predicate declined, software
+' drew a perfect picture, and the comparison passed for the wrong reason".
+MUT __CANVAS_GPU_FRAMES AS Integer = 0
 MUT __CANVAS_DAMAGE AS List OF Integer = []
 
 ' Damage is off unless `MFB_CANVAS_DAMAGE` is set. It changes no visible output -- that

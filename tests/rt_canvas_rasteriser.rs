@@ -2063,3 +2063,233 @@ fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
         );
     }
 }
+
+/// A two-stop linear gradient shows its endpoints' colours at the ends and their
+/// blend in the middle.
+///
+/// plan-116-F Phase 3. The midpoint is the assertion that matters: it is where the
+/// interpolation *space* shows. Red-to-blue at `t = 0.5` is `(187, 0, 188)` in linear
+/// light; interpolating the encoded bytes instead would give `(128, 0, 128)`, and the
+/// two are 59 steps apart — far outside anything a rounding argument could excuse.
+#[test]
+fn a_linear_gradient_interpolates_between_its_stops() {
+    let (frame, _) = render(
+        "canvas_gradient_linear",
+        &scene(
+            "  LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 0.0], \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
+             h := 200.0, paint := WITH canvas::fill(canvas::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             canvas::present([r])\n",
+        ),
+    );
+    // The flat `fill` is green and appears nowhere: a gradient with two or more stops
+    // replaces it entirely. Any green here means the gradient was not read.
+    for x in [105usize, 300, 495] {
+        assert_eq!(
+            pixel(&frame, x, 200).1,
+            0,
+            "the flat fill's green leaked through at x={x} — the gradient replaces the \
+             fill colour, it does not blend with it"
+        );
+    }
+    // Near each end, the end stop's own colour.
+    let (r0, _, b0, _) = pixel(&frame, 105, 200);
+    assert!(
+        r0 > 240 && b0 < 60,
+        "just inside the start the colour should be nearly the first stop's red, got \
+         {:?}",
+        pixel(&frame, 105, 200)
+    );
+    let (r1, _, b1, _) = pixel(&frame, 495, 200);
+    assert!(
+        r1 < 60 && b1 > 240,
+        "just inside the end the colour should be nearly the last stop's blue, got {:?}",
+        pixel(&frame, 495, 200)
+    );
+    // The midpoint, in linear light.
+    assert_eq!(
+        pixel(&frame, 300, 200),
+        (187, 0, 188, 255),
+        "the midpoint of a red-to-blue ramp, interpolated in LINEAR light. sRGB-space \
+         interpolation would give (128, 0, 128) here — 59 steps away, which is the \
+         whole reason the space is a documented decision rather than an accident"
+    );
+}
+
+/// A radial gradient runs outward from its centre.
+#[test]
+fn a_radial_gradient_runs_outward_from_its_centre() {
+    let (frame, _) = render(
+        "canvas_gradient_radial",
+        &scene(
+            "  LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 255, 255)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 0)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, \
+             startPoint := canvas::Point[x := 400.0, y := 300.0], \
+             endPoint := canvas::Point[x := 520.0, y := 300.0], stops := s]\n  \
+             LET c AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 120.0, \
+             paint := WITH canvas::fill(canvas::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             canvas::present([c])\n",
+        ),
+    );
+    let centre = pixel(&frame, 400, 300);
+    assert!(
+        centre.0 > 250,
+        "the centre is at t = 0, so it takes the first stop's white: got {centre:?}"
+    );
+    let mid = pixel(&frame, 460, 300);
+    assert!(
+        mid.0 > 20 && mid.0 < 230,
+        "half way out is between the two stops rather than at either: got {mid:?}"
+    );
+    assert!(mid.0 < centre.0, "the ramp must darken outward, not inward");
+    // Radial, not linear: the same distance in the other three directions matches.
+    //
+    // The four pixels are 340, 459 in x and 240, 359 in y, which looks asymmetric and
+    // is not. A pixel is sampled at its CENTRE, `x + 0.5`, and this circle's centre is
+    // `400.0` — a pixel *boundary*. So pixel 340 sits 59.5 away and pixel 460 sits
+    // 60.5; the mirror of 340 about 400.0 is 459, not 460. Getting that wrong reads as
+    // a one-step colour difference and looks exactly like a broken radial arm.
+    let ref_px = pixel(&frame, 459, 300);
+    for (x, y, what) in [
+        (340usize, 300usize, "left"),
+        (400, 240, "up"),
+        (400, 359, "down"),
+    ] {
+        assert_eq!(
+            pixel(&frame, x, y),
+            ref_px,
+            "a radial ramp depends on distance only, so {what} must equal right — a \
+             difference means the linear arm ran"
+        );
+    }
+}
+
+/// Two gradients differing only in their stops draw their own ramps.
+///
+/// The half deferred from Phase 2's `gradients_sharing_a_header_keep_their_own_stops`,
+/// now that a gradient is actually evaluated. Both items carry the **same flat fill**,
+/// so the only thing that can separate them is the stop tail — which is exactly the
+/// content the header cannot see and the cache seams had to be taught about.
+#[test]
+fn gradients_draw_their_own_ramps() {
+    let (frame, stats) = render(
+        "canvas_gradient_own_ramps",
+        &scene(
+            "  LET aStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(255, 0, 0)]]\n  \
+             LET bStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(0, 0, 255)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 255)]]\n  \
+             LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 100.0], \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 100.0], \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             LET base AS canvas::Paint = canvas::fill(canvas::rgb(0, 255, 0))\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
+             h := 100.0, paint := WITH base { fillGradient := gA }]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
+             h := 100.0, paint := WITH base { fillGradient := gB }]\n  \
+             canvas::present([a, b])\n",
+        ),
+    );
+    let last = stats.last().expect("a stats line per frame");
+    assert!(
+        last.contains("entries=2"),
+        "the two records must not share a cache entry: {last}"
+    );
+    assert_eq!(
+        pixel(&frame, 150, 150),
+        (255, 0, 0, 255),
+        "the first item's own ramp"
+    );
+    assert_eq!(
+        pixel(&frame, 450, 150),
+        (0, 0, 255, 255),
+        "the second item's own ramp — red here is the cache handing it the first \
+         item's record, and the two paints are identical apart from their stops"
+    );
+}
+
+/// A zero-length axis fills with the first stop's colour rather than dividing by zero.
+#[test]
+fn a_zero_length_gradient_axis_takes_the_first_stops_colour() {
+    let (frame, _) = render(
+        "canvas_gradient_zero_axis",
+        &scene(
+            "  LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(30, 200, 90)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(200, 30, 90)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 250.0, y := 250.0], \
+             endPoint := canvas::Point[x := 250.0, y := 250.0], stops := s]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 300.0, \
+             h := 200.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             canvas::present([r])\n",
+        ),
+    );
+    for (x, y) in [(105usize, 105usize), (250, 200), (395, 295)] {
+        assert_eq!(
+            pixel(&frame, x, y),
+            (30, 200, 90, 255),
+            "a zero-length axis leaves t at 0 everywhere, so the whole shape takes the \
+             first stop's colour — defined, not a divide by zero"
+        );
+    }
+}
+
+/// Offsets out of order are clamped monotonically, not sorted.
+///
+/// §4.1's rule: sorting would silently redraw something other than what the program
+/// asked for, so a stop whose offset goes backwards is pulled up to its predecessor's
+/// instead. The scene here gives `0.0, 0.8, 0.3, 1.0` — the third is clamped to 0.8,
+/// which collapses the second-to-third span to nothing and makes the colour jump there
+/// rather than ramp. Asserted as: the region after 0.8 is the *fourth* stop's ramp, and
+/// the third stop's colour never appears on its own.
+#[test]
+fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
+    let (frame, _) = render(
+        "canvas_gradient_unsorted",
+        &scene(
+            "  LET s AS List OF canvas::GradientStop = [\
+             canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 0, 0)], \
+             canvas::GradientStop[offset := 0.8, color := canvas::rgb(0, 255, 0)], \
+             canvas::GradientStop[offset := 0.3, color := canvas::rgb(0, 0, 255)], \
+             canvas::GradientStop[offset := 1.0, color := canvas::rgb(255, 255, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 0.0], \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
+             h := 100.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             canvas::present([r])\n",
+        ),
+    );
+    // t = 0.4 lands between stop 0 (0.0 red) and stop 1 (0.8 green) — so red-green,
+    // with no blue. Under sorting it would fall between blue at 0.3 and green at 0.8,
+    // which would show blue.
+    let at40 = pixel(&frame, 260, 150);
+    assert!(
+        at40.2 < 40,
+        "t = 0.4 must lie on the red-to-green span, so there is no blue in it: got \
+         {at40:?}. Blue here means the stops were sorted, which is what §4.1 forbids"
+    );
+    assert!(
+        at40.0 > 40 && at40.1 > 40,
+        "t = 0.4 is part way from red to green: got {at40:?}"
+    );
+    // Past 0.8 the ramp runs green to white, so every channel rises.
+    let at90 = pixel(&frame, 460, 150);
+    assert!(
+        at90.0 > 100 && at90.2 > 100,
+        "past the clamped pair the ramp runs green to white: got {at90:?}"
+    );
+}

@@ -332,6 +332,23 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   LET p3 AS Float = __canvas_geoAt(offset, 5)
   LET radius AS Float = __canvas_geoAt(offset, 6)
   LET half AS Float = __canvas_geoAt(offset, 7)
+  ' plan-116-F: the gradient's scalars, read ONCE per item -- the has-gradient test,
+  ' the stop base and the axis. Hoisted for the reason plan-116-B hoisted the blend
+  ' mode: an item without a gradient is every item written before this letter, and it
+  ' must not pay a per-pixel branch on a field it does not use.
+  LET gradCount AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT))
+  LET gradBase AS Integer = __canvas_gradientStopBase(offset)
+  LET gradRadial AS Boolean = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_KIND)) = 1
+  LET gradFX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FROMX)
+  LET gradFY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FROMY)
+  LET gradTX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_TOX)
+  LET gradTY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_TOY)
+  LET gradAX AS Float = gradTX - gradFX
+  LET gradAY AS Float = gradTY - gradFY
+  ' The axis length squared for linear, its root for radial. Zero-length is defined
+  ' rather than a divide by zero: `t` stays 0, so the first stop fills.
+  LET gradLen2 AS Float = gradAX * gradAX + gradAY * gradAY
+  LET gradLen AS Float = math::sqrt(gradLen2)
   LET fillR AS Byte = __canvas_geoByte(offset, 8)
   LET fillG AS Byte = __canvas_geoByte(offset, 9)
   LET fillB AS Byte = __canvas_geoByte(offset, 10)
@@ -468,24 +485,52 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
         clipCov = __canvas_clipCoverage(offset, px, py)
       END IF
 
-      IF fillA > 0 THEN
+      ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
+      ' shape's distance, its coverage and its stroke are untouched, which is what
+      ' keeps a gradient-filled shape's edge identical to a flat-filled one's. `t` is
+      ' computed in surface pixels, so the ramp composes with `Paint.transform` the
+      ' same way the shape does.
+      MUT gR AS Byte = fillR
+      MUT gG AS Byte = fillG
+      MUT gB AS Byte = fillB
+      MUT gA AS Integer = fillA
+      IF gradCount >= 2 THEN
+        MUT t AS Float = 0.0
+        IF gradRadial THEN
+          IF gradLen > 0.0 THEN
+            LET rdx AS Float = px - gradFX
+            LET rdy AS Float = py - gradFY
+            t = math::sqrt(rdx * rdx + rdy * rdy) / gradLen
+          END IF
+        ELSE
+          IF gradLen2 > 0.0 THEN
+            t = ((px - gradFX) * gradAX + (py - gradFY) * gradAY) / gradLen2
+          END IF
+        END IF
+        LET gc AS Color = __canvas_gradientColor(gradBase, gradCount, t)
+        gR = gc.red
+        gG = gc.green
+        gB = gc.blue
+        gA = toInt(gc.alpha)
+      END IF
+      IF gA > 0 THEN
         MUT coverage AS Integer = __canvas_coverage(distance)
         IF clipped THEN
           coverage = (coverage * clipCov) / 255
         END IF
-        LET alpha AS Integer = (fillA * coverage) / 255
+        LET alpha AS Integer = (gA * coverage) / 255
         ' The opaque fast path is Normal-ONLY. A Multiply source at full coverage is
         ' still `src * dst`, not `src` -- writing the source directly there would make
         ' every fully-covered pixel of a blended item ignore its mode.
         IF alpha >= 255 AND blendMode = 0 THEN
-          out = collections::set(out, idx, fillR)
-          out = collections::set(out, idx + 1, fillG)
-          out = collections::set(out, idx + 2, fillB)
+          out = collections::set(out, idx, gR)
+          out = collections::set(out, idx + 1, gG)
+          out = collections::set(out, idx + 2, gB)
           out = collections::set(out, idx + 3, toByte(255))
         ELSEIF alpha > 0 THEN
-          out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), fillR, alpha, blendMode))
-          out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), fillG, alpha, blendMode))
-          out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), fillB, alpha, blendMode))
+          out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), gR, alpha, blendMode))
+          out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), gG, alpha, blendMode))
+          out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), gB, alpha, blendMode))
           out = collections::set(out, idx + 3, toByte(255))
         END IF
       END IF

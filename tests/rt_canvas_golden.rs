@@ -529,8 +529,8 @@ fn the_gpu_draws_the_transform_scene_the_reference_shows() {
         return;
     }
     assert!(
-        stats.contains("gpuSelected=TRUE"),
-        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
          predicate declined the transform scene, and every pixel below would then be \
          the software renderer marking its own work: {stats}"
     );
@@ -664,8 +664,8 @@ fn the_gpu_draws_the_endcap_scene_the_reference_shows() {
         return;
     }
     assert!(
-        stats.contains("gpuSelected=TRUE"),
-        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
          predicate declined a cap, and every pixel below would then be the software \
          renderer marking its own work: {stats}"
     );
@@ -798,8 +798,8 @@ fn the_gpu_draws_the_ellipse_scene_the_reference_shows() {
         return;
     }
     assert!(
-        stats.contains("gpuSelected=TRUE"),
-        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
          predicate declined the new kind, and every pixel below would then be the \
          software renderer marking its own work: {stats}"
     );
@@ -819,6 +819,97 @@ fn the_gpu_draws_the_ellipse_scene_the_reference_shows() {
              fragment ItemBlock declarations agree, since only one sets the std430 \
              stride); a rim that is off by more than a step or two is the bisection \
              count differing between the shader and the oracle — both are 24."
+        );
+    }
+}
+
+/// A linear ramp, a radial ramp, a multi-stop ramp, and a black→white ramp
+/// (plan-116-F).
+///
+/// The fourth row is the one that carries an argument rather than a demonstration.
+/// §4.3 chooses to interpolate **in linear light**, and black→white is where that
+/// choice is visible: in linear light the ramp's midpoint is a mid grey, whereas
+/// interpolating the sRGB-encoded bytes spends half the ramp below 22% of the light
+/// and reads as dark-heavy. Open the image to check the decision rather than take it
+/// on trust — which is what "decide by looking at the image" in §Open Decisions means.
+///
+/// The multi-stop row also carries the out-of-order rule: its stops are given
+/// `0.0, 0.75, 0.4, 1.0`, and the third is clamped up to 0.75 rather than sorted into
+/// place. The visible consequence is a hard edge at 0.75 instead of a fourth band, and
+/// a reader comparing against the type's description should find exactly that.
+const GRADIENTS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(48, 50, 58))]
+
+  ' Row 1 -- a two-stop linear ramp, and the same ramp on a rotated axis so the
+  ' gradient is visibly independent of the shape's own orientation.
+  LET warm AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 400.0, y := 0.0], stops := warm]
+  LET linBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gLin }]
+  LET gDiag AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 500.0, y := 60.0], endPoint := canvas::Point[x := 840.0, y := 170.0], stops := warm]
+  LET diagBar AS canvas::DrawItem = canvas::Rectangle[x := 500.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gDiag }]
+
+  ' Row 2 -- radial, on a circle and on an ellipse. The ramp is measured in surface
+  ' pixels, so it does not follow the shape: the ellipse's ramp stays circular.
+  LET glow AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(90, 30, 120)]]
+  LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 320.0], endPoint := canvas::Point[x := 300.0, y := 320.0], stops := glow]
+  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 320.0, radius := 95.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad }]
+  LET gRad2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 620.0, y := 320.0], endPoint := canvas::Point[x := 740.0, y := 320.0], stops := glow]
+  LET blob AS canvas::DrawItem = canvas::Ellipse[x := 620.0, y := 320.0, radiusX := 170.0, radiusY := 80.0, angle := 0.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad2 }]
+
+  ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
+  ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth
+  ' band. That is the rule made visible.
+  LET many AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 0.75, color := canvas::rgb(255, 220, 0)], canvas::GradientStop[offset := 0.4, color := canvas::rgb(0, 160, 255)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(255, 255, 255)]]
+  LET gMany AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := many]
+  LET manyBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 440.0, w := 780.0, h := 70.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gMany }]
+
+  ' Row 4 -- black to white. THE case that makes the interpolation space inspectable.
+  LET mono AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(0, 0, 0)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(255, 255, 255)]]
+  LET gMono AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := mono]
+  LET monoBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 540.0, w := 780.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gMono }]
+
+  canvas::present([ground, linBar, diagBar, orb, blob, manyBar, monoBar])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The gradient reference renders exactly.
+#[test]
+fn gradients_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_gradients", GRADIENTS);
+    let reference = golden_path("gradients");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the gradient scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the linear arm (the second bar's axis is \
+             diagonal, so a ramp that follows the shape rather than the axis shows \
+             there), row 2 is the radial arm (the ellipse's ramp must stay CIRCULAR — \
+             the gradient is measured in surface pixels, not in the shape's space), row \
+             3 is the out-of-order clamp (a fourth colour band means the stops were \
+             sorted), and row 4 is the interpolation space (a dark-heavy ramp means it \
+             moved to sRGB space)."
         );
     }
 }

@@ -419,22 +419,47 @@ Commit: fae99b90d
 
 ### Phase 3 — Software evaluation, and the reference image
 
-- [ ] `__canvas_gradientColor(offset, t)` in `helper_color.rs`: the stop walk and the
-      linear-light lerp per §4.3.
-- [ ] `__canvas_drawGeometry`: when the stop count is ≥ 2, compute `t` per pixel and
+- [x] `__canvas_gradientColor(offset, t)` in `helper_color.rs`: the stop walk and the
+      linear-light lerp per §4.3. See **F5** — the first walk clobbered the index it
+      found and read into the next record.
+- [x] `__canvas_drawGeometry`: when the stop count is ≥ 2, compute `t` per pixel and
       take the fill colour from the gradient instead of slots 8–11. Hoist the
-      has-gradient test outside the pixel loop, as plan-116-B did for blend.
-- [ ] New reference image `tests/golden/canvas/gradients.png`: a linear ramp, a radial
+      has-gradient test outside the pixel loop, as plan-116-B did for blend. → hoisted:
+      the count, the stop base, the kind and the axis are read once per item, so an
+      item without a gradient — which is every item written before this letter — pays
+      nothing per pixel.
+- [x] New reference image `tests/golden/canvas/gradients.png`: a linear ramp, a radial
       ramp, a multi-stop ramp, and a black→white ramp (the case that makes the
-      interpolation-space choice inspectable).
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` — a two-stop linear gradient (assert the
+      interpolation-space choice inspectable). → four rows, and two of them carry an
+      argument rather than a demonstration: the radial row puts the same ramp on a
+      circle and an **ellipse**, where the ramp visibly stays circular because it is
+      measured in surface pixels; and the multi-stop row gives its stops out of order,
+      which shows as a hard edge rather than a fourth band.
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` — a two-stop linear gradient (assert the
       colour at `t = 0`, `0.5`, `1.0`); a radial gradient (assert centre and rim); a
       zero-stop gradient (byte-identical to `paint.fill`); a one-stop gradient (same);
       a zero-length axis (first stop's colour everywhere); offsets out of order
-      (clamped monotonically, per §4.1).
+      (clamped monotonically, per §4.1). → seven cases including the two from Phase 2
+      and `gradients_draw_their_own_ramps`, the colour half deferred from there.
+- [x] **Added:** both `*Renderable` predicates **decline** a scene carrying a gradient,
+      until Phase 4 teaches the shaders to read the stops. Not in the plan and
+      necessary: without it a GPU frame accepts the scene and draws the flat `fill`
+      underneath — a wrong picture reported as success. plan-116-G/H use the same
+      land-then-remove shape for groups, so this is the family's own pattern.
 
 Acceptance: the six cases pass, `gradients.png` is committed, and every pre-existing
 golden is byte-identical.
+
+**MET.** Seven gradient cases pass; `rt_canvas_golden` 13/13 including the new
+reference; `rt_canvas_metal` 4/4 and `rt_canvas_font` 12/12; no pre-existing golden
+moved.
+
+This phase also found that the guard on four GPU tests was inert (**F6**):
+`gpuSelected=TRUE` means the *program asked* for the GPU, not that a backend drew, so
+the assertion that was supposed to catch "a predicate declined and software drew a
+perfect picture" caught nothing. A `gpuFrames=` counter was added and all four now
+assert on it; re-run with the real guard they still pass, so the earlier measurements
+stand — only the assertion was worthless.
 Commit: —
 
 ### Phase 4 — Metal and Vulkan
@@ -506,6 +531,50 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+- **F6 (2026-09-02, Phase 3) — `gpuSelected=TRUE` does not mean the GPU drew, so the
+  guard on four GPU tests was inert.** Every GPU comparison this plan family writes has
+  the same shape: assert the backend rendered, *then* compare pixels — because a
+  predicate that declines the scene makes software draw a perfect picture and the
+  comparison passes for the wrong reason. plan-116-C, D and E each used
+  `stats.contains("gpuSelected=TRUE")` as that assertion.
+
+  `gpuSelected` is `canvas::useGpu()` — whether the **program asked** for the GPU
+  (`helper_surface.rs:42` says so outright: "the program asked for it"). A test that
+  sets `MFB_CANVAS_GPU=1` and then asserts `gpuSelected=TRUE` is asserting that it set
+  its own environment variable. Four tests carried that guard and none of them guarded
+  anything:
+  `the_gpu_draws_the_{transform,endcap,ellipse}_scene_the_reference_shows` and
+  `a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle`.
+
+  Found here because this phase deliberately makes both predicates **decline** a
+  gradient scene, and the existing guard failed to notice — the stats read
+  `gpuSelected=TRUE` on a frame software had drawn.
+
+  Fixed by adding a counter that answers the question asked: `gpuFrames=`, incremented
+  by each backend when it actually renders. All four tests now assert
+  `!stats.contains("gpuFrames=0")`. Re-run with the real guard, the three golden GPU
+  tests still pass — so those scenes were genuinely rendering on Metal and the earlier
+  measurements stand; only the assertion was worthless. The gradient scene reads
+  `gpuSelected=TRUE gpuFrames=0`, which is the discrimination the old guard could not
+  make.
+
+  One trap inside the fix, worth keeping: the counter must be incremented **inside**
+  each backend before it calls `__canvas_presentSurface`, because that is what writes
+  the stats line. Bumped by the caller afterwards it lags a frame and reads 0 on the
+  single frame a headless test renders — which looks exactly like a decline.
+
+- **F5 (2026-09-02, Phase 3) — an early exit that clobbers the index it found.** The
+  stop walk was written as a `WHILE` that set the loop counter past `count` to leave
+  early, which destroys the index the walk exists to produce. The lerp then read five
+  slots past the stops into the **next record's header**, and every gradient rendered as
+  one flat colour — `(38, 0, 0)` for a red-to-blue ramp — with the radial circle
+  vanishing entirely.
+
+  Worth recording for the failure *mode* rather than the slip: reading past a record in
+  this buffer does not fault and does not produce anything obviously wrong. The
+  neighbouring header is well-formed floats, so it renders as a plausible flat fill. The
+  rewrite walks the whole list and records the index in a separate variable.
 
 - **F4 (2026-09-02, Phase 2 design) — the stop base formula is wrong for `Text`, and
   the length accounting has a better home than the plan proposes.** Two findings from

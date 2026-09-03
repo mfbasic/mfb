@@ -203,6 +203,15 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ELSE
       quads = quads + 1
     END IF
+    ' plan-116-F Phase 3: decline any scene carrying a gradient, until Phase 4 teaches
+    ' the shaders to read the stops. Without this a GPU frame would accept the scene
+    ' and draw the flat `fill` underneath -- a WRONG picture reported as success, which
+    ' `.ai/canvas-threading.md` section 10 records happening once already. Falling back
+    ' to software is at worst slow and is never wrong, and plan-116-G/H use this same
+    ' land-then-remove shape for groups.
+    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0)) >= 2 THEN
+      RETURN FALSE
+    END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
       ' frame buffer, so this one is no longer forced by the transport -- but declining
@@ -234,6 +243,10 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
+  ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
+  ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
+  ' only frame a headless test renders.
+  __CANVAS_GPU_FRAMES = __CANVAS_GPU_FRAMES + 1
   __canvas_presentSurface(buffer, width, height)
   RETURN TRUE
 END FUNC
@@ -272,6 +285,15 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     ELSE
       quads = quads + 1
     END IF
+    ' plan-116-F Phase 3: decline any scene carrying a gradient, until Phase 4 teaches
+    ' the shaders to read the stops. Without this a GPU frame would accept the scene
+    ' and draw the flat `fill` underneath -- a WRONG picture reported as success, which
+    ' `.ai/canvas-threading.md` section 10 records happening once already. Falling back
+    ' to software is at worst slow and is never wrong, and plan-116-G/H use this same
+    ' land-then-remove shape for groups.
+    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0)) >= 2 THEN
+      RETURN FALSE
+    END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
@@ -294,6 +316,10 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
+  ' Counted HERE, before presenting: `__canvas_presentSurface` is what writes the stats
+  ' line, so a counter bumped by the caller afterwards lags a frame and reads 0 on the
+  ' only frame a headless test renders.
+  __CANVAS_GPU_FRAMES = __CANVAS_GPU_FRAMES + 1
   __canvas_presentSurface(buffer, width, height)
   RETURN TRUE
 END FUNC"#;

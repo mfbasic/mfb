@@ -322,7 +322,7 @@ fn rectangles_match_the_software_oracle_within_tolerance() {
         return; // no Metal device on this host (§metal_built)
     }
     assert!(
-        stats.contains("gpuSelected=TRUE"),
+        !stats.contains("gpuFrames=0"),
         "MFB_CANVAS_GPU=1 did not select the Metal renderer: {stats}"
     );
     if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
