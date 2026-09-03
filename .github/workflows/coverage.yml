@@ -144,6 +144,24 @@ jobs:
           name: mfb-bin
           path: target/release
       - run: chmod +x target/release/mfb
+      # `net::ping` opens an ICMP *datagram* socket — SOCK_DGRAM/IPPROTO_ICMP,
+      # the unprivileged form — which Linux gates on `net.ipv4.ping_group_range`.
+      # The runner image leaves that at the empty default `1 0`, so the socket is
+      # refused with EACCES and `net::ping` raises. That is the documented
+      # contract for a host that will not let you ask (plan-110-A §C3), but it is
+      # not what `rt-behavior/net/func_net_ping_valid` and
+      # `rt-error/net/func_net_ping_range_invalid` pin, and it is the whole of the
+      # acceptance job's "2 mismatch(es)".
+      #
+      # Open the range instead of weakening the fixtures: this is the permission
+      # an ordinary desktop Linux ships with (box 2228 reads `0 2147483647`), and
+      # with it the fixture reproduces its golden line for line on Linux. The
+      # denied path is not lost — `scripts/check-icmp-permission.sh` manufactures
+      # the denial in a throwaway netns and asserts the raise.
+      - name: Permit unprivileged ICMP sockets
+        run: |
+          cat /proc/sys/net/ipv4/ping_group_range
+          sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
       - name: Acceptance tests
         # The harness's per-fixture watchdog defaults to 300s, which the debug
         # compiler overran on the biggest fixtures (exit 99, "timeout") — hence the
