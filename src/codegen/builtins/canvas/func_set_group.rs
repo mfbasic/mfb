@@ -33,7 +33,15 @@ reference a group before it is built.
 
 Items in the list may themselves be `canvas::Group` nodes. A nested group stays a
 reference: replacing the inner group changes what the outer one draws, without
-reinstalling the outer.
+reinstalling the outer. Nesting is allowed to a depth of **64**, and `canvas::present`
+raises `ErrDepthExceeded` past it — which is also how a group that eventually references
+itself is reported, since a cycle is unbounded depth. Both need the same fix, so both get
+the same error.
+
+A group is **translated by `dx`/`dy`, not transformed.** There is no rotation or scale on
+the node; `canvas::Paint.transform` on the group's own items covers that, and it composes
+with the translation the way you would expect — the item is reshaped in place, then the
+group moves it.
 
 The items are copied, so the list you pass is yours to change afterwards — the
 installed group does not follow it. The group stays installed until you replace it or

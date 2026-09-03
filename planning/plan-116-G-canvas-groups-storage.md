@@ -870,34 +870,50 @@ a frame to complete after the last retirement.
 
 `rt_canvas_rasteriser` **54 passed, 0 failed, 2 ignored**; `cargo test --release --bin
 mfb --no-fail-fast` **3765 passed, 0 failed**; damage 6, golden 13, font 17, all 0 failed.
-Commit: —
+Commit: bfd263df7 (retire and drain), 2f399a25c (the race matrix and the affordance)
 
 ### Phase 6 — Docs and gates
 
-- [ ] `mod.rs` — `Group`, `setGroup`, `removeGroup` descriptions and examples. State:
+- [x] `mod.rs` — `Group`, `setGroup`, `removeGroup` descriptions and examples. State:
       a nested group stays a reference; `setGroup` takes effect at the next `present`;
       an absent name is a silent no-op; the depth limit is 64 and exceeding it raises;
       the group is translated, not transformed.
-- [ ] **No memory vocabulary on any of it** — no "own", "free", "refcount", "release".
+      All five stated. The depth limit was added **here rather than in Phase 2**, and
+      deliberately: `ErrDepthExceeded` was not yet listed on `present` then, and naming an
+      error a member cannot raise renders a promise into the man page that nothing keeps
+      — the plan-116-F **F10** class.
+- [x] **No memory vocabulary on any of it** — no "own", "free", "refcount", "release".
       Say what a developer observes: *"the group stays installed until you replace or
-      remove it"*. `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
-- [ ] `src/docs/spec/app/06_canvas.md` — a groups section: the naming model, the
+      remove it"*. `scripts/man-census.sh --memory-scope` → **0 unclassified hits**.
+      That sentence is used verbatim. Note the census bans `drop the value`/`drop the
+      handle`, not bare "drop", so `removeGroup`'s "drops the name" is permitted and is
+      the plainest thing to say — a name is not a value or a handle.
+- [x] `src/docs/spec/app/06_canvas.md` — a groups section: the naming model, the
       translation, the nesting limit, the no-op rule, and the `present`-is-the-install-
-      point rule.
-- [ ] `.ai/canvas-threading.md` — a new section for the group table (process-global,
-      worker-owned, refcount **plus** the existing drain gate, and why §7's "there is
-      no refcount" is about textures and still true of them), and the new race-matrix
-      rows from Phase 5.
-- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error (the
-      table-full one), plus an extension of `ErrDepthExceeded`'s existing row to
-      name group nesting alongside `json::parse` (**G3** — the depth error is not
-      new).
-- [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      point rule. Plus the two things §4.5 settled that a reader cannot derive: the clip
+      does **not** follow a group's translation and the gradient **does**.
+- [x] `.ai/canvas-threading.md` — a new **§13** for the group table, and R13–R16 in
+      the matrix. It records the drain gate **without** a refcount rather than "refcount
+      plus gate" (**G24**), and answers the section's own question in the other
+      direction: §7's "there is no refcount" turns out to be true of groups too, for a
+      different reason — a `Group` node carries a name and `groupItems` returns a copy,
+      so nothing holds a pointer to count. §11 also gains
+      `MFB_CANVAS_FRAME_HOLD_MS`.
+- [x] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error,
+      `ErrCanvasGroupLimit` at `7-705-0026`, plus `ErrDepthExceeded`'s row extended to
+      name group nesting alongside `json::parse` and to say that a self-referencing group
+      reports the same way. **G3** was right that the depth error is not new.
+- [x] `scripts/man-run-examples.sh canvas --run` → **27 built, 27 ran, 0 failed**
+      (23 before this letter). `--fill canvas` → 21 pages, 34/34 params, all documented.
+- [x] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
       evidence**: `ls tests/byte-identity/` has no `canvas` directory and no
       fixture there imports it, so the ncodesum gate is silent about this package
       (plan-116-F **F11**). The gates that are evidence for this letter are the
       canvas rt tests and the golden harness.
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → **141 refreshed, 0 missing**
+      and no modified file — exactly as F11 predicts, and read as F11 says to read it.
+      `scripts/artifact-gate.sh target/release/mfb all` → **1844 goldens, 0 diffs**,
+      which *is* evidence, of the different claim that this letter moved nothing else.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
 (`--bin mfb`, the only run anywhere that executes the `debug_assert!`s — plan-116-E

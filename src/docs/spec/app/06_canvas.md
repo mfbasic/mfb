@@ -284,6 +284,54 @@ across its width; mixing the encoded bytes directly would make it dark for most 
 length, which is the same error as blending encoded bytes and is just as plausible-
 looking.
 
+## Named groups
+
+`canvas::setGroup(name, items)` installs a list of items under a name;
+`canvas::removeGroup(name)` drops the name. A scene draws an installed group by
+including a `canvas::Group` node — `dx`, `dy` and the name — in place of the items:
+
+```basic
+canvas::setGroup("panel", panelItems)
+canvas::present([canvas::Group[dx := 10.0, dy := 20.0, name := "panel"]])
+```
+
+**A scene copies the node, not the group.** `canvas::present` copies the whole scene
+every time it is called, so a large static sub-picture referenced from many scenes — or
+from several positions in one — is copied once when it is installed rather than once per
+frame per reference.
+
+**`canvas::present` is the install point.** `setGroup` does not repaint. Presenting the
+same scene list after a `setGroup` *does* repaint, even though the list is unchanged: the
+change is inside the group and it is seen. This is the same rule everything else here
+follows, and it is worth stating because the natural expectation is the opposite.
+
+**A name that is not installed draws nothing and does not raise**, whether it was never
+installed or has since been removed. A scene may therefore reference a group before it is
+built, and removing a group does not invalidate any scene that names it.
+
+**A group is translated, not transformed.** The node carries two offsets and no matrix.
+`Paint.transform` on the group's own items covers reshaping, and the two compose in the
+order you would expect: the item is transformed in its own coordinates, then the group's
+translation places it. Two things are deliberately *not* carried along by that
+translation, and both follow from what they are:
+
+* **`Paint.clip` does not move** — it is a surface rectangle by definition, so a group
+  translates the shape *through* the clip.
+* **`Paint.fillGradient` does move**, which is the one place the surface-anchored rule is
+  set aside. A group exists to be drawn somewhere else, and an item whose colours depend
+  on where its group was placed would not be reusable.
+
+**Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
+resolved when the scene is presented, so replacing the inner group changes what the outer
+one draws without reinstalling the outer. Two groups may name the same third one, and it
+is drawn once per reference at each reference's position. Exceeding the depth raises
+`ErrDepthExceeded` from `canvas::present`, and so does a group that eventually references
+itself — a cycle is unbounded depth, and the two need the same fix.
+
+**A group stays installed until you replace it or remove it.** Installing again under the
+same name replaces what that name draws. The items are copied, so the list passed to
+`setGroup` is the caller's to change afterwards; the installed group does not follow it.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with

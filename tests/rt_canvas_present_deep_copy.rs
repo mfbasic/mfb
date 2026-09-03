@@ -283,13 +283,20 @@ fn set_group_copies_both_the_items_and_the_name() {
     );
 }
 
-/// The slot's `name` word is written **last**, and cleared **first**.
+/// The slot's `name` word is written **last** when a slot is published.
 ///
 /// `name` is the discriminator: a graphics thread scanning the table treats a non-zero
 /// name as "this slot is real, follow its pointers". So a slot must never be visible
-/// under a name before its `items` and `count` are there, and dropping one must hide it
-/// before anything else changes. This is the same publish-then-flag rule
-/// `the_revision_is_published_after_the_items_and_count` pins for the scene region.
+/// under a name before its `items` and `count` are there. This is the same
+/// publish-then-flag rule `the_revision_is_published_after_the_items_and_count` pins for
+/// the scene region.
+///
+/// **Asserted as the ordering rather than as a literal sequence**, deliberately.
+/// plan-116-G Phase 5 later inserted the retire-and-stamp stores ahead of the install,
+/// which changed the exact list and broke a version of this test that pinned it —
+/// correctly, but for a reason that had nothing to do with what the test protects. The
+/// relations below hold under any addition that does not actually publish a name over a
+/// half-written slot, and fail under one that does.
 #[test]
 fn a_group_slot_is_published_name_last() {
     let plan = app_ncode("canvas_set_group_order", GROUP_SOURCE);
@@ -301,22 +308,45 @@ fn a_group_slot_is_published_name_last() {
         .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         .collect();
+
     assert_eq!(
-        offsets,
-        vec![8, 16, 32, 40, 24, 0],
-        "a slot must be published items(+8), count(+16), refs(+32), retiredFrame(+40), \
-         revision(+24), then name(+0) LAST — the name is what a scanning graphics \
-         thread gates on, so it must never appear over a half-written slot"
+        offsets.last(),
+        Some(&0),
+        "the LAST store on the install path must be the name (+0); it is what a scanning          graphics thread gates on, so anything written after it is written into a slot          that is already live. Stores were {offsets:?}",
     );
+    // `position` finds the FIRST occurrence, which is the conservative one here: the
+    // retire clears `items` before the install writes it, so requiring "some items store
+    // precedes the name" would be satisfied by the clear alone. Requiring the LAST items
+    // store to precede the name is the real claim.
+    let name_at = offsets.iter().rposition(|&o| o == 0).expect("a name store");
+    for (word, label) in [(8i64, "items"), (16, "count"), (24, "revision")] {
+        let at = offsets
+            .iter()
+            .rposition(|&o| o == word)
+            .unwrap_or_else(|| panic!("no {label} store on the install path: {offsets:?}"));
+        assert!(
+            at < name_at,
+            "`{label}` (+{word}) is written after the name (+0), so a slot becomes              visible under its name before {label} is in it: {offsets:?}",
+        );
+    }
 }
 
-/// `removeGroup` clears the name and touches nothing else.
+/// `removeGroup` clears the name **first**, and retires the buffer rather than freeing
+/// the one it is removing.
 ///
-/// It must NOT free: a frame may be mid-walk over the items. Phase 5 lands the drain
-/// gate; until then the block is retired and the bytes stay charged to the table, which
-/// is what `groupBytes=` reports.
+/// Name first because it is the discriminator: clearing it is what makes the slot
+/// invisible to a concurrent scan, and it has to happen before anything else about the
+/// slot changes. The buffer then moves to the retired word — a frame may be mid-copy of
+/// it, so the release waits for the drain gate (plan-116-G Phase 5, §13 of
+/// `.ai/canvas-threading.md`).
+///
+/// The "frees nothing" half is now stated as *what it does with the live buffer* rather
+/// than as an arena-free count. `emit_retire_current_items` legitimately frees a
+/// **prior** retired buffer when one is still present, so counting frees would forbid
+/// something correct; what must never happen is the block being removed going straight
+/// to a free, and the store to `RETIRED_ITEMS` is the positive evidence that it does not.
 #[test]
-fn remove_group_clears_the_name_and_frees_nothing() {
+fn remove_group_clears_the_name_first_and_retires_the_buffer() {
     let plan = app_ncode("canvas_remove_group_order", GROUP_SOURCE);
     let ins = instructions(&plan, "_mfb_rt_canvas_canvas_removeGroup");
     let done =
@@ -326,21 +356,23 @@ fn remove_group_clears_the_name_and_frees_nothing() {
         .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         .collect();
+
     assert_eq!(
-        offsets,
-        vec![0, 32],
-        "removeGroup must clear name(+0) FIRST — it is the discriminator, so clearing \
-         it is what makes the slot invisible to a concurrent scan — then drop refs(+32), \
-         and write nothing else"
+        offsets.first(),
+        Some(&0),
+        "the FIRST store after the scan must clear the name (+0). It is the          discriminator, so until it is zero a concurrent scan still treats the slot as          live — and everything after this point is changing that slot. Stores were          {offsets:?}",
     );
-    assert_eq!(
-        calls(
-            &plan,
-            "_mfb_rt_canvas_canvas_removeGroup",
-            "_mfb_arena_free"
-        ),
-        0,
-        "removeGroup must not free the items: a frame may be mid-walk over them. The \
-         free waits for the drain gate, which is plan-116-G Phase 5"
+    assert!(
+        offsets.contains(&48),
+        "the live items block was never stored to RETIRED_ITEMS (+48), so `removeGroup`          did not retire it. Either it leaked the block or it freed it outright — and          freeing it here races a graphics thread that may be mid-copy: {offsets:?}",
+    );
+    let retired_at = offsets.iter().position(|&o| o == 48).unwrap();
+    let items_cleared = offsets
+        .iter()
+        .position(|&o| o == 8)
+        .unwrap_or_else(|| panic!("the live `items` word (+8) was never cleared: {offsets:?}"));
+    assert!(
+        retired_at < items_cleared,
+        "`items` (+8) was cleared before it was copied to RETIRED_ITEMS (+48), so the          buffer was lost rather than retired: {offsets:?}",
     );
 }
