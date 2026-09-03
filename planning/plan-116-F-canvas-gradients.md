@@ -674,6 +674,32 @@ rewritten.** Any future kind that lowers to another inherits this.
 `a_gradient_on_a_stroked_text_is_ignored` in `tests/rt_canvas_golden.rs` pins it, using
 `render_with_font` because the case needs a real font and a pixel comparison.
 
+**The class, closed properly — by enumerating `__canvas_paintHeader`'s callers.** F17's
+check walked the `MATCH` arms and missed the one caller that is not reached from a
+`MATCH` on the item. `grep -n '__canvas_paintHeader(' helper_geometry.rs` gives nine,
+and for each the kind in slot 0 at the moment of the call decides whether the skip
+fires:
+
+| Caller | Kind when `paintHeader` runs | Tail carries stops? | Counted? |
+|---|---|---|---|
+| `__canvas_rectHeader` | `RECT` | yes | yes ✓ |
+| `__canvas_circleHeader` | `CIRCLE` | yes | yes ✓ |
+| `__canvas_ellipseHeader` | `ELLIPSE` | yes | yes ✓ |
+| `__canvas_polygonHeader` | `POLYGON` | yes | yes ✓ |
+| `__canvas_segmentHeader` | `SEGMENT` | no | skipped — **F17** ✓ |
+| `__canvas_arcHeader` | `ARC` | no | skipped — **F17** ✓ |
+| `__canvas_textHeader` | `POLYGON` *(rewritten)* | no (`textEdges`) | zeroed after — **F18** ✓ |
+| `__canvas_glyphRunHeader` | `TEXT` | no (glyph run) | skipped ✓ |
+| `__canvas_textHash` | `TEXT` | n/a — hashes, writes no record | skipped ✓ |
+
+`__canvas_emptyHeader` is not on the list because it never calls `paintHeader`; a blank
+header carries a zero count by construction, which is why `Picture` was never affected.
+
+Every row now counts a tail exactly when it writes one. The check that matters is
+"enumerate the callers of the function that writes the length", not "enumerate the
+variants" — the two differ precisely where a kind is rewritten, which is where the bug
+was.
+
 **F17 — a gradient on a `Line` or `Arc` is stored, never keyed, and can be read back on
 the wrong item.** `__canvas_paintHeader` states the rule and then implements half of it:
 
