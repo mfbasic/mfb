@@ -419,6 +419,25 @@ This also means **`setGroup` alone does not repaint** — it takes effect at the
 for everything else) and it must be documented, because the natural expectation is the
 opposite.
 
+**The two tests that pin this section** live in `tests/rt_canvas_rasteriser.rs` and were
+written in Phase 1, before any of the feature existed:
+
+* `a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents` —
+  `setGroup(A)` → `present([node])` → `setGroup(A')` → `present([node])` with a
+  byte-identical list. It asserts **two** stats lines *and* that the dumped frame shows
+  `A'`: a green box at `(700,500)` present, and the red box at `(10,10)` gone. The
+  second assertion is the one with teeth — the frame count alone passes for a fix that
+  republishes but resolves to the old buffer.
+* `three_identical_presents_of_an_unchanged_group_draw_one_frame` — three presents with
+  no `setGroup` between, asserting **one** stats line.
+
+The pair is two-sided on purpose. The cheap way to pass the first is to stop comparing,
+or to fold something per-frame-varying into the signature; either turns every group
+program into an unconditional redraw and silently undoes the skip that
+`rt_canvas_graphics_thread.rs`'s `an_identical_re_present_draws_no_second_frame` already
+protects for group-free scenes. Both are `#[ignore]`d with a reason string naming
+**Phase 4**, so the phase that owes the work appears in the test runner's own output.
+
 ### 4.5 Software rendering
 
 `__canvas_renderScene` (`helper_render.rs:28`) walks the published items. A resolved
@@ -518,7 +537,7 @@ hulls the same way any moved item does — through the hash-change diff on bound
 
 The design's least obvious requirement (§2, §4.4), written as a failing test first.
 
-- [ ] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
+- [x] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
       `rt_canvas_graphics_thread.rs`, which cannot see *which* scene rendered
       (**G11**) — doing: `setGroup(A)` → `present([Group A])` → `setGroup(A')` →
       `present([Group A])` (identical list) → asserts **two** frames were rendered
@@ -526,12 +545,28 @@ The design's least obvious requirement (§2, §4.4), written as a failing test f
       `MFB_CANVAS_SYNC=1` and `MFB_CANVAS_DUMP`, and returns `(pixels, stats_lines)`:
       the stats lines give the frame count, and the dump is the **last** frame because
       `__canvas_presentSurface` writes it with `fs::writeBytes`, which overwrites.
-- [ ] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
+      `a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents`.
+      `A` is red at `(10,10)` and `A'` green at `(700,500)`, so the pixel assertions are
+      two-sided: green must be present at `(720,520)` **and** red must be gone from
+      `(30,30)`. G11 was right and worth the correction — the first draft of this went
+      into `rt_canvas_graphics_thread.rs` and could only have asserted `damage=`, which
+      is a proxy for "something different was drawn" rather than a statement about what.
+- [x] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
       This one can live in either harness; keep it beside the first.
-- [ ] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
+      `three_identical_presents_of_an_unchanged_group_draw_one_frame`, three presents,
+      beside the first as directed.
+- [x] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
+      Both carry `#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes
+      this pass"]` — a reason string, not a bare attribute, so the runner prints the
+      owing phase.
 
 Acceptance: both tests exist and are ignored, and the design section they test (§4.4)
 names them. This phase ships no behaviour; it ships the definition of done for Phase 4.
+
+**MET.** `cargo test --release --test rt_canvas_rasteriser --no-fail-fast` →
+**41 passed, 0 failed, 4 ignored**; both new lines print the Phase 4 reason, and the
+other two ignores are C's and E's pre-existing design measurements. §4.4 now names both
+tests and records why the pair has to be two-sided.
 Commit: —
 
 ### Phase 2 — The type, the two members, and the two test amendments
