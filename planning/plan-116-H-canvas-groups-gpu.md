@@ -454,6 +454,25 @@ Commit: —
 
 ## Corrections
 
+**H6 (2026-09-03, pre-execution) — `GEO_KIND_GROUP` is `#[cfg(test)]` and this is the
+letter that takes it off.** plan-116-G added the Rust-side kind constant so the
+MFBASIC/Rust pair could be pinned by
+`the_geo_layout_constants_match_their_rust_counterparts`, and marked it `#[cfg(test)]`
+because that guard was genuinely its only reader: nothing writes kind 8 into a header,
+since a group node carries `__canvas_emptyHeader()` whose kind is `NONE` (plan-116-G
+**G16**).
+
+That was chosen to be self-correcting rather than to need remembering — an emitter that
+starts dispatching on kind 8 will not compile until the attribute comes off — but the
+compile error appears in a file H is editing anyway, so it is worth knowing what it is
+rather than diagnosing it. `grep -n "GEO_KIND_GROUP" src/codegen/runtime/canvas/mod.rs`.
+
+Note also that H may not need it at all. G expands every group away before an emitter
+sees the draw list, so no *item block* ever carries kind 8; if H's per-draw offset
+arrives as a push constant keyed off the draw entry rather than off the item, the
+emitters never test the kind and the constant stays test-only. Which of those is true is
+decided by Phase 1's draw-list shape, not by this correction.
+
 **H5 (2026-09-03, pre-execution, written from plan-116-G as landed) — §4.1's
 `__canvas_sceneDraws` describes a walk that plan-116-G already performs, and §4.3's
 "undecided question" is already decided in the direction §4.1 calls unlikely.**
