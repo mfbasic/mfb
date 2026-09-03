@@ -491,8 +491,22 @@ pub(crate) const CANVAS_GROUP_REFS: usize = 32;
 /// the same drain gate `.ai/canvas-threading.md` §7 specifies for textures and §3 for
 /// retired scene blocks, reused so the subsystem has one rule rather than three.
 pub(crate) const CANVAS_GROUP_RETIRED_FRAME: usize = 40;
-/// Bytes per slot.
-pub(crate) const CANVAS_GROUP_SLOT_BYTES: usize = 48;
+/// Bytes per slot: **64**, not the 48 the six words need.
+///
+/// A power of two, so a slot index converts to an address with a shift. The six-word
+/// packing needs a multiply by 48 to go one way and a divide by 48 to come back, and
+/// `abi` has neither as an immediate form — the index↔address conversion happens on
+/// every resolve and every render walk, so paying 16 bytes a slot (4 KB across the
+/// table) to make it two shifts is the right trade twice over.
+///
+/// The two spare words are deliberately left unnamed. Phase 5's reference accounting
+/// and plan-116-J's resource ownership both want slot state, and a named-but-unused
+/// constant would be a promise about which.
+pub(crate) const CANVAS_GROUP_SLOT_BYTES: usize = 64;
+/// `log2(CANVAS_GROUP_SLOT_BYTES)` — the shift that converts a slot index to a byte
+/// offset. Spelled beside the size so the two cannot drift; `the_group_slot_size_is_a_power_of_two`
+/// checks they agree.
+pub(crate) const CANVAS_GROUP_SLOT_SHIFT: u8 = 6;
 
 /// A one-word header, placed **after** the slot array so that a slot is still
 /// `base + i * CANVAS_GROUP_SLOT_BYTES` and no addressing changes to accommodate it.

@@ -85,8 +85,33 @@ moment the radii happen to match."#;
 /// worth anything: publishing is three stores, rendering is the whole scene.
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
-  IF canvas::publishScene(items) THEN
+r#"' plan-116-G: the resolved-groups signature of the LAST present, so a `setGroup` under
+' a name this scene already referenced is seen as a change.
+'
+' A worker-thread global, which is what it must be: `present` runs on the worker, and
+' MFBASIC globals are per-thread (`.ai/canvas-threading.md` section 2). The graphics
+' thread has its own zeroed copy and never reads this one.
+MUT __CANVAS_LAST_GROUP_SIG AS List OF Integer = []
+
+FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
+  ' Two independent reasons to redraw, and both must be consulted.
+  '
+  ' `publishScene` compares the raw bytes of the item list, which catches a scene whose
+  ' ITEMS changed. It cannot catch a scene whose items are identical while a group's
+  ' contents were replaced -- a `Group` node is two floats and a string pointer, all
+  ' three unchanged by `setGroup` under the same name.
+  '
+  ' The signature is that second reason. Note the ordering: `publishScene` is called
+  ' FIRST and unconditionally, because it is what installs the scene; the signature is
+  ' then compared, and either one being new makes this a frame. The published items do
+  ' not need re-publishing when only the signature moved -- a group's contents live in
+  ' the group table and the renderer reads them from there -- so this asks for a
+  ' RE-RENDER, not a re-publish.
+  LET installed AS Boolean = canvas::publishScene(items)
+  LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
+  LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
+  __CANVAS_LAST_GROUP_SIG = sig
+  IF installed OR moved THEN
     canvas::publishHashes(__canvas_hashScene(items))
     __canvas_ensureGraphics()
     canvas::signalRedraw()
@@ -112,7 +137,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWrongMode"],
+            // plan-116-G: `ErrDepthExceeded` is REUSED rather than minted. Its existing
+            // definition — "structural nesting exceeds the implementation depth limit;
+            // the text is well-formed, it is just nested deeper than the reader will
+            // descend" — describes a group cycle exactly, and the caller's response is
+            // the same one it names: raise the limit or fix the structure. A
+            // canvas-specific twin would be a second code for one mistake.
+            errors: vec!["ErrWrongMode", "ErrDepthExceeded", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__canvas_present"),
         }],
     });

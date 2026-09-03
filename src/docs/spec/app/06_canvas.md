@@ -267,6 +267,16 @@ diagnosable, where sorting would silently draw a picture the program did not des
 Before the first stop and after the last, that end stop's colour holds; neither end
 extrapolates.
 
+**A gradient inside a `canvas::Group` moves with the group.** This is the one place
+the surface-anchored rule above is set aside, and deliberately: a group exists to be
+drawn somewhere else, and an item whose colours depend on where its group was placed is
+not reusable. `Paint.transform` still does not drag a gradient — that reshapes one item
+in place, which is a different thing from relocating a whole sub-picture.
+
+Concretely: the group's accumulated translation is subtracted from the point before `t`
+is computed, so the same group referenced at two offsets shows the same colours at
+corresponding points within it.
+
 **A gradient interpolates in linear light**, the same space compositing uses, through
 the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
 to linear, mixed, and re-encoded. A black-to-white ramp is therefore evenly bright

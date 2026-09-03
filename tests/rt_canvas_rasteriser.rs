@@ -87,6 +87,39 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
     (pixels, lines)
 }
 
+/// Build and run a program, returning its stdout — with no frame dump required.
+///
+/// `render` insists on a dump, which is right for every test that looks at pixels and
+/// wrong for one whose program is *supposed* to fail before presenting anything. Those
+/// tests assert on what the program printed from its `TRAP` handler, so the frame is
+/// not merely unnecessary, it is the thing that must not exist.
+fn render_stdout(name: &str, source: &str) -> (String, String) {
+    let project = common::temp_project(name, source);
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+    let binary = app_binary(&project, name);
+    let run = Command::new(&binary)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    let err = String::from_utf8_lossy(&run.stderr).to_string();
+    let _ = std::fs::remove_dir_all(&project);
+    (out, err)
+}
+
 /// The built executable, which on macOS is inside an `.app` bundle.
 fn app_binary(project: &std::path::Path, name: &str) -> std::path::PathBuf {
     let bundle = project
@@ -2449,10 +2482,8 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
 /// `fs::writeBytes` and that overwrites — must show green where `A'` is and background
 /// where `A` was.
 ///
-/// Un-ignored by **Phase 4**, which lands the resolution pass. Until then `setGroup`
-/// does not exist, so this cannot even compile as a program.
+/// Un-ignored by **Phase 4**, which landed the resolution pass.
 #[test]
-#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents() {
     let (frame, stats) = render(
         "canvas_group_revision",
@@ -2504,7 +2535,6 @@ fn a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents
 ///
 /// Un-ignored by **Phase 4**, with its sibling.
 #[test]
-#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn three_identical_presents_of_an_unchanged_group_draw_one_frame() {
     let (_, stats) = render(
         "canvas_group_no_revision",
@@ -2609,5 +2639,227 @@ fn set_group_deep_copies_and_remove_group_frees_nothing_yet() {
          **When plan-116-G Phase 5 lands that gate, this is the assertion to change** — \
          it should then become a drop, and this phase's leak is what gives that change \
          a measured `before`.",
+    );
+}
+
+/// A nested group renders at the **composed** offset, a diamond renders twice, and an
+/// absent name renders nothing (plan-116-G Phase 4).
+///
+/// One scene rather than three, because the interesting failures are ones that would
+/// pass a test of any single case: an implementation that ignored `dx`/`dy` entirely
+/// draws everything at the origin, and one that used the innermost offset instead of
+/// the accumulated one puts the nested group in the right *row* and the wrong column.
+/// Probing four disjoint places at once separates them.
+///
+/// The `entries=` assertion is the other half, and it is the performance claim this
+/// whole letter rests on: a group drawn at several offsets is **one** geometry cache
+/// entry, because the offset is applied at draw time and never enters the cache key.
+#[test]
+fn a_group_renders_at_its_offset_nested_diamond_and_absent() {
+    let (frame, stats) = render(
+        "canvas_group_offsets",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             canvas::setGroup(\"leaf\", [red])\n  \
+             canvas::setGroup(\"outer\", [canvas::Group[dx := 0.0, dy := 200.0, name := \"leaf\"]])\n  \
+             LET a AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"leaf\"]\n  \
+             LET b AS canvas::DrawItem = canvas::Group[dx := 300.0, dy := 100.0, name := \"leaf\"]\n  \
+             LET nested AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 100.0, name := \"outer\"]\n  \
+             LET absent AS canvas::DrawItem = canvas::Group[dx := 700.0, dy := 100.0, name := \"nope\"]\n  \
+             canvas::present([a, b, nested, absent])\n",
+        ),
+    );
+
+    assert_eq!(
+        pixel(&frame, 110, 110),
+        (255, 0, 0, 255),
+        "the group did not render at its own (100,100) offset",
+    );
+    assert_eq!(
+        pixel(&frame, 310, 110),
+        (255, 0, 0, 255),
+        "the SAME group did not render at a second offset — one node's offset is being \
+         applied to both, or the walk emits a group once however often it is named",
+    );
+    assert_eq!(
+        pixel(&frame, 510, 310),
+        (255, 0, 0, 255),
+        "the nested group did not render at the COMPOSED offset (500,100)+(0,200). Red \
+         at (510,110) instead would mean the inner group's own offset was dropped; red \
+         at (10,310) would mean the outer's was.",
+    );
+    assert_eq!(
+        pixel(&frame, 710, 110),
+        (0, 0, 0, 255),
+        "a `Group` naming a group that was never installed must draw nothing — and must \
+         not raise, which it would have before reaching this assertion",
+    );
+    assert_eq!(
+        pixel(&frame, 10, 10),
+        (0, 0, 0, 255),
+        "something drew at the origin, which is where every group lands if `dx`/`dy` \
+         are ignored entirely",
+    );
+
+    let entries = stats
+        .first()
+        .and_then(|l| {
+            l.split_whitespace()
+                .find_map(|f| f.strip_prefix("entries="))
+        })
+        .expect("an entries= field");
+    assert_eq!(
+        entries, "1",
+        "one rectangle drawn at three offsets must be ONE geometry cache entry: the \
+         offset is applied at draw time and is not part of the cache key. That is the \
+         performance claim groups exist for — {stats:?}",
+    );
+}
+
+/// A group nested past the depth limit raises, and so does one that references itself
+/// (plan-116-G Phase 4).
+///
+/// The two are the same error deliberately: a cycle *is* unbounded depth, and a program
+/// with a cycle and one with 65 honest levels need the same fix. Asserting they report
+/// identically is what pins that decision rather than leaving it to look like an
+/// accident.
+///
+/// The self-reference is the sharper of the two — it is one `setGroup` call, so an
+/// implementation with no depth bound at all hangs or overflows the stack here rather
+/// than failing an assertion.
+#[test]
+fn a_group_cycle_and_an_over_deep_chain_both_raise() {
+    for (name, body) in [
+        (
+            "canvas_group_cycle",
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             canvas::setGroup(\"self\", [red, canvas::Group[dx := 1.0, dy := 1.0, name := \"self\"]])\n  \
+             canvas::present([canvas::Group[dx := 0.0, dy := 0.0, name := \"self\"]]) TRAP(e)\n  \
+               io::print(\"raised \" & toString(e.code))\n  \
+               EXIT SUB\n  \
+             END TRAP\n  \
+             io::print(\"NO RAISE\")\n",
+        ),
+        (
+            "canvas_group_deep",
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             canvas::setGroup(\"g0\", [red])\n  \
+             MUT i AS Integer = 1\n  \
+             WHILE i <= 70\n  \
+               canvas::setGroup(\"g\" & toString(i), [canvas::Group[dx := 1.0, dy := 0.0, name := \"g\" & toString(i - 1)]])\n  \
+               i = i + 1\n  \
+             END WHILE\n  \
+             canvas::present([canvas::Group[dx := 0.0, dy := 0.0, name := \"g70\"]]) TRAP(e)\n  \
+               io::print(\"raised \" & toString(e.code))\n  \
+               EXIT SUB\n  \
+             END TRAP\n  \
+             io::print(\"NO RAISE\")\n",
+        ),
+    ] {
+        let (stdout, _) = render_stdout(name, &scene(body));
+        assert!(
+            stdout.contains("raised 77050024"),
+            "{name} must raise ErrDepthExceeded (7-705-0024) from `present`; got: \
+             {stdout:?}. \"NO RAISE\" means the depth bound is missing, and for the \
+             cycle case that would otherwise recurse until the stack ends.",
+        );
+    }
+}
+
+/// A gradient inside a group **moves with the group** — settling plan-116-G §4.5's open
+/// decision, and pinning it with the scene that can tell the two answers apart.
+///
+/// The decision was genuinely open. `Paint.fillGradient` is evaluated at the surface
+/// point against an axis read straight from the record, so a gradient is
+/// surface-anchored and `Paint.transform` does **not** drag it (`06_canvas.md` says so
+/// deliberately). A group offset could consistently have gone either way.
+///
+/// It moves, on this letter's own stated goal: a group exists to be *reused* — drawn
+/// somewhere else — and an item whose colours depend on where the group was placed is
+/// not reusable. `Paint.transform` is a different thing; it reshapes one item in place,
+/// so following it is not obviously the consistent choice.
+///
+/// The **diamond** is the test that can see this: one group referenced at two offsets.
+/// If the gradient moved with the group, corresponding points inside the two copies
+/// have the same colour. If it stayed surface-anchored, the second copy is a different
+/// slice of the ramp and the two disagree. Nothing simpler separates them — a single
+/// group at a single offset looks identical under both rules.
+#[test]
+fn a_gradient_inside_a_group_moves_with_the_group() {
+    let (frame, _) = render(
+        "canvas_group_gradient",
+        &scene(
+            "  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(0, 0, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 200.0, y := 0.0], stops := stops]\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             canvas::setGroup(\"bar\", [bar])\n  \
+             LET left AS canvas::DrawItem = canvas::Group[dx := 50.0, dy := 100.0, name := \"bar\"]\n  \
+             LET right AS canvas::DrawItem = canvas::Group[dx := 400.0, dy := 300.0, name := \"bar\"]\n  \
+             canvas::present([left, right])\n",
+        ),
+    );
+
+    // The same point WITHIN each copy: 30 px along a 200 px ramp, and 150 px along it.
+    for (dx, dy) in [(50usize, 100usize), (400usize, 300usize)] {
+        assert_eq!(
+            pixel(&frame, dx + 30, dy + 30),
+            pixel(&frame, 50 + 30, 100 + 30),
+            "the two copies of the group disagree 30px into the ramp, so the gradient \
+             did not move with the group — it stayed anchored to the surface, and the \
+             second copy is showing a different slice of it",
+        );
+        assert_eq!(
+            pixel(&frame, dx + 150, dy + 30),
+            pixel(&frame, 50 + 150, 100 + 30),
+            "the two copies disagree 150px into the ramp",
+        );
+    }
+
+    // And the ramp is a ramp, not a flat fill — otherwise the assertions above would
+    // hold trivially for any rule at all.
+    assert_ne!(
+        pixel(&frame, 50 + 10, 100 + 30),
+        pixel(&frame, 50 + 190, 100 + 30),
+        "the two ends of the ramp are the same colour, so nothing above was tested: a \
+         flat fill satisfies both anchoring rules",
+    );
+}
+
+/// A clipped item inside a translated group keeps its clip **where the surface
+/// rectangle is** — the group moves the shape through the clip, not the clip with it
+/// (plan-116-G §4.5, **G5**).
+///
+/// `Paint.clip` is defined as a surface rectangle that `Paint.transform` does not move
+/// (plan-116-B), and a group offset is treated the same way. This is the asymmetry G5
+/// flags: "evaluate the distance at `p - offset`" moves everything it reaches, and the
+/// clip must be one of the two things it deliberately does not.
+///
+/// The scene is arranged so the two answers are visibly different rather than subtly:
+/// a 200x200 square in a group translated by (300,0), clipped to the left half of where
+/// it lands. If the clip moved with the group it would land 300px further right and the
+/// square would be fully painted; if it stayed, the square's right half is cut.
+#[test]
+fn a_clip_inside_a_translated_group_stays_on_the_surface() {
+    let (frame, _) = render(
+        "canvas_group_clip",
+        &scene(
+            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(canvas::rgb(0, 200, 255)) { clip := canvas::Bounds[x := 300.0, y := 100.0, w := 100.0, h := 200.0] }]\n  \
+             canvas::setGroup(\"g\", [clipped])\n  \
+             canvas::present([canvas::Group[dx := 300.0, dy := 100.0, name := \"g\"]])\n",
+        ),
+    );
+
+    // The square lands at (300,100)-(500,300). The clip covers (300,100)-(400,300).
+    assert_eq!(
+        pixel(&frame, 350, 200),
+        (0, 200, 255, 255),
+        "the left half of the square — inside both the shape and the clip — is not painted",
+    );
+    assert_eq!(
+        pixel(&frame, 450, 200),
+        (0, 0, 0, 255),
+        "the right half of the square is painted, so the clip moved with the group. A \
+         clip is a SURFACE rectangle: the group translates the shape through it, and \
+         following the group would put this clip at (600,100) where it cuts nothing.",
     );
 }

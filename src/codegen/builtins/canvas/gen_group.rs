@@ -498,3 +498,265 @@ pub(crate) fn emit_group_bytes(
         text: symbol,
     })
 }
+
+/// The slot index a name resolves to, or `-1`.
+///
+/// `canvas::groupResolve(name) AS Integer`, internal-only. This is the **only** string
+/// lookup in the group machinery, and it happens on the worker inside `present` — the
+/// graphics thread never does one, because the resolution pass records what every group
+/// node resolved to and the renderer reads that back by index (§4.4).
+///
+/// `-1` rather than a raise for a name that is not installed: a `canvas::Group` naming
+/// an absent group is a documented silent no-op, and it is the caller's job to make
+/// that mean "draw nothing", not this function's to refuse.
+pub(crate) fn emit_group_resolve(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let name_in = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the name argument"))?
+        .location
+        .clone();
+
+    let name_slot = builder.allocate_stack_object("canvas_group_res_name", 8);
+    builder.emit(abi::store_u64(&name_in, abi::stack_pointer(), name_slot));
+    let found_slot = builder.allocate_stack_object("canvas_group_res_found", 8);
+    let free_slot = builder.allocate_stack_object("canvas_group_res_free", 8);
+    emit_slot_scan(
+        builder,
+        name_slot,
+        found_slot,
+        free_slot,
+        "canvas_group_resolve",
+    );
+
+    let miss = builder.label("canvas_group_resolve_miss");
+    let done = builder.label("canvas_group_resolve_done");
+    let found = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&found, abi::stack_pointer(), found_slot));
+    builder.emit(abi::compare_immediate(&found, "0"));
+    builder.emit(abi::branch_eq(&miss));
+
+    // The scan yields an ADDRESS; the caller wants an index, because that is what
+    // travels in the published signature list as a plain integer.
+    let base = groups_base(builder);
+    let index = builder.temporary_vreg();
+    builder.emit(abi::subtract_registers(&index, &found, &base));
+    builder.emit(abi::shift_right_immediate(
+        &index,
+        &index,
+        CANVAS_GROUP_SLOT_SHIFT,
+    ));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &index));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&miss));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::subtract_immediate(
+        RESULT_VALUE_REGISTER,
+        RESULT_VALUE_REGISTER,
+        1,
+    ));
+
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Integer,
+        location: Operand::from(RESULT_VALUE_REGISTER),
+        text: symbol,
+    })
+}
+
+/// A slot's revision word, or `0` for an out-of-range index.
+///
+/// `canvas::groupRevision(slot) AS Integer`, internal-only. Paired with the slot index
+/// in the published signature, this is what lets `publishScene` see a group's *contents*
+/// change when the scene list it is handed is byte-identical to the published one.
+pub(crate) fn emit_group_revision(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let slot_in = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the slot argument"))?
+        .location
+        .clone();
+
+    let out = builder.label("canvas_group_rev_out");
+    let done = builder.label("canvas_group_rev_done");
+    let index = builder.temporary_vreg();
+    builder.emit(abi::move_register(&index, &slot_in));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::compare_immediate(&index, "0"));
+    builder.emit(abi::branch_lt(&out));
+    builder.emit(abi::compare_immediate(
+        &index,
+        &CANVAS_MAX_GROUPS.to_string(),
+    ));
+    builder.emit(abi::branch_ge(&out));
+
+    let base = groups_base(builder);
+    let addr = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(
+        &addr,
+        &index,
+        CANVAS_GROUP_SLOT_SHIFT,
+    ));
+    builder.emit(abi::add_registers(&addr, &base, &addr));
+    builder.emit(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        &addr,
+        CANVAS_GROUP_REVISION,
+    ));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&out));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Integer,
+        location: Operand::from(RESULT_VALUE_REGISTER),
+        text: symbol,
+    })
+}
+
+/// A slot's installed items.
+///
+/// `canvas::groupItems(slot) AS List OF DrawItem`, internal-only.
+///
+/// A **copy**, for the same reason `canvas::installedItems` returns one: an MFBASIC
+/// collection is a value, and handing back the table's own block would alias storage a
+/// later `setGroup` replaces — and, once Phase 5's drain gate lands, storage that gets
+/// freed. The copy is charged to the frame that draws, not to `present`, which is the
+/// cost this letter set out to remove from the per-present path.
+///
+/// An empty list for an out-of-range index or an empty slot, so "this name was never
+/// installed" and "this group is empty" render identically — which is what makes an
+/// absent name a silent no-op rather than something the renderer has to branch on.
+pub(crate) fn emit_group_items(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let slot_in = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the slot argument"))?
+        .location
+        .clone();
+
+    let list_type = ParameterType::list_of(ParameterType::named("DrawItem"));
+    let empty = builder.label("canvas_group_items_empty");
+    let done = builder.label("canvas_group_items_done");
+
+    let index = builder.temporary_vreg();
+    builder.emit(abi::move_register(&index, &slot_in));
+    builder.emit(abi::compare_immediate(&index, "0"));
+    builder.emit(abi::branch_lt(&empty));
+    builder.emit(abi::compare_immediate(
+        &index,
+        &CANVAS_MAX_GROUPS.to_string(),
+    ));
+    builder.emit(abi::branch_ge(&empty));
+
+    let base = groups_base(builder);
+    let addr = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(
+        &addr,
+        &index,
+        CANVAS_GROUP_SLOT_SHIFT,
+    ));
+    builder.emit(abi::add_registers(&addr, &base, &addr));
+    let items = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&items, &addr, CANVAS_GROUP_ITEMS));
+    builder.emit(abi::compare_immediate(&items, "0"));
+    builder.emit(abi::branch_eq(&empty));
+
+    let copy = builder.copy_flat_block(&list_type, &items)?;
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &copy));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&empty));
+    let fresh = builder.lower_empty_collection(&list_type)?;
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &fresh.location));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+
+    builder.emit(abi::label(&done));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The slot size and its shift are two spellings of one number.
+    ///
+    /// Every index-to-address conversion in this file uses the shift, and every table
+    /// walk uses the size. If they disagree, a resolve returns an index that addresses
+    /// the middle of a neighbouring slot — reading a `revision` out of someone else's
+    /// `refs` and drawing a plausible wrong picture rather than failing.
+    #[test]
+    fn the_group_slot_size_is_a_power_of_two_matching_its_shift() {
+        assert_eq!(
+            1usize << CANVAS_GROUP_SLOT_SHIFT,
+            CANVAS_GROUP_SLOT_BYTES,
+            "CANVAS_GROUP_SLOT_SHIFT must be log2(CANVAS_GROUP_SLOT_BYTES): the \
+             conversion is a shift, so a slot size that is not a power of two \
+             silently addresses the wrong slot",
+        );
+        assert!(
+            CANVAS_GROUP_RETIRED_FRAME + 8 <= CANVAS_GROUP_SLOT_BYTES,
+            "the named slot words overflow a slot",
+        );
+    }
+
+    /// The owned-bytes header sits past every slot, so slot addressing never reaches it.
+    #[test]
+    fn the_owned_bytes_header_is_past_the_last_slot() {
+        assert_eq!(
+            CANVAS_GROUP_OWNED_BYTES,
+            CANVAS_MAX_GROUPS * CANVAS_GROUP_SLOT_BYTES,
+            "the header must begin exactly where the slot array ends, or a write to \
+             slot 255 and a write to the header are the same word",
+        );
+        assert!(
+            CANVAS_GROUP_TABLE_BYTES >= CANVAS_GROUP_OWNED_BYTES + 8,
+            "the table must be big enough to hold the header word it ends with",
+        );
+    }
+}

@@ -709,63 +709,66 @@ codegen-inspection — **G17**);
 Gates: `cargo test --release --bin mfb --no-fail-fast` → **3763 passed, 0 failed**;
 `rt_canvas_present_deep_copy` **7/7**; `scripts/test-accept.sh` → **1359 ran, 0 failed**,
 no golden moved; `cargo check --all-targets` → **0 warnings**.
-Commit: —
+Commit: c708d0711
 
 ### Phase 4 — Resolution, depth limit, frame skip, software rendering
 
-- [ ] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
+- [x] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
       depth-first, depth > 64 raises.
-- [ ] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
+- [x] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
       new code — it already means exactly this (**G3**) — with the §4.4 message, listed
       in `present`'s `errors:`, and `02_error-codes.md`'s row extended to name group
       nesting alongside `json::parse`. Re-check the code is still that constant before
       you rely on it; codes race between sessions and grepping the *name* never proves
       the *code*.
-- [ ] Fold each resolved group's `revision` into a **parallel signature block** that
+- [x] Fold each resolved group's `revision` into a **parallel signature block** that
       `publishScene` compares alongside the items — not into the published node, which
       has no room for it (§4.4, **G8**). An empty signature for a group-free scene must
       compare exactly as today.
-- [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
+- [x] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
-- [ ] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
+- [x] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
       (§4.5, **G5**). Enumerate the positional reads rather than reasoning from the
       distance path, which is what hid the glyph case.
-- [ ] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
+- [x] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
       **G5**), implement the decision in the oracle, document it in
       `06_canvas.md`, and pin it with the diamond test. Recommended: it follows.
-- [ ] The resolution pass records each group node's damage bounds as its resolved
-      children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
-      for group nodes. **This replaces Phase 2's empty header** (**G12**): the bounds
-      `__canvas_damageFor` reads are the geometry header's slots 16–19, so a group node
-      whose header stays empty damages a zero-area rectangle.
-      **Do not route that header through `__canvas_paintHeader`.** A `Group` carries no
-      `Paint`, and `paintHeader` decides "has this kind an interior" by reading slot 0
-      and counts `stops * 5` into slot 1 when it thinks the answer is yes — a record
-      that declares a stop tail `__canvas_tailFor` never appends reads the *next*
-      record's header as its data (plan-116-F **F17**/**F18**, 874 px wrong there).
-      Build the group header directly from `__canvas_blankHeader()`.
-- [ ] `__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`
-      (**G12**), for the reason `__canvas_hashGradient` exists: once the header carries
-      real data, two nodes agreeing on everything hashed collide in the geometry cache
-      and one draws the other's rectangle.
-- [ ] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
+- [x] ~~The resolution pass records each group node's damage bounds as its resolved
+      children's offset hull (§4.6)~~ — **moot: the walk expands a group away before any
+      damage list exists, so no group node reaches `__canvas_damageFor` to be given a
+      hull** (**G20**). Its children do, each carrying its own offset bounds, which is
+      the same rectangle the hull would have summarised and is per-child rather than
+      per-group. Evidence: `replacing_a_group_damages_where_the_group_draws` reports
+      `damage=498,298,105,105` for a 100x100 group drawn at (500,300) — the children's
+      real area, not a zero-area rectangle and not the window. The warning against
+      `__canvas_paintHeader` is thereby also moot and stays recorded: nothing builds a
+      group header at all.
+- [x] ~~`__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`~~ —
+      **moot for the same reason** (**G20**): a group node never reaches the geometry
+      cache, so `__canvas_groupHash` has no hull to fold and no cache entry to collide
+      in. It survives as the *scene* hash of a group node, which is what
+      `__canvas_hashScene` needs, and its name/`dx`/`dy` content is exactly right for
+      that. What replaced the collision risk is a real one solved elsewhere: each
+      expanded child's recorded hash folds in its accumulated offset, without which a
+      moved group reported `frames=1 skipped=1 damage=none` (**G21**).
+- [x] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
       GPU cannot draw one until plan-116-H, and a predicate that accepted a kind its
       shader does not know is the exact failure `.ai/canvas-threading.md` §10 records
       as having happened.
-- [ ] Un-ignore Phase 1's two tests.
-- [ ] Tests: a nested group renders at the composed offset; a diamond (two parents, one
+- [x] Un-ignore Phase 1's two tests.
+- [x] Tests: a nested group renders at the composed offset; a diamond (two parents, one
       child) renders twice and is legal; a 65-deep chain raises; a self-referencing
       group raises with the same error; a `Group` naming an absent group draws nothing
       and does **not** raise; a group drawn at two offsets produces **one** geometry
       cache entry (`MFB_CANVAS_STATS` `entries=`).
-- [ ] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
+- [x] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
       same group drawn at `(37, 53)` are the same picture translated — the diamond form
       is the sharp one, because it proves the ramp followed the shape rather than the
       buffer. A **`Text`** item in a translated group draws its glyphs at the offset and
       not blank — the glyph arm is on a different path from the distance one and a fix
       written for distances misses it. And a **clipped** item in a translated group
       keeps its clip where the surface rectangle is, not where the group moved to.
-- [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
+- [x] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
       `setGroup(A')` then an identical `present` yields a **partial** frame whose
       damage rectangle covers the group's drawn area (assert via the stats
       `damage=` field AND a repainted pixel inside the group, far from any other
@@ -774,6 +777,27 @@ Commit: —
 Acceptance: Phase 1's two frame-skip tests pass un-ignored; all six behavioural cases
 pass; every existing golden is byte-identical; a scene containing a `Group` is provably
 declined by both GPU predicates (assert via `MFB_CANVAS_STATS`, not by pixel equality).
+
+**MET.** Phase 1's two pass un-ignored. The six behavioural cases and the three **G5**
+cases are `a_group_renders_at_its_offset_nested_diamond_and_absent` (composed offset,
+diamond, absent name, nothing at the origin, and `entries=1` for one shape drawn at
+three offsets — the performance claim groups exist for),
+`a_group_cycle_and_an_over_deep_chain_both_raise`,
+`a_gradient_inside_a_group_moves_with_the_group`,
+`a_clip_inside_a_translated_group_stays_on_the_surface`,
+`text_inside_a_translated_group_draws_at_the_offset` (`rt_canvas_font`, where the font
+fixture lives), and the two damage tests
+`replacing_a_group_damages_where_the_group_draws` / `a_moved_group_repaints_both_positions`.
+
+The decline is `a_scene_containing_a_group_declines_to_software` (`rt_canvas_golden`),
+gated on `gpuFrames=0` with a group-free **control** scene asserted to still render on
+the GPU — without which the test would pass for any reason the scene was undrawable.
+
+Gates: `cargo test --release --bin mfb --no-fail-fast` **3765 passed, 0 failed**;
+`rt_canvas_rasteriser` 48, `rt_canvas_golden` 16, `rt_canvas_damage` 6,
+`rt_canvas_font` 13, `rt_canvas_graphics_thread` 8, all 0 failed;
+`scripts/test-accept.sh` **1359 ran, 0 failed** with no golden moved;
+`cargo check --all-targets` 0 warnings.
 Commit: —
 
 ### Phase 5 — Lifetime: the refcount and the drain gate (largest blast radius)
@@ -892,6 +916,70 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G20 (Phase 4) — §4.6's "give the group node a bounds hull" is moot, because the design
+that landed has no group node left to give one to.** The section assumes the published
+scene reaches the renderer with `Group` nodes still in it, so the node needs a hull for
+the damage diff to have a rectangle. What was built instead expands each group where the
+*draw list* is assembled (`__canvas_appendDraw`, called from `__canvas_sceneOffsets`), so
+the list every consumer sees — the render walk, the damage diff, both GPU predicates — is
+already flat and contains only leaf items, each carrying its accumulated `(dx, dy)`.
+
+That is strictly better for the thing §4.6 was protecting: damage is per **child**
+rectangle rather than per group hull, so replacing one item in a large group damages that
+item and not the group's whole extent. Measured — `replacing_a_group_damages_where_the_group_draws`
+reports `damage=498,298,105,105` for a 100×100 group drawn at (500,300).
+
+It also makes **G12**'s warning moot: nothing builds a group header, so nothing can route
+one through `__canvas_paintHeader`. The warning is left in the ledger rather than deleted,
+because the hazard it names is real and the next letter to give a `Group` a header will
+need it.
+
+**G21 (Phase 4) — two damage bugs the new tests caught, both of which made a group look
+unchanged.** Neither was reasoned out; both came from a red test.
+
+* **`__canvas_damageFor` offset the remembered bounds and not the current ones.**
+  `__canvas_rememberScene` was updated to store drawn (offset) rectangles, but the diff
+  reads *this* frame's bounds straight from the geometry header. The union of an
+  un-offset current rectangle and an offset previous one spans the gap between them:
+  replacing a group at (500,300) damaged `0,0,603,403`, from the origin outward.
+  Offsetting only one side is worse than offsetting neither.
+* **A child's recorded hash did not include the offset it was drawn at.** Moving a group
+  node changes no geometry — the same rectangle is in the cache — so the diff saw
+  identical hashes and reported nothing changed: `frames=1 skipped=1 damage=none` for a
+  group moved 500px. The recorded hash now folds in `gdx`/`gdy`.
+
+**G22 (Phase 4) — the depth raise belongs on the worker, not where the recursion is.**
+The natural place for the limit is `__canvas_appendDraw`, which is the function that
+recurses. That function runs on the **graphics thread**, where a `FAIL` has no `present`
+call to return to and no user frame to unwind — the program would not see the error and
+the thread's behaviour past it is undefined.
+
+The check therefore runs twice, in two different senses. `__canvas_groupSignature`, on
+the worker inside `present`, raises `ErrDepthExceeded`; it walks the same tree for the
+frame-skip signature it has to build anyway, so the check is free. `__canvas_appendDraw`
+keeps a *silent* bound at the same depth, unreachable because a drawn scene has already
+passed the worker's check, and kept because "unreachable" plus "recursion" plus "a table
+another thread can edit" is not a combination to leave unbounded.
+
+`ErrDepthExceeded` (`7-705-0024`) is **reused** rather than minted. Its existing text —
+"structural nesting exceeds the implementation depth limit; the text is well-formed, it
+is just nested deeper than the reader will descend" — describes a group cycle exactly,
+and the caller's response is the one it already names. `a_group_cycle_and_an_over_deep_chain_both_raise`
+asserts a cycle and a 71-deep chain report the same code, which is the decision that a
+cycle *is* unbounded depth made checkable.
+
+**G23 (Phase 4) — §4.5's gradient decision, settled: it follows the group.** The
+recommendation is taken, on the letter's own goal (1): a group exists to be drawn
+somewhere else, and an item whose colours depend on where its group was placed is not
+reusable. Implemented by making `px`/`py` the shape-space point, so the gradient
+evaluation needed no change of its own; `Paint.clip` and the surface write take the
+separate `spx`/`spy`.
+
+Documented in `06_canvas.md` and pinned by `a_gradient_inside_a_group_moves_with_the_group`,
+which is the diamond the section asks for — one group at two offsets, asserting
+corresponding points agree, plus an assertion that the ramp is not flat, without which
+both anchoring rules would satisfy the first two trivially.
 
 **G17 (Phase 3) — the deep-copy case had to be split in two, because the file the plan
 names cannot make the assertion the plan asks for.** The phase says

@@ -362,6 +362,113 @@ fn run_with_font(name: &str, source: &str) -> Vec<String> {
     lines
 }
 
+/// As `run_with_font`, plus the dumped RGBA frame.
+///
+/// A separate entry point rather than widening `run_with_font`: every other test here
+/// asserts on what the program printed, and a frame dump is a file those runs would
+/// write and never read.
+fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
+    let project = common::temp_project(name, source);
+    std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    let build = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    assert!(
+        build.status.success(),
+        "mfb build -app failed:\n{}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr),
+    );
+    let frame = project.join("frame.rgba");
+    let binary = app_binary(&project, name);
+    let out = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        out.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let pixels = std::fs::read(&frame).expect("the canvas dump");
+    let _ = std::fs::remove_dir_all(&project);
+    pixels
+}
+
+/// A `Text` item inside a translated group draws its glyphs **at the offset**
+/// (plan-116-G §4.5, **G5**).
+///
+/// This is the case a fix written for distance fields misses, and it is why G5 asks for
+/// the positional reads to be enumerated rather than reasoned about. A glyph is not a
+/// distance field: it is a cached coverage bitmap indexed by whole pixels from the run's
+/// origin, so "evaluate the distance at `p - offset`" never reaches it. Text in a
+/// translated group would then draw at the *untranslated* origin — the glyphs would be
+/// perfectly correct and in the wrong place, which no per-pixel comparison of the group's
+/// own area would notice.
+///
+/// The fixture glyph is a filled square at (100,0)-(400,300) in a 1000-unit em, so at
+/// size 200 an 'A' is a solid block roughly 60px across. Asserting both that ink IS at
+/// the offset and that there is NONE at the unoffset origin is what separates "moved
+/// correctly" from "drawn twice" and from "not drawn at all".
+#[test]
+fn text_inside_a_translated_group_draws_at_the_offset() {
+    const SOURCE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("font failed")
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := canvas::fontRef(face), size := 200.0, paint := canvas::fill(canvas::rgb(255, 255, 0))]
+  canvas::setGroup("label", [label])
+  canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
+  io::print("done")
+END SUB
+"#;
+    let frame = run_with_font_frame("canvas_group_text", SOURCE);
+    const W: usize = 900;
+    let lit = |x: usize, y: usize| -> bool {
+        let i = (y * W + x) * 4;
+        frame[i] > 128 && frame[i + 1] > 128
+    };
+    // The run is drawn at (40,120) inside the group, so it lands near (440,420).
+    let mut moved = 0;
+    let mut origin = 0;
+    for y in 0..640usize {
+        for x in 0..W {
+            if !lit(x, y) {
+                continue;
+            }
+            if x >= 400 && y >= 300 {
+                moved += 1;
+            } else {
+                origin += 1;
+            }
+        }
+    }
+    assert!(
+        moved > 500,
+        "the glyph run did not draw inside the group's translated quadrant: {moved} lit          pixels there. A glyph is a cached bitmap, not a distance field, so the rule          that moves every shape does not reach it unless the run's ORIGIN is moved.",
+    );
+    assert_eq!(
+        origin, 0,
+        "{origin} lit pixels outside the translated quadrant — the run was drawn at its          untranslated position as well as (or instead of) the offset one",
+    );
+}
+
 const MEASURE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT io

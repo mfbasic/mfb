@@ -120,7 +120,15 @@ FUNC __canvas_damageFor(hashes AS List OF Integer, offsets AS List OF Integer, w
       ' Both rectangles. An item that moved has to erase where it was as well as paint
       ' where it is, and the two are the same rectangle only when it did not move.
       LET offset AS Integer = collections::getOr(offsets, i, 0)
-      FOR EACH box IN [[__canvas_geoAt(offset, 16), __canvas_geoAt(offset, 17), __canvas_geoAt(offset, 18), __canvas_geoAt(offset, 19)], [collections::getOr(__CANVAS_LAST_BOUNDS, i * 4, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 1, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 2, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 3, 0.0)]]
+      ' plan-116-G: the CURRENT bounds are offset by this entry's accumulated group
+      ' translation, exactly as `__canvas_rememberScene` offsets the ones it stores.
+      ' Offsetting only the remembered side is worse than offsetting neither: the union
+      ' of an un-offset current rectangle and an offset previous one spans the distance
+      ' between them, so replacing a group's contents damaged from the ORIGIN out to the
+      ' group -- measured as `damage=0,0,603,403` for a group drawn at (500,300).
+      LET cgdx AS Float = collections::getOr(__CANVAS_DRAW_DX, i, 0.0)
+      LET cgdy AS Float = collections::getOr(__CANVAS_DRAW_DY, i, 0.0)
+      FOR EACH box IN [[__canvas_geoAt(offset, 16) + cgdx, __canvas_geoAt(offset, 17) + cgdy, __canvas_geoAt(offset, 18) + cgdx, __canvas_geoAt(offset, 19) + cgdy], [collections::getOr(__CANVAS_LAST_BOUNDS, i * 4, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 1, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 2, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 3, 0.0)]]
       LET bx0 AS Float = collections::getOr(box, 0, 0.0)
       LET by0 AS Float = collections::getOr(box, 1, 0.0)
       LET bx1 AS Float = collections::getOr(box, 2, 0.0)
@@ -184,10 +192,19 @@ END FUNC
 ' redrawn -- its pixels are already in the kept surface, and redrawing it would be the
 ' whole cost the damage rectangle exists to avoid.
 FUNC __canvas_boundsMeet(offset AS Integer, damage AS List OF Integer) AS Boolean
-  LET x0 AS Float = __canvas_geoAt(offset, 16)
-  LET y0 AS Float = __canvas_geoAt(offset, 17)
-  LET x1 AS Float = __canvas_geoAt(offset, 18)
-  LET y1 AS Float = __canvas_geoAt(offset, 19)
+  RETURN __canvas_boundsMeetOffset(offset, damage, 0.0, 0.0)
+END FUNC
+
+' plan-116-G: the same test, against bounds translated by an item's accumulated group
+' offset. `__canvas_boundsMeet` is the no-group case and now delegates, so there is one
+' rectangle test rather than two that could disagree -- a partial redraw that used the
+' UNTRANSLATED bounds here would skip exactly the items a translated group moved, and
+' the screen would appear to update only on full redraws.
+FUNC __canvas_boundsMeetOffset(offset AS Integer, damage AS List OF Integer, gdx AS Float, gdy AS Float) AS Boolean
+  LET x0 AS Float = __canvas_geoAt(offset, 16) + gdx
+  LET y0 AS Float = __canvas_geoAt(offset, 17) + gdy
+  LET x1 AS Float = __canvas_geoAt(offset, 18) + gdx
+  LET y1 AS Float = __canvas_geoAt(offset, 19) + gdy
   IF x1 <= x0 OR y1 <= y0 THEN
     RETURN FALSE
   END IF
@@ -208,13 +225,29 @@ END FUNC
 
 ' Remember what was drawn, so the next frame has something to diff against.
 SUB __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Integer)
+  ' plan-116-G section 4.6: the bounds recorded are the ones the item was DRAWN at, so
+  ' translated by its accumulated group offset. Recording the untranslated rectangle
+  ' would make the next frame's diff damage an area the item does not occupy -- the
+  ' partial-redraw path would then clear and repaint the wrong region, which reads as
+  ' "the screen only updates on full redraws".
+  '
+  ' A group NODE contributes nothing here, and correctly: the walk expanded it, so what
+  ' is in `offsets` is its children, each already carrying the hull the node would
+  ' otherwise have to summarise. A diamond's child appears once per reference, at each
+  ' reference's offset, which is exactly the area it can touch.
   MUT bounds AS List OF Float = []
-  FOR EACH offset IN offsets
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 16))
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 17))
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 18))
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 19))
-  NEXT
+  MUT bi AS Integer = 0
+  LET boundCount AS Integer = len(offsets)
+  WHILE bi < boundCount
+    LET offset AS Integer = collections::getOr(offsets, bi, 0)
+    LET gdx AS Float = collections::getOr(__CANVAS_DRAW_DX, bi, 0.0)
+    LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, bi, 0.0)
+    bounds = collections::append(bounds, __canvas_geoAt(offset, 16) + gdx)
+    bounds = collections::append(bounds, __canvas_geoAt(offset, 17) + gdy)
+    bounds = collections::append(bounds, __canvas_geoAt(offset, 18) + gdx)
+    bounds = collections::append(bounds, __canvas_geoAt(offset, 19) + gdy)
+    bi = bi + 1
+  END WHILE
   __CANVAS_LAST_BOUNDS = bounds
   MUT kept AS List OF Integer = []
   FOR EACH h IN hashes

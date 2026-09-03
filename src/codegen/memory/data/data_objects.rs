@@ -214,6 +214,9 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.setGroup",
             "canvas.groupCount",
             "canvas.groupBytes",
+            "canvas.groupResolve",
+            "canvas.groupRevision",
+            "canvas.groupItems",
             "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",
@@ -271,6 +274,9 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             // its data object — without the row the relocation the raise already
             // emitted dangles at link time (the bug-256 class).
             err_msg("ErrCanvasGroupLimit"),
+            // plan-116-G: `canvas::present` raises this when a group's nesting exceeds
+            // 64 levels, which is also how a cycle reports.
+            err_msg("ErrDepthExceeded"),
         ] {
             push_string_value(&mut values, value);
         }

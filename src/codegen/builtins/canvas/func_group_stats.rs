@@ -5,8 +5,12 @@
 //! worker-owned state — and the group table is worker-owned state living in a
 //! process-global block no MFBASIC expression can reach.
 
-use super::gen_group::{emit_group_bytes, emit_group_count};
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use super::gen_group::{
+    emit_group_bytes, emit_group_count, emit_group_items, emit_group_resolve, emit_group_revision,
+};
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+};
 use crate::types::ParameterType;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -36,6 +40,69 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Integer,
             errors: vec![],
             body: Body::abi_function(emit_group_bytes),
+        }],
+    });
+    // The resolver trio. `present` uses these to turn every `canvas::Group` node's name
+    // into a slot index once, on the worker, so the graphics thread never does a string
+    // lookup (section 4.4).
+    pkg.add_function(RegistryFunction {
+        name: "groupResolve",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "name",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(emit_group_resolve),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "groupRevision",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "slot",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(emit_group_revision),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "groupItems",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "slot",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::named("DrawItem")),
+            errors: vec!["ErrOutOfMemory"],
+            body: Body::abi_function(emit_group_items),
         }],
     });
 }

@@ -1085,3 +1085,70 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
         );
     }
 }
+
+/// A scene containing a `canvas::Group` declines to software (plan-116-G Phase 4).
+///
+/// Until plan-116-H teaches the backends the per-draw offset, a GPU that accepted such a
+/// scene would draw every group's children at the **origin** — the item blocks it
+/// uploads carry each shape's own coordinates, and the group translation lives only in
+/// the software walk. That is a plausible wrong picture reported as success, which
+/// `.ai/canvas-threading.md` §10 records as having happened once already.
+///
+/// Asserted on `gpuFrames=0`, not by comparing pixels. A declined frame is drawn by the
+/// software renderer, which is the oracle, so it matches any reference by construction —
+/// pixel equality here would pass whether the decline worked or not.
+///
+/// The predicates read the walk's own `__CANVAS_DRAW_HAS_GROUP` flag rather than
+/// searching the scene for a `Group` item, and that is the subtlety worth stating: by
+/// the time a predicate sees the offsets list the walk has already expanded every group
+/// away, so a search would find nothing and accept the frame.
+#[test]
+fn a_scene_containing_a_group_declines_to_software() {
+    let (_, stats) = render_gpu("canvas_group_declines", GROUP_SCENE);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a scene containing a `canvas::Group` was rendered on the GPU. No backend knows \
+         the per-draw offset until plan-116-H, so accepting the frame means every \
+         group's children were drawn at the origin: {stats}"
+    );
+    // And the control: the same scene with the group replaced by the item itself IS
+    // rendered on the GPU, so the assertion above is about groups and not about the
+    // scene being undrawable for some other reason.
+    let (_, flat) = render_gpu("canvas_group_declines_control", FLAT_SCENE);
+    if flat.contains("metalReady=TRUE") || flat.contains("vulkanReady=TRUE") {
+        assert!(
+            !flat.contains("gpuFrames=0"),
+            "the group-free control scene was also declined, so the assertion above \
+             proves nothing about groups: {flat}"
+        );
+    }
+}
+
+const GROUP_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::setGroup("panel", [red])
+  canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
+  io::print("rendered")
+END SUB
+"#;
+
+const FLAT_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::present([red])
+  io::print("rendered")
+END SUB
+"#;

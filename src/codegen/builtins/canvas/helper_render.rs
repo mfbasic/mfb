@@ -56,11 +56,23 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
       y = y + 1
     END WHILE
   END IF
-  FOR EACH offset IN offsets
-    IF full OR __canvas_boundsMeet(offset, damage) THEN
-      buffer = __canvas_drawGeometry(buffer, width, height, offset)
+  ' plan-116-G: indexed rather than `FOR EACH`, because each draw entry now carries an
+  ' accumulated group translation alongside its geometry offset. The two travel in
+  ' parallel globals written by `__canvas_sceneOffsets`, the arrangement
+  ' `__CANVAS_GEO_LIVE` already uses in that function -- one list per fact, indexed
+  ' together. A scene with no groups leaves every entry at 0.0 and draws exactly what it
+  ' drew before this letter.
+  MUT di AS Integer = 0
+  LET drawCount AS Integer = len(offsets)
+  WHILE di < drawCount
+    LET offset AS Integer = collections::getOr(offsets, di, 0)
+    LET gdx AS Float = collections::getOr(__CANVAS_DRAW_DX, di, 0.0)
+    LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, di, 0.0)
+    IF full OR __canvas_boundsMeetOffset(offset, damage, gdx, gdy) THEN
+      buffer = __canvas_drawGeometry(buffer, width, height, offset, gdx, gdy)
     END IF
-  NEXT
+    di = di + 1
+  END WHILE
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
@@ -119,10 +131,131 @@ END FUNC"#;
 /// them the one triangle.
 #[rustfmt::skip]
 const RENDER_METAL: &str =
-r#"FUNC __canvas_sceneOffsets() AS List OF Integer
+r#"' plan-116-G: the accumulated group translation of each draw entry, parallel to the
+' offsets list `__canvas_sceneOffsets` returns, and whether any group was expanded.
+'
+' Parallel globals rather than a widened return, because that return is consumed by
+' four callers -- the render walk, both `*Renderable` predicates and the damage pass --
+' which all index it one entry per item. Widening it to a strided record would touch
+' every one of them to express something three of them never read.
+MUT __CANVAS_DRAW_DX AS List OF Float = []
+MUT __CANVAS_DRAW_DY AS List OF Float = []
+MUT __CANVAS_DRAW_HAS_GROUP AS Boolean = FALSE
+
+' The hash of each DRAW entry, which is not the same list as the scene's hashes once a
+' group is expanded: one `Group` node becomes N children.
+'
+' The damage diff pairs hashes with offsets by index, so it needs the expanded list or
+' its two sides are different lengths and every group scene falls back to a full redraw.
+' For a group-free scene this records exactly what `canvas::installedHashes()` holds --
+' the value is passed straight through -- so nothing about damage changes for a scene
+' that uses no groups.
+MUT __CANVAS_DRAW_HASHES AS List OF Integer = []
+
+LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
+
+' One draw entry, or a whole group's worth of them.
+'
+' The recursion section 4.4 describes, done where the draw list is built rather than as
+' a separate pass over the published scene: it is the same walk either way, and doing it
+' here means the offsets list a renderer receives is already flat, so no consumer of it
+' has to know groups exist.
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, depth AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = offsets
+  MATCH item
+    CASE Group(g)
+      __CANVAS_DRAW_HAS_GROUP = TRUE
+      ' Depth is counted per PATH, so a diamond -- two parents naming one child -- is
+      ' legal and costs one level rather than two.
+      '
+      ' This stop is SILENT, and that is not the missing half of the depth rule. The
+      ' raise happens on the WORKER, in `__canvas_groupSignature` inside `present`,
+      ' because this function runs on the GRAPHICS THREAD -- a `FAIL` here has no
+      ' `present` call to reach and no user frame to unwind to. By the time a scene is
+      ' being drawn it has already passed the worker's check, so this is unreachable;
+      ' it is here because "unreachable" plus "recursion" plus "a table another thread
+      ' can edit" is not a combination to leave without a bound.
+      IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+        RETURN out
+      END IF
+      ' An unresolved name draws nothing and does NOT raise: `canvas::groupItems`
+      ' answers an empty list for the -1 a miss returns, so the loop runs zero times and
+      ' no branch is needed to make an absent group a silent no-op.
+      FOR EACH child IN canvas::groupItems(canvas::groupResolve(g.name))
+        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), gdx + g.dx, gdy + g.dy, depth + 1)
+      NEXT
+      RETURN out
+    CASE ELSE
+      LET offset AS Integer = __canvas_geometryFor(item, hash)
+      out = collections::append(out, offset)
+      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+      __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, gdx)
+      __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, gdy)
+      ' The accumulated offset is folded into the recorded hash, not just carried
+      ' beside it. The damage diff asks "is entry i the same as it was", and for an item
+      ' inside a group the answer depends on WHERE the group put it: the geometry is
+      ' identical when a node's `dx`/`dy` change, so a hash that ignored the offset
+      ' reported "nothing changed" and the moved group was never repainted -- measured
+      ' as `frames=1 skipped=1 damage=none` for a group moved 500px.
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, gdx), gdy))
+      RETURN out
+  END MATCH
+END FUNC
+
+' The resolved-groups signature of a scene: `(slot, revision)` for every group node it
+' reaches, depth-first, in scene order (section 4.4).
+'
+' This is what lets `present` see a group's CONTENTS change when the scene list it is
+' handed is byte-identical to the published one. `publishScene` compares the raw bytes
+' of the item list, and a `Group` node's bytes are two floats and a string pointer --
+' all three unchanged by a `setGroup` under the same name. Without this the second
+' `present` is skipped and the program draws the old group forever, with nothing raised.
+'
+' It runs on the WORKER, inside `present`, which is also why the depth limit is enforced
+' here: this is the only place with a user call to fail back to.
+FUNC __canvas_groupSignature(items AS List OF DrawItem, depth AS Integer) AS List OF Integer
+  MUT sig AS List OF Integer = []
+  FOR EACH item IN items
+    MATCH item
+      CASE Group(g)
+        IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+          FAIL error(77050024, "canvas group nesting exceeded " & toString(__CANVAS_GROUP_MAX_DEPTH) & " levels -- this is a cycle or a bug")
+        END IF
+        LET slot AS Integer = canvas::groupResolve(g.name)
+        sig = collections::append(sig, slot)
+        sig = collections::append(sig, canvas::groupRevision(slot))
+        FOR EACH inner IN __canvas_groupSignature(canvas::groupItems(slot), depth + 1)
+          sig = collections::append(sig, inner)
+        NEXT
+      CASE ELSE
+        sig = sig
+    END MATCH
+  NEXT
+  RETURN sig
+END FUNC
+
+FUNC __canvas_intListEquals(a AS List OF Integer, b AS List OF Integer) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < len(a)
+    IF collections::getOr(a, i, 0) <> collections::getOr(b, i, 0) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+FUNC __canvas_sceneOffsets() AS List OF Integer
   MUT offsets AS List OF Integer = []
   LET hashes AS List OF Integer = canvas::installedHashes()
   MUT index AS Integer = 0
+  __CANVAS_DRAW_DX = []
+  __CANVAS_DRAW_DY = []
+  __CANVAS_DRAW_HASHES = []
+  __CANVAS_DRAW_HAS_GROUP = FALSE
   ' Published as it goes, not at the end. The geometry cache is smaller than a large
   ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
   ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
@@ -130,21 +263,17 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   ' silently, because their cache indices were renumbered out from under the offsets
   ' this function had already returned.
   __CANVAS_GEO_LIVE = []
+  ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
+  ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
+  ' resolved before the call writes into the block that pass released
+  ' (`.ai/collections.md`). `__canvas_appendDraw` keeps that discipline.
   FOR EACH item IN canvas::installedItems()
-    ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
-    ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
-    ' resolved before the call writes into the block that pass released
-    ' (`.ai/collections.md`).
-    LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-    offsets = collections::append(offsets, offset)
-    __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+    offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
     index = index + 1
   NEXT
   FOR EACH layer IN canvas::installedLayers()
     FOR EACH item IN layer.items
-      LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-      offsets = collections::append(offsets, offset)
-      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+      offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
       index = index + 1
     NEXT
   NEXT
@@ -241,6 +370,15 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
+  ' plan-116-G: decline any scene that contained a group, until plan-116-H teaches the
+  ' backends the per-draw offset. Read from the walk's own flag rather than by looking
+  ' for a `Group` item, because by the time a predicate sees this list the walk has
+  ' already expanded every group away -- searching for one would find nothing and the
+  ' GPU would draw every group's children at the ORIGIN, which is a plausible wrong
+  ' picture reported as success (`.ai/canvas-threading.md` section 10).
+  IF __CANVAS_DRAW_HAS_GROUP THEN
+    RETURN FALSE
+  END IF
   RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
@@ -317,6 +455,15 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+    RETURN FALSE
+  END IF
+  ' plan-116-G: decline any scene that contained a group, until plan-116-H teaches the
+  ' backends the per-draw offset. Read from the walk's own flag rather than by looking
+  ' for a `Group` item, because by the time a predicate sees this list the walk has
+  ' already expanded every group away -- searching for one would find nothing and the
+  ' GPU would draw every group's children at the ORIGIN, which is a plausible wrong
+  ' picture reported as success (`.ai/canvas-threading.md` section 10).
+  IF __CANVAS_DRAW_HAS_GROUP THEN
     RETURN FALSE
   END IF
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
@@ -431,7 +578,13 @@ FUNC __canvas_renderFrame() AS Nothing
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
-  LET hashes AS List OF Integer = canvas::installedHashes()
+  ' plan-116-G: the EXPANDED hashes, written by the walk above, not
+  ' `canvas::installedHashes()`. The damage diff pairs hashes with offsets by index, and
+  ' expanding one `Group` node into N children makes those two lists different lengths
+  ' -- which `__canvas_damageFor` detects and answers with a full redraw, so a group
+  ' scene would silently never take the partial path. For a group-free scene this list
+  ' is `installedHashes()` passed through unchanged.
+  LET hashes AS List OF Integer = __CANVAS_DRAW_HASHES
   LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
   __CANVAS_DAMAGE = damage
   IF len(damage) = 0 THEN
