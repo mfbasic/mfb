@@ -475,7 +475,7 @@ pre-existing golden is byte-identical.
 - Sanity on the shape itself: an `Ellipse` at `rx = 200, ry = 80` renders **50,726**
   lit pixels against an area of `PI·200·80 = 50,265` — the excess is the antialiased
   perimeter, which is about the right size for a ~900 px rim.
-Commit: —
+Commit: 72cfa908d
 
 ### Phase 4 — Metal and Vulkan
 
