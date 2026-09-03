@@ -63,8 +63,12 @@ the amended `DrawItem` frozen-set language this letter's docs build on.
   interpolated in linear light.
 - A `Gradient` with fewer than two stops is a no-op: the item fills with `paint.fill`,
   byte-identically to today.
-- The gradient is evaluated in **surface pixel coordinates**, so it composes with
-  `Paint.transform` the same way the shape does.
+- The gradient is evaluated in **surface pixel coordinates**. ~~so it composes with
+  `Paint.transform` the same way the shape does.~~ — the second clause is wrong and is
+  where the error in the shipped docs came from (**F14**): evaluating in surface pixels
+  is precisely what stops the ramp being carried by `Paint.transform`. A rotated item
+  spins its shape through a ramp that stays put. The *behaviour* here is what this
+  letter built and tested; only the sentence was wrong.
 
 ### Non-goals (explicit constraints)
 
@@ -529,7 +533,8 @@ Commit: 8c4fa49a6
       same way the shape does" — it does not, and the sentence says the opposite of
       what the code does (**F14**). Three places: `Gradient`'s and
       `Paint.fillGradient`'s descriptions in `mod.rs`, and the gradient subsection
-      of `06_canvas.md`.
+      of `06_canvas.md` — and this document's own §1 goal line, which is where the
+      sentence came from.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
 2228 RELEASE** (corrected from "mac+RELEASE and linux+DEBUG" per **E6**: CI is
@@ -582,6 +587,12 @@ likewise reads `gradFX`/`gradFY` straight from the record with no transform appl
 (`sed -n 342,350p src/codegen/builtins/canvas/helper_items.rs`). So a rotated item spins
 its shape through a ramp that stays put in surface space. That is the *opposite* of
 "composes the same way the shape does".
+
+**The behaviour is correct and was specified; only the prose is wrong.** §1's goal line
+asked for "evaluated in **surface pixel coordinates**", which is exactly what all three
+renderers do — so this is not a behaviour bug and nothing needs re-rendering. The
+trailing clause of that same goal line is the error, and it was copied verbatim into
+both registry descriptions and the spec.
 
 Found while settling plan-116-G's **G5**, which is the good argument for having asked:
 the question "does a group offset move the ramp?" is unanswerable while the transform
