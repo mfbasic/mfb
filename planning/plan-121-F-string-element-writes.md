@@ -348,11 +348,9 @@ of five do** (`map (Record-Dynamic)` A, `map (State-Dynamic)` B, and
 inlined-container `list` rows are unchanged. Falling back on the acceptance's
 own alternative: **the residual is documented above with its measurement and its
 owning sub-plan**, including the failed attempt and the lead for the next one.
-Commit: —
+Commit: 6034def38
 
-Acceptance: the five String-`set` rows in §2 each reach grade B or better, or the
-residual is documented with a measurement naming which sub-plan owns it.
-Commit: —
+*(The Phase 3 acceptance is stated in full above, with its measurement.)*
 
 ## Validation Plan
 

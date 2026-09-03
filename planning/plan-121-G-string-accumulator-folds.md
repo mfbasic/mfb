@@ -209,7 +209,7 @@ Acceptance: **MET.** `p121g-reduce-accumulator-rt` exists and passes at HEAD
 across all fifteen shapes; the `reduceRight` direction is answered by the test
 (`543210` — accumulator left, elements reversed, so still a left-append), not by
 reasoning. No `src/` change in this phase.
-Commit: —
+Commit: 3ccc68297
 
 ### Phase 2 — Grown-buffer accumulator for the self-concat reducer
 
@@ -286,7 +286,7 @@ and both pre-existing fixtures' **run output is byte-identical**, checked
 directly. Wider than Phase 1's predicted one root, but in the same direction and
 for the same reason F2 records: the census counted `.ncodesum` roots, and these
 three carry `.ir` goldens instead.
-Commit: —
+Commit: 6034def38
 
 ### Phase 3 — Re-rank
 
@@ -321,7 +321,7 @@ rows sit at 15.8–19.9×. Closing that last stretch is a constant-factor questi
 about String append cost against a C buffer append, which is a different subject
 from this sub-plan's (reachability of an existing mechanism) and is not absorbed
 here.
-Commit: —
+Commit: 6034def38
 
 
 

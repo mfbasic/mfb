@@ -213,7 +213,7 @@ recorded above, and branch **(a)** is chosen on that evidence — with `isSubset
 as a within-family control that independently refutes (b). No source change
 landed in this phase: the instrumentation lives in two standalone probe programs
 outside the repo, so there was nothing to revert.
-Commit: —
+Commit: 72420940d
 
 ### Phase 2a — Make the rows do comparable work (only if Phase 1 says (a))
 
@@ -278,7 +278,7 @@ cause." The grade is now justified **and** good, so no follow-up is filed: the
 265–412× was the benchmark, not the implementation, which is exactly what Phase 1
 predicted and what `isSubset` (1 probe in both languages, always grade A) proved
 before a line was changed.
-Commit: —
+Commit: 72420940d
 
 ### Phase 2b — File the real root cause (only if Phase 1 says (b))
 
@@ -306,7 +306,7 @@ Commit: —
 
 Acceptance: ~~the follow-up plan exists~~ — **not applicable; branch (b) was not
 taken.** The acceptance that governs is Phase 2a's.
-Commit: — (no commit: nothing to do)
+Commit: 6034def38 (no commit: nothing to do)
 
 ### Phase 3 — Record the caveat in the ranking system
 
@@ -327,7 +327,7 @@ Whatever Phase 1 concluded, the ranking must not repeat this mistake silently.
 
 Acceptance: both documents state the caveat; `./benchmark/rank.py` output is
 unchanged (this is a documentation phase).
-Commit: —
+Commit: 6034def38
 
 ## Validation Plan
 
