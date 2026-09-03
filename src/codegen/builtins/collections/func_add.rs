@@ -152,5 +152,6 @@ pub(crate) fn lower_add(
         &set.type_,
         &element_type,
         &ParameterType::Boolean,
+        None,
     )
 }

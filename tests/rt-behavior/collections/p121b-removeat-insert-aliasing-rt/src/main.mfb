@@ -1,0 +1,174 @@
+IMPORT io
+IMPORT collections
+
+' plan-121-B: `insert` and `removeAt` now mutate a uniquely-owned MUT local in
+' place instead of allocating a fresh block per call. In-place is only sound
+' while nothing else can observe the buffer, so this fixture is the aliasing
+' matrix: every case here must produce exactly what the copying path produced.
+'
+' The important asymmetry -- and the reason the gate inventory exists -- is that
+' `append` may proceed under a live `FOR EACH` (it writes only PAST the count
+' the loop snapshotted at entry) while `removeAt` may not: it shifts survivors
+' DOWN, rewriting entries BELOW that snapshot, which the loop can observe.
+' `insert` shifts up from an index inside the snapshot and is equally visible.
+' Both must decline and take the copying path, which is what cases 1 and 2 pin.
+
+' Case 1: removeAt on the list being iterated. The loop must walk the ORIGINAL
+' four elements -- it snapshotted them -- and `xs` must still lose one per turn.
+FUNC removeAtDuringForEach() AS Integer
+  MUT xs AS List OF String = ["aa", "bb", "cc", "dd"]
+  MUT seen AS String = ""
+  FOR EACH x IN xs
+    seen = seen & x & ","
+    IF len(xs) > 0 THEN
+      xs = collections::removeAt(xs, 0)
+    END IF
+  NEXT
+  io::print("1 seen=" & seen & " left=" & toString(len(xs)))
+  RETURN 0
+END FUNC
+
+' Case 2: insert on the list being iterated.
+FUNC insertDuringForEach() AS Integer
+  MUT xs AS List OF String = ["aa", "bb", "cc"]
+  MUT seen AS String = ""
+  FOR EACH x IN xs
+    seen = seen & x & ","
+    xs = collections::insert(xs, 0, "z" & x)
+  NEXT
+  io::print("2 seen=" & seen & " len=" & toString(len(xs)))
+  FOR EACH y IN xs
+    io::print("  2 y=" & y)
+  NEXT
+  RETURN 0
+END FUNC
+
+' Case 3: a second binding taken BEFORE the call. Value semantics say `snap` is
+' an independent copy, so mutating `xs` in place must not be visible through it.
+' This is the case an over-eager in-place arm silently breaks.
+FUNC secondBindingTakenFirst() AS Integer
+  MUT xs AS List OF Integer = [1, 2, 3, 4, 5]
+  LET snap AS List OF Integer = xs
+  xs = collections::removeAt(xs, 0)
+  xs = collections::removeAt(xs, 0)
+  xs = collections::insert(xs, 0, 99)
+  io::print("3 snap=" & toString(len(snap)) & ":" & toString(collections::get(snap, 0)))
+  io::print("3 xs=" & toString(len(xs)) & ":" & toString(collections::get(xs, 0)))
+  RETURN 0
+END FUNC
+
+' Case 4: a parameter is a COPY, so mutating it in place must not reach the
+' caller's list. (The gate inventory's G1 -- decline on a `by_ref` local -- is
+' unreachable for these arms: a local is only `by_ref` when it is bound to a
+' by-reference lambda capture, and a MFBASIC lambda body is a single expression,
+' so no reassignment can appear inside one. G1 is kept as defence in depth, not
+' because a program can reach it. What IS reachable, and what this case pins, is
+' that a by-value parameter must not write through to the argument.)
+FUNC dropFirst(ys AS List OF Integer) AS Integer
+  MUT local AS List OF Integer = ys
+  local = collections::removeAt(local, 0)
+  local = collections::insert(local, 1, 77)
+  RETURN len(local)
+END FUNC
+
+FUNC throughParameter() AS Integer
+  MUT xs AS List OF Integer = [10, 20, 30]
+  LET n AS Integer = dropFirst(xs)
+  MUT out AS String = ""
+  FOR EACH v IN xs
+    out = out & toString(v) & ","
+  NEXT
+  io::print("4 callee=" & toString(n) & " caller=" & out)
+  RETURN 0
+END FUNC
+
+' Case 5: the ordinary in-place path, exercised at every boundary index and past
+' a geometric grow, so the shift arithmetic is checked and not just the gates.
+' Read back EVERY element -- a partial entry/offset fixup reads correctly for the
+' first few and returns garbage after, which a length check alone cannot see.
+FUNC boundariesAndGrow() AS Integer
+  MUT xs AS List OF String = []
+  FOR i = 0 TO 39
+    xs = collections::append(xs, "e" & toString(i))
+  NEXT
+  xs = collections::removeAt(xs, 0)
+  xs = collections::removeAt(xs, len(xs) - 1)
+  xs = collections::removeAt(xs, 17)
+  xs = collections::insert(xs, 0, "front")
+  xs = collections::insert(xs, len(xs), "back")
+  xs = collections::insert(xs, 20, "mid")
+  MUT acc AS String = ""
+  FOR EACH s IN xs
+    acc = acc & s & "|"
+  NEXT
+  io::print("5 len=" & toString(len(xs)))
+  io::print("5 all=" & acc)
+  RETURN 0
+END FUNC
+
+' Case 6: a single-element list -- removeAt(0) must empty it, and insert into the
+' empty list must work at index 0. Off-by-one territory for the shift loops.
+FUNC singleElement() AS Integer
+  MUT xs AS List OF Integer = [42]
+  xs = collections::removeAt(xs, 0)
+  io::print("6 empty=" & toString(len(xs)))
+  xs = collections::insert(xs, 0, 7)
+  io::print("6 one=" & toString(len(xs)) & ":" & toString(collections::get(xs, 0)))
+  RETURN 0
+END FUNC
+
+' Case 7: fixed-width elements take the entry-free representation (plan-57-D),
+' where element i lives at i*payload and there is no lookup table -- a different
+' code path from the String cases above. Read every element back.
+FUNC fixedWidthPath() AS Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO 19
+    xs = collections::append(xs, i)
+  NEXT
+  xs = collections::removeAt(xs, 0)
+  xs = collections::removeAt(xs, 5)
+  xs = collections::insert(xs, 0, 100)
+  xs = collections::insert(xs, 10, 200)
+  MUT acc AS String = ""
+  FOR EACH v IN xs
+    acc = acc & toString(v) & ","
+  NEXT
+  io::print("7 len=" & toString(len(xs)))
+  io::print("7 all=" & acc)
+  RETURN 0
+END FUNC
+
+' Case 8: Set `remove` -- absent element is a no-op, present element removes,
+' and removing twice is idempotent. The entry compaction must leave the set
+' readable, so enumerate it afterwards.
+FUNC setRemove() AS Integer
+  MUT s AS Set OF Integer = Set OF Integer { }
+  FOR i = 0 TO 9
+    s = collections::add(s, i)
+  NEXT
+  s = collections::remove(s, 99)
+  io::print("8 absent=" & toString(len(s)))
+  s = collections::remove(s, 0)
+  s = collections::remove(s, 9)
+  s = collections::remove(s, 9)
+  io::print("8 after=" & toString(len(s)))
+  MUT total AS Integer = 0
+  FOR EACH v IN s
+    total = total + v
+  NEXT
+  io::print("8 sum=" & toString(total) & " has4=" & toString(collections::contains(s, 4)))
+  io::print("8 has0=" & toString(collections::contains(s, 0)))
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Integer = removeAtDuringForEach()
+  LET b AS Integer = insertDuringForEach()
+  LET c AS Integer = secondBindingTakenFirst()
+  LET d AS Integer = throughParameter()
+  LET e AS Integer = boundariesAndGrow()
+  LET f AS Integer = singleElement()
+  LET g AS Integer = fixedWidthPath()
+  LET h AS Integer = setRemove()
+  RETURN 0
+END FUNC

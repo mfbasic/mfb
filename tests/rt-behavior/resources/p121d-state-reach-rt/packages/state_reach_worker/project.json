@@ -1,0 +1,9 @@
+{
+  "name": "state_reach_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "description": "plan-121-D reachability probe worker",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

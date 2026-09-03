@@ -430,6 +430,7 @@ impl CodeBuilder<'_> {
             &map_type,
             key_type,
             &list_v,
+            None,
         )?;
         self.emit(abi::store_u64(
             &set.location,

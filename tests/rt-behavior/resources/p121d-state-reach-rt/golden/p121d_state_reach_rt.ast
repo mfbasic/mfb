@@ -1,0 +1,149 @@
+{
+  "project": "p121d_state_reach_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 28 },
+    { "module": "io", "line": 29 },
+    { "module": "fs", "line": 30 },
+    { "module": "thread", "line": 31 },
+    { "module": "state_reach_worker", "line": 32 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Accum",
+      "line": 37,
+      "fields": [
+      { "visibility": null, "name": "raw", "type": "List OF Byte", "line": 38 },
+      { "visibility": null, "name": "n", "type": "Integer", "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "feed",
+      "line": 44,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Accum", "default": null, "line": 44 },
+      { "name": "rounds", "type": "Integer", "default": null, "line": 44 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 45 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "rounds" } },
+        "line": 46,
+        "body": [
+        { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "raw", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "raw" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "251" } }] }] } }] }, "line": 47 },
+        { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "number", "value": "1" } } }] }, "line": 48 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 49 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nextByte",
+      "line": 55,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Accum", "default": null, "line": 55 }
+      ],
+      "returnType": "Byte",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "raw" }] }, "right": { "kind": "number", "value": "251" } }] }, "line": 56 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 59,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Accum", "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt" }] }, "line": 61 },
+      { "kind": "stateAssignment", "resource": "a", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "7" } }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "feed", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "300" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "alias len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "member": "raw" }] }] } }, "right": { "kind": "string", "value": " n=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "member": "n" }] } }] }, "line": 66 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 69 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 70 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "300" } },
+        "line": 71,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "member": "raw" }, { "kind": "identifier", "value": "i" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "251" } }] }] } },
+          "line": 72,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 73 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 75 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "alias bad=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] } }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES fs.File STATE Accum TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "state_reach_worker.growAccepted" }, { "kind": "number", "value": "300" }] }, "line": 81 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Accum", "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt" }] }, "line": 82 },
+      { "kind": "stateAssignment", "resource": "b", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "0" } }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "feed", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "number", "value": "5" }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "b" }] }, "line": 87 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "number", "value": "1000" } }] } }, "right": { "kind": "string", "value": " n=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "number", "value": "1000" } }] } }] }, "line": 92 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Accum", "name": "c", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt" }] }, "line": 107 },
+      { "kind": "binding", "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 108 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "200" } },
+        "line": 109,
+        "body": [
+        { "kind": "stateAssignment", "resource": "c", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "state" }, "updates": [{ "field": "raw", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "state" }, "member": "raw" }, { "kind": "call", "callee": "nextByte", "arguments": [{ "kind": "identifier", "value": "c" }] }] } }] }, "line": 110 },
+        { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 111 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "selfbad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 114 },
+      { "kind": "binding", "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 115 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "200" } },
+        "line": 116,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "state" }, "member": "raw" }, { "kind": "identifier", "value": "j" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "251" } }] }] } },
+          "line": 117,
+          "then": [
+          { "kind": "assignment", "name": "selfbad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "selfbad" }, "right": { "kind": "number", "value": "1" } }, "line": 118 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "j", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } }, "line": 120 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "selfread len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "state" }, "member": "raw" }] }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "selfbad" }] } }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 123 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 124 }
+      ]
+    }
+    ]
+  }
+  ]
+}

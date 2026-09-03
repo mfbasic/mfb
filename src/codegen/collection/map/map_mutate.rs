@@ -5,6 +5,39 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
+
+/// plan-121-C: where a **growing** map/set mutation must put its new block when
+/// the collection is *inlined* in a record or `STATE` field.
+///
+/// A growing operation reallocates, and for an inlined field the thing that must
+/// grow is the **record** block, not the collection alone — the collection has no
+/// allocation of its own to replace. `lower_map_set_in_place` therefore needs to
+/// know three things at each of its two grow sites, and nothing else about the
+/// container:
+///
+/// * allocate `fieldOffset + <the map size it already computed>` rather than just
+///   the map size;
+/// * the new map buffer is `newRecord + fieldOffset`, and the bytes before it are
+///   the record's fixed slots, copied across verbatim;
+/// * free the **old record block**, not the old map buffer —
+///   `emit_free_pre_grow_buffer` on an inlined sub-block would `free()` a pointer
+///   into the middle of the record block.
+///
+/// Passed as `Option`, and `None` is the plain-local case every existing caller
+/// wants: the parameter is explicit rather than builder state precisely so that
+/// "which container am I growing" is greppable at every call site instead of
+/// being ambient (plan-121-C Correction C2).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InlineGrow {
+    /// Frame slot holding the owning **record** block pointer. Repointed on a
+    /// realloc, which is what makes the grown block visible to `rec.field`.
+    pub(crate) block_slot: usize,
+    /// Frame slot holding the field's block-relative offset. Invariant across the
+    /// realloc — the prefix is copied verbatim — so it is read once by the caller
+    /// and handed in.
+    pub(crate) field_off_slot: usize,
+}
+
 impl CodeBuilder<'_> {
     /// Set `key -> value` in the map whose buffer pointer lives in `map_slot`,
     /// **mutating the buffer in place** (plan-02 §4.3). Linear-scans for the key
@@ -18,6 +51,139 @@ impl CodeBuilder<'_> {
     /// `count`/`dataLength`; when the live buffer is full it grows geometrically
     /// (copying entries + data verbatim, capacity-based base) and then writes. The
     /// caller guarantees unique ownership and not an active `FOR EACH` iterable.
+    /// plan-121-C, step 1 of the inlined grow: widen the allocation about to
+    /// happen so it holds the **record** block, not just the map.
+    ///
+    /// `lower_map_set_in_place` has already computed the new map size into
+    /// `return_register()` (header + entries + data + bucket region). For an
+    /// inlined field the block that must be allocated is `fieldOffset + that`, so
+    /// this adds the prefix — through the same checked arithmetic the size
+    /// computation uses, because `fieldOffset` is runtime-derived and a wrap here
+    /// would under-allocate the record.
+    pub(crate) fn emit_inline_grow_extend_size(&mut self, inline: &InlineGrow, overflow: &str) {
+        let off = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &off,
+            abi::stack_pointer(),
+            inline.field_off_slot,
+        ));
+        self.emit_checked_size_add(
+            abi::return_register(),
+            abi::return_register(),
+            &off,
+            overflow,
+        );
+    }
+
+    /// plan-121-C, step 2: split the freshly allocated record block into the
+    /// record pointer and the map sub-block pointer, and copy the prefix across.
+    ///
+    /// The allocation returned the new **record** block. Everything before
+    /// `fieldOffset` — the record's fixed slots and any earlier inlined sub-blocks
+    /// — is copied verbatim, exactly as `lower_inline_list_append_in_place` does,
+    /// which is why `fieldOffset` is invariant across the realloc and can be read
+    /// once. `new_buf_slot` is then made to hold `newRecord + fieldOffset` so every
+    /// line of the map lowering after this point writes through the sub-block
+    /// without knowing it moved.
+    ///
+    /// Returns the slot holding the new record pointer, which the caller publishes
+    /// only after the old block has been freed.
+    pub(crate) fn emit_inline_grow_split(
+        &mut self,
+        inline: &InlineGrow,
+        new_buf_slot: usize,
+    ) -> usize {
+        let new_rec_slot = self.allocate_stack_object("inline_grow_newrec", 8);
+        let new_rec = self.temporary_vreg();
+        let old_rec = self.temporary_vreg();
+        let off = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+
+        // The allocator's result is the new record block.
+        self.emit(abi::load_u64(&new_rec, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&new_rec, abi::stack_pointer(), new_rec_slot));
+
+        // Copy the fixed prefix [0, fieldOffset) verbatim.
+        self.emit(abi::load_u64(
+            &off,
+            abi::stack_pointer(),
+            inline.field_off_slot,
+        ));
+        self.emit(abi::load_u64(
+            &old_rec,
+            abi::stack_pointer(),
+            inline.block_slot,
+        ));
+        self.emit_block_copy_advance(&new_rec, &old_rec, &off, &scratch, "inline_grow_prefix");
+
+        // `new_buf_slot` becomes the sub-block address inside the new record.
+        // `emit_block_copy_advance` leaves its cursors past the copied range, so
+        // re-derive both operands rather than reusing them.
+        self.emit(abi::load_u64(&new_rec, abi::stack_pointer(), new_rec_slot));
+        self.emit(abi::load_u64(
+            &off,
+            abi::stack_pointer(),
+            inline.field_off_slot,
+        ));
+        self.emit(abi::add_registers(&new_rec, &new_rec, &off));
+        self.emit(abi::store_u64(&new_rec, abi::stack_pointer(), new_buf_slot));
+        new_rec_slot
+    }
+
+    /// plan-121-C, step 3: free the **old record block**, and publish the new one.
+    ///
+    /// This is the step `emit_free_pre_grow_buffer` cannot do for an inlined field:
+    /// the old map buffer is not its own allocation, it is bytes inside the old
+    /// record block, so freeing it would hand `arena_free` a pointer into the
+    /// middle of a live allocation. What must be released is the whole old record,
+    /// whose size is `fieldOffset + <the old map block's size>` — the same shape
+    /// `lower_inline_list_append_in_place` frees, and the reason
+    /// `record_collection_last_inlined` insists the field is *last*: nothing
+    /// follows the sub-block, so the record ends where it ends.
+    pub(crate) fn emit_inline_grow_free_old(
+        &mut self,
+        inline: &InlineGrow,
+        map_slot: usize,
+        map_type: &ParameterType,
+        new_rec_slot: usize,
+    ) -> Result<(), String> {
+        let old_rec = self.temporary_vreg();
+        let old_sub = self.temporary_vreg();
+        let size = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let off = self.temporary_vreg();
+
+        // Size the old map sub-block where it still lies, then add the prefix.
+        self.emit(abi::load_u64(&old_sub, abi::stack_pointer(), map_slot));
+        self.emit_flat_block_size(map_type, &old_sub, &size, &scratch)?;
+        self.emit(abi::load_u64(
+            &off,
+            abi::stack_pointer(),
+            inline.field_off_slot,
+        ));
+        self.emit(abi::add_registers(&size, &size, &off));
+
+        self.emit(abi::load_u64(
+            &old_rec,
+            abi::stack_pointer(),
+            inline.block_slot,
+        ));
+        self.emit(abi::move_register(abi::c_arg(0), &old_rec));
+        self.emit(abi::move_register(abi::c_arg(1), &size));
+        self.emit_arena_free_call();
+
+        // Publish the grown record. Only now: everything above still had to read
+        // the old block.
+        let new_rec = self.temporary_vreg();
+        self.emit(abi::load_u64(&new_rec, abi::stack_pointer(), new_rec_slot));
+        self.emit(abi::store_u64(
+            &new_rec,
+            abi::stack_pointer(),
+            inline.block_slot,
+        ));
+        Ok(())
+    }
+
     pub(crate) fn lower_map_set_in_place(
         &mut self,
         map_slot: usize,
@@ -26,6 +192,7 @@ impl CodeBuilder<'_> {
         map_type: &ParameterType,
         key_type: &ParameterType,
         value_type: &ParameterType,
+        inline: Option<InlineGrow>,
     ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
@@ -355,6 +522,11 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
+        // plan-121-C: an inlined field grows the RECORD, so widen the request by
+        // the record prefix before asking the allocator for it.
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&valloc_ok));
@@ -367,6 +539,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        // plan-121-C: for an inlined field the allocation IS the record; split it
+        // so every line below writes through the sub-block unchanged.
+        let vgrow_new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
         // Header: old count / old dataLength, same capacity, new data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -433,7 +608,15 @@ impl CodeBuilder<'_> {
         // Free the abandoned pre-grow buffer (still in `map_slot`, sized with its
         // bucket region) before installing the grown one — otherwise a value-growing
         // map-set in a loop leaks the old buffer on every grow (bug-47).
-        self.emit_free_pre_grow_buffer(map_slot, map_type)?;
+        //
+        // plan-121-C: an inlined sub-block is not its own allocation, so what is
+        // released is the whole old RECORD block instead.
+        match (inline, vgrow_new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, map_slot, map_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(map_slot, map_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&vwrite));
@@ -666,6 +849,11 @@ impl CodeBuilder<'_> {
         );
         // Reserve the map hash bucket region (x14 = new capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
+        // plan-121-C: an inlined field grows the RECORD, so widen the request by
+        // the record prefix before asking the allocator for it.
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -678,6 +866,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        // plan-121-C: as at the value-grow site — the allocation IS the record.
+        let grow_new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -744,7 +934,14 @@ impl CodeBuilder<'_> {
         // Free the abandoned pre-grow buffer (still in `map_slot`, sized with its
         // bucket region) before installing the grown one — otherwise a capacity-
         // growing map-set in a loop leaks the old buffer on every grow (bug-47).
-        self.emit_free_pre_grow_buffer(map_slot, map_type)?;
+        //
+        // plan-121-C: as at the value-grow site — release the old RECORD block.
+        match (inline, grow_new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, map_slot, map_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(map_slot, map_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&write));

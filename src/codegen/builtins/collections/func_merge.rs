@@ -299,6 +299,7 @@ impl CodeBuilder<'_> {
             &map_type,
             &key_type,
             &value_type,
+            None,
         )?;
         // i += 1 (reload — set_in_place clobbers caller-saved scratch).
         let i2 = self.temporary_vreg();

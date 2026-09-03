@@ -1,0 +1,58 @@
+IMPORT io
+IMPORT collections
+
+' Order is the whole point: bug-365 made `prepend` on a fixed-width list write
+' the payload to the FRONT of the data region so a linear reader sees index
+' order. Removing the (dead) identity-entry loop must not disturb that.
+FUNC main() AS Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO 7
+    xs = collections::prepend(xs, i)
+  NEXT
+  MUT out AS String = ""
+  FOR EACH v IN xs
+    out = out & toString(v) & ","
+  NEXT
+  io::print("prepend=" & out)
+
+  MUT ys AS List OF Integer = []
+  FOR i = 0 TO 7
+    ys = collections::insert(ys, len(ys) / 2, i)
+  NEXT
+  MUT out2 AS String = ""
+  FOR EACH v IN ys
+    out2 = out2 & toString(v) & ","
+  NEXT
+  io::print("insert=" & out2)
+
+  ' Indexed reads must agree with the linear walk.
+  MUT out3 AS String = ""
+  FOR i = 0 TO len(ys) - 1
+    out3 = out3 & toString(collections::get(ys, i)) & ","
+  NEXT
+  io::print("get=" & out3)
+
+  ' Byte elements exercise a payload width other than 8.
+  MUT bs AS List OF Byte = []
+  FOR i = 0 TO 5
+    bs = collections::prepend(bs, toByte(i))
+  NEXT
+  MUT out4 AS String = ""
+  FOR EACH b IN bs
+    out4 = out4 & toString(b) & ","
+  NEXT
+  io::print("byte=" & out4)
+
+  ' A variable-width element type keeps the entry table, so it must be
+  ' unaffected by a change confined to the fixed-width branch.
+  MUT ss AS List OF String = []
+  FOR i = 0 TO 4
+    ss = collections::prepend(ss, "s" & toString(i))
+  NEXT
+  MUT out5 AS String = ""
+  FOR EACH s IN ss
+    out5 = out5 & s & ","
+  NEXT
+  io::print("string=" & out5)
+  RETURN 0
+END FUNC

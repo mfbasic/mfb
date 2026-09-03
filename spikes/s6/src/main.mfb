@@ -1,0 +1,112 @@
+' SPIKE 6 -- what is `map removeKey`'s 32-36x actually made of?
+'
+' plan-121-B recorded this as UNVERIFIED: `.ai/collections.md` says the in-place
+' delete must set BUCKETS_READY=0, so the NEXT probe rebuilds the bucket index.
+' If that rehash is the whole gap, the row is at its designed cost and the
+' sub-plan should stop on it rather than start a tombstone project.
+'
+' But reading `lower_map_remove_key_in_place` suggests a second, larger cost:
+' it finds the key by a LINEAR SCAN of entries 0..count, not by a hash probe.
+' If that is right, removeKey is O(N) per call whether or not anything rehashes.
+'
+' The two are separable by whether a lookup happens between deletes:
+'
+'   A  deletes only, no probe in between   -> nothing can rehash, so any
+'                                             growth with N is the SCAN
+'   B  each delete followed by a lookup    -> every delete's BUCKETS_READY=0 is
+'                                             paid by the next probe, so B - A
+'                                             is the REHASH share
+'
+' Both hold the delete count constant and vary N, so a flat line is O(1) per
+' call and a rising one is O(N).
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC buildMap(n AS Integer) AS Map OF Integer TO Integer
+  MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer { }
+  FOR i = 0 TO n - 1
+    m = collections::set(m, i, i * 2)
+  NEXT
+  RETURN m
+END FUNC
+
+' A: DELETES ONLY. No probe between deletes, so BUCKETS_READY never has to be
+'    rebuilt during the timed region. Whatever cost remains is the entry scan.
+FUNC deletesOnly(n AS Integer, calls AS Integer) AS Integer
+  MUT m AS Map OF Integer TO Integer = buildMap(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    ' Delete a key that is NOT present after the first pass, so `count` stays
+    ' at n and every call scans the same amount -- this measures the scan, not
+    ' a shrinking map.
+    m = collections::removeKey(m, n + i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("A " & toString(len(m)))
+  RETURN t1 - t0
+END FUNC
+
+' B: DELETE THEN PROBE. Each `removeKey` invalidates the bucket index and the
+'    `contains` that follows forces the rebuild, so B - A isolates the rehash.
+FUNC deletesWithProbe(n AS Integer, calls AS Integer) AS Integer
+  MUT m AS Map OF Integer TO Integer = buildMap(n)
+  MUT hits AS Integer = 0
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    m = collections::removeKey(m, n + i)
+    IF collections::hasKey(m, i MOD n) THEN
+      hits = hits + 1
+    END IF
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("B " & toString(hits))
+  RETURN t1 - t0
+END FUNC
+
+' C: PROBE ONLY -- the control. Subtracting C from B leaves the rehash plus the
+'    delete, so without it a probe's own cost would be misread as rehash.
+FUNC probeOnly(n AS Integer, calls AS Integer) AS Integer
+  LET m AS Map OF Integer TO Integer = buildMap(n)
+  MUT hits AS Integer = 0
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    IF collections::hasKey(m, i MOD n) THEN
+      hits = hits + 1
+    END IF
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("C " & toString(hits))
+  RETURN t1 - t0
+END FUNC
+
+FUNC row(label AS String, n AS Integer, ns AS Integer, calls AS Integer) AS Integer
+  io::print(label & "  N=" & toString(n) & "  per_call=" & toString(ns / calls) & "ns")
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET calls AS Integer = 2000
+  io::print("# spike 6: what is `map removeKey` paying for? CALLS held at " & toString(calls))
+  io::print("#   A deletes only   -- flat => O(1); rising with N => the ENTRY SCAN")
+  io::print("#   B delete + probe -- (B - A - C) is the BUCKETS_READY REHASH share")
+  io::print("#   C probe only     -- control")
+  LET sizes AS List OF Integer = [50, 100, 200, 400, 800, 1600]
+  io::print("")
+  io::print("A deletes only (no probe between)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  A", n, deletesOnly(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("B delete then probe")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  B", n, deletesWithProbe(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("C probe only (control)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  C", n, probeOnly(n, calls), calls)
+  NEXT
+  RETURN 0
+END FUNC

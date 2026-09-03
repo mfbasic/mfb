@@ -6,12 +6,259 @@ Invariants and hard-won lessons for the MFB compiler's native collection codegen
 
 Collection mutation codegen is rewritten for amortized-O(1) append.
 
-- **In-place MUT append**: `try_inplace_append_assign` (builder_control.rs) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (builder_collection_updates.rs): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
+- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
 - Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
+
+
+## In-place mutation: one seam, one gate inventory (plan-121-A)
+
+`x = OP(x, …)` on a uniquely-owned collection is lowered as a mutation of the
+live buffer whenever nothing else can observe that buffer. The recognisers are
+the `try_inplace_*` family, dispatched at
+`src/codegen/engine/control/builder_control.rs:879-909` (plain local + record
+field) and `:1050`/`:1056` (`RES … STATE`), each falling through to the general
+copying reassignment when it declines. **Declining is always correct** — in-place
+is an implementation strategy the program cannot observe, so an arm that is not
+sure must fall through.
+
+The part every arm repeats — resolve the destination slot, prove unique
+ownership, run the aliasing gates — lives in
+`src/codegen/collection/assign/inplace_dest.rs`:
+
+* `InPlaceDest` — `Direct { slot }` for a plain local (the slot holds the
+  collection block pointer; a realloc repoints it) vs
+  `Inlined { block_slot, field_index, write_back }` for a record or `STATE`
+  field (the collection lives *inside* the owning record's block, so a realloc
+  grows the **record** block). `write_back` is `Some` only for `STATE`, whose
+  block pointer is shared with the resource record and must be republished
+  through `RESOURCE_OFFSET_STATE` after the mutation (§15).
+* `InPlaceGate` — the proof obligations, with `admits_with` a pure predicate over
+  a borrowed `LiveIterables` view so the decline conditions are unit-testable
+  without building a whole `CodeBuilder`.
+
+**Read `planning/plan-121-gate-inventory.md` before adding an arm.** It lists all
+23 decline conditions (`G1`–`G23`), the 2 post-lowering assertions that are hard
+`Err`s rather than declines, the 4 emission obligations, and — the part that
+bites — a footnote justifying every asymmetry between arms, including which
+guards are load-bearing only as a *side effect* of the element-type check and so
+re-open a hole if that check is widened.
+
+Two rules from it that are easy to get wrong:
+
+* **`O-order-1`: every gate runs before the first `lower_value`.** No arm may
+  lower a value and then decline — that emits dead code and leaks a stack slot,
+  and because vreg/stack-slot allocation order is observable in the emitted
+  bytes, it also breaks byte-identity for every unrelated fixture in the
+  function.
+* **`FOR EACH` permits an append but not a shift.** A loop snapshots the buffer
+  pointer and count at entry. An `append` writes only *beyond* that snapshot, so
+  it may proceed (until it reallocs — hence the guard). An `insert`, `removeAt`,
+  `prepend` or entry-compacting delete rewrites entries *below* the snapshot,
+  which a live iterator can observe, so those must decline whenever any
+  `FOR EACH` walks the collection. `append`'s permissive reasoning does not
+  transfer.
+* **There is a SECOND aliasing surface, and only payload-relocating ops hit it.**
+  The `FOR EACH` rule above is about what an *iterator* sees; it is not the whole
+  question. Ask also: **what else holds a reference into the bytes this operation
+  moves?**
+
+  | op | what it moves |
+  |---|---|
+  | `append`, bulk `append` | writes only *past* the live data |
+  | `insert`, `prepend` | shift the 40-byte *lookup entries*; new payload goes at the data *tail* |
+  | `set` (same-size) | overwrites one payload in place |
+  | **`removeAt`** | **compacts the data region — relocates surviving payloads** |
+
+  Relocating a payload is safe only while nothing refers into it, and for a
+  **recursive** element type something does. `type_participates_in_cycle`
+  (`collection/layout/builder_collection_layout.rs`) marks exactly that class:
+  such a value is a *pointer-linked graph* that inline copy codegen cannot
+  reproduce, so it needs a per-type runtime copy function — and an ordinary
+  `collections::get` of one is therefore **not** the independent deep copy a
+  `String`, record or nested-list element gets. Read an element, remove one in
+  place, and the value you read follows moved bytes.
+
+  `try_inplace_remove_at_assign` declines on that predicate (gate `G24`).
+  **Any future arm that relocates existing payloads inherits it** — including a
+  length-changing `set`, which shifts the data tail by design. An arm that shifts
+  only *entries* does not: `insert` on the same recursive-union shape was measured
+  byte-identical to the pre-change compiler. The failure signature is worth
+  recognising: every element wrong except the last, because at `count == 1` the
+  shift length is zero.
+* **A fixed-width list is entry-FREE, and the two are the same predicate.**
+  `list_entry_stride` returns 0 for exactly `list_element_is_fixed_width`
+  (`collection/layout/builder_collection_layout.rs`), so inside any
+  `if let Some(payload) = list_element_is_fixed_width(..)` branch, **every
+  `if entry_stride != 0` is dead**. Element `i` is found at `i * payload` by
+  arithmetic; there is no 40-byte entry record to maintain, shift or rebuild.
+
+  Two loops "writing the identity mapping over entries `0..count`" lived inside
+  such a branch — in `lower_list_splice_in_place` (`prepend`/`insert`) and in the
+  out-of-place `lower_list_insert_collection`, which `collections::set` also
+  reaches. Each ran `count` iterations per call and wrote **nothing**: 20
+  instructions per element whose only effects were a spill slot overwritten three
+  times and never read, and an `add_imm x8, x8, 0`. Removing them made
+  `list (Fixed) insert` 2.3× faster (0.754 → 0.329 ms) and left `removeAt`, which
+  never had one, unchanged.
+
+  **The general lesson: dead work is invisible to every behavioural test, by
+  construction.** No fixture, golden or spike could go red, because the loop
+  changed no observable value — a spike comparing two programs cannot see waste
+  present in both. It is findable only by reading the emitted instruction stream,
+  and it stays gone only if a codegen-inspection test asserts the label's
+  *absence* (`a_fixed_width_splice_emits_no_identity_entry_loop`), paired with one
+  asserting the variable-width entry shift survives so the deletion cannot later
+  widen into a miscompile.
+* **A collection inlined in a record: the container decides who holds a pointer,
+  and that is the whole question (plan-121-C).** A record/`STATE` field's
+  collection is *bytes inside the owner's block*, not its own allocation, so the
+  seven mutating operations split by whether they can **reallocate** — a line that
+  cuts across every other way of grouping them:
+
+  | | operations | how the mutation reaches the field |
+  |---|---|---|
+  | cannot grow | `removeKey`, `removeAt`, Set `remove`, `set` of a **fixed-width** list element | the inlined **sub-block address** — the plain-local lowering, unchanged |
+  | can grow | `add`, `set` on a `Map`, `insert`, `prepend` | grow the **record** block and repoint it (`InlineGrow`) |
+
+  Read the lowering, do not assume: `lower_map_remove_key_in_place` touches its
+  slot four times and **every one is a load**, so it can be handed a sub-block
+  address and never learns it is not looking at a plain local.
+  `lower_map_set_in_place` **stores a fresh block pointer back into that slot**
+  and calls `emit_free_pre_grow_buffer` on the old one — given a sub-block address
+  that is a `free()` of a pointer **into the middle of a live allocation**. Not a
+  slow path: heap corruption.
+
+  For the growing half, `Option<InlineGrow>` redirects the lowering's own realloc
+  sites to (1) request `fieldOffset + collectionSize`, (2) treat the allocation as
+  the new **record** and copy the prefix `[0, fieldOffset)` verbatim, and (3) free
+  the whole old record. The field's offset is read **once, before** the grow — the
+  prefix is copied verbatim so the offset survives, while the sub-block *address*
+  does not.
+
+  Two further rules that are easy to get wrong:
+  - **The whole-record rebuild is elided by the arm returning `true`**, and
+    `updates.len() == 1` (`G14`) is what makes that sound. Match a two-field
+    `WITH` and the sibling field's new value is silently dropped — a wrong answer,
+    not a slow one, so it needs a test asserting the *decline*.
+  - **`set` splits by element width, not collection kind.** A fixed-width list
+    element is always replaced by one of exactly its own size, so
+    `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
+    says so) and the sub-block route is sound. A variable-width element makes that
+    branch reachable, so the arm must decline.
+* **The third container is `RES … STATE`, and it differs from a record field by
+  exactly one obligation (plan-121-D).** The reallocation split above transfers
+  unchanged — it is a property of the operation, not of who owns the block — so
+  the same seven arms use the same two routes. What a STATE block adds is that it
+  has a **second holder**: the resource record's `RESOURCE_OFFSET_STATE` slot,
+  which every alias of the handle reads through, so a reallocated block must be
+  republished (`close_inplace_dest`, obligation `O4`). A record local has no such
+  holder, which is why its arms end without one.
+
+  No cross-thread decline is needed, and that is measured: `thread::transfer`
+  copies the resource into the receiving arena and closes the transferring
+  binding, so two threads never hold live handles to one STATE at once.
+
+  **Do not read a green artifact gate as coverage for this container** — no
+  `.ncodesum` fixture contains a STATE collection update at all, so it reports 0
+  diffs either way. See `.ai/resources-packages.md` for the full rule and the
+  instruments that can see it.
+* **A length-changing `set` on a variable-width element shifts inside the block;
+  it does NOT rebuild (plan-121-F).** A same-length replacement was always O(1)
+  (offsets unchanged, nothing to move). **Any** length change — longer *or*
+  shorter — used to take the `removeAt` + `insert` rebuild: three allocations and
+  two full copies per call. Measured, that was **O(N^1.6)**, not the O(N) a data
+  shift costs; the excess is the arena free-list degradation `benchmark/README.md`
+  documents under mixed-size transient churn.
+
+  The path is now: widen or narrow the span where it lies, then fix up every
+  entry whose payload sat after it. Three things about it are easy to get wrong:
+
+  - **The two directions are different code.** Widening moves the tail **up into
+    itself** and needs a **backward** copy; narrowing moves it down and needs a
+    forward one. A forward copy used for widening smears the first tail bytes
+    over the region whenever the shift distance is less than the tail length — and
+    still looks correct on a 1–2 element list, which is what a small test uses.
+  - **The offset fixup has two directions too, and they are not one operation
+    with a negated argument.** `emit_offset_compaction_fixup` subtracts;
+    `emit_offset_expansion_fixup` adds. Offsets are read back **unsigned**, so
+    passing a negative `hole_len` to the subtracting one wraps. Both use `>` not
+    `>=`, which is what leaves the written element's own entry alone.
+  - **The overflow path must grow GEOMETRICALLY, or the shift never runs.** This
+    is the one that hid: with an in-block shift added but the overflow still
+    falling back to the rebuild — which produces a **tight** buffer — every
+    widening overflowed on its first call, rebuilt tight, and overflowed again.
+    The widening cost was **unchanged** (72 → 828 → 11619 → 122465 ns/set over
+    N = 50…3200) while narrowing, which cannot overflow, improved ~7×. A test
+    exercising only the narrowing case would have shown a real win and hidden
+    that half the feature was dead code.
+
+  `emit_grow_list_data_capacity` is deliberately simpler than `append`'s grow:
+  because `capacity` is unchanged, the header, the entry table and the live data
+  are one **contiguous** prefix, so it is a single verbatim block copy — and the
+  data region keeps the same block-relative base ("data base uses capacity, never
+  count"), so no entry offset moves.
+
+  With both halves: **37× and 41× faster at N = 3200**, with the same-length path
+  flat at ~10 ns throughout as the control.
+
+  **Testing rule this path imposes:** the failure mode of a partial offset fixup
+  is a list that reads correctly up to the written index and returns **garbage
+  after**. A folded checksum can miss that. `p121f-string-set-readback-rt` reads
+  back **every** element and reports the **first** mismatching index. And because
+  the old path was *correct* and merely slow, an unchanged runtime result proves
+  nothing about which path ran — `tests/codegen_string_set_shift.rs` is what
+  distinguishes them.
+* **A String-accumulating `reduce` is rewritten into the loop it is sugar for
+  (plan-121-G).** `collections::reduce` over a `List OF String` with a
+  concatenating reducer was **O(N²)** — the reducer is called N times and each
+  call returns a fresh tight `len(acc) + len(x)` string. The identical fold as a
+  hand loop is O(N), because `a = a & x` on a `MUT String` local is matched by
+  `try_inplace_concat_assign`. At N = 8000 the two spellings were **790× apart
+  for the same answer**.
+
+  **The fix could not live in the fold's lowering**, and that is the reusable
+  lesson: at `lower_collection_reduce_impl` the reducer is a function **pointer**
+  called indirectly, so its body cannot be inspected — and the cost is *inside*
+  the reducer, so no way of threading the accumulator removes it. A callee-side
+  "append into `acc` in place" is unsound too: a caller does not give up ownership
+  of a `String` argument. The only sound move is to stop calling the reducer and
+  emit the loop, where the existing concat arm applies unchanged.
+
+  It is a post-pass over the ops `lower_statement` produces (`src/ir/lower.rs`),
+  mirroring `hoist_trap_calls` — the expression lowerer returns an `IrValue` and
+  has no statement sink.
+
+  **The condition is deliberately narrow, and one part of it is not about the
+  reducer at all:** because the fold is hoisted to the front of its statement, it
+  is rewritten only when it is the **first effectful node** there. Anything
+  evaluated before it must be effect-free or the hoist reorders observable work.
+  Note a call's *arguments* evaluate before the call, so a fold inside
+  `len(reduce(...))` — the benchmark's own spelling — still qualifies.
+
+  **This is the third time in plan-121 that a correct-looking optimization did
+  nothing and only measurement noticed.** The first version of this pass compiled,
+  kept all fifteen semantic fixtures green, and never fired: it declined
+  `len(reduce(...))` by treating the enclosing `len` as the first effectful node.
+  Because the old path was *correct* and merely slow, an unchanged runtime result
+  proves nothing — `tests/codegen_reduce_concat_fold.rs` uses the absence of
+  `reduce_call_loop` to tell "fired" from "never ran".
+
+  Result: `reduce` tracks the hand loop within 3% (219 µs vs 212 µs at N = 8000),
+  both linear — 145×, and 79× for `reduceRight`.
+* **When a shift-based op looks slow, compare it against its sibling before
+  theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
+  is what exposed the dead loop. Afterwards, two plausible explanations for the
+  remainder were both **measured and refuted**: a descending word copy is *not*
+  slower than an ascending one on Apple silicon (46.2 vs 45.7 GB/s, and chunking
+  it is 2.12× *worse*), and the `sub`-before-`ldr` ordering in
+  `emit_block_copy_backward` costs nothing (1.00×). `insert` runs its shift at
+  7.0 GB/s against a `-O0` C word loop's 7.36 — it is at the rate of the loop it
+  emits, and what is left is that it shifts *while growing* into fresh buffers
+  where `removeAt` shifts inside one that only gets hotter.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

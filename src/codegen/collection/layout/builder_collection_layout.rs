@@ -1251,6 +1251,7 @@ impl CodeBuilder<'_> {
                 type_,
                 &element_type,
                 &ParameterType::Boolean,
+                None,
             )?;
             self.emit(abi::store_u64(
                 &inserted.location,

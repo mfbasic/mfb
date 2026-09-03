@@ -1,0 +1,106 @@
+' plan-121-G Phase 1: the observable contract of `reduce`/`reduceRight` with a
+' String accumulator, pinned BEFORE any optimization touches it.
+'
+' Every case here is a shape the planned fast path must either reproduce exactly
+' or DECLINE. The negatives are the point: an accumulator threaded through a
+' grown buffer is only sound when the reducer does nothing with `acc` except
+' concatenate it, so each reducer below that does something else is a case the
+' optimization must refuse. A wrong decline is slow; a wrong accept is a wrong
+' answer or a dangling buffer.
+'
+' `reduceRight`'s direction is checked rather than reasoned about (§3 asks for
+' exactly that): the results below record which side the accumulator lands on.
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' --- the shape the optimization is FOR: a self-concat on the right. ---
+FUNC catRight(acc AS String, x AS String) AS String
+  RETURN acc & x
+END FUNC
+
+' --- NEGATIVE: concatenates on the LEFT. The buffer grows at the end, so this
+' cannot become an append; it must decline. ---
+FUNC catLeft(acc AS String, x AS String) AS String
+  RETURN x & acc
+END FUNC
+
+' --- NEGATIVE: ignores `acc` entirely. The result is the LAST element. ---
+FUNC ignoreAcc(acc AS String, x AS String) AS String
+  RETURN x
+END FUNC
+
+' --- NEGATIVE: returns a constant, using neither. ---
+FUNC constant(acc AS String, x AS String) AS String
+  RETURN "K"
+END FUNC
+
+' --- NEGATIVE: uses `acc` for something other than concatenation, then
+' concatenates. Reading len(acc) is observable, so the tight form matters. ---
+FUNC measured(acc AS String, x AS String) AS String
+  RETURN acc & toString(len(acc)) & x
+END FUNC
+
+' --- NEGATIVE: concatenates twice, so `acc` appears once but the result is not
+' a single append of one expression. ---
+FUNC twice(acc AS String, x AS String) AS String
+  RETURN acc & x & x
+END FUNC
+
+FUNC build(n AS Integer) AS List OF String
+  MUT xs AS List OF String = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    xs = collections::append(xs, toString(i))
+    i = i + 1
+  END WHILE
+  RETURN xs
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF String = build(6)
+
+  ' ---- The positive shape, both directions. ----
+  io::print("reduce      =" & collections::reduce(xs, "", catRight))
+  io::print("reduceRight =" & collections::reduceRight(xs, "", catRight))
+
+  ' ---- The same fold written as a hand loop: `reduce` must agree with it. ----
+  MUT hand AS String = ""
+  FOR EACH s IN xs
+    hand = hand & s
+  NEXT
+  io::print("handloop    =" & hand)
+
+  ' ---- Negatives: each must keep today's answer exactly. ----
+  io::print("left        =" & collections::reduce(xs, "", catLeft))
+  io::print("leftRight   =" & collections::reduceRight(xs, "", catLeft))
+  io::print("ignoreAcc   =" & collections::reduce(xs, "", ignoreAcc))
+  io::print("constant    =" & collections::reduce(xs, "", constant))
+  io::print("measured    =" & collections::reduce(xs, "", measured))
+  io::print("twice       =" & collections::reduce(xs, "", twice))
+
+  ' ---- A LAMBDA reducer, same shape as catRight. ----
+  io::print("lambda      =" & collections::reduce(xs, "", LAMBDA(a AS String, b AS String) -> a & b))
+
+  ' ---- Degenerate lists. ----
+  LET empty AS List OF String = []
+  io::print("empty       =[" & collections::reduce(empty, "seed", catRight) & "]")
+  LET one AS List OF String = ["solo"]
+  io::print("single      =" & collections::reduce(one, "", catRight))
+  io::print("singleRight =" & collections::reduceRight(one, "", catRight))
+
+  ' ---- A NON-EMPTY seed: the accumulator does not start empty, so a buffer
+  ' that assumed it did would drop the seed. ----
+  io::print("seeded      =" & collections::reduce(xs, "SEED:", catRight))
+  io::print("seededRight =" & collections::reduceRight(xs, "SEED:", catRight))
+
+  ' ---- The result must be a normal tight String afterwards: measurable,
+  ' sliceable, comparable, and independent of any buffer it was built in. ----
+  LET big AS String = collections::reduce(build(50), "", catRight)
+  io::print("len         =" & toString(len(big)))
+  io::print("head        =" & strings::mid(big, 0, 8))
+  io::print("tail        =" & strings::mid(big, len(big) - 4, 4))
+  LET copy AS String = big
+  io::print("copyEq      =" & toString(copy = big))
+  RETURN 0
+END FUNC

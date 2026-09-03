@@ -1,0 +1,65 @@
+IMPORT io
+IMPORT collections
+
+TYPE LBox
+  before AS Integer
+  xs AS List OF Integer
+  after AS Integer
+END TYPE
+
+TYPE SBox
+  before AS Integer
+  s AS Set OF Integer
+  after AS Integer
+END TYPE
+
+FUNC renderL(b AS LBox) AS String
+  MUT out AS String = ""
+  FOR EACH v IN b.xs
+    out = out & toString(v) & ","
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC renderS(b AS SBox) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO 6
+    IF collections::contains(b.s, i) THEN
+      out = out & toString(i) & ","
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  MUT lb AS LBox = LBox[1, [10, 20, 30, 40, 50], 2]
+  LET lsnap AS LBox = lb
+  lb = WITH lb { xs := collections::removeAt(lb.xs, 0) }
+  io::print("removeAt_front=" & renderL(lb))
+  lb = WITH lb { xs := collections::removeAt(lb.xs, len(lb.xs) - 1) }
+  io::print("removeAt_back=" & renderL(lb))
+  lb = WITH lb { xs := collections::removeAt(lb.xs, 1) }
+  io::print("removeAt_mid=" & renderL(lb))
+  io::print("lsnap=" & renderL(lsnap))
+  io::print("lfields=" & toString(lb.before) & "/" & toString(lb.after))
+
+  ' A second updated field must take the rebuild path and keep both values.
+  lb = WITH lb { xs := collections::removeAt(lb.xs, 0), after := 77 }
+  io::print("lmulti=" & renderL(lb) & " after=" & toString(lb.after))
+
+  MUT sb AS SBox = SBox[3, Set OF Integer { 1, 2, 3, 4 }, 4]
+  LET ssnap AS SBox = sb
+  sb = WITH sb { s := collections::remove(sb.s, 2) }
+  io::print("set_remove=" & renderS(sb) & " len=" & toString(len(sb.s)))
+  sb = WITH sb { s := collections::remove(sb.s, 9) }
+  sb = WITH sb { s := collections::remove(sb.s, 1) }
+  sb = WITH sb { s := collections::remove(sb.s, 1) }
+  io::print("set_more=" & renderS(sb) & " len=" & toString(len(sb.s)))
+  io::print("ssnap=" & renderS(ssnap))
+  io::print("sfields=" & toString(sb.before) & "/" & toString(sb.after))
+
+  ' The set must stay usable after compaction: re-add and probe.
+  sb = WITH sb { s := collections::add(sb.s, 6) }
+  io::print("set_readd=" & renderS(sb) & " has6=" & toString(collections::contains(sb.s, 6)))
+  RETURN 0
+END FUNC

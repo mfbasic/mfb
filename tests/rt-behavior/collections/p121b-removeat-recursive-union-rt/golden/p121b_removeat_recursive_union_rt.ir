@@ -1,0 +1,311 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "p121b_removeat_recursive_union_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 26,
+    "visibility": "public",
+    "name": "ElementNode",
+    "fields": [
+    { "visibility": null, "line": 27, "name": "tag", "type": "String" },
+    { "visibility": null, "line": 28, "name": "children", "type": "List OF Node" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 31,
+    "visibility": "public",
+    "name": "TextNode",
+    "fields": [
+    { "visibility": null, "line": 32, "name": "text", "type": "String" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 35,
+    "visibility": "public",
+    "name": "Node",
+    "includes": [],
+    "variants": [
+    {
+      "name": "ElementNode",
+      "line": 36,
+      "fields": [
+      { "visibility": null, "line": 27, "name": "tag", "type": "String" },
+      { "visibility": null, "line": 28, "name": "children", "type": "List OF Node" }
+      ]
+    },
+    {
+      "name": "TextNode",
+      "line": 37,
+      "fields": [
+      { "visibility": null, "line": 32, "name": "text", "type": "String" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "drain",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 42, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 43, "mutable": true, "name": "stack", "type": "List OF Node", "value": { "kind": "list", "type": "List OF Node", "values": [] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 44,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 44, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "bind", "line": 45, "mutable": false, "name": "nd", "type": "Node", "value": { "kind": "unionWrap", "union": "Node", "member": "TextNode", "value": { "kind": "constructor", "type": "TextNode", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "t" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } } },
+      { "op": "assign", "line": 46, "name": "stack", "value": { "kind": "call", "type": "List OF Node", "target": "collections.append", "args": [{ "kind": "local", "name": "stack" }, { "kind": "local", "name": "nd" }] } }
+      ]
+    },
+    { "op": "bind", "line": 48, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "while",
+      "line": 49,
+      "loop": "do",
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "stack" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "body": [
+      { "op": "bind", "line": 50, "mutable": false, "name": "node", "type": "Node", "value": { "kind": "call", "type": "Node", "target": "collections.get", "args": [{ "kind": "local", "name": "stack" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "assign", "line": 51, "name": "stack", "value": { "kind": "call", "type": "List OF Node", "target": "collections.removeAt", "args": [{ "kind": "local", "name": "stack" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "bind", "line": 52, "mutable": false, "name": "$match3", "type": "Node", "value": { "kind": "local", "name": "node" } },
+      {
+        "op": "match",
+        "line": 52,
+        "value": { "kind": "local", "name": "$match3" },
+        "cases": [
+        {
+          "line": 53,
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "TextNode" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "line": 53, "mutable": false, "name": "t", "type": "TextNode", "value": { "kind": "unionExtract", "type": "TextNode", "value": { "kind": "local", "name": "$match3" } } },
+          { "op": "assign", "line": 54, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "text" } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+          ]
+        },
+        {
+          "line": 55,
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "body": [
+          { "op": "assign", "line": 56, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "?," } } }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 59, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "element",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "tag", "line": 64, "type": "String", "default": null },
+    { "name": "kids", "line": 64, "type": "List OF Node", "default": null }
+    ],
+    "returns": "Node",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": false, "name": "n", "type": "Node", "value": { "kind": "unionWrap", "union": "Node", "member": "ElementNode", "value": { "kind": "constructor", "type": "ElementNode", "args": [{ "kind": "local", "name": "tag" }, { "kind": "local", "name": "kids" }] } } },
+    { "op": "return", "line": 66, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "textNode",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 69, "type": "String", "default": null }
+    ],
+    "returns": "Node",
+    "body": [
+    { "op": "bind", "line": 70, "mutable": false, "name": "n", "type": "Node", "value": { "kind": "unionWrap", "union": "Node", "member": "TextNode", "value": { "kind": "constructor", "type": "TextNode", "args": [{ "kind": "local", "name": "s" }] } } },
+    { "op": "return", "line": 71, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "render",
+    "line": 74,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "root", "line": 74, "type": "Node", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 75, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 76, "mutable": true, "name": "stack", "type": "List OF Node", "value": { "kind": "list", "type": "List OF Node", "values": [{ "kind": "local", "name": "root" }] } },
+    {
+      "op": "while",
+      "line": 77,
+      "loop": "do",
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "stack" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "body": [
+      { "op": "bind", "line": 78, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "stack" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 79, "mutable": false, "name": "node", "type": "Node", "value": { "kind": "call", "type": "Node", "target": "collections.get", "args": [{ "kind": "local", "name": "stack" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 80, "name": "stack", "value": { "kind": "call", "type": "List OF Node", "target": "collections.removeAt", "args": [{ "kind": "local", "name": "stack" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 81, "mutable": false, "name": "$match4", "type": "Node", "value": { "kind": "local", "name": "node" } },
+      {
+        "op": "match",
+        "line": 81,
+        "value": { "kind": "local", "name": "$match4" },
+        "cases": [
+        {
+          "line": 82,
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "ElementNode" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "line": 82, "mutable": false, "name": "e", "type": "ElementNode", "value": { "kind": "unionExtract", "type": "ElementNode", "value": { "kind": "local", "name": "$match4" } } },
+          { "op": "bind", "line": 83, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Node", "target": { "kind": "local", "name": "e" }, "member": "children" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          {
+            "op": "while",
+            "line": 84,
+            "loop": "do",
+            "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+            "body": [
+            { "op": "assign", "line": 85, "name": "stack", "value": { "kind": "call", "type": "List OF Node", "target": "collections.append", "args": [{ "kind": "local", "name": "stack" }, { "kind": "call", "type": "Node", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Node", "target": { "kind": "local", "name": "e" }, "member": "children" }, { "kind": "local", "name": "j" }] }] } },
+            { "op": "assign", "line": 86, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ]
+          }
+          ]
+        },
+        {
+          "line": 88,
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "TextNode" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "line": 88, "mutable": false, "name": "t", "type": "TextNode", "value": { "kind": "unionExtract", "type": "TextNode", "value": { "kind": "local", "name": "$match4" } } },
+          { "op": "assign", "line": 89, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "text" } } }
+          ]
+        },
+        {
+          "line": 90,
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "body": [
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 93, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "spliced",
+    "line": 99,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 100, "mutable": true, "name": "xs", "type": "List OF Node", "value": { "kind": "list", "type": "List OF Node", "values": [] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "$for_end6", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "$for_step7", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 101,
+      "name": "$for_iter5",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end6" },
+      "step": { "kind": "local", "name": "$for_step7" },
+      "body": [
+      { "op": "bind", "line": 101, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter5" } },
+      { "op": "bind", "line": 102, "mutable": false, "name": "nd", "type": "Node", "value": { "kind": "unionWrap", "union": "Node", "member": "TextNode", "value": { "kind": "constructor", "type": "TextNode", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } } },
+      { "op": "assign", "line": 103, "name": "xs", "value": { "kind": "call", "type": "List OF Node", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "nd" }] } }
+      ]
+    },
+    { "op": "bind", "line": 105, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "$for_end9", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "$for_step10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 106,
+      "name": "$for_iter8",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end9" },
+      "step": { "kind": "local", "name": "$for_step10" },
+      "body": [
+      { "op": "bind", "line": 106, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "local", "name": "$for_iter8" } },
+      { "op": "bind", "line": 107, "mutable": false, "name": "held", "type": "Node", "value": { "kind": "call", "type": "Node", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "bind", "line": 108, "mutable": false, "name": "fresh", "type": "Node", "value": { "kind": "unionWrap", "union": "Node", "member": "TextNode", "value": { "kind": "constructor", "type": "TextNode", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "i" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "k" }] } }] } } },
+      { "op": "assign", "line": 109, "name": "xs", "value": { "kind": "call", "type": "List OF Node", "target": "collections.insert", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "fresh" }] } },
+      { "op": "bind", "line": 110, "mutable": false, "name": "$match11", "type": "Node", "value": { "kind": "local", "name": "held" } },
+      {
+        "op": "match",
+        "line": 110,
+        "value": { "kind": "local", "name": "$match11" },
+        "cases": [
+        {
+          "line": 111,
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "TextNode" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "line": 111, "mutable": false, "name": "t", "type": "TextNode", "value": { "kind": "unionExtract", "type": "TextNode", "value": { "kind": "local", "name": "$match11" } } },
+          { "op": "assign", "line": 112, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "text" } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+          ]
+        },
+        {
+          "line": 113,
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "body": [
+          { "op": "assign", "line": 114, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "?," } } }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 117, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 120,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "n=2 " }, "right": { "kind": "call", "type": "String", "target": "drain", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "n=3 " }, "right": { "kind": "call", "type": "String", "target": "drain", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] } }] } },
+    { "op": "eval", "line": 123, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "n=8 " }, "right": { "kind": "call", "type": "String", "target": "drain", "args": [{ "kind": "const", "type": "Integer", "value": "8" }] } }] } },
+    { "op": "bind", "line": 124, "mutable": false, "name": "tree", "type": "Node", "value": { "kind": "call", "type": "Node", "target": "element", "args": [{ "kind": "const", "type": "String", "value": "ul" }, { "kind": "list", "type": "List OF Node", "values": [{ "kind": "call", "type": "Node", "target": "element", "args": [{ "kind": "const", "type": "String", "value": "li" }, { "kind": "list", "type": "List OF Node", "values": [{ "kind": "call", "type": "Node", "target": "textNode", "args": [{ "kind": "const", "type": "String", "value": "seedA" }] }] }] }, { "kind": "call", "type": "Node", "target": "element", "args": [{ "kind": "const", "type": "String", "value": "li" }, { "kind": "list", "type": "List OF Node", "values": [{ "kind": "call", "type": "Node", "target": "textNode", "args": [{ "kind": "const", "type": "String", "value": "seedB" }] }] }] }] }] } },
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "render=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "tree" }] } }] } },
+    { "op": "eval", "line": 126, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "insert=" }, "right": { "kind": "call", "type": "String", "target": "spliced", "args": [] } }] } },
+    { "op": "return", "line": 127, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

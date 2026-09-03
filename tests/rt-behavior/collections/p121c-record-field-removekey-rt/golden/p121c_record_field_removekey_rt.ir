@@ -1,0 +1,89 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "p121c_record_field_removekey_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 4,
+    "visibility": "public",
+    "name": "Box",
+    "fields": [
+    { "visibility": null, "line": 5, "name": "before", "type": "Integer" },
+    { "visibility": null, "line": 6, "name": "m", "type": "Map OF Integer TO String" },
+    { "visibility": null, "line": 7, "name": "after", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "render",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 10, "type": "Box", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 12,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 12, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      {
+        "op": "if",
+        "line": 13,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "b" }, "member": "m" }, { "kind": "local", "name": "i" }] },
+        "then": [
+        { "op": "assign", "line": 14, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "collections.getOr", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "b" }, "member": "m" }, { "kind": "local", "name": "i" }, { "kind": "const", "type": "String", "value": "?" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 17, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": true, "name": "rec", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "map", "type": "Map OF Integer TO String", "entries": [{ "key": { "kind": "const", "type": "Integer", "value": "0" }, "value": { "kind": "const", "type": "String", "value": "a" } }, { "key": { "kind": "const", "type": "Integer", "value": "1" }, "value": { "kind": "const", "type": "String", "value": "b" } }, { "key": { "kind": "const", "type": "Integer", "value": "2" }, "value": { "kind": "const", "type": "String", "value": "c" } }, { "key": { "kind": "const", "type": "Integer", "value": "3" }, "value": { "kind": "const", "type": "String", "value": "d" } }] }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "snapshot", "type": "Box", "value": { "kind": "local", "name": "rec" } },
+    { "op": "assign", "line": 26, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.removeKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "rec" }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "snapshot=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "snapshot" }] } }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "before_field=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rec" }, "member": "before" }] } }, "right": { "kind": "const", "type": "String", "value": " after_field=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rec" }, "member": "after" }] } }] } },
+    { "op": "assign", "line": 34, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.removeKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "9" }] } }] } },
+    { "op": "assign", "line": 35, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.removeKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "assign", "line": 36, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.removeKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "more=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "rec" }] } }, "right": { "kind": "const", "type": "String", "value": " len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }] }] } }] } },
+    { "op": "assign", "line": 41, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.removeKey", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "0" }] } }, { "field": "after", "value": { "kind": "const", "type": "Integer", "value": "99" } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "multi=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "rec" }] } }, "right": { "kind": "const", "type": "String", "value": " after_field=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rec" }, "member": "after" }] } }] } },
+    { "op": "assign", "line": 45, "name": "rec", "value": { "kind": "with", "type": "Box", "target": { "kind": "local", "name": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "type": "Map OF Integer TO String", "target": "collections.set", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "String", "value": "z" }] } }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "readd=" }, "right": { "kind": "call", "type": "String", "target": "render", "args": [{ "kind": "local", "name": "rec" }] } }, "right": { "kind": "const", "type": "String", "value": " seven=" } }, "right": { "kind": "call", "type": "String", "target": "collections.getOr", "args": [{ "kind": "memberAccess", "type": "Map OF Integer TO String", "target": { "kind": "local", "name": "rec" }, "member": "m" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "String", "value": "?" }] } }] } },
+    { "op": "return", "line": 47, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

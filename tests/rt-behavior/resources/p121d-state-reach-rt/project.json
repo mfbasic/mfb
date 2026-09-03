@@ -1,0 +1,16 @@
+{
+  "name": "p121d_state_reach_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "state_reach_worker",
+      "version": "=0.1.0",
+      "source": "file:packages/state_reach_worker"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

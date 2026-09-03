@@ -1,0 +1,17 @@
+IMPORT collections
+
+' plan-121-B: the IN-PLACE `insert` arm has its own bounds check, and nothing
+' tested it. The existing `func_collection_insert_out_of_range` fixture spells
+' the call as `LET values = collections::insert([1, 2], 3, 9)` -- not a
+' self-assignment -- so it takes the out-of-place path and cannot reach the
+' in-place gate at all.
+'
+' This is the self-assign shape the arm matches. It must raise the SAME
+' ErrIndexOutOfRange as the copying path, and it must raise it BEFORE mutating,
+' so `xs` is untouched when the error propagates. Valid range is
+' `0 <= index <= count` -- inserting AT count is an append and is legal.
+FUNC main AS Integer
+  MUT xs AS List OF Integer = [1, 2]
+  xs = collections::insert(xs, 3, 9)
+  RETURN len(xs)
+END FUNC

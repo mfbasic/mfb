@@ -1,0 +1,43 @@
+' plan-121-D Phase 1: the worker half of the STATE reachability probe.
+'
+' The worker ACCEPTS a stateful resource the parent transferred in, then grows
+' the collection held in its STATE across a reallocation, from a thread that is
+' NOT the one that allocated the block. Two separate things are being measured:
+'
+'   1. The parent cannot still be holding this block. `thread::transfer` closes
+'      the transferring binding (`mfb man thread accept`), so by the time this
+'      function runs there is exactly ONE live handle to the STATE and it is the
+'      one below.
+'   2. The in-place grow works from a thread with its OWN arena. Arena state
+'      (`x19`) is per-thread and `copy_resource_to_current_arena` copied the
+'      STATE into this thread's arena on the way in, so the block this appends
+'      to was allocated HERE -- and the realloc + write-back must republish
+'      through the resource pointer this thread holds.
+IMPORT collections
+IMPORT fs
+IMPORT thread
+
+EXPORT TYPE Accum
+  raw AS List OF Byte
+  n   AS Integer
+END TYPE
+
+' `ISOLATED` is what `thread::start` requires of an entry point; the resource
+' channel rides on the `ThreadWorker` parameter, not on captured state.
+EXPORT ISOLATED FUNC growAccepted(worker AS ThreadWorker OF RES fs::File STATE Accum TO Integer, rounds AS Integer) AS Integer
+  RES f AS fs::File STATE Accum = thread::accept(worker, 5000)
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    ' The very shape plan-121-D generalizes: a self-append into a collection
+    ' inlined in a STATE block, repeated far enough to force several reallocs.
+    f.state.raw = collections::append(f.state.raw, toByte(i MOD 251))
+    f.state.n = f.state.n + 1
+    i = i + 1
+  END WHILE
+  ' Read back through the SAME handle after every grow: if a realloc failed to
+  ' republish through the resource's STATE slot, this reads the stale block.
+  LET total AS Integer = len(f.state.raw)
+  LET bumps AS Integer = f.state.n
+  fs::close(f)
+  RETURN total * 1000 + bumps
+END FUNC
