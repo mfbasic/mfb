@@ -397,21 +397,107 @@ FUNC attrInt(attrs AS Map OF String TO String, key AS String, dflt AS Integer) A
   RETURN maxI(1, v)
 END FUNC
 
+' The `type` of an <input>, lower-cased and defaulting to "text".
+FUNC inputType(e AS ElementNode) AS String
+  RETURN strings::lower(strings::trim(collections::getOr(e.attrs, "type", "text")))
+END FUNC
+
+' Whether an <input> is a text-entry field the reader can type into — everything
+' that renders as a |S:| / |N:| box. The push-button types (submit/reset/button),
+' the toggles (checkbox/radio) and a hidden field have no typed value, so they are
+' not editable and never become focus targets.
+FUNC isEditableInput(e AS ElementNode) AS Boolean
+  IF e.tag <> "input" THEN RETURN FALSE
+  LET t AS String = inputType(e)
+  RETURN NOT (t = "hidden" OR t = "submit" OR t = "reset" OR t = "button" OR t = "checkbox" OR t = "radio" OR t = "image")
+END FUNC
+
+' The attribute indexFields stamps an editable <input> with: its ordinal in document
+' order. It is the field's identity everywhere — the inline gather tags the box's
+' glyphs with it, the renderer exposes it as a focus target, and applyFieldValues
+' places the reader's value by it. A synthetic attribute (no page uses this name), so
+' the ordinal travels with the element through every tree rebuild for free.
+FUNC fieldAttr() AS String
+  RETURN "mfb-field"
+END FUNC
+
+' The field ordinal stamped on an element by indexFields, or -1 when it carries none
+' (every element that is not an editable <input>, and any document that was never
+' indexed).
+FUNC fieldOrdinalOf(e AS ElementNode) AS Integer
+  LET raw AS String = collections::getOr(e.attrs, fieldAttr(), "")
+  IF raw = "" THEN RETURN -1
+  LET v AS Integer = toInt(raw, 10) TRAP(err)
+    RECOVER -1
+  END TRAP
+  RETURN v
+END FUNC
+
+' The last `n` display columns of `s` (whole graphemes). A field shows the tail of
+' an over-long value, so the text being typed stays visible at the box's right edge.
+FUNC tailCols(s AS String, n AS Integer) AS String
+  IF n <= 0 THEN RETURN ""
+  LET gs AS List OF String = strings::graphemes(s)
+  MUT out AS String = ""
+  MUT used AS Integer = 0
+  MUT i AS Integer = len(gs) - 1
+  DO WHILE i >= 0
+    LET g AS String = collections::get(gs, i)
+    LET gw AS Integer = strings::displayWidth(g)
+    IF used + gw > n THEN EXIT DO
+    out = g & out
+    used = used + gw
+    i = i - 1
+  LOOP
+  RETURN out
+END FUNC
+
+' A field's value as it is drawn inside its box: `n` columns wide, the value's tail
+' when it overflows, then "-" filler for the unused cells.
+'
+' Every space becomes a non-breaking space (U+00A0). The inline gather collapses
+' whitespace runs and the renderer word-wraps on U+0020, so a real space inside a
+' field would shrink the box and could break it across two lines; U+00A0 is one
+' column wide, renders as a space, and survives both. It is a display detail only —
+' the value the app stores keeps ordinary spaces.
+FUNC fieldContent(raw AS String, n AS Integer) AS String
+  LET shown AS String = strings::replace(tailCols(raw, n), " ", "\u{A0}")
+  LET w AS Integer = strings::displayWidth(shown)
+  IF w >= n THEN RETURN shown
+  RETURN shown & strings::repeat("-", n - w)
+END FUNC
+
 ' The visible glyph an <input> renders as, so the field shows in the flowed text.
-' A single-line text field is |S:----|, a number field |N:----| (the dashes span
-' its `size`); a submit/reset/button becomes a <label>; check/radio are [ ]/( );
-' a hidden field renders nothing.
+' A single-line text field is |S:----|, a number field |N:----| and a password field
+' |P:****| — the box spans its `size` columns and shows the field's current value
+' (typed by the reader, or supplied by the page) followed by "-" filler. A password's
+' value is masked; a submit/reset/button/image becomes a <label>; check/radio are
+' [ ]/( ); a hidden field renders nothing.
 FUNC inputBox(e AS ElementNode) AS String
-  LET t AS String = strings::lower(strings::trim(collections::getOr(e.attrs, "type", "text")))
-  IF t = "hidden" THEN RETURN ""
+  LET t AS String = inputType(e)
   IF t = "submit" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Submit") & ">"
   IF t = "reset" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Reset") & ">"
   IF t = "button" THEN RETURN "<" & collections::getOr(e.attrs, "value", "Button") & ">"
-  IF t = "checkbox" THEN RETURN "[ ]"
-  IF t = "radio" THEN RETURN "( )"
-  LET n AS Integer = attrInt(e.attrs, "size", 20)
-  IF t = "number" THEN RETURN "|N:" & strings::repeat("-", n) & "|"
-  RETURN "|S:" & strings::repeat("-", n) & "|"
+  ' A type=image is a submit button too, labelled by its alt text — not the text box
+  ' the fall-through below would otherwise draw for an unrecognised type.
+  IF t = "image" THEN RETURN "<" & collections::getOr(e.attrs, "alt", "Submit") & ">"
+  RETURN inputBoxOf(t, attrInt(e.attrs, "size", 20), collections::getOr(e.attrs, "value", ""))
+END FUNC
+
+' The box an editable field of type `kind` and width `size` draws when it holds
+' `value` — the one place a field's appearance is decided, so the full layout pass and
+' an app redrawing a single field in place cannot render it differently. The push
+' buttons are inputBox's business (their label is an attribute, not reader data).
+FUNC inputBoxOf(kind AS String, size AS Integer, value AS String) AS String
+  IF kind = "hidden" THEN RETURN ""
+  IF kind = "checkbox" THEN RETURN "[ ]"
+  IF kind = "radio" THEN RETURN "( )"
+  LET n AS Integer = maxI(1, size)
+  IF kind = "password" THEN
+    RETURN "|P:" & fieldContent(strings::repeat("*", len(strings::graphemes(value))), n) & "|"
+  END IF
+  IF kind = "number" THEN RETURN "|N:" & fieldContent(value, n) & "|"
+  RETURN "|S:" & fieldContent(value, n) & "|"
 END FUNC
 
 ' Concatenate the visible text of an inline subtree, decorating the controls that
@@ -470,20 +556,23 @@ END FUNC
 
 ' One styled grapheme of an inline run. `href` is the link URL when this glyph is part
 ' of a hyperlink's text (empty otherwise) — a link's [brackets] carry the link style
-' but an empty href, so a link's target covers its text only.
+' but an empty href, so a link's target covers its text only. `field` is the form-field
+' ordinal when the glyph is part of an editable <input>'s box, -1 otherwise.
 TYPE Glyph
   ch AS String
   bold AS Boolean
   underline AS Boolean
   color AS Integer
   href AS String
+  field AS Integer
 END TYPE
 
-' Split a plain string into styled glyphs, one per grapheme, all carrying (b, u, c, href).
-FUNC styleGlyphs(s AS String, b AS Boolean, u AS Boolean, c AS Integer, href AS String) AS List OF Glyph
+' Split a plain string into styled glyphs, one per grapheme, all carrying
+' (b, u, c, href, field).
+FUNC styleGlyphs(s AS String, b AS Boolean, u AS Boolean, c AS Integer, href AS String, field AS Integer) AS List OF Glyph
   MUT out AS List OF Glyph = []
   FOR EACH g IN strings::graphemes(s)
-    out = collections::append(out, Glyph[g, b, u, c, href])
+    out = collections::append(out, Glyph[g, b, u, c, href, field])
   NEXT
   RETURN out
 END FUNC
@@ -509,11 +598,11 @@ FUNC wrapGlyphs(e AS ElementNode, open AS String, close AS String, b AS Boolean,
     joined = joined & g.ch
   NEXT
   IF strings::trim(joined) = "" THEN RETURN []
-  MUT out AS List OF Glyph = [Glyph[open, b, u, c, bracketHref]]
+  MUT out AS List OF Glyph = [Glyph[open, b, u, c, bracketHref, -1]]
   FOR EACH g IN inner
     out = collections::append(out, g)
   NEXT
-  out = collections::append(out, Glyph[close, b, u, c, bracketHref])
+  out = collections::append(out, Glyph[close, b, u, c, bracketHref, -1])
   RETURN out
 END FUNC
 
@@ -523,20 +612,20 @@ FUNC gatherAttributed(n AS Node, b AS Boolean, u AS Boolean, c AS Integer, href 
       IF e.style.display = Display.None THEN RETURN []
       IF e.tag = "a" THEN RETURN wrapGlyphs(e, "[", "]", b, TRUE, linkColor(), collections::getOr(e.attrs, "href", ""), "")
       IF e.tag = "button" THEN RETURN wrapGlyphs(e, "<", ">", b, u, c, href, href)
-      IF e.tag = "input" THEN RETURN styleGlyphs(inputBox(e), b, u, c, href)
+      IF e.tag = "input" THEN RETURN styleGlyphs(inputBox(e), b, u, c, href, fieldOrdinalOf(e))
       IF e.tag = "b" OR e.tag = "strong" THEN RETURN gatherChildrenGlyphs(e, TRUE, u, c, href)
       IF e.tag = "u" OR e.tag = "ins" THEN RETURN gatherChildrenGlyphs(e, b, TRUE, c, href)
       RETURN gatherChildrenGlyphs(e, b, u, c, href)
     CASE TextNode(t)
-      RETURN styleGlyphs(t.text, b, u, c, href)
+      RETURN styleGlyphs(t.text, b, u, c, href, -1)
     CASE ELSE
       RETURN []
   END MATCH
 END FUNC
 
-' Whether two glyphs carry the same terminal style and link.
+' Whether two glyphs carry the same terminal style, link and form field.
 FUNC sameStyle(a AS Glyph, g AS Glyph) AS Boolean
-  RETURN a.bold = g.bold AND a.underline = g.underline AND a.color = g.color AND a.href = g.href
+  RETURN a.bold = g.bold AND a.underline = g.underline AND a.color = g.color AND a.href = g.href AND a.field = g.field
 END FUNC
 
 ' Collapse whitespace runs to single spaces and trim, exactly as collapseWs does for
@@ -550,6 +639,7 @@ FUNC collapseGlyphs(gs AS List OF Glyph) AS List OF Glyph
   MUT spU AS Boolean = FALSE
   MUT spC AS Integer = -1
   MUT spHref AS String = ""
+  MUT spField AS Integer = -1
   MUT started AS Boolean = FALSE
   FOR EACH g IN gs
     LET isWs AS Boolean = g.ch = " " OR g.ch = "\t" OR g.ch = "\n" OR g.ch = "\r"
@@ -560,10 +650,11 @@ FUNC collapseGlyphs(gs AS List OF Glyph) AS List OF Glyph
         spU = g.underline
         spC = g.color
         spHref = g.href
+        spField = g.field
       END IF
     ELSE
       IF pendingSpace THEN
-        out = collections::append(out, Glyph[" ", spB, spU, spC, spHref])
+        out = collections::append(out, Glyph[" ", spB, spU, spC, spHref, spField])
         pendingSpace = FALSE
       END IF
       out = collections::append(out, g)
@@ -584,18 +675,20 @@ END FUNC
 
 ' Reduce a collapsed glyph list to TextSpans over its grapheme indices: one span per
 ' maximal run of styled (non-default) glyphs. Default (plain) glyphs produce no span.
+' An editable field's box is "styled" even when it carries no colour/bold/underline:
+' its span is what exposes the field to the renderer as a focus target.
 FUNC glyphsSpans(gs AS List OF Glyph) AS List OF TextSpan
   MUT spans AS List OF TextSpan = []
   MUT i AS Integer = 0
   LET n AS Integer = len(gs)
   DO WHILE i < n
     LET g AS Glyph = collections::get(gs, i)
-    IF g.bold OR g.underline OR g.color >= 0 THEN
+    IF g.bold OR g.underline OR g.color >= 0 OR g.field >= 0 THEN
       MUT j AS Integer = i
       DO WHILE j + 1 < n AND sameStyle(collections::get(gs, j + 1), g)
         j = j + 1
       LOOP
-      spans = collections::append(spans, TextSpan[i, j, g.bold, g.underline, g.color, g.href])
+      spans = collections::append(spans, TextSpan[i, j, g.bold, g.underline, g.color, g.href, g.field])
       i = j + 1
     ELSE
       i = i + 1

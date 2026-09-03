@@ -37,6 +37,12 @@ END TYPE
 ' gather from the tags a run flattens (a link → underlined + link color + href,
 ' <b>/<strong> → bold, <u>/<ins> → underline). Ranges are over the run's already-
 ' collapsed text, so they line up with what the renderer wraps and draws.
+'
+' `field` is the form-field ordinal when the range is an editable <input>'s box
+' (-1 otherwise) — the twin of `href` for text entry: the renderer exposes the range
+' as a focusable target and the app edits that field's value by ordinal (see
+' indexFields / setFieldValue below). A range is a link or a field, never both in
+' practice, but the two are independent so an <input> inside an <a> keeps both.
 EXPORT TYPE TextSpan
   start AS Integer
   endIndex AS Integer
@@ -44,6 +50,7 @@ EXPORT TYPE TextSpan
   underline AS Boolean
   color AS Integer
   href AS String
+  field AS Integer
 END TYPE
 
 ' A run of text. `layout` is the box the layout pass placed this run in (x, y in CSS
@@ -205,6 +212,194 @@ EXPORT FUNC attachCss(doc AS Node, extra AS List OF String) AS Node
     CASE ELSE
       RETURN doc
   END MATCH
+END FUNC
+
+' ----- form fields -----
+'
+' The document describes a page's form *structure*; it never holds what the reader
+' types. indexFields stamps each editable <input> (see isEditableInput in layout.mfb)
+' with its ordinal in document order as the `mfb-field` attribute, once, after
+' parsing. That ordinal is the field's identity everywhere: it rides along through
+' every style/layout rebuild, the inline gather tags the field box's glyphs with it,
+' and the renderer hands it to the app as a focusable target.
+'
+' fieldSpecs then describes each field — which form it belongs to, the key it takes
+' in that form's data, how it is drawn, and the value the page shipped it with — so
+' an app can hold the live values in its own per-form data object and render a field
+' from a spec plus a String. Keeping the values out of the tree is what makes typing
+' cheap: recording a keystroke touches only the app's data, never this tree (rebuilding
+' a page-sized tree costs hundreds of milliseconds and degrades as it is repeated).
+' applyFieldValues folds those values back in for the one operation that does need a
+' whole document — a full re-layout.
+'
+' These recurse over dom's own Node union, which is fine inside dom (only a consumer
+' recursing over the imported union has to be iterative — see resolve.mfb).
+
+' Rebuild `n`, stamping each editable <input> with its ordinal starting at `startAt`,
+' and return the rebuilt node together with the first ordinal still free (`after`).
+TYPE FieldWalk
+  node AS Node
+  after AS Integer
+END TYPE
+
+FUNC stampFields(n AS Node, startAt AS Integer) AS FieldWalk
+  MUT out AS Node = n
+  MUT counter AS Integer = startAt
+  MATCH n
+    CASE ElementNode(e)
+      MUT attrs AS Map OF String TO String = e.attrs
+      IF isEditableInput(e) THEN
+        attrs = collections::set(attrs, fieldAttr(), toString(counter))
+        counter = counter + 1
+      END IF
+      MUT kids AS List OF Node = []
+      FOR EACH c IN e.children
+        LET w AS FieldWalk = stampFields(c, counter)
+        kids = collections::append(kids, w.node)
+        counter = w.after
+      NEXT
+      out = elementStyled(e.tag, attrs, kids, e.style)
+    CASE ELSE
+  END MATCH
+  RETURN FieldWalk[out, counter]
+END FUNC
+
+' Number every editable <input> in the document in document order, stamping each with
+' its ordinal. Call once per loaded page, after resolveStyles (it preserves the
+' resolved styles and leaves layout to be recomputed as usual).
+EXPORT FUNC indexFields(doc AS Node) AS Node
+  RETURN stampFields(doc, 0).node
+END FUNC
+
+' What an app needs to know about one editable field, without walking the tree.
+'
+' `ordinal` is the field's identity — its index in this list, the number stamped on
+' the element, and the `field` on the display target the reader Tabs to. `form` is the
+' index of the <form> that owns it (forms are numbered in document order; a field
+' outside every <form> belongs to one extra implicit form, numbered last), and `key`
+' is the name it takes inside that form's data — its `name` attribute, made unique
+' within the form and synthesized when the element has no name. `kind` and `size` are
+' how it draws, and `initial` is the value the page shipped it with.
+EXPORT TYPE FieldSpec
+  ordinal AS Integer
+  form AS Integer
+  key AS String
+  kind AS String
+  size AS Integer
+  initial AS String
+END TYPE
+
+' Collect every editable field under `n`, in document order, tagged with the form it
+' is inside (`formIdx`; -1 while outside any <form>). `forms` counts the <form>
+' elements opened so far, so each one gets its own index.
+TYPE SpecWalk
+  specs AS List OF FieldSpec
+  forms AS Integer
+END TYPE
+
+FUNC gatherSpecs(n AS Node, formIdx AS Integer, acc AS SpecWalk) AS SpecWalk
+  MUT specs AS List OF FieldSpec = acc.specs
+  MUT forms AS Integer = acc.forms
+  MATCH n
+    CASE ElementNode(e)
+      MUT childForm AS Integer = formIdx
+      IF e.tag = "form" THEN
+        childForm = forms
+        forms = forms + 1
+      END IF
+      IF isEditableInput(e) THEN
+        specs = collections::append(specs, FieldSpec[ _
+          fieldOrdinalOf(e), _
+          childForm, _
+          strings::trim(collections::getOr(e.attrs, "name", "")), _
+          inputType(e), _
+          attrInt(e.attrs, "size", 20), _
+          collections::getOr(e.attrs, "value", "")])
+      END IF
+      MUT inner AS SpecWalk = SpecWalk[specs, forms]
+      FOR EACH c IN e.children
+        inner = gatherSpecs(c, childForm, inner)
+      NEXT
+      RETURN inner
+    CASE ELSE
+  END MATCH
+  RETURN SpecWalk[specs, forms]
+END FUNC
+
+' Whether `key` is already taken by an earlier field of the same form.
+FUNC keyTaken(specs AS List OF FieldSpec, form AS Integer, key AS String) AS Boolean
+  FOR EACH sp IN specs
+    IF sp.form = form AND sp.key = key THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Every editable field on the page, in document order (so index == ordinal), with the
+' form and data key each one takes. A field with no `name` gets a synthesized key, and
+' a name already used by an earlier field of the same form is suffixed with the
+' ordinal — two same-named text controls are two independent controls, so they must
+' not share one entry in the form's data.
+EXPORT FUNC fieldSpecs(doc AS Node) AS List OF FieldSpec
+  LET none AS List OF FieldSpec = []
+  LET walk AS SpecWalk = gatherSpecs(doc, -1, SpecWalk[none, 0])
+  ' A field outside every <form> still needs somewhere to live: one implicit form,
+  ' numbered after the real ones.
+  LET loose AS Integer = walk.forms
+  MUT out AS List OF FieldSpec = []
+  FOR EACH sp IN walk.specs
+    MUT form AS Integer = sp.form
+    IF form < 0 THEN form = loose
+    MUT key AS String = sp.key
+    IF key = "" THEN key = "field" & toString(sp.ordinal)
+    IF keyTaken(out, form, key) THEN key = key & "#" & toString(sp.ordinal)
+    out = collections::append(out, FieldSpec[sp.ordinal, form, key, sp.kind, sp.size, sp.initial])
+  NEXT
+  RETURN out
+END FUNC
+
+' How many form data objects a page needs: one per <form>, plus one for the fields
+' that sit outside every form (always allocated, so a form index is never out of
+' range whether or not the page has loose fields).
+EXPORT FUNC formCount(doc AS Node) AS Integer
+  LET none AS List OF FieldSpec = []
+  RETURN gatherSpecs(doc, -1, SpecWalk[none, 0]).forms + 1
+END FUNC
+
+' The box a field draws as when it holds `value` — "|S:cat-------|" and so on. The box
+' is a fixed `size` columns wide whatever the value, so editing a field moves nothing
+' else on the page: an app can redraw just this box over the field's rectangle instead
+' of re-laying-out the page for every keystroke. It renders through the same code the
+' full layout pass uses, so the two cannot disagree.
+EXPORT FUNC fieldBox(spec AS FieldSpec, value AS String) AS String
+  RETURN inputBoxOf(spec.kind, spec.size, value)
+END FUNC
+
+' Rebuild the document with each editable field's `value` attribute taken from
+' `values` (indexed by field ordinal), so the layout pass draws the reader's data. The
+' app holds the live values, so this is a render input, not a store — pass the result
+' to the renderer and keep the original document as the page's own state.
+EXPORT FUNC applyFieldValues(doc AS Node, values AS List OF String) AS Node
+  IF len(values) = 0 THEN RETURN doc
+  RETURN placeValues(doc, values)
+END FUNC
+
+FUNC placeValues(n AS Node, values AS List OF String) AS Node
+  MUT out AS Node = n
+  MATCH n
+    CASE ElementNode(e)
+      MUT attrs AS Map OF String TO String = e.attrs
+      LET ord AS Integer = fieldOrdinalOf(e)
+      IF ord >= 0 AND ord < len(values) THEN
+        attrs = collections::set(attrs, "value", collections::get(values, ord))
+      END IF
+      MUT kids AS List OF Node = []
+      FOR EACH c IN e.children
+        kids = collections::append(kids, placeValues(c, values))
+      NEXT
+      out = elementStyled(e.tag, attrs, kids, e.style)
+    CASE ELSE
+  END MATCH
+  RETURN out
 END FUNC
 
 ' The page title: the HeaderNode child's title, or "" if there is none. Reads
