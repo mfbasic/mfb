@@ -138,7 +138,68 @@ three consumers then act on it:
    path is a byte decode is itself judged infallible, propagating the error up the
    call graph.
 
-**Shape B is a second, distinct defect and the root cause is not yet proven.** Its IR
+**Shape B — H1 CONFIRMED (Phase 1).** The dispatch is
+`src/codegen/engine/value/builder_values.rs`'s `CallResult` arm, a **fourth** consumer
+of the census this document did not list: it asks `inline_builtin_is_infallible(target)`
+and, on `true`, routes to `lower_inline_infallible_raw`, which lowers the member with
+**no `raw_result_capture` set**. `lower_to_string`'s `List OF Byte` arm then reaches
+`raise_error_bare("ErrEncoding")` → `emit_error_register_return`, whose capture branch
+is `None`, so the error auto-propagates exactly as at an untrapped call site. Proven
+from `mfb build --ncode` on the repro, not from reading: at shape B's
+`byte_list_string_invalid_39` label the emission is
+`mov_imm x8, 77020004` … `bl _mfb_make_error_result` / `bl _mfb_rt_park_error` /
+`ldr lr` / `add_sp` / **`ret`** — a return from `main`, with no branch to any
+`raw_builtin_done`/`raw_conversion_done` capture label. H1 holds, and the fix is
+contained: give the byte-list overload a raw-supported lowering
+(`lower_inline_builtin_raw` + a `toString` arm), which reuses the existing capture
+seam rather than inventing one.
+
+**H2 eliminated.** The raise and the "abort" are the *same* path: shape C catches
+`77020004` through the ordinary function-level trap route, and the `.ncode` above
+shows one `emit_error_register_return` tail whose destination is chosen by
+`raw_result_capture` / `error_exit_destination`. There is no separate fatal abort.
+
+**H3 eliminated.** The error return is emitted directly by the `toString` lowering at
+the default optimizer level; no optimizer row is involved. `opt1/recovery.rs` is
+level-3 gated and removes only function-level traps.
+
+### Blast-radius audit verdicts (Phase 1)
+
+- `src/ir/shape.rs:1770` — **affected, fixed.** It consults `call_is_fallible` for the
+  callee in a short-circuited `AND`/`OR` operand and has a full type oracle
+  (`type_of` → `lower::expression_type`) in hand, so it now passes argument types.
+  A short-circuited `toString(<bytes>)` — genuinely fallible, and the one shape the
+  desugar cannot lift — is now reported instead of silently miscompiled.
+- `src/audit/collect/source.rs:link_fallible_calls` / `is_fallible_builtin` —
+  **does not share the claim; unaffected.** Measured with
+  `grep -n '"toString"\|"len"\|"typeName"' src/audit/collect/source.rs` → no hits.
+  That census is an opt-in list of *fallible* names for `mfb audit`'s reporting, so
+  `toString` is absent rather than asserted-infallible. It therefore under-reports a
+  byte decode in the Control-flow section. Left alone deliberately: it is an AST-level
+  oracle with no types, and the module's own doc says a report that over-reports is
+  noisy while a desugar that under-reports miscompiles — the two are separate by
+  design. A type-aware audit oracle is its own concern, not this bug.
+- `tests/syntax/trap/inline-trap-infallible-builtin-invalid` — **pins no `toString`
+  shape.** Its two cases are a non-call literal (`5`) and a package constant
+  (`math::pi()`), both `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`. Unaffected.
+- `len` / `typeName` overload audit — **neither has a fallible overload.**
+  `lower_len` (`builder_collection_layout.rs:1110`) has exactly two arms, `String`
+  (a UTF-8 scalar count loop) and `typed_is_collection_type` (a count load); neither
+  emits an error return — `grep -c 'raise_error\|emit_error_'` over the function is 0,
+  and its third arm is a compile-time `Err(...)` for an unsupported argument type, not
+  a runtime raise. `typeName` folds to a string constant
+  (`static_type_name_for_fold` + `load_string_constant`) and emits no code that can
+  fail. Both stay in the name-keyed half of the census; a unit test pins that a
+  byte-list argument does not flip them.
+- `mfb man errors` — **does not repeat the claim.** `grep -n 'infallible'
+  src/docs/man/errors/package.md` → no hits. No man-page change needed.
+- `src/codegen/builtins/http/helper_bytes_to_text.rs` — **found during the audit**: its
+  MFBASIC comment documented the bug as intended behavior ("the inline-TRAP analysis
+  treats `toString` as infallible and would elide an inline handler"). Corrected in
+  place, same line count so no `ErrorLoc` shift. The helper keeps its function-level
+  `TRAP`; only the rationale changed.
+
+**Shape B's original write-up follows.** Its IR
 *is* correct — `mfb build --ir` shows
 `{"op":"bind","name":"$trap_res0","type":"Result OF String","value":{"kind":"callResult","target":"toString",...}}`
 followed by a `resultIsOk` test and a populated `else` — and it still aborts. So

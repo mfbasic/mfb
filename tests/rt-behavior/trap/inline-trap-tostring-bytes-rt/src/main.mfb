@@ -45,6 +45,19 @@ FUNC decode(b AS List OF Byte) AS String
   RETURN toString(b)
 END FUNC
 
+' Shape H's caller — the `examples/browser` contract, literally: `fetch::pageResult`
+' decodes `toString(resp.body)` with NO inline trap and relies on `fetch::fetch`'s
+' function-level handler one frame up. Making `decode` fallible (shape E) must not
+' disturb that route: the failure still arrives at the caller's TRAP, with the same
+' error code.
+FUNC decodeViaCallerTrap(b AS List OF Byte) AS String
+  RETURN "H " & decode(b)
+
+  TRAP(e)
+    RETURN "H caught: " & toString(e.code)
+  END TRAP
+END FUNC
+
 FUNC main AS Integer
   ' Shape A — inline TRAP, scrutinee holds a nested call. The hoist list is
   ' non-empty, so `ir::lower`'s `check_root` consults the fallibility census for
@@ -100,6 +113,9 @@ FUNC main AS Integer
     RECOVER "DEAD-G"
   END TRAP
   io::print("G " & g)
+
+  ' Shape H — the decode one frame below a function-level TRAP.
+  io::print(decodeViaCallerTrap(bytes))
 
   RETURN 0
 END FUNC
