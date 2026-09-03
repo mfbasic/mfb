@@ -336,7 +336,7 @@ benchmark row — **and each is byte-identical in behaviour to the pre-plan copy
 compiler**, checked fixture by fixture against `56b368996`. Plus
 `./scripts/test-accept.sh` clean with the `N ran` count up by exactly this
 sub-plan's four new fixtures.
-Commit: b8138f8bc (`removeAt`, Set `remove`) and the `insert`/`prepend` commit that closes this sub-plan
+Commit: b8138f8bc (`removeAt`, Set `remove`), 73a8e2194 (`insert`, `prepend` — closes this sub-plan)
 
 ## Validation Plan
 
