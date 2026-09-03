@@ -1372,7 +1372,7 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(&root, context.fallible, locals) == Some(true);
+        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types) == Some(true);
     let check_root = match &root {
         // bug-486: the census is asked with the root call's ARGUMENT types, not
         // its name alone. `toString` is infallible on every argument type but
@@ -1381,9 +1381,10 @@ fn lower_inline_trap(
         // also hoisted, and the raise walked straight past the handler.
         IrValue::Call { target, args, .. } => {
             hoists.is_empty()
-                || context
-                    .fallible
-                    .call_is_fallible(target, &ir_call_arg_types(target, args, locals))
+                || context.fallible.call_is_fallible(
+                    target,
+                    &ir_call_arg_types(target, args, locals, &context.binding_types),
+                )
         }
         _ => hoists.is_empty() || root_operator_raises,
     };
@@ -1770,7 +1771,14 @@ fn hoist_trap_calls(
     // The scrutinee's own outermost node is handled by the caller, so only its
     // operands are scanned.
     let mut fallible = Vec::new();
-    scan_trap_operands(root, context.fallible, locals, 0, &mut fallible);
+    scan_trap_operands(
+        root,
+        context.fallible,
+        locals,
+        &context.binding_types,
+        0,
+        &mut fallible,
+    );
     let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
         return Vec::new();
     };
@@ -1795,6 +1803,7 @@ fn scan_trap_operands(
     value: &IrValue,
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
@@ -1810,14 +1819,14 @@ fn scan_trap_operands(
         // captured values are evaluated in this expression.
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                scan_trap_call(capture, fallible, locals, next, out);
+                scan_trap_call(capture, fallible, locals, globals, next, out);
             }
         }
         IrValue::Call { args, .. }
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                scan_trap_call(arg, fallible, locals, next, out);
+                scan_trap_call(arg, fallible, locals, globals, next, out);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -1828,33 +1837,33 @@ fn scan_trap_operands(
         | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
-            scan_trap_call(value, fallible, locals, next, out)
+            scan_trap_call(value, fallible, locals, globals, next, out)
         }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            scan_trap_call(target, fallible, locals, next, out);
+            scan_trap_call(target, fallible, locals, globals, next, out);
             for update in updates {
-                scan_trap_call(&update.value, fallible, locals, next, out);
+                scan_trap_call(&update.value, fallible, locals, globals, next, out);
             }
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                scan_trap_call(value, fallible, locals, next, out);
+                scan_trap_call(value, fallible, locals, globals, next, out);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                scan_trap_call(key, fallible, locals, next, out);
-                scan_trap_call(value, fallible, locals, next, out);
+                scan_trap_call(key, fallible, locals, globals, next, out);
+                scan_trap_call(value, fallible, locals, globals, next, out);
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
-            scan_trap_call(left, fallible, locals, next, out);
+            scan_trap_call(left, fallible, locals, globals, next, out);
             if !is_short_circuit_operator(*op) {
-                scan_trap_call(right, fallible, locals, next, out);
+                scan_trap_call(right, fallible, locals, globals, next, out);
             }
         }
     }
@@ -1872,11 +1881,12 @@ fn trap_hoist_kind(
     value: &IrValue,
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
 ) -> Option<bool> {
     match value {
-        IrValue::Call { target, args, .. } => {
-            Some(fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals)))
-        }
+        IrValue::Call { target, args, .. } => Some(
+            fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals, globals)),
+        ),
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
         // exempt.
@@ -1902,14 +1912,15 @@ fn scan_trap_call(
     value: &IrValue,
     fallible: &Fallibility,
     locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
     depth: usize,
     out: &mut Vec<bool>,
 ) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
-    scan_trap_operands(value, fallible, locals, depth, out);
-    if let Some(checked) = trap_hoist_kind(value, fallible, locals) {
+    scan_trap_operands(value, fallible, locals, globals, depth, out);
+    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals) {
         out.push(checked);
     }
 }
@@ -1919,9 +1930,12 @@ fn scan_trap_call(
 ///
 /// Every `IrValue` that carries a `type_` answers with it; a `Local` is looked up
 /// in the enclosing function's map (which is where a hoisted `$trap_arg*` and
-/// every source local live). Anything else answers `Unknown`, which lands the
-/// census on its name-keyed verdict — the answer it gave before argument types
-/// reached it.
+/// every source local live) and a `Global` in the top-level binding map —
+/// `IrValue::Global` is a bare name with no `type_` on the node, so without
+/// `globals` a `LET` at file scope typed `Unknown` and its byte decode was hoisted
+/// UNCHECKED, re-entering the bug this fixes. Anything else answers `Unknown`,
+/// which lands the census on its name-keyed verdict — the answer it gave before
+/// argument types reached it.
 ///
 /// Gated on `target` so the walk only pays for the names whose verdict can turn
 /// on an argument type; every other callee is decided by name alone.
@@ -1929,30 +1943,26 @@ fn ir_call_arg_types(
     target: &str,
     args: &[IrValue],
     locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
 ) -> Vec<ParameterType> {
     if !builtins::inline_builtin_fallibility_depends_on_args(target) {
         return Vec::new();
     }
     args.iter()
-        .map(|arg| match arg {
-            IrValue::Local(name) => locals.get(name).cloned().unwrap_or(ParameterType::Unknown),
-            IrValue::Const { type_, .. }
-            | IrValue::LocalRef { type_, .. }
-            | IrValue::FunctionRef { type_, .. }
-            | IrValue::Closure { type_, .. }
-            | IrValue::Capture { type_, .. }
-            | IrValue::Call { type_, .. }
-            | IrValue::CallResult { type_, .. }
-            | IrValue::Checked { type_, .. }
-            | IrValue::Constructor { type_, .. }
-            | IrValue::UnionExtract { type_, .. }
-            | IrValue::ResultValue { type_, .. }
-            | IrValue::WithUpdate { type_, .. }
-            | IrValue::ListLiteral { type_, .. }
-            | IrValue::SetLiteral { type_, .. }
-            | IrValue::MapLiteral { type_, .. } => type_.clone(),
-            IrValue::UnionWrap { union_type, .. } => union_type.clone(),
-            _ => ParameterType::Unknown,
+        .map(|arg| {
+            match arg {
+                // The two node kinds `annotated_parameter_type` answers `None`
+                // for: a bare name whose type lives in a binding environment.
+                IrValue::Local(name) => locals.get(name).cloned(),
+                IrValue::Global(name) => globals.get(name).cloned(),
+                // Every other node carries its own type. Delegated rather than
+                // re-listed: a hand-written copy of that match is a second list
+                // to keep in step, and the first draft of this one had already
+                // dropped `MemberAccess` — which is the documented real-world
+                // idiom, `toString(resp.body)`.
+                other => other.annotated_parameter_type(),
+            }
+            .unwrap_or(ParameterType::Unknown)
         })
         .collect()
 }
@@ -2073,7 +2083,8 @@ fn rewrite_trap_call(
     // The scan's fallibility verdict is recomputed here rather than read off
     // `fallible[position]`, because a non-raising operator is not indexed at all
     // and must not consume a position.
-    let Some(checked) = trap_hoist_kind(value, context.fallible, locals) else {
+    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types)
+    else {
         return;
     };
     debug_assert_eq!(

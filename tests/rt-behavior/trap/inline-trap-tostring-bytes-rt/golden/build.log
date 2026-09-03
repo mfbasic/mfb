@@ -1,19 +1,19 @@
 $ mfb build -ast -ir tests/rt-behavior/trap/inline-trap-tostring-bytes-rt
- 102 |   ' argument is still provably infallible: this must still warn
- 103 |   ' TYPE_INLINE_TRAP_DEAD_HANDLER and the handler must stay dead (no DEAD-F).
- 104 |   LET f AS String = toString(486) TRAP(e)
+ 116 |   ' argument is still provably infallible: this must still warn
+ 117 |   ' TYPE_INLINE_TRAP_DEAD_HANDLER and the handler must stay dead (no DEAD-F).
+ 118 |   LET f AS String = toString(486) TRAP(e)
      | ^
-tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/src/main.mfb:104 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/src/main.mfb:118 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
                Inline TRAP handler is unreachable — `toString` cannot fail, so the handler is dead code.
 Wrote AST to tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/inline_trap_tostring_bytes_rt.ast
 Wrote IR to tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/inline_trap_tostring_bytes_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/trap/inline-trap-tostring-bytes-rt
- 102 |   ' argument is still provably infallible: this must still warn
- 103 |   ' TYPE_INLINE_TRAP_DEAD_HANDLER and the handler must stay dead (no DEAD-F).
- 104 |   LET f AS String = toString(486) TRAP(e)
+ 116 |   ' argument is still provably infallible: this must still warn
+ 117 |   ' TYPE_INLINE_TRAP_DEAD_HANDLER and the handler must stay dead (no DEAD-F).
+ 118 |   LET f AS String = toString(486) TRAP(e)
      | ^
-tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/src/main.mfb:104 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/src/main.mfb:118 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
                Inline TRAP handler is unreachable — `toString` cannot fail, so the handler is dead code.
 Wrote executable to tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/build/inline_trap_tostring_bytes_rt.out
 [exit 0]
@@ -26,4 +26,6 @@ E caught
 F 486
 G ok
 H caught: 77020004
+I caught
+J caught
 [exit 0]

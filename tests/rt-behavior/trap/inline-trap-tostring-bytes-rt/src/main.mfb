@@ -27,6 +27,20 @@ FUNC utf8ok() AS List OF Byte
   RETURN b
 END FUNC
 
+' Shape J's carrier — a record field, so the scrutinee is an `IrValue::MemberAccess`.
+' This is the idiom the bug report is written against:
+' `LET text = toString(resp.body) TRAP(e) RECOVER ""` over an HTTP response body.
+TYPE Body
+  bytes AS List OF Byte
+END TYPE
+
+' Shape I's scrutinee — a TOP-LEVEL binding, which lowers to `IrValue::Global`.
+' A `Global` node carries no `type_` (it is a bare name), so unlike a `Local` it
+' has to be resolved through the top-level binding map; without that it typed
+' `Unknown`, the census fell back to its name-keyed verdict, and the decode was
+' hoisted UNCHECKED — the same defect as shape A, one binding kind over.
+LET gbytes AS List OF Byte = latin1()
+
 ' Shape C — a function-level TRAP. The contrast case: it catches today, and
 ' `examples/browser`'s `fetch::pageResult` depends on it. Must keep working with
 ' the same error code.
@@ -116,6 +130,23 @@ FUNC main AS Integer
 
   ' Shape H — the decode one frame below a function-level TRAP.
   io::print(decodeViaCallerTrap(bytes))
+
+  ' Shape I — a GLOBAL byte list, in a scrutinee that also hoists. With no hoist
+  ' the root is checked unconditionally and the bug is invisible, so the second
+  ' `toString(latin1())` is load-bearing: it is what makes `check_root` consult
+  ' the census for the global-argument decode.
+  LET i2 AS String = toString(gbytes) & toString(latin1()) TRAP(e)
+    RECOVER "I caught"
+  END TRAP
+  io::print(i2)
+
+  ' Shape J — the documented call-site idiom, `toString(resp.body)`, in a
+  ' scrutinee that also hoists.
+  LET resp AS Body = Body[latin1()]
+  LET j AS String = toString(resp.bytes) & toString(latin1()) TRAP(e)
+    RECOVER "J caught"
+  END TRAP
+  io::print(j)
 
   RETURN 0
 END FUNC
