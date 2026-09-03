@@ -567,8 +567,9 @@ Commit: 8c4fa49a6
       describes. Add `__CANVAS_KIND_SEGMENT` and `__CANVAS_GEO_ARC` to the skip, and
       add a test that a gradient on a `Line` changes nothing. Landed with
       `a_gradient_on_a_stroke_only_kind_is_ignored`; the gradient + stroke-only
-      selection of `rt_canvas_rasteriser` is **9 passed, 0 failed**, and with the fix
-      reverted the same test *hangs* rather than failing — see the corrected severity.
+      selection of `rt_canvas_rasteriser` is **9 passed, 0 failed**. The measured
+      symptom of the defect is a **wrong picture**, not a hang — see the corrected
+      severity under **F17**.
 - [ ] Archive this letter to `planning/completed/` and land it on `main` with
       `git push . HEAD:main` (the repo sets `receive.denyCurrentBranch=updateInstead`,
       so this updates a checked-out `main` in place and **refuses** rather than
@@ -785,11 +786,9 @@ That is the gap: a `Text` is deferred, so its header comes from
 `__canvas_deferredHeader` → `__canvas_textHeader`, which rewrites slot 0 to `POLYGON`
 before `__canvas_paintHeader` reads it. **F18**.
 
-So the RED evidence for this correction is a hang rather than a pixel diff, which is
-stronger than what the test asserts. The test still asserts pixel equality, because that
-is the rule worth pinning — "a gradient changes nothing on a kind with no interior" —
-and a test that asserted "does not hang" would keep passing if the corruption ever
-became quiet again.
+The test asserts pixel equality — "a gradient changes nothing on a kind with no
+interior" — which is the rule worth pinning rather than any particular symptom of
+breaking it.
 
 **F16 — this letter invalidated the checklist the next two letters will follow.**
 `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things, and three are
