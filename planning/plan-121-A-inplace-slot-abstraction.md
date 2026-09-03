@@ -298,7 +298,7 @@ the proof obligations before anything is refactored.
 Acceptance: `planning/plan-121-gate-inventory.md` exists and lists, for each of
 the 10 arms, its decline conditions; the HEAD test and acceptance results are
 recorded in this plan with their counts. No source file under `src/` is modified.
-Commit: —
+Commit: 33761be42
 
 ### Phase 2 — Introduce `InPlaceDest` + `InPlaceGate` and port the three `append` arms
 
@@ -371,7 +371,7 @@ was running its own gate at the time; the test says so itself
 was checked"). Re-run uncontended once the peer finished:
 `cargo test --test golden` → `1 passed; 0 failed`, again `1828 golden(s)
 checked, 0 diff(s)`. Effective result: **4465 passed, 0 failed**.
-Commit: —
+Commit: b5966a3d6
 
 ### Phase 2b — Fix the STATE arm's un-widened G11 gate (defect found in Phase 1)
 
@@ -420,7 +420,7 @@ byte-identical to the Phase 1 baseline.
 runs recorded under Phase 2 (both phases were verified together after the
 `op`→`builtin` rename): 4465 passed / 0 failed, and `1828 golden(s) checked,
 0 diff(s)`.
-Commit: —
+Commit: b1d7f242f
 
 ### Phase 3 — Prove the seam is reusable, without adding a fast path
 
@@ -455,7 +455,7 @@ Acceptance: the gate-decline unit test passes for every inventory condition, and
 operation without disturbing existing emission. Sub-plan B turns the constant on.
 **Met, with the second clause strengthened per C3: sub-plan B adds the operation
 outright rather than enabling a constant.**
-Commit: —
+Commit: b5966a3d6 (landed with Phase 2 — the gate unit tests live in the same new module)
 
 ## Validation Plan
 
@@ -466,9 +466,45 @@ Commit: —
 - **Coverage check:** confirm the new module is in the suite's denominator
   (`cargo test` alone can pass while never executing the seam) — build with
   `--bin mfb` coverage per `.ai/build-tooling.md` and check the new file appears.
+  **DONE, and the seam is genuinely executed:**
+
+  ```
+  cargo llvm-cov clean --workspace && cargo llvm-cov --no-report --bin mfb
+  cargo llvm-cov report -p mfb --summary-only
+
+  codegen/collection/assign/inplace_dest.rs           87.10% regions
+                                                      96.00% functions (24/25)
+                                                      88.49% lines
+  codegen/collection/assign/builder_inplace_assign.rs 68.95% regions
+  ```
+
+  In the denominator, too: `IGNORE` in `scripts/coverage-common.sh` excludes only
+  `target/`, `tests/`, `_runtime_tables.rs`, `code/private/unicode.rs` and
+  `src/testutil.rs` — `src/codegen/collection/assign/inplace_dest.rs` matches none.
+
+  **The `--bin mfb` in that instruction is load-bearing, and getting it wrong
+  produces a confident lie.** The first attempt scoped the run to the *integration*
+  tests that exercise the seam (`--test codegen_inplace_append_call_result`,
+  `--test rt_res_state_inplace_mutation`) and reported **0.00% for both files —
+  and 0.00% for TOTAL over 394 267 regions**. Nothing was uncovered; nothing was
+  *measured*. Those tests drive `target/release/mfb` as an **uninstrumented
+  subprocess** (`.ai/testing-gates.md`), so they contribute no `src/` coverage
+  whatever they prove behaviorally. A TOTAL of 0.00% is the tell that the number
+  is an artifact rather than a result — read it before believing a per-file 0.
 - **Runtime proof:** `spikes/s1` re-run before and after must produce the same
   per-set nanosecond profile (this sub-plan changes no performance); the
-  benchmark rows must not move.
+  benchmark rows must not move. **DONE — the profile is unchanged in shape,
+  which is what the claim rests on** (`mfb build spikes/s1 &&
+  ./spikes/s1/build/mfb_project.out`):
+
+  | variant | before (`spikes/README.md`) | after |
+  |---|---|---|
+  | A plain local, Integer | flat ~50 ns/set | flat 11–76 ns/set |
+  | C record field, Integer | 951 → 12844 ns/set (N = 50…1600) | 476 → 16524 ns/set |
+
+  A stays flat and C stays linear in N — the two complexities the spike exists to
+  distinguish. The per-point ns differ run-to-run (this box was also running the
+  test suite); the *shape* is the measurement, and it did not move.
 - **Doc sync:** `.ai/collections.md` gains a short subsection describing the seam
   and pointing at the gate inventory, since it is the doc AGENTS.md sends future
   sessions to before collection codegen work.

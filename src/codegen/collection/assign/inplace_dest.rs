@@ -167,7 +167,11 @@ impl InPlaceGate<'_> {
         }
         // `G16` — a live `FOR EACH` over this state field.
         if let Some((res, field)) = self.for_each_state_field {
-            if live.state_fields.iter().any(|(r, f)| r == res && f == field) {
+            if live
+                .state_fields
+                .iter()
+                .any(|(r, f)| r == res && f == field)
+            {
                 return false;
             }
         }
@@ -300,7 +304,8 @@ impl CodeBuilder<'_> {
         let update = &updates[0];
         // `G17` — only a *last-inlined* `List` field grows without shifting a
         // sibling sub-block and the offsets stored into it.
-        let (field_index, field_type) = self.record_collection_last_inlined(type_, &update.field)?;
+        let (field_index, field_type) =
+            self.record_collection_last_inlined(type_, &update.field)?;
         // `G1`/`G15`/`G10`.
         if !(InPlaceGate {
             by_ref,
@@ -372,7 +377,8 @@ impl CodeBuilder<'_> {
         {
             return None;
         }
-        let (field_index, field_type) = self.record_collection_last_inlined(type_, &update.field)?;
+        let (field_index, field_type) =
+            self.record_collection_last_inlined(type_, &update.field)?;
         if CollectionTypeLayout::from_type(&field_type).is_none() {
             return None;
         }
