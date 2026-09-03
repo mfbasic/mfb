@@ -540,7 +540,13 @@ Commit: 8c4fa49a6
       `bash scripts/regen-ncodesum.sh target/release/mfb` → `141 golden(s) refreshed,
       0 missing`, and `git status --short` reports **no** modified file. The delta is
       empty, and **not because nothing changed** — see **F11**.
-- [ ] `cargo test --no-fail-fast` on mac RELEASE.
+- [x] `cargo test --no-fail-fast` on mac RELEASE. **exit 0, 96 test binaries, 0
+      failed.** Includes `rt_canvas_golden` 16/16 (every gradient case, the
+      over-cap decline, and F18's stroked-text case), `rt_canvas_rasteriser` 41/41
+      (up from 39 — F15 and F17's cases), `rt_canvas_metal` 4/4, and `golden.rs`'s
+      816 acceptance fixtures with 0 failures — so F17 and F18 moved no golden,
+      which is what a change confined to gradient-carrying stroke-only kinds should
+      do.
 - [x] `cargo test --no-fail-fast --bin mfb` on mac DEBUG — the only run on any machine
       in any pipeline that executes the ~40 `debug_assert!`s, four of which sit on the
       canvas item block this letter grew (per **E6**, which letters F–J were told to
