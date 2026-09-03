@@ -43,8 +43,8 @@ See plan-116-A §Prerequisites for the three environment gates.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | NOT MET |
-| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | MET (2026-09-01) |
-| The ban on resource record fields is retired | `sed -n 1008,1019p src/rules/table.rs` — reserved-not-emitted under a "retired by plan-114-B" comment | MET (2026-09-01) |
+| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-verified 2026-09-03: 5 matches) |
+| The ban on resource record fields is retired | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **no emit site**, only doc comments and the test that pins its absence | **MET** (re-verified 2026-09-03) |
 | **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
 
 **If plan-116-I is not complete, this letter cannot start, full stop.** It is not
@@ -339,6 +339,25 @@ Commit: —
   `.ai/canvas-threading.md` §7 documents and what a program can already encounter.
 
 ## Corrections
+
+**J1 (2026-09-03, pre-execution) — the rule-retirement row cited a line range that no
+longer contains what it describes.** The check was `sed -n 1008,1019p src/rules/table.rs`
+"under a *retired by plan-114-B* comment". The `Rule` block for `2-203-0084` does start
+at 1008, but the comment explaining the retirement sits **above** it (`:1004-1007`, "Kept
+rather than deleted so the code is never recycled for a different meaning"), so the cited
+window shows the rule and not the reason — a reader running it sees an ordinary,
+live-looking rule row.
+
+Replaced with a check that cannot drift and that tests the *claim* rather than a
+location: `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src | grep -v rules/table.rs` returns
+no emit site — only two doc comments in `ir/verify/`, the spec's history note, the
+rule-codes table marking it *"reserved, no longer emitted"*, and
+`ir/verify/tests.rs:3258`, which asserts the code is **not** produced. That last one is
+the real guarantee: the retirement is pinned by a test, not merely by a comment.
+
+Confirms the row, so the status is unchanged — but a Prerequisites command that no longer
+shows what it claims is one a reader may reasonably mark NOT MET, and this letter cannot
+start if a row reads that way.
 
 **J1 (2026-09-03, pre-execution) — every `mod.rs` line citation in this letter is
 stale, the same defect plan-116-G recorded as G1.** Checked with
