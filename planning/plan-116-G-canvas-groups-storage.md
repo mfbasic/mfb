@@ -965,6 +965,30 @@ sleeps), 2a1135971 (the overflow pin)
 
 ## Corrections
 
+**G30 (Phase 6) — the Linux row needs `-fuse-ld=bfd` on box 2228; `rust-lld` segfaults
+linking the test binary.** Not a defect in this letter and not a flake: two consecutive
+runs died identically with
+
+```
+collect2: fatal error: ld terminated with signal 11 [Segmentation fault], core dumped
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/
+```
+
+and an LLVM stack dump. Ruled out as resource exhaustion — 5.3 GB available, 26 GB free
+disk, and the crash is in the linker rather than the compile that preceded it at 92% CPU
+for 37 minutes. The same box linked the same crate successfully earlier the same day; the
+merge of `main` (38 commits) grew the binary, and that is the only variable that moved.
+
+`RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` links it. `rust-lld` is the default linker for
+`x86_64-unknown-linux-gnu` on the pinned 1.96 toolchain, so any later letter running this
+row will meet the same wall — the workaround belongs with the row, not in this
+correction's history.
+
+Worth separating from the failure a peer session is chasing at the same time: that one is
+signal 11 in the *emitted program at runtime* on the CI runners, this one is signal 11 in
+the *linker on the build host*. Same number, unrelated, and a CI log showing "signal 11"
+now needs to say which process died.
+
 **G29 (Phase 6, completeness check) — G5's enumeration audited by grepping the *effect*,
 not the names.** §4.5's **G5** asks for the positional reads to be enumerated rather than
 reasoned about, because reasoning from the distance path is what hid the glyph case. That
