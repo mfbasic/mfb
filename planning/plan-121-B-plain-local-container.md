@@ -24,10 +24,28 @@ Stated once in plan-121-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-121-A complete and archived | `ls planning/completed/plan-121-A-*` → 1 file | NOT MET |
-| The seam admits a new operation | plan-121-A Phase 3 unit test green | NOT MET |
+| plan-121-A complete and archived | `ls planning/completed/plan-121-A-*` → 1 file | MET — `planning/completed/plan-121-A-inplace-slot-abstraction.md` |
+| The seam admits a new operation | plan-121-A Phase 3 unit test green | MET — see below |
 
 If plan-121-A is not complete, this sub-plan cannot start, full stop.
+
+**Both MET (2026-09-02).** plan-121-A landed as `33761be42` (Phase 1),
+`b5966a3d6` (Phases 2+3), `b1d7f242f` (Phase 2b) and `7b9ffa6e3` (fmt +
+validation proofs), with 4465 passed / 0 failed, 1348 acceptance tests ran /
+0 mismatches, and 1828 goldens / 0 diffs.
+
+The second row needs one word of care, because plan-121-A restated it. Its
+Phase 3 "compile-time-off constant" was **not** implemented — an arm that
+resolves a destination and then returns `Ok(false)` because its lowering does
+not exist yet is the stub AGENTS.md forbids (plan-121-A Corrections C3). What
+landed instead is `inplace_dest.rs`'s `mod tests`: 10 cases covering every
+decline condition `InPlaceGate` owns (`G1`, `G7`, `G10`, `G15`, `G16`), each
+paired with an admit case. Those are green.
+
+So "the seam admits a new operation" is **this** sub-plan's Phase 2 to
+demonstrate, by adding `removeAt` for real rather than behind a constant —
+which is the stronger demonstration, and is why C3 called it a strengthened
+acceptance rather than a skipped one.
 
 ## 1. Goal
 
@@ -132,8 +150,33 @@ after proving the behavior is unchanged; a drift *outside* that set is a bug.
       lookups. Record the split in this plan.
 - [ ] Spike: time `prepend` against a raw `memmove` of the same bytes to
       establish the floor the arm can reach.
-- [ ] Record which `.ncode` goldens contain plain-local `insert`/`removeAt`/Set
+- [x] Record which `.ncode` goldens contain plain-local `insert`/`removeAt`/Set
       `remove`, so Phases 2–3 can distinguish expected from unexpected drift.
+      **The expected-drift set is exactly ONE golden**, which is a much sharper
+      gate than the plan assumed:
+
+      ```
+      tests/rt-behavior/collections/list-ops-codegen-rt/golden/list_ops_codegen_rt.macos-aarch64.ncode
+      ```
+
+      Census (`grep -rnE "= *collections::(insert|removeAt|remove)\(" tests/`,
+      then `ls` each hit's `golden/`): the *self-assignment* shape these arms match
+      appears in six fixtures — `list-ops-codegen-rt`, `list-order-invariant-rt`,
+      `collection-memory-grow-rt`, `set-behavior-rt`,
+      `resources/inline-trap-collection-escape-rt`, and a source string inside
+      `tests/rt_recursive_thread_transfer.rs` — and **only `list-ops-codegen-rt`
+      carries a `.ncode` golden.** The rest ship `.ast`/`.ir`/`build.log`/`.run`
+      only, and `.ast`/`.ir` are emitted *before* codegen, so a new in-place arm
+      cannot move them.
+
+      The `tests/byte-identity/*` fixtures — the ones that do carry
+      `.ncodesum` for five targets — are unaffected: `byte-identity/collections`
+      spells these ops as `FOR EACH x IN collections::insert(ints, 1, 99)`, not as
+      a self-assignment, so every new arm declines on it (G6). Adding arms to the
+      dispatch chain is otherwise emission-free: a declining arm emits nothing.
+
+      **So Phases 2–3 predict `1 diff(s)`, in that one file. Any other drift is a
+      bug, and the gate is precise enough to say so immediately.**
 
 Acceptance: both residuals quantified in this plan with the commands that
 produced them, and the expected-drift golden list recorded. No `src/` change.

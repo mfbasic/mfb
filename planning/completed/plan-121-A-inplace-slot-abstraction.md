@@ -505,22 +505,46 @@ Commit: b5966a3d6 (landed with Phase 2 — the gate unit tests live in the same 
   A stays flat and C stays linear in N — the two complexities the spike exists to
   distinguish. The per-point ns differ run-to-run (this box was also running the
   test suite); the *shape* is the measurement, and it did not move.
-- **Doc sync:** `.ai/collections.md` gains a short subsection describing the seam
-  and pointing at the gate inventory, since it is the doc AGENTS.md sends future
-  sessions to before collection codegen work.
 - **Acceptance:** `cargo test --no-fail-fast`, `./scripts/test-accept.sh`, and
   the artifact gate, all compared against the Phase 1 recorded baseline.
   `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
-  at the end, per AGENTS.md.
+  at the end, per AGENTS.md. **ALL DONE, all matching the baseline:**
+
+  | gate | Phase 1 baseline | after A |
+  |---|---|---|
+  | `cargo test --no-fail-fast` | 4453 passed, 0 failed | **4465 passed, 0 failed** (+12: the 10 gate tests and 2 Phase 2b cases) |
+  | `./scripts/test-accept.sh` | 1348 ran, 0 mismatches | **1348 ran, 0 mismatches** |
+  | artifact gate | 1828 goldens, 0 diffs | **1828 goldens, 0 diffs** |
+
+  The acceptance ran-count is identical, which is the check that matters there —
+  a *drop* would mean the harness silently lost fixtures whatever the pass line
+  said. `cargo fmt` run over both workspaces (the root `--all` does not reach
+  `repository/`); the only churn was three wrapped expressions in the new module.
+
+- **Doc sync:** done. `.ai/collections.md` gains the seam subsection and the two
+  rules that bite (`O-order-1`; a live `FOR EACH` permits an append but not a
+  shift), and two stale file paths in its in-place-append bullet are corrected.
+  `.ai/resources-packages.md`'s claim that an in-place STATE collection grow "is
+  NOT a pattern-match" is corrected — bug-430 did it by growing the whole STATE
+  block instead of making the field out-of-line.
 
 ## Open Decisions
+
+Both resolved.
 
 - **STATE container in the seam or left alone** — recommend attempting it in
   Phase 2 and accepting a plain+record-only seam if resolution differs, rather
   than forcing a shared shape. (§3)
+  **RESOLVED: it is in the seam.** A `STATE` field is the same inlined-field
+  destination as a record field; only the prologue and epilogue differ, and those
+  are `open_inplace_state_dest` / `close_inplace_dest`. See Corrections C2.
 - **Where `InPlaceDest` lives** — recommend `src/codegen/collection/assign/`
   beside the arms, rather than promoting it to `engine/`, until sub-plan D shows
   whether STATE needs engine-level access. (§3)
+  **RESOLVED as recommended: `src/codegen/collection/assign/inplace_dest.rs`.**
+  STATE needed no engine-level access — `open_inplace_state_dest` reaches the
+  resource record through `emit_resource_record_ptr`, which is already available
+  on `CodeBuilder`. Sub-plan D can revisit if it finds otherwise.
 
 ## Corrections
 
