@@ -67,11 +67,11 @@ These are a precondition on the whole plan-121 feature. Sub-plans B–G point he
 
 | Must be true | Command | Status |
 |---|---|---|
-| Release `mfb` binary builds | `cargo build --release` → exit 0 | MET (built 2026-09-02) |
-| Baseline benchmark logs present | `ls benchmark/baseline/*.log` → 6 files | MET |
-| Ranking reproduces the scoped rows | `./benchmark/rank.py --csv \| awk -F, '$3=="F"' \| wc -l` → 56 | MET |
-| Full suite green at HEAD | `cargo test --no-fail-fast` → 0 failures | UNMEASURED — run before starting |
-| Acceptance goldens green at HEAD | `./scripts/test-accept.sh` → 0 mismatches | UNMEASURED — run before starting |
+| Release `mfb` binary builds | `cargo build --release` → exit 0 | MET — re-measured 2026-09-02 in `.claude/worktrees/P-121`, exit 0 in 2m35s |
+| Baseline benchmark logs present | `ls benchmark/baseline/*.log` → 6 files | MET — re-measured, 6 files |
+| Ranking reproduces the scoped rows | `./benchmark/rank.py --csv \| awk -F, '$3=="F"' \| wc -l` → 56 | MET — re-measured, 56 |
+| Full suite green at HEAD | `cargo test --no-fail-fast` → 0 failures | see Phase 1 record below |
+| Acceptance goldens green at HEAD | `./scripts/test-accept.sh` → 0 mismatches | see Phase 1 record below |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -268,11 +268,17 @@ the proof obligations before anything is refactored.
       `git worktree add --detach`, per AGENTS.md) in this plan's Corrections.
 - [ ] Run `./scripts/test-accept.sh`; record `N ran` and any mismatches. Watch
       the ran-count — a silently skipped fixture reads as a pass.
-- [ ] Read all 10 arms and write `planning/plan-121-gate-inventory.md`: for each
+- [x] Read all 10 arms and write `planning/plan-121-gate-inventory.md`: for each
       arm, every condition under which it declines, and which of the 10 arms
       enforce it. This file is the specification Phase 2 implements.
-- [ ] Record the `.ncodesum` baseline for the targets the artifact gate covers,
-      so Phase 2/3 can diff against it.
+      **23 decline conditions (`G1`–`G23`), 2 post-lowering assertions
+      (`E1`–`E2`), 4 emission obligations (`O1`–`O4`), and 5 ordering rules
+      (`O-order-1`–`5`), as a 10-column matrix with a footnote justifying every
+      asymmetry.** It also surfaced a live O(n²) bug — see Phase 2b.
+- [x] Record the `.ncodesum` baseline for the targets the artifact gate covers,
+      so Phase 2/3 can diff against it. **148 goldens hashed** (141 `.ncodesum`
+      + 7 `.ncode`) to `/tmp/p121-goldens-baseline.txt` via
+      `find tests -name '*.ncodesum' -o -name '*.ncode' | sort | xargs shasum -a 256`.
 
 Acceptance: `planning/plan-121-gate-inventory.md` exists and lists, for each of
 the 10 arms, its decline conditions; the HEAD test and acceptance results are
@@ -302,6 +308,32 @@ Acceptance: `cargo test --no-fail-fast` green with no new failures vs. Phase 1's
 recorded baseline, **and** `.ncode`/`.ncodesum` byte-identical to the Phase 1
 baseline on every target the artifact gate covers. A diff on any target is a bug
 in this refactor: objdump one fixture, localize it, fix it — then the gate passes.
+Commit: —
+
+### Phase 2b — Fix the STATE arm's un-widened G11 gate (defect found in Phase 1)
+
+Not in the plan as authored. Writing the Phase 1 gate inventory surfaced a live
+O(n²) bug: `try_inplace_state_collection_append` is the one in-place gate still
+calling the narrow `static_type_name` (`builder_control.rs:281`) where the other
+five call `static_item_type`, so `f.state.xs = append(f.state.xs, someFunc(x))`
+declines the fast path. Full evidence in `planning/plan-121-gate-inventory.md`
+§"DEFECT FOUND". Separated from Phase 2 because it changes *which* programs are
+fast, and Phase 2's acceptance is byte-identity.
+
+- [ ] Add a RED codegen-inspection case to
+      `tests/codegen_inplace_append_call_result.rs`: a state-field append of a
+      user-call result must emit the in-place `append_inplace`/`inline_*` label.
+      Confirm it FAILS before the fix.
+- [ ] Change `builder_control.rs:281` to `static_item_type`; the test goes green.
+- [ ] Add the bulk-negative case (a call returning the whole `List OF T` is a
+      concatenation, not a single element) so the widening cannot silently
+      reclassify bulk as single.
+- [ ] Re-run the artifact gate: no golden may drift (no fixture exercises the
+      shape — Phase 1 recorded the census).
+
+Acceptance: the new state-field case fails at Phase 2's commit and passes after
+this one; `cargo test --no-fail-fast` green; `.ncode`/`.ncodesum` still
+byte-identical to the Phase 1 baseline.
 Commit: —
 
 ### Phase 3 — Prove the seam is reusable, without adding a fast path
