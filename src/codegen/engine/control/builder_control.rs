@@ -913,6 +913,12 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                                 by_ref,
                             )?
+                            && !self.try_inplace_record_field_set_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                         {
                             // Reassignment installs a fresh independent block; the old
                             // block remains owned by this binding's scope-drop free

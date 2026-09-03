@@ -240,3 +240,111 @@ fn add_on_a_plain_local_does_not_use_the_record_grow() {
          prefix or free a record that is not there"
     );
 }
+
+
+/// `set` on a record-held `List` of a **fixed-width** element takes the cheap
+/// route: the replacement is always exactly the size of what it replaces, so
+/// nothing grows and the plain-local lowering serves the inlined sub-block
+/// directly.
+///
+/// This is `list (Record-Fixed) set`, the plan's headline record row at 1630x
+/// c -O0 against `list (Record-Dynamic) append`'s 0.839x on the same record.
+#[test]
+fn set_on_a_fixed_width_record_list_writes_in_place() {
+    let plan = ncode(
+        "inplace_recfield_set_fixed",
+        "IMPORT collections\n\
+         TYPE LBox\n\
+        \x20 before AS Integer\n\
+        \x20 xs AS List OF Integer\n\
+        \x20 after AS Integer\n\
+         END TYPE\n\
+         FUNC poke(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS LBox = LBox[1, [10, 20, 30], 2]\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { xs := collections::set(rec.xs, 1, i) }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.xs)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN poke(4)\n\
+         END FUNC\n",
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_poke", "inplace_inlined_subblock") >= 1,
+        "a same-size list `set` must write through the inlined sub-block"
+    );
+    // Nothing can grow, so the record-grow machinery must not appear.
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_poke", "inline_grow_prefix"),
+        0,
+        "a fixed-width element is replaced by one of exactly its own size, so this \
+         path must not carry the record-realloc machinery"
+    );
+}
+
+/// The decline that keeps the fixed-width route sound: a **variable-width**
+/// element can outgrow the slot it replaces, which makes
+/// `lower_list_set_in_place`'s rebuild branch reachable — and that branch installs
+/// a fresh block, which a sub-block address must never receive.
+///
+/// This is `list (Record-Dynamic) set`, which the plan assigns to plan-121-F.
+/// Without this case the fixed-width test above would still pass if the arm were
+/// widened to every list, and the result would be a freed record.
+#[test]
+fn set_on_a_variable_width_record_list_declines() {
+    let plan = ncode(
+        "inplace_recfield_set_var",
+        "IMPORT collections\n\
+         TYPE DBox\n\
+        \x20 head AS Integer\n\
+        \x20 ss AS List OF String\n\
+         END TYPE\n\
+         FUNC poke(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS DBox = DBox[1, [\"a\", \"bb\"]]\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { ss := collections::set(rec.ss, 1, \"wwwwww\") }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.ss)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN poke(3)\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_poke", "inplace_inlined_subblock"),
+        0,
+        "a variable-width element may not fit the slot it replaces, so the rebuild \
+         branch is reachable and the sub-block route is unsound — decline"
+    );
+}
+
+/// `set` on a record-held `Map` goes the third way: a new key grows the map and
+/// therefore the record, so it takes the `InlineGrow` route `add` established.
+#[test]
+fn set_on_a_record_map_grows_the_record() {
+    let plan = ncode(
+        "inplace_recfield_set_map",
+        "IMPORT collections\n\
+         TYPE MBox\n\
+        \x20 tag AS Integer\n\
+        \x20 m AS Map OF Integer TO Integer\n\
+        \x20 tail AS Integer\n\
+         END TYPE\n\
+         FUNC fill(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS MBox = MBox[1, Map OF Integer TO Integer { }, 2]\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { m := collections::set(rec.m, i, i) }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.m)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN fill(8)\n\
+         END FUNC\n",
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_fill", "inline_grow_prefix") >= 1,
+        "a map `set` can add a key, so it must grow the RECORD block and copy the \
+         prefix — the same route `add` takes"
+    );
+}

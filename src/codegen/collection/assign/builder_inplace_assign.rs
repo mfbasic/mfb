@@ -611,6 +611,163 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// plan-121-C: `rec = WITH rec { field := set(rec.field, k, v) }` — the last
+    /// Phase 2 operation, and the one that splits by *element width* rather than by
+    /// collection kind.
+    ///
+    /// `list (Record-Fixed) set` is the plan's headline record row at **1630x**
+    /// c -O0, against `list (Record-Dynamic) append` at 0.839x on the same record.
+    ///
+    /// Three cases, and the middle one is why this arm is not simply "the `add`
+    /// arm with a key":
+    ///
+    /// * **`Map`** — reuses the [`InlineGrow`] route `add` proved, because a new
+    ///   key grows the map and therefore the record.
+    /// * **`List` of a fixed-width element** — needs no grow at all, so it takes
+    ///   the cheaper sub-block route. This is not an optimistic guess:
+    ///   `lower_list_set_in_place`'s own kind-2 branch records that "the payload is
+    ///   at `index * payloadSize` and is always the same size as its replacement,
+    ///   **so the rebuild branch below is unreachable**". Unreachable is the word
+    ///   that matters — the rebuild is the branch that would store a fresh block
+    ///   into the slot, and a sub-block address must never receive one.
+    /// * **`List` of a variable-width element** — declines. The replacement may be
+    ///   longer than what it replaces, so the rebuild *is* reachable. That is
+    ///   `list (Record-Dynamic) set`, which §"Summary" already assigns to
+    ///   plan-121-F along with the rest of the String-representation work.
+    pub(crate) fn try_inplace_record_field_set_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_record_field(name, value, by_ref, "set", 3) else {
+            return Ok(false);
+        };
+        let collection_type = target.field_type.clone();
+        // `G18` — setting into exactly this same field.
+        if !self.value_is_record_field(&target.args[0], name, target.field) {
+            return Ok(false);
+        }
+        let dest = InPlaceDest::Inlined {
+            block_slot: stack_offset,
+            field_index: target.field_index,
+            write_back: None,
+        };
+
+        // --- List ---------------------------------------------------------
+        if let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&collection_type).cloned()
+        {
+            // Variable-width elements can outgrow the slot they replace, which makes
+            // `lower_list_set_in_place`'s rebuild branch reachable — and that branch
+            // installs a fresh block, which an inlined sub-block cannot receive.
+            // plan-121-F owns this row.
+            if crate::codegen::collection::layout::list_element_is_fixed_width(&element_type)
+                .is_none()
+            {
+                return Ok(false);
+            }
+            let index = self.lower_value(&target.args[1])?;
+            if index.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native collection set list index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index = self.materialize_value(index)?;
+            let index_slot = self.allocate_stack_object("inplace_recfield_set_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
+            ));
+            let item = self.lower_value(&target.args[2])?;
+            // Observation boundary: an in-place replacement `Float` element must be
+            // finite (plan-17).
+            self.observe_float(&target.args[2], &item)?;
+            if item.type_ != element_type {
+                return Err(format!(
+                    "native collection set list item must be {element_type}, got {}",
+                    item.type_
+                ));
+            }
+            let item = self.materialize_value(item)?;
+            let item_slot = self.allocate_stack_object("inplace_recfield_set_item", 8);
+            self.emit(abi::store_u64(
+                &item.location,
+                abi::stack_pointer(),
+                item_slot,
+            ));
+            let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
+            self.lower_list_set_in_place(
+                buffer_slot,
+                index_slot,
+                item_slot,
+                &collection_type,
+                &element_type,
+            )?;
+            if let Some(local) = self.locals.get_mut(name) {
+                local.constant = None;
+            }
+            return Ok(true);
+        }
+
+        // --- Map ----------------------------------------------------------
+        let Some((key_type, value_type)) =
+            crate::codegen::engine::types::typed_map_type_parts(&collection_type)
+                .map(|(k, v)| (k.clone(), v.clone()))
+        else {
+            return Ok(false);
+        };
+        let key = self.lower_value(&target.args[1])?;
+        // Observation boundary: an in-place `Float` map key must be finite (plan-17).
+        self.observe_float(&target.args[1], &key)?;
+        if key.type_ != key_type {
+            return Err(format!(
+                "native collection set map key must be {key_type}, got {}",
+                key.type_
+            ));
+        }
+        let key = self.materialize_value(key)?;
+        let key_slot = self.allocate_stack_object("inplace_recfield_set_key", 8);
+        self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
+        let val = self.lower_value(&target.args[2])?;
+        // Observation boundary: an in-place `Float` map value must be finite (plan-17).
+        self.observe_float(&target.args[2], &val)?;
+        if val.type_ != value_type {
+            return Err(format!(
+                "native collection set map value must be {value_type}, got {}",
+                val.type_
+            ));
+        }
+        let val = self.materialize_value(val)?;
+        let value_slot = self.allocate_stack_object("inplace_recfield_set_value", 8);
+        self.emit(abi::store_u64(
+            &val.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let map_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_set_in_place(
+            map_slot,
+            key_slot,
+            value_slot,
+            &collection_type,
+            &key_type,
+            &value_type,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot: stack_offset,
+                field_off_slot,
+            }),
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     pub(crate) fn try_inplace_bulk_append_assign(
         &mut self,
         name: &str,

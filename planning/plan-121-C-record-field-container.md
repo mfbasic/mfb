@@ -260,10 +260,34 @@ The three operations whose plain-local arms predate this plan.
       `add_on_a_record_field_grows_the_record_in_place` **paired with**
       `add_on_a_plain_local_does_not_use_the_record_grow`, so an `InlineGrow` cannot
       leak into the plain-local path and grow a record that is not there.
-- [ ] `set` on a record-held `Map`/`List` — the remaining Phase 2 operation. The
-      grow primitive it needs now exists (`add` proves it on the `Map` lowering);
-      what it still needs is its own arm plus the `List` case, whose element width
-      decides whether it grows at all.
+- [x] `set` on a record-held `Map`/`List` — the remaining Phase 2 operation.
+      **Landed, and it splits three ways, by ELEMENT WIDTH rather than by
+      collection kind:**
+
+      | shape | route | why |
+      |---|---|---|
+      | `List` of a fixed-width element | inlined sub-block, no grow | the replacement is *always* exactly the size of what it replaces |
+      | `Map` | `InlineGrow` | a new key grows the map, so the record grows |
+      | `List` of a variable-width element | **declines** | the replacement may not fit, so the rebuild branch is reachable |
+
+      The fixed-width case is not an optimistic guess. `lower_list_set_in_place`'s
+      own kind-2 branch already records it: "the payload is at `index *
+      payloadSize` and is always the same size as its replacement, **so the rebuild
+      branch below is unreachable**". *Unreachable* is the word that matters —
+      that branch is the one that stores a fresh block into the slot, and a
+      sub-block address must never receive one. For a variable-width element it IS
+      reachable, so the arm declines; that is `list (Record-Dynamic) set`, which
+      §"Summary" already assigns to plan-121-F.
+
+      Verified by `p121c-record-field-set-rt`: fixed-width overwrites at three
+      indices with the linear walk and the indexed reads cross-checked against each
+      other, a `Map` overwrite of an existing key followed by 119 growing inserts
+      with every value re-read (`bad=0`), the multi-field `WITH` decline, both
+      snapshots, the sibling scalar fields, and the variable-width `List` case
+      proving the *declined* path still produces the right answer. Byte-identical
+      to `56b368996`. Three codegen cases pin the three routes, including
+      `set_on_a_variable_width_record_list_declines` — without which widening the
+      arm to every list would still pass the fixed-width test and free a record.
 
 Acceptance: ~~the six `set`/`add`/`removeKey` record rows reach grade B or
 better~~ — measured per B9's replacement form rather than a bare grade letter;
