@@ -119,11 +119,11 @@ rather than inventing a fourth.
 
 | What | Count | Command |
 |---|---|---|
-| `Paint[` rows in the tree | 7 | `grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` |
-| …that are **code**, not prose | 1 (`func_fill_stroke.rs:43`) | read all 7 rows |
-| `Paint` fields today | 6 | `mod.rs:424-471` |
-| Paint default helpers | 3 (`__canvas_transparent`, `…noTransform`, `…noClip`) | `helper_paint_defaults.rs:37-39` |
-| `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
+| `Paint[` rows in the tree | 7 | `grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` — **re-verified 2026-09-02**, still 7 |
+| …that are **code**, not prose | 1 (`func_fill_stroke.rs`, now `:74`) | read all 7 rows; the other 6 are doc prose |
+| `Paint` fields today | 6 | `mod.rs` — **re-verified**; letters C–E added none, since plan-116-D's `cap` went on `Line`/`Arc` rather than on `Paint` |
+| Paint default helpers | 3 (`__canvas_transparent`, `…noTransform`, `…noClip`) | `helper_paint_defaults.rs:15,25,166` |
+| `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` — **re-verified 2026-09-02**, still 13; letters C–E added examples to `fillStroke` and `present`, which were already listed |
 | Vulkan buffer regions today | 2 (edges, then glyph coverage) | `runtime/canvas/mod.rs:245` (`VULKAN_GLYPH_BASE_WORDS`) |
 
 ### Verified properties

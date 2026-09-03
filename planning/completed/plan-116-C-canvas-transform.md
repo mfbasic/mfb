@@ -543,7 +543,10 @@ Commit: 7a4163547
       13 members — `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs`).
       → a second example on `canvas::fillStroke`: the same square upright and turned
       45°, drawn with one paint apart from the transform. `fillStroke` was already in
-      `MEMBERS` (it is the 5th of the 14 that list now). Note that
+      `MEMBERS` (it is the 5th of the **13** that list carries — corrected 2026-09-02
+      from "14", which was a miscount; `sed -n 23,37p
+      tests/cli_canvas_man_examples_compile.rs` shows 13 entries, and this letter added
+      none since `fillStroke` was already there). Note that
       `cli_canvas_man_examples_compile` deliberately stops at a member's *first*
       example — `example_source` breaks on the prose introducing a second — so the new
       one is gated by `man-run-examples.sh` instead, where the count went 20 → 21.
