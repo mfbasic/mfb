@@ -81,17 +81,28 @@ parses back to exactly the same `Float` is searched for and used. The round trip
 is verified rather than assumed — `3.141592653589793` serializes with all of its
 digits intact, not truncated to a fixed precision.
 
+Where two equally short renderings both read back exactly, the one whose last
+digit is even is chosen, as `JSON.stringify` does. It is a rare tie, and the
+alternative rule — round half away from zero — disagrees with JavaScript on a
+small fraction of values.
+
 Negative zero emits as `0`, not `-0`, matching `JSON.stringify` — JSON has no
 way to mark a zero's sign that readers agree on, and the same information is lost
 by a JavaScript round trip. `toString(-0.0)` is unaffected and still shows the
 sign; this rule applies only to JSON output.
 
-The renderings searched are fixed-point ones of up to 25 decimal places, so a
-`Float` too small to reach its first significant digit within 25 places has no
-candidate that round-trips — `1e-30` and `5e-324` are the sort of value this
-reaches. Rather than emit a silently lossy number, the call fails with
-`errorCode::ErrInvalidFormat`. Such a value parses in and can be read back out of
-a `json::Json`; it is only writing it as text that has no answer here.
+Numbers are written exactly as `JSON.stringify` writes them, which decides
+between a plain decimal and an exponential form by magnitude alone: plain while
+`1e-6 <= |value| < 1e21`, exponential outside it. So `1e20` emits
+`100000000000000000000` and `1e21` emits `1e+21`; `0.000001` stays plain and
+`1e-7` does not. The exponent carries an explicit sign and is never padded, so
+it reads `1e+21` and `1e-7`.
+
+**Every finite `Float` has a rendering.** The digits come from the value's
+significant digits rather than from a fixed number of decimal places, so
+magnitude is no longer a reason a number cannot be written: `1e-30` emits
+`1e-30` and the smallest subnormal emits `5e-324`. Both of those used to fail
+outright.
 
 The number path also guards against a non-finite `Float`, failing with
 `errorCode::ErrFloatNaN` for a `NaN` and `errorCode::ErrFloatInf` for an infinity.
@@ -284,13 +295,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![value_param()],
                 return_type: ParameterType::String,
-                // plan-120-A: this was empty, so the page rendered no Errors section
-                // at all even though `stringify` has always been able to fail —
-                // `ErrInvalidFormat` when no fixed-point rendering round-trips (a
-                // Float too small to reach a significant digit in 25 places, e.g.
-                // 1e-30). The two non-finite codes are unreachable from ordinary
-                // MFBASIC (see the DESC) but are what the guard raises, and a
-                // handler matching on them should be able to find them documented.
+                // plan-120-A: this was empty, so the page rendered no Errors
+                // section at all even though `stringify` could fail.
+                //
+                // plan-120-G: `ErrInvalidFormat` is no longer reachable. It used
+                // to fire whenever no fixed-point rendering round-tripped — any
+                // Float too small to reach a significant digit in 25 places, such
+                // as 1e-30 — and the significant-digit renderer always finds one
+                // within 17 digits. The `FAIL` survives as an invariant guard, so
+                // the code stays listed rather than becoming an undocumented way
+                // for the call to fail; it simply should never be seen. The two
+                // non-finite codes were already in that position (see the DESC).
                 errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
                 body: Body::mfb(FUNC_BODY, "__json_stringify"),
             },

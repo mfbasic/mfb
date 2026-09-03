@@ -8,58 +8,79 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' bug-304: the fractional path used a fixed `toString(value, toByte(9))`. Nine
-' decimal places cannot represent a general binary64, so significant digits were
-' silently dropped and `json::parse` after `json::stringify` was NOT the identity
-' on numbers -- 3.141592653589793 came back as 3.141592654. Only the integer path
-' was round-trip-checked.
+r#"' plan-120-G: ECMAScript number rendering, byte-identical to JSON.stringify.
 '
-' The fix searches renderings and VERIFIES the round trip rather than assuming it:
-' a representation that does not parse back exactly is a formatter fault, and
-' emitting silently-wrong JSON is what this bug was. The integer form is tried
-' first, so a whole number stays `100` rather than `100.0`.
+' The old body searched FIXED-POINT renderings -- `toString(value, places)` for
+' places 1..25 -- and took the first that round-tripped. That had three
+' consequences, all of them wrong against the only implementation anyone
+' interoperates with:
 '
-' plan-120-A corrected the claim that used to stand here, that plain
-' `toString(Float)` is "the in-tree shortest-round-trip formatter". It is not:
-' `_mfb_rt_float_to_string` is an exact FIXED-POINT formatter whose no-places form
-' renders two decimal places (`src/codegen/string/format/float_format.rs:1-3`),
-' which is why this body has to search `places` at all.
+'   1e21   emitted 1000000000000000000000  (Node: 1e+21)
+'   1e-7   emitted a 25-digit expansion     (Node: 1e-7)
+'   1e-30  FAILED with an error -- a finite number with no JSON form at all,
+'          because reaching its first significant digit needs more fraction
+'          places than the formatter will produce.
 '
-' plan-120-C: `-0` is emitted as `0`. The native formatter deliberately keeps
-' the sign (float_format.rs: "-0.0 renders with the sign"), which is right for
-' toString and stays untouched -- this maps it only on the way into JSON, where
-' Node's JSON.stringify(-0) is `0` and interop is the point. The information
-' loss is identical to Node's own round trip.
+' The rewrite works in SIGNIFICANT digits instead. `json::sciParts` returns the
+' first 18 significant digits of the magnitude, truncated, with the decimal
+' exponent and a sticky flag saying whether anything non-zero follows:
 '
-' The round-trip check below still passes after the mapping: `=` on Float lowers
-' to abi::float_compare_d (an IEEE fcmp), under which +0.0 == -0.0, so
-' toFloat("0") = -0.0 is TRUE and the integer branch returns "0" rather than
-' falling through to the fractional search.
+'   "<sticky><18 digits>e<exponent>"      1e-7 -> "1999999999999999954e-8"
+'
+' From that one call the whole search runs here: round to p digits for
+' p = 1..17, keep the first rendering that reads back as the same Float, then
+' place the point by ECMAScript's rules. Rounding an 18-digit truncation at p
+' with the sticky recomputed from the dropped digits is exactly rounding the
+' exact value at p, so nothing is lost by doing it in text.
+'
+' Rounding is half-to-EVEN and that is load-bearing, not incidental. At an exact
+' tie `toExponential` rounds half-away-from-zero and disagrees with
+' JSON.stringify: 877566786661990.25 has two 16-digit forms that both read back
+' exactly, and ECMA-262 says to take the even one (...990.2), which is what Node
+' prints. Getting it backwards puts a fraction of a percent of all values
+' silently out of step.
+'
+' 17 significant digits always identify a binary64, so the search always
+' succeeds and there is no failure path left -- the old FAIL is gone with the
+' 25-place loop that needed it.
 FUNC __json_stringifyNumber(value AS Float) AS String
-  MUT integerText AS String = toString(value, toByte(0))
-  __json_requireFiniteNumberText(integerText)
-  IF integerText = "-0" THEN
-    integerText = "0"
+  __json_requireFiniteNumberText(toString(value, toByte(0)))
+  IF value = 0.0 THEN
+    ' Covers -0.0 as well: plan-120-C's rule that it serializes as 0, matching
+    ' JSON.stringify(-0). The IEEE comparison treats the two zeros as equal.
+    RETURN "0"
   END IF
-  IF toFloat(integerText) = value THEN
-    RETURN integerText
+  MUT negative AS Boolean = FALSE
+  MUT magnitude AS Float = value
+  IF value < 0.0 THEN
+    negative = TRUE
+    magnitude = 0.0 - value
   END IF
-  ' Search for the SHORTEST precision that parses back to the same Float. 17
-  ' significant digits always suffice for binary64, and `toString(Float)` counts
-  ' digits after the point, so 17 fractional digits covers every value whose
-  ' integer part is non-zero; smaller magnitudes need more, hence the 25 bound.
-  MUT places AS Integer = 1
-  WHILE places <= 25
-    LET candidate AS String = toString(value, toByte(places))
-    __json_requireFiniteNumberText(candidate)
-    LET shortened AS String = __json_trimFloatText(candidate)
-    IF toFloat(shortened) = value THEN
-      RETURN shortened
+  LET parts AS String = json::sciParts(magnitude)
+  LET sticky AS Boolean = strings::left(parts, 1) = "1"
+  LET rest AS String = strings::mid(parts, 1, strings::byteLen(parts) - 1)
+  LET marker AS Integer = strings::find(rest, "e")
+  LET digits AS String = strings::left(rest, marker)
+  LET exponent AS Integer = toInt(strings::mid(rest, marker + 1, strings::byteLen(rest) - marker - 1))
+  MUT p AS Integer = 1
+  WHILE p <= 17
+    LET rounded AS String = __json_roundDigits(digits, sticky, p)
+    ' A carry out of the leading digit lengthens the string, and the extra
+    ' place belongs to the exponent: 9.99e5 at two digits is 1.0e6.
+    MUT shift AS Integer = 0
+    IF strings::byteLen(rounded) > p THEN
+      shift = 1
     END IF
-    places = places + 1
+    LET kept AS String = strings::left(rounded, p)
+    LET candidate AS String = __json_placeDigits(kept, exponent + shift, negative)
+    IF __json_roundTrips(candidate, value) THEN
+      RETURN candidate
+    END IF
+    p = p + 1
   END WHILE
-  ' No representable rendering round-trips; emitting a silently-lossy number is
-  ' exactly the defect this fixes, so fail loudly instead.
+  ' Unreachable: 17 significant digits identify every binary64, so the loop
+  ' above always returns. Kept as an explicit invariant rather than a silent
+  ' fall-through.
   FAIL error(77050003, "invalid JSON format")
 END FUNC"#;
 

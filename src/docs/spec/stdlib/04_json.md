@@ -154,23 +154,50 @@ string values.
 
 ### Number formatting
 
-`__json_stringifyNumber` first renders the value with zero fractional digits
-(`toString(value, toByte(0))`); if that integer text round-trips back to the same
-`Float` (`toFloat(text) = value`), it is emitted as-is, so integral values print
-without a decimal point. Negative zero is mapped to `0` on the way into JSON,
-matching `JSON.stringify(-0)`; the native formatter itself keeps the sign, and
-that is untouched.
+Numbers are written exactly as ECMAScript's `Number::toString` writes them, so a
+document produced here is byte-comparable with one produced by `JSON.stringify`.
 
-Otherwise the shortest round-tripping rendering is *searched for* rather than
-assumed: fractional digit counts 1 through 25 are tried in turn, each trimmed of
-trailing zeros (and a trailing `.`) by `__json_trimFloatText`, and the first one
-that satisfies `toFloat(text) = value` is emitted. If none round-trips the call
-fails rather than emit a silently lossy number.
+The digits come from significant-digit machinery, not from a count of decimal
+places. `json::sciParts` returns the first 18 significant digits of the
+magnitude — truncated, never rounded — together with the decimal exponent and a
+sticky flag saying whether anything non-zero follows, encoded as
+`"<sticky><18 digits>e<exponent>"`. That single call then serves the whole
+search: `__json_stringifyNumber` rounds those digits to `p` places for
+`p = 1..17`, and takes the first rendering that reads back as the same `Float`.
+Rounding an 18-digit truncation at `p`, with the sticky recomputed from the
+digits being dropped, is exactly rounding the true value at `p`, so nothing is
+lost by performing it on text.
 
-NaN and ±infinity are rejected before any of that, with their own codes —
+Rounding is **half-to-even**. Where two equally short renderings both read back
+exactly, ECMA-262 requires the candidate whose last digit is even, and rounding
+half away from zero instead would disagree with JavaScript on a small fraction
+of values.
+
+Placement follows ECMAScript. Writing `n` for `exponent + 1`: `1 <= n <= 21`
+prints plainly, with the point inside the digits or zeros padded out to it;
+`-6 < n <= 0` prints `0.` then `-n` zeros then the digits; anything else prints
+exponentially with one digit before the point and an explicit, unpadded exponent
+sign. So `1e20` is `100000000000000000000` and `1e21` is `1e+21`; `0.000001` is
+plain and `1e-7` is not. A whole number needs no special case: it falls out of
+the `n >= count` branch, which pads the digits out to the point.
+
+Negative zero is mapped to `0`, matching `JSON.stringify(-0)`; the native
+formatter itself keeps the sign, and that is untouched.
+
+**Every finite `Float` has a rendering.** 17 significant digits identify a
+binary64, so the search always succeeds; the `FAIL` at the end of the body is an
+invariant guard that cannot be reached. This is a change: rendering used to
+search fixed-point forms of up to 25 decimal places, so a value too small to
+reach a significant digit within 25 places — `1e-30`, `5e-324` — had no
+representation at all and the call failed.
+
+NaN and ±infinity are rejected before any of this, with their own codes —
 `77050013` (`ErrFloatNaN`) and `77050014` (`ErrFloatInf`) — since JSON has no
 representation for them.
 [[src/codegen/builtins/json/helper_stringify_number.rs:__json_stringifyNumber]]
+[[src/codegen/builtins/json/helper_round_digits.rs:__json_roundDigits]]
+[[src/codegen/builtins/json/helper_place_digits.rs:__json_placeDigits]]
+[[src/codegen/string/format/float_format_sci.rs:lower_float_to_string_sci_helpers]]
 [[src/codegen/builtins/json/helper_require_finite_number_text.rs:__json_requireFiniteNumberText]]
 
 ### String escaping
@@ -246,7 +273,7 @@ tag. [[src/codegen/builtins/json/func_get_or.rs:__json_getOr]]
 
 | Code | Constant | Raised by | Meaning |
 | --- | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | parse, stringify-number | invalid JSON format / no round-tripping rendering |
+| `77050003` | `ErrInvalidFormat` | parse | invalid JSON format. `stringify` retains the code as an unreachable invariant guard: since plan-120-G every finite `Float` renders |
 | `77050004` | `ErrNotFound` | `get` | path not found: missing key, bad or out-of-range index, or traversal into a scalar |
 | `77050010` | `ErrOverflow` | parse | a valid JSON number with no `Float` anywhere near it (`1e400`); re-raised from `toFloat` rather than swallowed |
 | `77050013` | `ErrFloatNaN` | stringify | NaN has no JSON representation |

@@ -250,6 +250,123 @@ impl Big {
     }
 }
 
+/// The factoring the emitted code actually uses: the native helper produces a
+/// FIXED 18 significant digits, TRUNCATED, plus the decimal exponent and a
+/// sticky flag saying whether anything non-zero follows. Everything else --
+/// rounding to `p`, the all-nines ripple, the search, the placement -- is
+/// MFBASIC string work.
+///
+/// This matters because it keeps rounding out of hand-written assembly, where
+/// it is the part most likely to be wrong and the hardest to test. It is exact:
+/// rounding the 18-digit truncation at `p` with a sticky recomputed as
+/// "anything non-zero in digits `p+1..18`, or the incoming sticky" is
+/// indistinguishable from rounding the exact stream at `p`, for every `p <= 17`.
+/// `the_two_factorings_agree` checks that against the direct implementation.
+///
+/// One native call then serves the whole `p = 1..=17` search, rather than one
+/// call per candidate.
+pub(crate) fn sci_18(value: f64) -> (Vec<u8>, i32, bool) {
+    assert!(value.is_finite() && value > 0.0, "magnitude only, non-zero");
+    let bits = value.to_bits();
+    let biased = (bits >> 52) as i32;
+    let fraction = bits & ((1u64 << 52) - 1);
+    let (m, e2) = if biased == 0 {
+        (fraction, -1074i32)
+    } else {
+        (fraction | (1u64 << 52), biased - 1075)
+    };
+    let (int_digits, mut frac) = split(m, e2);
+
+    let mut digits: Vec<u8> = Vec::with_capacity(19);
+    let exponent: i32;
+    let mut tail_nonzero = false;
+
+    if !int_digits.is_empty() {
+        exponent = int_digits.len() as i32 - 1;
+        for (index, &digit) in int_digits.iter().enumerate() {
+            if index < 18 {
+                digits.push(digit);
+            } else if digit != 0 {
+                tail_nonzero = true;
+            }
+        }
+    } else {
+        let mut zeros = 0i32;
+        loop {
+            let digit = frac.next_digit();
+            if digit != 0 {
+                digits.push(digit);
+                break;
+            }
+            zeros += 1;
+            assert!(zeros < 400, "a finite double cannot have this many zeros");
+        }
+        exponent = -(zeros + 1);
+    }
+    while digits.len() < 18 {
+        digits.push(frac.next_digit());
+    }
+    let sticky = tail_nonzero || frac.any_nonzero_remaining();
+    (digits, exponent, sticky)
+}
+
+/// Round an 18-digit truncation to `p` digits, half-to-even. Returns the digits
+/// and how much the exponent moved (0 or 1 — the all-nines ripple).
+pub(crate) fn round_to(digits18: &[u8], sticky: bool, p: u32) -> (Vec<u8>, i32) {
+    assert_eq!(digits18.len(), 18);
+    assert!((1..=17).contains(&p));
+    let p = p as usize;
+    let round_digit = digits18[p];
+    let tail_nonzero = digits18[(p + 1)..].iter().any(|&d| d != 0);
+    let sticky = sticky || tail_nonzero;
+    let mut digits = digits18[..p].to_vec();
+
+    let round_up = match round_digit.cmp(&5) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => sticky || digits[p - 1] % 2 == 1,
+    };
+
+    let mut shift = 0;
+    if round_up {
+        let mut index = p;
+        loop {
+            if index == 0 {
+                digits.insert(0, 1);
+                digits.truncate(p);
+                shift = 1;
+                break;
+            }
+            index -= 1;
+            if digits[index] == 9 {
+                digits[index] = 0;
+            } else {
+                digits[index] += 1;
+                break;
+            }
+        }
+    }
+    (digits, shift)
+}
+
+/// `stringify_number` built the way the emitted code builds it.
+pub(crate) fn stringify_number_via_18(value: f64) -> String {
+    assert!(value.is_finite(), "non-finite has no JSON form");
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let negative = value < 0.0;
+    let (digits18, exponent, sticky) = sci_18(value.abs());
+    for p in 1..=17u32 {
+        let (digits, shift) = round_to(&digits18, sticky, p);
+        let candidate = place(&digits, exponent + shift, negative);
+        if candidate.parse::<f64>() == Ok(value) {
+            return candidate;
+        }
+    }
+    unreachable!("17 significant digits always round-trip a binary64")
+}
+
 /// ECMAScript's Number-to-String placement, given the significant digits and
 /// the decimal exponent. Plain decimal when the exponent is in `[-7, 20]` as
 /// ECMAScript counts it (that is, `1e-6 <= |v| < 1e21`), exponential otherwise,
@@ -533,6 +650,56 @@ mod tests {
         let path = std::env::temp_dir().join("mfb-sci-sample.txt");
         std::fs::write(&path, out).expect("write sample");
         eprintln!("wrote {} lines to {}", written + 18, path.display());
+    }
+
+    #[test]
+    fn the_two_factorings_agree() {
+        // The emitted code truncates to 18 digits natively and rounds in
+        // MFBASIC; the direct implementation rounds the exact stream at each
+        // `p`. They must be indistinguishable, or the factoring that keeps
+        // rounding out of assembly is not sound.
+        let mut state: u64 = 0xC0FF_EE00_1234_5678;
+        let mut checked = 0u32;
+        for _ in 0..20_000 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let value = f64::from_bits(state);
+            if !value.is_finite() {
+                continue;
+            }
+            assert_eq!(
+                stringify_number_via_18(value),
+                stringify_number(value),
+                "value {value:e} ({:#018x})",
+                value.to_bits()
+            );
+            checked += 1;
+        }
+        assert!(checked > 15_000, "too few finite samples: {checked}");
+        // And the curated shapes.
+        for value in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.5,
+            1e20,
+            1e21,
+            1e-6,
+            1e-7,
+            5e-324,
+            1.7976931348623157e308,
+            0.1,
+            877566786661990.25,
+            2188699164681338.2,
+            9.999999999999999e22,
+        ] {
+            assert_eq!(
+                stringify_number_via_18(value),
+                stringify_number(value),
+                "value {value:e}"
+            );
+        }
     }
 
     #[test]

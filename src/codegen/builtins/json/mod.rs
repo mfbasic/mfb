@@ -9,6 +9,7 @@ use crate::types::ParameterType;
 mod func_get;
 mod func_get_or;
 mod func_parse;
+mod func_sci_parts;
 mod func_stringify;
 
 mod helper_array_index;
@@ -30,6 +31,7 @@ mod helper_is_low_surrogate;
 mod helper_is_non_zero_digit;
 mod helper_is_raw_control_char;
 mod helper_is_whitespace;
+mod helper_next_digit;
 mod helper_parse_array;
 mod helper_parse_array_items;
 mod helper_parse_escape;
@@ -40,8 +42,11 @@ mod helper_parse_object_items;
 mod helper_parse_string;
 mod helper_parse_unicode_escape;
 mod helper_parse_value;
+mod helper_place_digits;
 mod helper_require_finite_number_text;
 mod helper_revive;
+mod helper_round_digits;
+mod helper_round_trips;
 mod helper_skip_whitespace;
 mod helper_stringify_indent;
 mod helper_stringify_number;
@@ -77,11 +82,16 @@ directly. Because numbers are carried as `Float`, a number carrying more digits
 than binary64 holds is rounded to the nearest `Float` at parse time — a real
 precision loss, silent by design, exactly as it is in JavaScript. Magnitude is
 not silent: a number too large for `Float` (`1e400`) fails at parse with
-`errorCode::ErrOverflow`, and one too small to render in 25 decimal places
-(`1e-30`) parses but fails at `json::stringify` with `errorCode::ErrInvalidFormat`.
+`errorCode::ErrOverflow`. Nothing fails on the way out: every finite `Float` has
+a JSON rendering, including values as small as `5e-324`.
 A `json::JsonNum` holding a non-finite `Float` (NaN or infinity) has no JSON form
 at all; it cannot be built in the first place, because a non-finite `Float` fails
 at the observation boundary before it reaches a record field.
+
+Numbers are rendered exactly as JavaScript's `JSON.stringify` renders them —
+the shortest digits that read back as the same `Float`, placed plainly while
+`1e-6 <= |value| < 1e21` and exponentially outside — so a document written here
+and read there, or the reverse, carries the same numbers with the same text.
 
 Serialization is compact: `json::stringify` emits no insignificant whitespace,
 preserves array item order, emits object members in the order the object holds
@@ -240,6 +250,10 @@ pub(crate) fn register(r: &mut Registry) {
     // The shared private `__json_*` helpers the member bodies call. Each lives in
     // its own `helper_*.rs` and registers via `add_helper`; order preserved from
     // the old `package.mfb` blob so the compiled `.ncode` stays byte-identical.
+    helper_next_digit::register(&mut pkg);
+    helper_round_digits::register(&mut pkg);
+    helper_round_trips::register(&mut pkg);
+    helper_place_digits::register(&mut pkg);
     helper_stringify_number::register(&mut pkg);
     helper_require_finite_number_text::register(&mut pkg);
     helper_trim_float_text::register(&mut pkg);
@@ -283,6 +297,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_stringify_indent::register(&mut pkg);
     helper_indent_text::register(&mut pkg);
     // plan-120-E: the reviver walk, appended for the same reason.
+    func_sci_parts::register(&mut pkg);
     helper_revive::register(&mut pkg);
 
     func_get::register(&mut pkg);
@@ -300,7 +315,22 @@ mod tests {
     #[test]
     fn json_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("json").expect("json package");
-        assert_eq!(pkg.functions().len(), 4);
+        // plan-120-G: assert the PUBLIC surface rather than a raw count. The
+        // count used to be 4 and became 5 when `sciParts` was added as an
+        // internal helper; bumping the number would have made the test pass
+        // again while no longer saying anything — it would equally have passed
+        // if `sciParts` were public and `getOr` had been dropped.
+        let public: Vec<&str> = pkg
+            .functions()
+            .iter()
+            .filter(|function| !function.internal_only)
+            .map(|function| function.name)
+            .collect();
+        assert_eq!(public, vec!["get", "getOr", "parse", "stringify"]);
+        assert!(
+            registry().is_internal_only_member("json.sciParts"),
+            "sciParts is an implementation detail and must not be callable"
+        );
         // The Json union and its member records are visible to the generic type query.
         assert!(registry().is_builtin_type("json.Json"));
         assert!(registry().is_builtin_type("json.JsonObj"));

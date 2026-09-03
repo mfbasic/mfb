@@ -10,12 +10,25 @@
 IMPORT io
 IMPORT json
 
+' plan-120-G: the check is on the VALUE, not the text.
+'
+' bug-304's guarantee is that a round trip loses no significant digits. That was
+' checked by comparing the output text to the input, which held only because
+' every input here happened to render back to itself. plan-120-G made the
+' rendering ECMAScript's, so 0.000000000000123 now emits 1.23e-13 -- the same
+' number, spelled the way JSON.stringify spells it. Comparing text would call
+' that a regression when it is the fix.
+'
+' So the pass condition is value identity, which is what bug-304 was actually
+' about and is a stronger check than text equality was. The rendering is still
+' printed, so the golden goes on pinning the exact bytes and a change to it
+' cannot slip through unnoticed.
 FUNC rt(text AS String) AS Integer
   LET out AS String = json::stringify(json::parse(text))
-  IF out = text THEN
-    io::print("ok " & text)
+  IF toFloat(out) = toFloat(text) THEN
+    io::print("same-value " & text & " -> " & out)
   ELSE
-    io::print("DIFF " & text & " -> " & out)
+    io::print("LOST " & text & " -> " & out)
   END IF
   RETURN 0
 END FUNC

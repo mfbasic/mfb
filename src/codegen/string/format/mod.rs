@@ -1,6 +1,7 @@
 //! `codegen::string::format` module wiring.
 
 pub(crate) mod float_format;
+pub(crate) mod float_format_sci;
 #[cfg(test)]
 pub(crate) mod float_format_sci_ref;
 pub(crate) mod float_parse;
