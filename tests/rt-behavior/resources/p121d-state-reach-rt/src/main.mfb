@@ -1,0 +1,125 @@
+' plan-121-D Phase 1, the reachability probe.
+'
+' QUESTION: can a `RES ... STATE` block holding a collection be reached by
+' another thread, or by resource-internal code, BETWEEN the in-place mutation
+' and the write-back that republishes a reallocated block?
+'
+' This fixture answers the cross-thread half by construction rather than by
+' argument, in three parts:
+'
+'   PART 1 -- within one thread, an alias DOES observe every mutation. A helper
+'   grows the STATE collection through a `RES` parameter and the owner sees it.
+'   That is the §15 contract the write-back exists to keep, and it is the
+'   reachability that is real.
+'
+'   PART 2 -- the mutation is not atomic with respect to the FIELD either: the
+'   sibling scalar `n` is read on both sides of the grow, so a realloc that
+'   dropped the record prefix would show up here as a wrong `n`, not a crash.
+'
+'   PART 3 -- across threads there is no second holder to observe anything. The
+'   parent transfers the resource in; `thread::transfer` CLOSES the transferring
+'   binding, so the parent has no handle left while the worker mutates. The
+'   worker grows the same logical STATE through several reallocations in its own
+'   arena and the only channel back is its return value.
+'
+' Ownership transfer is what makes the answer "no": at most one thread holds a
+' live handle at any moment, so no thread can observe another's half-grown
+' block -- with or without the write-back.
+IMPORT collections
+IMPORT io
+IMPORT fs
+IMPORT thread
+IMPORT state_reach_worker
+
+' Declared on BOTH sides, exactly as `thread-transfer-state-rt` declares its
+' `Cursor`: the two ends agree on the STATE layout by name, and a field read
+' through the imported spelling comes back `Unknown` here.
+TYPE Accum
+  raw AS List OF Byte
+  n   AS Integer
+END TYPE
+
+' The helper alias. Grows the collection AND bumps the sibling, through a `RES`
+' parameter -- the owner and this alias share the one STATE payload.
+FUNC feed(RES f AS fs::File STATE Accum, rounds AS Integer) AS Nothing
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    f.state.raw = collections::append(f.state.raw, toByte(i MOD 251))
+    f.state.n = f.state.n + 1
+    i = i + 1
+  END WHILE
+END FUNC
+
+' PART 4's operand. Reads the STATE of the very resource being appended to,
+' from inside the append's own right-hand side.
+FUNC nextByte(RES f AS fs::File STATE Accum) AS Byte
+  RETURN toByte(len(f.state.raw) MOD 251)
+END FUNC
+
+FUNC main AS Integer
+  ' ---- PART 1 + 2: the within-thread alias, across many reallocations. ----
+  RES a AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  a.state.n = 7
+  feed(a, 300)
+  ' The owner observes all 300 appends the alias made, and the sibling scalar
+  ' survived every realloc of the block that holds it (7 + 300).
+  io::print("alias len=" & toString(len(a.state.raw)) & " n=" & toString(a.state.n))
+  ' Every element, in order -- a realloc that lost the prefix or shifted the
+  ' sub-block gives wrong VALUES here, which a length check cannot see.
+  MUT bad AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 300
+    IF toString(collections::get(a.state.raw, i)) <> toString(toByte(i MOD 251)) THEN
+      bad = bad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("alias bad=" & toString(bad))
+  fs::close(a)
+
+  ' ---- PART 3: across threads there is no second holder. ----
+  LET t AS Thread OF RES fs::File STATE Accum TO Integer = thread::start(state_reach_worker::growAccepted, 300)
+  RES b AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  b.state.n = 0
+  ' Seed a few elements BEFORE the transfer, so the worker grows a block this
+  ' thread allocated -- the copy into the worker's arena has to carry them.
+  feed(b, 5)
+  thread::transfer(t, b)
+  ' `b` is closed by the transfer. The parent has NO handle to that STATE while
+  ' the worker mutates it; the return value is the only channel.
+  LET got AS Integer = thread::waitFor(t)
+  ' 5 seeded + 300 in the worker = 305 bytes, n = 5 + 300 = 305.
+  io::print("worker len=" & toString(got / 1000) & " n=" & toString(got MOD 1000))
+
+  ' ---- PART 4: resource-internal code INSIDE the mutation. ----
+  ' The other half of the reachability question. `nextByte` reads this same
+  ' resource's STATE while the append that will grow it is being evaluated --
+  ' the closest a program can get to observing the block mid-mutation.
+  '
+  ' It is safe, and for a structural reason worth pinning: the operand is
+  ' lowered BEFORE the grow (`O-order-4`), so a callee can only ever see the
+  ' pre-grow block, which is live and correct. There is no point at which user
+  ' code runs between the grow and the write-back -- the arm emits them back to
+  ' back with nothing lowered in between.
+  '
+  ' This also exercises the widened `static_item_type`: a USER FUNCTION as the
+  ' append operand used to fall off the in-place path entirely.
+  RES c AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/p121d-state-reach-rt/data/input.txt")
+  MUT k AS Integer = 0
+  WHILE k < 200
+    c.state.raw = collections::append(c.state.raw, nextByte(c))
+    k = k + 1
+  END WHILE
+  ' Each element was `len` at the moment it was appended, so element i == i.
+  MUT selfbad AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 200
+    IF toString(collections::get(c.state.raw, j)) <> toString(toByte(j MOD 251)) THEN
+      selfbad = selfbad + 1
+    END IF
+    j = j + 1
+  END WHILE
+  io::print("selfread len=" & toString(len(c.state.raw)) & " bad=" & toString(selfbad))
+  fs::close(c)
+  RETURN 0
+END FUNC

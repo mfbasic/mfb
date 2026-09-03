@@ -1,0 +1,210 @@
+' plan-121-D Phase 2: `removeKey`, `add` and `set` on a collection held in a
+' `RES ... STATE` block.
+'
+' WHY THIS FIXTURE HAS TO EXIST, in the plan's own words (Correction D1): no
+' `.ncodesum` fixture in the tree contains a STATE collection update of any
+' kind, so the artifact gate reports 0 diffs whether these arms are right or
+' wrong. A green gate is not coverage here. Every assertion below is therefore
+' a VALUE check, not a length or a smoke test -- an arm that mutated the wrong
+' block, lost the record prefix on a realloc, or failed to republish the moved
+' STATE pointer produces wrong CONTENT, and only reading the content sees it.
+'
+' Each part also reads a sibling scalar (`n`) on both sides of the mutation.
+' The collection sub-block and that scalar live in the same STATE block, so a
+' realloc that dropped the prefix shows up as a wrong `n` rather than a crash.
+IMPORT collections
+IMPORT io
+IMPORT fs
+IMPORT strings
+
+TYPE MapState
+  m AS Map OF String TO Integer
+  n AS Integer
+END TYPE
+
+TYPE SetState
+  s AS Set OF Integer
+  n AS Integer
+END TYPE
+
+TYPE FixedListState
+  xs AS List OF Integer
+  n  AS Integer
+END TYPE
+
+TYPE VarListState
+  ss AS List OF String
+  n  AS Integer
+END TYPE
+
+' Mutating through a `RES` parameter is the alias shape: the owner must observe
+' every one of these, which is what `O4` (republishing the STATE pointer) buys.
+FUNC putMap(RES f AS fs::File STATE MapState, k AS String, v AS Integer) AS Nothing
+  f.state.m = collections::set(f.state.m, k, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC dropMap(RES f AS fs::File STATE MapState, k AS String) AS Nothing
+  f.state.m = collections::removeKey(f.state.m, k)
+  f.state.n = f.state.n - 1
+END FUNC
+
+FUNC addSet(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+  f.state.s = collections::add(f.state.s, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC setFixed(RES f AS fs::File STATE FixedListState, i AS Integer, v AS Integer) AS Nothing
+  f.state.xs = collections::set(f.state.xs, i, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC setVar(RES f AS fs::File STATE VarListState, i AS Integer, v AS String) AS Nothing
+  ' DECLINES to the copying path (a variable-width element can outgrow what it
+  ' replaces). It must still be CORRECT -- a decline is a slow path, never a
+  ' wrong one -- which is the whole point of asserting it here.
+  f.state.ss = collections::set(f.state.ss, i, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "tests/rt-behavior/resources/p121d-state-ops-rt/data/input.txt"
+
+  ' ---- Map set (growing -> InlineGrow) then removeKey (non-growing). ----
+  RES a AS fs::File STATE MapState = fs::openFile(path)
+  a.state.n = 0
+  MUT i AS Integer = 0
+  WHILE i < 200
+    putMap(a, "k" & toString(i), i * 3)
+    i = i + 1
+  END WHILE
+  ' Every key still maps to its own value after ~8 reallocations of the STATE
+  ' block. A grow that lost the prefix or republished the wrong pointer scrambles
+  ' this; a length check would not notice.
+  MUT mbad AS Integer = 0
+  i = 0
+  WHILE i < 200
+    IF collections::getOr(a.state.m, "k" & toString(i), 0 - 1) <> i * 3 THEN
+      mbad = mbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("map len=" & toString(len(a.state.m)) & " n=" & toString(a.state.n) & " bad=" & toString(mbad))
+
+  ' Delete every third key; the rest must survive with their values intact.
+  i = 0
+  WHILE i < 200
+    IF i MOD 3 = 0 THEN
+      dropMap(a, "k" & toString(i))
+    END IF
+    i = i + 1
+  END WHILE
+  MUT gone AS Integer = 0
+  MUT kept AS Integer = 0
+  MUT keptbad AS Integer = 0
+  i = 0
+  WHILE i < 200
+    LET got AS Integer = collections::getOr(a.state.m, "k" & toString(i), 0 - 1)
+    IF i MOD 3 = 0 THEN
+      IF got = 0 - 1 THEN
+        gone = gone + 1
+      END IF
+    ELSE
+      kept = kept + 1
+      IF got <> i * 3 THEN
+        keptbad = keptbad + 1
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("map removeKey len=" & toString(len(a.state.m)) & " gone=" & toString(gone) & " kept=" & toString(kept) & " keptbad=" & toString(keptbad))
+  fs::close(a)
+
+  ' ---- Set add (growing -> InlineGrow). ----
+  RES b AS fs::File STATE SetState = fs::openFile(path)
+  b.state.n = 0
+  i = 0
+  WHILE i < 200
+    addSet(b, i * 7)
+    i = i + 1
+  END WHILE
+  ' Re-adding an existing element must not grow the set: `add` is idempotent.
+  i = 0
+  WHILE i < 50
+    addSet(b, i * 7)
+    i = i + 1
+  END WHILE
+  MUT sbad AS Integer = 0
+  i = 0
+  WHILE i < 200
+    IF NOT collections::contains(b.state.s, i * 7) THEN
+      sbad = sbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  ' A value never added must NOT be present -- otherwise "everything is there"
+  ' would also pass on a set that answers TRUE to everything.
+  MUT ghost AS Integer = 0
+  IF collections::contains(b.state.s, 3) THEN
+    ghost = 1
+  END IF
+  io::print("set len=" & toString(len(b.state.s)) & " n=" & toString(b.state.n) & " bad=" & toString(sbad) & " ghost=" & toString(ghost))
+  fs::close(b)
+
+  ' ---- List set, fixed-width element (sub-block route, no grow). ----
+  RES c AS fs::File STATE FixedListState = fs::openFile(path)
+  c.state.n = 0
+  MUT seed AS List OF Integer = []
+  i = 0
+  WHILE i < 100
+    seed = collections::append(seed, 0)
+    i = i + 1
+  END WHILE
+  c.state.xs = seed
+  i = 0
+  WHILE i < 100
+    setFixed(c, i, i * 11)
+    i = i + 1
+  END WHILE
+  MUT lbad AS Integer = 0
+  i = 0
+  WHILE i < 100
+    IF collections::get(c.state.xs, i) <> i * 11 THEN
+      lbad = lbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  ' The length must NOT have changed: `set` replaces, it does not append.
+  io::print("list fixed len=" & toString(len(c.state.xs)) & " n=" & toString(c.state.n) & " bad=" & toString(lbad))
+  fs::close(c)
+
+  ' ---- List set, variable-width element (DECLINES; must still be right). ----
+  RES d AS fs::File STATE VarListState = fs::openFile(path)
+  d.state.n = 0
+  MUT vseed AS List OF String = []
+  i = 0
+  WHILE i < 60
+    vseed = collections::append(vseed, "x")
+    i = i + 1
+  END WHILE
+  d.state.ss = vseed
+  i = 0
+  WHILE i < 60
+    ' Deliberately LONGER than what it replaces -- the case that makes the
+    ' rebuild branch reachable and is why this arm declines.
+    setVar(d, i, strings::repeat("ab", i + 1))
+    i = i + 1
+  END WHILE
+  MUT vbad AS Integer = 0
+  i = 0
+  WHILE i < 60
+    IF collections::get(d.state.ss, i) <> strings::repeat("ab", i + 1) THEN
+      vbad = vbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("list var len=" & toString(len(d.state.ss)) & " n=" & toString(d.state.n) & " bad=" & toString(vbad))
+  fs::close(d)
+
+  RETURN 0
+END FUNC

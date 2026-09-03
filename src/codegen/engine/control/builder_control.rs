@@ -212,6 +212,35 @@ impl CodeBuilder<'_> {
         Some((index, field_type.clone()))
     }
 
+    /// plan-121-D Phase 1: the **operation dispatch** for a collection held in a
+    /// `RES … STATE` block, the STATE analogue of the `try_inplace_record_field_*`
+    /// chain in `Assign` above.
+    ///
+    /// The split this introduces is between the two questions an in-place arm has
+    /// to answer, which used to be tangled in one function:
+    ///
+    /// * **Which container is this?** — `resolve_inplace_state_field` (the
+    ///   container matcher): the `WITH` shape, `G13` the target is exactly this
+    ///   resource's `.state`, `G14` the single updated field, `G16` no live
+    ///   `FOR EACH` over it, `G17` last-inlined, `G10` the layout. None of that
+    ///   depends on which operation is running, which is exactly why it is shared.
+    /// * **Which operation is this?** — this function, one arm per builtin.
+    ///
+    /// `append` is deliberately the ONLY arm here. Phase 1 changes no behaviour:
+    /// every gate, in the same order, with the same outcome, so the `.ncode`
+    /// goldens cannot move. Phase 2 adds the remaining six operations as further
+    /// `&& !self.try_inplace_state_…` terms, additively.
+    ///
+    /// Returning `false` is always correct: it falls through to the whole-record
+    /// STATE replace below, which is the slow path, never a wrong one.
+    fn try_inplace_state_collection_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        self.try_inplace_state_collection_append(resource, value)
+    }
+
     /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
     /// where `coll` is a `List` field that is the last inlined field of the STATE
     /// record, and grow it IN PLACE inside the existing STATE block (amortized
@@ -1073,9 +1102,12 @@ impl CodeBuilder<'_> {
                             return Ok(());
                         }
                         // bug-430 Layer 2: a collection field that is the last
-                        // inlined field grows in place inside the existing STATE
-                        // block (amortized O(1)) instead of rebuilding the record.
-                        if self.try_inplace_state_collection_append(resource, value)? {
+                        // inlined field is mutated in place inside the existing
+                        // STATE block instead of rebuilding the record. plan-121-D
+                        // Phase 1 put the operation dispatch behind one call so
+                        // Phase 2's arms are additive; `append` (amortized O(1)
+                        // grow) is currently the only operation dispatched.
+                        if self.try_inplace_state_collection_assign(resource, value)? {
                             return Ok(());
                         }
                         // Replace the resource's `STATE` payload: store the new
