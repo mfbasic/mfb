@@ -698,6 +698,12 @@ fires:
 `__canvas_emptyHeader` is not on the list because it never calls `paintHeader`; a blank
 header carries a zero count by construction, which is why `Picture` was never affected.
 
+Checked in the other direction too — a tail written but not counted would make the
+next record start inside this one. `__canvas_gradientTail` returns `[]` for
+`count < 2` and `paintHeader` zeroes `stopCount` on the same condition, and both take
+the length from the same `len(paint.fillGradient.stops)`, so the only way the two could
+diverge was the kind test. That was the bug, twice.
+
 Every row now counts a tail exactly when it writes one. The check that matters is
 "enumerate the callers of the function that writes the length", not "enumerate the
 variants" — the two differ precisely where a kind is rewritten, which is where the bug
