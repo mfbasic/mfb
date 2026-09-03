@@ -532,6 +532,8 @@ Commit: 8c4fa49a6
 - [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
       `scripts/man-run-examples.sh canvas --run` → `examples: 23 built: 23 ran: 23
       failed: 0`; `--fill canvas` → 19/19 pages, 31/31 params, 106/106 type fields.
+      All re-run after **F14**'s prose rewrite and **F17**: 0 unclassified hits, 23/23
+      built and ran.
 - [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
       `bash scripts/regen-ncodesum.sh target/release/mfb` → `141 golden(s) refreshed,
       0 missing`, and `git status --short` reports **no** modified file. The delta is
@@ -542,7 +544,8 @@ Commit: 8c4fa49a6
       canvas item block this letter grew (per **E6**, which letters F–J were told to
       keep). Pre-merge: **3757 passed, 0 failed, 1 ignored**, 476.96s. Re-run on the
       merged tree: **3764 passed, 0 failed, 1 ignored**, 470.31s — seven more tests,
-      which are plan-123's, and no failures. Run with
+      which are plan-123's, and no failures. Re-run again after **F17**:
+      **3764 passed, 0 failed**, 478.27s. Run with
       `CARGO_TARGET_DIR=/tmp/p116-debug` so it did not contend with the release row for
       the build lock — the two rows differ only in profile, so a separate target
       directory is the whole isolation needed.
