@@ -1023,3 +1023,65 @@ SUB main()
   io::print("rendered")
 END SUB
 "#;
+
+/// A gradient on a **stroked** `canvas::Text` is ignored, like every other kind with no
+/// interior.
+///
+/// plan-116-F **F18**, and the sibling of `a_gradient_on_a_stroke_only_kind_is_ignored`
+/// in `rt_canvas_rasteriser.rs` — the same defect reached a different way.
+/// `__canvas_paintHeader` decides "has this kind an interior?" by reading slot 0, and
+/// `__canvas_textHeader` sets slot 0 to `POLYGON` before calling it, because a stroked
+/// text really is lowered to one. So the `Text` skip did not fire: the header counted
+/// `stops * 5` into slot 1 while `__canvas_tailFor`'s `Text` arm appended only
+/// `__canvas_textEdges(t)`. The record declared ten floats it did not have,
+/// `__canvas_gradientStopBase` read from one past its end, and the run drew its fill
+/// out of the following record's header.
+///
+/// Measured before the fix: **874 pixels** differ, the glyph fill going from the
+/// `rgb(255, 255, 0)` it was given to `rgb(11, 0, 0)`. After the fix: 0.
+///
+/// **The stroke is what makes this test work.** An unstroked `Text` goes through
+/// `__canvas_glyphRunHeader`, which sets slot 0 to `TEXT` before `paintHeader` and was
+/// never affected — so a version of this test without `fillStroke` passes against the
+/// bug and proves nothing.
+#[test]
+fn a_gradient_on_a_stroked_text_is_ignored() {
+    const STROKED: &str =
+        "canvas::fillStroke(canvas::rgb(255, 255, 0), canvas::rgb(0, 128, 255), 4.0)";
+
+    fn program(paint: &str) -> String {
+        format!(
+            "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
+             app::setMode(app::Mode.Canvas)\n  \
+             RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    \
+             io::print(\"nofont\")\n    EXIT SUB\n  END TRAP\n  \
+             LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 0.0, y := 0.0], \
+             endPoint := canvas::Point[x := 400.0, y := 0.0], stops := s]\n  \
+             LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, \
+             text := \"AA\", font := canvas::fontRef(face), size := 90.0, \
+             paint := {paint}]\n  \
+             LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
+             w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::present([label, box])\n  io::print(\"rendered\")\nEND SUB\n"
+        )
+    }
+
+    let plain = render_with_font("canvas_stroked_text_plain", &program(STROKED));
+    let ramped = render_with_font(
+        "canvas_stroked_text_ramped",
+        &program(&format!("WITH {STROKED} {{ fillGradient := g }}")),
+    );
+    if let Err(diff) = compare_exact(&ramped, &plain) {
+        panic!(
+            "a gradient changed what a stroked `Text` draws: {diff}\n\
+             `canvas::Text` ignores `fillGradient` — a glyph is a cached coverage \
+             bitmap and a stroked one is an outline polygon, and neither has a fill to \
+             replace. Before this was fixed the count was 874, with the glyph fill \
+             reading out of the following record's header."
+        );
+    }
+}

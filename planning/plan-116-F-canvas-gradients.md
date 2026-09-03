@@ -553,6 +553,10 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
+- [x] Fix **F18**: a **stroked** `Text` reaches `__canvas_paintHeader` wearing
+      `POLYGON`'s kind, so the `Text` skip does not fire and it counts a stop tail
+      `__canvas_tailFor` never appends. 874 pixels wrong before, 0 after; pinned by
+      `a_gradient_on_a_stroked_text_is_ignored`.
 - [x] Fix **F17**: `__canvas_paintHeader` skips the gradient for `Text` and `NONE` but
       not for `Line` or `Arc`, which `06_canvas.md` says are *"drawn entirely from
       `Paint.stroke` and have no interior"* — so its own stated rule ("a kind with no
@@ -640,6 +644,36 @@ Commit: —
 
 ## Corrections
 
+**F18 — the same defect again, reached through a kind that gets rewritten.** F17 fixed
+the `Line`/`Arc` half by adding them to `__canvas_paintHeader`'s skip list, and the
+completeness check said the class was closed. It was not, because that check reasoned
+over `__canvas_headerFor`'s arms and a `Text` does not use it: `Text` is the only
+deferred kind, so its header comes from `__canvas_deferredHeader` →
+`__canvas_textHeader`, and **that function sets slot 0 to `__CANVAS_GEO_POLYGON` before
+calling `paintHeader`** — legitimately, since a stroked text is lowered to an outline
+polygon. `paintHeader`'s `Text` skip therefore never fires for a stroked text, it counts
+`stops * 5` into slot 1, and `__canvas_tailFor`'s `Text` arm appends
+`__canvas_textEdges(t)` and no stops.
+
+Measured rather than argued this time. A stroked `Text` carrying a two-stop gradient,
+rendered beside the same item without one:
+
+    before: 874 of 576000 pixels differ; glyph fill rgb(255,255,0) -> rgb(11,0,0)
+    after:  0 differing pixels
+
+The unstroked path was never affected — `__canvas_glyphRunHeader` sets slot 0 to
+`__CANVAS_GEO_TEXT` *before* `paintHeader`, so the skip fires. That asymmetry is why the
+test has to stroke; without `fillStroke` it passes against the bug.
+
+Fixed by restoring slot 1 and zeroing the gradient count immediately after the
+`paintHeader` call in `__canvas_textHeader`, rather than by keeping slot 0 as `TEXT` —
+the rasteriser needs it to say `POLYGON`. The comment there records the general trap:
+**a kind is a proxy for "has an interior", and it stops being one the moment a kind is
+rewritten.** Any future kind that lowers to another inherits this.
+
+`a_gradient_on_a_stroked_text_is_ignored` in `tests/rt_canvas_golden.rs` pins it, using
+`render_with_font` because the case needs a real font and a pixel comparison.
+
 **F17 — a gradient on a `Line` or `Arc` is stored, never keyed, and can be read back on
 the wrong item.** `__canvas_paintHeader` states the rule and then implements half of it:
 
@@ -683,12 +717,23 @@ through `__canvas_appendGradientTail` the way `Rectangle`, `Circle`, `Ellipse` a
 includes `stops * 5` floats **that were never appended**, and every consumer that walks
 the buffer by slot 1 lands inside the following record.
 
-Observed, with the fix reverted: `a_gradient_on_a_stroke_only_kind_is_ignored` does not
-fail, it **hangs** — the app process sat at `0:00.03` of CPU and 0% usage across repeated
-samples, never completing a frame, and had to be killed. With the fix in place the same
-test is green (9 passed in the gradient/stroke-only selection).
+**The symptom is a wrong picture, and an earlier draft of this entry said "a hang".**
+That was wrong and is retracted. It came from watching the reverted-fix test not finish
+while an app process sat at `0:00.03` of CPU — but the machine was rebuilding two
+suites at the time, and the run was killed rather than allowed to finish or time out, so
+the hang was never attributable. Measured properly afterwards on the sibling case
+(**F18**, which was still unfixed and is the same defect): the program **renders
+normally and draws the wrong colours** — 874 pixels differ, the fill going from the
+`rgb(255, 255, 0)` it was given to `rgb(11, 0, 0)`, read out of the following record's
+header. Nothing hangs.
 
-**Is that the whole class?** Yes, checked both directions rather than assumed. The
+The lesson is the one this letter keeps relearning: an unfinished run under load is not
+evidence of anything, and a severity claim from watching `ps` is a guess.
+
+**Is that the whole class?** No — see **F18**, which the check below missed. What
+follows is right about the eight `MATCH` arms and wrong about being exhaustive, because
+it reasons over the arms of `__canvas_tailFor` and `__canvas_headerFor` and a stroked
+`Text` gets its header from neither. The
 invariant is: a kind counts stops into slot 1 exactly when its `__canvas_tailFor` arm
 appends them.
 
@@ -700,8 +745,10 @@ appends them.
 * Arms that *do* append: `Polygon`, `Rectangle`, `RoundedRect`, `Circle`, `Ellipse` —
   kinds `POLYGON`, `RECT`, `RECT`, `CIRCLE`, `ELLIPSE`, none of them skipped.
 
-The two sets are now complements, so no kind counts a tail it does not write and none
-writes one it does not count.
+The two sets are complements **for the kinds that go through `__canvas_headerFor`**.
+That is the gap: a `Text` is deferred, so its header comes from
+`__canvas_deferredHeader` → `__canvas_textHeader`, which rewrites slot 0 to `POLYGON`
+before `__canvas_paintHeader` reads it. **F18**.
 
 So the RED evidence for this correction is a hang rather than a pixel diff, which is
 stronger than what the test asserts. The test still asserts pixel equality, because that

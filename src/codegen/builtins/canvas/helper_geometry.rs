@@ -727,6 +727,22 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + tailLen))
   out = __canvas_paintHeader(out, t.paint)
+  ' plan-116-F Correction F18. `__canvas_paintHeader` decides "has this kind an
+  ' interior?" by reading slot 0 -- and by the time it runs here, slot 0 says POLYGON,
+  ' because a stroked text IS lowered to one. So its `Text` skip does not fire, and it
+  ' counts `stops * 5` into slot 1 for a stop tail that `__canvas_tailFor`'s `Text` arm
+  ' never appends: it returns `__canvas_textEdges(t)` and nothing else. The record then
+  ' declares ten floats it does not have, `__canvas_gradientStopBase` reads from one
+  ' past its end, and the run draws its fill from whatever the next record's header
+  ' holds -- measured as 874 pixels going from the given `rgb(255, 255, 0)` to
+  ' `rgb(11, 0, 0)`.
+  '
+  ' Undone rather than prevented, because slot 0 legitimately has to say POLYGON for
+  ' the rasteriser. The general trap is that a kind is a proxy for "has an interior"
+  ' and stops being one the moment a kind is rewritten -- worth remembering if another
+  ' kind ever lowers to a different one.
+  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + tailLen))
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, 0.0)
   out = collections::set(out, 20, toFloat(tailLen / 5))
   MUT minX AS Float = collections::getOr(tail, 0, 0.0)
   MUT maxX AS Float = minX
