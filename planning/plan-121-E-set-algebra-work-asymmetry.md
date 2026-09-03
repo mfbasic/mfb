@@ -217,20 +217,67 @@ Commit: —
 
 ### Phase 2a — Make the rows do comparable work (only if Phase 1 says (a))
 
-- [ ] Change the set-algebra rows so the predicate is TRUE, forcing a full scan
+- [x] Change the set-algebra rows so the predicate is TRUE, forcing a full scan
       in all three languages. Update `benchmark/mfb/gen_set.py`,
       `benchmark/c/setmatrix.c`, `benchmark/python/setmatrix.py` together, and
-      regenerate `benchmark/mfb/src/setops.mfb`.
-- [ ] Answer AGENTS.md's four questions in the commit message: when/why the row
-      was written, what it protects, who else depends on it, and the proof it is
-      wrong (Phase 1's probe counts).
-- [ ] Re-run `./benchmark/run.sh 10`; confirm the checksum cross-validation
-      passes with all rows still shared across ≥2 targets and 0 mismatched.
-- [ ] Refresh `benchmark/baseline/` and its README provenance block.
+      regenerate `benchmark/mfb/src/setops.mfb`. **Done in all three**, plus the
+      size-constant fix (mfb was using `ro_n`/`ro_sh` where C and Python use
+      `alg_n`/`alg_sh`). `other` is chosen per predicate at the shared size:
+      identical to the base for subset/superset, shifted clear by `alg_n` for
+      disjoint.
+- [x] **ADDED — equalize the C peer's set ITERATION.** With the predicate made
+      TRUE, the rows first came back **grade S across all 18** (0.18–0.60× c -O0,
+      i.e. mfb *faster* than C), which is not a clean win but a second work
+      asymmetry surfacing: C's `ISet`/`SSet` iterate all `SCAP = 4096` slots
+      however few elements are present, while mfb and Python iterate elements. At
+      300 elements that is **13.6× more loop iterations than there are elements**,
+      so the C column was partly measuring table capacity.
 
-Acceptance: `./benchmark/run.sh 10` reports 0 mismatched checksums; the nine rows
-carry a re-measured grade; `benchmark/RANKING.md`'s headline counts are updated
-to the new baseline.
+      Both set types gained a compact `idx` of occupied slots in insertion order,
+      and every set iteration walks it — membership still probes `used`/`k`
+      exactly as before. This makes C's iteration O(n) as the other two languages'
+      already are. It **relies on** the invariant the file's own tombstone comment
+      states (ops build fresh sets and never interleave add-after-delete); that
+      dependency is now named in the code, with what to change if it is ever
+      broken.
+
+      The grades moved from an implausible S to **A/B (1.15–3.58×)** — a
+      believable standing for a hash-probe loop, and the direction that matters:
+      the equalization removed flattery rather than adding it.
+- [x] Answer AGENTS.md's four questions in the commit message. **Done in
+      `72420940d`**, all four: when/why the rows were written, what they protect
+      (that the predicates return the same answers at comparable cost), who else
+      depends on them (the checksum cross-validation and `RANKING.md`'s headline
+      counts — nothing in `src/` or `tests/`), and the proof they were wrong
+      (501 probes against 2–3 for the same answer, plus mfb using `ro_n` where
+      both peers use `alg_n`).
+- [x] Re-run `./benchmark/run.sh 10`; confirm the checksum cross-validation
+      passes. **`363 checksum keys, 363 shared across ≥2 targets, 0 mismatched`**
+      — and again unchanged after the C-iteration equalization, which is the
+      evidence that equalization changed no answer.
+- [x] Refresh `benchmark/baseline/` and its README provenance block. **Done**
+      (run `20260903-084033`, commit `3ccc68297`). The provenance now also records
+      that this run was taken on a **loaded machine**, so its absolute times are
+      inflated and only the within-run ratios `rank.py` grades are meaningful —
+      and what changed about the three predicate rows, so the checksum moving from
+      `0` to `k_pred` is not a mystery to the next reader.
+
+Acceptance: **MET.** 0 mismatched checksums (363/363 shared). The nine rows are
+re-measured, and so are the other nine in the family:
+
+| | before | after |
+|---|---|---|
+| set-algebra rows C-or-worse | **9** | **0** |
+| …carrying a RED flag | **6** | **0** |
+| worst row | **412×** (`set (Record-Fixed) isDisjoint`) | **3.58×** (`set (Record-Fixed) isSuperset`) |
+| grade spread | F … A | **A/B, 1.15–3.58×** |
+
+The sub-plan's §1 goal was that these rows "carry a grade that is *justified* —
+and if that grade is still poor, a follow-up plan is filed with the real root
+cause." The grade is now justified **and** good, so no follow-up is filed: the
+265–412× was the benchmark, not the implementation, which is exactly what Phase 1
+predicted and what `isSubset` (1 probe in both languages, always grade A) proved
+before a line was changed.
 Commit: —
 
 ### Phase 2b — File the real root cause (only if Phase 1 says (b))

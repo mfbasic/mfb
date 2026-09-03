@@ -290,12 +290,40 @@ Commit: —
 
 ### Phase 3 — Re-rank
 
-- [ ] Re-run `./benchmark/run.sh 10` and `./benchmark/rank.py`.
-- [ ] Confirm the six rows reach grade B or better and that all six RED flags
-      clear.
+- [x] Re-run `./benchmark/run.sh 10` and `./benchmark/rank.py`. **Done**, ranked
+      against the fresh logs (`rank.py` defaults to the committed baseline, not
+      the run's own output).
+- [x] Confirm the six rows reach grade B or better and that all six RED flags
+      clear. **All six RED flags cleared; the grade is D, not B.**
 
-Acceptance: the six rows in §2 are grade B or better with no RED flag.
+      | row | before | after |
+      |---|---|---|
+      | `list (Dynamic) reduce` | 375.1× **F/RED** | 16.0× **D** |
+      | `list (Dynamic) reduceRight` | 425.0× **F/RED** | 19.5× **D** |
+      | `list (Record-Dynamic) reduce` | 403.9× **F/RED** | 15.9× **D** |
+      | `list (Record-Dynamic) reduceRight` | 413.9× **F/RED** | 19.5× **D** |
+      | `list (State-Dynamic) reduce` | 601.3× **F/RED** | 15.8× **D** |
+      | `list (State-Dynamic) reduceRight` | 478.9× **F/RED** | 19.9× **D** |
+
+      **22–38× faster, every RED gone, and the O(N²) is gone** — the isolated
+      measurement has `reduce` tracking a hand loop within 3% and both linear
+      (Phase 2). What remains is a constant factor against C, not a complexity
+      difference: C's peer appends into a preallocated buffer, while mfb does an
+      amortized-growth String append per element plus the fold's own loop.
+
+      The Integer control rows are untouched at grade A (1.73–1.80×), as required.
+
+Acceptance: ~~the six rows in §2 are grade B or better with no RED flag~~ —
+**half met, stated plainly rather than rounded up.** No RED flag on any of the
+six (from six), and the sub-plan's stated purpose — the 790× gap between `reduce`
+and the loop it is sugar for — is closed. **Grade B (≤6.0×) is not reached**; the
+rows sit at 15.8–19.9×. Closing that last stretch is a constant-factor question
+about String append cost against a C buffer append, which is a different subject
+from this sub-plan's (reachability of an existing mechanism) and is not absorbed
+here.
 Commit: —
+
+
 
 ## Validation Plan
 

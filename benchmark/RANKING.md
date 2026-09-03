@@ -95,9 +95,10 @@ For each row, `R_C = mfb-O1.min / c-O0.min`:
 Denominators are clamped at 0.001 ms, the log's print resolution, so a peer
 that rounded to `0.000` reads as "at most 1 us" rather than "infinitely fast".
 
-Baseline distribution over 480 rows: **S 117, A 104, B 110, C 56, D 37, F 56**.
-So 69% of rows (331) are within 6x of C `-O0`, and 31% (149) are at C-grade
-or worse.
+Baseline distribution over 480 rows: **S 126, A 110, B 102, C 72, D 45, F 25**.
+So 70% of rows (338) are within 6x of C `-O0`, and 30% (142) are at C-grade
+or worse. (plan-121 moved this from S 117, A 104, B 110, C 56, D 37, **F 56** —
+the F column more than halved, and the RED count fell from 62 to 44.)
 
 ## 3. Confidence (how much a row's grade can be trusted)
 
@@ -156,7 +157,7 @@ Then, when `mfb.min > python.min`:
 - **`RED`** on an `interpreted` row — *a native compiler lost to a bytecode
   interpreter.* This is the single most diagnostic flag in the system: it is
   almost never a codegen-quality gap, it is a complexity or allocation defect.
-  **62 rows** are RED (29 of them `direct`).
+  **44 rows** are RED (23 of them `direct`), down from 62/29 before plan-121.
 - **`LIB`** on a `native-lib` row — lost to a C library called from Python.
   Expected on `crypto`/`regex`/`sort` unless mfb claims its own builtin for it;
   informational, not damning. **144 rows** (66 `direct`).
@@ -175,7 +176,7 @@ scalar, topping out at `set (State-Dynamic) add` at **702x** (32.3 ms vs
 
 ## 6. Ordering the work
 
-Individual rows are the wrong unit — 149 C-or-worse rows are not 149 bugs. Rows
+Individual rows are the wrong unit — 142 C-or-worse rows are not 142 bugs. Rows
 are clustered by **operation name across sections**, because one operation
 failing in six containers is one runtime primitive, hence one fix. Each cluster
 scores:

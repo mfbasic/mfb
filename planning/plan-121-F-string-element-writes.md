@@ -288,12 +288,67 @@ Commit: 27b92883c
 
 ### Phase 3 — Confirm the container rows unblock
 
-- [ ] Re-run `./benchmark/run.sh 10` and re-rank.
-- [ ] Confirm `list (Dynamic) set` reaches grade B or better and that the
-      `Record-Dynamic` / `State-Dynamic` `set` rows fixed by plan-121-C/D are no
-      longer capped by this cost.
-- [ ] If `list (State-Dynamic) set` is still an outlier, record the residual and
-      whether it belongs to this sub-plan or D.
+- [x] Re-run `./benchmark/run.sh 10` and re-rank. **Done**, ranked against the
+      fresh logs (`rank.py` defaults to the *committed* baseline, not the run's
+      own output, so the fresh logs were assembled under `--dir`).
+- [x] Confirm `list (Dynamic) set` reaches grade B or better and that the
+      `Record-Dynamic` / `State-Dynamic` rows are no longer capped.
+
+      | row | before | after | |
+      |---|---|---|---|
+      | `list (Dynamic) set` | 371.2× **F** | **13.7× C** | 27× faster |
+      | `map (Record-Dynamic) set` | 146.5× **F** | **1.34× A** | 109× (plan-121-C) |
+      | `map (State-Dynamic) set` | 580.5× **F** | **5.37× B** | 108× (plan-121-D) |
+      | `list (Record-Dynamic) set` | 676.6× **F** | 713.8× **F** | **unchanged** |
+      | `list (State-Dynamic) set` | 17742× **F** | 2946.7× **F** | 6× |
+
+      `list (Dynamic) set` is **C, not B** — 13.7× against the ≤6.0× bar. The
+      27× improvement is real and the O(N^1.6) is gone, but the row does not
+      clear the grade.
+- [x] Record the residual and whether it belongs to this sub-plan or D.
+
+#### The residual: the two inlined-container `set` rows, and they belong to F
+
+`list (Record-Dynamic) set` and `list (State-Dynamic) set` are **not capped by
+the cost this sub-plan removed** — they never reach it. plan-121-C and D
+*deliberately decline* a variable-width element in the record and `STATE` `set`
+arms, each with a comment naming plan-121-F as the owner, because
+`lower_list_set_in_place`'s rebuild branch installed a fresh block and an inlined
+sub-block address cannot receive one.
+
+Phase 2 removed that branch, so the decline's stated reason is gone. **The fix is
+therefore to un-decline both arms — and the attempt is recorded here because it
+did not work.**
+
+**Attempted and reverted.** `lower_list_set_in_place` and
+`emit_grow_list_data_capacity` were given the `Option<InlineGrow>` parameter the
+`add`/`insert`/`prepend` arms already use, the two declines were removed, and the
+overflow path was pointed at `emit_inline_grow_extend_size` /
+`_split` / `_free_old`. It compiled clean and **SIGSEGV'd (exit 139)** on both
+`p121c-record-field-set-rt` and `p121d-state-ops-rt`, at the variable-width
+String write. Reverted; all four affected fixtures are byte-identical to their
+goldens again.
+
+So the declines are protecting something the removed rebuild branch was not the
+whole of. **The next attempt should start by finding out what**, rather than by
+re-threading `InlineGrow` — the same plumbing that works for `add`, `insert` and
+`prepend` is not sufficient here, and the difference is the thing to identify.
+One concrete lead: unlike those three, `set` reads the old element's
+`valueOffset`/`valueLength` **before** the grow and uses them after it, so any
+state it carries across `emit_inline_grow_split` has to survive the record prefix
+being copied to a new block.
+
+**Ownership: this sub-plan (F), not D.** D's arm is correct as written — it
+declines a case it cannot serve, and declining is always correct. What is missing
+is the length-changing write *inside an inlined container*, which is F's subject.
+
+Acceptance: ~~the five String-`set` rows each reach grade B or better~~ — **three
+of five do** (`map (Record-Dynamic)` A, `map (State-Dynamic)` B, and
+`map (Dynamic)` A); `list (Dynamic)` reaches C at 13.7× from 371×; the two
+inlined-container `list` rows are unchanged. Falling back on the acceptance's
+own alternative: **the residual is documented above with its measurement and its
+owning sub-plan**, including the failed attempt and the lead for the next one.
+Commit: —
 
 Acceptance: the five String-`set` rows in §2 each reach grade B or better, or the
 residual is documented with a measurement naming which sub-plan owns it.
