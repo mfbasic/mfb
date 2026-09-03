@@ -862,6 +862,15 @@ SUB main()
   LET gRad2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 620.0, y := 320.0], endPoint := canvas::Point[x := 740.0, y := 320.0], stops := glow]
   LET blob AS canvas::DrawItem = canvas::Ellipse[x := 620.0, y := 320.0, radiusX := 170.0, radiusY := 80.0, angle := 0.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad2 }]
 
+  ' A gradient-filled POLYGON, in the gap between the two round shapes of row 2. It is
+  ' here for one reason: a gradient's stops sit at the END of the geometry record, so a
+  ' polygon's tail is its edges and THEN its stops, and both emitters find the first
+  ' stop by subtracting from the record's own length. Every other kind puts the stops
+  ' directly after the header, where a base computed either way agrees — so a polygon
+  ' is the only shape that can tell a correct base from a lucky one.
+  LET gTri AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 330.0, y := 240.0], endPoint := canvas::Point[x := 330.0, y := 400.0], stops := warm]
+  LET triBar AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]], paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gTri }]
+
   ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
   ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth
   ' band. That is the rule made visible.
@@ -874,7 +883,7 @@ SUB main()
   LET gMono AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := mono]
   LET monoBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 540.0, w := 780.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gMono }]
 
-  canvas::present([ground, linBar, diagBar, orb, blob, manyBar, monoBar])
+  canvas::present([ground, linBar, diagBar, orb, blob, triBar, manyBar, monoBar])
   io::print("rendered")
 END SUB
 "#;
@@ -913,3 +922,104 @@ fn gradients_match_their_reference_exactly() {
         );
     }
 }
+
+/// The hardware backend draws the gradient scene the reference shows.
+///
+/// plan-116-F Phase 4's acceptance, and gated on the stats line for the reason
+/// `.ai/canvas-threading.md` §10 records: a gradient the shader cannot read draws the
+/// flat `fill` underneath — every one of these bars is `rgb(0, 0, 0)` beneath its ramp
+/// precisely so that failure is a *black bar*, not a subtly wrong one. But a backend
+/// that DECLINED the scene hands it to software, which is the oracle, and every pixel
+/// then matches by construction. `gpuFrames` is the only thing that separates the two.
+#[test]
+fn the_gpu_draws_the_gradient_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_gradients_gpu", GRADIENTS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the scene, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("gradients");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's gradient scene disagrees with the reference: {diff}\n\
+             A solid BLACK bar is the shader never taking the gradient arm at all \
+             (`item.ellipse.z >= 2`), so the flat fill showed; a ramp that runs the \
+             wrong way or off the shape is the axis ivec4 (check the vertex AND \
+             fragment ItemBlock declarations agree — only one sets the std430 stride); \
+             a ramp whose midpoint is too DARK is the lerp having moved out of linear \
+             light, which is the one thing §4.3 fixes; and a ramp built from another \
+             item's colours is the per-item first-stop index, `item.ellipse.w`."
+        );
+    }
+}
+
+/// A frame whose gradient stops overflow the buffer's third region declines to
+/// software rather than drawing from the wrong place.
+///
+/// The cap is a frame SUM, not a per-item bound, because the stops of every item share
+/// one region — so past it an item's first-stop index addresses memory another item
+/// owns, and the shader reads it as a colour ramp. That draws a plausible wrong picture
+/// rather than failing, which is why the predicate declines instead of truncating.
+///
+/// Asserted on the stats line and NOT by comparing pixels: a declined frame is drawn by
+/// software, which is the oracle, so it matches any reference by construction. Pixel
+/// equality here would pass whether the cap worked or not — it is the false pass this
+/// test exists to avoid.
+#[test]
+fn a_frame_past_the_gradient_stop_cap_declines_to_software() {
+    let (_, stats) = render_gpu("canvas_golden_gradient_overflow", GRADIENT_OVERFLOW);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a scene carrying more gradient stops than the frame's region holds was \
+         rendered on the GPU: `__CANVAS_MAX_FRAME_GRADIENT_STOPS` is a frame sum and \
+         this scene is past it, so accepting the frame means the stop uploads ran off \
+         the region and one item's ramp was read from another's stops: {stats}"
+    );
+}
+
+/// One gradient with more stops than the whole frame's region holds
+/// (`MAX_FRAME_GRADIENT_STOPS` is 4096).
+///
+/// Built in a loop rather than spelled out, and deliberately as a SINGLE item: the cap
+/// is a sum, so one item past it on its own proves the sum is consulted before the
+/// upload rather than after — the ordering that matters.
+const GRADIENT_OVERFLOW: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  MUT stops AS List OF canvas::GradientStop = []
+  MUT i AS Integer = 0
+  WHILE i < 4200
+    LET t AS Float = toFloat(i) / 4199.0
+    stops = collections::append(stops, canvas::GradientStop[offset := t, color := canvas::rgb(255 - i / 20, 40, i / 20)])
+    i = i + 1
+  END WHILE
+
+  LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 900.0, y := 0.0], stops := stops]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := g }]
+
+  canvas::present([bar])
+  io::print("rendered")
+END SUB
+"#;

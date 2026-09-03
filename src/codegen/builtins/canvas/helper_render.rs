@@ -190,9 +190,15 @@ END FUNC
 
 LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = 16384
 
+' The gradient stops one frame may carry, summed over its items -- the cap on the
+' third region of both backends' shared buffer, and the same number for both
+' because the region is sized identically on each (plan-116-F).
+LET __CANVAS_MAX_FRAME_GRADIENT_STOPS AS Integer = 4096
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT quads AS Integer = 0
+  MUT gradientStops AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
@@ -203,14 +209,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ELSE
       quads = quads + 1
     END IF
-    ' plan-116-F Phase 3: decline any scene carrying a gradient, until Phase 4 teaches
-    ' the shaders to read the stops. Without this a GPU frame would accept the scene
-    ' and draw the flat `fill` underneath -- a WRONG picture reported as success, which
-    ' `.ai/canvas-threading.md` section 10 records happening once already. Falling back
-    ' to software is at worst slow and is never wrong, and plan-116-G/H use this same
-    ' land-then-remove shape for groups.
-    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0)) >= 2 THEN
-      RETURN FALSE
+    ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
+    ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
+    ' edge cap has. A count below two is not a gradient and contributes nothing.
+    LET stops AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0))
+    IF stops >= 2 THEN
+      gradientStops = gradientStops + stops
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       ' The PER-ITEM cap, kept exactly as it was. plan-116-A moved Metal's edges into a
@@ -231,6 +235,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   ' command buffer, and they now take a slice of one region that serves the whole frame,
   ' exactly as Vulkan's always have. Software is the oracle, so a declined scene is at
   ' least as correct -- truncating it would draw a DIFFERENT shape.
+  ' The gradient region is one buffer serving the whole frame, so overflowing it
+  ' would make one item's stops read another's -- a plausible wrong ramp rather
+  ' than a failure. Software is the oracle, so declining is at worst slow.
+  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
+    RETURN FALSE
+  END IF
   RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
@@ -277,6 +287,7 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
+  MUT gradientStops AS Integer = 0
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
@@ -285,14 +296,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     ELSE
       quads = quads + 1
     END IF
-    ' plan-116-F Phase 3: decline any scene carrying a gradient, until Phase 4 teaches
-    ' the shaders to read the stops. Without this a GPU frame would accept the scene
-    ' and draw the flat `fill` underneath -- a WRONG picture reported as success, which
-    ' `.ai/canvas-threading.md` section 10 records happening once already. Falling back
-    ' to software is at worst slow and is never wrong, and plan-116-G/H use this same
-    ' land-then-remove shape for groups.
-    IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0)) >= 2 THEN
-      RETURN FALSE
+    ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
+    ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
+    ' edge cap has. A count below two is not a gradient and contributes nothing.
+    LET stops AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_GRADIENT_COUNT, 0.0))
+    IF stops >= 2 THEN
+      gradientStops = gradientStops + stops
     END IF
     IF kind = __CANVAS_GEO_POLYGON THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
@@ -302,6 +311,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     RETURN FALSE
   END IF
   IF samples > __CANVAS_VULKAN_MAX_GLYPH_SAMPLES THEN
+    RETURN FALSE
+  END IF
+  ' The gradient region is one buffer serving the whole frame, so overflowing it
+  ' would make one item's stops read another's -- a plausible wrong ramp rather
+  ' than a failure. Software is the oracle, so declining is at worst slow.
+  IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
@@ -468,8 +483,8 @@ mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
         CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES,
-        METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES, VULKAN_MAX_FRAME_EDGES,
-        VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+        MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES,
+        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
@@ -525,6 +540,16 @@ mod tests {
             declared("__CANVAS_METAL_MAX_GLYPH_SAMPLES"),
             METAL_MAX_GLYPH_SAMPLES,
             "the predicate admits a glyph bigger than `setFragmentBytes:` will carry",
+        );
+        // plan-116-F. One number for both backends, because the gradient region is
+        // sized identically on each -- and the failure it prevents is worse than a
+        // dropped item: past the cap an item's first-stop index runs off the region,
+        // and the shader reads whatever the buffer holds there as a colour ramp.
+        assert_eq!(
+            declared("__CANVAS_MAX_FRAME_GRADIENT_STOPS"),
+            MAX_FRAME_GRADIENT_STOPS,
+            "the predicate admits a frame whose gradient stops the buffer's third \
+             region cannot hold, so one item's stops would be read as another's",
         );
     }
 

@@ -464,22 +464,37 @@ Commit: 444b539d3
 
 ### Phase 4 — Metal and Vulkan
 
-- [ ] Vulkan: a third buffer region, `VULKAN_GRADIENT_BASE_WORDS`, a per-item start
+- [x] Vulkan: a third buffer region, `VULKAN_GRADIENT_BASE_WORDS`, a per-item start
       index, and the frame-total cap in `__canvas_vulkanRenderable`.
-- [ ] Metal: the gradient region of the frame buffer, the per-item first-stop index
-      in the block, `METAL_MAX_FRAME_GRADIENT_STOPS`, and the frame-sum decline in
+- [x] Metal: the gradient region of the frame buffer, the per-item first-stop index
+      in the block, `__CANVAS_MAX_FRAME_GRADIENT_STOPS`, and the frame-sum decline in
       `__canvas_metalRenderable`.
-- [ ] The stop walk and linear-light lerp in MSL and GLSL; `scripts/regen-spirv.sh`.
-- [ ] Tests: both GPUs match the oracle on `gradients.png` within
+- [x] The stop walk and linear-light lerp in MSL and GLSL; `scripts/regen-spirv.sh`.
+- [x] The Phase 3 blanket decline removed from both predicates, replaced by the
+      frame-total cap it was standing in for.
+- [x] Tests: both GPUs match the oracle on `gradients.png` within
       `Tolerance::GPU_DEFAULT`; a scene whose stops sum past
-      `METAL_MAX_FRAME_GRADIENT_STOPS` / `VULKAN_MAX_FRAME_GRADIENT_STOPS`
-      **declines to software** on each backend (assert via `MFB_CANVAS_STATS`, not
-      by pixel equality — a declined frame equals the oracle by construction, which
-      is the false pass).
+      `__CANVAS_MAX_FRAME_GRADIENT_STOPS` **declines to software** (asserted via
+      `MFB_CANVAS_STATS`, not by pixel equality — a declined frame equals the oracle
+      by construction, which is the false pass).
+- [x] A gradient-filled **Polygon** in both GPU scenes. Not in the plan and load-
+      bearing: it is the only kind whose tail is edges *then* stops, so it is the only
+      shape that can tell a correct first-stop base from a lucky one (**F9**).
 
 Acceptance: `gradients.png` matches on both GPUs within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`/`vulkanReady=TRUE`, and the over-cap scene is provably declined
 rather than truncated.
+
+**MET.** Metal: `rt_canvas_golden` 15/15, including
+`the_gpu_draws_the_gradient_scene_the_reference_shows` (gated on `gpuFrames`, so a
+decline cannot pass it) and `a_frame_past_the_gradient_stop_cap_declines_to_software`.
+Vulkan: `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228 --libc glibc` and
+`--box 2227 --libc musl --icd auto` both exit 0 with `vulkanReady=TRUE gpuFrames=1`,
+`worst=2 differing=0.8116%`. `rt_canvas_rasteriser` 39/39, `cargo test --bin mfb
+canvas` 71/71.
+
+Two defects were found here rather than reasoned about, both of which drew a *plausible
+wrong picture* rather than failing — see **F7** and **F8**.
 Commit: —
 
 ### Phase 5 — Docs and gates
@@ -531,6 +546,51 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F7 — the Metal gradient cursor was zeroed per ITEM, not per frame, and with the
+header pointer.** A `store_u64(SCRATCH[0], sp, OFF_GRAD_CURSOR)` landed inside
+`emit_edge_buffer`'s body, where `SCRATCH[0]` holds the geometry record's address. So
+the frame's stop cursor was never zeroed and read as a huge value; `cursor + count`
+then exceeded `MAX_FRAME_GRADIENT_STOPS` on the first gradient, the over-cap arm stored
+a stop count of 0, and the shader drew the flat `fill` beneath every ramp.
+
+Measured, not reasoned: `the_gpu_draws_the_gradient_scene_the_reference_shows` reported
+`247904 of 576000 pixels differ (max channel delta 255); first at (60, 60): got
+[0, 0, 0, 255], want [255, 64, 34, 255]` — solid black, which is exactly what the
+test's own failure text names as "the gradient arm never taken". Fixed by deleting the
+stray store, zeroing `OFF_GRAD_CURSOR` in the per-frame cursor loop beside
+`OFF_EDGE_CURSOR`, and adding the slot to the stack-slot census, which had never
+listed it.
+
+**F8 — the shaders lerped continuously; the oracle quantises `t` to 1/4096 by
+truncation and lerps in integer 0..65535 linear space.** With F7 fixed the scene was
+right in shape and colour but `13312 of 576000 pixels differ (max channel delta 1)` —
+2.31% against `Tolerance::GPU_DEFAULT`'s 2% population budget. The per-channel bound
+was never in question; the population was, because a gradient makes nearly every pixel
+a boundary case, so a systematic sub-step bias converts directly into differing pixels.
+
+The plan said "the stop walk and linear-light lerp", which is true and not sufficient:
+`__canvas_gradientColor` computes `num = toInt((tt - loOff) / span * 4096.0)` and
+`__canvas_gradientChannel` evaluates `loLin + (hiLin - loLin) * num / 4096` on the
+**integer** table entries, then picks the byte whose linear value is nearest by binary
+search. Three quantisations the shaders did not have. Both now reproduce all three:
+`srgbTable(i)` recomputes the rounded table entry, `num` is truncated to 1/4096, the
+lerp uses `trunc`, and the encode picks the nearest entry in LINEAR space by testing
+the midpoint either side rather than rounding in sRGB space.
+
+An intermediate fix that changed only the rounding *space* moved the count from 13312
+to 13334 — which is what proved the rounding space was not the cause and sent the
+search to the quantisation of `t`. Recorded because the near-miss is the useful part:
+"the shader and the oracle both interpolate in linear light" was true throughout.
+
+**F9 — a gradient-filled `Polygon` was in neither GPU scene.** A gradient's stops sit
+at the END of the geometry record, so both emitters find the first stop by subtracting
+`count * 5` from the record's own length. On every kind except `Polygon` the stops
+begin directly after the header and a base computed either way agrees — so no scene in
+the plan could distinguish a correct base from a lucky one. One was added to `GRADIENTS`
+(`tests/rt_canvas_golden.rs`, regenerating `gradients.png`) and one to the scene in
+`scripts/test-canvas-vulkan.sh`. Both pass, so the arithmetic was right; it was
+untested, which is a different thing.
 
 - **F6 (2026-09-02, Phase 3) — `gpuSelected=TRUE` does not mean the GPU drew, so the
   guard on four GPU tests was inert.** Every GPU comparison this plan family writes has
