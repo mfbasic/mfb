@@ -498,6 +498,64 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Materialize the **address of the inlined collection sub-block** into a
+    /// fresh stack slot, so a lowering written against a plain local's
+    /// `buffer_slot`/`map_slot` can mutate a record or `STATE` field's collection
+    /// where it lies — no second lowering, no copy.
+    ///
+    /// The record block stores each inlined field as a **block-relative offset**
+    /// at `record_ptr + 8 * field_index`; the sub-block therefore begins at
+    /// `record_ptr + fieldOffset`. That is the same arithmetic
+    /// [`Self::lower_inline_list_append_in_place`] does inline, named once here.
+    ///
+    /// # Only sound for a mutation that cannot reallocate
+    ///
+    /// The returned slot holds an **address inside the record block**, not a
+    /// collection pointer the runtime owns. A lowering that reallocates writes the
+    /// new block pointer back into the slot it was given — which here would
+    /// scribble a fresh heap pointer into a scratch slot and silently lose it,
+    /// leaving the record's field offset pointing at the old, freed bytes.
+    ///
+    /// So this is for the **shrinking and same-size** operations only —
+    /// `removeAt`, `removeKey`, Set `remove`, and a `set` whose replacement is the
+    /// same width. Each of those was checked to only ever *load* its slot (for
+    /// example every `map_slot` access in `lower_map_remove_key_in_place` is an
+    /// `abi::load_u64`). A growing operation — `append`, `insert`, `prepend`,
+    /// `add` — must instead go through the inline grow path
+    /// ([`Self::lower_inplace_inlined_list_grow`]), which grows the **record**
+    /// block and repoints `block_slot`.
+    ///
+    /// A `Direct` destination is a caller error rather than a decline, for the
+    /// same reason [`Self::lower_inplace_inlined_list_grow`] treats it as one: by
+    /// the time a destination exists the container has been matched, so asking a
+    /// plain local for its inlined sub-block is a bug in the arm.
+    pub(crate) fn open_inplace_inlined_subblock(
+        &mut self,
+        dest: &InPlaceDest,
+    ) -> Result<usize, String> {
+        let InPlaceDest::Inlined {
+            block_slot,
+            field_index,
+            ..
+        } = dest
+        else {
+            return Err(
+                "native in-place inlined sub-block needs an inlined-field destination, \
+                 got a plain local slot"
+                    .to_string(),
+            );
+        };
+        let base = self.allocate_register();
+        let offset = self.allocate_register();
+        // record pointer, then the field's block-relative offset beside it.
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), *block_slot));
+        self.emit(abi::load_u64(&offset, &base, 8 * *field_index));
+        self.emit(abi::add_registers(&base, &base, &offset));
+        let slot = self.allocate_stack_object("inplace_inlined_subblock", 8);
+        self.emit(abi::store_u64(&base, abi::stack_pointer(), slot));
+        Ok(slot)
+    }
+
     /// Discharge obligation `O4`: publish a reallocated `STATE` block pointer
     /// through the resource's shared STATE slot, so the owner and every alias
     /// observe the grown block (§15). A no-op for a plain local or a record

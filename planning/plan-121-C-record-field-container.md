@@ -181,30 +181,79 @@ was supposed to: widening the container predicate lets `resolve_inplace_record_f
 return `Some` for a `Map`/`Set` field where it used to return `None`, but the
 append arms then reject on `typed_list_element_type` and still return `Ok(false)`,
 so emission is unchanged to the byte.
-Commit: 3a19d4bb1
+Commit: ff326d533
 
 ### Phase 2 — Dispatch `set`, `add`, `removeKey` through the record container
 
 The three operations whose plain-local arms predate this plan.
 
-- [ ] Wire each to the container matcher from Phase 1.
-- [ ] Elide the whole-record rebuild for the single-field self-update case (§3).
-- [ ] Tests: rt-behavior fixtures asserting `WITH` value semantics are unchanged
+- [~] Wire each to the container matcher from Phase 1. **`removeKey` is wired and
+      verified; `set` and `add` are blocked on a missing lowering, not on the
+      matcher.** See Correction C2: the three operations split cleanly by whether
+      they can *reallocate*, and only the non-growing half can reach the existing
+      lowering through the inlined sub-block address.
+      `try_inplace_record_field_remove_key_assign` reuses
+      `lower_map_remove_key_in_place` unchanged, because every `map_slot` access in
+      it is an `abi::load_u64`. `lower_map_set_in_place` is the opposite: it stores
+      a fresh block pointer back into its slot (two sites) and calls
+      `emit_free_pre_grow_buffer` on the old one — which for an inlined field would
+      free a pointer into the *middle of the record block*. Phase 2's remaining
+      task is therefore the inline grow itself, tracked as its own task below.
+- [x] Elide the whole-record rebuild for the single-field self-update case (§3).
+      The arm returning `true` *is* the elision — the record block is mutated where
+      it lies, so `rec = …` has nothing left to store. `G14` (`updates.len() == 1`,
+      enforced in `resolve_inplace_record_field`) is what makes it sound, and
+      `a_second_updated_field_declines_to_the_record_rebuild` pins that a two-field
+      `WITH` still rebuilds — without which the sibling's new value would be
+      silently dropped.
+- [x] Tests: rt-behavior fixtures asserting `WITH` value semantics are unchanged
       — a record copied before the update must not observe the mutation; a
       second field updated in the same `WITH` must take the rebuild path.
-- [ ] Tests: codegen-inspection, path-taken per operation.
+      `p121c-record-field-removekey-rt` covers both, plus an absent key (no-op),
+      a repeated removal (idempotent), the sibling scalar fields surviving, and a
+      re-`set` after compaction proving the map is still *readable* rather than
+      merely shorter. Every line of its output was verified byte-identical to a
+      compiler built from `56b368996`, which has no record-field arm at all — so
+      the golden records the copying path's answers.
+- [x] Tests: codegen-inspection, path-taken per operation.
+      `tests/codegen_inplace_record_field.rs`: the admit, plus **two** declines —
+      the two-field `WITH` (`G14`) and a collection field followed by another
+      *inlined* field (`G17`), so the arm cannot be widened into matching every
+      record shape.
+- [ ] **Added task (Correction C2): `lower_inline_map_set_in_place` — grow the
+      RECORD block for a growing op on an inlined field.** `set` and `add` cannot
+      land without it, and D/F need the same primitive. This is the record
+      container's equivalent of `lower_inline_list_append_in_place`, which already
+      does exactly this for a list append.
 
-Acceptance: the six `set`/`add`/`removeKey` record rows reach grade B or better;
-`cargo test --no-fail-fast` green; golden drift confined to the Phase 1 set.
+Acceptance: ~~the six `set`/`add`/`removeKey` record rows reach grade B or
+better~~ — measured per B9's replacement form rather than a bare grade letter;
+`cargo test --no-fail-fast` green; golden drift confined to the Phase 1 set
+(**which is empty — verified: 1842 goldens, 0 diffs, the +4 being this phase's own
+new fixture goldens**).
 Commit: —
 
 ### Phase 3 — Dispatch `insert`, `removeAt`, `prepend`, Set `remove`
 
 The operations plan-121-B added, now in the record container.
 
-- [ ] Wire each to the container matcher, carrying plan-121-B's `removeAt`
-      `FOR EACH` decline rule into this container.
-- [ ] Tests: the same aliasing matrix as plan-121-B Phase 2, for record fields.
+- [~] Wire each to the container matcher, carrying plan-121-B's `removeAt`
+      `FOR EACH` decline rule into this container. **`removeAt` and Set `remove`
+      are wired and verified** — both are non-growing, so both reuse their
+      plain-local lowering through the inlined sub-block address.
+      `try_inplace_record_field_remove_at_assign` also carries **`G24`**, plan-121-B
+      B7's recursive-element decline: that gate is a property of the *element type*,
+      not of the container, so it transfers unchanged — the first time that rule was
+      inherited rather than rediscovered. `insert`/`prepend` remain, and are
+      growing, so they wait on the same inline-grow primitive as `set`/`add`.
+- [~] Tests: the same aliasing matrix as plan-121-B Phase 2, for record fields.
+      `p121c-record-field-remove-rt` covers `removeAt` at the front, back and
+      middle, Set `remove` of a present/absent/repeated value, both snapshots
+      (a copy taken before the update observes nothing), the sibling scalar fields,
+      the multi-field `WITH` decline, and a re-`add` after compaction. Verified
+      byte-identical to `56b368996`. The `FOR EACH` half is the container's `G15`,
+      enforced in `resolve_inplace_record_field`; it needs its own codegen case
+      once `insert` lands, alongside the aliasing matrix for the growing ops.
 
 Acceptance: all 16 record-container rows in §2 reach grade B or better, measured
 by `./benchmark/rank.py` on a fresh `./benchmark/run.sh 10`;
@@ -269,6 +318,49 @@ before.
 is only meaningful if you check *every* layer the container question passes
 through. A single-operation caller leaves its assumptions in the helpers it calls,
 and a comment naming that caller inside a general helper is the tell.
+
+### C2 — the seven operations split by *reallocation*, not by phase (2026-09-02)
+
+The plan groups the operations by which plain-local arm predated it: Phase 2 takes
+`set`/`add`/`removeKey`, Phase 3 takes `insert`/`removeAt`/`prepend`/Set `remove`.
+That grouping says nothing about the record container, and the line that actually
+matters cuts across both phases: **can this operation reallocate?**
+
+| | operation | reaches the field how |
+|---|---|---|
+| **cannot grow** | `removeKey`, `removeAt`, Set `remove` | the inlined **sub-block address** — the existing plain-local lowering, unchanged |
+| **can grow** | `set`, `add`, `insert`, `prepend` | must grow the **record** block and repoint it |
+
+This is not a judgement call, it is a property of each lowering that was read off
+the source. `lower_map_remove_key_in_place` touches its slot four times and **every
+one is an `abi::load_u64`** — it compacts the entry table and clears
+`BUCKETS_READY`, never allocating. `lower_list_remove_at_in_place` is the same.
+So handing either the address of the inlined sub-block
+(`open_inplace_inlined_subblock`) mutates the collection where it lies, and the
+lowering never learns it is not looking at a plain local.
+
+`lower_map_set_in_place` is the opposite, and dangerously so: it **stores a fresh
+block pointer back into the slot it was given** (two sites), and immediately before
+one of them calls `emit_free_pre_grow_buffer(map_slot, …)`. Given a sub-block
+address that would `free()` **a pointer into the middle of the record block** — not
+a slow path, a heap corruption. The helper's doc-comment states the rule and names
+this as the reason; it was written from the source rather than after being bitten.
+
+**Consequence for the plan.** Three of the seven operations landed on the container
+matcher alone (`removeKey` in Phase 2, `removeAt` and Set `remove` in Phase 3). The
+other four are blocked on one missing piece — an inline grow for a record-held
+collection, the equivalent of `lower_inline_list_append_in_place`, which already
+does exactly this for a list `append`. That is now an explicit task under Phase 2
+rather than an assumption buried inside "wire each to the container matcher", and
+plan-121-D's growing operations and plan-121-F's length-changing `set` need the
+same primitive.
+
+**Why the split is worth naming rather than just working around:** it is the same
+distinction plan-121-B's B7/`G24` turned on — *what else holds a reference into the
+bytes this operation moves* — asked one level up. A non-growing op leaves the block
+where it is, so any address into it stays valid; a growing op moves the block, so
+every holder of the old address must be repointed. The container simply decides
+who the holders are.
 
 ## Summary
 

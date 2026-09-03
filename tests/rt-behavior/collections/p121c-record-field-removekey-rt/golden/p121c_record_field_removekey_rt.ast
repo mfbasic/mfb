@@ -1,0 +1,87 @@
+{
+  "project": "p121c_record_field_removekey_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "before", "type": "Integer", "line": 5 },
+      { "visibility": null, "name": "m", "type": "Map OF Integer TO String", "line": 6 },
+      { "visibility": null, "name": "after", "type": "Integer", "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "render",
+      "line": 10,
+      "params": [
+      { "name": "b", "type": "Box", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 11 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 12,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "m" }, { "kind": "identifier", "value": "i" }] },
+          "line": 13,
+          "then": [
+          { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "m" }, { "kind": "identifier", "value": "i" }, { "kind": "string", "value": "?" }] } }, "right": { "kind": "string", "value": "," } }, "line": 14 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "rec", "type": "Box", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "map", "keyType": "Integer", "valueType": "String", "entries": [{ "key": { "kind": "number", "value": "0" }, "value": { "kind": "string", "value": "a" } }, { "key": { "kind": "number", "value": "1" }, "value": { "kind": "string", "value": "b" } }, { "key": { "kind": "number", "value": "2" }, "value": { "kind": "string", "value": "c" } }, { "key": { "kind": "number", "value": "3" }, "value": { "kind": "string", "value": "d" } }] }, { "kind": "number", "value": "2" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "snapshot", "type": "Box", "value": { "kind": "identifier", "value": "rec" }, "line": 25 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "1" }] } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "rec" }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "snapshot=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "snapshot" }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "before_field=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "before" }] } }, "right": { "kind": "string", "value": " after_field=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "after" }] } }] }, "line": 31 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "9" }] } }] }, "line": 34 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "2" }] } }] }, "line": 35 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "2" }] } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "more=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "rec" }] } }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }] }] } }] }, "line": 37 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.removeKey", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "0" }] } }, { "field": "after", "value": { "kind": "number", "value": "99" } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "multi=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "rec" }] } }, "right": { "kind": "string", "value": " after_field=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "after" }] } }] }, "line": 42 },
+      { "kind": "assignment", "name": "rec", "value": { "kind": "with", "target": { "kind": "identifier", "value": "rec" }, "updates": [{ "field": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "7" }, { "kind": "string", "value": "z" }] } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readd=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "identifier", "value": "rec" }] } }, "right": { "kind": "string", "value": " seven=" } }, "right": { "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rec" }, "member": "m" }, { "kind": "number", "value": "7" }, { "kind": "string", "value": "?" }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
+      ]
+    }
+    ]
+  }
+  ]
+}
