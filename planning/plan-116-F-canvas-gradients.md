@@ -592,9 +592,16 @@ Commit: 8c4fa49a6
       ran)"**, exit 0. 1358 is the number that matters: `cargo test`'s copy of the
       corpus ran 811 and skipped 519 `syntax/` fixtures, so this row is the only thing
       that executed the diagnostic-pinning half.
-- [ ] `scripts/artifact-gate.sh <mfb-exe> all` 0 diffs. **Two positionals, not one**
+- [x] `scripts/artifact-gate.sh <mfb-exe> all` 0 diffs. **Two positionals, not one**
       (**F19**): `all` alone prints usage and exits 2 — the script refuses a bare
       invocation on purpose, so it can never be mistaken for a pass.
+      `bash scripts/artifact-gate.sh target/release/mfb all` →
+      **"artifact-gate [all]: 1337 tests, 1500 build(s), 1844 golden(s) checked,
+      0 diff(s)"**, exit **0**, run after `pgrep -fl artifact-gate` came back empty so
+      the 98-refusal of F19 could not recur. 0 diffs is the expected result and not a
+      surprise: **F11** established that no `tests/byte-identity/` fixture imports
+      `canvas`, so this gate is silent about the package rather than confirming it —
+      what it does confirm is that this letter moved nothing else in the tree.
 - [x] Fix **F18**: a **stroked** `Text` reaches `__canvas_paintHeader` wearing
       `POLYGON`'s kind, so the `Text` skip does not fire and it counts a stop tail
       `__canvas_tailFor` never appends. 874 pixels wrong before, 0 after; pinned by
