@@ -112,7 +112,9 @@ the time of writing, so a future implementer can see what changed.
 - **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
   plan-114-A that is a hard compile error rather than a silent acceptance.**
   plan-114-A added **`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`** — now landed
-  on main (`src/rules/table.rs:748`, verified 2026-09-01). Combined with
+  on main (`grep -n TYPE_THREAD_RESOURCE_PLANE_REQUIRED src/rules/table.rs` → the rule
+  is at `:741-746` with message *"a resource cannot cross the thread data plane"*;
+  re-verified 2026-09-03). Combined with
   `canvas::Image`'s `sendable: false`, a record carrying one is refused at any thread
   boundary.
 
@@ -339,6 +341,10 @@ lands on what the letter says is there. A sample:
 * `mod.rs:385`, given as *"This is what keeps the scene from retaining anything"*,
   is a `CapStyle.Round` description; the real comment is at `:447`.
 * `mod.rs:744`, given as the `Image` resource, is prose about arc sweep direction.
+* `src/rules/table.rs:748`, given as `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, is a
+  comment about a *different*, retired rule (`2-203-0102`). The rule this letter
+  depends on is real and landed — `2-203-0138`, at `:741-746` — so the claim held
+  and only the pointer was wrong, which is the pattern throughout.
 
 The letters were written before plan-116-C, D, E and F each added records and
 descriptions to that file. The counts and claims these citations *support* are not in
