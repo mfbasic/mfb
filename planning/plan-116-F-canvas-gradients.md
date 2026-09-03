@@ -492,7 +492,9 @@ rather than truncated.
 **MET, and re-measured after the `main` merge (2026-09-03):**
 `scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
 and `--box 2228 --libc glibc` both exit 0 on the merged tree, 12/12 checks each,
-`vulkanReady=TRUE gpuSelected=TRUE gpuFrames=1`, `worst=2 differing=0.8116%`.
+`vulkanReady=TRUE gpuSelected=TRUE gpuFrames=1`, `worst=2 differing=0.8116%`. **Re-measured again after F17** (which changes what a
+`Line`/`Arc` emits into the geometry record): both boxes 12/12, `gpuFrames=1`,
+unchanged.
 
 The pre-merge measurements below stand as recorded. Metal: `rt_canvas_golden` 15/15,
 including
