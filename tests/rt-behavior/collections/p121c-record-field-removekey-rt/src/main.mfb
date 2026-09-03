@@ -1,0 +1,48 @@
+IMPORT io
+IMPORT collections
+
+TYPE Box
+  before AS Integer
+  m AS Map OF Integer TO String
+  after AS Integer
+END TYPE
+
+FUNC render(b AS Box) AS String
+  MUT s AS String = ""
+  FOR i = 0 TO 5
+    IF collections::hasKey(b.m, i) THEN
+      s = s & toString(i) & "=" & collections::getOr(b.m, i, "?") & ","
+    END IF
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC main() AS Integer
+  MUT rec AS Box = Box[1, Map OF Integer TO String { 0 := "a", 1 := "b", 2 := "c", 3 := "d" }, 2]
+
+  ' A copy taken BEFORE the update must not observe it: WITH has value
+  ' semantics and the in-place path may not be visible to the program.
+  LET snapshot AS Box = rec
+  rec = WITH rec { m := collections::removeKey(rec.m, 1) }
+  io::print("after=" & render(rec))
+  io::print("snapshot=" & render(snapshot))
+
+  ' The sibling fields must survive the in-place mutation untouched.
+  io::print("before_field=" & toString(rec.before) & " after_field=" & toString(rec.after))
+
+  ' Removing an absent key is a no-op; removing twice is idempotent.
+  rec = WITH rec { m := collections::removeKey(rec.m, 9) }
+  rec = WITH rec { m := collections::removeKey(rec.m, 2) }
+  rec = WITH rec { m := collections::removeKey(rec.m, 2) }
+  io::print("more=" & render(rec) & " len=" & toString(len(rec.m)))
+
+  ' A second updated field in the same WITH must take the rebuild path, and
+  ' both new values must land.
+  rec = WITH rec { m := collections::removeKey(rec.m, 0), after := 99 }
+  io::print("multi=" & render(rec) & " after_field=" & toString(rec.after))
+
+  ' The map must still be usable after compaction: re-add and read back.
+  rec = WITH rec { m := collections::set(rec.m, 7, "z") }
+  io::print("readd=" & render(rec) & " seven=" & collections::getOr(rec.m, 7, "?"))
+  RETURN 0
+END FUNC

@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121c-record-field-set-rt
+Wrote AST to tests/rt-behavior/collections/p121c-record-field-set-rt/p121c_record_field_set_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121c-record-field-set-rt/p121c_record_field_set_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121c-record-field-set-rt
+Wrote executable to tests/rt-behavior/collections/p121c-record-field-set-rt/build/p121c_record_field_set_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121c-record-field-set-rt/build/p121c_record_field_set_rt.out
+list_set=99,20,55,77, len=4
+list_snap=10,20,30,40,
+list_fields=7/8
+list_get=99,20,55,77,
+list_multi=99,11,55,77, after=88
+map_overwrite=111 len=1
+map_grow_len=120 bad=0
+map_snap_len=1
+map_fields=5/6
+str_set=a,wwwwwwww,ccc, head=1
+[exit 0]

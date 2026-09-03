@@ -247,8 +247,8 @@ fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
         .unwrap_or_else(|e| panic!("run {}: {e}", program.binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?} (metal={metal}):\n{}\n{}",
-        run.status.code(),
+        "program {} (metal={metal}):\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );

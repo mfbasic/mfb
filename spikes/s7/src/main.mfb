@@ -1,0 +1,104 @@
+' SPIKE 7 -- how close to the memmove floor can `prepend` get?
+'
+' plan-121-B's non-goals accept that insert/removeAt/prepend stay O(N): shifting
+' N elements is the operation's defined cost and C pays it too. So the question
+' for `prepend` -- which ALREADY has an in-place arm and still runs 14-36x C --
+' is not "can it be O(1)" but "how far above the floor is it, and is the gap
+' worth chasing at all". The plan's Open Decision says: if the arm is already
+' within ~3x of the floor, stop.
+'
+' The floor is one bulk copy of the same bytes. MFBASIC's closest primitive is
+' the BULK append `collections::append(dst, src)`, which `try_inplace_bulk_-
+' append_assign` lowers to a block copy of src's entries + data -- the same
+' bytes a prepend's shift moves, with no per-element work. Timing the two at
+' equal N and equal call counts gives prepend-cost / memmove-cost directly.
+'
+' Both variants hold the call count constant and vary N, so each column is a
+' per-call cost at a known size and the RATIO is the answer.
+
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+FUNC buildInts(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+' A: prepend into a list of length N. The in-place arm shifts N entries right
+'    by one stride, then writes index 0.
+FUNC prependCost(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::prepend(xs, i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("A " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+' B: the floor -- copy the same N elements' worth of bytes, once per call, with
+'    no per-element work. A bulk append into an EMPTY list is a straight block
+'    copy of src's entries and data region.
+FUNC memmoveFloor(n AS Integer, calls AS Integer) AS Integer
+  LET src AS List OF Integer = buildInts(n)
+  MUT total AS Integer = 0
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    MUT dst AS List OF Integer = []
+    dst = collections::append(dst, src)
+    total = total + len(dst)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("B " & toString(total))
+  RETURN t1 - t0
+END FUNC
+
+' C: append into a list of length N -- the O(1) control. Confirms the harness is
+'    measuring the SHIFT in A and not some fixed per-call overhead: C must stay
+'    flat while A rises.
+FUNC appendControl(n AS Integer, calls AS Integer) AS Integer
+  MUT xs AS List OF Integer = buildInts(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR i = 0 TO calls - 1
+    xs = collections::append(xs, i)
+  NEXT
+  LET t1 AS Integer = datetime::monotonicNanos()
+  io::printError("C " & toString(len(xs)))
+  RETURN t1 - t0
+END FUNC
+
+FUNC row(label AS String, n AS Integer, ns AS Integer, calls AS Integer) AS Integer
+  io::print(label & "  N=" & toString(n) & "  per_call=" & toString(ns / calls) & "ns")
+  RETURN 0
+END FUNC
+
+FUNC main() AS Integer
+  LET calls AS Integer = 500
+  io::print("# spike 7: prepend vs the block-copy floor. CALLS held at " & toString(calls))
+  io::print("#   A prepend      -- in-place arm: shift N entries, write index 0")
+  io::print("#   B bulk copy    -- the floor: same bytes, one block copy, no per-element work")
+  io::print("#   C append       -- O(1) control; must stay FLAT while A rises")
+  io::print("# A/B is the answer: within ~3x means the arm is at its floor (stop).")
+  LET sizes AS List OF Integer = [100, 200, 400, 800, 1600, 3200]
+  io::print("")
+  io::print("A prepend")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  A", n, prependCost(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("B bulk copy (floor)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  B", n, memmoveFloor(n, calls), calls)
+  NEXT
+  io::print("")
+  io::print("C append (control)")
+  FOR EACH n IN sizes
+    LET d AS Integer = row("  C", n, appendControl(n, calls), calls)
+  NEXT
+  RETURN 0
+END FUNC

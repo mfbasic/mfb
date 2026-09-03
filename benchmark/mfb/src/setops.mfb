@@ -245,8 +245,8 @@ FUNC test_sf_symmetricDifference(run AS Integer, tests AS List OF BenchResult) A
 END FUNC
 
 FUNC test_sf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET base = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -266,8 +266,8 @@ FUNC test_sf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF B
 END FUNC
 
 FUNC test_sf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET base = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -287,8 +287,8 @@ FUNC test_sf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF
 END FUNC
 
 FUNC test_sf_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET base = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 300)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -483,8 +483,8 @@ FUNC test_sd_symmetricDifference(run AS Integer, tests AS List OF BenchResult) A
 END FUNC
 
 FUNC test_sd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET base = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -504,8 +504,8 @@ FUNC test_sd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF B
 END FUNC
 
 FUNC test_sd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET base = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -525,8 +525,8 @@ FUNC test_sd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF
 END FUNC
 
 FUNC test_sd_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET base = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 100)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -729,8 +729,8 @@ FUNC test_srf_symmetricDifference(run AS Integer, tests AS List OF BenchResult) 
 END FUNC
 
 FUNC test_srf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(1000), 2]
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(300), 2]
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -751,8 +751,8 @@ FUNC test_srf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF 
 END FUNC
 
 FUNC test_srf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(1000), 2]
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(300), 2]
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -773,8 +773,8 @@ FUNC test_srf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List O
 END FUNC
 
 FUNC test_srf_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(1000), 2]
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  LET rec AS RecSetFixed = RecSetFixed[1, buildSetRange(300), 2]
+  LET other AS Set OF Integer = buildSetShift(300, 300)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -978,8 +978,8 @@ FUNC test_srd_symmetricDifference(run AS Integer, tests AS List OF BenchResult) 
 END FUNC
 
 FUNC test_srd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(200), 2]
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(100), 2]
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1000,8 +1000,8 @@ FUNC test_srd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF 
 END FUNC
 
 FUNC test_srd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(200), 2]
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(100), 2]
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1022,8 +1022,8 @@ FUNC test_srd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List O
 END FUNC
 
 FUNC test_srd_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(200), 2]
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  LET rec AS RecSetDyn = RecSetDyn[1, buildStrSetRange(100), 2]
+  LET other AS Set OF String = buildStrSetShift(100, 100)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1257,8 +1257,8 @@ FUNC test_ssf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF 
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isSubset.tmp"])
   RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  f.state.xs = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1282,8 +1282,8 @@ FUNC test_ssf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List O
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isSuperset.tmp"])
   RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  f.state.xs = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1307,8 +1307,8 @@ FUNC test_ssf_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List O
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isDisjoint.tmp"])
   RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildSetRange(1000)
-  LET other AS Set OF Integer = buildSetShift(1000, 500)
+  f.state.xs = buildSetRange(300)
+  LET other AS Set OF Integer = buildSetShift(300, 300)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1542,8 +1542,8 @@ FUNC test_ssd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF 
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isSubset.tmp"])
   RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  f.state.xs = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1567,8 +1567,8 @@ FUNC test_ssd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List O
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isSuperset.tmp"])
   RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  f.state.xs = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 0)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1592,8 +1592,8 @@ FUNC test_ssd_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List O
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isDisjoint.tmp"])
   RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildStrSetRange(200)
-  LET other AS Set OF String = buildStrSetShift(200, 100)
+  f.state.xs = buildStrSetRange(100)
+  LET other AS Set OF String = buildStrSetShift(100, 100)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1

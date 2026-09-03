@@ -135,6 +135,38 @@ pub fn host_libc_flavor() -> &'static str {
     }
 }
 
+/// How a child process ended, phrased for a failure message.
+///
+/// `ExitStatus::code()` answers `None` for a child killed by a signal, so a
+/// message built from it alone reports `exited None` for a SIGSEGV, a SIGABRT
+/// and an OOM-killer SIGKILL alike — three different bugs with one indication.
+/// On Unix the signal number is available and is the whole diagnosis, so say it.
+pub fn exit_description(status: &ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exit {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            let name = match signal {
+                2 => " (SIGINT)",
+                4 => " (SIGILL)",
+                6 => " (SIGABRT)",
+                8 => " (SIGFPE)",
+                9 => " (SIGKILL — the OOM killer or an outside kill, not a crash)",
+                10 => " (SIGBUS)",
+                11 => " (SIGSEGV)",
+                13 => " (SIGPIPE)",
+                15 => " (SIGTERM)",
+                _ => "",
+            };
+            return format!("killed by signal {signal}{name}");
+        }
+    }
+    format!("ended with no exit code ({status:?})")
+}
+
 /// Build `project` with `-ncode -target <target>` and return the parsed
 /// `<name>.ncode` dump as JSON.
 pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Value {

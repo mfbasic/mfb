@@ -138,7 +138,12 @@ impl CodeBuilder<'_> {
 
     /// True when `value` reads exactly `<resource>.state.<field>` — the
     /// self-append source/alias check for bug-430.
-    fn value_is_state_field(&self, value: &NirValue, resource: &str, field: &str) -> bool {
+    pub(crate) fn value_is_state_field(
+        &self,
+        value: &NirValue,
+        resource: &str,
+        field: &str,
+    ) -> bool {
         let NirValue::MemberAccess { target, member } = value else {
             return false;
         };
@@ -165,11 +170,23 @@ impl CodeBuilder<'_> {
         )
     }
 
-    /// If `field` is a `List` field of `record_type` that is inlined AND is the
-    /// **last inlined field** (no later field is inlined, so growing its trailing
-    /// sub-block extends the record block's tail without shifting any sibling),
-    /// return `(field_index, field_type)`. This is the shape bug-430's in-place
-    /// grow supports; every other shape falls back to the whole-record rebuild.
+    /// If `field` is a **collection** field of `record_type` that is inlined AND
+    /// is the **last inlined field** (no later field is inlined, so growing its
+    /// trailing sub-block extends the record block's tail without shifting any
+    /// sibling), return `(field_index, field_type)`. This is the shape bug-430's
+    /// in-place grow supports; every other shape falls back to the whole-record
+    /// rebuild.
+    ///
+    /// plan-121-C: this is a *container* question — "can this field's sub-block be
+    /// mutated where it lies" — and the answer does not depend on which operation
+    /// is about to run. It used to reject anything that was not a `List`, because
+    /// its only caller was `append`. That coupled the container to one operation
+    /// and made `add`/`removeKey` on a record-held `Set`/`Map` unreachable even
+    /// though their sub-blocks are inlined on exactly the same terms.
+    ///
+    /// Widening it is safe because **each arm still gates its own kind**: the
+    /// append arms take `typed_list_element_type` right after this returns (`G9`),
+    /// so a `Map`/`Set` field cannot reach a list lowering by this route.
     pub(crate) fn record_collection_last_inlined(
         &self,
         record_type: &ParameterType,
@@ -178,9 +195,11 @@ impl CodeBuilder<'_> {
         let fields = self.type_model.record_fields.get(record_type)?;
         let index = fields.iter().position(|(name, _)| name == field)?;
         let field_type = fields[index].1.clone();
-        // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
-        // `append` target.
-        if typed_list_element_type(&field_type).cloned().is_none() {
+        // A `List`, `Map` or `Set` — the three block-backed collection kinds.
+        // `record_field_is_inlined` below already asks `typed_is_collection_type`
+        // among its composite cases; asking here too keeps the *reason* for the
+        // refusal specific ("not a collection" rather than "not inlined").
+        if !typed_is_collection_type(&field_type) {
             return None;
         }
         if !self.record_field_is_inlined(record_type, &field_type) {
@@ -196,6 +215,47 @@ impl CodeBuilder<'_> {
             return None;
         }
         Some((index, field_type.clone()))
+    }
+
+    /// plan-121-D Phase 1: the **operation dispatch** for a collection held in a
+    /// `RES … STATE` block, the STATE analogue of the `try_inplace_record_field_*`
+    /// chain in `Assign` above.
+    ///
+    /// The split this introduces is between the two questions an in-place arm has
+    /// to answer, which used to be tangled in one function:
+    ///
+    /// * **Which container is this?** — `resolve_inplace_state_field` (the
+    ///   container matcher): the `WITH` shape, `G13` the target is exactly this
+    ///   resource's `.state`, `G14` the single updated field, `G16` no live
+    ///   `FOR EACH` over it, `G17` last-inlined, `G10` the layout. None of that
+    ///   depends on which operation is running, which is exactly why it is shared.
+    /// * **Which operation is this?** — this function, one arm per builtin.
+    ///
+    /// **All seven mutating operations now reach a collection held in a
+    /// `RES … STATE` block in place.** Phase 1 dispatched `append` alone and
+    /// changed no behaviour; Phase 2 added `removeKey`, `add` and `set`; Phase 3
+    /// added `removeAt`, Set `remove`, `insert` and `prepend`.
+    ///
+    /// Order is irrelevant to correctness — each arm re-matches the operation name
+    /// through `resolve_inplace_state_field`, so at most one can accept a given
+    /// statement — but it is kept in phase order so the ledger reads against the
+    /// code.
+    ///
+    /// Returning `false` is always correct: it falls through to the whole-record
+    /// STATE replace below, which is the slow path, never a wrong one.
+    fn try_inplace_state_collection_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        Ok(self.try_inplace_state_collection_append(resource, value)?
+            || self.try_inplace_state_remove_key_assign(resource, value)?
+            || self.try_inplace_state_set_add_assign(resource, value)?
+            || self.try_inplace_state_set_assign(resource, value)?
+            || self.try_inplace_state_remove_at_assign(resource, value)?
+            || self.try_inplace_state_set_remove_assign(resource, value)?
+            || self.try_inplace_state_insert_assign(resource, value)?
+            || self.try_inplace_state_prepend_assign(resource, value)?)
     }
 
     /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
@@ -214,99 +274,62 @@ impl CodeBuilder<'_> {
         resource: &str,
         value: &NirValue,
     ) -> Result<bool, String> {
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
-        else {
+        // Container (plan-121-A's shared seam): the `RES … STATE` self-update
+        // `res.state.field = append(res.state.field, …)`, which `src/ast/stmt.rs`
+        // desugars to a single-field `WITH` over `res.state`. Discharges G2 the
+        // shape, G13 the target is exactly this resource's `.state`, G14 the
+        // single updated field, G16 the live `FOR EACH` over this state field
+        // (bug-430; the alias analogue of the `for_each_iterable_locals` guard),
+        // G17 last-inlined, G10 the layout, and G3/G4 the call target and arity.
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "append", 2) else {
             return Ok(false);
         };
-        let NirValue::MemberAccess {
-            target: inner,
-            member,
-        } = target.as_ref()
-        else {
-            return Ok(false);
-        };
-        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(n) if n == resource) {
-            return Ok(false);
-        }
-        if updates.len() != 1 {
-            return Ok(false);
-        }
-        let update = &updates[0];
-        // A live `FOR EACH` over exactly this state field snapshots an alias into
-        // the buffer the grow would free — take the non-freeing rebuild instead
-        // (bug-430; the alias analogue of the `for_each_iterable_locals` guard).
-        if self
-            .for_each_iterable_state_fields
-            .iter()
-            .any(|(res, field)| res == resource && field == &update.field)
-        {
-            return Ok(false);
-        }
-        let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(type_, &update.field)
-        else {
-            return Ok(false);
-        };
-        let field_type = field_type.clone();
+        let field_type = target.field_type.clone();
+        // G9 — `append` mutates a List. (Subsumed by G17; kept for the element
+        // type the lowering needs.)
         let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
             return Ok(false);
         };
-        if CollectionTypeLayout::from_type(&field_type).is_none() {
+        // G18 — the appended-to source must be exactly this same field
+        // (self-append), the invariant that makes an in-place grow sound.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
             return Ok(false);
         }
-        let NirValue::Call {
-            target: call_target,
-            args,
-            ..
-        } = &update.value
-        else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        // The appended-to source must be exactly this same field (self-append) —
-        // the invariant that makes an in-place grow sound.
-        if !self.value_is_state_field(&args[0], resource, &update.field) {
-            return Ok(false);
-        }
-        // Single element (item type == element type) vs bulk concatenation
+        // G11 — single element (item type == element type) vs bulk concatenation
         // (item type == the whole list type).
-        let bulk = match self.static_type_name(&args[1]) {
+        //
+        // `static_item_type`, not `static_type_name`: the narrow helper's
+        // `NirValue::Call` arm is a hand-written table of a few builtin names and
+        // answers `None` for EVERY user function, so
+        // `f.state.xs = append(f.state.xs, someFunc(x))` fell off this path
+        // entirely — not even reaching the bulk grow — and rebuilt the whole STATE
+        // block per element (O(n²)), while the identical record-field program was
+        // fast. This was the one gate site the widening never reached; see
+        // `planning/plan-121-gate-inventory.md` §"DEFECT FOUND". Reading a
+        // callee's declared `returns` is exactly as static as reading a local's
+        // declared type, and the `field_type` arm below still separates a whole
+        // `List OF T` result from a `T` one, so the widening cannot reclassify a
+        // concatenation as a single element.
+        let bulk = match self.static_item_type(&target.args[1]) {
             Some(t) if t == element_type => false,
             Some(t) if t == field_type => true,
             _ => return Ok(false),
         };
-        // Exclude the self-alias `append(field, field)`: the grow frees the old
-        // block out from under the RHS copy. Fall back to the value path.
-        if self.value_is_state_field(&args[1], resource, &update.field) {
+        // G12 — exclude the self-alias `append(field, field)`: the grow frees the
+        // old block out from under the RHS copy. Fall back to the value path.
+        if self.value_is_state_field(&target.args[1], resource, target.field) {
             return Ok(false);
         }
 
-        // Load the shared STATE record pointer into a slot the grow helper repoints.
-        let local = self
-            .locals
-            .get(resource)
-            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
-        let stack_offset = local.stack_offset;
-        let resource_type = local.type_.clone();
-        let state_slot = self.allocate_stack_object("inline_state_ptr", 8);
-        let block = self.allocate_register();
-        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
-        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
-        let state_ptr = self.allocate_register();
-        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
-        self.emit(abi::store_u64(&state_ptr, abi::stack_pointer(), state_slot));
+        // Load the shared STATE record pointer into a slot the grow helper
+        // repoints. Emits, so it runs after every gate (`O-order-1`) and BEFORE
+        // the operand is lowered (`O-order-4`: the operand's own lowering must not
+        // observe a stale STATE pointer).
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&args[1])?;
-        self.observe_float(&args[1], &rhs)?;
+        let rhs = self.lower_value(&target.args[1])?;
+        self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
         self.emit(abi::store_u64(
@@ -315,32 +338,12 @@ impl CodeBuilder<'_> {
             rhs_slot,
         ));
 
-        if bulk {
-            self.lower_inline_list_bulk_append_in_place(
-                state_slot,
-                field_index,
-                &field_type,
-                &element_type,
-                rhs_slot,
-            )?;
-        } else {
-            self.lower_inline_list_append_in_place(
-                state_slot,
-                field_index,
-                &field_type,
-                &element_type,
-                rhs_slot,
-            )?;
-        }
+        self.lower_inplace_inlined_list_grow(&dest, bulk, &field_type, &element_type, rhs_slot)?;
 
-        // Write the (possibly new) STATE pointer back through the resource's shared
-        // STATE slot so the owner and every alias observe the grown block (§15).
-        let nb = self.allocate_register();
-        self.emit(abi::load_u64(&nb, abi::stack_pointer(), state_slot));
-        let block2 = self.allocate_register();
-        self.emit(abi::load_u64(&block2, abi::stack_pointer(), stack_offset));
-        let record2 = self.emit_resource_record_ptr(&block2, &resource_type)?;
-        self.emit(abi::store_u64(&nb, &record2, RESOURCE_OFFSET_STATE));
+        // O4 — publish the (possibly new) STATE pointer back through the
+        // resource's shared STATE slot so the owner and every alias observe the
+        // grown block (§15).
+        self.close_inplace_dest(&dest)?;
         Ok(true)
     }
 
@@ -902,8 +905,73 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                                 by_ref,
                             )?
+                            // plan-121-B: `removeAt` and Set `remove` had no arm in
+                            // any container, so every call allocated a fresh block
+                            // and copied the whole collection. Order within this
+                            // chain is immaterial — the arms match disjoint builtin
+                            // names — so they are appended rather than interleaved.
+                            && !self.try_inplace_remove_at_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_insert_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_set_remove_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_record_field_append(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_remove_key_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_remove_at_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_set_remove_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_set_add_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_set_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_insert_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_record_field_prepend_assign(
                                 name,
                                 value,
                                 stack_offset,
@@ -1051,9 +1119,12 @@ impl CodeBuilder<'_> {
                             return Ok(());
                         }
                         // bug-430 Layer 2: a collection field that is the last
-                        // inlined field grows in place inside the existing STATE
-                        // block (amortized O(1)) instead of rebuilding the record.
-                        if self.try_inplace_state_collection_append(resource, value)? {
+                        // inlined field is mutated in place inside the existing
+                        // STATE block instead of rebuilding the record. plan-121-D
+                        // Phase 1 put the operation dispatch behind one call so
+                        // Phase 2's arms are additive; `append` (amortized O(1)
+                        // grow) is currently the only operation dispatched.
+                        if self.try_inplace_state_collection_assign(resource, value)? {
                             return Ok(());
                         }
                         // Replace the resource's `STATE` payload: store the new

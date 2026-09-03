@@ -1,0 +1,80 @@
+IMPORT io
+IMPORT collections
+
+' `insert` and `prepend` on a record field: both GROW, so both grow the record
+' block. Order is the property to watch -- a splice that shifts the wrong way, or
+' a realloc that loses the prefix, shows up as scrambled order rather than a crash.
+TYPE LBox
+  before AS Integer
+  xs AS List OF Integer
+  after AS Integer
+END TYPE
+
+TYPE SBox
+  head AS Integer
+  ss AS List OF String
+END TYPE
+
+FUNC renderL(b AS LBox) AS String
+  MUT out AS String = ""
+  FOR EACH v IN b.xs
+    out = out & toString(v) & ","
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  ' --- prepend, forcing many geometric grows -----------------------------
+  MUT pb AS LBox = LBox[1, [], 2]
+  LET psnap AS LBox = pb
+  FOR i = 0 TO 149
+    pb = WITH pb { xs := collections::prepend(pb.xs, i) }
+  NEXT
+  io::print("prepend_len=" & toString(len(pb.xs)))
+  io::print("prepend_head=" & toString(collections::get(pb.xs, 0)) & " tail=" & toString(collections::get(pb.xs, len(pb.xs) - 1)))
+  ' A prepend-built list is exactly reversed; check every position.
+  MUT bad AS Integer = 0
+  FOR i = 0 TO len(pb.xs) - 1
+    IF collections::get(pb.xs, i) <> 149 - i THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("prepend_bad=" & toString(bad))
+  io::print("prepend_fields=" & toString(pb.before) & "/" & toString(pb.after))
+  io::print("prepend_snap_len=" & toString(len(psnap.xs)))
+
+  ' --- insert at the front, middle and end -------------------------------
+  MUT ib AS LBox = LBox[7, [10, 20, 30], 8]
+  ib = WITH ib { xs := collections::insert(ib.xs, 0, 5) }
+  io::print("insert_front=" & renderL(ib))
+  ib = WITH ib { xs := collections::insert(ib.xs, len(ib.xs), 99) }
+  io::print("insert_end=" & renderL(ib))
+  ib = WITH ib { xs := collections::insert(ib.xs, 2, 15) }
+  io::print("insert_mid=" & renderL(ib))
+  io::print("insert_fields=" & toString(ib.before) & "/" & toString(ib.after))
+
+  ' Many inserts at the midpoint, forcing repeated grows.
+  MUT gb AS LBox = LBox[3, [], 4]
+  FOR i = 0 TO 119
+    gb = WITH gb { xs := collections::insert(gb.xs, len(gb.xs) / 2, i) }
+  NEXT
+  io::print("insert_grow_len=" & toString(len(gb.xs)) & " fields=" & toString(gb.before) & "/" & toString(gb.after))
+
+  ' A second updated field still rebuilds.
+  gb = WITH gb { xs := collections::insert(gb.xs, 0, 777), after := 55 }
+  io::print("insert_multi_head=" & toString(collections::get(gb.xs, 0)) & " after=" & toString(gb.after))
+
+  ' --- a variable-width element goes through the same splice -------------
+  MUT sb AS SBox = SBox[9, []]
+  FOR i = 0 TO 39
+    sb = WITH sb { ss := collections::prepend(sb.ss, "s" & toString(i)) }
+  NEXT
+  MUT sbad AS Integer = 0
+  FOR i = 0 TO len(sb.ss) - 1
+    IF collections::get(sb.ss, i) <> "s" & toString(39 - i) THEN
+      sbad = sbad + 1
+    END IF
+  NEXT
+  io::print("str_prepend_len=" & toString(len(sb.ss)) & " bad=" & toString(sbad) & " head=" & toString(sb.head))
+  RETURN 0
+END FUNC

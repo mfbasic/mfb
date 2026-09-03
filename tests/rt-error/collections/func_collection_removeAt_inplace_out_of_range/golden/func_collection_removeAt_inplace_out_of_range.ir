@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_collection_removeAt_inplace_out_of_range",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 12, "name": "xs", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.removeAt", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] } }
+    ]
+  }
+  ]
+}

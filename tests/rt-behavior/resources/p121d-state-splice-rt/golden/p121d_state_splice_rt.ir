@@ -1,0 +1,367 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "p121d_state_splice_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 17,
+    "visibility": "public",
+    "name": "ListState",
+    "fields": [
+    { "visibility": null, "line": 18, "name": "xs", "type": "List OF Integer" },
+    { "visibility": null, "line": 19, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 22,
+    "visibility": "public",
+    "name": "VarState",
+    "fields": [
+    { "visibility": null, "line": 23, "name": "ss", "type": "List OF String" },
+    { "visibility": null, "line": 24, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 27,
+    "visibility": "public",
+    "name": "SetState",
+    "fields": [
+    { "visibility": null, "line": 28, "name": "s", "type": "Set OF Integer" },
+    { "visibility": null, "line": 29, "name": "n", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "pre",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 32, "type": "fs.File STATE ListState", "default": null },
+    { "name": "v", "line": 32, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 33, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.prepend", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "v" }] } }] } },
+    { "op": "stateAssign", "line": 34, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "ins",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 37, "type": "fs.File STATE ListState", "default": null },
+    { "name": "at", "line": 37, "type": "Integer", "default": null },
+    { "name": "v", "line": 37, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 38, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.insert", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "at" }, { "kind": "local", "name": "v" }] } }] } },
+    { "op": "stateAssign", "line": 39, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "delAt",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 42, "type": "fs.File STATE ListState", "default": null },
+    { "name": "at", "line": 42, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 43, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "xs", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.removeAt", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "at" }] } }] } },
+    { "op": "stateAssign", "line": 44, "resource": "f", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "preVar",
+    "line": 47,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 47, "type": "fs.File STATE VarState", "default": null },
+    { "name": "v", "line": 47, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 48, "resource": "f", "value": { "kind": "with", "type": "VarState", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "ss", "value": { "kind": "call", "type": "List OF String", "target": "collections.prepend", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "ss" }, { "kind": "local", "name": "v" }] } }] } },
+    { "op": "stateAssign", "line": 49, "resource": "f", "value": { "kind": "with", "type": "VarState", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "drop",
+    "line": 52,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 52, "type": "fs.File STATE SetState", "default": null },
+    { "name": "v", "line": 52, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 53, "resource": "f", "value": { "kind": "with", "type": "SetState", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.remove", "args": [{ "kind": "memberAccess", "type": "Set OF Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "s" }, { "kind": "local", "name": "v" }] } }] } },
+    { "op": "stateAssign", "line": 54, "resource": "f", "value": { "kind": "with", "type": "SetState", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "add",
+    "line": 57,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 57, "type": "fs.File STATE SetState", "default": null },
+    { "name": "v", "line": 57, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 58, "resource": "f", "value": { "kind": "with", "type": "SetState", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.add", "args": [{ "kind": "memberAccess", "type": "Set OF Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "s" }, { "kind": "local", "name": "v" }] } }] } },
+    { "op": "stateAssign", "line": 59, "resource": "f", "value": { "kind": "with", "type": "SetState", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 62,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 63, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/p121d-state-splice-rt/data/input.txt" } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "a", "type": "fs.File STATE ListState", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 67, "resource": "a", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "a" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "bind", "line": 68, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 69,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "150" } },
+      "body": [
+      { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "pre", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 71, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 73, "mutable": true, "name": "prebad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 74, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 75,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "150" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 77,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "a" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "149" }, "right": { "kind": "local", "name": "i" } } },
+        "then": [
+        { "op": "assign", "line": 78, "name": "prebad", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "prebad" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 80, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "prepend len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "a" }, "member": "state" }, "member": "xs" }] }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "a" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "prebad" }] } }] } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "b", "type": "fs.File STATE ListState", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 86, "resource": "b", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "b" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "eval", "line": 87, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "b" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "b" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "b" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
+    { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "b" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "40" }] } },
+    { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "b" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "line": 92, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 93,
+      "name": "x",
+      "type": "Integer",
+      "iterable": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "b" }, "member": "state" }, "member": "xs" },
+      "body": [
+      { "op": "assign", "line": 94, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "insert=" }, "right": { "kind": "local", "name": "out" } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "b" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 99, "mutable": false, "name": "c", "type": "fs.File STATE ListState", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 100, "resource": "c", "value": { "kind": "with", "type": "ListState", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "c" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "assign", "line": 102, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 103,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "ins", "args": [{ "kind": "local", "name": "c" }, { "kind": "local", "name": "i" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 105, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 107, "mutable": true, "name": "midbad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 108, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 109,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 110,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "c" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "local", "name": "i" } },
+        "then": [
+        { "op": "assign", "line": 111, "name": "midbad", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "midbad" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 113, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "assign", "line": 117, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 118,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "40" } },
+      "body": [
+      { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "delAt", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "assign", "line": 120, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 122, "mutable": true, "name": "delbad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 123, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 124,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "60" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 125,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "c" }, "member": "state" }, "member": "xs" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "40" } } },
+        "then": [
+        { "op": "assign", "line": 126, "name": "delbad", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "delbad" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 128, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "insert-order bad=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "midbad" }] } }, "right": { "kind": "const", "type": "String", "value": " removeAt len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "c" }, "member": "state" }, "member": "xs" }] }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "delbad" }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ListState", "target": { "kind": "local", "name": "c" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 133, "mutable": false, "name": "d", "type": "fs.File STATE VarState", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 134, "resource": "d", "value": { "kind": "with", "type": "VarState", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "d" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "assign", "line": 135, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 136,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "80" } },
+      "body": [
+      { "op": "eval", "line": 137, "value": { "kind": "call", "type": "Nothing", "target": "preVar", "args": [{ "kind": "local", "name": "d" }, { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "s" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+      { "op": "assign", "line": 138, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 140, "mutable": true, "name": "vbad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 141, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 142,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "80" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 143,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "d" }, "member": "state" }, "member": "ss" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "call", "type": "String", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "s" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "80" }, "right": { "kind": "local", "name": "i" } }] } },
+        "then": [
+        { "op": "assign", "line": 144, "name": "vbad", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "vbad" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 146, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 148, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "prepend var len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "d" }, "member": "state" }, "member": "ss" }] }] } }, "right": { "kind": "const", "type": "String", "value": " n=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "VarState", "target": { "kind": "local", "name": "d" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "vbad" }] } }] } },
+    { "op": "bind", "line": 151, "mutable": false, "name": "e", "type": "fs.File STATE SetState", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 152, "resource": "e", "value": { "kind": "with", "type": "SetState", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "e" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "assign", "line": 153, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 154,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "eval", "line": 155, "value": { "kind": "call", "type": "Nothing", "target": "add", "args": [{ "kind": "local", "name": "e" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 156, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "assign", "line": 158, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 159,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 160,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "eval", "line": 161, "value": { "kind": "call", "type": "Nothing", "target": "drop", "args": [{ "kind": "local", "name": "e" }, { "kind": "local", "name": "i" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 163, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 165, "mutable": true, "name": "gone", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 166, "mutable": true, "name": "kept", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 167, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 168,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 169,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "memberAccess", "type": "Set OF Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "e" }, "member": "state" }, "member": "s" }, { "kind": "local", "name": "i" }] },
+        "then": [
+        { "op": "assign", "line": 170, "name": "kept", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "kept" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        { "op": "assign", "line": 172, "name": "gone", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "gone" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ]
+      },
+      { "op": "assign", "line": 174, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 177, "value": { "kind": "call", "type": "Nothing", "target": "drop", "args": [{ "kind": "local", "name": "e" }, { "kind": "const", "type": "Integer", "value": "9999" }] } },
+    { "op": "eval", "line": 178, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "set remove len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "Set OF Integer", "target": { "kind": "memberAccess", "type": "SetState", "target": { "kind": "local", "name": "e" }, "member": "state" }, "member": "s" }] }] } }, "right": { "kind": "const", "type": "String", "value": " gone=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "gone" }] } }, "right": { "kind": "const", "type": "String", "value": " kept=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "kept" }] } }] } },
+    { "op": "eval", "line": 180, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "eval", "line": 181, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "eval", "line": 182, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "c" }] } },
+    { "op": "eval", "line": 183, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "d" }] } },
+    { "op": "eval", "line": 184, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "return", "line": 185, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

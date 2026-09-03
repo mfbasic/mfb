@@ -1,0 +1,28 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121g-reduce-accumulator-rt
+Wrote AST to tests/rt-behavior/collections/p121g-reduce-accumulator-rt/p121g_reduce_accumulator_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121g-reduce-accumulator-rt/p121g_reduce_accumulator_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121g-reduce-accumulator-rt
+Wrote executable to tests/rt-behavior/collections/p121g-reduce-accumulator-rt/build/p121g_reduce_accumulator_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121g-reduce-accumulator-rt/build/p121g_reduce_accumulator_rt.out
+reduce      =012345
+reduceRight =543210
+handloop    =012345
+left        =543210
+leftRight   =012345
+ignoreAcc   =5
+constant    =K
+measured    =0021426384105
+twice       =001122334455
+lambda      =012345
+empty       =[seed]
+single      =solo
+singleRight =solo
+seeded      =SEED:012345
+seededRight =SEED:543210
+len         =90
+head        =01234567
+tail        =4849
+copyEq      =TRUE
+[exit 0]

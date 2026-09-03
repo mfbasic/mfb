@@ -95,9 +95,10 @@ For each row, `R_C = mfb-O1.min / c-O0.min`:
 Denominators are clamped at 0.001 ms, the log's print resolution, so a peer
 that rounded to `0.000` reads as "at most 1 us" rather than "infinitely fast".
 
-Baseline distribution over 480 rows: **S 117, A 104, B 110, C 56, D 37, F 56**.
-So 69% of rows (331) are within 6x of C `-O0`, and 31% (149) are at C-grade
-or worse.
+Baseline distribution over 480 rows: **S 126, A 110, B 102, C 72, D 45, F 25**.
+So 70% of rows (338) are within 6x of C `-O0`, and 30% (142) are at C-grade
+or worse. (plan-121 moved this from S 117, A 104, B 110, C 56, D 37, **F 56** —
+the F column more than halved, and the RED count fell from 62 to 44.)
 
 ## 3. Confidence (how much a row's grade can be trusted)
 
@@ -156,7 +157,7 @@ Then, when `mfb.min > python.min`:
 - **`RED`** on an `interpreted` row — *a native compiler lost to a bytecode
   interpreter.* This is the single most diagnostic flag in the system: it is
   almost never a codegen-quality gap, it is a complexity or allocation defect.
-  **62 rows** are RED (29 of them `direct`).
+  **44 rows** are RED (23 of them `direct`), down from 62/29 before plan-121.
 - **`LIB`** on a `native-lib` row — lost to a C library called from Python.
   Expected on `crypto`/`regex`/`sort` unless mfb claims its own builtin for it;
   informational, not damning. **144 rows** (66 `direct`).
@@ -175,7 +176,7 @@ scalar, topping out at `set (State-Dynamic) add` at **702x** (32.3 ms vs
 
 ## 6. Ordering the work
 
-Individual rows are the wrong unit — 149 C-or-worse rows are not 149 bugs. Rows
+Individual rows are the wrong unit — 142 C-or-worse rows are not 142 bugs. Rows
 are clustered by **operation name across sections**, because one operation
 failing in six containers is one runtime primitive, hence one fix. Each cluster
 scores:
@@ -216,3 +217,41 @@ Rules for reading a result:
    score justifies the schedule.
 4. **`RED` before `F`.** A grade-F row with no RED flag may just be a missing
    optimisation; a RED row is a defect.
+
+## Early-exit predicates: probe-count before you believe the ratio
+
+A large ratio on a row whose operation **early-exits** is not evidence of slow
+code until the *work* has been counted. Such a row can satisfy the suite's
+work-equivalence rule — same inputs, same answer, matching checksums — while the
+languages examine completely different numbers of elements, because each stops at
+the first counterexample and each meets it at a different point in its own
+iteration order.
+
+This is not hypothetical. Before plan-121-E, `isSuperset` and `isDisjoint` were
+FALSE on every call. Measured probes per call:
+
+| predicate | C | mfb |
+|---|---|---|
+| `isSubset` | 1 | 1 |
+| `isSuperset` | 2 | 501 |
+| `isDisjoint` | 3 | 501 |
+
+C walks its hash **slot** array; mfb walks the set in **entry** order. The rows
+graded F/RED at 265–412×, of which essentially all was probe count: at 19.4
+ns/probe against C's 13.3, mfb was **1.5–2.4× per probe**, not 265×.
+
+`isSubset` is the tell. It does one probe in both languages and grades A/S — same
+builtin, same `contains`, same set type. When one predicate in a family is fine
+and its siblings are catastrophic, suspect the work, not the code.
+
+**Rules:**
+
+1. **A checksum of `0` on a predicate row means the predicate never held**, so
+   every call early-exited. Treat any large ratio on such a row as unproven.
+2. **Count the probes before filing a plan against the implementation.** A
+   ~20-line instrumented copy of each peer answers it in minutes and is the
+   difference between fixing a benchmark and optimizing something that is not
+   slow.
+3. **Prefer a TRUE predicate.** It forces a full scan in every language and
+   removes the luck permanently; matching iteration order across three different
+   set implementations is not achievable.

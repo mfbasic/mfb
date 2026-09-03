@@ -5,6 +5,21 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
+
+/// Where [`CodeBuilder::lower_list_splice_in_place`] puts the new element.
+///
+/// `Front` is not "a slot holding zero". It is a separate variant precisely so
+/// `prepend` keeps emitting the instructions it emitted before `insert` shared
+/// its implementation: materializing a constant 0 into a register would add
+/// instructions and churn a committed golden for no gain.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SpliceAt {
+    /// Index 0 — `collections::prepend`.
+    Front,
+    /// A runtime index in this frame slot — `collections::insert`.
+    At(usize),
+}
+
 impl CodeBuilder<'_> {
     /// Insert collection `B` (insert_slot) into list `A` (base_slot) at
     /// `index_slot` using the offset-stable scheme (plan-01 §4.1): copy `A`'s and
@@ -244,67 +259,16 @@ impl CodeBuilder<'_> {
                 "list_insert_ord_tail",
             );
 
-            // --- Lookup table: the identity mapping over all n + m entries. ---
-            // Written rather than spliced. Still O(n) entry writes, exactly as the
-            // three-way splice below is, and every entry is now derivable from its
-            // index — which is what lets a linear reader be correct.
-            let ident_loop = self.label("list_insert_ident_loop");
-            let ident_done = self.label("list_insert_ident_done");
-            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
-            self.emit(abi::load_u64(&scratch13, &nb, COLLECTION_OFFSET_COUNT)); // n + m
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
-            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
-            self.emit(abi::label(&ident_loop));
-            self.emit(abi::compare_registers(&scratch14, &scratch13));
-            self.emit(abi::branch_ge(&ident_done));
-            self.emit(abi::move_immediate(
-                &scratch15,
-                "Integer",
-                &COLLECTION_ENTRY_FLAG_USED.to_string(),
-            ));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_FLAGS,
-                ));
-            }
-            // A list entry carries no key.
-            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-                ));
-            }
-            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16)); // k * p
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch16,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-                ));
-            }
-            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::branch(&ident_loop));
-            self.emit(abi::label(&ident_done));
+            // No lookup table to write: this branch is `list_element_is_fixed_width`,
+            // and `list_entry_stride` returns 0 for exactly that predicate
+            // (`builder_collection_layout.rs`), so the result list is entry-FREE.
+            // Element `k` is found at `k * payload` by arithmetic, which is what lets a
+            // linear reader be correct — not an entry record.
+            //
+            // The identity-mapping loop that used to stand here was dead for the same
+            // reason its in-place twin in `lower_list_splice_in_place` was: every store
+            // sat behind `entry_stride != 0`, unreachable inside this branch, so it ran
+            // `n + m` iterations per call and wrote nothing into the block.
         } else {
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
             self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data base
@@ -2415,6 +2379,81 @@ impl CodeBuilder<'_> {
         list_type: &ParameterType,
         element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
+        self.lower_list_splice_in_place(
+            buffer_slot,
+            SpliceAt::Front,
+            item_slot,
+            list_type,
+            element_type,
+            None,
+        )
+    }
+
+    /// Insert `item_slot`'s element at the runtime index in `index_slot`,
+    /// **mutating the live buffer in place** (plan-121-B).
+    ///
+    /// The out-of-place `collections::insert` allocated a fresh block and copied
+    /// the whole list on every call, which is why `list (Fixed) insert` measured
+    /// 61x c -O0 and `list (Dynamic) insert` 75x. The shift itself stays O(N) —
+    /// see [`Self::lower_list_splice_in_place`].
+    ///
+    /// The caller guarantees the buffer is uniquely owned and that **no
+    /// `FOR EACH` is iterating it**: the shift moves entries the loop already
+    /// snapshotted, so this is not a case `append`'s permissive gate covers.
+    pub(crate) fn lower_list_insert_in_place(
+        &mut self,
+        buffer_slot: usize,
+        index_slot: usize,
+        item_slot: usize,
+        list_type: &ParameterType,
+        element_type: &ParameterType,
+    ) -> Result<ValueResult, String> {
+        self.lower_list_splice_in_place(
+            buffer_slot,
+            SpliceAt::At(index_slot),
+            item_slot,
+            list_type,
+            element_type,
+            None,
+        )
+    }
+
+    /// Splice one element into the list whose buffer pointer lives in
+    /// `buffer_slot`, **mutating that buffer in place**: make room (reusing the
+    /// spare slot and data bytes, growing geometrically only when full), shift
+    /// what follows the insertion point up by one, and write the new entry.
+    ///
+    /// [`SpliceAt::Front`] is `prepend`; [`SpliceAt::At`] is
+    /// `collections::insert(list, i, v)`, whose index is read from a frame slot at
+    /// runtime. The two share everything except where the shift starts and where
+    /// the new element lands, which is why `insert` is this function rather than a
+    /// second copy of the room check and the geometric grow.
+    ///
+    /// **`Front` is byte-identical to what `prepend` emitted before this became a
+    /// splice.** Every index-dependent site below special-cases it and emits the
+    /// original instructions; a constant zero is never materialized into a
+    /// register, because that would be an extra instruction and a golden churn
+    /// buying nothing.
+    ///
+    /// The shift runs **upward**, so the destination leads the source and the
+    /// overlap needs [`Self::emit_block_copy_backward`] — the opposite of
+    /// `removeAt`, which shifts down and can copy forward. Still O(N) per call:
+    /// that is the operation's defined cost and C pays it too (`memmove`). What
+    /// this deletes is the per-call allocate + copy + free around it, which
+    /// spike 3 measured at 36x the data movement.
+    pub(crate) fn lower_list_splice_in_place(
+        &mut self,
+        buffer_slot: usize,
+        at: SpliceAt,
+        item_slot: usize,
+        list_type: &ParameterType,
+        element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
+    ) -> Result<ValueResult, String> {
+        let prefix = match at {
+            SpliceAt::Front => "prepend",
+            SpliceAt::At(_) => "insert",
+        };
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
         let entry_stride = list_entry_stride(element_type);
@@ -2455,12 +2494,47 @@ impl CodeBuilder<'_> {
         let new_dcap_slot = self.allocate_stack_object("prepend_inplace_newdcap", 8);
         let new_buf_slot = self.allocate_stack_object("prepend_inplace_newbuf", 8);
 
-        let realloc = self.label("prepend_inplace_realloc");
-        let write = self.label("prepend_inplace_write");
-        let alloc_ok = self.label("prepend_inplace_alloc_ok");
-        let dcap_keep = self.label("prepend_inplace_dcap_keep");
-        let shift_loop = self.label("prepend_inplace_shift_loop");
-        let shift_done = self.label("prepend_inplace_shift_done");
+        let realloc = self.label(&format!("{prefix}_inplace_realloc"));
+        let write = self.label(&format!("{prefix}_inplace_write"));
+        let alloc_ok = self.label(&format!("{prefix}_inplace_alloc_ok"));
+        let dcap_keep = self.label(&format!("{prefix}_inplace_dcap_keep"));
+        let shift_loop = self.label(&format!("{prefix}_inplace_shift_loop"));
+        let shift_done = self.label(&format!("{prefix}_inplace_shift_done"));
+
+        // Bounds, for `insert` only: `0 <= index <= count`, matching the
+        // out-of-place `lower_list_insert`'s gate exactly (index == count is an
+        // append and is legal). This runs BEFORE anything is written, so a raise
+        // leaves the list exactly as it was — the same contract the copying path
+        // has, and the reason it cannot be folded into the shift below.
+        //
+        // `Front` emits none of this: index 0 is always in range, and adding a
+        // check would be dead code AND a golden churn for `prepend`.
+        let splice_done = if let SpliceAt::At(index_slot) = at {
+            let invalid = self.label(&format!("{prefix}_inplace_invalid"));
+            let valid_start = self.label(&format!("{prefix}_inplace_valid_start"));
+            let done = self.label(&format!("{prefix}_inplace_done"));
+            let idx = self.temporary_vreg();
+            let cnt = self.temporary_vreg();
+            let base = self.temporary_vreg();
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&idx, abi::stack_pointer(), index_slot));
+            self.emit(abi::load_u64(&cnt, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::compare_immediate(&idx, "0"));
+            self.emit(abi::branch_ge(&valid_start));
+            self.emit(abi::branch(&invalid));
+            self.emit(abi::label(&valid_start));
+            self.emit(abi::compare_registers(&idx, &cnt));
+            self.emit(abi::branch_gt(&invalid));
+            let ok = self.label(&format!("{prefix}_inplace_in_range"));
+            self.emit(abi::branch(&ok));
+            self.emit(abi::label(&invalid));
+            self.raise_error("collections.insert", "ErrIndexOutOfRange")?;
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&ok));
+            Some(done)
+        } else {
+            None
+        };
 
         // Room check: count < capacity AND dataLength + need <= dataCapacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
@@ -2508,7 +2582,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             COLLECTION_GROW_LOOKUP_INIT,
             COLLECTION_GROW_LOOKUP_TAPER,
-            "prepend_grow_cap",
+            &format!("{prefix}_grow_cap"),
         );
         self.emit(abi::store_u64(
             &scratch14,
@@ -2527,7 +2601,7 @@ impl CodeBuilder<'_> {
             &scratch15,
             COLLECTION_GROW_DATA_INIT,
             COLLECTION_GROW_DATA_TAPER,
-            "prepend_grow_dcap",
+            &format!("{prefix}_grow_dcap"),
         );
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(
@@ -2559,7 +2633,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_cap_slot,
         ));
-        let size_overflow = self.label("list_prepend_size_overflow");
+        let size_overflow = self.label(&format!("list_{prefix}_size_overflow"));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -2585,6 +2659,11 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
+        // plan-121-C: an inlined field grows the RECORD, so widen the request by
+        // the record prefix before asking the allocator for it.
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -2597,6 +2676,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        // plan-121-C: for an inlined field the allocation IS the record; split it
+        // so every line below writes through the sub-block unchanged.
+        let splice_new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2635,7 +2717,7 @@ impl CodeBuilder<'_> {
             &scratch20,
             &scratch14,
             &scratch22,
-            "prepend_grow_data",
+            &format!("{prefix}_grow_data"),
         );
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
@@ -2658,12 +2740,19 @@ impl CodeBuilder<'_> {
             &scratch20,
             &scratch21,
             &scratch22,
-            "prepend_grow_entries",
+            &format!("{prefix}_grow_entries"),
         );
         // Free the abandoned pre-grow buffer (still in `buffer_slot`) before
         // installing the grown one — otherwise a prepend-in-a-loop leaks the old
         // buffer on every geometric grow (bug-47, mirrors `append` at :957-991).
-        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
+        // plan-121-C: an inlined sub-block is not its own allocation, so what is
+        // released is the whole old RECORD block instead.
+        match (inline, splice_new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, buffer_slot, list_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(buffer_slot, list_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
@@ -2687,8 +2776,6 @@ impl CodeBuilder<'_> {
         // caller-saved registers).
         if let Some(payload) = list_element_is_fixed_width(element_type) {
             let payload_text = payload.to_string();
-            let ident_loop = self.label("prepend_inplace_ident_loop");
-            let ident_done = self.label("prepend_inplace_ident_done");
 
             // Shift the whole live data region up by one payload, backwards —
             // source and destination overlap for any count above one.
@@ -2699,16 +2786,36 @@ impl CodeBuilder<'_> {
             self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16)); // n * p
             self.emit(abi::add_registers(&scratch12, &scratch17, &scratch11)); // src end
             self.emit(abi::add_immediate(&scratch13, &scratch12, payload)); // dst end
+                                                                            // `Front` moves the whole live region, so `n * p` is already the
+                                                                            // length. `At(i)` moves only the tail `[i, count)`, i.e.
+                                                                            // `(count - i) * p` -- the head stays put, which is the entire
+                                                                            // difference between an insert and a prepend on this path.
+            if let SpliceAt::At(index_slot) = at {
+                let idx = self.temporary_vreg();
+                self.emit(abi::load_u64(&idx, abi::stack_pointer(), index_slot));
+                self.emit(abi::subtract_registers(&scratch11, &scratch9, &idx));
+                self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch16));
+            }
             self.emit_block_copy_backward(
                 &scratch13,
                 &scratch12,
                 &scratch11,
                 &scratch22,
-                "prepend_inplace_shift_data",
+                &format!("{prefix}_inplace_shift_data"),
             );
 
-            // The new payload now occupies offset 0.
-            self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
+            // The new payload occupies offset 0 for a prepend, `index * p` for
+            // an insert -- the slot the shift above just vacated.
+            match at {
+                SpliceAt::Front => {
+                    self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
+                }
+                SpliceAt::At(index_slot) => {
+                    self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), index_slot));
+                    self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
+                    self.emit(abi::multiply_registers(&scratch13, &scratch13, &scratch16));
+                }
+            }
             self.emit(abi::store_u64(
                 &scratch13,
                 abi::stack_pointer(),
@@ -2744,73 +2851,47 @@ impl CodeBuilder<'_> {
                 COLLECTION_OFFSET_DATA_LENGTH,
             ));
 
-            // Entries 0..count as the identity mapping. This replaces the
-            // right-shift loop entirely: every entry is now derivable from its
-            // index, so there is nothing to preserve from the old table.
-            self.emit(abi::add_immediate(
-                &scratch17,
-                &scratch8,
-                COLLECTION_HEADER_SIZE,
-            ));
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
-            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
-            self.emit(abi::label(&ident_loop));
-            self.emit(abi::compare_registers(&scratch14, &scratch9));
-            self.emit(abi::branch_ge(&ident_done));
-            self.emit(abi::move_immediate(
-                &scratch15,
-                "Integer",
-                &COLLECTION_ENTRY_FLAG_USED.to_string(),
-            ));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_FLAGS,
-                ));
-            }
-            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-                ));
-            }
-            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch16,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-                ));
-            }
-            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::branch(&ident_loop));
-            self.emit(abi::label(&ident_done));
+            // No lookup table to write: this branch is `list_element_is_fixed_width`,
+            // and `list_entry_stride` returns 0 for exactly that predicate
+            // (`builder_collection_layout.rs`), so a fixed-width list is entry-FREE —
+            // element `i` lives at `i * payload` and is found by arithmetic, not by a
+            // 40-byte entry record.
+            //
+            // A loop writing "the identity mapping over entries 0..count" used to stand
+            // here (and still does in the `else` arm, where entries exist). Every store
+            // in it was guarded by `entry_stride != 0`, which is unreachable inside this
+            // branch, so it ran `count` iterations per call and wrote nothing into the
+            // block: 20 instructions per element whose only effects were a spill slot
+            // overwritten three times and never read, and an `add_imm x8, x8, 0`.
+            // That made a fixed-width `insert`/`prepend` O(N) in dead work on top of the
+            // O(N) shift, which is why `list (Fixed) removeAt` (no such loop) ran at
+            // memmove rate while `insert` sat ~10x below it.
         } else {
             // Shift lookup entries [0..count) → [1..count+1), backward to avoid overlap.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
             self.emit(abi::subtract_immediate(&scratch10, &scratch9, 1)); // i = count - 1
+                                                                          // `Front` walks down to 0; `At(k)` stops at k, leaving entries
+                                                                          // `[0, k)` where they are.
+            let stop = match at {
+                SpliceAt::Front => None,
+                SpliceAt::At(index_slot) => {
+                    let s = self.temporary_vreg();
+                    self.emit(abi::load_u64(&s, abi::stack_pointer(), index_slot));
+                    Some(s)
+                }
+            };
             self.emit(abi::label(&shift_loop));
-            self.emit(abi::compare_immediate(&scratch10, "0"));
-            self.emit(abi::branch_lt(&shift_done));
+            match &stop {
+                None => {
+                    self.emit(abi::compare_immediate(&scratch10, "0"));
+                    self.emit(abi::branch_lt(&shift_done));
+                }
+                Some(s) => {
+                    self.emit(abi::compare_registers(&scratch10, s));
+                    self.emit(abi::branch_lt(&shift_done));
+                }
+            }
             // src = buffer + HEADER + i*ENTRY ; dst = src + ENTRY (x8 = buffer, live).
             self.emit(abi::move_immediate(
                 &scratch16,
@@ -2845,11 +2926,24 @@ impl CodeBuilder<'_> {
                 let align_scratch = self.temporary_vreg();
                 self.emit_align_offset_register(&scratch11, value_alignment, &align_scratch);
             }
+            // entry[0] for a prepend; entry[index] for an insert.
             self.emit(abi::add_immediate(
                 &scratch12,
                 &scratch8,
                 COLLECTION_HEADER_SIZE,
-            )); // entry[0]
+            ));
+            if let SpliceAt::At(index_slot) = at {
+                let idx = self.temporary_vreg();
+                let stride = self.temporary_vreg();
+                self.emit(abi::load_u64(&idx, abi::stack_pointer(), index_slot));
+                self.emit(abi::move_immediate(
+                    &stride,
+                    "Integer",
+                    &entry_stride.to_string(),
+                ));
+                self.emit(abi::multiply_registers(&idx, &idx, &stride));
+                self.emit(abi::add_registers(&scratch12, &scratch12, &idx));
+            }
             self.emit(abi::move_immediate(
                 &scratch13,
                 "Byte",
@@ -2934,13 +3028,17 @@ impl CodeBuilder<'_> {
             ));
         }
 
+        if let Some(done) = splice_done {
+            self.emit(abi::label(&done));
+        }
+
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
             type_: list_type.clone(),
             location: Operand::from(result.render()),
-            text: format!("prepend in place {list_type} over {element_type}"),
+            text: format!("{prefix} in place {list_type} over {element_type}"),
         })
     }
 
@@ -2955,6 +3053,149 @@ impl CodeBuilder<'_> {
     /// the same `index out of range` error as the rebuild path. The caller
     /// guarantees the buffer is uniquely owned and not an active `FOR EACH`
     /// iterable. Returns the (possibly new) buffer pointer.
+    /// plan-121-F: grow ONLY a list block's **data capacity**, geometrically,
+    /// leaving `capacity` and the entry table exactly as they are.
+    ///
+    /// This exists because a length-changing `set` that outgrows `dataCapacity`
+    /// had no geometric path of its own. It fell back to the `removeAt` + `insert`
+    /// rebuild, which produces a **tight** buffer — so the very next widening
+    /// overflowed again, and every one after that. Measured: the widening cost was
+    /// unchanged by an in-block shift alone (72 → 828 → 11619 → 122465 ns/set over
+    /// N = 50…3200), because the shift never got to run. Growing with headroom is
+    /// what turns "reallocate every call" into "reallocate O(log N) times".
+    ///
+    /// Simpler than [`Self::lower_list_append_in_place`]'s grow, and deliberately
+    /// so: because `capacity` does not change, the header and the whole entry
+    /// table and the live data are one **contiguous** prefix
+    /// (`HEADER + capacity*ENTRY + dataLength`), so this is a single verbatim
+    /// block copy rather than append's two. The data region's base is unchanged
+    /// for the same reason (`.ai/collections.md`: "data base uses capacity, never
+    /// count"), so no entry offset moves and there is nothing to fix up.
+    ///
+    /// `needed_slot` holds the byte count the data region must hold *after* the
+    /// caller's pending edit; the new capacity is
+    /// `max(geometric_step(dataCapacity), needed)`. Leaves the grown block's
+    /// pointer in `buffer_slot` and frees the old one.
+    fn emit_grow_list_data_capacity(
+        &mut self,
+        buffer_slot: usize,
+        needed_slot: usize,
+        list_type: &ParameterType,
+        entry_stride: usize,
+    ) -> Result<(), String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        let base = self.temporary_vreg();
+        let nb = self.temporary_vreg();
+        let cap = self.temporary_vreg();
+        let dcap = self.temporary_vreg();
+        let dlen = self.temporary_vreg();
+        let cnt = self.temporary_vreg();
+        let need = self.temporary_vreg();
+        let step = self.temporary_vreg();
+        let tmp = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let cpy = self.temporary_vreg();
+
+        let new_buf_slot = self.allocate_stack_object("set_grow_newbuf", 8);
+        let new_dcap_slot = self.allocate_stack_object("set_grow_newdcap", 8);
+
+        let keep = self.label("set_grow_keep");
+        let alloc_ok = self.label("set_grow_alloc_ok");
+        let size_overflow = self.label("set_grow_size_overflow");
+
+        // newDataCapacity = max(step(dataCapacity), needed).
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&dcap, &base, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit_geometric_step(
+            &dcap,
+            &step,
+            &tmp,
+            COLLECTION_GROW_DATA_INIT,
+            COLLECTION_GROW_DATA_TAPER,
+            "set_grow_dcap",
+        );
+        self.emit(abi::load_u64(&need, abi::stack_pointer(), needed_slot));
+        self.emit(abi::compare_registers(&step, &need));
+        self.emit(abi::branch_hi(&keep));
+        self.emit(abi::branch_eq(&keep));
+        self.emit(abi::move_register(&step, &need)); // step < needed → use needed
+        self.emit(abi::label(&keep));
+        self.emit(abi::store_u64(&step, abi::stack_pointer(), new_dcap_slot));
+
+        // allocSize = HEADER + capacity*ENTRY + newDataCapacity, checked
+        // (bug-147.7: capacity and dataCapacity are runtime-derived).
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::move_immediate(
+            &tmp,
+            "Integer",
+            &entry_stride.to_string(),
+        ));
+        self.emit_checked_size_multiply(&len, &cap, &tmp, &size_overflow);
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &len,
+            COLLECTION_HEADER_SIZE,
+            &size_overflow,
+        );
+        self.emit(abi::load_u64(&step, abi::stack_pointer(), new_dcap_slot));
+        self.emit_checked_size_add(
+            abi::return_register(),
+            abi::return_register(),
+            &step,
+            &size_overflow,
+        );
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&size_overflow));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(
+            abi::mfb_return(1),
+            abi::stack_pointer(),
+            new_buf_slot,
+        ));
+
+        // ONE verbatim copy of HEADER + capacity*ENTRY + dataLength. Sound only
+        // because `capacity` is unchanged, which keeps the data region at the same
+        // block-relative base in both blocks.
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(&dlen, &base, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::move_immediate(
+            &tmp,
+            "Integer",
+            &entry_stride.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&len, &cap, &tmp));
+        self.emit(abi::add_immediate(&len, &len, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&len, &len, &dlen));
+        self.emit(abi::move_register(&src, &base));
+        self.emit(abi::move_register(&dst, &nb));
+        self.emit_block_copy_advance(&dst, &src, &len, &cpy, "set_grow_copy");
+
+        // Rewrite the header: same count / capacity / dataLength, new dataCapacity.
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&cnt, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&cap, &base, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(&dlen, &base, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(&step, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit_write_collection_header_full(&layout, &nb, &cnt, &cap, &dlen, &step);
+
+        // Free the old block, then publish the new pointer.
+        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
+        Ok(())
+    }
+
     pub(crate) fn lower_list_set_in_place(
         &mut self,
         buffer_slot: usize,
@@ -3003,6 +3244,11 @@ impl CodeBuilder<'_> {
         let invalid = self.label("set_inplace_invalid");
         let rebuild = self.label("set_inplace_rebuild");
         let done = self.label("set_inplace_done");
+        // plan-121-F: the length-changing in-block shift and its two directions.
+        let shift_inplace = self.label("set_inplace_shift");
+        let shift_grow = self.label("set_inplace_shift_grow");
+        let shift_write = self.label("set_inplace_shift_write");
+        let shift_have_room = self.label("set_inplace_shift_room");
 
         // Bounds check: 0 <= index < count.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
@@ -3070,12 +3316,19 @@ impl CodeBuilder<'_> {
             )); // oldLen
         }
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot)); // need
-                                                                               // Only a same-size replacement overwrites in place (offsets unchanged, no
-                                                                               // gap). Any size change — grow OR shrink — rebuilds via removeAt + insert,
-                                                                               // which produces a tight buffer; a shrink that overwrote in place would
-                                                                               // leave dead space between payloads (plan-25-B).
+                                                                               // A same-size replacement overwrites where it lies: offsets unchanged, no
+                                                                               // gap, nothing to fix up. That is the fast path below.
+                                                                               //
+                                                                               // plan-121-F: a DIFFERENT size no longer goes straight to the rebuild.
+                                                                               // The rebuild allocates three blocks per call (the singleton, the
+                                                                               // `removeAt` intermediate, and the `insert` result) and copies the whole
+                                                                               // list twice, which is why a length-changing write measured **O(N^1.6)**
+                                                                               // rather than the O(N) a data shift costs — the excess is arena churn,
+                                                                               // not copying. `shift_inplace` below instead widens or narrows the span
+                                                                               // where it lies, inside the block's existing `dataCapacity` headroom, and
+                                                                               // only falls through to `rebuild` on a genuine capacity overflow.
         self.emit(abi::compare_registers(&scratch14, &scratch9));
-        self.emit(abi::branch_ne(&rebuild));
+        self.emit(abi::branch_ne(&shift_inplace));
 
         // --- Overwrite: same-size payload at valueOffset (valueLength unchanged). ---
         self.emit_copy_payload_to_collection(
@@ -3108,6 +3361,186 @@ impl CodeBuilder<'_> {
             ));
         }
         self.emit(abi::branch(&done));
+
+        // --- plan-121-F: length change that fits `dataCapacity` — shift in block. ---
+        //
+        // Widen (or narrow) the span at `valueOffset` from `oldLen` to `need`
+        // WITHOUT allocating, then fix up every entry whose payload sat after it.
+        //
+        // The entry-offset fixup is the whole risk here. Every payload after the
+        // written one moves by `delta`, so every one of their entries must move
+        // with it; getting that half-right yields a list that reads correctly up
+        // to `index` and returns garbage after — which is exactly why
+        // `p121f-string-set-readback-rt` reads back EVERY element and reports the
+        // first bad index rather than folding a checksum.
+        //
+        // Entry-free (kind-2) lists never reach here: their payload is always
+        // replaced by one of its own size, so the same-size branch above always
+        // takes them (the `kind2_payload_size` arm sets `oldLen` to the fixed
+        // payload size, which equals `need`).
+        self.emit(abi::label(&shift_inplace));
+        if entry_stride != 0 {
+            let data = self.temporary_vreg();
+            let voff = self.temporary_vreg();
+            let oldlen = self.temporary_vreg();
+            let need = self.temporary_vreg();
+            let dlen = self.temporary_vreg();
+            let dcap = self.temporary_vreg();
+            let taillen = self.temporary_vreg();
+            let delta = self.temporary_vreg();
+            let src = self.temporary_vreg();
+            let dst = self.temporary_vreg();
+            let cnt = self.temporary_vreg();
+            let cpy = self.temporary_vreg();
+            let newdlen_slot = self.allocate_stack_object("set_inplace_newdlen", 8);
+            let delta_slot = self.allocate_stack_object("set_inplace_delta", 8);
+            let oldlen_slot = self.allocate_stack_object("set_inplace_oldlen", 8);
+
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), oldlen_slot));
+
+            // newDataLength = dataLength - oldLen + need. If that exceeds
+            // dataCapacity the block genuinely cannot hold it, so take the
+            // existing geometric grow path unchanged.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(
+                &dlen,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::load_u64(
+                &dcap,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_CAPACITY,
+            ));
+            self.emit(abi::load_u64(&oldlen, abi::stack_pointer(), oldlen_slot));
+            self.emit(abi::load_u64(&need, abi::stack_pointer(), need_slot));
+            self.emit(abi::subtract_registers(&scratch14, &dlen, &oldlen));
+            self.emit(abi::add_registers(&scratch14, &scratch14, &need));
+            self.emit(abi::store_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                newdlen_slot,
+            ));
+            self.emit(abi::compare_registers(&scratch14, &dcap));
+            self.emit(abi::branch_ls(&shift_have_room));
+            self.emit(abi::branch_eq(&shift_have_room));
+
+            // Genuine overflow: grow the data region GEOMETRICALLY and carry on
+            // shifting, rather than falling back to the rebuild.
+            //
+            // This is the half that makes the widening case work at all, and the
+            // measurement is what found it. An in-block shift alone left the
+            // widening cost unchanged (72 → 828 → 11619 → 122465 ns/set over
+            // N = 50…3200) because the fallback rebuild produces a TIGHT buffer:
+            // every widening overflowed, rebuilt tight, and overflowed again on the
+            // next call. See Correction F1 — the plan assumed the existing overflow
+            // path was geometric, and it was not.
+            self.emit_grow_list_data_capacity(buffer_slot, newdlen_slot, list_type, entry_stride)?;
+            self.emit(abi::label(&shift_have_room));
+            // Re-read everything through the (possibly new) block pointer.
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(
+                &dlen,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::load_u64(&oldlen, abi::stack_pointer(), oldlen_slot));
+            self.emit(abi::load_u64(&need, abi::stack_pointer(), need_slot));
+
+            // tailLen = dataLength - (valueOffset + oldLen): the bytes that move.
+            self.emit(abi::load_u64(&voff, abi::stack_pointer(), voffset_slot));
+            self.emit(abi::add_registers(&taillen, &voff, &oldlen));
+            self.emit(abi::subtract_registers(&taillen, &dlen, &taillen));
+
+            self.emit_collection_data_pointer_for(&data, &scratch8, element_type);
+
+            self.emit(abi::compare_registers(&need, &oldlen));
+            self.emit(abi::branch_hi(&shift_grow));
+
+            // --- Narrowing: the tail moves DOWN, so copy forwards. ---
+            // dst = data + voff + need ; src = data + voff + oldLen.
+            self.emit(abi::add_registers(&dst, &data, &voff));
+            self.emit(abi::add_registers(&src, &dst, &oldlen));
+            self.emit(abi::add_registers(&dst, &dst, &need));
+            self.emit(abi::move_register(&scratch13, &taillen));
+            self.emit_block_copy_advance(&dst, &src, &scratch13, &cpy, "set_inplace_narrow");
+            // delta = oldLen - need, subtracted from every offset past `voff`.
+            self.emit(abi::subtract_registers(&delta, &oldlen, &need));
+            self.emit(abi::store_u64(&delta, abi::stack_pointer(), delta_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&cnt, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::add_immediate(&dst, &scratch8, COLLECTION_HEADER_SIZE));
+            self.emit(abi::load_u64(&voff, abi::stack_pointer(), voffset_slot));
+            self.emit(abi::load_u64(&delta, abi::stack_pointer(), delta_slot));
+            self.emit_offset_compaction_fixup(&dst, &cnt, &voff, &delta, "set_inplace_narrowfix");
+            self.emit(abi::branch(&shift_write));
+
+            // --- Widening: the tail moves UP and overlaps, so copy BACKWARDS. ---
+            // A forward copy here smears the first tail bytes over the region
+            // whenever the shift distance is less than the tail length, which is
+            // the ordinary case; it would still look right on a 1-2 element list.
+            self.emit(abi::label(&shift_grow));
+            // srcEnd = data + dataLength ; dstEnd = srcEnd + (need - oldLen).
+            self.emit(abi::add_registers(&src, &data, &dlen));
+            self.emit(abi::subtract_registers(&delta, &need, &oldlen));
+            self.emit(abi::add_registers(&dst, &src, &delta));
+            self.emit(abi::store_u64(&delta, abi::stack_pointer(), delta_slot));
+            self.emit(abi::move_register(&scratch13, &taillen));
+            self.emit_block_copy_backward(&dst, &src, &scratch13, &cpy, "set_inplace_widen");
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&cnt, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::add_immediate(&dst, &scratch8, COLLECTION_HEADER_SIZE));
+            self.emit(abi::load_u64(&voff, abi::stack_pointer(), voffset_slot));
+            self.emit(abi::load_u64(&delta, abi::stack_pointer(), delta_slot));
+            self.emit_offset_expansion_fixup(&dst, &cnt, &voff, &delta, "set_inplace_widenfix");
+
+            // --- Both directions: write the payload, then the two lengths. ---
+            self.emit(abi::label(&shift_write));
+            self.emit_copy_payload_to_collection(
+                buffer_slot,
+                need_slot,
+                &item,
+                voffset_slot,
+                element_type,
+            )?;
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(
+                &scratch14,
+                abi::stack_pointer(),
+                newdlen_slot,
+            ));
+            self.emit(abi::store_u64(
+                &scratch14,
+                &scratch8,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            // entry[index].valueLength = need. (valueOffset is unchanged: the
+            // written element keeps its own start; only what follows moved.)
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &entry_stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
+            self.emit(abi::add_immediate(
+                &scratch12,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
+            self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot));
+            self.emit(abi::store_u64(
+                &scratch14,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::branch(&done));
+        } else {
+            // Entry-free lists cannot reach the length-change path (see above),
+            // but the label must still be defined and must not fall through.
+            self.emit(abi::branch(&rebuild));
+        }
 
         // --- Rebuild (payload grew): remove + insert a fresh singleton list. ---
         self.emit(abi::label(&rebuild));
@@ -3484,5 +3917,228 @@ impl CodeBuilder<'_> {
             location: Operand::from(result.render()),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })
+    }
+
+    /// Remove the element at `index_slot` from the list whose buffer pointer
+    /// lives in `buffer_slot`, **mutating that buffer in place** (plan-121-B):
+    /// close the hole the removed element leaves and decrement `count` /
+    /// `dataLength`. No allocation, no copy of the surviving elements into a
+    /// fresh block — the freed capacity simply becomes headroom a later `append`
+    /// reuses.
+    ///
+    /// The out-of-place sibling [`Self::lower_list_remove_at`] does the same
+    /// arithmetic into a freshly allocated tight buffer. That allocate + copy +
+    /// free is the whole cost: at N = 6400 a `List OF Integer` is 51 KB, a
+    /// `memmove` of it is ~2 us, and `removeAt` measured 72 us — 36x the data
+    /// movement (spike 3). The shift itself is the operation's defined cost and C
+    /// pays it too; this deletes everything around it.
+    ///
+    /// Two representations, and they need different work:
+    ///
+    /// * **Fixed-width elements** (`list_entry_stride == 0`) have no entry table
+    ///   at all — element `i` lives at `i * payload` (plan-57-D). Removing `i` is
+    ///   one forward shift of `[(i+1)*p, count*p)` down by `p`. Nothing else
+    ///   changes: the surviving element that was at `k > i` lands at `(k-1)*p`,
+    ///   which is exactly where index `k-1` is read from.
+    /// * **Variable-width elements** keep a lookup table over a packed data
+    ///   region. The entry table shifts down one stride, the data region closes a
+    ///   single contiguous hole, and every surviving entry whose payload sat
+    ///   *past* the hole has its `valueOffset` reduced by the hole's length
+    ///   ([`Self::emit_offset_compaction_fixup`], which tests each entry's own
+    ///   offset rather than its index — a list built with `insert`/`prepend`/`set`
+    ///   packs spliced payloads at the data tail, so entry order and data order
+    ///   need not agree).
+    ///
+    /// Both shifts run **downward**, so the destination trails the source and
+    /// [`Self::emit_block_copy_advance`]'s forward copy is safe on the overlap.
+    /// (Its doc comment says the destination must not overlap the source *ahead*
+    /// of it; behind is the direction that works.) That is the opposite of
+    /// `insert`/`prepend`, which shift up and need
+    /// [`Self::emit_block_copy_backward`].
+    ///
+    /// An out-of-range index raises the same `ErrIndexOutOfRange` as the
+    /// out-of-place path, before anything is mutated. The caller guarantees the
+    /// buffer is uniquely owned and — unlike `append` — that **no `FOR EACH` is
+    /// iterating it**: this shift rewrites entries *below* the count a live loop
+    /// snapshotted at entry, which that loop can observe (see
+    /// `planning/plan-121-gate-inventory.md`, the `removeAt` asymmetry).
+    pub(crate) fn lower_list_remove_at_in_place(
+        &mut self,
+        buffer_slot: usize,
+        index_slot: usize,
+        list_type: &ParameterType,
+        element_type: &ParameterType,
+    ) -> Result<(), String> {
+        let entry_stride = list_entry_stride(element_type);
+        let kind2_payload = kind2_payload_size(element_type);
+        let _layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+
+        let base = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let count = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let copy_scratch = self.temporary_vreg();
+        let hole_off = self.temporary_vreg();
+        let hole_len = self.temporary_vreg();
+
+        let hole_off_slot = self.allocate_stack_object("remove_inplace_hole_off", 8);
+        let hole_len_slot = self.allocate_stack_object("remove_inplace_hole_len", 8);
+
+        let valid_start = self.label("remove_inplace_valid_start");
+        let invalid = self.label("remove_inplace_invalid");
+        let done = self.label("remove_inplace_done");
+
+        // Bounds: 0 <= index < count, checked before any byte moves so a raise
+        // leaves the list exactly as it was.
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate(&index, "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&invalid));
+
+        if let Some(payload) = kind2_payload {
+            // --- Entry-free representation: one downward shift of the data. ---
+            // dst = data + index*p ; src = dst + p ; len = (count-1-index)*p.
+            self.emit_collection_data_pointer_for(&dst, &base, element_type);
+            self.emit(abi::move_immediate(
+                &scratch,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&len, &index, &scratch));
+            self.emit(abi::add_registers(&dst, &dst, &len));
+            self.emit(abi::add_immediate(&src, &dst, payload));
+            self.emit(abi::subtract_registers(&len, &count, &index));
+            self.emit(abi::subtract_immediate(&len, &len, 1));
+            self.emit(abi::multiply_registers(&len, &len, &scratch));
+            self.emit_block_copy_advance(&dst, &src, &len, &copy_scratch, "remove_inplace_k2");
+
+            // count -= 1; dataLength -= payload.
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::subtract_immediate(&count, &count, 1));
+            self.emit(abi::store_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::load_u64(
+                &scratch,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::subtract_immediate(&scratch, &scratch, payload));
+            self.emit(abi::store_u64(
+                &scratch,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+        } else {
+            // --- Lookup table + packed data. ---
+            // Read the removed entry's payload span BEFORE the entry shift
+            // overwrites it.
+            self.emit(abi::move_immediate(
+                &scratch,
+                "Integer",
+                &entry_stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&len, &index, &scratch));
+            self.emit(abi::add_immediate(&dst, &base, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_registers(&dst, &dst, &len)); // &entry[index]
+            self.emit(abi::load_u64(
+                &hole_off,
+                &dst,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &hole_len,
+                &dst,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::store_u64(
+                &hole_off,
+                abi::stack_pointer(),
+                hole_off_slot,
+            ));
+            self.emit(abi::store_u64(
+                &hole_len,
+                abi::stack_pointer(),
+                hole_len_slot,
+            ));
+
+            // Entry table: shift [index+1, count) down one stride. `dst` already
+            // points at entry[index].
+            self.emit(abi::add_immediate(&src, &dst, entry_stride));
+            self.emit(abi::subtract_registers(&len, &count, &index));
+            self.emit(abi::subtract_immediate(&len, &len, 1)); // suffix count
+            self.emit(abi::multiply_registers(&len, &len, &scratch));
+            self.emit_block_copy_advance(&dst, &src, &len, &copy_scratch, "remove_inplace_e");
+
+            // Data region: close the hole. dst = data + holeOffset ;
+            // src = dst + holeLen ; len = dataLength - holeOffset - holeLen.
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+            self.emit_collection_data_pointer_for(&dst, &base, element_type);
+            self.emit(abi::load_u64(
+                &hole_off,
+                abi::stack_pointer(),
+                hole_off_slot,
+            ));
+            self.emit(abi::load_u64(
+                &hole_len,
+                abi::stack_pointer(),
+                hole_len_slot,
+            ));
+            self.emit(abi::add_registers(&dst, &dst, &hole_off));
+            self.emit(abi::add_registers(&src, &dst, &hole_len));
+            self.emit(abi::load_u64(&len, &base, COLLECTION_OFFSET_DATA_LENGTH));
+            self.emit(abi::subtract_registers(&len, &len, &hole_off));
+            self.emit(abi::subtract_registers(&len, &len, &hole_len));
+            self.emit_block_copy_advance(&dst, &src, &len, &copy_scratch, "remove_inplace_d");
+
+            // count -= 1; dataLength -= holeLen; then fix up the survivors whose
+            // payload sat past the hole.
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), buffer_slot));
+            self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::subtract_immediate(&count, &count, 1));
+            self.emit(abi::store_u64(&count, &base, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::load_u64(
+                &scratch,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::load_u64(
+                &hole_len,
+                abi::stack_pointer(),
+                hole_len_slot,
+            ));
+            self.emit(abi::subtract_registers(&scratch, &scratch, &hole_len));
+            self.emit(abi::store_u64(
+                &scratch,
+                &base,
+                COLLECTION_OFFSET_DATA_LENGTH,
+            ));
+            self.emit(abi::add_immediate(&dst, &base, COLLECTION_HEADER_SIZE));
+            self.emit(abi::load_u64(
+                &hole_off,
+                abi::stack_pointer(),
+                hole_off_slot,
+            ));
+            self.emit_offset_compaction_fixup(
+                &dst,
+                &count,
+                &hole_off,
+                &hole_len,
+                "remove_inplace_fix",
+            );
+        }
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.raise_error("collections.removeAt", "ErrIndexOutOfRange")?;
+        self.emit(abi::label(&done));
+        Ok(())
     }
 }

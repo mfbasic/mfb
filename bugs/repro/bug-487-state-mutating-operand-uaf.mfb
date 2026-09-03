@@ -1,0 +1,49 @@
+' bug-487 repro: an operand that MUTATES a resource's STATE, inside an
+' expression whose other operand points INTO that same STATE block.
+'
+' `collections::append(f.state.xs, sideEffect(f))`
+'    arg 0 -> a pointer into f's STATE block
+'    arg 1 -> a call that appends to f.state.xs, growing and REALLOCATING that
+'             same block, which frees the allocation arg 0 points into
+'
+' arg 0 then dangles, and `append` reads a freed block. Symptom depends only on
+' what lands in the freed memory: `Allocation failed` (7-701-0001) when the
+' garbage is read as a capacity, SIGSEGV when it is read as a pointer.
+'
+' Per `mfb spec language resource-management` §15 this program is well-formed:
+' a `RES` is an alias to one live resource, and "a state update made through a
+' RES parameter (an alias, not a copy) is visible to the owner after the call".
+' Nothing forbids making that update from inside an operand.
+'
+' NOTE the expected result is NOT 2 elements per round. Under value semantics
+' arg 0 is a snapshot taken before `sideEffect` runs, so the outer append
+' overwrites the nested one and the defined answer is `len == rounds`, all 222.
+' Losing the nested append is fine. CRASHING is the bug.
+IMPORT collections
+IMPORT io
+IMPORT fs
+
+TYPE St
+  xs AS List OF Integer
+  n  AS Integer
+END TYPE
+
+FUNC sideEffect(RES f AS fs::File STATE St) AS Integer
+  f.state.xs = collections::append(f.state.xs, 111)
+  f.state.n = f.state.n + 1
+  RETURN 222
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File STATE St = fs::openFile("project.json")
+  f.state.n = 0
+  MUT i AS Integer = 0
+  WHILE i < 3
+    f.state.xs = collections::append(f.state.xs, sideEffect(f))
+    i = i + 1
+  END WHILE
+  io::print("len=" & toString(len(f.state.xs)))
+  io::print("n=" & toString(f.state.n))
+  fs::close(f)
+  RETURN 0
+END FUNC

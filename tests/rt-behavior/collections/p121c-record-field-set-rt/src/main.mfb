@@ -1,0 +1,83 @@
+IMPORT io
+IMPORT collections
+
+' `set` on a record field splits by ELEMENT WIDTH, not by collection kind:
+'   List of a fixed-width element -> same-size overwrite, no grow
+'   Map                           -> a new key grows, so the record grows
+'   List of a variable-width elem -> declines; plan-121-F owns that row
+TYPE LBox
+  before AS Integer
+  xs AS List OF Integer
+  after AS Integer
+END TYPE
+
+TYPE MBox
+  tag AS Integer
+  m AS Map OF Integer TO Integer
+  tail AS Integer
+END TYPE
+
+TYPE DBox
+  head AS Integer
+  ss AS List OF String
+END TYPE
+
+FUNC renderL(b AS LBox) AS String
+  MUT out AS String = ""
+  FOR EACH v IN b.xs
+    out = out & toString(v) & ","
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  ' --- fixed-width List: overwrite in place, never grows -------------------
+  MUT lb AS LBox = LBox[7, [10, 20, 30, 40], 8]
+  LET lsnap AS LBox = lb
+  lb = WITH lb { xs := collections::set(lb.xs, 0, 99) }
+  lb = WITH lb { xs := collections::set(lb.xs, 3, 77) }
+  lb = WITH lb { xs := collections::set(lb.xs, 2, 55) }
+  io::print("list_set=" & renderL(lb) & " len=" & toString(len(lb.xs)))
+  io::print("list_snap=" & renderL(lsnap))
+  io::print("list_fields=" & toString(lb.before) & "/" & toString(lb.after))
+
+  ' Indexed reads must agree with the linear walk after the overwrites.
+  MUT idx AS String = ""
+  FOR i = 0 TO len(lb.xs) - 1
+    idx = idx & toString(collections::get(lb.xs, i)) & ","
+  NEXT
+  io::print("list_get=" & idx)
+
+  ' A second updated field still rebuilds, and both values land.
+  lb = WITH lb { xs := collections::set(lb.xs, 1, 11), after := 88 }
+  io::print("list_multi=" & renderL(lb) & " after=" & toString(lb.after))
+
+  ' --- Map: an existing key overwrites, a new key grows the record ---------
+  MUT mb AS MBox = MBox[5, Map OF Integer TO Integer { 1 := 100 }, 6]
+  LET msnap AS MBox = mb
+  mb = WITH mb { m := collections::set(mb.m, 1, 111) }
+  io::print("map_overwrite=" & toString(collections::getOr(mb.m, 1, -1)) & " len=" & toString(len(mb.m)))
+
+  FOR i = 2 TO 120
+    mb = WITH mb { m := collections::set(mb.m, i, i * 7) }
+  NEXT
+  MUT bad AS Integer = 0
+  FOR i = 2 TO 120
+    IF collections::getOr(mb.m, i, -1) <> i * 7 THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("map_grow_len=" & toString(len(mb.m)) & " bad=" & toString(bad))
+  io::print("map_snap_len=" & toString(len(msnap.m)))
+  io::print("map_fields=" & toString(mb.tag) & "/" & toString(mb.tail))
+
+  ' --- variable-width List: must still be correct via the copying path -----
+  MUT db AS DBox = DBox[1, ["a", "bb", "ccc"]]
+  db = WITH db { ss := collections::set(db.ss, 1, "wwwwwwww") }
+  MUT sout AS String = ""
+  FOR EACH s IN db.ss
+    sout = sout & s & ","
+  NEXT
+  io::print("str_set=" & sout & " head=" & toString(db.head))
+  RETURN 0
+END FUNC

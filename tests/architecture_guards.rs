@@ -313,11 +313,19 @@ fn golden_build_logs(tests_root: &Path) -> Vec<(PathBuf, String)> {
             } else if path.file_name().and_then(|n| n.to_str()) == Some("build.log")
                 && path.parent().is_some_and(|p| p.ends_with("golden"))
             {
+                // Joined with `/` explicitly rather than `to_string_lossy`d,
+                // which renders the host separator: on Windows that produced
+                // `syntax\app\...`, so the `starts_with("syntax/")` exemption
+                // below matched nothing and every diagnostic fixture in the
+                // tier whose job is pinning diagnostics was reported as an
+                // offender. The messages read the same everywhere too.
                 let rel = path
                     .strip_prefix(tests_root)
                     .expect("under tests/")
-                    .to_string_lossy()
-                    .into_owned();
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 out.push((path, rel));
             }
         }

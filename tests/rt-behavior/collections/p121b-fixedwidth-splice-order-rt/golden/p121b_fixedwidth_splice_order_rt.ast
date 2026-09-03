@@ -1,0 +1,132 @@
+{
+  "project": "p121b_fixedwidth_splice_order_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 8 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "7" },
+        "step": null,
+        "line": 9,
+        "body": [
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "i" }] }, "line": 10 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 12 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 13,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 14 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend=" }, "right": { "kind": "identifier", "value": "out" } }] }, "line": 16 },
+      { "kind": "binding", "mutable": true, "name": "ys", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 18 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "7" },
+        "step": null,
+        "line": 19,
+        "body": [
+        { "kind": "assignment", "name": "ys", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "ys" }, { "kind": "binary", "operator": "/", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ys" }] }, "right": { "kind": "number", "value": "2" } }, { "kind": "identifier", "value": "i" }] }, "line": 20 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "out2", "type": "String", "value": { "kind": "string", "value": "" }, "line": 22 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "ys" },
+        "line": 23,
+        "body": [
+        { "kind": "assignment", "name": "out2", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out2" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 24 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert=" }, "right": { "kind": "identifier", "value": "out2" } }] }, "line": 26 },
+      { "kind": "binding", "mutable": true, "name": "out3", "type": "String", "value": { "kind": "string", "value": "" }, "line": 29 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ys" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 30,
+        "body": [
+        { "kind": "assignment", "name": "out3", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out3" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "ys" }, { "kind": "identifier", "value": "i" }] }] } }, "right": { "kind": "string", "value": "," } }, "line": 31 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "get=" }, "right": { "kind": "identifier", "value": "out3" } }] }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "bs", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 36 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 37,
+        "body": [
+        { "kind": "assignment", "name": "bs", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "bs" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "i" }] }] }, "line": 38 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "out4", "type": "String", "value": { "kind": "string", "value": "" }, "line": 40 },
+      {
+        "kind": "forEach",
+        "name": "b",
+        "iterable": { "kind": "identifier", "value": "bs" },
+        "line": 41,
+        "body": [
+        { "kind": "assignment", "name": "out4", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out4" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "right": { "kind": "string", "value": "," } }, "line": 42 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "byte=" }, "right": { "kind": "identifier", "value": "out4" } }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "ss", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 48 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "4" },
+        "step": null,
+        "line": 49,
+        "body": [
+        { "kind": "assignment", "name": "ss", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "ss" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }] }, "line": 50 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "out5", "type": "String", "value": { "kind": "string", "value": "" }, "line": 52 },
+      {
+        "kind": "forEach",
+        "name": "s",
+        "iterable": { "kind": "identifier", "value": "ss" },
+        "line": 53,
+        "body": [
+        { "kind": "assignment", "name": "out5", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out5" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "," } }, "line": 54 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "string=" }, "right": { "kind": "identifier", "value": "out5" } }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 57 }
+      ]
+    }
+    ]
+  }
+  ]
+}

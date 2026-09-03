@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121c-record-field-add-grow-rt
+Wrote AST to tests/rt-behavior/collections/p121c-record-field-add-grow-rt/p121c_record_field_add_grow_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121c-record-field-add-grow-rt/p121c_record_field_add_grow_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121c-record-field-add-grow-rt
+Wrote executable to tests/rt-behavior/collections/p121c-record-field-add-grow-rt/build/p121c_record_field_add_grow_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121c-record-field-add-grow-rt/build/p121c_record_field_add_grow_rt.out
+len=200
+fields=11/22
+missing=0
+after_dup_len=200
+snap_len=0
+mix_len=249 has7=FALSE has249=TRUE
+map_len=150 bad=0
+map_fields=33/44
+[exit 0]

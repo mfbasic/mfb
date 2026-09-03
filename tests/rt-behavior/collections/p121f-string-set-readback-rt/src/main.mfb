@@ -1,0 +1,141 @@
+' plan-121-F Phase 1: a length-changing `set` on a `List OF String`, with EVERY
+' element read back.
+'
+' WHY READ-BACK-EVERYTHING RATHER THAN A CHECKSUM. A length-changing write moves
+' the bytes of every element after the one written, so every later entry's byte
+' OFFSET has to be fixed up in the same operation. Getting that half-right
+' produces a list that reads correctly for the first i elements and returns
+' garbage after -- and a folded checksum can miss it entirely if the fold happens
+' to be dominated by early elements, or if the garbage happens to sum the same.
+' So every assertion below compares element i against its exact expected string,
+' and reports the FIRST index that disagrees, not just a count.
+'
+' `collection-set-string-grow-rt` already covers this path, but its
+' variable-width case is a FOUR element list -- a partial fixup can survive that.
+' This one runs 200 elements with lengths that change on every write.
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' Distinct per index AND variable length: index i gets i MOD 7 + 1 repeats, so
+' neighbouring elements differ in length and a shift that lands one byte off
+' cannot coincidentally still match.
+FUNC want(tag AS String, i AS Integer) AS String
+  RETURN tag & toString(i) & "-" & strings::repeat("x", i MOD 7 + 1)
+END FUNC
+
+' Returns the first mismatching index, or -1 when every element matches.
+FUNC firstBad(xs AS List OF String, tag AS String, n AS Integer) AS Integer
+  MUT i AS Integer = 0
+  WHILE i < n
+    IF collections::get(xs, i) <> want(tag, i) THEN
+      RETURN i
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN 0 - 1
+END FUNC
+
+FUNC main AS Integer
+  LET n AS Integer = 200
+
+  ' Seed with SHORT uniform values, so the first pass lengthens every element.
+  MUT xs AS List OF String = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    xs = collections::append(xs, "s")
+    i = i + 1
+  END WHILE
+
+  ' ---- Pass 1: every write LENGTHENS. ----
+  i = 0
+  WHILE i < n
+    xs = collections::set(xs, i, want("a", i))
+    i = i + 1
+  END WHILE
+  io::print("longer len=" & toString(len(xs)) & " firstBad=" & toString(firstBad(xs, "a", n)))
+
+  ' ---- Pass 2: every write SHORTENS (spike 2 found shorter as bad as longer). ----
+  i = 0
+  WHILE i < n
+    xs = collections::set(xs, i, "b" & toString(i))
+    i = i + 1
+  END WHILE
+  MUT bad2 AS Integer = 0 - 1
+  i = 0
+  WHILE i < n
+    IF collections::get(xs, i) <> "b" & toString(i) THEN
+      IF bad2 < 0 THEN
+        bad2 = i
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("shorter len=" & toString(len(xs)) & " firstBad=" & toString(bad2))
+
+  ' ---- Pass 3: BACKWARDS, so the tail is already long when the head moves. ----
+  i = n - 1
+  WHILE i >= 0
+    xs = collections::set(xs, i, want("c", i))
+    i = i - 1
+  END WHILE
+  io::print("backwards len=" & toString(len(xs)) & " firstBad=" & toString(firstBad(xs, "c", n)))
+
+  ' ---- Edge cases: element 0 and the last element specifically. ----
+  MUT e AS List OF String = ["alpha", "beta", "gamma", "delta"]
+  e = collections::set(e, 0, "AAAAAAAAAAAA")
+  e = collections::set(e, 3, "D")
+  MUT eout AS String = ""
+  FOR EACH s IN e
+    eout = eout & s & "|"
+  NEXT
+  io::print("edges=" & eout)
+
+  ' A single-element list: there is no tail to shift, the degenerate case.
+  MUT one AS List OF String = ["q"]
+  one = collections::set(one, 0, "qqqqqqqqqqqqqqqqqqqq")
+  one = collections::set(one, 0, "z")
+  io::print("single=" & collections::get(one, 0) & " len=" & toString(len(one)))
+
+  ' ---- Growth far past any initial dataCapacity, to force the overflow path. ----
+  MUT g AS List OF String = []
+  i = 0
+  WHILE i < 60
+    g = collections::append(g, "g")
+    i = i + 1
+  END WHILE
+  ' Each pass makes every element longer than the last, so the data region has
+  ' to overflow its capacity repeatedly rather than once.
+  MUT pass AS Integer = 1
+  WHILE pass <= 6
+    i = 0
+    WHILE i < 60
+      g = collections::set(g, i, strings::repeat("y", pass * 4) & toString(i))
+      i = i + 1
+    END WHILE
+    pass = pass + 1
+  END WHILE
+  MUT gbad AS Integer = 0 - 1
+  i = 0
+  WHILE i < 60
+    IF collections::get(g, i) <> strings::repeat("y", 24) & toString(i) THEN
+      IF gbad < 0 THEN
+        gbad = i
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("overflow len=" & toString(len(g)) & " firstBad=" & toString(gbad) & " sample=" & collections::get(g, 59))
+
+  ' ---- A copy taken before the writes must not observe them, and must not
+  ' inherit headroom (the `copy_collection_tight` contract). ----
+  MUT src AS List OF String = ["one", "two", "three"]
+  LET snap AS List OF String = src
+  src = collections::set(src, 1, "TWOTWOTWOTWO")
+  MUT sout AS String = ""
+  FOR EACH s IN snap
+    sout = sout & s & "|"
+  NEXT
+  io::print("snapshot=" & sout & " live1=" & collections::get(src, 1))
+  RETURN 0
+END FUNC

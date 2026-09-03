@@ -1,0 +1,128 @@
+IMPORT io
+IMPORT collections
+
+' plan-121-B Correction B7: the in-place `removeAt` COMPACTS the data region --
+' it moves surviving payloads down inside the live buffer. Every other arm in the
+' family either writes past the live data (`append`) or shifts only the 40-byte
+' lookup entries (`insert`, `prepend`), so this is the only one that relocates a
+' payload something else may already be holding.
+'
+' For a RECURSIVE element type it does. `type_participates_in_cycle` records why:
+' such a value is a pointer-linked graph that inline copy codegen cannot
+' reproduce, so it needs a per-type runtime copy function -- and an ordinary
+' `collections::get` of one therefore does not hand back the independent deep copy
+' a String, record or nested-list element gets. Relocating the payload under a
+' value already read leaves that value reading moved bytes.
+'
+' Measured before the G24 guard, this program printed `?,?,?,?,?,?,?,t7,` for
+' n=8: every element whose removal actually moved bytes came back matching
+' neither variant, and only the LAST was right -- because at count == 1 the shift
+' length is zero. Dropping `children` from ElementNode (making the union
+' non-recursive) made the same program pass, which is what isolated the predicate.
+'
+' This is the shape `tests/rt_recursive_thread_transfer.rs` builds, and that test
+' is what caught it.
+
+TYPE ElementNode
+  tag AS String
+  children AS List OF Node
+END TYPE
+
+TYPE TextNode
+  text AS String
+END TYPE
+
+UNION Node
+  ElementNode
+  TextNode
+END UNION
+
+' Read element 0, remove it in place, then USE the value read. The read must
+' survive the removal.
+FUNC drain(n AS Integer) AS String
+  MUT stack AS List OF Node = []
+  FOR i = 0 TO n - 1
+    LET nd AS Node = TextNode["t" & toString(i)]
+    stack = collections::append(stack, nd)
+  NEXT
+  MUT out AS String = ""
+  DO WHILE len(stack) > 0
+    LET node AS Node = collections::get(stack, 0)
+    stack = collections::removeAt(stack, 0)
+    MATCH node
+      CASE TextNode(t)
+        out = out & t.text & ","
+      CASE ELSE
+        out = out & "?,"
+    END MATCH
+  LOOP
+  RETURN out
+END FUNC
+
+' The same hazard reached through a pre-order tree walk -- a stack that pops the
+' LAST index and pushes children, which is how the shape occurs in real code.
+FUNC element(tag AS String, kids AS List OF Node) AS Node
+  LET n AS Node = ElementNode[tag, kids]
+  RETURN n
+END FUNC
+
+FUNC textNode(s AS String) AS Node
+  LET n AS Node = TextNode[s]
+  RETURN n
+END FUNC
+
+FUNC render(root AS Node) AS String
+  MUT out AS String = ""
+  MUT stack AS List OF Node = [root]
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET node AS Node = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    MATCH node
+      CASE ElementNode(e)
+        MUT j AS Integer = len(e.children) - 1
+        DO WHILE j >= 0
+          stack = collections::append(stack, collections::get(e.children, j))
+          j = j - 1
+        LOOP
+      CASE TextNode(t)
+        out = out & t.text
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN out
+END FUNC
+
+' `insert` on the SAME element type needs no guard: it writes the new payload at
+' the data tail and shifts only lookup entries, so no existing payload moves.
+' Pinned here so a future change cannot quietly make it relocate payloads too.
+FUNC spliced() AS String
+  MUT xs AS List OF Node = []
+  FOR i = 0 TO 3
+    LET nd AS Node = TextNode["s" & toString(i)]
+    xs = collections::append(xs, nd)
+  NEXT
+  MUT out AS String = ""
+  FOR k = 0 TO 2
+    LET held AS Node = collections::get(xs, 0)
+    LET fresh AS Node = TextNode["i" & toString(k)]
+    xs = collections::insert(xs, 1, fresh)
+    MATCH held
+      CASE TextNode(t)
+        out = out & t.text & ","
+      CASE ELSE
+        out = out & "?,"
+    END MATCH
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  io::print("n=2 " & drain(2))
+  io::print("n=3 " & drain(3))
+  io::print("n=8 " & drain(8))
+  LET tree AS Node = element("ul", [element("li", [textNode("seedA")]), element("li", [textNode("seedB")])])
+  io::print("render=" & render(tree))
+  io::print("insert=" & spliced())
+  RETURN 0
+END FUNC

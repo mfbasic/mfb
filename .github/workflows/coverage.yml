@@ -109,6 +109,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
+      # A Linux `--app` build LINKS GTK 4 — libgtk-4.so.1 is a DT_NEEDED of the
+      # emitted ELF, alongside gio/glib/gobject/cairo/pango — so the loader needs
+      # it present before `main` runs, headless or not. Without it the six
+      # rt_canvas_* suites exit 127 with "error while loading shared libraries".
+      # `libgtk-4-1` pulls the whole set transitively; the -dev package is not
+      # needed, since mfb emits its own binaries and links nothing at build time.
+      # Every Linux row needs it, including the musl one: that row cross-compiles
+      # the compiler but still runs the app it builds on this glibc runner.
+      - name: Install the GTK 4 runtime
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgtk-4-1
       - name: Cargo test (native)
         if: matrix.rust_target == 'native'
         run: cargo test --release --workspace
@@ -207,6 +220,12 @@ jobs:
           components: llvm-tools-preview
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
+      # Same reason as the test matrix: this job runs the whole suite, so the
+      # canvas app binaries it builds need the GTK 4 they link against.
+      - name: Install the GTK 4 runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgtk-4-1
       - name: Run coverage
         run: sh scripts/coverage.sh
       - name: Per-file 98% gate

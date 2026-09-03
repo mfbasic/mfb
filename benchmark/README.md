@@ -184,6 +184,23 @@ column difference is a language/runtime property, not a benchmark artifact:
   cannot eliminate the build as dead; the run-end per-language cross-level
   checksum equality check (c -O0 vs -O2, mfb -O1 vs -O2 vs -O3) is the
   regression gate for that.
+- **Answer-equality is NOT work-equality for an early-exit predicate.** A row
+  whose operation stops at the first counterexample can produce the *same answer*
+  in all three languages while examining wildly different numbers of elements,
+  because each language iterates its own container in its own order. This
+  satisfies "same observable work" in letter and violates it in spirit, and the
+  checksum cross-validation cannot detect it — the checksums match precisely
+  because the answers match.
+
+  It was real: `isSuperset`/`isDisjoint` were FALSE on every call, so every
+  language searched for one counterexample. C walks its hash **slot** array and
+  met one after 2–3 probes; mfb walks the set in **entry** order and did 501.
+  Same answer, ~250× the work, reported as a 265–412× row (plan-121-E).
+
+  **The fix that holds is to make such a predicate TRUE**, which forces a full
+  scan everywhere and removes iteration-order luck entirely — there is no
+  counterexample to meet early or late. A checksum of `0` on a predicate row is
+  the warning sign: it means the predicate never held, so every call early-exited.
 - **The `copy` row copies observably.** It copies the 1000-element base, pokes
   element 0, and folds both the count and the poked element into the checksum
   (`lf` = 1499500, `ld` = 1001000), so a copy-on-write share or borrow elision

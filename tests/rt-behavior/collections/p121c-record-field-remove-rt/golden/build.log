@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121c-record-field-remove-rt
+Wrote AST to tests/rt-behavior/collections/p121c-record-field-remove-rt/p121c_record_field_remove_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121c-record-field-remove-rt/p121c_record_field_remove_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121c-record-field-remove-rt
+Wrote executable to tests/rt-behavior/collections/p121c-record-field-remove-rt/build/p121c_record_field_remove_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121c-record-field-remove-rt/build/p121c_record_field_remove_rt.out
+removeAt_front=20,30,40,50,
+removeAt_back=20,30,40,
+removeAt_mid=20,40,
+lsnap=10,20,30,40,50,
+lfields=1/2
+lmulti=40, after=77
+set_remove=1,3,4, len=3
+set_more=3,4, len=2
+ssnap=1,2,3,4,
+sfields=3/4
+set_readd=3,4,6, has6=TRUE
+[exit 0]
