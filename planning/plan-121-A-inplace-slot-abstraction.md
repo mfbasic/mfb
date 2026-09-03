@@ -70,14 +70,22 @@ These are a precondition on the whole plan-121 feature. Sub-plans B–G point he
 | Release `mfb` binary builds | `cargo build --release` → exit 0 | MET — re-measured 2026-09-02 in `.claude/worktrees/P-121`, exit 0 in 2m35s |
 | Baseline benchmark logs present | `ls benchmark/baseline/*.log` → 6 files | MET — re-measured, 6 files |
 | Ranking reproduces the scoped rows | `./benchmark/rank.py --csv \| awk -F, '$3=="F"' \| wc -l` → 56 | MET — re-measured, 56 |
-| Full suite green at HEAD | `cargo test --no-fail-fast` → 0 failures | see Phase 1 record below |
-| Acceptance goldens green at HEAD | `./scripts/test-accept.sh` → 0 mismatches | see Phase 1 record below |
+| Full suite green at HEAD | `cargo test --no-fail-fast` → 0 failures | MET — 96 suites, **4453 passed, 0 failed**, 2 ignored, exit 0 |
+| Acceptance goldens green at HEAD | `./scripts/test-accept.sh` → 0 mismatches | MET — **1348 ran, 0 mismatches**, exit 0 |
+
+**The gate is passed and it is the only one.** All five rows re-measured
+2026-09-02 in `.claude/worktrees/P-121` at `c704db4da`; no pre-existing red to
+characterize, so every later gate's failures are attributable to this plan.
+The `1348` ran-count is the number later runs must match — a drop means the
+harness is losing fixtures, whatever the pass/fail says.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
-> before you decide to stop. The two UNMEASURED rows are this sub-plan's first
-> act: a pre-existing red must be characterized before any change lands, or
-> every later gate inherits an unexplained failure.
+> before you decide to stop. The two rows that were UNMEASURED when this plan was
+> written were its first act, for the reason that generalizes: a pre-existing red
+> must be characterized *before* any change lands, or every later gate inherits an
+> unexplained failure. There was none — which is what makes the later gates
+> readable.
 
 Everything below is written against the world where these hold.
 
@@ -263,11 +271,18 @@ byte-identity gate proves.
 Establishes the baseline every later gate is measured against, and writes down
 the proof obligations before anything is refactored.
 
-- [ ] Run `cargo test --no-fail-fast` at HEAD; record the pass/fail count and
+- [x] Run `cargo test --no-fail-fast` at HEAD; record the pass/fail count and
       characterize any pre-existing red (attribute it via
       `git worktree add --detach`, per AGENTS.md) in this plan's Corrections.
-- [ ] Run `./scripts/test-accept.sh`; record `N ran` and any mismatches. Watch
+      **GREEN, exit 0: 96 suites, 4453 passed, 0 failed, 2 ignored.** No
+      pre-existing red to characterize. (`cargo test --no-fail-fast`, then
+      `awk '/^test result: ok\./ {…}'` to sum across suites.) Note the
+      `artifact_gate_all` case inside `tests/golden.rs` passed here, so the
+      byte-identity gate is green at HEAD too.
+- [x] Run `./scripts/test-accept.sh`; record `N ran` and any mismatches. Watch
       the ran-count — a silently skipped fixture reads as a pass.
+      **GREEN, exit 0: `acceptance tests passed (1348 test(s) ran)`, 0
+      mismatches.** 1348 is the ran-count every later run must match.
 - [x] Read all 10 arms and write `planning/plan-121-gate-inventory.md`: for each
       arm, every condition under which it declines, and which of the 10 arms
       enforce it. This file is the specification Phase 2 implements.
