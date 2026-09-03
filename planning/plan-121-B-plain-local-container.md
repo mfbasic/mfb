@@ -145,11 +145,59 @@ after proving the behavior is unchanged; a drift *outside* that set is a bug.
 
 ### Phase 1 — Measure the two residual costs before changing anything
 
-- [ ] Spike: isolate the `BUCKETS_READY=0` rehash share of `map removeKey` by
+- [x] Spike: isolate the `BUCKETS_READY=0` rehash share of `map removeKey` by
       timing N deletes followed by one lookup versus N deletes interleaved with
       lookups. Record the split in this plan.
-- [ ] Spike: time `prepend` against a raw `memmove` of the same bytes to
+      **`spikes/s6`. The rehash share is ZERO. The cost is a linear entry scan.**
+
+      `mfb build spikes/s6 && ./spikes/s6/build/mfb_project.out`, 2000 deletes
+      held constant, ns/call (second run; the first agreed except for one noisy
+      point at N=1600):
+
+      | N | A deletes only | B delete + probe | C probe only |
+      |---|---|---|---|
+      | 400 | 454 | 442 | 18 |
+      | 800 | 898 | 864 | 20 |
+      | 1600 | 1690 | 1708 | 25 |
+
+      **A is exactly linear** (×1.98 then ×1.88 per doubling) even though *no
+      probe happens between deletes*, so nothing can be rehashing inside the
+      timed region — that growth is the scan. **B ≈ A at every N**, so
+      `B − A − C ≈ 0`: forcing the rebuild by probing after every delete adds
+      nothing measurable. And **C is flat at 18–25 ns**, so the bucket index
+      itself works and `hasKey` is the O(1) probe it should be.
+
+      Root cause, confirmed by reading the lowering:
+      `lower_map_remove_key_in_place` (`map_mutate.rs:928`) finds the key by
+      **scanning entries `0..count`** (`mrk_scan_loop`), not by probing the index
+      `hasKey` uses. `removeKey` is O(N) per call for that reason alone.
+
+- [x] Spike: time `prepend` against a raw `memmove` of the same bytes to
       establish the floor the arm can reach.
+      **`spikes/s7`. The arm is already AT the floor — in fact below it.**
+
+      `./spikes/s7/build/mfb_project.out`, 500 calls held constant, ns/call.
+      The floor is a bulk `collections::append(dst, src)`, which
+      `try_inplace_bulk_append_assign` lowers to a block copy of the same
+      entries + data with no per-element work — the closest primitive MFBASIC
+      has to a raw `memmove`:
+
+      | N | A prepend | B block copy (floor) | A/B |
+      |---|---|---|---|
+      | 100 | 780 | 420 | 1.86× |
+      | 400 | 1384 | 1766 | **0.78×** |
+      | 1600 | 3870 | 6796 | **0.57×** |
+      | 3200 | 7286 | 13326 | **0.55×** |
+
+      From N = 400 up, `prepend` costs **less** than copying the same bytes
+      through the fastest bulk primitive available. (B is an *over*-estimate of a
+      pure `memmove`: it allocates a fresh destination each call, where prepend
+      shifts inside the buffer it already owns. That is precisely why prepend can
+      come in under it.) The control C stays flat at 14–20 ns, so the harness is
+      measuring the shift and not a per-call constant.
+
+      This settles the Open Decision below: the criterion was "within ~3× of the
+      floor → stop", and the arm is at 0.55–1.86×.
 - [x] Record which `.ncode` goldens contain plain-local `insert`/`removeAt`/Set
       `remove`, so Phases 2–3 can distinguish expected from unexpected drift.
       **The expected-drift set is exactly ONE golden**, which is a much sharper
@@ -180,6 +228,21 @@ after proving the behavior is unchanged; a drift *outside* that set is a bug.
 
 Acceptance: both residuals quantified in this plan with the commands that
 produced them, and the expected-drift golden list recorded. No `src/` change.
+
+**MET, and both residuals came back against the plan's expectation** — which is
+the point of measuring first:
+
+- `removeKey`'s gap is **not** the rehash (`spikes/s6`: the rehash share is zero;
+  the scan is the whole cost). §2's UNVERIFIED note said "if it is the whole gap,
+  the row is at its designed cost and this sub-plan records that and stops on
+  it". It is not the gap, so that stop condition does **not** fire — but the row
+  still cannot be fixed here, for a different and now-known reason. See
+  Correction B1.
+- `prepend` is **already at its floor** (`spikes/s7`: 0.55–1.86× a block copy of
+  the same bytes), so there is no reachable win to apply in Phase 3. See
+  Correction B2.
+
+No `src/` file was modified; `spikes/s6` and `spikes/s7` are new.
 Commit: —
 
 ### Phase 2 — `insert` and `removeAt` in-place (plain local)
@@ -206,10 +269,24 @@ Commit: —
 
 - [ ] Add the Set `remove` arm, mirroring the Map `removeKey` arm including
       `BUCKETS_READY=0`.
-- [ ] Apply whatever Phase 1 showed to be the reachable win on `prepend` (its
-      arm exists; the gap is the constant).
-- [ ] If Phase 1 showed `removeKey`'s gap is entirely the mandated rehash, mark
-      that row `- [x] ~~…~~ — moot:` with the measurement, and do not pursue it.
+- [x] ~~Apply whatever Phase 1 showed to be the reachable win on `prepend` (its
+      arm exists; the gap is the constant).~~ — **moot: there is no reachable
+      win. `spikes/s7` measures the arm at 0.55–1.86× the cost of a block copy of
+      the same bytes — at N ≥ 400 it is *cheaper* than the fastest bulk primitive
+      MFBASIC has.** The Open Decision's criterion was "within ~3× of the floor →
+      stop", and it is at or under 1×. The remaining distance to C is the
+      operation's defined O(N) shift, which §1's non-goals accept and which C
+      pays too. Correction B2.
+- [x] ~~If Phase 1 showed `removeKey`'s gap is entirely the mandated rehash, mark
+      that row `- [x] ~~…~~ — moot:` with the measurement, and do not pursue
+      it.~~ — **the premise is false: the rehash share is ZERO** (`spikes/s6`,
+      `B − A − C ≈ 0`), so this instruction's condition does not hold and the row
+      is not moot *for the reason the plan gave*. It is still out of scope, for a
+      reason Phase 1 had to measure to find: the cost is
+      `lower_map_remove_key_in_place`'s **linear entry scan**, and removing it
+      needs the bucket index to survive a delete — which `.ai/collections.md`
+      records as structural and §1's non-goals put out of bounds. Recorded as a
+      referral in Correction B1 rather than silently marked moot.
 - [ ] Tests: rt-behavior fixture for Set `remove` covering removal of an absent
       element, the last element, and during iteration.
 
@@ -238,10 +315,74 @@ Commit: —
 
 - **Whether to pursue `prepend`'s constant at all** — recommend deciding from
   Phase 1's memmove floor: if the arm is already within ~3× of it, stop. (§3)
+  **RESOLVED: stop.** `spikes/s7` puts the arm at 0.55–1.86× the floor; at
+  N ≥ 400 it is cheaper than the block copy it was being compared against.
 
 ## Corrections
 
-<Filled in during execution.>
+### B1 — `removeKey`'s cost is the entry scan, not the rehash (2026-09-02)
+
+§2 recorded as UNVERIFIED: "how much of `removeKey`'s 32–36× is the
+`BUCKETS_READY=0` rehash", and Phase 3 was told to mark the row moot *if the
+rehash was the whole gap*. **`spikes/s6` measured the rehash share at zero**, so
+that instruction's condition never held and the row is not moot for the stated
+reason.
+
+What the spike found instead: `removeKey` is O(N) per call *with no probe
+happening at all* (A: 454 → 898 → 1690 ns/call at N = 400/800/1600), while
+forcing a rebuild after every delete adds nothing (B ≈ A) and the index itself
+probes in flat 18–25 ns (C). Reading the lowering confirms it:
+`lower_map_remove_key_in_place` (`map_mutate.rs:928`) locates the key by
+**scanning entries `0..count`** in `mrk_scan_loop`, rather than probing the
+bucket index that `hasKey` uses.
+
+**This is a real, unfixed defect — not a designed cost — and it is deliberately
+not fixed here.** Making the lookup O(1) requires the bucket index to survive a
+delete; `.ai/collections.md` records that the open-addressed index cannot be
+repaired incrementally and that a true O(1) delete is "a structural project",
+which §1's non-goals put out of bounds for this sub-plan. So the row stays where
+it is, with the cause now known and measured rather than guessed.
+
+Consequence for §2's scope table: the two `removeKey` rows counted under "in
+scope here (high constant)" are **not** in scope, and this sub-plan's row target
+is the six no-arm rows (`insert`/`removeAt`/Set `remove`) plus the three
+`prepend` rows — which B2 then also removes. See B2.
+
+### B2 — `prepend` is already at its floor; nothing to apply (2026-09-02)
+
+Phase 3 was told to "apply whatever Phase 1 showed to be the reachable win on
+`prepend`". **`spikes/s7` shows there is none.** Against a bulk
+`collections::append(dst, src)` — a block copy of the same entries and data with
+no per-element work, the closest thing MFBASIC has to a raw `memmove` — the
+in-place prepend arm runs at 1.86× the floor at N = 100 and **0.55× at
+N = 3200**, i.e. cheaper than the copy from N = 400 upward. (The floor is an
+over-estimate: it allocates a destination per call where prepend shifts inside
+the buffer it owns. That is exactly why prepend can beat it.)
+
+The Open Decision's criterion was "within ~3× → stop". Marked moot with the
+measurement, per §4's requirement that a moot be *proven* rather than assumed.
+
+Consequence: with B1 removing the two `removeKey` rows and this removing the
+three `prepend` rows, **the five "in scope here (high constant)" rows of §2 all
+fall away**, and this sub-plan's measurable outcome is exactly the six rows that
+have no arm at all — `list (Fixed|Dynamic) insert`, `list (Fixed|Dynamic)
+removeAt`, `set (Fixed|Dynamic) remove`. §1's goal is unchanged; the tuning half
+of the sub-plan is answered by measurement rather than by code.
+
+### B3 — the expected-drift set is one golden, not a family (2026-09-02)
+
+§3 says "Expected drift: `.ncode`/`.ncodesum` for every fixture containing
+`insert`, `removeAt`, or Set `remove` on a plain local", which reads as a broad
+set to be regenerated. The census in Phase 1 found it is **exactly one file**:
+`tests/rt-behavior/collections/list-ops-codegen-rt/golden/list_ops_codegen_rt.macos-aarch64.ncode`.
+
+Every other fixture using the self-assignment shape ships only
+`.ast`/`.ir`/`build.log`/`.run`, and `.ast`/`.ir` are emitted before codegen, so
+a new in-place arm cannot move them. The `tests/byte-identity/*` fixtures that do
+carry `.ncodesum` for five targets spell these ops as `FOR EACH x IN
+collections::insert(…)`, not as a self-assignment, so every new arm declines
+(G6). That makes Phases 2–3's gate far sharper than the plan assumed: the
+prediction is `1 diff(s)`, and anything else is a bug.
 
 ## Summary
 
