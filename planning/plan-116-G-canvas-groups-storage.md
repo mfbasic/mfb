@@ -509,6 +509,10 @@ The whole breaking surface change, with nothing yet reading it.
       and also `__canvas_tailMatches`, `__canvas_headerIsDeferred`,
       `__canvas_deferredHeader`, `__canvas_deferredHash` and `__canvas_hashItem`.
       Re-measure first: `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`.
+- [ ] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
+      `__canvas_deferredHash` hashes its **name** and `dx`/`dy` (**G6**). A group has an
+      empty header, and a non-deferred kind with an empty header makes every group in a
+      scene share one geometry-cache entry — plan-98-G Correction 14, reproduced.
 - [ ] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
       `mfb man canvas types` lists `Group`.
 
@@ -697,18 +701,36 @@ shows plan-116-E's variant in all seven (`CASE Ellipse(e)` at `:159, :615, :835,
 :1001, :1039, :1105`) — so the letter immediately before this one already paid this cost
 and the count is not a guess about the future.
 
-MFBASIC `MATCH` over a union is exhaustive, so five of the seven would fail to compile
-and the task would self-correct — cheap. But two of them are the *hashing* path
-(`__canvas_deferredHash`, `__canvas_hashItem`), and hashing is where a lazily-written
-arm is dangerous rather than merely missing: `.ai/canvas-threading.md` §3.1 and the
-comment at `:1077` record that two different polygons sharing a header collided and one
-drew twice. A `Group` arm that hashes only `dx`/`dy` and not the **name** would make two
-different groups at the same offset collide exactly that way — and §4.4's revision has
-to be in there too, or the frame skip this letter's Phase 1 pins cannot see a
-`setGroup`.
+MFBASIC `MATCH` over a union is exhaustive, so the missing arms fail to compile and the
+task self-corrects — cheap. The count is not the finding. **The finding is that a
+`Group` must be a DEFERRED kind**, and the letter does not say so.
 
-So the count matters less than the warning: when you add the five arms the compiler
-demands, do not write the hash ones to shut it up.
+`__canvas_hashItem`'s own comment (`sed -n 1063,1073p`) states the rule and the scar:
+
+> *"a deferred kind probes the geometry cache on the hash alone. Hashing that empty
+> header would therefore give every string on screen one hash, and the cache would hand
+> all of them the first string's glyph run: a sixty-item scene drew one glyph, sixty
+> times, in one place (plan-98-G Correction 14)."*
+
+Phase 2 gives `Group` `__canvas_emptyHeader()`. Every group in a scene would then hash
+identically, and `__canvas_geometryFor` would hand them all the first group's cache
+entry — a scene of five different groups drawing the first one five times, which is
+plan-98-G Correction 14 exactly, reproduced by following this letter as written.
+
+`Text` is the only kind that answers `TRUE` from `__canvas_headerIsDeferred` today
+(`sed -n 961,981p`), and the deferred path exists precisely so a kind with no header of
+its own can carry by hand what the header would have carried. `Group` is the second such
+kind. So: `__canvas_headerIsDeferred` returns `TRUE`, and `__canvas_deferredHash` gets an
+arm hashing the **name** and `dx`/`dy` — the name above all, since two groups at the same
+offset differ only by it.
+
+**This is separate from §4.4's revision, and the two must not be confused.**
+`__canvas_present` calls `canvas::publishScene(items)` and only *then*
+`publishHashes(__canvas_hashScene(items))` (`sed -n 88,92p func_present.rs`) — the skip
+is decided before any hash is published, so the frame-skip revision belongs in the
+published node exactly as §4.4 says, and the hash is the *geometry cache* key. Putting
+the revision in the hash as well is defensible (a `setGroup` should invalidate the cached
+geometry too) but it does not substitute for §4.4, and §4.4 does not substitute for this.
 
 **G5 (2026-09-03, pre-execution) — the software group path would slide every gradient,
 and this file is the oracle, so nothing downstream could catch it.** §4.5 says a
