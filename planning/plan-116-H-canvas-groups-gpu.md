@@ -552,6 +552,13 @@ Worth writing down because the failure is invisible on a box without validation 
 and a layout error that the driver tolerates is exactly the kind that reaches a user's
 machine and not ours.
 
+*Re-verified against `main` after plan-116-G's merge (38 commits, including two canvas
+changes), because a line citation into a file a plan series edits is stale before it is
+read:* `grep -n "pPushConstantRanges" src/codegen/runtime/canvas/vulkan.rs` → **501**,
+still the "deliberately absent … with `rangeCount` 0 the pointer must be null" comment;
+`grep -n "declares bytes no stage consumes" …` → **1802**, inside the range the
+correction cites. Both claims hold and both citations still land.
+
 **H3 (2026-09-03, pre-execution) — §4.1's worked example does not add up under either
 answer to §4.3's open question.** It gives `[rect, Group(A) @ (10,20), circle]` with A =
 `[c1, c2]` as `(0,1,0,0)`, `(A,2,10,20)`, `(2,1,0,0)`.
