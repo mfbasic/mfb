@@ -548,6 +548,12 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
+- [ ] Fix **F17**: `__canvas_paintHeader` skips the gradient for `Text` and `NONE` but
+      not for `Line` or `Arc`, which `06_canvas.md` says are *"drawn entirely from
+      `Paint.stroke` and have no interior"* — so its own stated rule ("a kind with no
+      interior takes no gradient") is implemented for two of the four kinds it
+      describes. Add `__CANVAS_KIND_SEGMENT` and `__CANVAS_GEO_ARC` to the skip, and
+      add a test that a gradient on a `Line` changes nothing.
 - [ ] Archive this letter to `planning/completed/` and land it on `main` with
       `git push . HEAD:main` (the repo sets `receive.denyCurrentBranch=updateInstead`,
       so this updates a checked-out `main` in place and **refuses** rather than
@@ -625,6 +631,40 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F17 — a gradient on a `Line` or `Arc` is stored, never keyed, and can be read back on
+the wrong item.** `__canvas_paintHeader` states the rule and then implements half of it:
+
+> *"A kind with no interior takes no gradient: `Text` draws from a cached coverage
+> bitmap and `NONE` draws nothing, so neither has a fill to replace."*
+
+and zeroes `stopCount` for `__CANVAS_GEO_TEXT` and `__CANVAS_GEO_NONE` only
+(`sed -n 249,266p src/codegen/builtins/canvas/helper_geometry.rs`). `Line` and `Arc`
+have no interior either — `06_canvas.md` says so outright: *"both are drawn entirely
+from `Paint.stroke` and have no interior"* — and they are not skipped, so a
+gradient-carrying `Line` stores six header scalars and a five-float-per-stop tail.
+
+That would be harmless if nothing keyed on it, and nothing does — which is the defect.
+`__canvas_hashItem` returns bare `acc` for `CASE Line(l)` and `CASE Arc(a)`, and
+`__canvas_tailMatches` returns `TRUE` for both, so **two `Line`s differing only in their
+gradient stops hash identically, hit the same geometry-cache entry, and the second draws
+the first's stops.** That is precisely the failure the polygon comment at `:1077`
+records ("two same-box, same-count, same-paint triangles collided and one drew twice")
+and that this letter's own `gradients_sharing_a_header_keep_their_own_stops` was written
+to catch — for the kinds it covers.
+
+Two fixes were available. Hashing and tail-comparing `Line`/`Arc` like every other kind
+removes the collision but keeps a stop tail on records that cannot use it. **Skipping
+them in `paintHeader`** matches the rule the code already states, keeps the tail off
+records whose tail means something else — the reason `Text` is skipped — and makes
+`hashItem`'s and `tailMatches`'s existing bare returns correct by construction rather
+than by luck. Taking that one.
+
+Severity is bounded but not zero: a `Line`'s fill coverage is its zero-radius distance
+field, so a gradient paints roughly a hairline along the centreline, under the stroke —
+invisible beneath an opaque stroke, and not beneath a translucent one. The test that
+lands with the fix asserts a gradient on a `Line` changes nothing, which pins the rule
+rather than the current visibility.
 
 **F16 — this letter invalidated the checklist the next two letters will follow.**
 `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things, and three are
