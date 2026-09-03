@@ -85,6 +85,52 @@ A `LINK` close thunk (`_mfb_linker_<alias>_<func>`) sets `RESOURCE_CLOSED_BIT` a
 ### Borrowed-return + return-type-overloaded builtin wiring
 
 A builtin overload that returns a **borrowed** resource ptr aliasing a `List OF RES X` element and/or is **return-type-overloaded** (worked example `tcp::poll(List OF RES tcp::Socket) AS tcp::Socket`) spans:
+
+- **All seven mutating operations now reach a STATE-held collection in place
+  (plan-121-D)**, not just `append`. The dispatch is
+  `try_inplace_state_collection_assign` (`builder_control.rs`), one arm per
+  builtin, and the arms live beside their record-field twins in
+  `collection/assign/builder_inplace_assign.rs` because they share the lowerings
+  verbatim. Two rules decide everything:
+
+  **1. The route is chosen by whether the operation can REALLOCATE**, not by
+  collection kind and not by container (this is plan-121-C's Correction C2,
+  which transfers to STATE unchanged):
+
+  | | operations | how it reaches the field |
+  |---|---|---|
+  | cannot grow | `removeKey`, `removeAt`, Set `remove`, `set` of a **fixed-width** list element | the inlined **sub-block address** (`open_inplace_inlined_subblock`) |
+  | can grow | `append`, `add`, Map `set`, `insert`, `prepend` | grow the **STATE block** and repoint it (`InlineGrow`) |
+
+  Handing a growing lowering a sub-block address is not a slow path: it
+  `free()`s a pointer into the middle of the live STATE block.
+
+  **2. `O4` is the one thing the record container does not need.** Every STATE
+  arm ends in `close_inplace_dest`, which republishes the (possibly moved) block
+  through the resource record's `RESOURCE_OFFSET_STATE` slot, because a STATE
+  block has a **second holder** — every alias of the handle reads through that
+  slot (§15) — where a record local has none. It is a no-op for the other two
+  containers by construction, so the arms do not have to know which they are in.
+
+  **Decline conditions.** There are no *cross-thread* ones, and that is measured
+  rather than assumed: `thread::transfer` **copies** the resource into the
+  receiving arena and **closes the transferring binding**, so at most one thread
+  holds a live handle at any instant and no thread can observe another's
+  half-grown block. `.ai/canvas-threading.md`'s "arena state is per-thread" is
+  *why* the hazard cannot arise, not evidence that it can. The real declines are
+  the ordinary gate set: `G14` (a second updated field in the `WITH` — eliding
+  the rebuild would silently drop its new value), `G17` (not the last inlined
+  field), `G18`/`G12` (not a self-update, or a self-alias), `G24` (`removeAt` of
+  a **recursive** element type — it relocates payloads and `get` on a
+  pointer-linked element is not an independent copy), and the variable-width
+  `list set` row, which belongs to plan-121-F.
+
+  **The trap when changing any of this:** *no `.ncodesum` golden in the tree
+  contains a STATE collection update*, so `artifact-gate.sh` reports 0 diffs
+  whether these arms fire or not. A green gate is a drift sentinel here, never
+  coverage. The instruments that can actually see the path are
+  `tests/rt_res_state_inplace_mutation.rs` (codegen inspection, a positive AND a
+  decline per operation) and the `p121d-state-*-rt` fixtures.
 - **Borrowed-return classification** lives ONLY at the code-lowering layer: `value_aliases_live_resource` (`builder_values.rs`), hardcoded to `collections::get`/`getOr` — generalize with a per-package predicate (`net::returns_borrowed_resource`). A borrowed return registers NO close obligation; `builder_control.rs` gates this behind a resource-typed bind (`resource_cleanup_symbol(type).is_some()`), so classifying on the call name is safe even when a sibling overload returns a non-resource.
 - A borrowed return resolves to the BARE type (RES stripped): `general::list_element("List OF RES Socket") == "Socket"`.
 - **Return-type-overloaded**: `DefaultResolver::return_type_name`/`call_return_type_name` returns `None`, so package `resolve_call` must supply it — AND `builder_values::lower_runtime_helper_call` computes `result_type` via `call_return_type_name` too, so add an arg-shape branch there or it fails "native runtime call 'X' has no return type". `flags.return_type_overloaded` is INERT (asserted false in `descriptor.rs`); don't set it true.

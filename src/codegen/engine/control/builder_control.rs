@@ -231,8 +231,10 @@ impl CodeBuilder<'_> {
     ///   depends on which operation is running, which is exactly why it is shared.
     /// * **Which operation is this?** — this function, one arm per builtin.
     ///
-    /// Phase 1 dispatched `append` alone and changed no behaviour. **Phase 2 adds
-    /// `removeKey`, `add` and `set`**; Phase 3 adds the remaining three.
+    /// **All seven mutating operations now reach a collection held in a
+    /// `RES … STATE` block in place.** Phase 1 dispatched `append` alone and
+    /// changed no behaviour; Phase 2 added `removeKey`, `add` and `set`; Phase 3
+    /// added `removeAt`, Set `remove`, `insert` and `prepend`.
     ///
     /// Order is irrelevant to correctness — each arm re-matches the operation name
     /// through `resolve_inplace_state_field`, so at most one can accept a given
@@ -249,7 +251,11 @@ impl CodeBuilder<'_> {
         Ok(self.try_inplace_state_collection_append(resource, value)?
             || self.try_inplace_state_remove_key_assign(resource, value)?
             || self.try_inplace_state_set_add_assign(resource, value)?
-            || self.try_inplace_state_set_assign(resource, value)?)
+            || self.try_inplace_state_set_assign(resource, value)?
+            || self.try_inplace_state_remove_at_assign(resource, value)?
+            || self.try_inplace_state_set_remove_assign(resource, value)?
+            || self.try_inplace_state_insert_assign(resource, value)?
+            || self.try_inplace_state_prepend_assign(resource, value)?)
     }
 
     /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`

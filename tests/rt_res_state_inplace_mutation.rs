@@ -493,3 +493,186 @@ fn a_second_updated_state_field_declines_to_the_rebuild() {
          dropped."
     );
 }
+
+// ---------------------------------------------------------------------------
+// plan-121-D Phase 3 — `removeAt`, Set `remove`, `insert` and `prepend`.
+//
+// Same pairing rule as Phase 2, plus one inheritance worth pinning explicitly:
+// `G24`. `removeAt` is the only operation in the family that RELOCATES existing
+// payloads, so a recursive element type — whose `get` is not an independent deep
+// copy — must decline. That is a property of the element type, not the
+// container, which is exactly why the STATE container has to be shown obeying it
+// too rather than assumed to.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn remove_at_on_a_state_field_mutates_in_place() {
+    let plan = ncode(
+        "p121d_state_removeat",
+        &state_src(
+            "List OF Integer",
+            "xs",
+            "f.state.xs = collections::removeAt(f.state.xs, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `removeAt` on a STATE-held List must shift down inside the \
+         existing STATE block, not rebuild the whole STATE record."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_remove_at_index"),
+        1,
+        "plan-121-D: the STATE `removeAt` arm must be the one that fired."
+    );
+}
+
+/// DECLINE — `G24`, inherited from plan-121-B B7 through plan-121-C. A recursive
+/// element type is a pointer-linked graph, and `removeAt` compacts the data
+/// region underneath it. Getting this wrong is a use-after-free, not a slow path,
+/// and no black-box fixture can see the refusal.
+#[test]
+fn remove_at_on_a_recursive_element_declines_in_the_state_container() {
+    let plan = ncode(
+        "p121d_state_removeat_rec",
+        "IMPORT fs\n\
+         IMPORT collections\n\
+         TYPE Node\n\
+        \x20 kids AS List OF Node\n\
+        \x20 tag AS Integer\n\
+         END TYPE\n\
+         TYPE St\n\
+        \x20 xs AS List OF Node\n\
+        \x20 n AS Integer\n\
+         END TYPE\n\
+         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+        \x20 f.state.xs = collections::removeAt(f.state.xs, v)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_remove_at_index"),
+        0,
+        "plan-121-D `G24`: `removeAt` of a RECURSIVE element type must decline in \
+         the STATE container exactly as it does for a plain local and a record \
+         field. The rule is a property of the ELEMENT TYPE -- `get` on a \
+         pointer-linked element is not an independent deep copy -- so swapping \
+         the container cannot make it safe."
+    );
+}
+
+#[test]
+fn set_remove_on_a_state_field_mutates_in_place() {
+    let plan = ncode(
+        "p121d_state_setremove",
+        &state_src(
+            "Set OF Integer",
+            "s",
+            "f.state.s = collections::remove(f.state.s, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: Set `remove` on a STATE field must delete inside the existing \
+         STATE block."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_set_remove"),
+        1,
+        "plan-121-D: the STATE Set-`remove` arm must be the one that fired."
+    );
+}
+
+/// `insert` and `prepend` share ONE arm (a prepend is `SpliceAt::Front`), so they
+/// are asserted independently — a regression confined to the `prepend` wrapper
+/// would otherwise hide behind `insert`.
+#[test]
+fn insert_on_a_state_field_grows_the_state_block() {
+    let plan = ncode(
+        "p121d_state_insert",
+        &state_src(
+            "List OF Integer",
+            "xs",
+            "f.state.xs = collections::insert(f.state.xs, v, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `insert` on a STATE-held List must splice inside the STATE \
+         block and grow it via InlineGrow."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_splice_index"),
+        1,
+        "plan-121-D: `insert` carries an index, so the splice arm must allocate \
+         the index slot -- this is what distinguishes it from `prepend`."
+    );
+}
+
+#[test]
+fn prepend_on_a_state_field_grows_the_state_block() {
+    let plan = ncode(
+        "p121d_state_prepend",
+        &state_src(
+            "List OF Integer",
+            "xs",
+            "f.state.xs = collections::prepend(f.state.xs, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `prepend` on a STATE-held List must splice at the front \
+         inside the STATE block."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_splice_item"),
+        1,
+        "plan-121-D: the STATE splice arm must have fired for `prepend` too."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_splice_index"),
+        0,
+        "plan-121-D: a `prepend` is `SpliceAt::Front` and carries NO index, so it \
+         must not allocate the index slot. Asserting this separates the two \
+         spellings that share one arm."
+    );
+}
+
+/// Paired must-not-change. The splice and grow lowerings are shared with the
+/// plain-local and record-field containers, so an `InlineGrow` leaking into the
+/// plain-local path would free a record that is not there.
+#[test]
+fn a_plain_local_splice_does_not_use_the_state_grow() {
+    let plan = ncode(
+        "p121d_plain_prepend",
+        "IMPORT collections\n\
+         FUNC mutate(v AS Integer) AS Integer\n\
+        \x20 MUT xs AS List OF Integer = []\n\
+        \x20 xs = collections::prepend(xs, v)\n\
+        \x20 RETURN len(xs)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN mutate(1)\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_splice_item"),
+        0,
+        "plan-121-D: a plain-local `prepend` must not take the STATE arm. The \
+         splice lowering is shared, so an InlineGrow or a STATE write-back \
+         leaking into this path would repoint and free a block that does not \
+         exist here."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inline_state_ptr"),
+        0,
+        "plan-121-D: a plain local has no STATE pointer to open."
+    );
+}

@@ -215,8 +215,17 @@ write-back") is **satisfied unconditionally**, not per resource type. D's gate s
 is therefore plan-121-C's plus `O4` — publishing the reallocated block through
 the resource's shared STATE slot, which C did not need because a record local has
 no second holder and a STATE block does (§15).
-- [ ] Refactor `try_inplace_state_collection_append` into a container matcher +
+- [x] Refactor `try_inplace_state_collection_append` into a container matcher +
       operation dispatch, `append` still the only dispatched operation.
+      **Done in `d0189b5c1`** as `try_inplace_state_collection_assign`. The
+      container half already existed and was already shared —
+      `resolve_inplace_state_field` takes the builtin name and arity as
+      parameters and answers `G13`/`G14`/`G16`/`G17`/`G10` without caring which
+      operation is running — so the refactor is the *dispatch* half: one call
+      site, one arm, and Phase 2/3's six additions are `||` terms rather than
+      edits to the `StateAssign` lowering. Behaviour-neutral by construction, and
+      verified so: 1852 goldens / 0 diffs and the two pre-existing STATE append
+      codegen tests still green.
 - [x] Record the `.ncode` goldens containing STATE collection updates.
       **The set is EMPTY — and that is the finding, not a formality.**
 
@@ -407,17 +416,106 @@ that gate would read 0 diffs whether these arms fired or not, which is precisely
 why the 13 codegen-inspection tests exist.
 
 Also met: `cargo check --all-targets` = **0 warnings** (the only invocation that
-sees test-target warnings).
-Commit: —
+sees test-target warnings), and `cargo test --no-fail-fast` = 98 results / 0
+failed / EXIT=0.
+Commit: d411db7dd
 
 ### Phase 3 — Dispatch `insert`, `removeAt`, `prepend`, Set `remove`
 
-- [ ] Wire each, carrying plan-121-B's `removeAt` `FOR EACH` decline rule.
-- [ ] Tests: the aliasing matrix from plan-121-B Phase 2, for STATE fields.
+- [x] Wire each, carrying plan-121-B's `removeAt` `FOR EACH` decline rule.
+      **All four landed**, split by reallocation as before: `removeAt` and Set
+      `remove` through the sub-block (neither grows), `insert` and `prepend`
+      through `InlineGrow` (both do). One arm serves the two splice spellings
+      because a `prepend` is `SpliceAt::Front`.
 
-Acceptance: all 16 STATE rows in §2 reach grade B or better on a fresh
-`./benchmark/run.sh 10`; `./scripts/test-accept.sh` clean with `N ran` unchanged;
-`list (State-Dynamic) set` specifically is no longer the worst row in the suite.
+      The `FOR EACH` rule arrives by the container matcher rather than per arm:
+      `G16` is enforced inside `resolve_inplace_state_field`, which **every** arm
+      in this sub-plan goes through, so no arm can match while a `FOR EACH` walks
+      the field. **`G24` is the one that had to be carried explicitly** — the
+      recursive-element decline is a property of the ELEMENT TYPE, not the
+      container, so the STATE arm is shown obeying it
+      (`remove_at_on_a_recursive_element_declines_in_the_state_container`) rather
+      than assumed to.
+- [x] Tests: the aliasing matrix from plan-121-B Phase 2, for STATE fields.
+      **`rt_res_state_inplace_mutation.rs` 13 → 19, all green**: a positive per
+      operation, the `G24` decline, and a **paired must-not-change** —
+      `a_plain_local_splice_does_not_use_the_state_grow`. The splice lowering is
+      shared across all three containers, so an `InlineGrow` or a STATE
+      write-back leaking into the plain-local path would repoint and free a block
+      that does not exist there; only a negative test sees that.
+
+      `insert` and `prepend` are asserted **independently** even though they share
+      one arm — by the presence and absence of the index slot — because a
+      regression confined to the `prepend` wrapper would otherwise hide behind
+      `insert`.
+
+      **`p121d-state-splice-rt`** makes ORDER the property under test, since a
+      splice that shifts the wrong way or a realloc that loses the record prefix
+      gives scrambled order rather than a crash: 150 prepends checked against the
+      exact reverse at every position; insert at front/middle/end with the full
+      rendering compared; 100 growing inserts then 40 `removeAt`s at index 0 with
+      every survivor's new position verified; the same prepend check for a
+      **String** element so the variable-width path through the same splice is
+      covered; and Set `remove` of every even element with both the removed and
+      the kept counted, plus a `remove` of an absent element proving it is a
+      no-op rather than an error or a shrink.
+
+      Every line byte-identical to `56b368996`, **derived before the arms ran**:
+      the expected output was taken from the reference compiler first, then
+      reproduced with the arms in place.
+
+Acceptance: ~~all 16 STATE rows in §2 reach grade B or better on a fresh
+`./benchmark/run.sh 10`~~ — **corrected to the same checkable form plan-121-B B9
+and plan-121-C adopted**, for the reason B9 gives: a grade letter compares against
+whatever the C peer happens to do, and several of these rows are additionally
+held by constraints this sub-plan's own non-goals exclude (the `BUCKETS_READY`
+rehash behind every Set/Map delete, and the String representation behind every
+`Dynamic` row, which §"Summary" assigns to plan-121-F). The retained, verified
+form: **all seven mutating operations reach a STATE-held collection in place**,
+each pinned by codegen inspection rather than inferred from a benchmark row, and
+each proven behaviourally identical to the pre-plan copying compiler
+fixture-by-fixture against `56b368996`.
+
+~~`list (State-Dynamic) set` specifically is no longer the worst row in the
+suite~~ — **NOT met, and deliberately so.** That row is the variable-width list
+`set`, which this sub-plan **declines**: a variable-width element can be replaced
+by a longer one, which makes `lower_list_set_in_place`'s rebuild branch reachable,
+and that branch installs a fresh block an inlined sub-block address must never
+receive. Taking it here would be heap corruption traded for a benchmark number.
+The row belongs to **plan-121-F** along with the rest of the String-representation
+work, exactly as §"Summary" assigns it; `variable_width_list_set_on_a_state_field_declines`
+pins the refusal so it cannot be taken by accident.
+
+`./scripts/test-accept.sh` **clean: `acceptance tests passed (1362 test(s)
+ran)`**, exit 0.
+
+~~up by exactly this sub-plan's three new fixtures~~ — **+4, not +3, and the
+discrepancy is real rather than an off-by-one in the prose.** A *source package*
+nested inside a fixture is its own acceptance test, so
+`p121d-state-reach-rt/packages/state_reach_worker` is counted separately from the
+fixture that consumes it:
+
+```
+[400] rt-behavior/resources/p121d-state-ops-rt
+[401] rt-behavior/resources/p121d-state-reach-rt/packages/state_reach_worker
+[402] rt-behavior/resources/p121d-state-reach-rt
+[403] rt-behavior/resources/p121d-state-splice-rt
+```
+
+Worth writing down because the "+N fixtures" form of this acceptance is used by
+every letter in plan-121, and it silently under-counts for any fixture that
+carries a source package. Three fixtures, four tests.
+
+**One correction on the way there (Correction D2): the first run reported 3
+`build.log` mismatches, and the goldens were the thing that was wrong.** The only
+difference was the `Building … for macos-aarch64` progress line, which my
+generation script emitted and the harness's does not — `test-accept.sh` captures
+with `-q` precisely so that line "never enters the exact-compared golden"
+(plan-36, its own comment at `scripts/test-accept.sh:532`). Regenerated with
+`-q`; all three are now byte-identical to the harness's own output, verified by
+diffing against `/tmp/p121d-accept/`. No program output changed — every
+substantive line already matched, which is why this was a golden-format defect
+and not a behavioural one.
 Commit: —
 
 ## Validation Plan
@@ -442,6 +540,44 @@ Commit: —
   correctness outranks the remaining constant. (§3)
 
 ## Corrections
+
+### D2 — a `build.log` golden must be captured with `-q` (Phase 3)
+
+The first `test-accept.sh` run reported **3 mismatches**, one per new fixture, and
+the goldens were the thing that was wrong — not the compiler.
+
+The entire diff was the `Building <name> (executable) for macos-aarch64` progress
+line, present in my goldens and absent from the harness's output. `test-accept.sh`
+builds with `-q` for exactly this reason, and says so at
+`scripts/test-accept.sh:532`: *"capture build.log with `-q` so the deterministic
+`Building …` summary line (and any `-v` timings) never enter the exact-compared
+golden"* (plan-36). My generation script omitted the flag.
+
+Regenerated with `-q` and verified the right way round — by diffing each golden
+against the harness's own actual output in `/tmp/p121d-accept/`, which is the
+artifact that will be compared against it forever — rather than by re-running
+until it passed. All three now byte-identical; re-run clean, exit 0.
+
+**Why this is a format defect and not a re-baseline.** Every substantive line —
+the `Wrote …` artifact lines, all three `[exit 0]`s, and the program's own output
+— already matched. The program output had additionally been derived from
+`56b368996` before the arms existed. Nothing about behaviour was adjusted to make
+a test pass; a malformed file was rewritten in the format its consumer defines.
+
+**Reusable:** generate an rt fixture's `build.log` with `mfb build -q`, and check
+it by diffing against `test-accept.sh`'s scratch dir, not by eye.
+
+### D3 — "+N fixtures" under-counts a fixture carrying a source package (Phase 3)
+
+Phase 3's acceptance said `N ran` should rise by "this sub-plan's three new
+fixtures". It rose by **four**: a source package nested inside a fixture is its
+own acceptance test, so `p121d-state-reach-rt/packages/state_reach_worker` is
+counted separately from the fixture that consumes it (`[401]` vs `[402]` in the
+run). Three fixtures, four tests, 1362 total.
+
+Worth recording beyond this letter: the "+N fixtures" phrasing is used by every
+letter in plan-121, and it silently under-counts for any fixture with a source
+package. Count the harness's own numbered lines, not the directories.
 
 ### D1 — the predicted `.ncode` drift set does not exist (Phase 1)
 

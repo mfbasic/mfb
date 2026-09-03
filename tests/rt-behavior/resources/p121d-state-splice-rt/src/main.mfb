@@ -1,0 +1,186 @@
+' plan-121-D Phase 3: `removeAt`, Set `remove`, `insert` and `prepend` on a
+' collection held in a `RES ... STATE` block.
+'
+' ORDER IS THE PROPERTY TO WATCH. A splice that shifts the wrong way, or a
+' realloc that loses the record prefix, gives SCRAMBLED ORDER rather than a
+' crash -- and a length check cannot see it. So every part below compares every
+' position, not a count.
+'
+' As with `p121d-state-ops-rt`, no `.ncodesum` golden covers a STATE collection
+' update (Correction D1), so the artifact gate is silent here whether these arms
+' are right or wrong. This fixture and the codegen tests are the only instruments.
+IMPORT collections
+IMPORT io
+IMPORT fs
+IMPORT strings
+
+TYPE ListState
+  xs AS List OF Integer
+  n  AS Integer
+END TYPE
+
+TYPE VarState
+  ss AS List OF String
+  n  AS Integer
+END TYPE
+
+TYPE SetState
+  s AS Set OF Integer
+  n AS Integer
+END TYPE
+
+FUNC pre(RES f AS fs::File STATE ListState, v AS Integer) AS Nothing
+  f.state.xs = collections::prepend(f.state.xs, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC ins(RES f AS fs::File STATE ListState, at AS Integer, v AS Integer) AS Nothing
+  f.state.xs = collections::insert(f.state.xs, at, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC delAt(RES f AS fs::File STATE ListState, at AS Integer) AS Nothing
+  f.state.xs = collections::removeAt(f.state.xs, at)
+  f.state.n = f.state.n - 1
+END FUNC
+
+FUNC preVar(RES f AS fs::File STATE VarState, v AS String) AS Nothing
+  f.state.ss = collections::prepend(f.state.ss, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC drop(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+  f.state.s = collections::remove(f.state.s, v)
+  f.state.n = f.state.n - 1
+END FUNC
+
+FUNC add(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+  f.state.s = collections::add(f.state.s, v)
+  f.state.n = f.state.n + 1
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "tests/rt-behavior/resources/p121d-state-splice-rt/data/input.txt"
+
+  ' ---- prepend: 150 elements, checked against the EXACT reverse. ----
+  RES a AS fs::File STATE ListState = fs::openFile(path)
+  a.state.n = 0
+  MUT i AS Integer = 0
+  WHILE i < 150
+    pre(a, i)
+    i = i + 1
+  END WHILE
+  MUT prebad AS Integer = 0
+  i = 0
+  WHILE i < 150
+    ' After 150 prepends of 0..149, position i holds 149 - i.
+    IF collections::get(a.state.xs, i) <> 149 - i THEN
+      prebad = prebad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("prepend len=" & toString(len(a.state.xs)) & " n=" & toString(a.state.n) & " bad=" & toString(prebad))
+
+  ' ---- insert at front / middle / end, full rendering compared each time. ----
+  RES b AS fs::File STATE ListState = fs::openFile(path)
+  b.state.n = 0
+  ins(b, 0, 10)
+  ins(b, 1, 30)
+  ins(b, 1, 20)
+  ins(b, 3, 40)
+  ins(b, 0, 5)
+  MUT out AS String = ""
+  FOR EACH x IN b.state.xs
+    out = out & toString(x) & ","
+  NEXT
+  io::print("insert=" & out & " n=" & toString(b.state.n))
+
+  ' ---- 120 growing inserts at the midpoint, then verify order exactly. ----
+  RES c AS fs::File STATE ListState = fs::openFile(path)
+  c.state.n = 0
+  ' Build 0..99 in order by inserting each at the end.
+  i = 0
+  WHILE i < 100
+    ins(c, i, i)
+    i = i + 1
+  END WHILE
+  MUT midbad AS Integer = 0
+  i = 0
+  WHILE i < 100
+    IF collections::get(c.state.xs, i) <> i THEN
+      midbad = midbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  ' Now remove every element at index 0, 100 times, and confirm the survivors
+  ' shift down in order each time.
+  i = 0
+  WHILE i < 40
+    delAt(c, 0)
+    i = i + 1
+  END WHILE
+  MUT delbad AS Integer = 0
+  i = 0
+  WHILE i < 60
+    IF collections::get(c.state.xs, i) <> i + 40 THEN
+      delbad = delbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("insert-order bad=" & toString(midbad) & " removeAt len=" & toString(len(c.state.xs)) & " bad=" & toString(delbad) & " n=" & toString(c.state.n))
+
+  ' ---- prepend of a VARIABLE-width element: the same splice, entry table live. ----
+  RES d AS fs::File STATE VarState = fs::openFile(path)
+  d.state.n = 0
+  i = 0
+  WHILE i < 80
+    preVar(d, strings::repeat("s", i + 1))
+    i = i + 1
+  END WHILE
+  MUT vbad AS Integer = 0
+  i = 0
+  WHILE i < 80
+    IF collections::get(d.state.ss, i) <> strings::repeat("s", 80 - i) THEN
+      vbad = vbad + 1
+    END IF
+    i = i + 1
+  END WHILE
+  io::print("prepend var len=" & toString(len(d.state.ss)) & " n=" & toString(d.state.n) & " bad=" & toString(vbad))
+
+  ' ---- Set remove. ----
+  RES e AS fs::File STATE SetState = fs::openFile(path)
+  e.state.n = 0
+  i = 0
+  WHILE i < 200
+    add(e, i)
+    i = i + 1
+  END WHILE
+  i = 0
+  WHILE i < 200
+    IF i MOD 2 = 0 THEN
+      drop(e, i)
+    END IF
+    i = i + 1
+  END WHILE
+  MUT gone AS Integer = 0
+  MUT kept AS Integer = 0
+  i = 0
+  WHILE i < 200
+    IF collections::contains(e.state.s, i) THEN
+      kept = kept + 1
+    ELSE
+      gone = gone + 1
+    END IF
+    i = i + 1
+  END WHILE
+  ' Removing an absent element must be a no-op, not an error or a shrink.
+  drop(e, 9999)
+  io::print("set remove len=" & toString(len(e.state.s)) & " gone=" & toString(gone) & " kept=" & toString(kept))
+
+  fs::close(a)
+  fs::close(b)
+  fs::close(c)
+  fs::close(d)
+  fs::close(e)
+  RETURN 0
+END FUNC

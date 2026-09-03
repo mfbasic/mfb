@@ -149,6 +149,23 @@ Two rules from it that are easy to get wrong:
     `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
     says so) and the sub-block route is sound. A variable-width element makes that
     branch reachable, so the arm must decline.
+* **The third container is `RES … STATE`, and it differs from a record field by
+  exactly one obligation (plan-121-D).** The reallocation split above transfers
+  unchanged — it is a property of the operation, not of who owns the block — so
+  the same seven arms use the same two routes. What a STATE block adds is that it
+  has a **second holder**: the resource record's `RESOURCE_OFFSET_STATE` slot,
+  which every alias of the handle reads through, so a reallocated block must be
+  republished (`close_inplace_dest`, obligation `O4`). A record local has no such
+  holder, which is why its arms end without one.
+
+  No cross-thread decline is needed, and that is measured: `thread::transfer`
+  copies the resource into the receiving arena and closes the transferring
+  binding, so two threads never hold live handles to one STATE at once.
+
+  **Do not read a green artifact gate as coverage for this container** — no
+  `.ncodesum` fixture contains a STATE collection update at all, so it reports 0
+  diffs either way. See `.ai/resources-packages.md` for the full rule and the
+  instruments that can see it.
 * **When a shift-based op looks slow, compare it against its sibling before
   theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
   is what exposed the dead loop. Afterwards, two plausible explanations for the

@@ -1079,6 +1079,216 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// plan-121-D Phase 3: `s.state.field = removeAt(s.state.field, i)` on a
+    /// STATE-held `List` — the STATE twin of
+    /// [`Self::try_inplace_record_field_remove_at_assign`].
+    ///
+    /// Non-growing (it shifts down and decrements `count`), so the sub-block
+    /// route serves it unchanged.
+    ///
+    /// **`G24` applies here for the same reason it applies in the other two
+    /// containers**, and this is the third place the rule is inherited rather
+    /// than rediscovered: `removeAt` is the only operation in the family that
+    /// *relocates existing payloads*, and a recursive element's `get` is not an
+    /// independent deep copy. That is a property of the ELEMENT TYPE, so the
+    /// container is irrelevant to it and the same predicate gates all three.
+    pub(crate) fn try_inplace_state_remove_at_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "removeAt", 2) else {
+            return Ok(false);
+        };
+        let list_type = target.field_type.clone();
+        // `G9` — `removeAt` mutates a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G24` — inherited from plan-121-B B7 via plan-121-C.
+        if crate::codegen::collection::layout::type_participates_in_cycle(
+            &self.type_model,
+            &element_type,
+        ) {
+            return Ok(false);
+        }
+        // `G18` — removing from exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let index = self.lower_value(&target.args[1])?;
+        // `E1` — the index is Integer by construction.
+        if index.type_ != ParameterType::Integer {
+            return Err(format!(
+                "native collection removeAt index must be Integer, got {}",
+                index.type_
+            ));
+        }
+        let index = self.materialize_value(index)?;
+        let index_slot = self.allocate_stack_object("inplace_state_remove_at_index", 8);
+        self.emit(abi::store_u64(
+            &index.location,
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_list_remove_at_in_place(buffer_slot, index_slot, &list_type, &element_type)?;
+        // `O4`.
+        self.close_inplace_dest(&dest)?;
+        Ok(true)
+    }
+
+    /// plan-121-D: `s.state.field = remove(s.state.field, v)` on a STATE-held
+    /// `Set`. A `Set` is a `Map` to `TRUE`, so this reuses
+    /// `lower_map_remove_key_in_place`; non-growing, so the sub-block route.
+    pub(crate) fn try_inplace_state_set_remove_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "remove", 2) else {
+            return Ok(false);
+        };
+        let set_type = target.field_type.clone();
+        // `G9` — `remove` mutates a Set.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G18` — removing from exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the removed value must be the set's element type.
+        match self.static_item_type(&target.args[1]) {
+            Some(vt) if vt == element_type => {}
+            _ => return Ok(false),
+        }
+
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let item = self.lower_value(&target.args[1])?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_state_set_remove", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        let set_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_remove_key_in_place(set_slot, item_slot, &set_type, &element_type)?;
+        // `O4`.
+        self.close_inplace_dest(&dest)?;
+        Ok(true)
+    }
+
+    /// plan-121-D: `s.state.field = insert(s.state.field, i, v)` and its
+    /// `prepend` sibling on a STATE-held `List` — the last two operations, and
+    /// both **growing**, so both take the [`InlineGrow`] route.
+    ///
+    /// One arm serves both spellings, because a `prepend` is `SpliceAt::Front`.
+    /// The codegen tests still assert the two independently: a regression confined
+    /// to the `prepend` wrapper would otherwise hide behind `insert`.
+    ///
+    /// Bounds are the lowering's own (`0 <= index <= count`, plan-121-B B6); the
+    /// container does not change them.
+    fn try_inplace_state_splice_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+        builtin: &str,
+        arity: usize,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_state_field(resource, value, builtin, arity) else {
+            return Ok(false);
+        };
+        let list_type = target.field_type.clone();
+        // `G9` — both operations mutate a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G18` — splicing into exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+        let rhs_index = arity - 1;
+        // `G12` — exclude the self-alias: the grow frees the old block out from
+        // under the right-hand side copy.
+        if self.value_is_state_field(&target.args[rhs_index], resource, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the spliced-in value must be a single element.
+        match self.static_item_type(&target.args[rhs_index]) {
+            Some(vt) if vt == element_type => {}
+            _ => return Ok(false),
+        }
+
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let block_slot = Self::inplace_dest_block_slot(&dest)?;
+        // `insert` carries an index; `prepend` is `SpliceAt::Front`.
+        let at = if arity == 3 {
+            let index = self.lower_value(&target.args[1])?;
+            if index.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native collection insert index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index = self.materialize_value(index)?;
+            let index_slot = self.allocate_stack_object("inplace_state_splice_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
+            ));
+            crate::codegen::collection::list::list_mutate::SpliceAt::At(index_slot)
+        } else {
+            crate::codegen::collection::list::list_mutate::SpliceAt::Front
+        };
+        let item = self.lower_value(&target.args[rhs_index])?;
+        self.observe_float(&target.args[rhs_index], &item)?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_state_splice_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_list_splice_in_place(
+            buffer_slot,
+            at,
+            item_slot,
+            &list_type,
+            &element_type,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot,
+                field_off_slot,
+            }),
+        )?;
+        // `O4` — the grow may have moved the STATE block; publish it.
+        self.close_inplace_dest(&dest)?;
+        Ok(true)
+    }
+
+    /// `s.state.field = insert(s.state.field, i, v)`.
+    pub(crate) fn try_inplace_state_insert_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        self.try_inplace_state_splice_assign(resource, value, "insert", 3)
+    }
+
+    /// `s.state.field = prepend(s.state.field, v)`.
+    pub(crate) fn try_inplace_state_prepend_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        self.try_inplace_state_splice_assign(resource, value, "prepend", 2)
+    }
+
     /// plan-121-C: `rec = WITH rec { field := insert(rec.field, i, v) }` and its
     /// `prepend` sibling — the last two Phase 3 operations, and both **growing**,
     /// so both take the [`InlineGrow`] route rather than the sub-block one.
