@@ -1,0 +1,114 @@
+{
+  "project": "func_encoding_codepageDecode_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 12 },
+    { "module": "encoding", "line": 13 },
+    { "module": "collections", "line": 14 },
+    { "module": "errorCode", "line": 15 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "codepointOf",
+      "line": 19,
+      "params": [
+      { "name": "cp", "type": "encoding.Codepage", "default": null, "line": 19 },
+      { "name": "b", "type": "Integer", "default": null, "line": 19 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "one", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "one" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "points", "type": "List OF Integer", "value": { "kind": "call", "callee": "encoding.utf32Encode", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "number", "value": "0" }] }, "line": 23 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 24,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } },
+        "line": 25,
+        "then": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 26 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 28 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "digest",
+      "line": 32,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 32 },
+      { "name": "cp", "type": "encoding.Codepage", "default": null, "line": 32 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "mapped", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "128" }, "line": 35 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "256" } },
+        "line": 36,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "point", "type": "Integer", "value": { "kind": "call", "callee": "codepointOf", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "b" }] }, "line": 37 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "point" }, "right": { "kind": "number", "value": "0" } },
+          "line": 38,
+          "then": [
+          { "kind": "assignment", "name": "mapped", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "mapped" }, "right": { "kind": "number", "value": "1" } }, "line": 39 },
+          { "kind": "assignment", "name": "sum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sum" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "127" } }, "right": { "kind": "identifier", "value": "point" } } }, "line": 40 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "b", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "1" } }, "line": 42 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "name" }, "right": { "kind": "string", "value": " mapped=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "mapped" }] } }, "right": { "kind": "string", "value": " sum=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sum" }] } }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 45 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 48,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "cafe", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "99" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "97" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "102" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "233" }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "identifier", "value": "cafe" }] }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "ascii", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "Hi!~ 0" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "identifier", "value": "ascii" }] }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows874" }, { "kind": "identifier", "value": "none" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "wide", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "héllo 世界" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Utf8" }, { "kind": "identifier", "value": "wide" }] }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "digest", "arguments": [{ "kind": "string", "value": "Windows1252" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "digest", "arguments": [{ "kind": "string", "value": "Windows874" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows874" }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 69 }
+      ]
+    }
+    ]
+  }
+  ]
+}

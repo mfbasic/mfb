@@ -50,13 +50,14 @@
 //! `call_param_names` seam remains.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::registry::{Registry, RegistryPackage};
+use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPackage};
 mod func_base32_decode;
 mod func_base32_encode;
 mod func_base64_decode;
 mod func_base64_encode;
 mod func_base64_url_decode;
 mod func_base64_url_encode;
+mod func_codepage_decode;
 mod func_form_url_decode;
 mod func_form_url_encode;
 mod func_hex_decode;
@@ -86,6 +87,7 @@ mod helper_base64_value;
 mod helper_base_decode_bits;
 mod helper_base_encode;
 mod helper_byte_char;
+mod helper_codepage_table;
 mod helper_codepoints;
 mod helper_from_codepoint;
 mod helper_hex_digit;
@@ -153,6 +155,35 @@ pub(crate) fn register(r: &mut Registry) {
     // helper block (which also declares the four overloaded utf8 bodies).
     pkg.add_imports(vec!["bits", "strings", "collections"]);
 
+    // The codepage selector for `codepageDecode`. Rendered as `EXPORT ENUM Codepage`
+    // ahead of the helpers (records -> unions -> enums -> helpers -> bodies), so
+    // `__encoding_codepageTable` can `MATCH` on it.
+    //
+    // PHASE 1 THROWAWAY (plan-123-A): three variants. Phase 2 replaces this with the
+    // full WHATWG legacy single-byte set. Variant ORDER fixes the discriminants and
+    // is append-only once landed.
+    pkg.add_enum(RegistryEnum {
+        name: "Codepage",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Utf8",
+                description: "UTF-8 -- decodes through `encoding::utf8Decode`.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Windows1252",
+                description: "windows-1252 (Western European).",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Windows874",
+                description: "windows-874 (Thai).",
+                advisory: None,
+            },
+        ],
+    });
+
     // The shared private `__encoding_*` helpers the member bodies call (including the
     // four overloaded `__encoding_utf8Encode`/`utf8Decode` bodies). Each lives in its
     // own `helper_*.rs` and registers via `add_helper`; order preserved from the old
@@ -186,6 +217,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_puny_encode_label::register(&mut pkg);
     helper_puny_decode_label::register(&mut pkg);
     helper_label_has_non_ascii::register(&mut pkg);
+    helper_codepage_table::register(&mut pkg);
 
     // The two overloaded names first, then the non-overloaded codecs, mirroring the
     // pre-migration descriptor order.
@@ -217,6 +249,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_sleb128_decode::register(&mut pkg);
     func_varint_encode::register(&mut pkg);
     func_varint_decode::register(&mut pkg);
+    func_codepage_decode::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -272,8 +305,9 @@ mod tests {
         let pkg = registry()
             .resolve_package("encoding")
             .expect("encoding package");
-        // 28 public members (2 overloaded + 26 non-overloaded).
-        assert_eq!(pkg.functions().len(), 28);
+        // 29 public members (2 overloaded + 27 non-overloaded). `codepageDecode`
+        // is the 29th (plan-123-A); `codepageEncode` makes it 30 in plan-123-B.
+        assert_eq!(pkg.functions().len(), 29);
     }
 
     #[test]

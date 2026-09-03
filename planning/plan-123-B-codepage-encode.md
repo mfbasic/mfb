@@ -83,18 +83,19 @@ write-plan rule on scope derived from another sub-plan's estimate):
 
 | What | Count | Command |
 |---|---|---|
-| `Codepage` variants to cover | 28 (as landed by A) | `./target/release/mfb man encoding types` → count the `Codepage` variants |
+| `Codepage` variants to cover | **29** as landed by A — `Utf8` plus the 28 WHATWG single-byte labels (see plan-123-A Open Decisions) | `./target/release/mfb man encoding types` → count the `Codepage` variants |
 | Distinct tables to search | 27 | `ls tools/codepage-index/*.txt \| wc -l` |
 | Scalars searched per unmappable character (worst case) | 128 | table length, by construction |
 
 ### Verified properties
 
-- **The reverse lookup is unambiguous.** Within one WHATWG single-byte index, no code
-  point appears twice — so a character maps to at most one byte and
-  `strings::find(table, ch)` cannot pick the wrong one. **UNVERIFIED as written:
-  Phase 1's first task is to check this across all 27 vendored files** and record the
-  result here. If any table does contain a duplicate, the design changes (lowest byte
-  wins, documented) rather than the check being dropped.
+- **MEASURED — the reverse lookup is unambiguous.** Within one WHATWG single-byte
+  index, no code point appears twice, so a character maps to at most one byte and a
+  scalar search over the table cannot pick the wrong one.
+  `python3 scripts/audit_codepage_index.py` → `files with a repeated code point: 0`
+  across all 27 vendored files (and it exits non-zero if that ever stops holding, so
+  this is a standing check rather than a one-time observation). No tie-break rule is
+  needed; the plain search is justified by measurement.
 - **U+FFFD never appears as a real mapping** (plan-123-A measured max code point
   U+FB02), so the hole sentinel cannot be mistaken for an encodable character — the
   encoder must still reject U+FFFD in the *input* explicitly rather than letting it
@@ -112,15 +113,27 @@ whatever byte the hole occupies — a wrong-bytes bug that byte-count assertions
 not catch. The encoder must reject U+FFFD before the search. This is the single
 subtle case in the plan and Phase 2's test pins it explicitly.
 
+**Absence is guarded, not trapped.** Measured (`mfb man strings find`):
+`strings::find` "always returns a valid index on success and never reports absence
+with a sentinel such as -1. When needle does not occur at or after start it raises
+ErrNotFound", and the page's own guidance is "When absence is an ordinary, expected
+outcome, guard the two-argument form with `strings::contains`". Absence *is* the
+ordinary outcome here — every unrepresentable character takes that path — so §4 uses
+`strings::contains` and calls `find` only once a match is known to exist, rather than
+the inline `TRAP`/`RECOVER` the plan sketched. See Corrections.
+
 **Where design uncertainty concentrates — schedule first:** whether any table has a
 duplicate code point (§2 Verified properties), which decides whether a plain search
 is sound. It is one script over 27 committed files; run it before writing the member.
 
 **Byte-identity is NOT this plan's gate.** This adds a member to a widely-imported
-injected package, so `.ir`/`.ncodesum` line shifts are expected in `encoding` and its
-3 importers (csv, json, regex — measured in plan-123-A). The gate is the round-trip
-rt fixture. A diff outside those packages is a real signal: root-cause it (objdump
-one fixture), do not regenerate past it.
+injected package, so `.ir` line shifts are expected — and they reach **every** package
+that reaches `strings`, not just csv/json/regex, because `strings`' scalar seam
+carries `IMPORT encoding` (plan-123-A Corrections 2; measured at 64 moved `.ir`
+goldens for the decode half alone). The gate is the round-trip rt fixture. The shape
+check is that every moved golden's diff mentions `codepage`/`Codepage`; one that
+mentions neither is a real signal — root-cause it (objdump one fixture), do not
+regenerate past it.
 
 Rejected alternatives:
 
@@ -139,6 +152,9 @@ Rejected alternatives:
 
 ```
 FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List OF Byte
+  IF codepage = Codepage.Utf8 THEN
+    RETURN __encoding_utf8Encode(text)          ' existing overload, -> List OF Byte
+  END IF
   LET table AS String = __encoding_codepageTable(codepage)
   MUT out AS List OF Byte = []
   FOR EACH ch IN strings::graphemes(text)
@@ -146,21 +162,18 @@ FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List OF 
     IF len(ch) <> 1 THEN
       FAIL error(77050003, "character not representable in this codepage")
     END IF
-    LET cp AS Integer = <code point of ch>
-    IF cp < 128 THEN
-      out = collections::append(out, toByte(cp))
+    LET point AS Integer = collections::get(__encoding_codepoints(ch), 0)
+    IF point < 128 THEN
+      out = collections::append(out, toByte(point))
     ELSE
       ' Reject the sentinel BEFORE searching, or it matches a table hole.
       IF ch = "\u{FFFD}" THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF
-      LET idx AS Integer = strings::find(table, ch) TRAP(e)
-        RECOVER -1
-      END TRAP
-      IF idx < 0 THEN
+      IF NOT strings::contains(table, ch) THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF
-      out = collections::append(out, toByte(idx + 128))
+      out = collections::append(out, toByte(strings::find(table, ch) + 128))
     END IF
   NEXT
   RETURN out
@@ -169,10 +182,16 @@ END FUNC
 
 Notes the implementer must not skip:
 
-- `strings::find` **raises rather than returning -1 when not found** (it is the
-  not-found case the package documents); the inline `TRAP`/`RECOVER` above is load
-  bearing. Confirm its actual not-found behavior by reading
-  `mfb man strings find` before writing this — do not assume either way.
+- `strings::find` **raises `ErrNotFound` rather than returning -1 when not found**
+  — confirmed by reading `mfb man strings find`, which also says to guard with
+  `strings::contains` when absence is an ordinary outcome. It is: every
+  unrepresentable character takes that path. Hence the `contains` guard above rather
+  than the inline `TRAP`/`RECOVER` this plan first sketched (Corrections 2).
+- `__encoding_codepoints(String) AS List OF Integer` is the package's existing
+  scalar reader (`helper_codepoints.rs`); reuse it rather than adding a second path.
+  `len(ch)` counts Unicode **scalars** for a `String`
+  (`mfb man general len`), so `len(ch) <> 1` is exactly "this grapheme is more than
+  one scalar".
 - Iterating graphemes (not scalars) is deliberate: it makes "a combining sequence has
   no single-byte form" a clean raise instead of a partial encode.
 - `collections::append` in a loop over a local `out` is the in-place shape; keep `out`
@@ -217,6 +236,9 @@ Commit: `—`
       register it in `src/codegen/builtins/encoding/mod.rs:register`.
 - [ ] Read `mfb man strings find` and confirm the not-found behavior the body
       depends on; adjust §4 and the body to match what it actually does.
+- [ ] Add `codepageEncode` to `tests/byte-identity/encoding/src/main.mfb` so the
+      `encoding_codegen_cover_rt` `.ncodesum` goldens actually hash it, and
+      regenerate them with `scripts/regen-ncodesum.sh`.
 - [ ] Tests: **round-trip** rt fixture — for every `Codepage` variant, every byte
       0x80–0xFF that decodes without raising must survive
       `codepageEncode(cp, codepageDecode(cp, [b])) == [b]`. Whole-range, not a sample.
@@ -228,8 +250,8 @@ Commit: `—`
       `sync-goldens.sh` creates none, and a missing one only surfaces in a full
       `scripts/test-accept.sh` run.
 
-Acceptance: the whole-range round-trip fixture passes for all 28 variants; encoding
-U+FFFD raises `77050003` rather than emitting a hole byte.
+Acceptance: the whole-range round-trip fixture passes for all 28 single-byte
+variants; encoding U+FFFD raises `77050003` rather than emitting a hole byte.
 Commit: `—`
 
 ### Phase 3 — docs, throughput, and full validation
@@ -248,8 +270,11 @@ Commit: `—`
 - [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 Acceptance: `cargo test --no-fail-fast` and `scripts/test-accept.sh` green (watch the
-`N ran` count); `mfb man encoding codepageEncode` renders and its examples run; golden
-deltas confined to `encoding` and its 3 importers.
+`N ran` count); `mfb man encoding codepageEncode` renders and its examples run; every
+moved golden's diff mentions `codepage`/`Codepage` — NOT "confined to `encoding` and
+its 3 importers", which plan-123-A measured to be the wrong shape check (its
+Corrections 2: `strings`' scalar seam `IMPORT encoding`s, so the churn reaches
+everything that reaches `strings`).
 Commit: `—`
 
 ## Validation Plan
@@ -268,20 +293,53 @@ Commit: `—`
 
 ## Open Decisions
 
-- **Grapheme iteration vs. scalar iteration** — recommended graphemes, so a combining
-  sequence raises cleanly instead of encoding its base and dropping the mark. The
-  counter-case is that a lone combining mark then raises where a scalar loop would
-  have emitted a byte; for a single-byte codepage that byte would be wrong anyway.
-  (§4)
-- **Whether `Utf8`/`Utf16Le`/`Utf16Be` variants encode too** — depends on
-  plan-123-A's open decision on whether those variants exist. If A includes them,
-  this member must handle them by delegating to `utf8Encode`/`utf16Encode`; if A
-  excludes them, nothing to do. Resolve A's decision first. (§plan-123-A Open
-  Decisions)
+Both are **RESOLVED**.
+
+- **RESOLVED — grapheme iteration**, as recommended. `strings::graphemes(value AS
+  String) AS List OF String` walks user-perceived characters, and `len(ch)` counts
+  Unicode scalars for a `String` (`mfb man general len`), so `len(ch) <> 1` is a
+  clean, exact test for "this grapheme has more than one scalar and therefore no
+  single-byte form". A scalar loop would instead encode the base letter and silently
+  drop its combining mark — a wrong-bytes result rather than a raise. The
+  counter-case (a lone combining mark now raises) is the right outcome: no
+  single-byte codepage in the set has a byte for a combining mark, so a scalar loop
+  would have raised on it too.
+- **RESOLVED — `Utf8` encodes; there are no `Utf16Le`/`Utf16Be` variants.**
+  plan-123-A settled this (its Open Decisions): `utf16Decode`/`utf16Encode` work in
+  UTF-16 **code units**, not bytes, so those two variants would have been new
+  byte-order behavior rather than a delegation, and they were dropped.
+  `codepageEncode` therefore has exactly one delegation arm,
+  `RETURN __encoding_utf8Encode(text)` — the `String -> List OF Byte` overload,
+  selected by this member's declared return type.
 
 ## Corrections
 
-<Filled in DURING execution.>
+1. **§2's UNVERIFIED duplicate premise is now measured, and it holds.** No code
+   point repeats within any of the 27 vendored index files
+   (`python3 scripts/audit_codepage_index.py` → `files with a repeated code point:
+   0`), so a plain scalar search over a table is unambiguous and no lowest-byte-wins
+   tie-break is needed. The check is standing, not one-shot: the script exits
+   non-zero if a future re-fetch introduces a duplicate.
+
+2. **The not-found guard is `strings::contains`, not an inline `TRAP`/`RECOVER`.**
+   §4 sketched `LET idx = strings::find(...) TRAP(e) RECOVER -1 END TRAP` and told
+   the implementer to confirm `find`'s behavior first. Confirmed
+   (`mfb man strings find`): it raises `ErrNotFound` and never returns a `-1`
+   sentinel — *and* the same page says to guard with `strings::contains` when absence
+   is an ordinary outcome. It is ordinary here: every unrepresentable character takes
+   that path, so it is a control-flow branch, not an exception. The body now guards
+   with `contains` and calls `find` only once a match is known to exist. Same
+   behavior, no `TRAP` on the common failure path.
+
+3. **`Codepage` has 29 variants, not 28.** plan-123-A added `Utf8` at discriminant 0
+   (see its Open Decisions). §2's inherited count is corrected; the round-trip
+   fixture covers the 28 single-byte variants and `Utf8` is covered separately, since
+   a lone high byte is not valid UTF-8 and has no round trip through it.
+
+4. **The scalar of a grapheme comes from `__encoding_codepoints`.** §4 wrote
+   `<code point of ch>` as a placeholder. The package's existing
+   `__encoding_codepoints(String) AS List OF Integer` (`helper_codepoints.rs`) is
+   that reader; no second path was added.
 
 ## Summary
 

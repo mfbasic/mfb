@@ -58,5 +58,10 @@ if python3 scripts/check_vector_bodies.py; then :; else status=1; fi
 check scripts/gen_unicode_gencat_table.py src/codegen/string/unicode/unicode_gencat_ranges.txt
 check scripts/gen_unicode_script_table.py src/codegen/string/unicode/unicode_script_ranges.txt
 check scripts/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_names.mfb
+# plan-123: the `Codepage` enum and the 27 WHATWG legacy single-byte tables are
+# derived from the vendored index files under tools/codepage-index/. Nobody can
+# review 3,342 mappings by eye, so the artifact is never hand-edited -- this gate
+# is what makes that true.
+check scripts/gen_codepage_tables.py src/codegen/builtins/encoding/helper_codepage_table.rs
 
 exit "$status"

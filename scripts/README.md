@@ -112,6 +112,19 @@ Build fixture programs, run them, and diff their behavior against goldens.
 - **gen_vector_package.py** — Generates `src/builtins/vector_package.mfb`: the
   nine vector records and ~170 overloaded geometry/utility functions, keeping the
   per-(element-type, dimension) patterns and evaluation order uniform.
+- **gen_codepage_tables.py** — Generates
+  `src/codegen/builtins/encoding/helper_codepage_table.rs`: the `encoding::Codepage`
+  enum's variant list *and* the 27 WHATWG legacy single-byte tables behind
+  `codepageDecode`/`codepageEncode`, emitted together from one list so a variant
+  cannot exist without a table. Reads the vendored index files under
+  `tools/codepage-index/`, never the network.
+- **fetch_codepage_index.py** — Re-fetches those index files from
+  <https://encoding.spec.whatwg.org/>. Run it, `git diff tools/codepage-index/` to
+  review what upstream changed, then re-run `gen_codepage_tables.py`.
+- **audit_codepage_index.py** — Checks the three data premises the codepage design
+  rests on: U+FFFD is a safe "unmapped" sentinel (no table maps it), every mapping
+  is one BMP scalar, and no code point repeats within a file (so the encoder's
+  reverse lookup is unambiguous). Exits non-zero if any fails.
 - **check-generated.sh** — Generated-artifact integrity gate: re-runs each
   generator and fails if the checked-in artifact no longer matches, so "re-run the
   generator" is always safe and drift can't land.

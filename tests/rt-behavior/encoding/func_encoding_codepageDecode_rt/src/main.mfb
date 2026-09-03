@@ -1,0 +1,70 @@
+REM plan-123-A Phase 1: `encoding::codepageDecode` over the throwaway
+REM three-variant `Codepage` enum. Phase 2 widens this to the full WHATWG legacy
+REM single-byte set; the shape of the checks does not change.
+REM
+REM The per-codepage lines are a WHOLE-RANGE differential, not a spot check: for
+REM every single-byte variant this walks all 128 high bytes 0x80-0xFF, counts the
+REM ones the codepage maps, and folds each mapped byte's code point into a
+REM POSITION-WEIGHTED sum. The weight is what makes it differential -- a table
+REM shifted by one byte keeps the same code points and the same mapped count but
+REM cannot keep the same sum.
+
+IMPORT io
+IMPORT encoding
+IMPORT collections
+IMPORT errorCode
+
+' The code point byte `b` decodes to in `cp`, or -1 when `cp` leaves it unmapped.
+' Any other failure answers -2, so a wrong error code cannot pass as a hole.
+FUNC codepointOf(cp AS encoding::Codepage, b AS Integer) AS Integer
+  LET one AS List OF Byte = [toByte(b)]
+  LET text AS String = encoding::codepageDecode(cp, one)
+  LET points AS List OF Integer = encoding::utf32Encode(text)
+  RETURN collections::get(points, 0)
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
+FUNC digest(name AS String, cp AS encoding::Codepage) AS Nothing
+  MUT mapped AS Integer = 0
+  MUT sum AS Integer = 0
+  MUT b AS Integer = 128
+  WHILE b < 256
+    LET point AS Integer = codepointOf(cp, b)
+    IF point >= 0 THEN
+      mapped = mapped + 1
+      sum = sum + (b - 127) * point
+    END IF
+    b = b + 1
+  END WHILE
+  io::print(name & " mapped=" & toString(mapped) & " sum=" & toString(sum))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  ' The plan's single behavioral outcome: bytes that toString rejects as UTF-8
+  ' read as text here.
+  LET cafe AS List OF Byte = [toByte(99), toByte(97), toByte(102), toByte(233)]
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows1252, cafe))
+
+  ' Bytes 0x00-0x7F are ASCII in every single-byte codepage.
+  LET ascii AS List OF Byte = encoding::utf8Encode("Hi!~ 0")
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows1252, ascii))
+
+  ' The empty input decodes to the empty string.
+  LET none AS List OF Byte = []
+  io::print("[" & encoding::codepageDecode(encoding::Codepage.Windows874, none) & "]")
+
+  ' `Codepage.Utf8` decodes the whole input as UTF-8 instead of a byte at a time.
+  LET wide AS List OF Byte = encoding::utf8Encode("héllo 世界")
+  io::print(encoding::codepageDecode(encoding::Codepage.Utf8, wide))
+
+  ' Whole-range digests, one line per single-byte codepage, in discriminant order.
+  digest("Windows1252", encoding::Codepage.Windows1252)
+  digest("Windows874", encoding::Codepage.Windows874)
+  RETURN 0
+END FUNC
