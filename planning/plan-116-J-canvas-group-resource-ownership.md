@@ -132,8 +132,17 @@ the time of writing, so a future implementer can see what changed.
   about thread-boundary **types**; nothing in it inspects storage duration or which
   thread touches a value, so process-global storage, a module-level `MUT`, and any
   buffer the graphics thread reads are all outside its reach. plan-116-G's design
-  stands on this axis. plan-114-A has landed; **re-verify the fire-sites claim in
-  Phase 1** against `src/ir/verify/resources.rs` as merged rather than inheriting it.
+  stands on this axis.
+
+  **Re-verified 2026-09-03 against `resources.rs` as merged, and it holds.**
+  `grep -n emit_thread_resource_plane_required src/ir/verify/resources.rs` gives one
+  definition (`:574`, whose own doc comment says *"the one place `2-203-0138` is
+  worded"*) and exactly **three** callers, at `:559`, `:622` and `:749`, inside
+  `require_thread_sendable` (`:555`), `check_thread_sendability` (`:591`) and
+  `check_thread_boundary_sendability` (`:662`). All three take a `ParameterType` and
+  nothing else; none can see storage duration or which thread touches a value. So the
+  claim is measured rather than inherited, and Phase 1 can tick this row by re-running
+  that grep instead of re-deriving the argument.
 
 - **The constraint that *does* govern the group table is the arena one, not the rule.**
   Arena state is per-thread and a spawned thread sees its own zeroed copy, so
