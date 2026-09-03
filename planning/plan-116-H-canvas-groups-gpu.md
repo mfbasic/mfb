@@ -576,8 +576,20 @@ expectation no correct implementation can satisfy — so the test fails, gets "f
 reading them off the implementation, and stops being an independent check of anything.
 
 Rewritten to give both sequences explicitly and to say which question picks between
-them. The recommendation stands where §4.3 left it: uploaded-once is what makes a
-diamond share a buffer, which is the property this letter exists for.
+them.
+
+**The recommendation is withdrawn — see H5.** §4.3 reasoned that uploaded-once "is what
+makes a diamond share a buffer, which is the property this letter exists for". Measured
+after plan-116-G, that sentence conflates two buffers: the **geometry cache** already
+shares a diamond completely (`entries=1` for four drawn instances of one rectangle), and
+that is the property the feature's speed goal named. What repeats per reference is the
+**draw list**, and a GPU **item block** cannot be shared between two references while the
+offset lives in the block — which is precisely what §4.2 moves out of it.
+
+So Phase 1 inherits G's inline-per-reference list and the first sequence above is the
+live one: `(0,1,0,0)`, `(1,2,10,20)`, `(3,1,0,0)`. Whether to *additionally* share item
+blocks once the offset is a push constant is a measurement Phase 1 may take, not a design
+question it must answer first — and H5 gives the honest default.
 
 **H2 (2026-09-03, pre-execution) — §4.2's list of "everything downstream of `p`" names
 the gradient, and the gradient is not downstream of `p`.** The sentence reads *"every
