@@ -455,6 +455,28 @@ Commit: —
 
 ## Corrections
 
+- **F2 (2026-09-02, pre-execution) — plan-122-D will delete `canvas::Color`, and this
+  letter adds new surface that names it.** Main landed plan-122's six sub-plan documents
+  (`d5889c379`) while plan-116-E was finishing. No code yet — the commit is
+  `planning/plan-122-*.md` only, 2193 lines and nothing under `src/` — but **plan-122-D
+  is a canvas migration** that says outright: "Delete `canvas::Color`, `canvas::rgb` and
+  `canvas::rgba`", replacing them with `color::Color`, whose "field names, order and
+  types are identical to `canvas::Color`'s by construction".
+
+  This letter's `GradientStop` carries a `color AS Color`, and its man examples will
+  name `canvas::rgb`. So the two plans touch the same surface, in one direction:
+  whichever lands second inherits the other's rename.
+
+  **Not a blocker and not a reason to change this letter's design.** The field is
+  structurally identical by plan-122-D's own construction, so the migration is a
+  find-and-replace over a name rather than a change of shape, and plan-122-D's census
+  of "man examples naming `canvas::Color`/`rgb`" is exactly the mechanism that will
+  sweep whatever this letter adds. Recorded so that whoever runs plan-122-D re-censuses
+  rather than working from that list: **it was written before `GradientStop`,
+  `Gradient` and this letter's `canvas::fill`/`fillStroke` gradient example existed.**
+  The same warning plan-116-D's D2 earned the hard way — a census over a shared
+  checkout is measured at the merge, not at plan time.
+
 - **F1 (2026-09-02, pre-execution) — the header slot numbers are one high, for the
   fourth letter running.** This letter puts the gradient's six slots at 42–47 and takes
   `HEADER_SLOTS` to 48. plan-116-E landed **41**
