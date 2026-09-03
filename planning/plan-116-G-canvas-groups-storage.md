@@ -173,7 +173,7 @@ counter folded into the comparison.
 | Tests pinning/iterating the variant list | 3 | `mod.rs:1109`, `:1139`, `:1161` |
 | plan-114 letters completed | 5 | `ls planning/completed/plan-114-*` (2026-09-01) |
 | Ban on resource record fields | retired by plan-114 | `sed -n 1008,1019p src/rules/table.rs` — reserved, never emitted |
-| Process-global canvas state symbols today | 1 (`CANVAS_SCENE_SYMBOL`) | `.ai/canvas-threading.md` §3 |
+| Process-global canvas state symbols today | ~~1~~ **3** | `sed -n 906,932p src/codegen/engine/builder/mod.rs` — `graphics_state_data_object()`, `CANVAS_SCENE_SYMBOL`, `CANVAS_FONTS_SYMBOL` (**G4**) |
 | `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
 
 > **Census re-verified 2026-09-02 (pre-execution).** All six rows still hold exactly
@@ -189,7 +189,7 @@ counter folded into the comparison.
 > `2-203-0084` still reserved-and-never-emitted (its only in-tree uses are the two
 > `ir/verify/tests.rs` assertions that it is *not* raised, plus the spec's history
 > note), 1 process-global canvas symbol (`CANVAS_SCENE_SYMBOL`), 13 compile-gated man
-> members.
+> members — except the process-global count, which was wrong when written (**G4**).
 >
 > **The line numbers this letter cites have not held.** F added the `GradientKind`
 > enum and the `GradientStop`/`Gradient` records to `mod.rs`, moving the three pinning
@@ -621,6 +621,36 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G4 (2026-09-03, pre-execution) — there are three process-global canvas symbols, not
+one, and the third is the precedent this letter needed.** §2's table says *"Process-
+global canvas state symbols today — 1 (`CANVAS_SCENE_SYMBOL`)"*. Measured with
+`sed -n 906,932p src/codegen/engine/builder/mod.rs`, the `module_uses_canvas(module)`
+arm pushes **three**:
+
+* `graphics_state_data_object()` (`src/codegen/runtime/canvas/mod.rs`),
+* `CANVAS_SCENE_SYMBOL` = `_mfb_rt_canvas_scene`, and
+* `CANVAS_FONTS_SYMBOL` = `_mfb_rt_canvas_fonts` — added by plan-98-G with the comment
+  *"the loaded-font table, process-global for the same reason — the worker loads a font
+  and the graphics thread rasterises from it."*
+
+Both constants live in `src/codegen/error/constants/error_constants.rs:404,:422`.
+
+This is not a nitpick, it changes what §4.1 has to argue. As written, §4.1 justifies a
+process-global group table from first principles (arena state is per-thread, so a
+reader on the graphics thread cannot see worker arena memory) as though it were the
+second such table ever. It is the **fourth**, and `CANVAS_FONTS_SYMBOL` is a
+name-keyed, worker-written, graphics-read, fixed-size table — structurally the same
+object as the group table, added for the same stated reason.
+
+So the group table should be built as `CANVAS_FONTS_SYMBOL`'s sibling, and Phase 3
+should read that declaration before writing a new one. A design that re-derives an
+existing pattern usually diverges from it in some small way, and here the small ways
+(fixed size, no reallocation, worker-only writes) are the ones that keep a reader on
+another thread safe.
+
+Corrected in the table. §4.1's *conclusion* is right and unchanged; only its claim to
+novelty was wrong.
 
 **G3 (2026-09-03, pre-execution) — the depth error already exists; only the table-full
 one is new.** Phase 4 asks for "a named trappable error" for group nesting past 64, and
