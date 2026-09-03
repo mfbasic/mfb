@@ -28,6 +28,8 @@ const MEMBERS: &[&str] = &[
     "fillStroke",
     "present",
     "presentLayers",
+    "setGroup",
+    "removeGroup",
     "createImage",
     "destroyImage",
     "imageRef",

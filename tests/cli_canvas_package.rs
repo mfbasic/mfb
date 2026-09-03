@@ -68,12 +68,20 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 7\n\
     \x20 END IF\n\
     \x20 LET i AS canvas::DrawItem = canvas::Ellipse[x := 5.0, y := 5.0, radiusX := 4.0, radiusY := 2.0, angle := 0.3, paint := canvas::fill(yellow)]\n\
-    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i]\n\
-    \x20 IF len(scene) <> 9 THEN\n\
+    \x20 canvas::setGroup(\"panel\", [a, c])\n\
+    \x20 LET grp AS canvas::Group = canvas::Group[dx := 3.0, dy := 4.0, name := \"panel\"]\n\
+    \x20 IF grp.name <> \"panel\" OR grp.dx <> 3.0 THEN\n\
+    \x20   RETURN 8\n\
+    \x20 END IF\n\
+    \x20 LET j AS canvas::DrawItem = grp\n\
+    \x20 canvas::removeGroup(\"panel\")\n\
+    \x20 canvas::removeGroup(\"never-installed\")\n\
+    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j]\n\
+    \x20 IF len(scene) <> 10 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
     \x20 LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := scene]\n\
-    \x20 IF len(layer.items) <> 9 THEN\n\
+    \x20 IF len(layer.items) <> 10 THEN\n\
     \x20   RETURN 6\n\
     \x20 END IF\n\
     \x20 io::print(\"CANVAS_SURFACE_OK\")\n\

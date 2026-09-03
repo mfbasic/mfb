@@ -567,32 +567,32 @@ names them. This phase ships no behaviour; it ships the definition of done for P
 **41 passed, 0 failed, 4 ignored**; both new lines print the Phase 4 reason, and the
 other two ignores are C's and E's pre-existing design measurements. §4.4 now names both
 tests and records why the pair has to be two-sided.
-Commit: —
+Commit: cfd8033fc
 
 ### Phase 2 — The type, the two members, and the two test amendments
 
 The whole breaking surface change, with nothing yet reading it.
 
-- [ ] Add the `Group` record (`dx`, `dy`, `name`) and append `"Group"` **last** to the
+- [x] Add the `Group` record (`dx`, `dy`, `name`) and append `"Group"` **last** to the
       `DrawItem` union.
-- [ ] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
+- [x] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
       to name plan-116-G alongside plan-116-E).
-- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
+- [x] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
       explicit container list `["Group"]`, per §2(a). **Do not weaken the assertion for
       the other nine.**
-- [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
+- [x] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
       `tests/cli_canvas_man_examples_compile.rs`. Declare **`errors: vec![]`** in this
       phase, not `ErrWrongMode` (**G14**) — the bodies are inert here and cannot raise
       it; Phase 3 adds it with the native call that does.
-- [ ] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
+- [x] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
       `helper_geometry.rs`'s `GEO_LAYOUT`, and a matching `GEO_KIND_GROUP: &str = "8"`
       in `runtime/canvas/mod.rs` — then extend
       `the_geo_layout_constants_match_their_rust_counterparts` to pin the pair, which
       already does exactly this for `TEXT` and `POLYGON` (**G13**). 8 is the next free
       value (`ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`); re-check before using it,
       since a peer letter may have taken it.
-- [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
+- [x] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
       `helper_geometry.rs`, not the two this letter originally named (**G6**):
       `__canvas_headerFor` and `__canvas_tailFor` (both returning
       `__canvas_emptyHeader()` / an empty tail **for this phase only** — §4.6 needs the
@@ -617,11 +617,11 @@ The whole breaking surface change, with nothing yet reading it.
       `dy` set, hashed with `__canvas_hashGeometry`, then the name's codepoints folded
       in one at a time with `__canvas_hashStep` over `encoding::utf32Encode(g.name)`.
       From Phase 4 the hull goes in too (**G12**).
-- [ ] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
+- [x] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
       `__canvas_deferredHash` hashes its **name** and `dx`/`dy` (**G6**). A group has an
       empty header, and a non-deferred kind with an empty header makes every group in a
       scene share one geometry-cache entry — plan-98-G Correction 14, reproduced.
-- [ ] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
+- [x] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
       `mfb man canvas types` lists `Group`.
 
 Acceptance: `cargo test --no-fail-fast` green, every canvas golden byte-identical, and
@@ -636,6 +636,24 @@ golden: its acceptance run reports 816 fixtures passed, 0 failed. The reason is 
 no fixture in the corpus imports `canvas`, so the canvas registry is not in any golden's
 input. Expect the same here, and if a golden *does* move, that is a signal something
 other than the registry changed.
+
+**MET, and the byte-identity prediction held.** `cargo test --release --bin mfb
+--no-fail-fast` → **3763 passed, 0 failed**; `cli_canvas_package` **7/7**;
+`rt_canvas_rasteriser` **41 passed, 4 ignored** (Phase 1's two, plus C's and E's design
+measurements); `scripts/test-accept.sh` → **1359 ran, 0 failed** and **no golden moved**,
+exactly as predicted above and for F11's reason;
+`man-run-examples.sh canvas --run` → **27 built, 27 ran, 0 failed** (23 before — the
+four new ones are these two members' two examples each);
+`man-census.sh --memory-scope` → 0 unclassified hits.
+
+A scratch program presenting a `Rectangle` beside **three distinct group nodes**
+(`"panel"@(5,7)`, `"panel"@(90,7)`, `"other"@(5,7)`) builds and runs headless and draws
+nothing for any of them. Its stats line is the measurement that matters:
+`generations=4 entries=4 floats=188` — one cache entry each. That is **G6** working, and
+it was checked rather than assumed: run against a stale `target/release/mfb` the same
+program reported `entries=2 floats=94`, the three nodes collapsed into one, which is
+precisely the collision G6 predicts if `__canvas_headerIsDeferred` answers `FALSE`
+(**G15**).
 Commit: —
 
 ### Phase 3 — The group table and the two members' bodies
@@ -848,6 +866,35 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G15 (Phase 2) — `cargo test --bin mfb` does not refresh `target/release/mfb`, and the
+group-cache measurement was read off a stale one.** The three-distinct-nodes check
+first reported `entries=2 floats=94` — the three group nodes sharing one geometry-cache
+entry, i.e. precisely the failure **G6** exists to prevent — after the arms had already
+been changed to `headerIsDeferred = TRUE`. The arms were correct; the compiler that
+built the program was not. `cargo test --release --bin mfb` builds the *test harness*
+binary, so a hand-run `./target/release/mfb build` afterwards silently uses whatever
+`cargo build --release --bin mfb` last produced. After an explicit rebuild the same
+program reports `generations=4 entries=4 floats=188`, one entry per node.
+
+Worth recording because the stale reading was **plausible and specific**: it agreed with
+a real, documented failure mode that this plan itself warns about, so it invited
+"re-open G6" rather than "rebuild". Project memory already notes that the tests run the
+release binary and that a stale one reds a clean tree; the nuance is that a `cargo test`
+run does not refresh it, so the two commands are not interchangeable for a hand-run
+probe.
+
+**G16 (Phase 2) — `GEO_KIND_GROUP` has no non-test consumer yet, and says so.** Adding
+it plain warned `constant GEO_KIND_GROUP is never used`: `GEO_KIND_TEXT` and
+`GEO_KIND_POLYGON` are read by the emitters, but nothing writes kind 8 into a header
+during Phase 2 — a group node still carries `__canvas_emptyHeader()`, whose kind is
+`NONE`. The pin in `the_geo_layout_constants_match_their_rust_counterparts` is its only
+reader, so it is `#[cfg(test)]`, which is what is true of it.
+
+Not an `#[allow(dead_code)]` "consumed by a later phase", which `AGENTS.md` names
+specifically as the wrong move: `#[cfg(test)]` states what is true now and is
+self-correcting, because the phase that teaches an emitter about groups cannot compile
+until the attribute comes off.
 
 **G14 (2026-09-03, pre-execution) — Phase 2's members must not declare `ErrWrongMode`,
 even though the finished members should raise it.** The natural registration copies

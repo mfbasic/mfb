@@ -482,6 +482,22 @@ pub(crate) const GEO_KIND_POLYGON: &str = "4";
 /// with its own coverage bitmap, so a text item becomes N draws rather than one. Both
 /// emitters therefore branch on this before they build an item block at all.
 pub(crate) const GEO_KIND_TEXT: &str = "6";
+
+/// A `canvas::Group` node's kind (plan-116-G).
+///
+/// A group draws nothing itself, so this is not a shape the renderers dispatch on —
+/// it is what lets a group node be told apart from `GEO_KIND_NONE`, which means "an
+/// item with no geometry". Spelled here and once in MFBASIC as `__CANVAS_GEO_GROUP`,
+/// with `the_geo_layout_constants_match_their_rust_counterparts` as the only thing
+/// relating the two.
+///
+/// `#[cfg(test)]` because that guard is genuinely its only consumer right now: no
+/// emitter writes kind 8 yet, since a Phase 2 group node still carries an empty
+/// header. That is not a placeholder — the pin is the whole reason the Rust spelling
+/// exists at this point — and it is self-correcting: the phase that teaches an emitter
+/// about groups cannot compile until the attribute comes off.
+#[cfg(test)]
+pub(crate) const GEO_KIND_GROUP: &str = "8";
 /// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
 pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
 /// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.

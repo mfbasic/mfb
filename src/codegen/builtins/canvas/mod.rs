@@ -56,10 +56,12 @@ mod func_new_surface;
 mod func_present;
 mod func_present_layers;
 mod func_publish_scene;
+mod func_remove_group;
 mod func_rgb;
 mod func_rgba;
 mod func_scene_hashes;
 mod func_set_bytes;
+mod func_set_group;
 mod func_stroke;
 mod gen_font;
 mod gen_font_table;
@@ -889,6 +891,49 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Ellipse",
                 description: "An ellipse, optionally rotated.",
             },
+            // plan-116-G, appended last for the same reason. This one is different in
+            // kind from the nine above it: `Group` is a CONTAINER, not a shape. It
+            // draws nothing itself and carries no `paint` — see
+            // `every_draw_item_variant_carries_a_paint`, which is narrowed rather than
+            // weakened to admit it.
+            UnionVariant {
+                name: "Group",
+                description: "A reference to a named group of items, translated.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "Group",
+        export: true,
+        description: "A reference to a sub-scene installed under a name by \
+                      `canvas::setGroup`, drawn translated by `dx`/`dy`. Presenting a \
+                      scene copies this node — two offsets and a name — rather than \
+                      the items it stands for, which is the point: a large static \
+                      sub-picture referenced from many scenes is copied once when you \
+                      install it, not once per frame. A name with no group installed \
+                      draws nothing and does not raise, so a scene can reference a \
+                      group that has not been built yet. Unlike every other \
+                      `canvas::DrawItem` this one has no `paint`: it is a container, \
+                      and the items inside it carry their own.",
+        props: vec![
+            RecordProp {
+                name: "dx",
+                ty: ParameterType::Float,
+                description: "How far right to move the group's items, in pixels.",
+            },
+            RecordProp {
+                name: "dy",
+                ty: ParameterType::Float,
+                description: "How far down to move the group's items, in pixels.",
+            },
+            RecordProp {
+                name: "name",
+                ty: ParameterType::String,
+                description: "Which installed group to draw. A name you have not \
+                              passed to `canvas::setGroup`, or one you have since \
+                              removed, draws nothing.",
+            },
         ],
     });
 
@@ -1002,6 +1047,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_fill_stroke::register(&mut pkg);
     func_new_surface::register(&mut pkg);
     func_present::register(&mut pkg);
+    // plan-116-G. Registered beside `present` because they are the other two install
+    // points: `present` installs a scene, these install what a scene can reference.
+    func_set_group::register(&mut pkg);
+    func_remove_group::register(&mut pkg);
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);
     func_metal_draw::register(&mut pkg);
@@ -1102,14 +1151,19 @@ mod tests {
     /// change. Pinning the exact list — and its order, which fixes the tags — makes
     /// any addition a deliberate, visible act rather than a silent one.
     ///
-    /// It has been extended exactly once, and this is the record of it: **plan-116-E
-    /// appended `Ellipse`**, ninth and last. Appended rather than inserted beside
-    /// `Circle` where it reads better, because the order fixes the tags and inserting
-    /// would renumber `Arc`, `Text` and `RoundedRect`.
+    /// It has been extended exactly twice, and this is the record of both:
+    /// **plan-116-E appended `Ellipse`** ninth, and **plan-116-G appended `Group`**
+    /// tenth. Appended rather than inserted where each reads better, because the order
+    /// fixes the tags and inserting would renumber every variant after it.
     ///
-    /// Note what this amendment is not: the assertion did not become laxer. The list
-    /// grew by one entry that a reader can see, the message keeps its warning, and the
-    /// next addition is exactly as visible as this one was.
+    /// Note what these amendments are not: the assertion did not become laxer either
+    /// time. The list grew by one entry a reader can see, the message keeps its
+    /// warning, and the next addition is exactly as visible as these were.
+    ///
+    /// `Group` is the first variant that is not a shape — it draws nothing itself and
+    /// carries no `paint`. That distinction is enforced next door by
+    /// `every_draw_item_variant_carries_a_paint`, which names its container exemptions
+    /// explicitly rather than dropping the check.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         let pkg = registry()
@@ -1133,6 +1187,7 @@ mod tests {
                 "Text",
                 "RoundedRect",
                 "Ellipse",
+                "Group",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );
@@ -1159,11 +1214,27 @@ mod tests {
         }
     }
 
-    /// Every variant carries a `paint`, which is what makes `Paint` a threaded value
-    /// rather than ambient state. A variant that forgot it would silently draw with
-    /// no way to colour it.
+    /// Every *drawable* variant carries a `paint`, which is what makes `Paint` a
+    /// threaded value rather than ambient state. A variant that forgot it would
+    /// silently draw with no way to colour it.
+    ///
+    /// **plan-116-G narrowed this to its actual subject; it did not weaken it.** The
+    /// union gained its first CONTAINER variant, `Group`, which draws nothing itself —
+    /// its children carry their own paint. The test's premise ("a variant that forgot
+    /// it would silently draw") does not describe a container: a `Group` with a `paint`
+    /// would be a field no renderer could honour, so requiring one would be requiring a
+    /// lie.
+    ///
+    /// The exemption is an explicit list rather than a property anything could drift
+    /// into, so a future variant is not silently excused — a new container has to be
+    /// added here by hand, in the same deliberate act that adds it to the union. The
+    /// other nine are asserted exactly as before, and `CONTAINERS` is itself checked
+    /// against the union so a typo cannot quietly exempt nothing.
     #[test]
     fn every_draw_item_variant_carries_a_paint() {
+        /// Variants that are containers rather than shapes (plan-116-G).
+        const CONTAINERS: &[&str] = &["Group"];
+
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
@@ -1172,7 +1243,30 @@ mod tests {
             .iter()
             .find(|u| u.name == "DrawItem")
             .expect("DrawItem union");
+        for name in CONTAINERS {
+            assert!(
+                union.variants.iter().any(|v| &v.name == name),
+                "`{name}` is exempted from the paint requirement but is not a \
+                 DrawItem variant — a renamed or removed container leaves an \
+                 exemption that silently covers nothing",
+            );
+        }
         for variant in &union.variants {
+            if CONTAINERS.contains(&variant.name) {
+                let record = pkg
+                    .records()
+                    .iter()
+                    .find(|r| r.name == variant.name)
+                    .expect("variant record");
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{}` is listed as a container but declares a `paint` field, which \
+                     no renderer can honour — either it is a shape and belongs in the \
+                     checked set, or the field should go",
+                    variant.name,
+                );
+                continue;
+            }
             let record = pkg
                 .records()
                 .iter()
