@@ -405,6 +405,24 @@ Commit: —
 
 ## Corrections
 
+**I4 (2026-09-03, pre-execution, measured while plan-116-G was gating) — the letter's
+"unverified premise" is confirmed unverified, and the reason is sharper than "nothing
+has tried it".** Phase 1 says a builtin `RecordProp` carrying `ty:
+ParameterType::res(...)` is this letter's unverified premise and must land first. Two
+measurements bracket it:
+
+* `ParameterType::res` **exists and is exercised** — `src/types.rs` constructs it in
+  `with_vars`, in `parse` (the `RES ` prefix arm), and in its own tests over
+  `fs.File`, including nested inside a `List OF`. So the *type* is not the risk.
+* **No builtin record field uses one.** `grep -rn "RecordProp" -A 3 src/codegen/builtins/
+  | grep -c "ParameterType::res("` → **0** across every package.
+
+So what is untested is specifically the **registry → record-validation →
+construction-typecheck → type-export** path for a `Res`-typed *field*, not the type
+model underneath it. That narrows Phase 1's probe: it does not need to establish that
+`RES` works, it needs to establish that those four seams accept a field whose type is
+one. Write the probe against those four by name.
+
 **I3 (2026-09-03, pre-execution) — I1 corrected the census table but not the task that
 consumes it.** §2's row reads *"Renderer reads of `t.font.id` — ~~5~~ **6**"*, while
 Phase 2's task still says *"`helper_geometry.rs`'s five reads"*. An executor working

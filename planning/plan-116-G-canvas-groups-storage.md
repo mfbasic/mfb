@@ -921,7 +921,8 @@ Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
 `cargo test`'s copy of the corpus skips 519 `syntax/` fixtures, plan-116-F **F13**),
 `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
 `removeGroup` / `mfb man canvas types` render correct, example-backed pages.
-Commit: —
+Commit: 38ea75f6a (docs and the two re-pinned orderings), 273d8433e (the redundant
+sleeps), 2a1135971 (the overflow pin)
 
 ## Validation Plan
 
