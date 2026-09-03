@@ -395,7 +395,10 @@ Commit: —
 - [ ] New reference image `tests/golden/canvas/groups.png`: a group at the origin, the
       same group at an offset, a nested group, and a diamond — enough that a
       vertex-only offset, a missing clamp reorder, or a flattened diamond each change
-      it visibly.
+      it visibly. **The group's item list must include a gradient-filled item, a
+      `Text` item and a clipped item** (**H2**): those are the three positional reads
+      that do not follow `p` for free, and a scene of plain shapes cannot see any of
+      them go wrong.
 - [ ] Assert `groups.png` on all three renderers: software exactly, both GPUs within
       `Tolerance::GPU_DEFAULT`.
 - [ ] `.ai/canvas-threading.md` §10 — record that a group is one instanced draw per
