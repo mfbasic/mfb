@@ -370,13 +370,26 @@ fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) 
         HirStatement::Match {
             expression, cases, ..
         } => {
-            expression_escapes(expression, scope)
-                || cases.iter().any(|case| {
-                    case.guard
-                        .as_ref()
-                        .is_some_and(|guard| expression_escapes(guard, scope))
-                        || block_escapes(&case.body, scope)
-                })
+            if expression_escapes(expression, scope) {
+                return true;
+            }
+            for case in cases {
+                // A union pattern binds a name at a known type — the last binder
+                // this walk would otherwise leave `Unknown`, so a byte decode over
+                // a matched variant is typed like one over a parameter.
+                if let crate::hir::HirMatchPattern::Union { type_, binding } = &case.pattern {
+                    scope.locals.insert(binding.clone(), type_.clone());
+                }
+                if case
+                    .guard
+                    .as_ref()
+                    .is_some_and(|guard| expression_escapes(guard, scope))
+                    || block_escapes(&case.body, scope)
+                {
+                    return true;
+                }
+            }
+            false
         }
         HirStatement::For {
             start,

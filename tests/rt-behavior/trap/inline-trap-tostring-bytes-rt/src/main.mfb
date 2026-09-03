@@ -34,6 +34,36 @@ TYPE Body
   bytes AS List OF Byte
 END TYPE
 
+' Shape K's carrier — a union whose variant holds the bytes. `MATCH … CASE Raw(r)`
+' binds `r` at a known type, and that binder is the last one `fallible::analyze`
+' would otherwise leave `Unknown`: without it `r.bytes` types `Unknown`, the census
+' falls back to its name-keyed verdict, and `decodeMatch` below is judged infallible.
+TYPE Raw
+  bytes AS List OF Byte
+END TYPE
+
+TYPE Txt
+  s AS String
+END TYPE
+
+UNION Payload
+  Raw
+  Txt
+END UNION
+
+FUNC decodeMatch(p AS Payload) AS String
+  MATCH p
+    CASE Raw(r)
+      RETURN toString(r.bytes)
+    CASE Txt(t)
+      RETURN t.s
+  END MATCH
+END FUNC
+
+FUNC rawPayload() AS Payload
+  RETURN Raw[latin1()]
+END FUNC
+
 ' Shape I's scrutinee — a TOP-LEVEL binding, which lowers to `IrValue::Global`.
 ' A `Global` node carries no `type_` (it is a bare name), so unlike a `Local` it
 ' has to be resolved through the top-level binding map; without that it typed
@@ -147,6 +177,14 @@ FUNC main AS Integer
     RECOVER "J caught"
   END TRAP
   io::print(j)
+
+  ' Shape K — shape E again, but the callee's byte list arrives through a MATCH
+  ' binder. `rawPayload()` is the nested fallible call that forces the hoist, so
+  ' the root is checked only if `decodeMatch` is judged fallible.
+  LET k AS String = decodeMatch(rawPayload()) TRAP(e)
+    RECOVER "K caught"
+  END TRAP
+  io::print(k)
 
   RETURN 0
 END FUNC
