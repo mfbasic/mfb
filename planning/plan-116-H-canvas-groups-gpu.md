@@ -604,6 +604,34 @@ the ramp is not, so the gradient slides across the shape — and a **diamond**, 
 drawn at two offsets, renders two different pictures from one buffer, which is the
 property this whole letter is arranged around.
 
+**Update (post-plan-116-G, measured):** G settled §4.5's open decision — the gradient
+*follows* the group (G23) — and implemented it in the oracle only. So the three renderers
+now **disagree**, which is a sharper statement of this correction than it originally
+carried:
+
+* The **oracle** is fixed. `helper_items.rs` still reads `gradFX`/`gradFY` from the
+  record and still evaluates at the loop's `px`/`py` (`:544-545`), but G redefined
+  `px`/`py` as the **shape-space** point (`px = spx - gdx`), so the ramp translates with
+  the shape for free and no gradient code changed.
+* **Both shaders still evaluate at the surface point** — `gradientColour(gl_FragCoord.xy)`
+  at `mfb_canvas.frag:442`, `gradientColour(in.pos.xy, …)` at `metal.rs:470`.
+
+That is not a live bug today: both `*Renderable` predicates decline any scene that
+contained a group, so a gradient inside one is never drawn on a GPU. It becomes one the
+moment this letter removes that decline. **So the gradient is not a separate task here —
+it falls out of §4.2 done correctly.** Once the per-draw offset reaches the fragment
+stage, the shaders must subtract it before computing `t`, exactly as `px` does; the same
+subtraction that fixes the distance field fixes the ramp, provided the gradient is
+written in terms of the offset-corrected point rather than `gl_FragCoord`/`in.pos`
+directly.
+
+The clip is the one that must keep the **raw** surface point in both shaders, for the
+reason §4.2 already gives — and plan-116-G's
+`a_clip_inside_a_translated_group_stays_on_the_surface` and
+`a_gradient_inside_a_group_moves_with_the_group` are the two oracle tests that pin the
+pair. H's GPU tests should assert against those same two scenes, since agreement with the
+oracle is the whole acceptance.
+
 The fix is one line per renderer (evaluate the ramp at `p`), so this is cheap — but
 only if it is *done*. Left as §4.2 reads, an executor checks the sentence, sees the
 gradient listed as already handled, and ships it. Recorded as a task in Phase 2 and
