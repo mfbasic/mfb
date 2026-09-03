@@ -525,6 +525,11 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
+- [ ] Fix this letter's own claim that the ramp "composes with `Paint.transform` the
+      same way the shape does" — it does not, and the sentence says the opposite of
+      what the code does (**F14**). Three places: `Gradient`'s and
+      `Paint.fillGradient`'s descriptions in `mod.rs`, and the gradient subsection
+      of `06_canvas.md`.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
 2228 RELEASE** (corrected from "mac+RELEASE and linux+DEBUG" per **E6**: CI is
@@ -563,6 +568,27 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F14 — this letter documented the gradient/transform interaction backwards.** Both
+registry descriptions say *"The ramp is measured in surface pixels, so it composes with
+`canvas::Paint.transform` the same way the shape does"*, and the spec subsection says
+the same with *"rather than being dragged around by it"* bolted on — a sentence that
+contradicts its own first half.
+
+What the code does: `shapeDistanceAndScale(gl_FragCoord.xy)` inverse-maps the query
+point, and `gradientColour(gl_FragCoord.xy)` does **not**
+(`grep -n gl_FragCoord src/codegen/runtime/canvas/shaders/mfb_canvas.frag`); the oracle
+likewise reads `gradFX`/`gradFY` straight from the record with no transform applied
+(`sed -n 342,350p src/codegen/builtins/canvas/helper_items.rs`). So a rotated item spins
+its shape through a ramp that stays put in surface space. That is the *opposite* of
+"composes the same way the shape does".
+
+Found while settling plan-116-G's **G5**, which is the good argument for having asked:
+the question "does a group offset move the ramp?" is unanswerable while the transform
+answer is written down wrong. No test caught it because no fixture pairs a gradient with
+a transform — worth noting, but adding one is plan-116-C/F overlap and the behaviour is
+already pinned by `gradients.png` on all three renderers; what was wrong is only the
+prose.
 
 **F13 — `cargo test` runs 811 acceptance fixtures and SKIPS 519 of them.** Worth
 pinning because the two acceptance rows in Phase 5 look duplicative and are not.
