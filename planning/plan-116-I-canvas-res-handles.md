@@ -327,7 +327,7 @@ Commit: —
       destroy-then-present rewrite; a new negative case pins `2-203-0138` for a
       `DrawItem` on a thread plane.
 
-Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG;
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 every canvas golden byte-identical on disk; `mfb man canvas --all | grep -ci
 'imageRef\|fontRef\|ImageRef\|FontRef'` → 0.
 Commit: —
@@ -365,9 +365,10 @@ Commit: —
       rule (§4.2).
 - [ ] `scripts/man-run-examples.sh canvas --run` passes (every example now names
       resources directly).
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
-Acceptance: `cargo test --no-fail-fast` green on both axes;
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs;
 `mfb man canvas picture`-reachable pages describe the new model with zero banned
 vocabulary.

@@ -269,7 +269,7 @@ Commit: —
 
 Acceptance: all five rows pass; the 200-cycle loop shows no fd growth (`lsof` on the
 process, or the platform equivalent) and no `groupBytes=` growth;
-`cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG.
+`cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
 Commit: —
 
 ### Phase 4 — Docs and gates
@@ -284,9 +284,10 @@ Commit: —
       exception to *"a published scene never keeps an image open"*.
 - [ ] `.ai/canvas-threading.md` — §7's re-derived paragraph and §8's new rows.
 - [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
-Acceptance: `cargo test --no-fail-fast` green on both axes, `scripts/test-accept.sh`
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
 green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` describes
 the lifetime in observable terms with zero memory vocabulary.
 Commit: —

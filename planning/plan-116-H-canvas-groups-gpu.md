@@ -406,10 +406,11 @@ Commit: —
       geometry but not `Paint.clip`, which stays in surface pixels.
 - [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
       `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
 Acceptance: `groups.png` matches on all three renderers; `cargo test --no-fail-fast`
-green on mac+RELEASE and linux+DEBUG; `scripts/test-accept.sh` green;
+green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here); `scripts/test-accept.sh` green;
 `scripts/artifact-gate.sh all` 0 diffs.
 Commit: —
 
