@@ -516,17 +516,75 @@ with `-q` precisely so that line "never enters the exact-compared golden"
 diffing against `/tmp/p121d-accept/`. No program output changed — every
 substantive line already matched, which is why this was a golden-format defect
 and not a behavioural one.
-Commit: —
+Commit: 6ff03e125
 
 ## Validation Plan
 
-- **Tests:** `tests/rt_res_state_inplace_mutation.rs` extended per operation;
-  rt-behavior fixtures for state-read-before-update and, if Phase 1 found it, the
-  cross-thread decline; codegen-inspection for path-taken and each decline.
-- **Coverage check:** confirm the STATE dispatch arms are executed, not merely
-  compiled — this container is easy to leave unexercised.
-- **Runtime proof:** a program holding a `List OF String` in a STATE field and
-  running the spike-1 `set` loop; per-set cost must stop rising with N.
+- **Tests: DONE.** `tests/rt_res_state_inplace_mutation.rs` 6 → **19** tests, a
+  positive and a decline per operation. rt-behavior fixtures:
+  `p121d-state-reach-rt` (reachability, four parts),
+  `p121d-state-ops-rt` (Phase 2 ops **and** state-read-before-update, checked in
+  both directions) and `p121d-state-splice-rt` (Phase 3 ops, order-exact).
+  **No cross-thread decline fixture exists because Phase 1 found no cross-thread
+  reachability** — there is nothing to decline; the fixture that would have
+  covered it instead pins *why* (`worker len=305 n=305`, the parent holding no
+  handle at all while the worker mutates).
+- **Coverage check: DONE, and it was the right thing to insist on.** Correction
+  D1 measured that this container is not merely *easy* to leave unexercised — it
+  is unexercised by every byte-identity golden in the tree, so the artifact gate
+  reports 0 diffs whether the arms run or not.
+
+  The confirmation that they *execute* is the 19 codegen-inspection tests: each
+  compiles a program using one operation and asserts on the emitted `.ncode`
+  (the rebuild temp absent, and the slot only that arm allocates present). An arm
+  that never ran cannot produce its own slot, so a green assertion is proof of
+  execution rather than of compilation. The runtime proof below is the
+  independent second witness — an arm that did not execute could not have turned
+  2082 ms into 0 ms.
+- **Runtime proof:** ~~a program holding a `List OF String` in a STATE field and
+  running the spike-1 `set` loop; per-set cost must stop rising with N.~~
+  **Unrunnable as written — that is the one row this sub-plan DECLINES**
+  (`list (State-Dynamic) set`: a variable-width element can outgrow what it
+  replaces, so the arm refuses and plan-121-F owns it). Measuring it would have
+  shown the copying path unchanged, which says nothing about what D landed.
+
+  **Replaced with a strictly stronger check** — measured before/after against a
+  compiler built from `56b368996`, on the operations D actually landed, using the
+  form that distinguishes in-place from copying: **per-operation cost as N grows.**
+
+  | N | `map set` | `set add` | `prepend` |
+  |---|---|---|---|
+  | 1000 | 63 ms → **0 ms** | 145 ms → **0 ms** | 30 ms → **0 ms** |
+  | 2000 | 394 ms → **0 ms** | 682 ms → **0 ms** | 361 ms → **1 ms** |
+  | 4000 | 2082 ms → **0 ms** | 3297 ms → **0 ms** | 1926 ms → **7 ms** |
+
+  Pushed to N where the fixed build is measurable at all (before is quadratic and
+  would take ~15 min per row at these sizes, so only the after column runs here):
+
+  | N | `map set` | `set add` | `prepend` |
+  |---|---|---|---|
+  | 20000 | 5 ms | 3 ms | 185 ms |
+  | 40000 | 11 ms | 7 ms | 745 ms |
+  | 80000 | 18 ms | 13 ms | 2971 ms |
+
+  **`map set` and `set add` meet the criterion exactly**: doubling N doubles total
+  time (5→11→18, 3→7→13), so per-operation cost is FLAT. Before, the same doubling
+  cost 4–5× (63→394→2082), i.e. quadratic.
+
+  **`prepend` does NOT, and that is correct rather than a shortfall — worth stating
+  plainly instead of hiding behind the 275× headline.** Its ratios are still 4.03×
+  and 3.99× per doubling: quadratic. A front-insert into a contiguous buffer shifts
+  every existing element, so N prepends is O(N²) **by construction of the
+  operation**, not because of any block copy. What the in-place arm removes is the
+  *additional* whole-STATE-block rebuild layered on top of that shift — worth
+  1926 ms → 7 ms at N = 4000. The residual is the shift itself and no in-place arm
+  can remove it; only a different representation (a deque or a reversed builder)
+  could, which is nobody's task in plan-121.
+
+  **The claim this sub-plan is entitled to** is therefore: the STATE container no
+  longer rebuilds the block per mutation. For the hash-backed operations that makes
+  the whole loop linear; for the shift-based ones it removes the rebuild and leaves
+  the operation's own inherent cost.
 - **Doc sync:** `.ai/resources-packages.md` gains the STATE in-place rule and its
   decline conditions; `.ai/collections.md` cross-references it.
 - **Acceptance:** `cargo test --no-fail-fast`, `./scripts/test-accept.sh`, the
