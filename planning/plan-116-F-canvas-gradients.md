@@ -460,7 +460,7 @@ the assertion that was supposed to catch "a predicate declined and software drew
 perfect picture" caught nothing. A `gpuFrames=` counter was added and all four now
 assert on it; re-run with the real guard they still pass, so the earlier measurements
 stand — only the assertion was worthless.
-Commit: —
+Commit: 444b539d3
 
 ### Phase 4 — Metal and Vulkan
 
