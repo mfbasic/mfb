@@ -314,7 +314,16 @@ pub(crate) fn source_dependency(
     };
     if let Some(path) = source.strip_prefix("local://") {
         let path = PathBuf::from(path);
-        return if path.is_absolute() {
+        // Rooted, not `is_absolute`. The two agree everywhere except Windows,
+        // where `is_absolute` additionally demands a drive prefix — so the
+        // spelling the spec documents, `local:///absolute/path` stripping to
+        // `/absolute/path` (13_modules-and-packages.md §3), was rejected there
+        // as IMPORT_LOCAL_PATH_INVALID and `local://` was unusable in its
+        // documented form. `/abs/dep` is a real rooted path on Windows (it
+        // resolves against the current drive), and `has_root` still refuses the
+        // thing this check exists to refuse: `local://relative/path`, and the
+        // drive-relative `C:dep`.
+        return if path.has_root() {
             SourceDependency::Directory(path)
         } else {
             SourceDependency::LocalPathNotAbsolute
@@ -1350,6 +1359,13 @@ mod tests {
         );
         assert_eq!(
             source_dependency(root, "dep", Some("local://rel/dep")),
+            SourceDependency::LocalPathNotAbsolute
+        );
+        // Windows' drive-relative form: rooted at no directory, so it is exactly
+        // the ambiguity `local://` refuses. Its verdict is the same on every host
+        // — on Unix `C:dep` is simply an oddly-named relative path.
+        assert_eq!(
+            source_dependency(root, "dep", Some("local://C:dep")),
             SourceDependency::LocalPathNotAbsolute
         );
     }
