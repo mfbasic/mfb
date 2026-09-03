@@ -519,7 +519,8 @@ Commit: 8c4fa49a6
       canvas item block this letter grew (per **E6**, which letters F–J were told to
       keep).
 - [ ] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228.
-- [ ] `scripts/test-accept.sh` green.
+- [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
+      `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
@@ -559,6 +560,19 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F13 — `cargo test` runs 811 acceptance fixtures and SKIPS 519 of them.** Worth
+pinning because the two acceptance rows in Phase 5 look duplicative and are not.
+`tests/golden.rs` inside the release suite reports `811` `PASSED` lines and `519`
+`SKIP … (no matching goldens)` lines, and every skip is a `syntax/` fixture — the
+diagnostic-pinning corpus, which is the one place a *diagnostic* may be pinned at all.
+Counted with
+`awk 'NR>54468 && NR<55808 && /^PASSED/' … | wc -l` and the same for `/^SKIP/` over the
+`golden.rs` section of the run log.
+
+So a green `cargo test` is evidence about two thirds of the corpus. `test-accept.sh` is
+what runs the rest, and per project memory the number to read from it is `N ran` — a
+run that silently skips fixtures reports success just as loudly as one that does not.
 
 **F11 — the `.ncodesum` gate says nothing about canvas, because no canvas fixture is
 hashed.** `regen-ncodesum.sh` refreshed 141 goldens and changed none, which reads as
