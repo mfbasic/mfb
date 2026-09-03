@@ -299,32 +299,33 @@ FUNC __encoding_codepageDecode(codepage AS Codepage, bytes AS List OF Byte) AS S
     RETURN __encoding_utf8Decode(bytes)          ' existing overload, List OF Byte
   END IF
   LET table AS String = __encoding_codepageTable(codepage)
-  MUT parts AS List OF String = []               ' see Corrections 4, not `out & ch`
+  MUT out AS String = ""                         ' measured faster than list+join
   FOR EACH b IN bytes
     LET n AS Integer = toInt(b)
     IF n < 128 THEN
-      parts = collections::append(parts, __encoding_fromCodepoint(n))  ' existing helper
+      out = out & __encoding_fromCodepoint(n)    ' existing helper
     ELSE
       LET ch AS String = strings::mid(table, n - 128, 1)
       IF ch = "\u{FFFD}" THEN
         FAIL error(77050003, "byte not mapped in this codepage")
       END IF
-      parts = collections::append(parts, ch)
+      out = out & ch
     END IF
   NEXT
-  RETURN strings::join(parts, "")
+  RETURN out
 END FUNC
 ```
 
 `__encoding_fromCodepoint` already exists (`helper_from_codepoint.rs`); reuse it
 rather than adding a second path.
 
-**Repeated `out = out & ch` is a known cost shape in this runtime**, so the body above
-already accumulates into a `List OF String` and `strings::join`s once (Corrections 4)
-— `parts` stays a same-function local, which is the in-place `collections::append`
-shape. Phase 3 still measures decode throughput on a realistic body (a ~100 KB page)
-before the plan is called done; if that is not acceptable, the fix stays inside the
-body and does not change the interface.
+**Repeated `out = out & ch` was expected to be a cost shape worth avoiding here. It
+is not — measured, it is the FASTER of the two candidates by ~3x** (Corrections 4:
+7 ms vs 25 ms to decode 102,400 bytes). The contingency this section originally
+carried, "accumulate into a `List OF String` and `strings::join` once", was tried on
+the real decode path and is slower; it is struck rather than held in reserve. Phase 3
+records the throughput: **~7 ms for a 100 KB body** (`/tmp/p123bench`, min of 7 runs),
+i.e. a full web page decodes in single-digit milliseconds.
 
 ### 4.4 Registration
 
@@ -407,28 +408,41 @@ Commit: `—`
 
 ### Phase 2 — vendor the index files and generate all 27 tables
 
-- [ ] Vendor `tools/codepage-index/index-<label>.txt` for all 27 distinct tables,
+- [x] Vendor `tools/codepage-index/index-<label>.txt` for all 27 distinct tables,
       with a `README.md` recording the source URL and retrieval date, plus
-      `scripts/fetch_codepage_index.py` to re-fetch them.
-- [ ] Add `scripts/audit_codepage_index.py`, which checks the three data premises
+      `scripts/fetch_codepage_index.py` to re-fetch them. (Landed in Phase 1's
+      commit, since Phase 1's tables were generated from them.) 28 labels, 27 files:
+      `index-iso-8859-8-i.txt` is HTTP 404 upstream, as the plan predicted.
+- [x] Add `scripts/audit_codepage_index.py`, which checks the three data premises
       (safe U+FFFD sentinel, all-BMP mappings, no repeated code point within a file)
-      and exits non-zero if any fails.
-- [ ] Write `scripts/gen_codepage_tables.py`; generate
+      and exits non-zero if any fails. All three hold: `max code point: U+FB02 in
+      index-macintosh.txt`, `files with a repeated code point: 0`,
+      `total mappings: 3342`.
+- [x] Write `scripts/gen_codepage_tables.py`; generate
       `src/codegen/builtins/encoding/helper_codepage_table.rs`. It emits the enum's
       `VARIANTS` and the `MATCH` arms together (Corrections 5) and writes to stdout,
       per the `scripts/check-generated.sh` contract (Corrections 6).
-- [ ] Replace Phase 1's hand-written enum with the generated one (29 variants:
+      `29 variants over 27 tables, 35740 bytes`.
+- [x] Replace Phase 1's hand-written enum with the generated one (29 variants:
       `Utf8` plus the 28 WHATWG single-byte labels; ISO-8859-8-I dispatches to
       ISO-8859-8's table) — the generated file's own `register` replaces the
       hand-written `add_enum` in `src/codegen/builtins/encoding/mod.rs:register`.
-- [ ] Tests: register the generator in `scripts/check-generated.sh`, so re-running
-      it must reproduce `helper_codepage_table.rs` byte-for-byte.
-- [ ] Tests: `codepage_tables_match_the_vendored_index_files` — check every scalar of
+      `./target/release/mfb man encoding types | grep -c '^ • '` → 29.
+- [x] Tests: register the generator in `scripts/check-generated.sh`, so re-running
+      it must reproduce `helper_codepage_table.rs` byte-for-byte. `sh
+      scripts/check-generated.sh` → `ok:
+      src/codegen/builtins/encoding/helper_codepage_table.rs matches
+      scripts/gen_codepage_tables.py`.
+- [x] Tests: `codepage_tables_match_the_vendored_index_files` — check every scalar of
       every table against `tools/codepage-index/` at test time (the differential on
       the data), plus `every_vendored_index_file_has_a_codepage_variant`,
       `codepage_enum_is_registered_in_generator_order`, and
-      `iso_8859_8_i_shares_the_iso_8859_8_table`.
-- [ ] Widen Phase 1's rt fixture from 2 codepages to all 28 single-byte variants.
+      `iso_8859_8_i_shares_the_iso_8859_8_table`. All 5 pass
+      (`cargo test --bin mfb codepage`), covering 28 x 128 = 3,584 scalar
+      comparisons.
+- [x] Widen Phase 1's rt fixture from 2 codepages to all 28 single-byte variants.
+      Every digest line matches the value `codepage_digests_match_the_vendored_index_files`
+      derives independently from the index files.
 
 Acceptance: `sh scripts/check-generated.sh` reproduces the committed table file
 byte-for-byte; `codepage_tables_match_the_vendored_index_files` passes over all
@@ -437,26 +451,38 @@ Commit: `—`
 
 ### Phase 3 — the member, differential validation, and docs (largest blast radius last)
 
-- [ ] Promote Phase 1's member into `func_codepage_decode.rs` with full
+- [x] Promote Phase 1's member into `func_codepage_decode.rs` with full
       `intro`/`desc`/`example` and per-`Parameter` `desc`, per `.ai/man-content.md`
       (no C/Rust memory vocabulary — check with `scripts/man-census.sh --memory-scope`,
-      which must report 0 unclassified hits).
-- [ ] Tests: **differential** rt fixture — for every `Codepage` variant, decode all
+      which must report 0 unclassified hits). `bash scripts/man-census.sh
+      --memory-scope encoding` → `unclassified memory-vocabulary hits: 0`;
+      `--scope encoding` → `internals-vocabulary hits: 0`; `--fill encoding` → 29
+      pages, 29/29 intro, 29/29 desc, 29/29 example, 30/30 param-desc, 3/3 types.
+      Also declares `errors: vec!["ErrInvalidFormat"]`, so the page renders an
+      Errors table (see §Open Decisions).
+- [x] Tests: **differential** rt fixture — for every `Codepage` variant, decode all
       128 bytes 0x80–0xFF and compare against the vendored index file. A spot check
       is not acceptable; a whole table off by one must fail. Realized as a
       position-weighted per-codepage digest in the fixture (so the golden stays 28
       short lines) plus `codepage_digests_match_the_vendored_index_files`, which
       recomputes every one of those lines from `tools/codepage-index/` and compares
       against the fixture's golden — so the golden cannot be blessed wrong.
-- [ ] Tests: `tests/syntax/encoding/func_encoding_codepageDecode_invalid` (wrong arg
+- [x] Tests: `tests/syntax/encoding/func_encoding_codepageDecode_invalid` (wrong arg
       types / arity), and an `tests/rt-error/encoding/` fixture for the unmapped-byte
-      `77050003` raise. A new rt fixture needs all four goldens
+      `77050003` raise. Both landed in Phase 1 with all four goldens. A new rt fixture needs all four goldens
       (`build.log`/`.ast`/`.ir`/`.run`) — `sync-goldens.sh` creates none, and a
       missing one only surfaces in a full `test-accept.sh` run.
-- [ ] Tests: add `codepageDecode` coverage to `tests/acceptance/src/encoding.mfb`
-      (one project — FUNC names are global).
-- [ ] Docs: update `encoding`'s `DESC` (`mod.rs`) to name the codepage family;
-      update the embedded spec per `.ai/specifications.md`.
+- [x] Tests: add `codepageDecode` coverage to `tests/acceptance/src/encoding.mfb`
+      (one project — FUNC names are global). 5 new `TCASE`s under a `codepage`
+      `TGROUP`; `./target/release/mfb test tests/acceptance` → `Tests: 737  Pass: 737
+      Fail: 0`, with all five listed under `* Builtin: encoding / * codepage`.
+- [x] Docs: update `encoding`'s `DESC` (`mod.rs`) to name the codepage family;
+      update the embedded spec per `.ai/specifications.md`. `INTRO` and `DESC` both
+      name the codepage codecs, and `src/docs/spec/stdlib/08_encoding.md` gains a
+      "Legacy single-byte codepages" section (representation, decoder, encoder,
+      round-trip, `Utf8`, and what is deliberately out of scope), with
+      `src/docs/spec/stdlib/spec.md`'s index entry updated and the page's "encoders
+      are total except `uleb128Encode`" claim corrected to include `codepageEncode`.
 - [x] Add `codepageDecode` to `tests/byte-identity/encoding/src/main.mfb`, so the
       `encoding_codegen_cover_rt` `.ncodesum` goldens actually hash the new member
       (Corrections 8), and regenerate them with `scripts/regen-ncodesum.sh`.
@@ -470,10 +496,22 @@ Commit: `—`
       constants ride into the emitted code, which is the same line-shift mechanism
       as the `.ir` churn. `scripts/artifact-gate.sh ./target/release/mfb all` then
       reported `1330 tests, 1493 build(s), 1832 golden(s) checked, 0 diff(s)`.
-- [ ] Measure decode throughput on a ~100 KB body (§4.3) and record the number.
-- [ ] Run `scripts/man-run-examples.sh encoding --run` — every example on the new
-      page must compile and run.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
+- [x] Measure decode throughput on a ~100 KB body (§4.3) and record the number.
+      **~7 ms for 102,400 bytes** (min of 7 runs; a real web page decodes in
+      single-digit milliseconds). Measuring it is what caught Corrections 4 — the
+      `List OF String` + `strings::join` accumulator I had substituted for the plan's
+      `out = out & ch` was **3x slower** (25 ms vs 7 ms), so the plan's body was
+      restored.
+- [x] Run `scripts/man-run-examples.sh encoding --run` — every example on the new
+      page must compile and run. `bash scripts/man-run-examples.sh encoding --run
+      codepageDecode` → `examples: 3   built: 3   ran: 3   failed: 0`, printing
+      `café`, `Привет` / `héllo`, and `กข` / `?`. (One example needed fixing first:
+      `encoding::utf8Encode(...)` used inline as an argument is
+      `TYPE_OVERLOAD_AMBIGUOUS`, since it is a return-type overload — it has to be
+      bound to a `LET … AS List OF Byte` first. The same trap hit the rt fixture.)
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
+      `cargo check --all-targets` is clean, and `cargo clippy --all-targets` reports
+      nothing in any new or edited file.
 
 Acceptance: the differential fixture passes for all 28 variants against the vendored
 index files; `cargo test --no-fail-fast` and `scripts/test-accept.sh` are green (watch
@@ -563,13 +601,27 @@ All three are **RESOLVED**; the evidence is recorded here and in Corrections.
    behavior**, not a delegation, and they are dropped. `Utf8` is a true delegation
    and is kept, at discriminant 0.
 
-4. **§4.3's body accumulates into a `List OF String` and `strings::join`s once,
-   rather than `out = out & ch`.** The plan itself flagged repeated `&` as "a known
-   cost shape in this runtime" and made the join form the contingency; it is used
-   from the start instead, because the contingency's trigger (a per-character string
-   fold) is a certainty at 100 KB, not a risk. The interface is unchanged, which is
-   the constraint the plan actually set on this. Throughput is still measured in
-   Phase 3.
+4. **§4.3's `out = out & ch` was replaced with a `List OF String` +
+   `strings::join` accumulator, and then PUT BACK — the plan's original body is
+   ~3x faster.** The substitution was made on a hunch (a per-character string fold
+   "is a certainty, not a risk" at 100 KB) and it was wrong; the plan was right.
+   Measured on the real decode path, 102,400 windows-1252 bytes, both binaries
+   interleaved on the same host to cancel load:
+
+   | Accumulator | decode_ms (7 runs) | min |
+   |---|---|---|
+   | `out = out & ch` (the plan's) | 13, 7, 10, 7, 11, 8, 9 | **7** |
+   | `List OF String` + `strings::join` | 26, 28, 26, 25, 26, 32, 28 | **25** |
+
+   The plan's contingency clause -- "if it is not acceptable, the fix is to
+   accumulate into a `List OF String` and `strings::join` once" -- is therefore
+   struck as an anti-optimization for this shape: 102,400 `collections::append`s
+   into a growing `List OF String` plus a final join costs far more than growing one
+   `String` by a 1-3 byte scalar at a time. The shipped body is the plan's.
+
+   The lesson generalizes past this member: `s = s & ch` in a tight loop is not
+   automatically the O(n^2) hazard it is in some runtimes, and swapping it for a
+   list-and-join is not automatically an optimization. Measure the actual shape.
 
 5. **`helper_codepage_table.rs` is generated and owns the `Codepage` enum as well as
    the `MATCH` arms.** §4.1 described the generator as emitting only the table body,

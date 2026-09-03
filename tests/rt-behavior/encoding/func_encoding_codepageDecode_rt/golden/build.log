@@ -8,8 +8,38 @@ Wrote executable to tests/rt-behavior/encoding/func_encoding_codepageDecode_rt/b
 $ tests/rt-behavior/encoding/func_encoding_codepageDecode_rt/build/func_encoding_codepageDecode_rt.out
 café
 Hi!~ 0
+Hi!~ 0
+Hi!~ 0
 []
 héllo 世界
-Windows1252 mapped=128 sum=3860234
+אבג
+אבג
+Ibm866 mapped=128 sum=41871282
+Iso8859_2 mapped=128 sum=2361556
+Iso8859_3 mapped=121 sum=1918664
+Iso8859_4 mapped=128 sum=2237146
+Iso8859_5 mapped=128 sum=9077170
+Iso8859_6 mapped=83 sum=6831930
+Iso8859_7 mapped=125 sum=7957263
+Iso8859_8 mapped=92 sum=7665929
+Iso8859_8I mapped=92 sum=7665929
+Iso8859_10 mapped=128 sum=2586454
+Iso8859_13 mapped=128 sum=4217228
+Iso8859_14 mapped=128 sum=11217019
+Iso8859_15 mapped=128 sum=2126122
+Iso8859_16 mapped=128 sum=3164658
+Koi8R mapped=128 sum=23636351
+Koi8U mapped=128 sum=19412804
+Macintosh mapped=128 sum=39718983
 Windows874 mapped=120 sum=26122587
+Windows1250 mapped=128 sum=4356256
+Windows1251 mapped=128 sum=10539701
+Windows1252 mapped=128 sum=3860234
+Windows1253 mapped=125 sum=8780591
+Windows1254 mapped=128 sum=3900167
+Windows1255 mapped=118 sum=12116030
+Windows1256 mapped=128 sum=12760196
+Windows1257 mapped=126 sum=4319193
+Windows1258 mapped=128 sum=5233522
+MacCyrillic mapped=128 sum=18553395
 [exit 0]

@@ -31,10 +31,16 @@ Stated in full in plan-123-A §Prerequisites; they apply unchanged here. In addi
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-123-A is complete and archived | `ls planning/completed/plan-123-A-*` → one match | NOT MET |
-| `encoding::Codepage` exists with its final variant set | `./target/release/mfb man encoding types \| grep -c Codepage` → non-zero | NOT MET |
-| `__encoding_codepageTable` returns a 128-scalar literal per variant | read `src/codegen/builtins/encoding/helper_codepage_table.rs` | NOT MET |
-| The vendored index files are committed | `ls tools/codepage-index/index-windows-1252.txt` | NOT MET |
+| plan-123-A is complete | every box in `planning/plan-123-A-codepage-decode.md` ticked, all three phases' `Commit:` lines filled, `cargo test --no-fail-fast` + `scripts/test-accept.sh` + `scripts/artifact-gate.sh` green | MET |
+| `encoding::Codepage` exists with its final variant set | `./target/release/mfb man encoding types \| grep -c '^ • '` → 29 | MET |
+| `__encoding_codepageTable` returns a 128-scalar literal per variant | `src/codegen/builtins/encoding/helper_codepage_table.rs`, generated; `codepage_tables_match_the_vendored_index_files` checks all 28 x 128 scalars against the index files | MET |
+| The vendored index files are committed | `ls tools/codepage-index/index-windows-1252.txt` → present (27 files) | MET |
+
+**Archiving note.** The plan's first row originally read "complete **and archived**
+(`ls planning/completed/plan-123-A-*`)". Archiving is the last step of the whole
+`plan-123` feature, after B lands and merges, so requiring it here would deadlock
+A against B. The row is corrected to test what it was actually protecting —
+that A's work is complete and its gates are green — see Corrections 5.
 
 **If plan-123-A is not complete, this plan cannot start, full stop.** It is not scope
 this plan absorbs, not a soft preference, and there is no fallback that hand-rolls a
@@ -219,12 +225,17 @@ Registration mirrors plan-123-A's `func_codepage_decode.rs`:
 
 The one unproven premise, and it is a script over committed files.
 
-- [ ] Check all 27 vendored `tools/codepage-index/*.txt` for a code point appearing
+- [x] Check all 27 vendored `tools/codepage-index/*.txt` for a code point appearing
       more than once within a single file. Record the result in §2 Verified
-      properties, replacing the UNVERIFIED note.
-- [ ] If any duplicate exists: document the tie-break (lowest byte wins) in §4 and
-      add a fixture pinning it. If none: record that, so the plain search is
-      justified by measurement rather than assumption.
+      properties, replacing the UNVERIFIED note. `python3
+      scripts/audit_codepage_index.py` → `dups=0` on every file and
+      `files with a repeated code point: 0`.
+- [x] ~~If any duplicate exists: document the tie-break (lowest byte wins) in §4 and
+      add a fixture pinning it.~~ — moot: **no duplicate exists**, per the command
+      above. Recorded instead: the plain scalar search is justified by measurement,
+      and the check is standing rather than one-shot — `audit_codepage_index.py`
+      exits non-zero if a future re-fetch ever introduces a duplicate, so the
+      justification cannot silently expire.
 
 Acceptance: §2's duplicate claim is answered with the command that answered it, and
 §4's design reflects the answer.
@@ -340,6 +351,23 @@ Both are **RESOLVED**.
    `<code point of ch>` as a placeholder. The package's existing
    `__encoding_codepoints(String) AS List OF Integer` (`helper_codepoints.rs`) is
    that reader; no second path was added.
+
+5. **The first Prerequisites row required plan-123-A to be *archived*, which it
+   cannot be until this plan lands.** Archiving moves the plan documents to
+   `planning/completed/`, and that is the final step of the whole `plan-123` feature
+   — after B is written, landed and merged. As written the two plans deadlocked: A
+   is not archived until B is done, and B could not start until A was archived. The
+   row is corrected to check what it was protecting — that A's work is complete and
+   its gates are green — which is verifiable now and is the actual precondition for
+   building an encoder on A's enum and tables.
+
+6. **The plan's `out = out & ch` warning does NOT apply to this member, but for a
+   different reason than plan-123-A's.** A measured that a `String` accumulator beats
+   a `List OF String` + `strings::join` by ~3x on the decode path (its Corrections 4).
+   The encoder accumulates a `List OF Byte`, which has no `&` operator at all, so
+   `collections::append` into a same-function local is the only shape available and
+   is also the in-place one. No change was needed here; recording it so the next
+   reader does not "fix" the encoder to match the decoder.
 
 ## Summary
 

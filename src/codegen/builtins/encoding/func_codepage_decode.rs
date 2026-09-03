@@ -11,21 +11,25 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode a `List OF Byte` as text in a legacy single-byte codepage."#;
 const DESC: &str = r#"`encoding::codepageDecode` reads `bytes` as text in `codepage` and returns the
-`String` it spells. It is the decoder for content that is not UTF-8 — a
-`windows-1252` page body, a `KOI8-R` mail part, a `IBM866` DOS file — where
+`String` they spell. It is the decoder for content that is not UTF-8 — a
+`windows-1252` page body, a `KOI8-R` mail part, an `IBM866` DOS file — where
 `encoding::utf8Decode` rejects the same bytes as malformed.
 
-Each codepage is one of the `encoding::Codepage` members. For every single-byte
-codepage, bytes `0`–`127` are ASCII and decode to themselves; bytes `128`–`255`
-are looked up in that codepage's table. `Codepage.Utf8` instead decodes the whole
-input as UTF-8, so a caller holding a charset label has one entry point for both
-cases.
+Each codepage is one of the `encoding::Codepage` members; `mfb man encoding types`
+lists them. For every single-byte codepage, bytes `0`–`127` are ASCII and decode to
+themselves, and bytes `128`–`255` are looked up in that codepage's table.
+`Codepage.Utf8` instead decodes the whole input as UTF-8, so a caller holding a
+charset label has one entry point for both cases.
 
-A few codepages leave some high bytes undefined — `windows-874` defines 120 of its
-128 high bytes, `ISO-8859-6` only 83. A byte with no mapping in the selected
-codepage is rejected with `ErrInvalidFormat` (`77050003`) rather than substituted,
-so a decode either spells the whole input or fails. The tables are the WHATWG
-Encoding Standard's legacy single-byte indexes."#;
+Some codepages leave part of their high half undefined: `windows-874` defines 120
+of its 128 high bytes and `ISO-8859-6` only 83. A byte with no meaning in the
+selected codepage is rejected with `ErrInvalidFormat` (`77050003`) rather than
+replaced by `U+FFFD`, so a decode either spells the whole input or fails. If you
+want a replacement character, catch the error and substitute it yourself.
+
+The tables are the WHATWG Encoding Standard's legacy single-byte indexes, so the
+text matches what a browser would show for the same bytes and the same label.
+`encoding::codepageEncode` is the inverse."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_codepageDecode(codepage AS Codepage, bytes AS List OF Byte) AS String
@@ -33,22 +37,22 @@ r#"FUNC __encoding_codepageDecode(codepage AS Codepage, bytes AS List OF Byte) A
     RETURN __encoding_utf8Decode(bytes)
   END IF
   LET table AS String = __encoding_codepageTable(codepage)
-  MUT parts AS List OF String = []
+  MUT out AS String = ""
   FOR EACH b IN bytes
     LET n AS Integer = toInt(b)
     IF n < 128 THEN
-      parts = collections::append(parts, __encoding_fromCodepoint(n))
+      out = out & __encoding_fromCodepoint(n)
     ELSE
       LET ch AS String = strings::mid(table, n - 128, 1)
       IF ch = "\u{FFFD}" THEN
         FAIL error(77050003, "byte not mapped in this codepage")
       END IF
-      parts = collections::append(parts, ch)
+      out = out & ch
     END IF
   NEXT
-  RETURN strings::join(parts, "")
+  RETURN out
 END FUNC"#;
-const EX: &str = r#"Decode `windows-1252` bytes that are not valid UTF-8:
+const EX: &str = r#"Read `windows-1252` bytes that are not valid UTF-8:
 
 ```
 IMPORT encoding
@@ -60,17 +64,39 @@ SUB main()
 END SUB
 ```
 
-Pick the codepage from a charset the caller already knows, with UTF-8 as the
-fallback:
+Pick the codepage from a charset the caller already knows, with UTF-8 handled by
+the same call:
 
 ```
 IMPORT encoding
 IMPORT io
 
 SUB main()
-  LET raw AS List OF Byte = encoding::hexDecode("cff0e8e2e5f2")
-  io::print(encoding::codepageDecode(encoding::Codepage.Windows1251, raw))
-  io::print(encoding::codepageDecode(encoding::Codepage.Utf8, encoding::utf8Encode("hi")))
+  LET cyrillic AS List OF Byte = encoding::hexDecode("cff0e8e2e5f2")
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows1251, cyrillic))
+  LET utf AS List OF Byte = encoding::utf8Encode("héllo")
+  io::print(encoding::codepageDecode(encoding::Codepage.Utf8, utf))
+END SUB
+```
+
+Fall back to a replacement character when a codepage leaves a byte undefined:
+
+```
+IMPORT encoding
+IMPORT io
+
+FUNC readOr(cp AS encoding::Codepage, bytes AS List OF Byte, fallback AS String) AS String
+  RETURN encoding::codepageDecode(cp, bytes)
+  TRAP(err)
+    RETURN fallback
+  END TRAP
+END FUNC
+
+SUB main()
+  LET thai AS List OF Byte = [toByte(161), toByte(162)]
+  LET hole AS List OF Byte = [toByte(219)]
+  io::print(readOr(encoding::Codepage.Windows874, thai, "?"))
+  io::print(readOr(encoding::Codepage.Windows874, hole, "?"))
 END SUB
 ```"#;
 
@@ -86,21 +112,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "codepage",
-                    desc: "The codepage to read the bytes in.",
+                    desc: "The codepage to read the bytes in. `Codepage.Utf8` decodes the whole input as UTF-8 instead.",
                     aliases: &[],
                     ty: ParameterType::named("Codepage"),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "bytes",
-                    desc: "The bytes to decode.",
+                    desc: "The bytes to decode. The empty list decodes to the empty string.",
                     aliases: &[],
                     ty: ParameterType::list_of(ParameterType::Byte),
                     default: DefaultValue::None,
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(BODY, "__encoding_codepageDecode"),
         }],
     });
