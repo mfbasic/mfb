@@ -6,11 +6,11 @@ $ mfb build tests/rt-behavior/json/json-number-roundtrip-rt
 Wrote executable to tests/rt-behavior/json/json-number-roundtrip-rt/build/json_number_roundtrip_rt.out
 [exit 0]
 $ tests/rt-behavior/json/json-number-roundtrip-rt/build/json_number_roundtrip_rt.out
-ok 3.141592653589793
-ok 0.12345678901234
-ok -2.718281828459045
-ok 0.1
-ok 0.000000000000123
-ok 1.5
-ok 100
+same-value 3.141592653589793 -> 3.141592653589793
+same-value 0.12345678901234 -> 0.12345678901234
+same-value -2.718281828459045 -> -2.718281828459045
+same-value 0.1 -> 0.1
+same-value 0.000000000000123 -> 1.23e-13
+same-value 1.5 -> 1.5
+same-value 100 -> 100
 [exit 0]

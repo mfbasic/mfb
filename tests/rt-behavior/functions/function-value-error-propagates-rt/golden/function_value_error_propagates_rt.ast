@@ -1,0 +1,306 @@
+{
+  "project": "function_value_error_propagates_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 27 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boomInt",
+      "line": 29,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 29 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "boom-int" }] }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "okInt",
+      "line": 33,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 33 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "1" } }, "line": 34 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "line": 37,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer", "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boomBox",
+      "line": 41,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 41 }
+      ],
+      "returnType": "Box",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050003" }, { "kind": "string", "value": "boom-box" }] }, "line": 42 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "okBox",
+      "line": 45,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 45 }
+      ],
+      "returnType": "Box",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "1" } }] }, "line": 46 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boomList",
+      "line": 49,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 49 }
+      ],
+      "returnType": "List OF Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050004" }, { "kind": "string", "value": "boom-list" }] }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "applyInt",
+      "line": 53,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null, "line": 53 },
+      { "name": "x", "type": "Integer", "default": null, "line": 53 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 54 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "applyBox",
+      "line": 57,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Box", "default": null, "line": 57 },
+      { "name": "x", "type": "Integer", "default": null, "line": 57 }
+      ],
+      "returnType": "Box",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 58 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "applyList",
+      "line": 61,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS List OF Integer", "default": null, "line": 61 },
+      { "name": "x", "type": "Integer", "default": null, "line": 61 }
+      ],
+      "returnType": "List OF Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 62 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "directInt",
+      "line": 66,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "boomInt", "arguments": [{ "kind": "number", "value": "1" }] }] } }, "line": 67 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 68,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 69 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "indirectInt",
+      "line": 73,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "applyInt", "arguments": [{ "kind": "identifier", "value": "boomInt" }, { "kind": "number", "value": "1" }] }] } }, "line": 74 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 75,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 76 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "directBox",
+      "line": 81,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "boomBox", "arguments": [{ "kind": "number", "value": "1" }] }, "member": "value" }] } }, "line": 82 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 83,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 84 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "indirectBox",
+      "line": 88,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "applyBox", "arguments": [{ "kind": "identifier", "value": "boomBox" }, { "kind": "number", "value": "1" }] }, "member": "value" }] } }, "line": 89 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 90,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 91 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "indirectList",
+      "line": 96,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "List OF Integer", "value": { "kind": "call", "callee": "applyList", "arguments": [{ "kind": "identifier", "value": "boomList" }, { "kind": "number", "value": "1" }] }, "line": 97 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "r" }] }] } }, "line": 98 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 99,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 100 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "successInt",
+      "line": 105,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "applyInt", "arguments": [{ "kind": "identifier", "value": "okInt" }, { "kind": "number", "value": "1" }] }] } }, "line": 106 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 107,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 108 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "successBox",
+      "line": 112,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "applyBox", "arguments": [{ "kind": "identifier", "value": "okBox" }, { "kind": "number", "value": "1" }] }, "member": "value" }] } }, "line": 113 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 114,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 115 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 119,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "direct-int    " }, "right": { "kind": "call", "callee": "directInt", "arguments": [] } }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "indirect-int  " }, "right": { "kind": "call", "callee": "indirectInt", "arguments": [] } }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "direct-box    " }, "right": { "kind": "call", "callee": "directBox", "arguments": [] } }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "indirect-box  " }, "right": { "kind": "call", "callee": "indirectBox", "arguments": [] } }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "indirect-list " }, "right": { "kind": "call", "callee": "indirectList", "arguments": [] } }] }, "line": 124 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "success-int   " }, "right": { "kind": "call", "callee": "successInt", "arguments": [] } }] }, "line": 125 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "success-box   " }, "right": { "kind": "call", "callee": "successBox", "arguments": [] } }] }, "line": 126 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 127 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 128,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "escaped to main: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 129 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 130 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

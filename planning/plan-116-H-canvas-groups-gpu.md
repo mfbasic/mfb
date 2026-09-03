@@ -108,6 +108,12 @@ grouping, not a flat offset list.
 | `*Renderable` predicates | 2 | `helper_render.rs:180` (Metal), and the Vulkan sibling |
 | Shared scene walk | 1 | `helper_render.rs:122` (`__canvas_sceneOffsets`) |
 
+> **Census re-verified 2026-09-02 (pre-execution).** Still 2 backends, 3 shader
+> sources, 2 `*Renderable` predicates and 1 shared scene walk. The
+> `ITEM_BLOCK_SIZE after plan-116-F | 224` row depends on plan-116-F landing its own
+> corrected figures — see **F1** there, which took F's header from 42→48 to 41→47; the
+> block size 192 → 224 is unaffected, since plan-116-E landed 192 as F assumed.
+
 ### Verified properties
 
 - **The offset must reach the fragment stage, not just the vertex stage.** Read both

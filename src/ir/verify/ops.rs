@@ -559,7 +559,7 @@ impl TypeEnv {
                     // the `$trap_res` temp just above (in `temp_consts`), and the
                     // rule reports before the handler's own diagnostics, as
                     // the former source checker did.
-                    self.check_inline_trap_scrutinee(condition, else_body, &temp_consts);
+                    self.check_inline_trap_scrutinee(condition, else_body, &temp_consts, locals);
                     self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
                     self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
                 }

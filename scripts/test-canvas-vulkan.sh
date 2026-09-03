@@ -194,7 +194,12 @@ SUB main()
   ' plan-116-D, so without this the cap-disc arm is compiled into the SPIR-V and never
   ' taken.
   LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(120, 255, 200), 20.0)]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc]
+  ' plan-116-E: a rotated, eccentric, stroked ellipse -- kind 7 is a brand-new geometry
+  ' kind, so without one here the SPIR-V's ellipse arm is compiled and never taken and
+  ' a predicate that accepted a kind the shader does not know would render it as
+  ' NOTHING and report success (`.ai/canvas-threading.md` section 10).
+  LET ell AS canvas::DrawItem = canvas::Ellipse[x := 760.0, y := 430.0, radiusX := 110.0, radiusY := 38.0, angle := 0.5235987755982988, paint := canvas::fillStroke(canvas::rgb(226, 150, 255), canvas::rgb(255, 255, 255), 8.0)]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

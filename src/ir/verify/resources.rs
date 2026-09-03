@@ -820,6 +820,7 @@ impl TypeEnv {
         condition: &IrValue,
         handler: &[IrOp],
         temp_consts: &HashMap<&str, &IrValue>,
+        locals: &HashMap<String, ParameterType>,
     ) {
         let IrValue::ResultIsOk { value } = condition else {
             return;
@@ -848,14 +849,31 @@ impl TypeEnv {
             // `fallible::operator_can_raise` said so — so neither the
             // requires-fallible nor the dead-handler rule applies.
             IrValue::Checked { .. } => {}
-            IrValue::CallResult { target, .. } | IrValue::Call { target, .. } => {
+            IrValue::CallResult { target, args, .. } | IrValue::Call { target, args, .. } => {
                 if builtins::is_package_constant(target) {
                     self.emit(
                         "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
                         "Inline TRAP requires a fallible call; a package constant is not a call."
                             .to_string(),
                     );
-                } else if builtins::inline_builtin_is_infallible(target) {
+                } else if builtins::inline_builtin_is_infallible(
+                    target,
+                    // bug-486: with the argument types. `toString(<List OF Byte>)`
+                    // decodes UTF-8 and really can fail, so advising the author to
+                    // delete its handler was advising them to delete the only thing
+                    // standing between a non-UTF-8 input and a dead process.
+                    // Typed only for the names whose verdict can turn on them.
+                    &if builtins::inline_builtin_fallibility_depends_on_args(target) {
+                        args.iter()
+                            .map(|arg| {
+                                self.infer_type(arg, locals)
+                                    .unwrap_or(ParameterType::Unknown)
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    },
+                ) {
                     // A provably-infallible inline built-in (`len`, `toString`,
                     // every `bits::*`, …) under a TRAP compiles and runs; its
                     // handler is dead code — an advisory warning, not an error

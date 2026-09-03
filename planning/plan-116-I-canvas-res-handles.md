@@ -111,12 +111,20 @@ tested against the finished renderer.)
 
 | What | Count | Command |
 |---|---|---|
-| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
+| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | ~~22~~ **29** | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
 | `Picture[` construction sites (code + doc examples) | 7 | `grep -rn 'Picture\[' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
-| `Text[` construction sites | 12 | same grep, `Text\[` |
-| Renderer reads of `t.font.id` | 5 | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
+| `Text[` construction sites | ~~12~~ **20** | same grep, `Text\[` |
+| Renderer reads of `t.font.id` | ~~5~~ **6** | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
 | Renderer reads of `pic.image` | 0 | `grep -rn 'pic\.image' src/codegen/builtins/canvas/` (bug-484) |
-| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | 3 | `tests/cli_canvas_package.rs:54,55`, `tests/rt_canvas_font.rs:634` |
+| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | ~~3~~ **5** | `tests/cli_canvas_package.rs` ×3, `tests/rt_canvas_font.rs`, `tests/rt_canvas_present_deep_copy.rs` |
+
+> **Re-measured 2026-09-02 (I1).** Four of the six rows had drifted, two of them by
+> more than half. The growth is this plan's own: letters C, D and E added text and
+> scene fixtures, and peers landed more. **Re-run every row again at Phase 1** — this
+> letter's whole job is a mechanical sweep over these populations, so a stale count is
+> not a scoping detail here, it is the work itself. plan-116-D's D2 and D5 are the two
+> ways that goes wrong: a count measured at plan time, and a census whose command
+> cannot see every site.
 
 Re-run every row at Phase 1 start — the series letters before this one add sites
 (plan-116-D touched the same fixture files and counts have moved once already).
@@ -391,7 +399,30 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **I1 (2026-09-02, pre-execution) — four of the six measured populations had drifted,
+  two by more than half.** Re-measured against the tree after plan-116-C, D and E
+  landed:
+
+  | Row | Plan (2026-09-01) | Now |
+  |---|---|---|
+  | Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | **29** |
+  | `Text[` construction sites | 12 | **20** |
+  | Renderer reads of `t.font.id` | 5 | **6** |
+  | Fabricated zero-handle uses | 3 | **5** |
+  | `Picture[` sites | 7 | 7 |
+  | Renderer reads of `pic.image` | 0 | 0 |
+
+  Most of the growth is this plan's own — C added the transformed-text fixtures and a
+  golden scene that loads a font, D and E added GPU harness scenes — with the rest from
+  peers. **This matters more here than in the letters before it**: D and E were
+  *additive* changes whose census错 only mis-scoped an estimate, whereas this letter is
+  a mechanical sweep *over* these populations, so a stale count is not a scoping detail,
+  it is the work itself. A missed `Text[` site is a site that keeps the old handle.
+
+  Re-run every row at Phase 1 rather than trusting the table, and heed plan-116-D's two
+  ways this goes wrong: **D2**, a count measured at plan time on a shared checkout, and
+  **D5**, a census whose command cannot see every site (there, MFBASIC embedded in a
+  shell heredoc, which `--include='*.rs' --include='*.mfb'` cannot match).
 
 ## Summary
 

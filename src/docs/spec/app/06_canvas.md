@@ -93,6 +93,13 @@ direction that makes a `0`..`PI` arc sweep *below* its centre.
 The convention is stated because an arc is the one primitive where getting it
 wrong is silent: a smile renders as a frown rather than failing.
 
+`Ellipse.angle` follows the same rule: it rotates the ellipse about its own centre,
+clockwise from +X, so a positive angle turns the long axis towards the bottom-right.
+`0.0` leaves `radiusX` along the surface's X axis. An ellipse is therefore *placed* by
+`x`/`y` and *oriented* by `angle`, independently — and `radiusX = radiusY` with
+`angle := 0.0` renders identically to the `Circle` of that radius, so squashing a
+circle does not mean changing item type.
+
 ## Rendering conventions
 
 These are the observable contract a backend must meet, not implementation notes.

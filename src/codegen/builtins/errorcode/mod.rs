@@ -125,7 +125,14 @@ pub(crate) fn register(r: &mut Registry) {
         // generic bad argument — the message can say what the count should have been.
         .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"))
         .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"))
-        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed.", "_mfb_str_error_bad_image_file"));
+        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed.", "_mfb_str_error_bad_image_file"))
+        // plan-120-A: two structural-input mistakes that `json::parse` used to
+        // report as the same generic `ErrInvalidFormat`. Both are deliberately
+        // named for the mistake rather than for `json`, because they belong to
+        // any recursive-descent reader of untrusted text — the regex engine's
+        // own nesting cap and any future parser report the same two things.
+        .add_constant(constant("ErrDepthExceeded", "77050024", "Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256).", "_mfb_str_error_depth_exceeded"))
+        .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"));
 
     r.add_package(pkg);
 }
@@ -278,9 +285,22 @@ mod tests {
         //       Separate from `ErrBadFontFile` because a program can load both, and
         //       "which of the two files was wrong" is the first thing its handler
         //       wants to know.
+        //   +1  ErrDepthExceeded (plan-120-A): a document that is well-formed but
+        //       nested past the reader's descent limit is not a malformed one, and
+        //       the caller's response differs — raise the limit or reject the
+        //       source, versus fix the syntax.
+        //   +1  ErrInvalidSurrogate (plan-120-A): a `\u` escape naming half a
+        //       surrogate pair is well-formed JSON that has no Unicode scalar
+        //       behind it. Distinct from a grammar error for the same reason:
+        //       the document must be re-encoded, not re-punctuated.
         const LEGACY_ROWS: usize = 45;
-        const ADDED_SINCE_MIGRATION: &[&str] =
-            &["ErrBadPixelCount", "ErrBadFontFile", "ErrBadImageFile"];
+        const ADDED_SINCE_MIGRATION: &[&str] = &[
+            "ErrBadPixelCount",
+            "ErrBadFontFile",
+            "ErrBadImageFile",
+            "ErrDepthExceeded",
+            "ErrInvalidSurrogate",
+        ];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");
         }

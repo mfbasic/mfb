@@ -2873,6 +2873,11 @@ mod tests {
     /// the server only ever sees the one-way lookup of that code.
     #[test]
     fn link_start_relays_only_a_blob_sealed_under_the_pairing_code() {
+        // These reach `pin_server_key` through link's trust-on-first-use, which
+        // reads the process-wide MFB_REPO_SERVER_FINGERPRINT. Take the same lock
+        // `local::tests` takes, or a sibling that sets the variable makes this
+        // assert on the wrong error.
+        let _env = crate::local::tests::env_guard();
         let registry = Registry::new();
         let (_temp, paths) = temp_paths();
         let ident_public = seed_ident(&paths, "alice");
@@ -2908,6 +2913,11 @@ mod tests {
     /// auth keypair of its own.
     #[test]
     fn link_fetch_installs_the_relayed_ident_keypair() {
+        // These reach `pin_server_key` through link's trust-on-first-use, which
+        // reads the process-wide MFB_REPO_SERVER_FINGERPRINT. Take the same lock
+        // `local::tests` takes, or a sibling that sets the variable makes this
+        // assert on the wrong error.
+        let _env = crate::local::tests::env_guard();
         let registry = Registry::new();
         let (_temp, paths) = temp_paths();
         let (ident_public, ident_private) = crypto::generate_keypair();
@@ -2967,6 +2977,11 @@ mod tests {
     /// before anything is written to disk.
     #[test]
     fn link_fetch_rejects_a_blob_that_is_not_an_ident_keypair() {
+        // These reach `pin_server_key` through link's trust-on-first-use, which
+        // reads the process-wide MFB_REPO_SERVER_FINGERPRINT. Take the same lock
+        // `local::tests` takes, or a sibling that sets the variable makes this
+        // assert on the wrong error.
+        let _env = crate::local::tests::env_guard();
         let registry = Registry::new();
         let code = "abcde-fghij";
 

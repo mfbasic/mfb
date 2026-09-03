@@ -1765,9 +1765,28 @@ impl<'a> Walker<'a> {
                 }
                 if offender.is_none()
                     && conditional
-                    && self
-                        .context
-                        .call_is_fallible(&self.canonical_callee(callee))
+                    && self.context.call_is_fallible(
+                        &self.canonical_callee(callee),
+                        // bug-486: with the argument types, so a short-circuited
+                        // `toString(<List OF Byte>)` — which really can fail — is
+                        // reported, while `toString` on anything else is not.
+                        // Typed only for the names whose verdict can turn on them.
+                        &if crate::codegen::builtins::inline_builtin_fallibility_depends_on_args(
+                            callee,
+                        ) {
+                            arguments
+                                .iter()
+                                .map(|argument| match argument {
+                                    HirCallArg::Positional(value)
+                                    | HirCallArg::Named { value, .. } => {
+                                        self.type_of(value, locals)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        } else {
+                            Vec::new()
+                        },
+                    )
                 {
                     *offender = Some(callee.replace('.', "::"));
                 }

@@ -297,8 +297,10 @@ impl LowerContext<'_> {
     /// (bug-457). The shape pass asks this to reject a fallible call in a
     /// short-circuited operand of an inline-`TRAP` scrutinee, which is the one
     /// nested-call shape [`lower_inline_trap`] cannot lift.
-    pub(super) fn call_is_fallible(&self, target: &str) -> bool {
-        self.fallible.call_is_fallible(target)
+    /// `arg_types` discriminates the built-ins whose fallibility depends on the
+    /// overload rather than the name (bug-486 — `toString(<List OF Byte>)`).
+    pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
+        self.fallible.call_is_fallible(target, arg_types)
     }
 }
 
@@ -368,7 +370,11 @@ pub(super) fn lower_facts(
         function_params,
         binding_types,
         type_index,
-        fallible: super::fallible::analyze(hir),
+        // Filled in below. bug-486: the fallibility fixpoint needs a type oracle
+        // (the built-in census answers per overload, not per name), and a context
+        // can only be built once the rest of the facts exist — so this starts empty
+        // and is replaced rather than computed in the initializer as it used to be.
+        fallible: Fallibility::default(),
     };
     // Inference reads the declared tables through a context and writes the
     // inferred binding types back; the throwaway context borrows `facts`, so the
@@ -377,6 +383,13 @@ pub(super) fn lower_facts(
     infer_binding_types(hir, &mut context);
     let binding_types = std::mem::take(&mut context.binding_types);
     facts.binding_types = binding_types;
+    // Now that every binding is typed, run the fallibility fixpoint through a
+    // context over the completed facts. `expression_type` never consults
+    // `fallible`, so the placeholder above cannot bias the verdicts it produces.
+    let mut context = facts.context();
+    let fallible = super::fallible::analyze(hir, &mut context);
+    drop(context);
+    facts.fallible = fallible;
     facts
 }
 
@@ -1359,10 +1372,19 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
-        && trap_hoist_kind(&root, context.fallible) == Some(true);
+        && trap_hoist_kind(&root, context.fallible, locals, &context.binding_types) == Some(true);
     let check_root = match &root {
-        IrValue::Call { target, .. } => {
-            hoists.is_empty() || context.fallible.call_is_fallible(target)
+        // bug-486: the census is asked with the root call's ARGUMENT types, not
+        // its name alone. `toString` is infallible on every argument type but
+        // `List OF Byte`, whose UTF-8 decode raises `ErrEncoding`; answering by
+        // name left `toString(<bytes>)` a plain `Call` whenever the scrutinee
+        // also hoisted, and the raise walked straight past the handler.
+        IrValue::Call { target, args, .. } => {
+            hoists.is_empty()
+                || context.fallible.call_is_fallible(
+                    target,
+                    &ir_call_arg_types(target, args, locals, &context.binding_types),
+                )
         }
         _ => hoists.is_empty() || root_operator_raises,
     };
@@ -1749,7 +1771,14 @@ fn hoist_trap_calls(
     // The scrutinee's own outermost node is handled by the caller, so only its
     // operands are scanned.
     let mut fallible = Vec::new();
-    scan_trap_operands(root, context.fallible, 0, &mut fallible);
+    scan_trap_operands(
+        root,
+        context.fallible,
+        locals,
+        &context.binding_types,
+        0,
+        &mut fallible,
+    );
     let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
         return Vec::new();
     };
@@ -1770,7 +1799,14 @@ fn hoist_trap_calls(
 
 /// Records, in evaluation order, whether each call node under `value` is
 /// fallible. `value`'s own node is not recorded — only its operands.
-fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
+fn scan_trap_operands(
+    value: &IrValue,
+    fallible: &Fallibility,
+    locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
+    depth: usize,
+    out: &mut Vec<bool>,
+) {
     let next = depth + 1;
     match value {
         IrValue::Const { .. }
@@ -1783,14 +1819,14 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
         // captured values are evaluated in this expression.
         IrValue::Closure { captures, .. } => {
             for capture in captures {
-                scan_trap_call(capture, fallible, next, out);
+                scan_trap_call(capture, fallible, locals, globals, next, out);
             }
         }
         IrValue::Call { args, .. }
         | IrValue::CallResult { args, .. }
         | IrValue::Constructor { args, .. } => {
             for arg in args {
-                scan_trap_call(arg, fallible, next, out);
+                scan_trap_call(arg, fallible, locals, globals, next, out);
             }
         }
         IrValue::UnionWrap { value, .. }
@@ -1800,32 +1836,34 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
         | IrValue::ResultError { value }
         | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => scan_trap_call(value, fallible, next, out),
+        | IrValue::MemberAccess { target: value, .. } => {
+            scan_trap_call(value, fallible, locals, globals, next, out)
+        }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
-            scan_trap_call(target, fallible, next, out);
+            scan_trap_call(target, fallible, locals, globals, next, out);
             for update in updates {
-                scan_trap_call(&update.value, fallible, next, out);
+                scan_trap_call(&update.value, fallible, locals, globals, next, out);
             }
         }
         IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
-                scan_trap_call(value, fallible, next, out);
+                scan_trap_call(value, fallible, locals, globals, next, out);
             }
         }
         IrValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                scan_trap_call(key, fallible, next, out);
-                scan_trap_call(value, fallible, next, out);
+                scan_trap_call(key, fallible, locals, globals, next, out);
+                scan_trap_call(value, fallible, locals, globals, next, out);
             }
         }
         IrValue::Binary {
             op, left, right, ..
         } => {
-            scan_trap_call(left, fallible, next, out);
+            scan_trap_call(left, fallible, locals, globals, next, out);
             if !is_short_circuit_operator(*op) {
-                scan_trap_call(right, fallible, next, out);
+                scan_trap_call(right, fallible, locals, globals, next, out);
             }
         }
     }
@@ -1839,9 +1877,16 @@ fn scan_trap_operands(value: &IrValue, fallible: &Fallibility, depth: usize, out
 /// `Some(true)` = lifted **and checked** (its error routes to the handler);
 /// `Some(false)` = lifted but not checked — an infallible call kept in place
 /// only so a later lift cannot reorder it past this one; `None` = not indexed.
-fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
+fn trap_hoist_kind(
+    value: &IrValue,
+    fallible: &Fallibility,
+    locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
+) -> Option<bool> {
     match value {
-        IrValue::Call { target, .. } => Some(fallible.call_is_fallible(target)),
+        IrValue::Call { target, args, .. } => Some(
+            fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals, globals)),
+        ),
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
         // exempt.
@@ -1863,14 +1908,63 @@ fn trap_hoist_kind(value: &IrValue, fallible: &Fallibility) -> Option<bool> {
 
 /// [`scan_trap_operands`] plus `value`'s own node, so lifted nodes are recorded
 /// in evaluation order (operands first, then the node they feed).
-fn scan_trap_call(value: &IrValue, fallible: &Fallibility, depth: usize, out: &mut Vec<bool>) {
+fn scan_trap_call(
+    value: &IrValue,
+    fallible: &Fallibility,
+    locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
+    depth: usize,
+    out: &mut Vec<bool>,
+) {
     if depth > TRAP_SCRUTINEE_MAX_DEPTH {
         return;
     }
-    scan_trap_operands(value, fallible, depth, out);
-    if let Some(checked) = trap_hoist_kind(value, fallible) {
+    scan_trap_operands(value, fallible, locals, globals, depth, out);
+    if let Some(checked) = trap_hoist_kind(value, fallible, locals, globals) {
         out.push(checked);
     }
+}
+
+/// The static types of a lowered call's arguments, for the overload-aware half of
+/// the fallibility census (bug-486).
+///
+/// Every `IrValue` that carries a `type_` answers with it; a `Local` is looked up
+/// in the enclosing function's map (which is where a hoisted `$trap_arg*` and
+/// every source local live) and a `Global` in the top-level binding map —
+/// `IrValue::Global` is a bare name with no `type_` on the node, so without
+/// `globals` a `LET` at file scope typed `Unknown` and its byte decode was hoisted
+/// UNCHECKED, re-entering the bug this fixes. Anything else answers `Unknown`,
+/// which lands the census on its name-keyed verdict — the answer it gave before
+/// argument types reached it.
+///
+/// Gated on `target` so the walk only pays for the names whose verdict can turn
+/// on an argument type; every other callee is decided by name alone.
+fn ir_call_arg_types(
+    target: &str,
+    args: &[IrValue],
+    locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
+) -> Vec<ParameterType> {
+    if !builtins::inline_builtin_fallibility_depends_on_args(target) {
+        return Vec::new();
+    }
+    args.iter()
+        .map(|arg| {
+            match arg {
+                // The two node kinds `annotated_parameter_type` answers `None`
+                // for: a bare name whose type lives in a binding environment.
+                IrValue::Local(name) => locals.get(name).cloned(),
+                IrValue::Global(name) => globals.get(name).cloned(),
+                // Every other node carries its own type. Delegated rather than
+                // re-listed: a hand-written copy of that match is a second list
+                // to keep in step, and the first draft of this one had already
+                // dropped `MemberAccess` — which is the documented real-world
+                // idiom, `toString(resp.body)`.
+                other => other.annotated_parameter_type(),
+            }
+            .unwrap_or(ParameterType::Unknown)
+        })
+        .collect()
 }
 
 /// The mutating twin of [`scan_trap_operands`]: walks the same nodes in the same
@@ -1989,7 +2083,8 @@ fn rewrite_trap_call(
     // The scan's fallibility verdict is recomputed here rather than read off
     // `fallible[position]`, because a non-raising operator is not indexed at all
     // and must not consume a position.
-    let Some(checked) = trap_hoist_kind(value, context.fallible) else {
+    let Some(checked) = trap_hoist_kind(value, context.fallible, locals, &context.binding_types)
+    else {
         return;
     };
     debug_assert_eq!(
@@ -3149,6 +3244,14 @@ fn call_argument_expected_type(
     }
     if let Some(params) = builtins::argument_types_typed(&canonical_callee) {
         return params.get(index).cloned();
+    }
+    // plan-120-D: `argument_types_typed` declines for an overload SET, but the
+    // positions the overloads agree on still have one expected type — and this
+    // function decides union wrapping, so declining there silently lowers a bare
+    // record where a tagged union is expected. Ask for the agreed type before
+    // falling through to the user-function paths below.
+    if let Some(agreed) = builtins::agreed_argument_type(&canonical_callee, index) {
+        return Some(agreed);
     }
     context
         .function_params

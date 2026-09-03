@@ -461,3 +461,39 @@ reintroduces the original race against `listen(2)`.
 cannot tell your server from someone else's. When the test's assertion depends on
 *which* peer answered, the probe has to establish identity — or, as here, establish
 that the process you started is the one still holding the port.
+
+## A lock that one test module cannot reach is an invariant that is only *stated*
+
+Two wrong-answer flakes found in one session, in unrelated crates, with the same shape:
+**a test read process-global state a concurrent sibling was mutating, and asserted on
+the wrong outcome rather than erroring.** Both were green when run alone.
+
+* `tests/rt_tls_connect_allow_self_signed.rs` — an ephemeral port picked with
+  bind-then-release, so the loser of a collision probed the *winner's* `s_server` and
+  returned that case's TLS verdict (see the section above).
+* `repository/src/client.rs` — `pin_server_key` reads the process-wide
+  `MFB_REPO_SERVER_FINGERPRINT`. `local::tests` had an `ENV_LOCK` whose doc comment
+  said "every test that exercises it must run one at a time", but the lock was private
+  to that module and `client::tests` reaches the same code through link's
+  trust-on-first-use pin. So `link_fetch_rejects_a_blob_that_is_not_an_ident_keypair`
+  asserted on `"pairing blob ident keypair is inconsistent"` and received
+  `"… does not match the expected MFB_REPO_SERVER_FINGERPRINT …; refusing to pin"`.
+
+**The generalisable part.** When a guard exists for process-global state, its
+*visibility* is part of the invariant, not an implementation detail. A `static
+ENV_LOCK` private to the module that happens to have written it first protects that
+module and silently exempts every other one — and the comment above it will still claim
+otherwise, which is worse than no comment. Ask: *who else reaches this state?* Env
+vars, ports, `MFB_HOME`, the current directory and any `static mut`-shaped global are
+all process-wide, so "who else" spans the whole test binary, not the module.
+
+**Diagnosing one.** The signature is an assertion failure whose `left` is a coherent
+message from a *different* code path — not a garbled value. Run the test alone: if it
+passes, stop looking at the test and start looking for who else writes what it reads.
+`grep -rn 'set_var' <crate>/src/` finds the env case in seconds.
+
+**Fixing one.** Share the guard rather than adding a second: two locks over one
+variable serialise nothing. Make it `pub(crate)` (its module too, if it is a
+`#[cfg(test)] mod tests`) and take it in every test that touches the state. Clearing
+the variable *on acquire*, as `env_guard` does, is worth copying — it means a test that
+panics mid-way cannot leak into the next one.

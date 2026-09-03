@@ -688,3 +688,137 @@ fn the_gpu_draws_the_endcap_scene_the_reference_shows() {
         );
     }
 }
+
+/// Axis-aligned, rotated, high-eccentricity, filled and stroked (plan-116-E).
+///
+/// The four cases the ellipse SDF has to get right, and each fails differently:
+///
+/// - **The axis-aligned pair** is the baseline. A 3:1 filled ellipse beside the circle
+///   its `radiusX` would give, so the picture shows the shape rather than just an oval.
+/// - **The high-eccentricity one** is where the solve is worst. The approximate ellipse
+///   distance this letter rejected has its largest error at the *flat* ends, where the
+///   curvature is lowest, so a 10:1 ellipse's rim is the thing to look at.
+/// - **The rotated pair** exercises the stored `cos`/`sin`. The two are the same shape a
+///   quarter turn apart, so a rotation applied with the wrong sign is visible as an
+///   asymmetry between them rather than as "some angle".
+/// - **The stroked one** is the signed-distance case: hollow inside, bounded outside.
+///   An unsigned distance fills the interior and every filled case above still passes.
+///
+/// The equal-radii ellipse in the bottom row is drawn beside a real `Circle` of the
+/// same radius and paint. In the reference they are indistinguishable, which is the
+/// picture of §1's load-bearing claim — and if the `rx == ry` guard ever stopped
+/// firing, this is where a reader would see the rim shift.
+const ELLIPSES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(58, 62, 72))]
+
+  ' Row 1 -- axis-aligned 3:1, beside the circle its radiusX would give.
+  LET warm AS canvas::Color = canvas::rgb(255, 196, 84)
+  LET wide AS canvas::DrawItem = canvas::Ellipse[x := 240.0, y := 100.0, radiusX := 180.0, radiusY := 60.0, angle := 0.0, paint := canvas::fill(warm)]
+  LET round AS canvas::DrawItem = canvas::Circle[x := 560.0, y := 100.0, radius := 60.0, paint := canvas::fill(warm)]
+
+  ' Row 2 -- 10:1, the eccentricity where an approximate distance is worst, and the
+  ' same shape turned a quarter turn. The turned one gets its own column on the right,
+  ' because a 10:1 ellipse a quarter turn round is as tall as the row is wide.
+  LET cool AS canvas::Color = canvas::rgb(120, 214, 255)
+  LET thin AS canvas::DrawItem = canvas::Ellipse[x := 220.0, y := 260.0, radiusX := 200.0, radiusY := 20.0, angle := 0.0, paint := canvas::fill(cool)]
+  LET thinTurned AS canvas::DrawItem = canvas::Ellipse[x := 800.0, y := 300.0, radiusX := 200.0, radiusY := 20.0, angle := 1.5707963267948966, paint := canvas::fill(cool)]
+
+  ' Row 3 -- rotated, filled-and-stroked and stroke-only, so the band's width is
+  ' readable all the way round a curve whose curvature varies ninefold.
+  LET violet AS canvas::Color = canvas::rgb(226, 150, 255)
+  LET tilted AS canvas::DrawItem = canvas::Ellipse[x := 200.0, y := 450.0, radiusX := 150.0, radiusY := 50.0, angle := 0.5235987755982988, paint := canvas::fillStroke(violet, canvas::rgb(255, 255, 255), 10.0)]
+  LET hollow AS canvas::DrawItem = canvas::Ellipse[x := 530.0, y := 450.0, radiusX := 120.0, radiusY := 70.0, angle := 0.0 - 0.5235987755982988, paint := canvas::stroke(violet, 16.0)]
+
+  ' Row 4 -- the load-bearing pair: an Ellipse with equal radii beside the Circle of
+  ' that radius, same paint. They must be indistinguishable.
+  LET mint AS canvas::Color = canvas::rgb(150, 255, 190)
+  LET asCircle AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 585.0, radiusX := 38.0, radiusY := 38.0, angle := 0.0, paint := canvas::fillStroke(mint, canvas::rgb(255, 255, 255), 6.0)]
+  LET realCircle AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 585.0, radius := 38.0, paint := canvas::fillStroke(mint, canvas::rgb(255, 255, 255), 6.0)]
+
+  canvas::present([ground, wide, round, thin, thinTurned, tilted, hollow, asCircle, realCircle])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The ellipse reference renders exactly.
+///
+/// Same rule as the other three references: a mismatch is a bug hunt, not a
+/// re-baseline.
+#[test]
+fn ellipses_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_ellipses", ELLIPSES);
+    let reference = golden_path("ellipses");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the ellipse scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the axis-aligned baseline, row 2 is the 10:1 \
+             case where an approximate distance is worst (look at the flat ends), row \
+             3 is the stroke band under varying curvature, and row 4 is the equal-radii \
+             pair — a difference there is the `rx == ry` guard not firing, and the \
+             ellipse and the circle beside it will no longer match."
+        );
+    }
+}
+
+/// The hardware backend draws the ellipse scene the reference shows.
+///
+/// plan-116-E Phase 4's acceptance. Gated on `gpuSelected=TRUE` first for the reason
+/// `.ai/canvas-threading.md` §10 records from experience: a predicate that accepts a
+/// kind its shader does not know renders the item as *nothing* and reports success —
+/// 4,536 pixels wrong, reported as a pass. Since `Ellipse` is a brand-new kind, that is
+/// exactly the failure available here, and only the stats line separates it from a
+/// backend that declined the scene and let software draw a perfect picture.
+#[test]
+fn the_gpu_draws_the_ellipse_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_ellipses_gpu", ELLIPSES);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        stats.contains("gpuSelected=TRUE"),
+        "the GPU pipeline built but the scene did not take it — a `*Renderable` \
+         predicate declined the new kind, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("ellipses");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's ellipse scene disagrees with the reference: {diff}\n\
+             An ellipse missing entirely is the shader's kind-7 arm not being reached; \
+             a wrongly-oriented one is the `ellipse` ivec4 (check the vertex AND \
+             fragment ItemBlock declarations agree, since only one sets the std430 \
+             stride); a rim that is off by more than a step or two is the bisection \
+             count differing between the shader and the oracle — both are 24."
+        );
+    }
+}

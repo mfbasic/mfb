@@ -10,7 +10,9 @@ IMPORT errorCode
 ' every scalar and aggregate JSON form, number formatting, the full escape set,
 ' \uXXXX and surrogate pairs, duplicate keys, whitespace, complex nested
 ' documents, DEEP nesting up to the 257-frame limit (258 traps), and every error
-' path (parse -> ErrInvalidFormat, get -> ErrNotFound). Expected values were
+' path (parse -> ErrInvalidFormat for a grammar mistake, ErrInvalidSurrogate for
+' an unpaired \u escape, ErrDepthExceeded past the nesting cap, and toFloat's own
+' code for an out-of-range number; get -> ErrNotFound). Expected values were
 ' determined by probing the documented semantics against an independent mental
 ' model of JSON/RFC-8259, not harvested to "just pass".
 '
@@ -85,6 +87,87 @@ FUNC nestedObject(d AS Integer) AS String
   RETURN o & "1" & c
 END FUNC
 
+' ---------------------------------------------------------------------------
+' plan-120-E: revivers for `json::parse(text, reviver)`.
+'
+' These are deliberately STATE-FREE. The obvious way to prove call order is a
+' reviver that appends each key to a global log, but a global couples every case
+' to every other one and to the order the suite happens to run them in. Instead
+' each reviver below encodes what it saw into its RETURN value, so the assertion
+' is on the returned document and each case stands alone.
+'
+' Every expected string in the TGROUP was captured from Node v24.12.0 running
+' the identical reviver and diffed byte-for-byte -- JSON.parse's reviver IS the
+' specification here, so those are oracle values rather than taste.
+
+' N07: increment the number stored under key "a".
+FUNC jsonRevBump(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      IF key = "a" THEN
+        RETURN json::JsonNum[n.value + 1.0]
+      END IF
+      RETURN value
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+' Replace every number with the KEY it arrived under, making the key vocabulary
+' (member name / array index as a decimal string) visible in the output.
+FUNC jsonRevKeyTag(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      RETURN json::JsonStr[key]
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+' Rewrite only the root call, proving it happens and arrives under key "".
+FUNC jsonRevRootTag(key AS String, value AS json::Json) AS json::Json
+  IF key = "" THEN
+    RETURN json::JsonStr["ROOT"]
+  END IF
+  RETURN value
+END FUNC
+
+' The order discriminator: "inner" is rewritten to 99, and "outer" snapshots
+' whatever it RECEIVES. Bottom-up, outer sees the already-revived {"inner":99};
+' a top-down walk would hand it the raw {"inner":1} instead. The two are
+' distinguishable in the output, which a "did every key get called" test is not.
+FUNC jsonRevObserve(key AS String, value AS json::Json) AS json::Json
+  IF key = "inner" THEN
+    RETURN json::JsonNum[99.0]
+  END IF
+  IF key = "outer" THEN
+    RETURN json::JsonStr[json::stringify(value)]
+  END IF
+  RETURN value
+END FUNC
+
+' Returning null STORES a null; it does not delete the member (the one
+' documented divergence from JavaScript, which drops it for `undefined`).
+FUNC jsonRevNullify(key AS String, value AS json::Json) AS json::Json
+  IF key = "a" THEN
+    RETURN json::JsonNull[NOTHING]
+  END IF
+  RETURN value
+END FUNC
+
+' A reviver that rejects what it was given.
+FUNC jsonRevBoom(key AS String, value AS json::Json) AS json::Json
+  IF key = "a" THEN
+    FAIL error(errorCode::ErrInvalidArgument, "reviver rejected a")
+  END IF
+  RETURN value
+END FUNC
+
+' Fallible wrapper so expectTrap can guard the failing reviver.
+FUNC jsonReviveBoom(text AS String) AS String
+  RETURN json::stringify(json::parse(text, jsonRevBoom))
+END FUNC
+
 TESTING
   TGROUP "Builtin: json"
 
@@ -97,7 +180,13 @@ TESTING
       END TCASE
       TCASE "number formatting"
         expectString(pv("0"), "0")
-        expectString(pv("-0"), "-0")
+        ' plan-120-C: `-0` serializes as `0`, matching JSON.stringify. The pin
+        ' flipped deliberately; the value still PARSES to a negative zero, it is
+        ' only the JSON rendering that drops the sign.
+        expectString(pv("-0"), "0")
+        ' The round trip still holds under IEEE equality: re-parsing `0` yields a
+        ' value equal to -0.0, so the integer branch is what returned it.
+        expectString(pv("-0.0"), "0")
         expectString(pv("1"), "1")
         expectString(pv("-1"), "-1")
         expectString(pv("1.5"), "1.5")
@@ -126,7 +215,12 @@ TESTING
         expectString(pv("\"\\b\""), "\"\\b\"")
         expectString(pv("\"\\f\""), "\"\\f\"")
         expectString(pv("\"\\r\""), "\"\\r\"")
-        expectString(pv("\"a\\/b\""), "\"a\\/b\"")
+        ' plan-120-C: `\/` is still ACCEPTED on input (it is valid JSON), but is
+        ' no longer EMITTED — the slash comes back literal, as every other JSON
+        ' writer produces it. This pin flipped deliberately.
+        expectString(pv("\"a\\/b\""), "\"a/b\"")
+        ' A literal slash in, a literal slash out.
+        expectString(pv("\"a/b\""), "\"a/b\"")
         expectString(pv("\"\\\"\\\\\""), "\"\\\"\\\\\"")
       END TCASE
       TCASE "\\uXXXX and surrogate pairs decode to UTF-8"
@@ -180,15 +274,39 @@ TESTING
         expectTrap(pv("tru"), errorCode::ErrInvalidFormat)
         expectTrap(pv("nul"), errorCode::ErrInvalidFormat)
       END TCASE
-      TCASE "string errors: unterminated, lone surrogate, raw controls, bad escape"
+      TCASE "string errors: unterminated, raw controls, bad escape"
         expectTrap(pv("\"abc"), errorCode::ErrInvalidFormat)
-        expectTrap(pv("\"\\uD83D\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("'a'"), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"\\x\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & controlChar(0) & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & controlChar(31) & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & "\n" & "\""), errorCode::ErrInvalidFormat)
         expectTrap(pv("\"" & "\t" & "\""), errorCode::ErrInvalidFormat)
+      END TCASE
+      ' plan-120-A: an unpaired surrogate escape is its own diagnosis. The escape
+      ' is well-formed JSON grammar; what it names is not a Unicode scalar, and
+      ' MFB strings are Unicode text. These cases used to expect ErrInvalidFormat
+      ' — the inputs still fail, the CODE is what moved.
+      TCASE "lone surrogate escapes are ErrInvalidSurrogate, not ErrInvalidFormat"
+        expectTrap(pv("\"\\uD83D\""), errorCode::ErrInvalidSurrogate)
+        expectTrap(pv("\"\\uD800\""), errorCode::ErrInvalidSurrogate)
+        expectTrap(pv("\"\\uDC00\""), errorCode::ErrInvalidSurrogate)
+        ' A high surrogate followed by a NON-surrogate escape is still unpaired.
+        expectTrap(pv("\"\\uD800\\u0041\""), errorCode::ErrInvalidSurrogate)
+        ' A high surrogate followed by a literal (unescaped) character, likewise.
+        expectTrap(pv("\"\\uD800A\""), errorCode::ErrInvalidSurrogate)
+        ' A well-formed pair is NOT an error: U+1F600.
+        expectNTrap(pv("\"\\uD83D\\uDE00\""))
+      END TCASE
+      ' plan-120-A: a number outside Float's range is a RANGE verdict from
+      ' `toFloat`, not a grammar mistake — `__json_toNumber` used to discard that
+      ' verdict and re-raise the generic ErrInvalidFormat.
+      TCASE "out-of-range numbers propagate toFloat's own code"
+        expectTrap(pv("1e400"), errorCode::ErrOverflow)
+        expectTrap(pv("-1e400"), errorCode::ErrOverflow)
+        ' A malformed number is still a grammar mistake.
+        expectTrap(pv("01"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("1e"), errorCode::ErrInvalidFormat)
       END TCASE
       TCASE "well-formed input does not trap"
         expectNTrap(pv("{\"a\":[1,2,{\"b\":null}]}"))
@@ -213,13 +331,125 @@ TESTING
       END TCASE
       TCASE "escape set: quote, backslash, slash, and the named controls"
         LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
-        expectString(json::stringify(json::JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
+        ' plan-120-C: the `\/` run is gone from the middle; every OTHER escape in
+        ' the set is unchanged, which is what makes this the right pin for
+        ' "only the slash arm was removed".
+        expectString(json::stringify(json::JsonStr[escaped]), "\"\\\"\\\\/\\n\\t\\r\\b\\f\"")
       END TCASE
       TCASE "all C0 control characters escape as named or \\uXXXX"
         expectString(json::stringify(json::JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
       END TCASE
       TCASE "accepts a Json union value from parse"
         expectString(json::stringify(json::parse("[1,{\"a\":true}]")), "[1,{\"a\":true}]")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' plan-120-D: the indented overloads. Every expected string below was
+    ' captured verbatim from Node v24.12.0's JSON.stringify(v, null, space) and
+    ' diffed byte-for-byte against this implementation — Node's output IS the
+    ' specification for this feature, so these are oracle values, not taste.
+    TGROUP "stringify — pretty-printing overloads"
+      TCASE "2-space indent matches JSON.stringify(v, null, 2)"
+        LET v AS json::Json = json::parse("{\"b\":1,\"n\":[1,2],\"o\":{\"k\":2}}")
+        expectString(json::stringify(v, 2), "{\n  \"b\": 1,\n  \"n\": [\n    1,\n    2\n  ],\n  \"o\": {\n    \"k\": 2\n  }\n}")
+      END TCASE
+      TCASE "a string indent indents with that string"
+        LET v AS json::Json = json::parse("{\"a\":[1]}")
+        expectString(json::stringify(v, "\t"), "{\n\t\"a\": [\n\t\t1\n\t]\n}")
+        expectString(json::stringify(v, "--"), "{\n--\"a\": [\n----1\n--]\n}")
+      END TCASE
+      TCASE "empty containers stay inline at every depth"
+        ' Node does NOT expand `[]` or `{}`, even nested inside something that
+        ' did expand — this is the rule most easily got wrong.
+        expectString(json::stringify(json::parse("{\"e\":[],\"o\":{}}"), 2), "{\n  \"e\": [],\n  \"o\": {}\n}")
+        expectString(json::stringify(json::parse("{\"o\":{\"k\":{}}}"), 2), "{\n  \"o\": {\n    \"k\": {}\n  }\n}")
+        ' A wholly empty root has nothing to expand.
+        expectString(json::stringify(json::parse("{}"), 2), "{}")
+        expectString(json::stringify(json::parse("[]"), 2), "[]")
+      END TCASE
+      TCASE "clamps follow JavaScript exactly"
+        LET v AS json::Json = json::parse("{\"a\":1}")
+        ' 0 and "" mean compact — byte-identical to the 1-arg form.
+        expectString(json::stringify(v, 0), "{\"a\":1}")
+        expectString(json::stringify(v, ""), "{\"a\":1}")
+        expectString(json::stringify(v, 0), json::stringify(v))
+        expectString(json::stringify(v, ""), json::stringify(v))
+        ' A negative count is not an error, it is just compact.
+        expectString(json::stringify(v, 0 - 3), "{\"a\":1}")
+        ' Above 10 clamps to 10 spaces, not to the number asked for.
+        expectString(json::stringify(v, 11), "{\n          \"a\": 1\n}")
+        expectString(json::stringify(v, 10), json::stringify(v, 11))
+        expectString(json::stringify(v, 99), json::stringify(v, 10))
+        ' A string indent is truncated to its first 10 characters.
+        expectString(json::stringify(v, "abcdefghijklmno"), "{\nabcdefghij\"a\": 1\n}")
+        expectString(json::stringify(v, "abcdefghijklmno"), json::stringify(v, "abcdefghij"))
+      END TCASE
+      TCASE "a scalar root has nothing to indent"
+        expectString(json::stringify(json::parse("42"), 2), "42")
+        expectString(json::stringify(json::parse("\"hi\""), 2), "\"hi\"")
+        expectString(json::stringify(json::parse("null"), 2), "null")
+        expectString(json::stringify(json::parse("true"), 2), "true")
+      END TCASE
+      TCASE "pretty output re-parses to the same tree"
+        ' The whitespace is insignificant to a reader, so a round trip through
+        ' the indented form must land back on the compact bytes.
+        LET v AS json::Json = json::parse("{\"b\":1,\"n\":[1,2.5,true,null],\"o\":{\"k\":{}},\"e\":[]}")
+        expectString(json::stringify(json::parse(json::stringify(v, 2))), json::stringify(v))
+        expectString(json::stringify(json::parse(json::stringify(v, "\t"))), json::stringify(v))
+      END TCASE
+      TCASE "the pretty form inherits plan-120-C's byte shape"
+        ' The leaf renderings are shared with the compact body, so the slash and
+        ' negative-zero rules hold here too rather than being reimplemented.
+        expectString(json::stringify(json::parse("{\"a\":\"x/y\"}"), 2), "{\n  \"a\": \"x/y\"\n}")
+        expectString(json::stringify(json::parse("{\"a\":-0}"), 2), "{\n  \"a\": 0\n}")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' plan-120-E: the 2-arg reviver overload. Each expected string was produced
+    ' by Node v24.12.0 running the same reviver, and compared byte-for-byte.
+    TGROUP "parse — reviver overload"
+      TCASE "the reviver rewrites a value by key"
+        expectString(json::stringify(json::parse("{\"a\":1}", jsonRevBump)), "{\"a\":2}")
+      END TCASE
+      TCASE "array elements arrive keyed by index, objects by member name"
+        ' The index is a decimal STRING, not a number -- JavaScript's vocabulary.
+        expectString(json::stringify(json::parse("[10,20]", jsonRevKeyTag)), "[\"0\",\"1\"]")
+        expectString(json::stringify(json::parse("{\"o\":{\"i\":1},\"arr\":[10,20],\"s\":\"x\"}", jsonRevKeyTag)), "{\"o\":{\"i\":\"i\"},\"arr\":[\"0\",\"1\"],\"s\":\"x\"}")
+      END TCASE
+      TCASE "the root is revived too, under the empty-string key"
+        ' The root call is the only one that sees the whole document, so the
+        ' common "transform the document once" reviver depends on it.
+        expectString(json::stringify(json::parse("[10,20]", jsonRevRootTag)), "\"ROOT\"")
+        expectString(json::stringify(json::parse("{\"a\":1}", jsonRevRootTag)), "\"ROOT\"")
+        expectString(json::stringify(json::parse("7", jsonRevRootTag)), "\"ROOT\"")
+      END TCASE
+      TCASE "a container is revived AFTER its children, and sees them revived"
+        ' This is the order proof. "outer" snapshots what it receives: bottom-up
+        ' that is the rewritten {"inner":99}. A top-down walk would snapshot the
+        ' raw {"inner":1}, so the two orders give different bytes here.
+        expectString(json::stringify(json::parse("{\"outer\":{\"inner\":1}}", jsonRevObserve)), "{\"outer\":\"{\\\"inner\\\":99}\"}")
+      END TCASE
+      TCASE "returning null stores a null rather than dropping the member"
+        ' The one documented divergence from JavaScript: there is no `undefined`
+        ' in MFBASIC, so there is no way to ask for deletion. Node returning
+        ' undefined here yields {"b":2}; the member survives as null instead.
+        expectString(json::stringify(json::parse("{\"a\":1,\"b\":2}", jsonRevNullify)), "{\"a\":null,\"b\":2}")
+      END TCASE
+      TCASE "duplicate keys collapse BEFORE the reviver runs"
+        ' The parser already applied last-wins, so the reviver is called once
+        ' with a=2 and bumps it to 3 -- not twice, and not once with a=1.
+        expectString(json::stringify(json::parse("{\"a\":1,\"a\":2}", jsonRevBump)), "{\"a\":3}")
+      END TCASE
+      TCASE "security: a failure inside the reviver reaches the caller"
+        ' A reviver is ordinary user code and may fail. Its error must surface
+        ' at the json::parse call site rather than being swallowed or, worse,
+        ' returned as if it were the parsed value.
+        expectTrap(jsonReviveBoom("{\"a\":1}"), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "the 1-arg form is unchanged"
+        expectString(json::stringify(json::parse("{\"a\":1}")), "{\"a\":1}")
       END TCASE
     END TGROUP
 
@@ -238,13 +468,80 @@ TESTING
         expectTrap(getStr(v, ["missing"]), errorCode::ErrNotFound)
         expectTrap(getStr(v, ["user", "missing"]), errorCode::ErrNotFound)
       END TCASE
-      TCASE "security: a non-object at any step raises ErrNotFound"
+      TCASE "security: a step that finds nothing raises ErrNotFound"
+        ' "x" is not an index, so an array rejects it exactly as it always did —
+        ' plan-120-B made arrays traversable by INDEX, not by arbitrary token.
         expectTrap(getStr(json::parse("[1,2,3]"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("\"hi\""), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("5"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("true"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("null"), ["x"]), errorCode::ErrNotFound)
         expectTrap(getStr(json::parse("{\"flag\":true}"), ["flag", "x"]), errorCode::ErrNotFound)
+        ' A scalar never accepts an index either, however well spelled.
+        expectTrap(getStr(json::parse("5"), ["0"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("\"hi\""), ["0"]), errorCode::ErrNotFound)
+      END TCASE
+      ' plan-120-B: array-index path steps. Before this, `json::get` on a
+      ' `JsonArr` failed unconditionally, so every case below moves from
+      ' ErrNotFound to a value — no pin is weakened, the surface is new.
+      TCASE "array index steps select elements"
+        LET v AS json::Json = json::parse("{\"items\":[10,20,30]}")
+        expectString(getStr(v, ["items", "0"]), "10")
+        expectString(getStr(v, ["items", "1"]), "20")
+        expectString(getStr(v, ["items", "2"]), "30")
+        ' Mixed key/index/key traversal in one path.
+        LET m AS json::Json = json::parse("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
+        expectString(getStr(m, ["items", "1", "name"]), "\"b\"")
+        expectString(getStr(m, ["items", "0"]), "{\"name\":\"a\"}")
+        ' An index onto a nested array, and a bare (unwrapped) array root.
+        expectString(getStr(json::parse("[[1,2],[3,4]]"), ["1", "0"]), "3")
+        expectString(getStr(json::parse("[7]"), ["0"]), "7")
+      END TCASE
+      TCASE "array index out of range raises ErrNotFound"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        expectTrap(getStr(v, ["items", "2"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "99"]), errorCode::ErrNotFound)
+        ' An empty array has no element 0.
+        expectTrap(getStr(json::parse("[]"), ["0"]), errorCode::ErrNotFound)
+      END TCASE
+      TCASE "only the RFC 6901 spelling counts as an index"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        ' Leading zero, explicit sign, surrounding space, empty, non-decimal —
+        ' none of these are index tokens, so on an array they find nothing.
+        expectTrap(getStr(v, ["items", "01"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "+1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "-1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1 "]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", " 1"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", ""]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1.0"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "0x1"]), errorCode::ErrNotFound)
+        ' A digit run too wide for an Integer must MISS, not overflow: the
+        ' 19-digit token below would trap in toInt if it were converted.
+        expectTrap(getStr(v, ["items", "9999999999999999999"]), errorCode::ErrNotFound)
+        ' 18 digits IS converted, and is simply out of range.
+        expectTrap(getStr(v, ["items", "999999999999999999"]), errorCode::ErrNotFound)
+        ' A GRAPHEME that merely starts with a digit is not a digit. "1" plus
+        ' U+0308 COMBINING DIAERESIS is one cluster that sorts inside ["0","9"]
+        ' under lexicographic compare, so a range test wrongly accepts it and
+        ' toInt then raises -- caught during plan-120-B, see Correction B-C5.
+        expectTrap(getStr(v, ["items", "1\u{308}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "11\u{308}"]), errorCode::ErrNotFound)
+        ' Non-ASCII digits are not indexes either: fullwidth ONE and
+        ' Arabic-Indic ONE both look like digits to a human, not to RFC 6901.
+        expectTrap(getStr(v, ["items", "\u{FF11}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1\u{FF11}"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["items", "1\u{661}"]), errorCode::ErrNotFound)
+      END TCASE
+      TCASE "the variant underfoot decides: a numeric token is still an object key"
+        ' This is what makes the change backward-compatible — an object with
+        ' digit-shaped keys reads them as keys, never as indexes.
+        LET v AS json::Json = json::parse("{\"0\":\"zero\",\"1\":\"one\",\"01\":\"oh-one\"}")
+        expectString(getStr(v, ["0"]), "\"zero\"")
+        expectString(getStr(v, ["1"]), "\"one\"")
+        expectString(getStr(v, ["01"]), "\"oh-one\"")
+        ' And a key absent from that object is still just a miss.
+        expectTrap(getStr(v, ["2"]), errorCode::ErrNotFound)
       END TCASE
     END TGROUP
 
@@ -264,6 +561,73 @@ TESTING
         expectString(json::stringify(json::getOr(v, ["user", "missing"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(v, ["flag", "x"], fb)), "\"fallback\"")
         expectString(json::stringify(json::getOr(json::parse("[1,2]"), ["x"], json::JsonNull[NOTHING])), "null")
+      END TCASE
+      ' plan-120-B: getOr is get's contract with the FAIL replaced by the
+      ' default, so every get case above has a twin here. The pairing is the
+      ' review checklist for the two bodies staying parallel.
+      TCASE "array index steps select elements (getOr)"
+        LET v AS json::Json = json::parse("{\"items\":[10,20,30]}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["items", "0"], fb)), "10")
+        expectString(json::stringify(json::getOr(v, ["items", "2"], fb)), "30")
+        LET m AS json::Json = json::parse("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
+        expectString(json::stringify(json::getOr(m, ["items", "1", "name"], fb)), "\"b\"")
+        expectString(json::stringify(json::getOr(json::parse("[[1,2],[3,4]]"), ["1", "0"], fb)), "3")
+      END TCASE
+      TCASE "out-of-range and non-index tokens return the default, never fail"
+        LET v AS json::Json = json::parse("{\"items\":[10,20]}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["items", "2"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "01"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "+1"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "-1"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", "1 "], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["items", ""], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(json::parse("[]"), ["0"], fb)), "\"fallback\"")
+        ' The overflow guard matters most HERE: getOr must not fail, ever, so a
+        ' 19-digit token has to miss rather than reach toInt.
+        expectString(json::stringify(json::getOr(v, ["items", "9999999999999999999"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "9999999999999999999"], fb)))
+        ' Same reason, for the combining-mark cluster: this FAILED with 77050003
+        ' before Correction B-C5, which is a broken getOr contract, not a miss.
+        expectString(json::stringify(json::getOr(v, ["items", "1\u{308}"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "1\u{308}"], fb)))
+        expectString(json::stringify(json::getOr(v, ["items", "11\u{308}"], fb)), "\"fallback\"")
+        expectNTrap(json::stringify(json::getOr(v, ["items", "11\u{308}"], fb)))
+        expectNTrap(json::stringify(json::getOr(v, ["items", "1\u{FF11}"], fb)))
+      END TCASE
+      TCASE "a numeric token on an object is still a key (getOr)"
+        LET v AS json::Json = json::parse("{\"0\":\"zero\",\"01\":\"oh-one\"}")
+        LET fb AS json::Json = json::JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["0"], fb)), "\"zero\"")
+        expectString(json::stringify(json::getOr(v, ["01"], fb)), "\"oh-one\"")
+        expectString(json::stringify(json::getOr(v, ["2"], fb)), "\"fallback\"")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' plan-120-C promoted object member order from an observed accident to a
+    ' pinned json-level contract. These cases are the TRIPWIRE: if the Map
+    ' implementation ever reorders, they fail loudly and force the conversation,
+    ' rather than silently changing every document MFB emits. The Map type's own
+    ' contract is unchanged and still says implementation-defined.
+    TGROUP "order — object members keep document order"
+      TCASE "a parsed document re-serializes in its own order"
+        ' Deliberately NOT the order JavaScript would produce: Node emits
+        ' {"2":4,"10":3,"b":1,"a":2}, hoisting the integer-like keys and sorting
+        ' them numerically. MFBASIC has no JS object semantics and keeps
+        ' document order, which is the documented, permanent divergence.
+        expectString(pv("{\"b\":1,\"a\":2,\"10\":3,\"2\":4}"), "{\"b\":1,\"a\":2,\"10\":3,\"2\":4}")
+        ' Reverse alphabetical stays reverse alphabetical — not re-sorted.
+        expectString(pv("{\"z\":1,\"y\":2,\"x\":3}"), "{\"z\":1,\"y\":2,\"x\":3}")
+        ' Nested objects each keep their own order independently.
+        expectString(pv("{\"b\":{\"d\":1,\"c\":2},\"a\":3}"), "{\"b\":{\"d\":1,\"c\":2},\"a\":3}")
+      END TCASE
+      TCASE "duplicate keys collapse last-wins, at the FIRST position"
+        ' The surviving value is the last one, but it occupies the slot the key
+        ' first appeared in — a consequence of insertion order that would be
+        ' invisible without an explicit pin.
+        expectString(pv("{\"a\":1,\"b\":2,\"a\":3}"), "{\"a\":3,\"b\":2}")
       END TCASE
     END TGROUP
 
@@ -285,7 +649,7 @@ TESTING
 
     ' -----------------------------------------------------------------------
     ' Deep structural nesting. The parser's hard ceiling is 257 frames (258
-    ' traps ErrInvalidFormat) — but recursing to that limit needs more native
+    ' traps ErrDepthExceeded, plan-120-A) — but recursing to that limit needs more native
     ' stack than this shared runner has after its hundreds of earlier tests, so
     ' the exact over-limit trap is verified from a shallow main() in the csv/json
     ' smoke instead. Here the recursive parse+stringify is exercised at a

@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 39-float header carrying the
+//! draws. Generation turns one into the other: a fixed 41-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 39-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 41-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 39 float compares
+//! is worse than a common slow one, and the confirmation costs 41 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,10 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 39
+r#"LET __CANVAS_GEO_HEADER AS Integer = 41
+LET __CANVAS_GEO_ELLIPSE AS Integer = 7
+LET __CANVAS_GEO_ELLIPSE_COS AS Integer = 39
+LET __CANVAS_GEO_ELLIPSE_SIN AS Integer = 40
 LET __CANVAS_GEO_CAP AS Integer = 34
 LET __CANVAS_GEO_CAPSTARTX AS Integer = 35
 LET __CANVAS_GEO_CAPSTARTY AS Integer = 36
@@ -123,7 +126,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 39 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 41 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -147,6 +150,8 @@ r#"FUNC __canvas_headerFor(item AS DrawItem) AS List OF Float
       RETURN __canvas_emptyHeader()
     CASE Text(t)
       RETURN __canvas_emptyHeader()
+    CASE Ellipse(e)
+      RETURN __canvas_ellipseHeader(e)
   END MATCH
 END FUNC
 
@@ -329,6 +334,48 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
 END FUNC
 
+' plan-116-E: an ellipse's header.
+'
+' The rotation is stored as its COSINE and SINE rather than as the angle, and that is
+' the whole reason this variant can be byte-identical across the three renderers.
+' `helper_shapes.rs`'s TRIG note explains at length why `math::sin`/`cos` are unusable
+' here -- libm is not correctly rounded, so its last bit differs between platforms --
+' and the two shaders' hardware trigonometry differs again. Evaluating the
+' deterministic Taylor pair ONCE on the CPU means all three renderers read the same two
+' numbers, and no trigonometry appears in any per-pixel path.
+'
+' Bounds: the axis-aligned hull of a rotated ellipse is
+' `hx = sqrt((rx*cos)^2 + (ry*sin)^2)`, `hy = sqrt((rx*sin)^2 + (ry*cos)^2)` -- exact,
+' and `sqrt`-only, so it costs the reproducibility rule nothing.
+FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
+  IF e.radiusX <= 0.0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  IF e.radiusY <= 0.0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
+  LET ca AS Float = __canvas_cos(e.angle)
+  LET sa AS Float = __canvas_sin(e.angle)
+  MUT out AS List OF Float = __canvas_blankHeader()
+  out = collections::set(out, 0, toFloat(__CANVAS_GEO_ELLIPSE))
+  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
+  out = collections::set(out, 2, e.x)
+  out = collections::set(out, 3, e.y)
+  out = collections::set(out, 4, e.radiusX)
+  out = collections::set(out, 5, e.radiusY)
+  out = collections::set(out, __CANVAS_GEO_ELLIPSE_COS, ca)
+  out = collections::set(out, __CANVAS_GEO_ELLIPSE_SIN, sa)
+  out = __canvas_paintHeader(out, e.paint)
+  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(e.paint), 0.0) + 1.0
+  LET ex AS Float = e.radiusX * ca
+  LET ey AS Float = e.radiusY * sa
+  LET fx AS Float = e.radiusX * sa
+  LET fy AS Float = e.radiusY * ca
+  LET hx AS Float = math::sqrt(ex * ex + ey * ey) + pad
+  LET hy AS Float = math::sqrt(fx * fx + fy * fy) + pad
+  RETURN __canvas_boundsHeader(out, e.x - hx, e.y - hy, e.x + hx, e.y + hy)
+END FUNC
+
 FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint) AS List OF Float
   LET half AS Float = __canvas_strokeHalf(paint)
   IF half <= 0.0 THEN
@@ -462,6 +509,8 @@ FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
     CASE Arc(a)
       RETURN []
     CASE Picture(pic)
+      RETURN []
+    CASE Ellipse(e)
       RETURN []
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
@@ -654,6 +703,8 @@ FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
       RETURN TRUE
     CASE Picture(pic)
       RETURN TRUE
+    CASE Ellipse(e)
+      RETURN TRUE
   END MATCH
 END FUNC
 
@@ -795,6 +846,8 @@ FUNC __canvas_headerIsDeferred(item AS DrawItem) AS Boolean
       RETURN FALSE
     CASE Picture(pic)
       RETURN FALSE
+    CASE Ellipse(e)
+      RETURN FALSE
   END MATCH
 END FUNC
 
@@ -815,6 +868,8 @@ FUNC __canvas_deferredHeader(item AS DrawItem, tail AS List OF Float) AS List OF
     CASE Polygon(p)
       RETURN __canvas_emptyHeader()
     CASE Picture(pic)
+      RETURN __canvas_emptyHeader()
+    CASE Ellipse(e)
       RETURN __canvas_emptyHeader()
   END MATCH
 END FUNC
@@ -851,6 +906,8 @@ FUNC __canvas_deferredHash(item AS DrawItem) AS Integer
     CASE Polygon(p)
       RETURN 0
     CASE Picture(pic)
+      RETURN 0
+    CASE Ellipse(e)
       RETURN 0
   END MATCH
 END FUNC
@@ -896,6 +953,8 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     CASE Text(t)
       RETURN acc
     CASE Picture(pic)
+      RETURN acc
+    CASE Ellipse(e)
       RETURN acc
   END MATCH
 END FUNC"#;

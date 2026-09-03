@@ -143,6 +143,8 @@ registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 | `7-705-0021` | `77050021` | `ErrBadPixelCount`            | Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes (`canvas::createImage`, `canvas::setBytes`). |
 | `7-705-0022` | `77050022` | `ErrBadFontFile`             | File is not a font this build can read: `canvas::loadFont` takes TrueType outlines (sfnt version `0x00010000` or `true`) and refuses CFF/OpenType-PostScript, font collections and WOFF. Distinct from `ErrNotFound`, which is a path that does not exist. |
 | `7-705-0023` | `77050023` | `ErrBadImageFile`            | File is not an image this build can decode: `canvas::loadImage` reads PNG (all five colour types, bit depths 1–16, interlaced or not) and refuses anything else, including a PNG whose chunks, filters or compressed data are malformed. Distinct from `ErrNotFound`, which is a path that does not exist. |
+| `7-705-0024` | `77050024` | `ErrDepthExceeded`           | Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256 nested arrays and objects). |
+| `7-705-0025` | `77050025` | `ErrInvalidSurrogate`        | A `\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\u` low surrogate, and a lone low surrogate is never valid. Distinct from `ErrInvalidFormat`, which is a grammar mistake. |
 
 ## Resolution API
 

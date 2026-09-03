@@ -28,6 +28,7 @@ struct ItemBlock {
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1), unused
     ivec4 arcCaps; // 160: an arc's sweep endpoints startX,startY,endX,endY (16.16 px)
+    ivec4 ellipse; // 176: an ellipse's rotation cos, sin (16.16); two unused
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
