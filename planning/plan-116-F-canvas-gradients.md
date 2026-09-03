@@ -494,7 +494,18 @@ rather than truncated.
 decline cannot pass it) and `a_frame_past_the_gradient_stop_cap_declines_to_software`.
 Vulkan: `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228 --libc glibc` and
 `--box 2227 --libc musl --icd auto` both exit 0 with `vulkanReady=TRUE gpuFrames=1`,
-`worst=2 differing=0.8116%`. `rt_canvas_rasteriser` 39/39, `cargo test --bin mfb
+`worst=2 differing=0.8116%`.
+
+**What those two rows are and are not.** `diff /tmp/f4_vk2228.log /tmp/f4_vk2227.log`
+differs only in the box header and 2227's ICD-provisioning line — every `ok:` line and
+the stats line are byte-identical. That is expected, not suspicious: 2227 provisions
+lavapipe explicitly, and 2228 has `lvp_icd.json` among its ICDs with no GPU to prefer,
+so both ran the **same software rasteriser**. The two rows are therefore evidence about
+**two libc worlds on one driver** — which is exactly what `test-canvas-vulkan.sh` exists
+to test (its header: *"musl's loader absorbs the glibc compat sonames, so shipping the
+wrong one does not fail cleanly"*) — and **not** evidence that two independent Vulkan
+implementations agree. No reachable box has a hardware GPU, so that stronger claim is
+not available to this letter and is not made. `rt_canvas_rasteriser` 39/39, `cargo test --bin mfb
 canvas` 71/71.
 
 Two defects were found here rather than reasoned about, both of which drew a *plausible
