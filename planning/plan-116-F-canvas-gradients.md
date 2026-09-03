@@ -540,13 +540,13 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
-- [ ] Fix this letter's own claim that the ramp "composes with `Paint.transform` the
+- [x] Fix this letter's own claim that the ramp "composes with `Paint.transform` the
       same way the shape does" — it does not, and the sentence says the opposite of
       what the code does (**F14**). Three places: `Gradient`'s and
       `Paint.fillGradient`'s descriptions in `mod.rs`, and the gradient subsection
       of `06_canvas.md` — and this document's own §1 goal line, which is where the
       sentence came from.
-- [ ] Merge `main` into `worktree-P-116` and re-run the gates on the merged state.
+- [x] Merge `main` into `worktree-P-116` and re-run the gates on the merged state.
       `main` advanced by 17 commits under this letter (plan-123, encoding/codepage
       tables): 198 files, +110495/−60389, and **nothing** under
       `src/codegen/{builtins,runtime}/canvas/`, `src/target/macos_aarch64/app/` or the
@@ -555,7 +555,7 @@ Commit: 8c4fa49a6
       `git merge-tree --write-tree HEAD main`, which exits 0 and writes a tree with no
       conflict entries — and the gates below are what proves it *semantically*, which a
       clean text merge does not.
-- [ ] Update `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things"*
+- [x] Update `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things"*
       checklist, which this letter invalidated in three ways (**F16**): F is missing
       from the letter list; the count is now **six**, because a third buffer region
       brought `METAL_GRADIENT_BASE` alongside `METAL_EDGE_BASE`; and item 4's formula
@@ -564,15 +564,15 @@ Commit: 8c4fa49a6
       `the_metal_shader_edge_base_matches_the_buffer_layout` — this letter extended
       it to guard `METAL_GRADIENT_BASE` and the region chain as well, so the name
       now under-describes it, and the doc points a reader at it by name.
-- [ ] Un-stale the two `metal.rs` comments that still call the item stride "112 bytes"
+- [x] Un-stale the two `metal.rs` comments that still call the item stride "112 bytes"
       (`grep -n '112-byte stride' src/target/macos_aarch64/app/metal.rs`). This letter
       grew `ITEM_BLOCK_SIZE` to 208; the comments' *conclusion* survives — neither value
       meets the `MTLBuffer` offset alignment, so `baseInstance:` is still the right
       mechanism — but the number a reader checks it against is wrong.
-- [ ] Test the one documented gradient claim with no test behind it: a gradient-filled
-      item that **also strokes** keeps a flat outline (**F15**). Seven gradient cases
-      exist in `tests/rt_canvas_rasteriser.rs` and every one is fill-only, so
-      "`stroke` is unaffected — an outline is always a flat colour" is prose only.
+- [x] Test the one documented gradient claim with no test behind it: a gradient-filled
+      item that **also strokes** keeps a flat outline (**F15**). Landed as
+      `a_gradients_stroke_stays_a_flat_colour`; `rt_canvas_rasteriser` gradient cases
+      are now **8 passed, 0 failed**.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
 2228 RELEASE** (corrected from "mac+RELEASE and linux+DEBUG" per **E6**: CI is
