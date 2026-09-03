@@ -654,35 +654,61 @@ it was checked rather than assumed: run against a stale `target/release/mfb` the
 program reported `entries=2 floats=94`, the three nodes collapsed into one, which is
 precisely the collision G6 predicts if `__canvas_headerIsDeferred` answers `FALSE`
 (**G15**).
-Commit: —
+Commit: 4f5d6710e
 
 ### Phase 3 — The group table and the two members' bodies
 
-- [ ] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
+- [x] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
       storage beside `CANVAS_SCENE_SYMBOL`, with the §4.1 slot layout.
-- [ ] Implement `setGroup`'s deep copy by calling
+- [x] Implement `setGroup`'s deep copy by calling
       `CodeBuilder::copy_flat_block` — the primitive `emit_publish` itself calls —
       rather than writing a second copy or calling `emit_publish`, which is bound to
       the scene slot (**G2**).
-- [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
-- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
+- [x] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
+- [x] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
       Phase 5, because this phase's own acceptance asks to *measure* the leak and this
       is the instrument that measures it (**G10**). It is also the only window onto
       worker-owned state a test has (`.ai/canvas-threading.md` §11).
-- [ ] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
+- [x] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
       native call (**G14**), and assert both trap outside `app::Mode.Canvas`.
-- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
+- [x] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
       **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
       full" — so mint it, and grep the *literal code* for collisions at that moment
       (`grep -rn '7705002[0-9]\|7705003[0-9]' src/ | grep -v docs/`), not the name
       (**G3**).
-- [ ] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
+- [x] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
       list the caller passed to `setGroup` and assert the installed group is unchanged.
       `removeGroup` of an absent name is a no-op.
 
 Acceptance: the deep-copy and absent-name cases pass; nothing is freed yet, so this
 phase can leak by construction — assert that it does with `groups=`/`groupBytes=` (added
 in this phase, **G10**), so Phase 5's gate has a measurable "before".
+
+**MET, and the leak is measured rather than described.** A four-frame program reports,
+per frame:
+
+| frame | | `groups=` | `groupBytes=` | what it establishes |
+|---|---|---|---|---|
+| 1 | nothing installed | 0 | 0 | the later numbers are deltas from a known zero |
+| 2 | `setGroup("panel", items)` | 1 | 440 | the copy is charged to the table |
+| 3 | caller appends 2 items to `items` | 1 | **440** | **the deep copy** — the installed group did not follow |
+| 4 | `removeGroup("panel")` | 0 | **440** | **the leak** — the name is gone, the bytes are not |
+
+Frame 3 is the one that cannot be replaced: publishing the caller's block would be
+cheaper and would pass frames 1, 2 and 4 unchanged. Frame 4 is Phase 5's "before", and
+the assertion carries a note naming the phase that must change it.
+
+Tests: `set_group_deep_copies_and_remove_group_frees_nothing_yet`
+(`rt_canvas_rasteriser`, the table above);
+`set_group_copies_both_the_items_and_the_name`, `a_group_slot_is_published_name_last`
+and `remove_group_clears_the_name_and_frees_nothing` (`rt_canvas_present_deep_copy`,
+codegen-inspection — **G17**);
+`macos_group_members_trap_wrong_mode_outside_canvas` and
+`macos_set_group_past_the_table_limit_raises` (`cli_app_canvas_mode`).
+
+Gates: `cargo test --release --bin mfb --no-fail-fast` → **3763 passed, 0 failed**;
+`rt_canvas_present_deep_copy` **7/7**; `scripts/test-accept.sh` → **1359 ran, 0 failed**,
+no golden moved; `cargo check --all-targets` → **0 warnings**.
 Commit: —
 
 ### Phase 4 — Resolution, depth limit, frame skip, software rendering
@@ -866,6 +892,55 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G17 (Phase 3) — the deep-copy case had to be split in two, because the file the plan
+names cannot make the assertion the plan asks for.** The phase says
+*"`tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the list the caller
+passed to `setGroup` and assert the installed group is unchanged."* That file is
+**codegen-inspection**: it builds `.ncode` and reads emitted instructions. It cannot run
+a program, so it cannot mutate anything or observe what survived.
+
+Both halves were written rather than either dropped, because they catch different
+things and project memory records why the inspection half is not optional (regalloc
+masks register/slot bugs in runtime fixtures):
+
+* `rt_canvas_present_deep_copy.rs` gains three inspection tests — that `setGroup`
+  allocates **twice** (items *and* name; a count, not `> 0`, so dropping either fails),
+  that a slot is published `name`-last, and that `removeGroup` clears `name` first and
+  calls no free.
+* `rt_canvas_rasteriser.rs` gains the runtime case, which is where a mutation can
+  actually be performed and its effect read back off `MFB_CANVAS_STATS`.
+
+**G18 (Phase 3) — three seams a new native member needs that the phase does not
+name.** Each was found by a failure, not by reading:
+
+* **`SUPPORTED_RUNTIME_CALLS`, five lists.** `mfb build -app` failed with *"native
+  backend does not support runtime call 'canvas.setGroup'"*. The call has to be added to
+  `target/{macos_aarch64,win_x86_64,linux_common}/mod.rs`,
+  `codegen/memory/data/data_objects.rs` and
+  `codegen/engine/analysis/module_analysis.rs` (**two** lists in that last file).
+* **The epilogue is not implicit.** A `Body::abi_function` lowering that ends by
+  returning its `ValueResult` emits no `ret`: the dump showed `removeGroup` ending on a
+  label, and execution fell off the end into the next function — SIGSEGV with no output.
+  Every other lowering here emits `RESULT_TAG_REGISTER` + `abi::return_()` by hand, and
+  this one has to as well. Localized from the `.ncode` in one read; guessing from the
+  crash would have suspected the scan loop, which was correct all along.
+* **`move_immediate` rejects a negative literal** (*"invalid immediate '-1'"*), so the
+  `retiredFrame` sentinel is built as `0 - 1`. Zero could not serve: it is a live frame
+  number.
+
+**G19 (Phase 3) — the new error's row in the legacy-count guard is a fourth required
+edit, and the guard is right to demand it.** `table_has_no_duplicate_names_or_codes`
+failed with `left: 46, right: 45` after `ErrCanvasGroupLimit` was minted. That is not
+noise: the guard requires every error added since the migration to be listed by name
+*with a comment justifying it*, which is exactly the review a new error code deserves.
+The comment records why this is not `ErrOutOfMemory` — the closest existing candidate,
+and actively misleading, since the arena has room and a handler that freed memory in
+response would change nothing.
+
+Code `7-705-0026` was chosen by grepping the **literal** codes rather than the names
+(**G3**): `0000`–`0025` are taken, `grep -rn "77050026\|7-705-0026" src tests` returns
+nothing.
 
 **G15 (Phase 2) — `cargo test --bin mfb` does not refresh `target/release/mfb`, and the
 group-cache measurement was read off a stale one.** The three-distinct-nodes check

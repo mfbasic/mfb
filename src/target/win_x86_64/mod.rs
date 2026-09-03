@@ -104,6 +104,10 @@ const RUNTIME_CALLS: &[&str] = &[
     "app.setMode",
     // plan-98-B: the canvas:: scene surface.
     "canvas.present",
+    "canvas.setGroup",
+    "canvas.groupCount",
+    "canvas.groupBytes",
+    "canvas.removeGroup",
     "canvas.presentLayers",
     "canvas.publishScene",
     "canvas.publishLayers",

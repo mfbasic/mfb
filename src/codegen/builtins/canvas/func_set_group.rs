@@ -1,5 +1,6 @@
 //! `canvas::setGroup` — install a named sub-scene.
 
+use super::gen_group::emit_set_group;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -79,20 +80,6 @@ SUB main()
 END SUB
 ```"#;
 
-// plan-116-G Phase 2 registers the surface and nothing else; Phase 3 lands the group
-// table and this body against it, and Phase 4 the resolution that makes a `Group` node
-// draw. The body is empty rather than partial on purpose — a half-installed group
-// would be a wrong picture, and an empty one is a `Group` that resolves no name, which
-// is the documented behaviour of a name that was never installed.
-//
-// What proves the end of this state is not a reading of this comment: the two
-// `#[ignore]`d tests in `tests/rt_canvas_rasteriser.rs` fail while it holds, and
-// Phase 4 un-ignores them.
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __canvas_setGroup(name AS String, items AS List OF DrawItem) AS Nothing
-END FUNC"#;
-
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setGroup",
@@ -123,13 +110,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Nothing,
-            // plan-116-G Phase 2 (G14): EMPTY, not `ErrWrongMode`. The body here is
-            // inert and cannot raise anything; a declared error a member cannot
-            // produce is a documented promise the renderer does not keep, and it
-            // renders into the man page's Errors table. Phase 3 adds the errors its
-            // native call actually raises.
-            errors: vec![],
-            body: Body::mfb(BODY, "__canvas_setGroup"),
+            errors: vec!["ErrWrongMode", "ErrCanvasGroupLimit", "ErrOutOfMemory"],
+            body: Body::abi_function(emit_set_group),
         }],
     });
 }

@@ -1,5 +1,6 @@
 //! `canvas::removeGroup` — drop a named sub-scene.
 
+use super::gen_group::emit_remove_group;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -61,16 +62,6 @@ SUB main()
 END SUB
 ```"#;
 
-// plan-116-G Phase 2 registers the surface; Phase 3 lands the body against the group
-// table. Empty for the same reason `setGroup`'s is — see the comment there. Note that
-// an empty `removeGroup` is *already* correct for the only state that exists in Phase
-// 2: nothing can be installed, so nothing can be removed, and removing an absent name
-// is the documented no-op.
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __canvas_removeGroup(name AS String) AS Nothing
-END FUNC"#;
-
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "removeGroup",
@@ -88,13 +79,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            // plan-116-G Phase 2 (G14): EMPTY, not `ErrWrongMode`. The body here is
-            // inert and cannot raise anything; a declared error a member cannot
-            // produce is a documented promise the renderer does not keep, and it
-            // renders into the man page's Errors table. Phase 3 adds the errors its
-            // native call actually raises.
-            errors: vec![],
-            body: Body::mfb(BODY, "__canvas_removeGroup"),
+            errors: vec!["ErrWrongMode"],
+            body: Body::abi_function(emit_remove_group),
         }],
     });
 }

@@ -45,6 +45,7 @@ mod func_font_ref;
 mod func_get_bytes;
 mod func_get_size;
 mod func_graphics;
+mod func_group_stats;
 mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
@@ -65,6 +66,7 @@ mod func_set_group;
 mod func_stroke;
 mod gen_font;
 mod gen_font_table;
+mod gen_group;
 mod gen_image;
 mod gen_present;
 mod helper_clamp_byte;
@@ -1051,6 +1053,7 @@ pub(crate) fn register(r: &mut Registry) {
     // points: `present` installs a scene, these install what a scene can reference.
     func_set_group::register(&mut pkg);
     func_remove_group::register(&mut pkg);
+    func_group_stats::register(&mut pkg);
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);
     func_metal_draw::register(&mut pkg);

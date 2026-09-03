@@ -211,6 +211,10 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "canvas.present",
+            "canvas.setGroup",
+            "canvas.groupCount",
+            "canvas.groupBytes",
+            "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",
             "canvas.publishLayers",
@@ -262,6 +266,11 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrBadPixelCount"),
             err_msg("ErrBadImageFile"),
             err_msg("ErrWrongMode"),
+            // plan-116-G: `canvas::setGroup` is in the gate list above, and it is the
+            // only member that can raise this. Registering the string is what emits
+            // its data object — without the row the relocation the raise already
+            // emitted dangles at link time (the bug-256 class).
+            err_msg("ErrCanvasGroupLimit"),
         ] {
             push_string_value(&mut values, value);
         }

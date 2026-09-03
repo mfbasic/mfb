@@ -20,6 +20,12 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
         module,
         &[
             "canvas.present",
+            "canvas.setGroup",
+            "canvas.removeGroup",
+            "canvas.setGroup",
+            "canvas.groupCount",
+            "canvas.groupBytes",
+            "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",
             "canvas.publishLayers",

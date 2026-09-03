@@ -392,3 +392,122 @@ fn macos_canvas_readbyte_returns_bytes_in_order_then_eof() {
     );
     let _ = fs::remove_dir_all(&project);
 }
+
+/// Both group members trap `ErrWrongMode` outside `Canvas` (plan-116-G Phase 3).
+///
+/// The gate is spliced ahead of everything the body does, so a wrong-mode `setGroup`
+/// returns having allocated nothing and touched no slot — which matters more here than
+/// for a member that only reads, because this one copies two blocks and writes into a
+/// process-global table before it would otherwise notice.
+///
+/// `removeGroup` is checked in the same program: it is the member whose whole contract
+/// is "does nothing when there is nothing to do", so a gate that let it through would
+/// be invisible from its behaviour alone.
+#[cfg(target_os = "macos")]
+const GROUPS_TRAP_OUTSIDE_CANVAS_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
+    \x20 canvas::setGroup(\"panel\", [a]) TRAP(err)\n\
+    \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 60\n\
+    \x20   END IF\n\
+    \x20   canvas::removeGroup(\"panel\") TRAP(err2)\n\
+    \x20     IF err2.code <> errorCode::ErrWrongMode THEN\n\
+    \x20       RETURN 62\n\
+    \x20     END IF\n\
+    \x20     app::setMode(app::Mode.Canvas)\n\
+    \x20     canvas::setGroup(\"panel\", [a]) TRAP(err3)\n\
+    \x20       RETURN 63\n\
+    \x20     END TRAP\n\
+    \x20     canvas::removeGroup(\"panel\") TRAP(err4)\n\
+    \x20       RETURN 64\n\
+    \x20     END TRAP\n\
+    \x20     RETURN 0\n\
+    \x20   END TRAP\n\
+    \x20   RETURN 51\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 50\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_group_members_trap_wrong_mode_outside_canvas() {
+    let (project, ok, log) = build_app(
+        "app_canvas_groups_mode",
+        GROUPS_TRAP_OUTSIDE_CANVAS_SOURCE,
+        &[],
+    );
+    assert!(ok, "build should succeed:\n{log}");
+    let exe =
+        project.join("build/app_canvas_groups_mode.app/Contents/MacOS/app_canvas_groups_mode");
+    let (code, _) = run_headless_with_stdin(&exe, "");
+    assert_eq!(
+        code, 0,
+        "canvas::setGroup and canvas::removeGroup must raise ErrWrongMode outside \
+         Canvas and succeed inside it (50 = setGroup did not trap, 51 = removeGroup \
+         did not trap, 60/62 = wrong code, 63/64 = wrongly trapped in Canvas)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// `setGroup` past `CANVAS_MAX_GROUPS` raises `ErrCanvasGroupLimit` rather than
+/// evicting (plan-116-G Phase 3).
+///
+/// Silently dropping some other group to make room would draw a picture the program
+/// did not describe, and would do it in a part of the scene the author was not
+/// touching. A raise is the only outcome that is both correct and diagnosable.
+///
+/// The loop installs exactly `CANVAS_MAX_GROUPS` names, asserts all of them succeed —
+/// an off-by-one that raised at 256 would otherwise pass a test that only checked
+/// "the 257th raises" — and then asserts the next one raises with the right code.
+///
+/// The names are `toString(i)`, so they are distinct and of differing byte lengths,
+/// which also exercises the scan's length-first rejection: 1 and 11 share a first byte
+/// and must not match.
+#[cfg(target_os = "macos")]
+const GROUP_LIMIT_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
+    \x20 MUT i AS Integer = 0\n\
+    \x20 WHILE i < 256\n\
+    \x20   canvas::setGroup(toString(i), [a]) TRAP(early)\n\
+    \x20     RETURN 70\n\
+    \x20   END TRAP\n\
+    \x20   i = i + 1\n\
+    \x20 END WHILE\n\
+    \x20 canvas::setGroup(\"one-too-many\", [a]) TRAP(err)\n\
+    \x20   IF err.code <> errorCode::ErrCanvasGroupLimit THEN\n\
+    \x20     RETURN 71\n\
+    \x20   END IF\n\
+    \x20   canvas::setGroup(\"0\", [a]) TRAP(replace)\n\
+    \x20     RETURN 72\n\
+    \x20   END TRAP\n\
+    \x20   RETURN 0\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 73\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_set_group_past_the_table_limit_raises() {
+    let (project, ok, log) = build_app("app_canvas_group_limit", GROUP_LIMIT_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe =
+        project.join("build/app_canvas_group_limit.app/Contents/MacOS/app_canvas_group_limit");
+    let (code, _) = run_headless_with_stdin(&exe, "");
+    assert_eq!(
+        code, 0,
+        "the 257th distinct name must raise ErrCanvasGroupLimit, and replacing an \
+         existing name must still work with the table full — it needs no new slot \
+         (70 = one of the first 256 raised, 71 = wrong code, 72 = replacing an \
+         installed name wrongly raised, 73 = the 257th did not raise at all)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}

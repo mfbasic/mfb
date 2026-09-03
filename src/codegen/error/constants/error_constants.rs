@@ -431,6 +431,81 @@ pub(crate) const CANVAS_FONT_SLOT_BLOCK: usize = 8;
 pub(crate) const CANVAS_FONT_SLOT_BYTES: usize = 16;
 pub(crate) const CANVAS_FONT_TABLE_BYTES: usize = CANVAS_FONT_SLOTS * CANVAS_FONT_SLOT_BYTES;
 
+/// The named-group table: a writable **process-global** block, for the same reason the
+/// scene region and the font table are (plan-116-G).
+///
+/// `canvas::setGroup` runs on the **worker** and the renderer that draws a group runs
+/// on the **graphics thread**, so a group installed by one has to be findable by the
+/// other. Arena state cannot carry it — that is per-thread (`.ai/canvas-threading.md`
+/// §2) — and a `canvas::Group` node carries only a name, so this table is the map from
+/// that name to the items.
+///
+/// Fixed rather than growable, and that is not a convenience: the graphics thread reads
+/// this without a lock, and a table that reallocated would move under a reader
+/// mid-frame. A slot's *contents* change under a reader too, which is what
+/// [`CANVAS_GROUP_REVISION`] and the retirement gate are for; the array itself must not.
+pub(crate) const CANVAS_GROUPS_SYMBOL: &str = "_mfb_rt_canvas_groups";
+
+/// Slots in the group table.
+///
+/// **256, decided rather than inherited** (plan-116-G's G4 asks for the reasoning to be
+/// here). Six `u64` per slot × 256 is 12,288 bytes, emitted as literal zero bytes into
+/// **every** canvas binary — 48× the font table's 256 and 150× the scene region's 80,
+/// carried by a program that installs no groups at all.
+///
+/// It is still the right trade, for an asymmetry in what going wrong costs. Too large
+/// costs ~9 KB of zeros against the 64-slot alternative, in a binary measured in
+/// megabytes. Too small costs a program a *raise* — `setGroup` past the cap is a
+/// trappable error rather than a silent eviction, because silently dropping a group
+/// would draw a picture the program did not describe — and the author's fix is to
+/// restructure a working design around a compiler's table size.
+///
+/// 256 named sub-pictures is generous for what this facility is (a map, a sprite
+/// sheet, a UI panel), so the cap should be unreachable in practice; the point of
+/// choosing the larger number is that "unreachable" is a guess and the 9 KB is not.
+pub(crate) const CANVAS_MAX_GROUPS: usize = 256;
+
+/// A slot's six words.
+///
+/// `NAME` is the discriminator: zero means free. It is written **last** when a slot is
+/// claimed and **first** when one is dropped, so a graphics thread that sees a name
+/// sees a fully-built slot, and one that sees zero never follows a stale pointer.
+pub(crate) const CANVAS_GROUP_NAME: usize = 0;
+/// Pointer to the group's published item block, deep-copied by `setGroup`.
+pub(crate) const CANVAS_GROUP_ITEMS: usize = 8;
+/// How many items that block holds.
+pub(crate) const CANVAS_GROUP_COUNT: usize = 16;
+/// Bumped on every `setGroup` for this name.
+///
+/// This is what lets `present` see a group's *contents* changing when the scene list
+/// it is handed is byte-identical to the published one — §4.4's resolved-groups
+/// signature carries `(slot, revision)` pairs, and without the revision two presents
+/// of the same list compare equal and the second is skipped, so the program draws the
+/// old group forever.
+pub(crate) const CANVAS_GROUP_REVISION: usize = 24;
+/// Live references: the table's own, plus each published scene and parent group.
+pub(crate) const CANVAS_GROUP_REFS: usize = 32;
+/// The frame at which the last reference dropped, or `-1` while referenced.
+///
+/// The buffer is freed only once `REFS == 0` **and** a frame has completed since —
+/// the same drain gate `.ai/canvas-threading.md` §7 specifies for textures and §3 for
+/// retired scene blocks, reused so the subsystem has one rule rather than three.
+pub(crate) const CANVAS_GROUP_RETIRED_FRAME: usize = 40;
+/// Bytes per slot.
+pub(crate) const CANVAS_GROUP_SLOT_BYTES: usize = 48;
+
+/// A one-word header, placed **after** the slot array so that a slot is still
+/// `base + i * CANVAS_GROUP_SLOT_BYTES` and no addressing changes to accommodate it.
+///
+/// It holds the bytes the table currently owns: every `setGroup` adds its copied item
+/// block's size, and nothing subtracts yet, because nothing is freed until Phase 5's
+/// drain gate. That is the point — `MFB_CANVAS_STATS`' `groupBytes=` reads this word,
+/// so the leak this phase ships by construction is *measured* rather than asserted,
+/// and Phase 5 has a number to move.
+pub(crate) const CANVAS_GROUP_OWNED_BYTES: usize = CANVAS_MAX_GROUPS * CANVAS_GROUP_SLOT_BYTES;
+/// The table's total size: the slots, plus the header word.
+pub(crate) const CANVAS_GROUP_TABLE_BYTES: usize = CANVAS_GROUP_OWNED_BYTES + 8;
+
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================

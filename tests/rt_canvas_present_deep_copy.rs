@@ -246,3 +246,101 @@ fn the_mode_gate_precedes_the_allocation() {
         "the gate must raise ErrWrongMode"
     );
 }
+
+const SET_GROUP: &str = "_mfb_rt_canvas_canvas_setGroup";
+
+/// A program that installs a group and then removes one that was never installed.
+const GROUP_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
+    \x20 canvas::setGroup(\"panel\", [a])\n\
+    \x20 canvas::removeGroup(\"absent\")\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+/// `setGroup` must allocate — twice.
+///
+/// The items for the reason `present_allocates_a_copy_of_the_scene` gives: publishing
+/// the caller's block would hand the graphics thread a pointer into storage the program
+/// is free to reuse. And the **name**, which is the one a reader might not expect: the
+/// table outlives the caller's binding, so a slot holding the caller's `String` would
+/// leave the scan reading a name out of reclaimed memory.
+///
+/// Asserted as a count rather than "> 0" so that dropping either copy fails here, which
+/// a single allocation would not.
+#[test]
+fn set_group_copies_both_the_items_and_the_name() {
+    let plan = app_ncode("canvas_set_group_copy", GROUP_SOURCE);
+    let allocs = calls(&plan, SET_GROUP, "_mfb_arena_alloc");
+    assert!(
+        allocs >= 2,
+        "canvas::setGroup made {allocs} allocation(s); it must copy BOTH the item list \
+         and the name — a slot pointing at either of the caller's blocks is a pointer \
+         into storage the program may reuse or drop"
+    );
+}
+
+/// The slot's `name` word is written **last**, and cleared **first**.
+///
+/// `name` is the discriminator: a graphics thread scanning the table treats a non-zero
+/// name as "this slot is real, follow its pointers". So a slot must never be visible
+/// under a name before its `items` and `count` are there, and dropping one must hide it
+/// before anything else changes. This is the same publish-then-flag rule
+/// `the_revision_is_published_after_the_items_and_count` pins for the scene region.
+#[test]
+fn a_group_slot_is_published_name_last() {
+    let plan = app_ncode("canvas_set_group_order", GROUP_SOURCE);
+    let ins = instructions(&plan, SET_GROUP);
+    let install = label_at(ins, "canvas_set_group_install")
+        .expect("the install path must have its own label");
+    let offsets: Vec<i64> = ins[install..]
+        .iter()
+        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        .collect();
+    assert_eq!(
+        offsets,
+        vec![8, 16, 32, 40, 24, 0],
+        "a slot must be published items(+8), count(+16), refs(+32), retiredFrame(+40), \
+         revision(+24), then name(+0) LAST — the name is what a scanning graphics \
+         thread gates on, so it must never appear over a half-written slot"
+    );
+}
+
+/// `removeGroup` clears the name and touches nothing else.
+///
+/// It must NOT free: a frame may be mid-walk over the items. Phase 5 lands the drain
+/// gate; until then the block is retired and the bytes stay charged to the table, which
+/// is what `groupBytes=` reports.
+#[test]
+fn remove_group_clears_the_name_and_frees_nothing() {
+    let plan = app_ncode("canvas_remove_group_order", GROUP_SOURCE);
+    let ins = instructions(&plan, "_mfb_rt_canvas_canvas_removeGroup");
+    let done =
+        label_at(ins, "canvas_remove_group_scan_done").expect("the scan must end at its own label");
+    let offsets: Vec<i64> = ins[done..]
+        .iter()
+        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        .collect();
+    assert_eq!(
+        offsets,
+        vec![0, 32],
+        "removeGroup must clear name(+0) FIRST — it is the discriminator, so clearing \
+         it is what makes the slot invisible to a concurrent scan — then drop refs(+32), \
+         and write nothing else"
+    );
+    assert_eq!(
+        calls(
+            &plan,
+            "_mfb_rt_canvas_canvas_removeGroup",
+            "_mfb_arena_free"
+        ),
+        0,
+        "removeGroup must not free the items: a frame may be mid-walk over them. The \
+         free waits for the drain gate, which is plan-116-G Phase 5"
+    );
+}

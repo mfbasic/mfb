@@ -2527,3 +2527,87 @@ fn three_identical_presents_of_an_unchanged_group_draw_one_frame() {
          redraws on every present forever. {stats:?}",
     );
 }
+
+/// One `name=value` field of one stats line.
+fn stat(line: &str, name: &str) -> String {
+    line.split_whitespace()
+        .find_map(|f| f.strip_prefix(name).map(str::to_string))
+        .unwrap_or_else(|| panic!("no {name} field in {line:?}"))
+}
+
+/// `setGroup` deep-copies its item list, and `removeGroup` of an absent name is a
+/// no-op — both read off `MFB_CANVAS_STATS`, which `.ai/canvas-threading.md` §11 makes
+/// the only window a test has onto worker-owned state (plan-116-G Phase 3).
+///
+/// Four frames, each asserting one thing the phase promises:
+///
+/// 1. nothing installed — `groups=0 groupBytes=0`, so the later numbers are deltas from
+///    a known zero rather than from whatever a previous test left behind;
+/// 2. one group installed — `groups=1` and `groupBytes` non-zero;
+/// 3. **the caller's list mutated after installing** — `groupBytes` must be *unchanged*.
+///    This is the deep copy. Publishing the caller's block would be cheaper and would
+///    pass frames 1, 2 and 4; appending to that list afterwards is the only thing that
+///    tells the two apart from outside;
+/// 4. the group removed — `groups` drops to 0 while `groupBytes` **stays**, because
+///    nothing is freed until the drain gate.
+///
+/// The fourth is an assertion that this phase **leaks, by construction**, and it is
+/// deliberate: Phase 5's acceptance is that this number falls, and a gate with no
+/// measured "before" cannot show that it moved. When Phase 5 lands, this assertion is
+/// the one that has to change, and its message says so.
+///
+/// `removeGroup("absent")` is called in the same run rather than in a test of its own:
+/// if it were not a no-op the program would raise and every assertion below would fail
+/// at once, which is a clearer signal than a separate test asserting nothing happened.
+#[test]
+fn set_group_deep_copies_and_remove_group_frees_nothing_yet() {
+    let (_, stats) = render(
+        "canvas_group_deep_copy",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET green AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             LET blue AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::removeGroup(\"absent\")\n  \
+             canvas::present([red])\n  \
+             MUT items AS List OF canvas::DrawItem = [red]\n  \
+             canvas::setGroup(\"panel\", items)\n  \
+             canvas::present([red, green])\n  \
+             items = collections::append(items, green)\n  \
+             items = collections::append(items, blue)\n  \
+             canvas::present([red, green, blue])\n  \
+             canvas::removeGroup(\"panel\")\n  \
+             canvas::present([green])\n",
+        ),
+    );
+
+    assert_eq!(stats.len(), 4, "expected four frames: {stats:?}");
+    let groups: Vec<String> = stats.iter().map(|l| stat(l, "groups=")).collect();
+    let bytes: Vec<String> = stats.iter().map(|l| stat(l, "groupBytes=")).collect();
+
+    assert_eq!(
+        groups,
+        vec!["0", "1", "1", "0"],
+        "the table should hold nothing, then one group, then still one, then none \
+         again after `removeGroup`: {stats:?}",
+    );
+    assert_eq!(bytes[0], "0", "the table owns nothing before any setGroup");
+    assert_ne!(
+        bytes[1], "0",
+        "installing a group must charge its copied block to the table",
+    );
+    assert_eq!(
+        bytes[1], bytes[2],
+        "the caller appended two items to the list it passed to `setGroup` and the \
+         installed group followed it — `setGroup` published the caller's block instead \
+         of copying it. Nothing else in this test can tell those apart: frames 1, 2 and \
+         4 pass either way.",
+    );
+    assert_eq!(
+        bytes[3], bytes[2],
+        "`removeGroup` freed the items. It must not: a frame may be mid-walk over them, \
+         so the block is retired and the free waits for the drain gate. \
+         **When plan-116-G Phase 5 lands that gate, this is the assertion to change** — \
+         it should then become a drop, and this phase's leak is what gives that change \
+         a measured `before`.",
+    );
+}

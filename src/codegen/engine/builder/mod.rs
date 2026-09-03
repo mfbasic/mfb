@@ -925,6 +925,25 @@ pub(crate) fn lower_module_for_platform(
             size: CANVAS_FONT_TABLE_BYTES,
             value: "00".repeat(CANVAS_FONT_TABLE_BYTES),
         });
+        // plan-116-G: the named-group table, process-global for the same reason again —
+        // `canvas::setGroup` runs on the worker and the renderer that draws a group
+        // runs on the graphics thread. Fixed size because the graphics thread reads it
+        // without a lock and a reallocating table would move under a reader.
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_GROUPS_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            // The slot count is interpolated rather than spelled: this string is the
+            // only description of the table a reader of the `.ncode` gets, and a
+            // hand-written `[256]` is one edit away from disagreeing with the array it
+            // describes.
+            layout: format!(
+                "mfb.runtime.canvas_groups.v1 {{ u64 name, items, count, revision, \
+                 refs, retiredFrame }}[{CANVAS_MAX_GROUPS}]; u64 ownedBytes"
+            ),
+            align: 8,
+            size: CANVAS_GROUP_TABLE_BYTES,
+            value: "00".repeat(CANVAS_GROUP_TABLE_BYTES),
+        });
     }
     if module.entry.is_some() && module.target == "linux-riscv64" {
         data_objects.push(CodeDataObject {
