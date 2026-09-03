@@ -484,11 +484,19 @@ run.
 That is not the loss it looks like, and the distinction H should keep hold of is
 *which* buffer is being shared:
 
-* The **geometry cache** already shares. Both references resolve to the same
-  `__canvas_geometryFor` offset, which is why plan-116-G's
+* The **geometry cache** already shares, completely. Measured directly rather than
+  inferred: a scene of two groups each naming a two-item group — four drawn instances of
+  one rectangle — reports `generations=1 entries=1 floats=47`. One 47-slot record, one
+  cache entry, four draws. Both references resolve to the same `__canvas_geometryFor`
+  offset, which is also why plan-116-G's
   `a_group_renders_at_its_offset_nested_diamond_and_absent` measures `entries=1` for one
   shape drawn at three offsets. That is the sharing the feature's speed goal named, and
   it is already won.
+
+  Note what that same measurement says about the draw list: the four instances *are*
+  drawn, and they carry different offsets, so the offsets list holds four entries all
+  pointing at the one cache offset. Repetition in the draw list and sharing in the cache
+  are not in tension — they are the two different buffers this correction is about.
 * The **GPU item block** does not share, because a block is per draw instance and two
   references differ in exactly the field this letter adds — the offset. Two references
   cannot share one block *unless* the offset moves out of the block and into a per-draw
