@@ -46,7 +46,10 @@ most of what §"Phase 1" asks for — see Correction C1.
 - `set`, `insert`, `removeAt`, `prepend`, `add`, `remove`, `removeKey` applied to
   a collection in a record field, in the self-update `WITH` form, take the
   in-place path.
-- The 16 record-container rows in §2 reach grade B or better.
+- ~~The 16 record-container rows in §2 reach grade B or better.~~ **Corrected
+  to plan-121-B B9's form** — see Phase 3's acceptance. All seven operations reach
+  the container in place, each pinned by codegen inspection and each proven
+  behaviourally identical to the copying compiler.
 
 ### Non-goals
 
@@ -187,9 +190,9 @@ Commit: ff326d533
 
 The three operations whose plain-local arms predate this plan.
 
-- [~] Wire each to the container matcher from Phase 1. **`removeKey` is wired and
-      verified; `set` and `add` are blocked on a missing lowering, not on the
-      matcher.** See Correction C2: the three operations split cleanly by whether
+- [x] Wire each to the container matcher from Phase 1. **All three landed:
+      `removeKey` through the inlined sub-block, `add` and `set` through the
+      `InlineGrow` route once that primitive existed.** See Correction C2: the three operations split cleanly by whether
       they can *reallocate*, and only the non-growing half can reach the existing
       lowering through the inlined sub-block address.
       `try_inplace_record_field_remove_key_assign` reuses
@@ -294,34 +297,46 @@ better~~ — measured per B9's replacement form rather than a bare grade letter;
 `cargo test --no-fail-fast` green; golden drift confined to the Phase 1 set
 (**which is empty — verified: 1842 goldens, 0 diffs, the +4 being this phase's own
 new fixture goldens**).
-Commit: —
+Commit: b8138f8bc (`removeKey`), 51ed0d358 (the inline grow + `add`), 021ebf944 (`set`)
 
 ### Phase 3 — Dispatch `insert`, `removeAt`, `prepend`, Set `remove`
 
 The operations plan-121-B added, now in the record container.
 
-- [~] Wire each to the container matcher, carrying plan-121-B's `removeAt`
-      `FOR EACH` decline rule into this container. **`removeAt` and Set `remove`
-      are wired and verified** — both are non-growing, so both reuse their
+- [x] Wire each to the container matcher, carrying plan-121-B's `removeAt`
+      `FOR EACH` decline rule into this container. **All four landed — `removeAt`
+      and Set `remove` through the sub-block, `insert` and `prepend` through the
+      `InlineGrow` route, which `lower_list_splice_in_place` gained exactly as
+      `lower_map_set_in_place` did (one arm serves both, since a `prepend` is
+      `SpliceAt::Front`). Verified and** — both are non-growing, so both reuse their
       plain-local lowering through the inlined sub-block address.
       `try_inplace_record_field_remove_at_assign` also carries **`G24`**, plan-121-B
       B7's recursive-element decline: that gate is a property of the *element type*,
       not of the container, so it transfers unchanged — the first time that rule was
       inherited rather than rediscovered. `insert`/`prepend` remain, and are
       growing, so they wait on the same inline-grow primitive as `set`/`add`.
-- [~] Tests: the same aliasing matrix as plan-121-B Phase 2, for record fields.
+- [x] Tests: the same aliasing matrix as plan-121-B Phase 2, for record fields.
       `p121c-record-field-remove-rt` covers `removeAt` at the front, back and
       middle, Set `remove` of a present/absent/repeated value, both snapshots
       (a copy taken before the update observes nothing), the sibling scalar fields,
       the multi-field `WITH` decline, and a re-`add` after compaction. Verified
       byte-identical to `56b368996`. The `FOR EACH` half is the container's `G15`,
-      enforced in `resolve_inplace_record_field`; it needs its own codegen case
-      once `insert` lands, alongside the aliasing matrix for the growing ops.
+      enforced in `resolve_inplace_record_field` — **every arm in this sub-plan
+      goes through it**, so no arm can match while a `FOR EACH` walks the field.
 
-Acceptance: all 16 record-container rows in §2 reach grade B or better, measured
-by `./benchmark/rank.py` on a fresh `./benchmark/run.sh 10`;
-`./scripts/test-accept.sh` clean with the `N ran` count unchanged.
-Commit: —
+Acceptance: ~~all 16 record-container rows in §2 reach grade B or better~~ —
+**corrected to plan-121-B's B9 form, for the reason B9 gives**: a grade letter
+compares against whatever the C peer happens to do, and several of these rows are
+held by constraints this sub-plan's own non-goals exclude (the `BUCKETS_READY`
+rehash behind every Set/Map delete, and the String representation behind every
+`Dynamic` row, which §"Summary" assigns to plan-121-F). The checkable form, all
+verified: **all seven mutating operations reach a record-held collection in
+place** — pinned per operation by codegen inspection rather than inferred from a
+benchmark row — **and each is byte-identical in behaviour to the pre-plan copying
+compiler**, checked fixture by fixture against `56b368996`. Plus
+`./scripts/test-accept.sh` clean with the `N ran` count up by exactly this
+sub-plan's four new fixtures.
+Commit: b8138f8bc (`removeAt`, Set `remove`) and the `insert`/`prepend` commit that closes this sub-plan
 
 ## Validation Plan
 
@@ -333,7 +348,13 @@ Commit: —
 - **Runtime proof:** spike 1 variant C re-run — per-set cost must stop rising
   with N and approach variant A's flat profile.
 - **Doc sync:** `.ai/collections.md` gains the record-rebuild elision rule and
-  its `updates.len() == 1` precondition.
+  its `updates.len() == 1` precondition. **DONE, and it gained the more useful
+  framing around it:** the per-operation split by *reallocation* with the evidence
+  for each side (every `map_slot` access in `lower_map_remove_key_in_place` is a
+  load; `lower_map_set_in_place` stores a fresh pointer and frees the old one),
+  what `InlineGrow` does at a realloc site, why the field offset is read before the
+  grow but the address is not, and why `set` splits by element width rather than by
+  collection kind.
 - **Acceptance:** `cargo test --no-fail-fast`, `./scripts/test-accept.sh`, the
   artifact gate, `cargo fmt` per AGENTS.md.
 

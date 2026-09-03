@@ -2385,6 +2385,7 @@ impl CodeBuilder<'_> {
             item_slot,
             list_type,
             element_type,
+            None,
         )
     }
 
@@ -2413,6 +2414,7 @@ impl CodeBuilder<'_> {
             item_slot,
             list_type,
             element_type,
+            None,
         )
     }
 
@@ -2446,6 +2448,7 @@ impl CodeBuilder<'_> {
         item_slot: usize,
         list_type: &ParameterType,
         element_type: &ParameterType,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<ValueResult, String> {
         let prefix = match at {
             SpliceAt::Front => "prepend",
@@ -2656,6 +2659,11 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
+        // plan-121-C: an inlined field grows the RECORD, so widen the request by
+        // the record prefix before asking the allocator for it.
+        if let Some(g) = inline {
+            self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
@@ -2668,6 +2676,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_buf_slot,
         ));
+        // plan-121-C: for an inlined field the allocation IS the record; split it
+        // so every line below writes through the sub-block unchanged.
+        let splice_new_rec = inline.map(|g| self.emit_inline_grow_split(&g, new_buf_slot));
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2734,7 +2745,14 @@ impl CodeBuilder<'_> {
         // Free the abandoned pre-grow buffer (still in `buffer_slot`) before
         // installing the grown one — otherwise a prepend-in-a-loop leaks the old
         // buffer on every geometric grow (bug-47, mirrors `append` at :957-991).
-        self.emit_free_pre_grow_buffer(buffer_slot, list_type)?;
+        // plan-121-C: an inlined sub-block is not its own allocation, so what is
+        // released is the whole old RECORD block instead.
+        match (inline, splice_new_rec) {
+            (Some(g), Some(new_rec_slot)) => {
+                self.emit_inline_grow_free_old(&g, buffer_slot, list_type, new_rec_slot)?
+            }
+            _ => self.emit_free_pre_grow_buffer(buffer_slot, list_type)?,
+        }
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64(&nb, abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));

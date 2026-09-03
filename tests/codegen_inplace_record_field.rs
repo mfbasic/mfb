@@ -348,3 +348,82 @@ fn set_on_a_record_map_grows_the_record() {
          prefix — the same route `add` takes"
     );
 }
+
+
+/// `insert` and `prepend` on a record-held list — the last two operations, and
+/// both growing, so both take the record-grow route rather than the sub-block one.
+///
+/// One arm serves both (`prepend` is `SpliceAt::Front`), so this asserts the two
+/// spellings independently: a regression that broke only the `prepend` wrapper
+/// would otherwise hide behind `insert`.
+#[test]
+fn insert_and_prepend_on_a_record_list_grow_the_record() {
+    let plan = ncode(
+        "inplace_recfield_splice",
+        "IMPORT collections\n\
+         TYPE LBox\n\
+        \x20 before AS Integer\n\
+        \x20 xs AS List OF Integer\n\
+        \x20 after AS Integer\n\
+         END TYPE\n\
+         FUNC build(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS LBox = LBox[1, [], 2]\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { xs := collections::prepend(rec.xs, i) }\n\
+        \x20 NEXT\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { xs := collections::insert(rec.xs, 1, i) }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.xs)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN build(4)\n\
+         END FUNC\n",
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_build", "prepend_inplace") >= 1,
+        "prepend on a record field must reach the in-place splice"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_build", "insert_inplace") >= 1,
+        "insert on a record field must reach the in-place splice"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_build", "inline_grow_prefix") >= 1,
+        "both are growing operations, so the realloc must grow the RECORD block \
+         and copy its prefix — freeing the sub-block instead would hand \
+         `arena_free` a pointer into the middle of a live allocation"
+    );
+}
+
+/// The paired must-not-change: a **plain local** prepend keeps its own block, so
+/// it must not acquire the record-grow machinery. `lower_list_splice_in_place` is
+/// shared with the record arms, and an `InlineGrow` leaking into this path would
+/// free a record that does not exist.
+#[test]
+fn prepend_on_a_plain_local_does_not_use_the_record_grow() {
+    let plan = ncode(
+        "inplace_local_prepend",
+        "IMPORT collections\n\
+         FUNC build(n AS Integer) AS Integer\n\
+        \x20 MUT xs AS List OF Integer = []\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   xs = collections::prepend(xs, i)\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(xs)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN build(4)\n\
+         END FUNC\n",
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_build", "prepend_inplace") >= 1,
+        "the plain-local prepend arm must still fire"
+    );
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_build", "inline_grow_prefix"),
+        0,
+        "a plain local owns its block outright: growing it must not copy a record \
+         prefix or free a record that is not there"
+    );
+}

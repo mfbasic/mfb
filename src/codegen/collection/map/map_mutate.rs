@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
     /// this adds the prefix — through the same checked arithmetic the size
     /// computation uses, because `fieldOffset` is runtime-derived and a wrap here
     /// would under-allocate the record.
-    fn emit_inline_grow_extend_size(&mut self, inline: &InlineGrow, overflow: &str) {
+    pub(crate) fn emit_inline_grow_extend_size(&mut self, inline: &InlineGrow, overflow: &str) {
         let off = self.temporary_vreg();
         self.emit(abi::load_u64(
             &off,
@@ -88,7 +88,7 @@ impl CodeBuilder<'_> {
     ///
     /// Returns the slot holding the new record pointer, which the caller publishes
     /// only after the old block has been freed.
-    fn emit_inline_grow_split(&mut self, inline: &InlineGrow, new_buf_slot: usize) -> usize {
+    pub(crate) fn emit_inline_grow_split(&mut self, inline: &InlineGrow, new_buf_slot: usize) -> usize {
         let new_rec_slot = self.allocate_stack_object("inline_grow_newrec", 8);
         let new_rec = self.temporary_vreg();
         let old_rec = self.temporary_vreg();
@@ -144,7 +144,7 @@ impl CodeBuilder<'_> {
     /// `lower_inline_list_append_in_place` frees, and the reason
     /// `record_collection_last_inlined` insists the field is *last*: nothing
     /// follows the sub-block, so the record ends where it ends.
-    fn emit_inline_grow_free_old(
+    pub(crate) fn emit_inline_grow_free_old(
         &mut self,
         inline: &InlineGrow,
         map_slot: usize,

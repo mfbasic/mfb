@@ -768,6 +768,127 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// plan-121-C: `rec = WITH rec { field := insert(rec.field, i, v) }` and its
+    /// `prepend` sibling — the last two Phase 3 operations, and both **growing**,
+    /// so both take the [`InlineGrow`] route rather than the sub-block one.
+    ///
+    /// `lower_list_splice_in_place` serves both (a `prepend` is
+    /// `SpliceAt::Front`), so a single arm shape covers them with the spelling as
+    /// the only difference. It reallocates when the buffer is full, which is
+    /// exactly why the sub-block address the three non-growing arms use would be
+    /// wrong here: `emit_free_pre_grow_buffer` would release a pointer into the
+    /// middle of the record block.
+    ///
+    /// Bounds are the lowering's own (`0 <= index <= count`, plan-121-B B6); the
+    /// container does not change them.
+    fn try_inplace_record_field_splice_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+        builtin: &str,
+        arity: usize,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_record_field(name, value, by_ref, builtin, arity)
+        else {
+            return Ok(false);
+        };
+        let list_type = target.field_type.clone();
+        // `G9` — both operations mutate a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G18` — splicing into exactly this same field.
+        if !self.value_is_record_field(&target.args[0], name, target.field) {
+            return Ok(false);
+        }
+        // `G12` — exclude the self-alias: the grow frees the old block out from
+        // under the right-hand side copy.
+        let rhs_index = arity - 1;
+        if self.value_is_record_field(&target.args[rhs_index], name, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the spliced-in value must be a single element.
+        match self.static_item_type(&target.args[rhs_index]) {
+            Some(vt) if vt == element_type => {}
+            _ => return Ok(false),
+        }
+
+        let dest = InPlaceDest::Inlined {
+            block_slot: stack_offset,
+            field_index: target.field_index,
+            write_back: None,
+        };
+        // `insert` carries an index; `prepend` is `SpliceAt::Front`.
+        let at = if arity == 3 {
+            let index = self.lower_value(&target.args[1])?;
+            if index.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native collection insert index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index = self.materialize_value(index)?;
+            let index_slot = self.allocate_stack_object("inplace_recfield_splice_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
+            ));
+            crate::codegen::collection::list::list_mutate::SpliceAt::At(index_slot)
+        } else {
+            crate::codegen::collection::list::list_mutate::SpliceAt::Front
+        };
+        let item = self.lower_value(&target.args[rhs_index])?;
+        self.observe_float(&target.args[rhs_index], &item)?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_recfield_splice_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_list_splice_in_place(
+            buffer_slot,
+            at,
+            item_slot,
+            &list_type,
+            &element_type,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot: stack_offset,
+                field_off_slot,
+            }),
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// `rec = WITH rec { field := insert(rec.field, i, v) }`.
+    pub(crate) fn try_inplace_record_field_insert_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        self.try_inplace_record_field_splice_assign(name, value, stack_offset, by_ref, "insert", 3)
+    }
+
+    /// `rec = WITH rec { field := prepend(rec.field, v) }`.
+    pub(crate) fn try_inplace_record_field_prepend_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        self.try_inplace_record_field_splice_assign(name, value, stack_offset, by_ref, "prepend", 2)
+    }
+
     pub(crate) fn try_inplace_bulk_append_assign(
         &mut self,
         name: &str,

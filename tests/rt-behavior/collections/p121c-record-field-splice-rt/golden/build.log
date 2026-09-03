@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121c-record-field-splice-rt
+Wrote AST to tests/rt-behavior/collections/p121c-record-field-splice-rt/p121c_record_field_splice_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121c-record-field-splice-rt/p121c_record_field_splice_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121c-record-field-splice-rt
+Wrote executable to tests/rt-behavior/collections/p121c-record-field-splice-rt/build/p121c_record_field_splice_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121c-record-field-splice-rt/build/p121c_record_field_splice_rt.out
+prepend_len=150
+prepend_head=149 tail=0
+prepend_bad=0
+prepend_fields=1/2
+prepend_snap_len=0
+insert_front=5,10,20,30,
+insert_end=5,10,20,30,99,
+insert_mid=5,10,15,20,30,99,
+insert_fields=7/8
+insert_grow_len=120 fields=3/4
+insert_multi_head=777 after=55
+str_prepend_len=40 bad=0 head=9
+[exit 0]

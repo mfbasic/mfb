@@ -1,0 +1,168 @@
+{
+  "project": "p121c_record_field_splice_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "LBox",
+      "line": 7,
+      "fields": [
+      { "visibility": null, "name": "before", "type": "Integer", "line": 8 },
+      { "visibility": null, "name": "xs", "type": "List OF Integer", "line": 9 },
+      { "visibility": null, "name": "after", "type": "Integer", "line": 10 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "SBox",
+      "line": 13,
+      "fields": [
+      { "visibility": null, "name": "head", "type": "Integer", "line": 14 },
+      { "visibility": null, "name": "ss", "type": "List OF String", "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "renderL",
+      "line": 18,
+      "params": [
+      { "name": "b", "type": "LBox", "default": null, "line": 18 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 19 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "xs" },
+        "line": 20,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 21 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "pb", "type": "LBox", "value": { "kind": "constructor", "type": "LBox", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "list", "values": [] }, { "kind": "number", "value": "2" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "psnap", "type": "LBox", "value": { "kind": "identifier", "value": "pb" }, "line": 29 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "149" },
+        "step": null,
+        "line": 30,
+        "body": [
+        { "kind": "assignment", "name": "pb", "value": { "kind": "with", "target": { "kind": "identifier", "value": "pb" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }, { "kind": "identifier", "value": "i" }] } }] }, "line": 31 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend_len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }] }] } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend_head=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }, { "kind": "number", "value": "0" }] }] } }, "right": { "kind": "string", "value": " tail=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }] }, "right": { "kind": "number", "value": "1" } }] }] } }] }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 36 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 37,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "xs" }, { "kind": "identifier", "value": "i" }] }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "149" }, "right": { "kind": "identifier", "value": "i" } } },
+          "line": 38,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 39 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend_bad=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend_fields=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "before" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pb" }, "member": "after" }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "prepend_snap_len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "psnap" }, "member": "xs" }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "ib", "type": "LBox", "value": { "kind": "constructor", "type": "LBox", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, { "kind": "number", "value": "8" }] }, "line": 47 },
+      { "kind": "assignment", "name": "ib", "value": { "kind": "with", "target": { "kind": "identifier", "value": "ib" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "xs" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "5" }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_front=" }, "right": { "kind": "call", "callee": "renderL", "arguments": [{ "kind": "identifier", "value": "ib" }] } }] }, "line": 49 },
+      { "kind": "assignment", "name": "ib", "value": { "kind": "with", "target": { "kind": "identifier", "value": "ib" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "xs" }, { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "xs" }] }, { "kind": "number", "value": "99" }] } }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_end=" }, "right": { "kind": "call", "callee": "renderL", "arguments": [{ "kind": "identifier", "value": "ib" }] } }] }, "line": 51 },
+      { "kind": "assignment", "name": "ib", "value": { "kind": "with", "target": { "kind": "identifier", "value": "ib" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "xs" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "15" }] } }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_mid=" }, "right": { "kind": "call", "callee": "renderL", "arguments": [{ "kind": "identifier", "value": "ib" }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_fields=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "before" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "ib" }, "member": "after" }] } }] }, "line": 54 },
+      { "kind": "binding", "mutable": true, "name": "gb", "type": "LBox", "value": { "kind": "constructor", "type": "LBox", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "list", "values": [] }, { "kind": "number", "value": "4" }] }, "line": 57 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "119" },
+        "step": null,
+        "line": 58,
+        "body": [
+        { "kind": "assignment", "name": "gb", "value": { "kind": "with", "target": { "kind": "identifier", "value": "gb" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "xs" }, { "kind": "binary", "operator": "/", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "xs" }] }, "right": { "kind": "number", "value": "2" } }, { "kind": "identifier", "value": "i" }] } }] }, "line": 59 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_grow_len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "xs" }] }] } }, "right": { "kind": "string", "value": " fields=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "before" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "after" }] } }] }, "line": 61 },
+      { "kind": "assignment", "name": "gb", "value": { "kind": "with", "target": { "kind": "identifier", "value": "gb" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "xs" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "777" }] } }, { "field": "after", "value": { "kind": "number", "value": "55" } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "insert_multi_head=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "xs" }, { "kind": "number", "value": "0" }] }] } }, "right": { "kind": "string", "value": " after=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "gb" }, "member": "after" }] } }] }, "line": 65 },
+      { "kind": "binding", "mutable": true, "name": "sb", "type": "SBox", "value": { "kind": "constructor", "type": "SBox", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "list", "values": [] }] }, "line": 68 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "39" },
+        "step": null,
+        "line": 69,
+        "body": [
+        { "kind": "assignment", "name": "sb", "value": { "kind": "with", "target": { "kind": "identifier", "value": "sb" }, "updates": [{ "field": "ss", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sb" }, "member": "ss" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }] } }] }, "line": 70 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "sbad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 72 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sb" }, "member": "ss" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 73,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sb" }, "member": "ss" }, { "kind": "identifier", "value": "i" }] }, "right": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "39" }, "right": { "kind": "identifier", "value": "i" } }] } } },
+          "line": 74,
+          "then": [
+          { "kind": "assignment", "name": "sbad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "sbad" }, "right": { "kind": "number", "value": "1" } }, "line": 75 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str_prepend_len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sb" }, "member": "ss" }] }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "sbad" }] } }, "right": { "kind": "string", "value": " head=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sb" }, "member": "head" }] } }] }, "line": 78 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 79 }
+      ]
+    }
+    ]
+  }
+  ]
+}

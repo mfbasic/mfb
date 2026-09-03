@@ -113,6 +113,42 @@ Two rules from it that are easy to get wrong:
   *absence* (`a_fixed_width_splice_emits_no_identity_entry_loop`), paired with one
   asserting the variable-width entry shift survives so the deletion cannot later
   widen into a miscompile.
+* **A collection inlined in a record: the container decides who holds a pointer,
+  and that is the whole question (plan-121-C).** A record/`STATE` field's
+  collection is *bytes inside the owner's block*, not its own allocation, so the
+  seven mutating operations split by whether they can **reallocate** — a line that
+  cuts across every other way of grouping them:
+
+  | | operations | how the mutation reaches the field |
+  |---|---|---|
+  | cannot grow | `removeKey`, `removeAt`, Set `remove`, `set` of a **fixed-width** list element | the inlined **sub-block address** — the plain-local lowering, unchanged |
+  | can grow | `add`, `set` on a `Map`, `insert`, `prepend` | grow the **record** block and repoint it (`InlineGrow`) |
+
+  Read the lowering, do not assume: `lower_map_remove_key_in_place` touches its
+  slot four times and **every one is a load**, so it can be handed a sub-block
+  address and never learns it is not looking at a plain local.
+  `lower_map_set_in_place` **stores a fresh block pointer back into that slot**
+  and calls `emit_free_pre_grow_buffer` on the old one — given a sub-block address
+  that is a `free()` of a pointer **into the middle of a live allocation**. Not a
+  slow path: heap corruption.
+
+  For the growing half, `Option<InlineGrow>` redirects the lowering's own realloc
+  sites to (1) request `fieldOffset + collectionSize`, (2) treat the allocation as
+  the new **record** and copy the prefix `[0, fieldOffset)` verbatim, and (3) free
+  the whole old record. The field's offset is read **once, before** the grow — the
+  prefix is copied verbatim so the offset survives, while the sub-block *address*
+  does not.
+
+  Two further rules that are easy to get wrong:
+  - **The whole-record rebuild is elided by the arm returning `true`**, and
+    `updates.len() == 1` (`G14`) is what makes that sound. Match a two-field
+    `WITH` and the sibling field's new value is silently dropped — a wrong answer,
+    not a slow one, so it needs a test asserting the *decline*.
+  - **`set` splits by element width, not collection kind.** A fixed-width list
+    element is always replaced by one of exactly its own size, so
+    `lower_list_set_in_place`'s rebuild branch is *unreachable* (its own comment
+    says so) and the sub-block route is sound. A variable-width element makes that
+    branch reachable, so the arm must decline.
 * **When a shift-based op looks slow, compare it against its sibling before
   theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
   is what exposed the dead loop. Afterwards, two plausible explanations for the
