@@ -43,8 +43,8 @@ fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        run.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );
@@ -270,8 +270,8 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        run.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );

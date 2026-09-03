@@ -269,8 +269,8 @@ END SUB
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        run.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );

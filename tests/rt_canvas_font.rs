@@ -31,8 +31,8 @@ fn run(name: &str, source: &str) -> Vec<String> {
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         out.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        out.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&out.status),
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr),
     );
@@ -304,8 +304,8 @@ fn run_with_font(name: &str, source: &str) -> Vec<String> {
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         out.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        out.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&out.status),
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr),
     );
@@ -446,8 +446,8 @@ fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, Str
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        run.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );
