@@ -1,7 +1,8 @@
 # goal-08: MFBASIC platform security review — code-grounded, trust-boundary audit
 
 Last updated: 2026-09-03
-Status: NOT STARTED (0 / 9 surfaces audited)
+Status: IN PROGRESS (0 / 9 surfaces audited) — audit series 3, executed via
+`/follow-plan goal-08` in worktree `.claude/worktrees/P-goal-08`.
 
 ## Objective
 
@@ -295,6 +296,35 @@ Each finding must include:
 4. **Write the audit files and summary; check in the trigger spikes; file bug
    docs** for CRITICAL/HIGH (and qualifying MEDIUM).
 5. **Do not implement fixes in this pass.**
+
+## Corrections
+
+Divergences between this work order and reality, found while executing it.
+
+- **2026-09-03 — audit-2's carryover bugs are no longer open.** The "Prior work"
+  section above lists FE-02/FE-03, OS-01/OS-02, LNK-01, REPO-12/13, SUP-02/03
+  and LNK-08 as still-open at audit-2. Measured at goal-08 start
+  (`find bugs -name 'bug-18[2-9]-*.md'` + `grep -m1 -i '^Status' <each>`):
+
+  | bug | location | Status line |
+  |---|---|---|
+  | bug-182 (FE-02 monomorph recursion) | `bugs/completed/` | Fixed |
+  | bug-183 (FE-03 stmt-block recursion) | `bugs/completed/` | Fixed |
+  | bug-184 (OS-01 world-writable mode) | `bugs/completed/` | Fixed |
+  | bug-185 (OS-02 `net.accept` timeout) | `bugs/completed/` | Fixed |
+  | bug-186 (LNK-01 non-PIE Linux) | `bugs/completed/` | Fixed (dynamic path; RELRO deferred to bug-187) |
+  | bug-187 (LNK-08 writable constants) | `bugs/completed/` | Fixed on Linux (3 arches) + macOS aarch64 |
+  | bug-188 (REPO-12/13 registry quota) | `bugs/completed/` | Fixed |
+  | bug-189 (SUP-02/03 bootstrap/downgrade) | `bugs/skipped/` | **Partially Fixed — SUP-03 downgrade defense remaining** |
+
+  So exactly one audit-2 carryover is still open (bug-189 / SUP-03), and it is
+  in `bugs/skipped/`. Every audit-3 finding that re-opens one of the others must
+  cite current source, not the audit-2 text.
+
+- **2026-09-03 — next free bug number confirmed as 489.** Measured:
+  `ls bugs bugs/completed bugs/skipped | grep -oE 'bug-[0-9]+' | sort -n | tail`
+  gives 488, and `git log --all --grep='bug-4[89][0-9]'` shows no bug-489+ on
+  any branch. The work order's "next free: 489" holds.
 
 ## Findings ledger
 
