@@ -535,6 +535,10 @@ Commit: 8c4fa49a6
       `Paint.fillGradient`'s descriptions in `mod.rs`, and the gradient subsection
       of `06_canvas.md` — and this document's own §1 goal line, which is where the
       sentence came from.
+- [ ] Test the one documented gradient claim with no test behind it: a gradient-filled
+      item that **also strokes** keeps a flat outline (**F15**). Seven gradient cases
+      exist in `tests/rt_canvas_rasteriser.rs` and every one is fill-only, so
+      "`stroke` is unaffected — an outline is always a flat colour" is prose only.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
 2228 RELEASE** (corrected from "mac+RELEASE and linux+DEBUG" per **E6**: CI is
@@ -573,6 +577,21 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F15 — "the stroke stays flat" is documented on two pages and asserted nowhere.**
+`Paint.fillGradient`'s description says *"`stroke` is unaffected — an outline is always
+a flat colour"*, and `06_canvas.md` says the same. Measured:
+`grep -n 'fn .*gradient' tests/rt_canvas_rasteriser.rs` lists seven gradient cases and
+every one builds its item with `canvas::fill(...)`; `gradients.png`'s four rows are
+fill-only too. So nothing in the tree would notice if the ramp leaked into the stroke.
+
+It almost certainly does not — the shaders compute `fillRgba` and pass it only to the
+fill's `covered(...)`, with the stroke reading `item.stroke` a few lines later — but
+"almost certainly" from reading the code is what a test is for, and this one is three
+lines: a thick-stroked gradient-filled rectangle, sample two pixels in the outline band
+at opposite ends of the ramp, assert they are equal *and* equal to the stroke colour.
+Both halves matter: equal-to-each-other alone would pass if the stroke were painted with
+a constant taken from the wrong place.
 
 **F14 — this letter documented the gradient/transform interaction backwards.** Both
 registry descriptions say *"The ramp is measured in surface pixels, so it composes with
