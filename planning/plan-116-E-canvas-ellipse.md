@@ -570,7 +570,7 @@ Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
   core: the `--bin mfb` unit tests there, plus `scripts/test-canvas-vulkan.sh` on
   **both** Linux libc worlds — which is where this letter's Linux-specific work (the
   bisection solve in the SPIR-V, the widened item block) actually executes.
-Commit: —
+Commit: b25a8e835
 
 ## Validation Plan
 
