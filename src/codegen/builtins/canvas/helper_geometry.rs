@@ -1040,12 +1040,22 @@ END FUNC
 FUNC __canvas_textHash(t AS Text) AS Integer
   MUT h AS List OF Float = __canvas_blankHeader()
   h = collections::set(h, 0, toFloat(__CANVAS_GEO_TEXT))
-  h = collections::set(h, 2, toFloat(t.font.id))
   h = collections::set(h, 3, t.size)
   h = collections::set(h, 4, t.x)
   h = collections::set(h, 5, t.y)
   h = __canvas_paintHeader(h, t.paint)
   MUT acc AS Integer = __canvas_hashGeometry(h, 0, __CANVAS_GEO_HEADER)
+  ' The font id is a resource HANDLE -- an address -- and must be folded in as the
+  ' integer it is, never through `__canvas_hashFloat`. That helper computes
+  ' `toInt(value * 65536.0)`, which is right for a coordinate and catastrophic for a
+  ' pointer: a 48-bit address times 65536 is about 1.8e19, past Integer's 9.22e18
+  ' ceiling, so `toInt` raises ErrOverflow. Measured on the same program built from
+  ' the same source -- aarch64 id 281473274138192 gives 1.8447e19 and raises
+  ' `7-705-0010` on every single text present; x86_64 id 139798313152080 gives
+  ' 9.1618e18 and survives by 0.7%, which is not correctness but the luck of that
+  ' host's address-space layout. `__canvas_hashStep` multiplies the accumulator, not
+  ' the value, so an address folds in with room to spare.
+  acc = __canvas_hashStep(acc, t.font.id)
   FOR EACH cp IN encoding::utf32Encode(t.text)
     acc = __canvas_hashStep(acc, cp)
   NEXT
