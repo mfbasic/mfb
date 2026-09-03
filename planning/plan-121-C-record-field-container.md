@@ -25,10 +25,21 @@ Stated once in plan-121-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-121-B complete and archived | `ls planning/completed/plan-121-B-*` → 1 file | NOT MET |
-| `InPlaceDest` resolves the record container | plan-121-A Phase 2 landed it | NOT MET |
+| plan-121-B complete and archived | `ls planning/completed/plan-121-B-*` → 1 file | **MET** — 1 file |
+| `InPlaceDest` resolves the record container | `grep -n 'fn resolve_inplace_record_field' src/codegen/collection/assign/inplace_dest.rs` | **MET** — `inplace_dest.rs:278` |
 
 If plan-121-B is not complete, this sub-plan cannot start, full stop.
+
+**Both MET (2026-09-02), commands re-run rather than trusting the column.**
+plan-121-B landed as `56b368996` (Phase 1), `afe62f5c5` (Phases 2+3) and
+`26d42f1d7` (the B8 dead-loop fix), archived at `2f69482f5`, with 97 suites /
+4477 passed / 0 failed, 1838 goldens / 0 diffs, and 1353 acceptance tests / 0
+mismatches.
+
+The second row was stated as a claim about plan-121-A ("Phase 2 landed it"); the
+command above is what actually checks it. `resolve_inplace_record_field` exists
+and already takes the operation as a `builtin`/`arity` **parameter**, which is
+most of what §"Phase 1" asks for — see Correction C1.
 
 ## 1. Goal
 
@@ -127,16 +138,50 @@ that set; drift outside it is a bug.
 
 Proves the container/operation split without changing which rows are fast.
 
-- [ ] Refactor `try_inplace_record_field_append` into a container matcher that
+- [x] ~~Refactor `try_inplace_record_field_append` into a container matcher that
       yields an `InPlaceDest` plus the call node, with the `Some("append")` check
-      moved to the dispatch step.
-- [ ] Record the `.ncode` goldens containing record-field collection updates.
-- [ ] Tests: existing record-field append coverage must pass unchanged.
+      moved to the dispatch step.~~ — **moot for the half plan-121-A already did,
+      real for the half it did not.** See Correction C1. `resolve_inplace_record_field`
+      (`inplace_dest.rs:278`) already yields the target and already takes the
+      operation as a `builtin`/`arity` **parameter**, so the `Some("append")` check
+      is not in the container matcher at all. What *was* still operation-coupled is
+      one level down: `record_collection_last_inlined` rejected any field that was
+      not a `List`, with the comment "a Map/Set is not an `append` target" — a
+      statement about the caller, inside the function that answers the *container*
+      question. Widened to `typed_is_collection_type`, which is what makes a
+      record-held `Set`/`Map` reachable at all for Phase 2's `add`/`removeKey`.
+      Each arm still gates its own kind (`G9` runs immediately after), so no arm
+      can reach a lowering for the wrong collection.
+- [x] Record the `.ncode` goldens containing record-field collection updates.
+      **The set is EMPTY, and that is a sharper result than the plan expected.**
+      Of the 36 fixtures carrying a `.ncode`/`.ncodesum` golden, **0** write either
+      container shape in their own source (`/tmp/p121c-census.sh`: `WITH … := …
+      collections::` or `.state.<f> = collections::`). The only three fixtures in
+      the tree that do — `rt-behavior/arena/member-iterable-mutate`,
+      `rt-behavior/generics/user-generic-collection-rt`,
+      `rt-behavior/resources/bug424_state_accum_inplace` — ship only
+      `.ast`/`.ir`/`build.log`/`.run`, and `.ast`/`.ir` are emitted before codegen.
+      **Consequence for Phases 2–3:** drift cannot arrive from a fixture's own
+      source, so any drift that appears must be explained through the call graph
+      (a builtin body reaching the changed lowering), exactly as plan-121-B's B8
+      found. Predicting from source text alone would say "no drift is possible",
+      and B8 proved that reasoning wrong for a shared lowering.
+- [x] Tests: existing record-field append coverage must pass unchanged.
+      `cargo test --test rt_res_state_inplace_mutation` → **6 passed, 0 failed**,
+      including `record_field_append_not_last_inlined_rebuilds`, which is the
+      decline the widening must not weaken, and `record_field_append_grows_in_place`,
+      which is the admit.
 
 Acceptance: `cargo test --no-fail-fast` green **and** `.ncode` byte-identical to
 HEAD — at this point only `append` dispatches, so nothing may move. A diff is a
 bug in the refactor: objdump one fixture and localize it.
-Commit: —
+**MET — `artifact-gate [all]: 1332 tests, 1495 build(s), 1838 golden(s) checked,
+0 diff(s)`.** Byte-identity is the right gate here and it held for the reason it
+was supposed to: widening the container predicate lets `resolve_inplace_record_field`
+return `Some` for a `Map`/`Set` field where it used to return `None`, but the
+append arms then reject on `typed_list_element_type` and still return `Ok(false)`,
+so emission is unchanged to the byte.
+Commit: 3a19d4bb1
 
 ### Phase 2 — Dispatch `set`, `add`, `removeKey` through the record container
 
@@ -188,7 +233,42 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### C1 — Phase 1's refactor was half-done and half-misplaced (2026-09-02)
+
+Phase 1 asked to "refactor `try_inplace_record_field_append` into a container
+matcher … with the `Some("append")` check moved to the dispatch step". Running the
+Prerequisites command rather than trusting the status column showed plan-121-A had
+already done that: `resolve_inplace_record_field` (`inplace_dest.rs:278`) yields
+the target and takes the operation as a `builtin`/`arity` **parameter**, so
+`"append"` is passed *in* by the caller and is not a check inside the matcher.
+
+But the coupling the task was aiming at had simply moved one level down, where the
+plan did not look. `record_collection_last_inlined`
+(`builder_control.rs`) refused any field that was not a `List`:
+
+```rust
+// Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
+// `append` target.
+if typed_list_element_type(&field_type).cloned().is_none() { return None; }
+```
+
+That comment is a statement about **the caller**, sitting inside the function that
+answers the **container** question ("can this field's sub-block be mutated where it
+lies"). The answer does not depend on which operation is about to run — and while
+it stayed there, Phase 2's `add`/`removeKey` on a record-held `Set`/`Map` were
+unreachable no matter what the dispatch step did, because the container matcher
+returned `None` before dispatch was consulted.
+
+Widened to `typed_is_collection_type`. Safe because **every arm still gates its own
+kind immediately after** (`G9`), which the byte-identity result confirms rather than
+assumes: 1838 goldens, 0 diffs, because the append arms now get `Some` for a
+`Map`/`Set` field and reject it one line later, emitting exactly what they did
+before.
+
+**The transferable part:** "move the operation check out of the container matcher"
+is only meaningful if you check *every* layer the container question passes
+through. A single-operation caller leaves its assumptions in the helpers it calls,
+and a comment naming that caller inside a general helper is the tell.
 
 ## Summary
 

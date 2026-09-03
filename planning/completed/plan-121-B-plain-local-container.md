@@ -391,7 +391,7 @@ Commit: afe62f5c5 (Phases 2 and 3 landed together — Phase 3's Set `remove` arm
       twin `a_variable_width_splice_still_shifts_its_entry_table`, and by the
       `p121b-fixedwidth-splice-order-rt` fixture (Integer/Byte/String prepend,
       insert, and indexed reads, verified byte-identical to the pre-plan
-      compiler). See Correction B8.
+      compiler). See Correction B8. Landed as `26d42f1d7`.
 
 Acceptance: ~~`set (Fixed) remove` moves from 677× to grade B or better~~
 **CORRECTED per B9 — `set (Fixed) remove` moves 677.000× → 49.000×, a 13.8×

@@ -165,11 +165,23 @@ impl CodeBuilder<'_> {
         )
     }
 
-    /// If `field` is a `List` field of `record_type` that is inlined AND is the
-    /// **last inlined field** (no later field is inlined, so growing its trailing
-    /// sub-block extends the record block's tail without shifting any sibling),
-    /// return `(field_index, field_type)`. This is the shape bug-430's in-place
-    /// grow supports; every other shape falls back to the whole-record rebuild.
+    /// If `field` is a **collection** field of `record_type` that is inlined AND
+    /// is the **last inlined field** (no later field is inlined, so growing its
+    /// trailing sub-block extends the record block's tail without shifting any
+    /// sibling), return `(field_index, field_type)`. This is the shape bug-430's
+    /// in-place grow supports; every other shape falls back to the whole-record
+    /// rebuild.
+    ///
+    /// plan-121-C: this is a *container* question — "can this field's sub-block be
+    /// mutated where it lies" — and the answer does not depend on which operation
+    /// is about to run. It used to reject anything that was not a `List`, because
+    /// its only caller was `append`. That coupled the container to one operation
+    /// and made `add`/`removeKey` on a record-held `Set`/`Map` unreachable even
+    /// though their sub-blocks are inlined on exactly the same terms.
+    ///
+    /// Widening it is safe because **each arm still gates its own kind**: the
+    /// append arms take `typed_list_element_type` right after this returns (`G9`),
+    /// so a `Map`/`Set` field cannot reach a list lowering by this route.
     pub(crate) fn record_collection_last_inlined(
         &self,
         record_type: &ParameterType,
@@ -178,9 +190,11 @@ impl CodeBuilder<'_> {
         let fields = self.type_model.record_fields.get(record_type)?;
         let index = fields.iter().position(|(name, _)| name == field)?;
         let field_type = fields[index].1.clone();
-        // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
-        // `append` target.
-        if typed_list_element_type(&field_type).cloned().is_none() {
+        // A `List`, `Map` or `Set` — the three block-backed collection kinds.
+        // `record_field_is_inlined` below already asks `typed_is_collection_type`
+        // among its composite cases; asking here too keeps the *reason* for the
+        // refusal specific ("not a collection" rather than "not inlined").
+        if !typed_is_collection_type(&field_type) {
             return None;
         }
         if !self.record_field_is_inlined(record_type, &field_type) {
