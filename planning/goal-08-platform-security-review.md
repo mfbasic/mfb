@@ -71,9 +71,9 @@ In-scope trees:
 
 9 attack surfaces mapped below.
 
-**Editable in this pass:** only `planning/` (audit files) and `bugs/` (bug
-documents). This is a **find-and-document** pass — do not fix issues in the
-audited code here.
+**Editable in this pass:** only `planning/` (audit files), `bugs/` (bug
+documents), and `spikes/audit-3/` (MFB trigger programs). This is a
+**find-and-document** pass — do not fix issues in the audited code here.
 
 **Out of surface-scope** (with reason):
 
@@ -240,6 +240,20 @@ Each finding must include:
   crafted data file, or a request to the running `mfb-repo`); if pure
   decode/protocol/linker, a concrete byte/command repro. Record observed vs
   expected.
+- **MFB trigger program (spike)** — where applicable: when the issue is
+  triggerable from MFBASIC code or from data an MFB program feeds the system (a
+  hostile `.mfb` source for front-end findings; a compiled program plus crafted
+  PNG/font/MML/JSON/regex/HTTP input for runtime/decoder findings), check in a
+  minimal trigger under `spikes/audit-3/`: a bare
+  `spikes/audit-3/<finding-id>.mfb` when a single file suffices (the
+  `bugs/repro/` shape), or a buildable project directory
+  `spikes/audit-3/<finding-id>/` with `project.json` + `src/` when a manifest,
+  package, or data file is needed (the `spikes/sN` shape, run via
+  `mfb build spikes/audit-3/<finding-id> && ./spikes/audit-3/<finding-id>/build/mfb_project.out`).
+  Record the exact command and observed vs expected next to the finding. A
+  finding not expressible this way (crafted `.mfp` bytes, registry-side authz,
+  a hostile TLS peer, emitted-binary hardening flags) states why no MFB spike
+  is possible and relies on the byte/command repro above instead.
 - **Best fix** — implementation-level, respecting the fix constraints above.
 - **Non-goals** for that fix — what must stay the same.
 
@@ -260,6 +274,11 @@ Each finding must include:
    when the fix is not small). Next free bug number: **489** (max across
    `bugs/`, `bugs/completed/`, `bugs/skipped/` is 488 — re-check at filing
    time; numbers race between sessions). Do not implement fixes here.
+3. **MFB trigger spikes** under `spikes/audit-3/` — one per finding where
+   applicable (see finding requirements), each referenced from its finding
+   entry, the `audit-3-summary.md` table, and any bug doc. Add a
+   `spikes/audit-3/README.md` table mapping finding ID → spike → one-line
+   observed behavior, in the style of `spikes/README.md`.
 
 ## Method
 
@@ -273,17 +292,17 @@ Each finding must include:
 3. **Re-verify every finding yourself** against current source before
    recording it — discard hallucinations and already-fixed items; check the
    prior-audit IDs and their bug-NNs.
-4. **Write the audit files and summary; file bug docs** for CRITICAL/HIGH (and
-   qualifying MEDIUM).
+4. **Write the audit files and summary; check in the trigger spikes; file bug
+   docs** for CRITICAL/HIGH (and qualifying MEDIUM).
 5. **Do not implement fixes in this pass.**
 
 ## Findings ledger
 
 Update as findings are filed.
 
-| ID | Surface | Title | Severity | Repro | Bug doc |
-|----|---------|-------|----------|-------|---------|
-| _(none yet)_ | | | | | |
+| ID | Surface | Title | Severity | Repro | Spike | Bug doc |
+|----|---------|-------|----------|-------|-------|---------|
+| _(none yet)_ | | | | | | |
 
 Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 0 · NTH 0.
 
