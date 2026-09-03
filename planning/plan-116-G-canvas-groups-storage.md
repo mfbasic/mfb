@@ -473,7 +473,11 @@ Commit: —
       rather than writing a second copy or calling `emit_publish`, which is bound to
       the scene slot (**G2**).
 - [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
-- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error.
+- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
+      **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
+      full" — so mint it, and grep the *literal code* for collisions at that moment
+      (`grep -rn '7705002[0-9]\|7705003[0-9]' src/ | grep -v docs/`), not the name
+      (**G3**).
 - [ ] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
       list the caller passed to `setGroup` and assert the installed group is unchanged.
       `removeGroup` of an absent name is a no-op.
@@ -487,8 +491,12 @@ Commit: —
 
 - [ ] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
       depth-first, depth > 64 raises.
-- [ ] The depth error is a named trappable error with the §4.4 message, listed in
-      `present`'s `errors:` and in `src/docs/spec/diagnostics/02_error-codes.md`.
+- [ ] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
+      new code — it already means exactly this (**G3**) — with the §4.4 message, listed
+      in `present`'s `errors:`, and `02_error-codes.md`'s row extended to name group
+      nesting alongside `json::parse`. Re-check the code is still that constant before
+      you rely on it; codes race between sessions and grepping the *name* never proves
+      the *code*.
 - [ ] Fold each resolved group's `revision` into the published node so the content
       comparison sees a `setGroup` as a change.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
@@ -613,6 +621,29 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G3 (2026-09-03, pre-execution) — the depth error already exists; only the table-full
+one is new.** Phase 4 asks for "a named trappable error" for group nesting past 64, and
+Phase 3 for one when `setGroup` exceeds `CANVAS_MAX_GROUPS`, without saying whether
+either is new. Measured:
+`grep -rn '7705002[0-9]' src/ | grep -v docs/` shows the canvas block runs `77050020`
+`ErrWrongMode` … `77050025` `ErrInvalidSurrogate`, and `77050024` is **`ErrDepthExceeded`**,
+declared in `src/codegen/builtins/errorcode/mod.rs` as *"Structural nesting exceeds the
+implementation depth limit… (`json::parse` stops at 256)"*.
+
+That is this error, not a near-miss: a group cycle is unbounded structural nesting, and
+a user who traps `ErrDepthExceeded` around a parser and around a `present` is asking
+the same question both times. Minting a second depth code would split one concept
+across two constants for no behavioural gain — and §4.4's own argument, that a cycle
+and 65 honest levels need the same message, is the same argument one code down.
+
+The table-full error genuinely is new: nothing in `7-705-00xx` means "a fixed-size
+table is full".
+
+Both tasks now say which, and both carry the warning the project memory records: a rule
+or error code can be claimed by a peer session between this measurement and the phase
+that uses it, and grepping the *name* never proves the *code* is free. Re-run the
+literal-code grep at the moment of minting.
 
 **G2 (2026-09-03, pre-execution) — `emit_publish` cannot be reused for `setGroup`;
 the copy underneath it can.** Phase 3 says to implement `setGroup`'s deep copy "by
