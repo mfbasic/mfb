@@ -120,7 +120,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // does (114688 -> 131072 when plan-116-B widened the block to 128 bytes). Spelled
     // as a literal because
     // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
-    // computed value; `the_metal_shader_edge_base_matches_the_buffer_layout` is what
+    // computed value; `the_metal_shader_region_bases_match_the_buffer_layout` is what
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
@@ -158,7 +158,8 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // drew nothing at all (plan-116-A Correction C5).
     //
     // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
-    // sidesteps `MTLBuffer` offset alignment, which a 112-byte stride does not satisfy.
+    // sidesteps `MTLBuffer` offset alignment, which the item stride does not satisfy
+    // (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; 112 when this was written).
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
     "                      uint iid [[instance_id]],\n",
     "                      constant MfbItem *items [[buffer(0)]]) {\n",
@@ -584,7 +585,9 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
 /// the extra `[[base_instance]]` it called for double-counted (Correction C5).
 ///
 /// The alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — would put an
-/// `MTLBuffer` offset-alignment requirement on a 112-byte stride that does not meet it.
+/// `MTLBuffer` offset-alignment requirement on a stride that does not meet it
+/// (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; it was 112 when this was written, and
+/// neither value meets the alignment, so the conclusion is unchanged).
 pub(super) const SEL_DRAW_PRIMITIVES_INSTANCED: (&str, &str) = (
     "_mfb_macapp_sel_drawPrimitivesInstanced",
     "drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:",
@@ -3322,7 +3325,7 @@ mod tests {
     /// That is the exact failure mode `the_shaders_glyph_base_matches_the_buffer_layout`
     /// exists for on the Vulkan side.
     #[test]
-    fn the_metal_shader_edge_base_matches_the_buffer_layout() {
+    fn the_metal_shader_region_bases_match_the_buffer_layout() {
         assert!(
             METAL_SHADER_SOURCE.contains(&format!(
                 "constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};"

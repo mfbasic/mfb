@@ -508,8 +508,11 @@ pub(crate) fn register(r: &mut Registry) {
                       value is inert like every other `canvas::Paint` field. One stop \
                       is a flat colour you should write as `canvas::fill`, and zero \
                       stops name no colour at all. The ramp is measured in surface \
-                      pixels, so it composes with `canvas::Paint.transform` the same \
-                      way the shape does. Colours between two stops are mixed in \
+                      pixels — from its own two points, never from the shape's bounds \
+                      — so `canvas::Paint.transform` does **not** carry it: rotating an \
+                      item spins the shape through a ramp that stays where you put it. \
+                      That is also what keeps a radial gradient circular inside an \
+                      ellipse. Colours between two stops are mixed in \
                       **linear light**, the same space everything else on the surface \
                       is blended in, so a black-to-white ramp is evenly bright across \
                       its width rather than dark for most of it — see \
@@ -620,8 +623,10 @@ pub(crate) fn register(r: &mut Registry) {
                               `fill`. A gradient with **fewer than two stops is \
                               ignored** and `fill` is used, which is what makes the \
                               zero value inert like every other field here. The ramp \
-                              is measured in surface pixels, so it composes with \
-                              `transform` the same way the shape does. `stroke` is \
+                              is measured in surface pixels, from the gradient's own \
+                              two points — so `transform` does **not** carry it: \
+                              rotating an item spins the shape through a ramp that \
+                              stays where you put it. `stroke` is \
                               unaffected — an outline is always a flat colour — and a \
                               `canvas::Text` item ignores this field, because a glyph \
                               is drawn from a cached coverage bitmap rather than from \

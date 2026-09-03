@@ -249,9 +249,16 @@ gradient's own `startPoint` and `endPoint` and never from the shape's bounds:
 `t` is then clamped to `0.0`..`1.0`. A zero-length axis leaves `t` at `0`, so the first
 stop's colour fills the shape — defined, rather than a division by zero.
 
-Measuring in surface pixels is what makes a radial gradient stay **circular** inside an
-`Ellipse` rather than becoming elliptical, and what makes the ramp compose with
-`Paint.transform` the same way the shape does rather than being dragged around by it.
+Measuring in surface pixels has two consequences worth stating outright, because both
+are the opposite of what a reader coming from a drawing API that defines gradients in
+user space would expect:
+
+* A **radial** gradient stays circular inside an `Ellipse` rather than becoming
+  elliptical — the ramp does not take the shape's proportions.
+* **`Paint.transform` does not carry the ramp.** A rotated item spins its shape through
+  a gradient that stays where the two points put it, so a rotating square appears to
+  sweep through the colours rather than to carry them round with it. To rotate a
+  gradient, rotate `startPoint` and `endPoint`.
 
 **Stops are used in the order given.** They are not sorted. An `offset` outside
 `0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset

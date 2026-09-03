@@ -515,12 +515,15 @@ comparison.
   function owning the buffer local (they are 290x slower otherwise).
 * `.ai/testing-gates.md` — the canvas reference-image gate the ring must not disturb.
 
-### Growing `ITEM_BLOCK_SIZE` moves five things, and three are silent
+### Growing `ITEM_BLOCK_SIZE` moves six things, and three are silent
 
 Widening the per-item block is the single most repeated change in plan-116 — A grew it
-for the item buffer, C for the transform, D for the arc caps, E for the ellipse — and
-each time it moved the same five things. Three of them are unrelated by any type, and
-none of the three fails loudly.
+for the item buffer, C for the transform, D for the arc caps, E for the ellipse, and F
+twice (the ellipse `ivec4`, then the gradient one, reaching 208) — and each time it
+moved the same set. Three of them are unrelated by any type, and none of the three
+fails loudly.
+
+It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
 
 1. **`ITEM_BLOCK_SIZE`** itself, which must stay a multiple of 16 so std430's array
    stride equals the size.
@@ -539,9 +542,17 @@ none of the three fails loudly.
 4. **`METAL_EDGE_BASE`**, an integer literal in the MSL that must equal
    `CANVAS_ITEM_BUFFER_BYTES / 4`. Stale, every polygon reads its edges from the wrong
    offset of a buffer that is entirely valid memory.
-5. The `.spv` blobs, via `scripts/regen-spirv.sh`.
+5. **`METAL_GRADIENT_BASE`** (plan-116-F), the same kind of literal for the buffer's
+   *third* region, which must equal `CANVAS_ITEM_BUFFER_BYTES / 4 +
+   METAL_MAX_FRAME_EDGES * 4`. Fixing item 4 alone and not this one leaves the gradient
+   region overlapping the edge region — one item's stops read as another's, a plausible
+   wrong ramp rather than a failure. Vulkan's twin is `VULKAN_GRADIENT_BASE_WORDS`,
+   derived in Rust and mirrored by `GRADIENT_BASE` in the GLSL.
+6. The `.spv` blobs, via `scripts/regen-spirv.sh`.
 
-Items 3 and 4 are caught by `the_draw_frame_slots_do_not_overlap` and
-`the_metal_shader_edge_base_matches_the_buffer_layout`, which fired on **every** one of
-those letters and were the only thing that noticed. Item 2 has no guard beyond the
+Items 3, 4 and 5 are caught by `the_draw_frame_slots_do_not_overlap`,
+`the_metal_shader_region_bases_match_the_buffer_layout` (Metal — it guards **both**
+bases and the region chain, despite plan-116-F having found it named for the edge one
+alone) and `the_shaders_gradient_base_matches_the_buffer_layout` (Vulkan), which fired
+on **every** one of those letters and were the only thing that noticed. Item 2 has no guard beyond the
 reflection — plan-116-D shipped the fragment half alone and found it that way.

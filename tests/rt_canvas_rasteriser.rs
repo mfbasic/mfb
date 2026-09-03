@@ -2293,3 +2293,62 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
         "past the clamped pair the ramp runs green to white: got {at90:?}"
     );
 }
+
+/// A gradient fills the interior and leaves the outline a flat colour.
+///
+/// plan-116-F **F15**. `Paint.fillGradient`'s description and `06_canvas.md` both
+/// promise this — *"`stroke` is unaffected — an outline is always a flat colour"* — and
+/// before this test the seven gradient cases here were all fill-only, so nothing in the
+/// tree would have noticed the ramp leaking into the stroke.
+///
+/// Two assertions, and both are load-bearing. That the two outline samples **equal each
+/// other** catches a stroke that took the gradient. That they also **equal the stroke
+/// colour** catches a stroke painted flat from the wrong source — which the first
+/// assertion alone would pass.
+///
+/// The stroke is thick (24px) and the samples sit at opposite ends of the ramp's axis,
+/// where a leaked gradient differs most: at x=105 the ramp is nearly pure red and at
+/// x=495 nearly pure blue, so a leak is a ~240-step difference and not a rounding one.
+#[test]
+fn a_gradients_stroke_stays_a_flat_colour() {
+    let (frame, _) = render(
+        "canvas_gradient_stroke_flat",
+        &scene(
+            "  LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 255)]]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 0.0], \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
+             h := 200.0, paint := WITH canvas::fillStroke(canvas::rgb(0, 255, 0), \
+             canvas::rgb(255, 255, 0), 24.0) { fillGradient := g }]\n  \
+             canvas::present([r])\n",
+        ),
+    );
+    // Inside the outline band at each end of the axis: 12px of stroke sits either side
+    // of the edge, so y=100 is squarely in it.
+    let left = pixel(&frame, 105, 100);
+    let right = pixel(&frame, 495, 100);
+    assert_eq!(
+        left, right,
+        "the outline took the gradient: its two ends differ, and a stroke is a flat \
+         colour by construction — the ramp replaces `fill` and nothing else"
+    );
+    assert_eq!(
+        left,
+        (255, 255, 0, 255),
+        "the outline is not the `stroke` colour it was given. Equal-to-each-other above \
+         would pass a stroke painted flat from the wrong source, which is why this \
+         second assertion exists"
+    );
+    // And the interior still ramps, so the item really did carry a gradient — without
+    // this the two assertions above pass on an item that has no gradient at all.
+    let (ri, _, bi, _) = pixel(&frame, 300, 200);
+    assert!(
+        ri > 150 && ri < 220 && bi > 150 && bi < 220,
+        "the interior should be the ramp's midpoint; got {:?}, which means this test \
+         proved nothing about a gradient",
+        pixel(&frame, 300, 200)
+    );
+}
