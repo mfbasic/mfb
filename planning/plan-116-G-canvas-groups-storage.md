@@ -394,6 +394,23 @@ offset first, then clamped to the surface, or a group translated partly off-scre
 would be clipped against the wrong rectangle. (This is the "clamp the quad to the
 surface *after* offsetting" rule from the feature request, stated for the CPU path.)
 
+**Two per-item things are in SURFACE coordinates and must be handled explicitly, in
+opposite directions (G5).** "Evaluate the distance at `p - offset`" covers every
+distance function, the coverage rule and the stroke band, and covers nothing else:
+
+* **`Paint.clip` stays at `p`.** It is a surface rectangle by definition
+  (plan-116-B §Non-goals), so a group's translation moves the shape and not the clip.
+* **`Paint.fillGradient` must move to `p - offset`.** plan-116-F evaluates the ramp at
+  the surface point (`px`/`py` against `gradFX`/`gradFY` in
+  `helper_items.rs`) against an axis authored in the item's own coordinates.
+  Untranslated they coincide; offset, the shape moves and the ramp does not, so the
+  gradient slides across the shape and the same group drawn at two offsets is two
+  different pictures.
+
+Phase 4 must do this and test it, and the reason it matters *here* rather than in
+plan-116-H is that this file defines the **oracle**. H compares both GPUs against it. A
+wrong software answer is not caught by that comparison — it is *ratified* by it.
+
 The geometry cache is unaffected: a group's items are cached by their own geometry, and
 the offset is applied at draw time, so the same group drawn at two offsets hits one
 cache entry. That is the main performance reason to have groups at all and it should be
@@ -512,6 +529,8 @@ Commit: —
       comparison sees a `setGroup` as a change.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
+- [ ] The gradient is evaluated at `p - offset` and the clip at `p` (§4.5, **G5**) —
+      they go opposite ways, and the gradient is wrong today under any offset.
 - [ ] The resolution pass records each group node's damage bounds as its resolved
       children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
       for group nodes.
@@ -525,6 +544,11 @@ Commit: —
       group raises with the same error; a `Group` naming an absent group draws nothing
       and does **not** raise; a group drawn at two offsets produces **one** geometry
       cache entry (`MFB_CANVAS_STATS` `entries=`).
+- [ ] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
+      same group drawn at `(37, 53)` are the same picture translated — the diamond form
+      is the sharp one, because it proves the ramp followed the shape rather than the
+      buffer. And a **clipped** item in a translated group keeps its clip where the
+      surface rectangle is, not where the group moved to.
 - [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
       `setGroup(A')` then an identical `present` yields a **partial** frame whose
       damage rectangle covers the group's drawn area (assert via the stats
@@ -632,6 +656,31 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G5 (2026-09-03, pre-execution) — the software group path would slide every gradient,
+and this file is the oracle, so nothing downstream could catch it.** §4.5 says a
+translated group is drawn "by offsetting the item's bounds and evaluating the distance
+at `p - offset`", and concludes that no distance function changes. True, and not
+sufficient: two per-item things are positional and are *not* distance functions.
+
+`Paint.clip` is a surface rectangle (plan-116-B) and must **not** move with the group.
+`Paint.fillGradient` must. plan-116-F evaluates the ramp at the surface point — `px`,
+`py` against the item's `gradFX`/`gradFY` (`sed -n 500,510p
+src/codegen/builtins/canvas/helper_items.rs`) — with the axis authored in the item's own
+coordinates. Untranslated those are the same point, which is why plan-116-F is correct
+and its goldens pass. Offset, they are not, and the ramp stays where the axis says while
+the shape moves.
+
+The reason this is a G defect and not an H one, even though H is the letter that touches
+shaders: **this file defines the oracle.** plan-116-H's whole acceptance is "both GPUs
+match the software oracle within `Tolerance::GPU_DEFAULT`". If the oracle slides a
+group's gradient and both shaders are then written to match it, every comparison in H
+passes and the picture is wrong on all three renderers. A wrong oracle is not caught by
+comparison against the oracle; it is ratified by it.
+
+Recorded as a Phase 4 task and a Phase 4 test, with plan-116-H's **H2** carrying the
+same fix for the two shaders. The diamond is the test that can see it — one group, two
+offsets, one buffer, and the two draws must be the same picture translated.
 
 **G4 (2026-09-03, pre-execution) — there are three process-global canvas symbols, not
 one, and the third is the precedent this letter needed.** §2's table says *"Process-
