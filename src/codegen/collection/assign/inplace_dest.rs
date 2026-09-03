@@ -529,6 +529,45 @@ impl CodeBuilder<'_> {
     /// same reason [`Self::lower_inplace_inlined_list_grow`] treats it as one: by
     /// the time a destination exists the container has been matched, so asking a
     /// plain local for its inlined sub-block is a bug in the arm.
+    /// Read the inlined field's **block-relative offset** into a fresh stack slot,
+    /// once, before any grow.
+    ///
+    /// The record block stores each inlined field's offset at
+    /// `record_ptr + 8 * field_index`. That offset is **invariant across a
+    /// realloc** — the prefix `[0, fieldOffset)` is copied verbatim, so the field
+    /// still begins at the same distance into the new block — which is exactly why
+    /// it can be read before the grow and used after it. The sub-block *address*
+    /// cannot: it moves.
+    ///
+    /// Growing lowerings need this because they must size the new record as
+    /// `fieldOffset + <new collection size>` and then find the sub-block inside it,
+    /// and they must do so without re-reading a record pointer that the
+    /// allocation is about to invalidate.
+    pub(crate) fn open_inplace_inlined_field_offset(
+        &mut self,
+        dest: &InPlaceDest,
+    ) -> Result<usize, String> {
+        let InPlaceDest::Inlined {
+            block_slot,
+            field_index,
+            ..
+        } = dest
+        else {
+            return Err(
+                "native in-place inlined field offset needs an inlined-field destination, \
+                 got a plain local slot"
+                    .to_string(),
+            );
+        };
+        let base = self.allocate_register();
+        let offset = self.allocate_register();
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), *block_slot));
+        self.emit(abi::load_u64(&offset, &base, 8 * *field_index));
+        let slot = self.allocate_stack_object("inplace_inlined_field_off", 8);
+        self.emit(abi::store_u64(&offset, abi::stack_pointer(), slot));
+        Ok(slot)
+    }
+
     pub(crate) fn open_inplace_inlined_subblock(
         &mut self,
         dest: &InPlaceDest,

@@ -253,6 +253,7 @@ impl CodeBuilder<'_> {
             &set_type,
             &element_type,
             &ParameterType::Boolean,
+            None,
         )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
@@ -523,6 +524,93 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// plan-121-C: `rec = WITH rec { field := add(rec.field, v) }` on a
+    /// record-held `Set` — the first **growing** operation to reach a record field.
+    ///
+    /// `set (Record-Fixed) add` is the worst record row in the suite at 5794x
+    /// c -O0, and the reason is the pair of copies it does per call: the
+    /// out-of-place `add` copies the whole set, then `WITH` rebuilds the whole
+    /// record around it.
+    ///
+    /// Unlike the three non-growing arms, this one cannot simply hand
+    /// `lower_map_set_in_place` the inlined sub-block address — that lowering
+    /// reallocates, and for an inlined field there is no separate allocation to
+    /// replace. It passes an [`InlineGrow`] instead, which redirects both of the
+    /// lowering's grow sites to allocate `fieldOffset + mapSize`, copy the record
+    /// prefix, publish the new **record** pointer, and free the old record rather
+    /// than a pointer into the middle of it (Correction C2).
+    ///
+    /// `field_off_slot` is read **once, before the grow**: the prefix is copied
+    /// verbatim, so a field's block-relative offset is invariant across the
+    /// realloc — the same reason `lower_inline_list_append_in_place` hoists it.
+    pub(crate) fn try_inplace_record_field_set_add_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_record_field(name, value, by_ref, "add", 2) else {
+            return Ok(false);
+        };
+        let set_type = target.field_type.clone();
+        // `G9` — `add` mutates a Set.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G18` — adding to exactly this same field.
+        if !self.value_is_record_field(&target.args[0], name, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the added value must be the set's element type.
+        match self.static_item_type(&target.args[1]) {
+            Some(vt) if vt == element_type => {}
+            _ => return Ok(false),
+        }
+        // `G12` — exclude the self-alias `add(field, field)`.
+        if self.value_is_record_field(&target.args[1], name, target.field) {
+            return Ok(false);
+        }
+
+        let dest = InPlaceDest::Inlined {
+            block_slot: stack_offset,
+            field_index: target.field_index,
+            write_back: None,
+        };
+        let item = self.lower_value(&target.args[1])?;
+        self.observe_float(&target.args[1], &item)?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_recfield_add_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        // A Set is a Map to TRUE.
+        let true_slot = self.allocate_stack_object("inplace_recfield_add_true", 8);
+        let true_reg = self.allocate_register();
+        self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+        self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+
+        // The field's block-relative offset, read once and held across the grow.
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let set_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_set_in_place(
+            set_slot,
+            item_slot,
+            true_slot,
+            &set_type,
+            &element_type,
+            &ParameterType::Boolean,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot: stack_offset,
+                field_off_slot,
+            }),
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     pub(crate) fn try_inplace_bulk_append_assign(
         &mut self,
         name: &str,
@@ -743,6 +831,7 @@ impl CodeBuilder<'_> {
                 &collection_type,
                 &key_type,
                 &value_type,
+                None,
             )?;
             if let Some(local) = self.locals.get_mut(name) {
                 local.constant = None;

@@ -1,0 +1,66 @@
+IMPORT io
+IMPORT collections
+
+' `add` GROWS, so this is the first record-field arm that reallocates. The record
+' block itself must grow and be repointed, the prefix copied, and the OLD RECORD
+' freed -- not a pointer into the middle of it. Growth is forced many times over so
+' a mis-sized allocation or a bad free shows up as corruption rather than luck.
+TYPE SBox
+  before AS Integer
+  s AS Set OF Integer
+  after AS Integer
+END TYPE
+
+TYPE MBox
+  tag AS Integer
+  m AS Map OF Integer TO Integer
+  tail AS Integer
+END TYPE
+
+FUNC main() AS Integer
+  MUT sb AS SBox = SBox[11, Set OF Integer { }, 22]
+  LET snap AS SBox = sb
+
+  ' Many geometric grows.
+  FOR i = 0 TO 199
+    sb = WITH sb { s := collections::add(sb.s, i) }
+  NEXT
+  io::print("len=" & toString(len(sb.s)))
+  io::print("fields=" & toString(sb.before) & "/" & toString(sb.after))
+
+  ' Every element must still be findable after all those reallocations.
+  MUT missing AS Integer = 0
+  FOR i = 0 TO 199
+    IF NOT collections::contains(sb.s, i) THEN
+      missing = missing + 1
+    END IF
+  NEXT
+  io::print("missing=" & toString(missing))
+
+  ' Idempotence, and the snapshot taken before any of it.
+  sb = WITH sb { s := collections::add(sb.s, 5) }
+  io::print("after_dup_len=" & toString(len(sb.s)))
+  io::print("snap_len=" & toString(len(snap.s)))
+
+  ' Interleave a removal with growth: compaction then more grows.
+  sb = WITH sb { s := collections::remove(sb.s, 7) }
+  FOR i = 200 TO 249
+    sb = WITH sb { s := collections::add(sb.s, i) }
+  NEXT
+  io::print("mix_len=" & toString(len(sb.s)) & " has7=" & toString(collections::contains(sb.s, 7)) & " has249=" & toString(collections::contains(sb.s, 249)))
+
+  ' A map in a record grows through the same lowering.
+  MUT mb AS MBox = MBox[33, Map OF Integer TO Integer { }, 44]
+  FOR i = 0 TO 149
+    mb = WITH mb { m := collections::set(mb.m, i, i * 3) }
+  NEXT
+  MUT bad AS Integer = 0
+  FOR i = 0 TO 149
+    IF collections::getOr(mb.m, i, -1) <> i * 3 THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("map_len=" & toString(len(mb.m)) & " bad=" & toString(bad))
+  io::print("map_fields=" & toString(mb.tag) & "/" & toString(mb.tail))
+  RETURN 0
+END FUNC

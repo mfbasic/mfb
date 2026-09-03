@@ -220,11 +220,50 @@ The three operations whose plain-local arms predate this plan.
       the two-field `WITH` (`G14`) and a collection field followed by another
       *inlined* field (`G17`), so the arm cannot be widened into matching every
       record shape.
-- [ ] **Added task (Correction C2): `lower_inline_map_set_in_place` — grow the
-      RECORD block for a growing op on an inlined field.** `set` and `add` cannot
-      land without it, and D/F need the same primitive. This is the record
-      container's equivalent of `lower_inline_list_append_in_place`, which already
-      does exactly this for a list append.
+- [x] **Added task (Correction C2): grow the RECORD block for a growing op on an
+      inlined field.** Landed — as a parameter on the existing lowering rather than
+      the separate `lower_inline_map_set_in_place` this task first imagined, which
+      is the better shape: `lower_map_set_in_place` already computes the new map
+      size, the probe, the header write and both copies, and duplicating any of that
+      is how the two would drift apart. It now takes `Option<InlineGrow>`, and its
+      **two** grow sites (value-grow and capacity-grow) each do three extra things
+      when it is `Some`:
+      1. `emit_inline_grow_extend_size` — ask the allocator for
+         `fieldOffset + mapSize`, through the same checked arithmetic, because
+         `fieldOffset` is runtime-derived and a wrap would under-allocate;
+      2. `emit_inline_grow_split` — the allocation *is* the new record, so copy the
+         prefix `[0, fieldOffset)` verbatim and point `map_slot` at
+         `newRecord + fieldOffset`, after which every line below writes through the
+         sub-block without knowing it moved;
+      3. `emit_inline_grow_free_old` — release the whole **old record block**
+         (`fieldOffset + emit_flat_block_size(old sub-block)`), *not*
+         `emit_free_pre_grow_buffer`, which would `free()` a pointer into the middle
+         of a live allocation.
+
+      The parameter is explicit and all six pre-existing call sites pass `None`,
+      rather than ambient builder state — "which container am I growing" has to be
+      greppable at the call site. **The `None` path is byte-identical**: 1844
+      goldens / 0 diffs, including all eight `*_codegen_cover_rt` kitchen sinks,
+      which is the proof the parameterization disturbed nothing.
+      `open_inplace_inlined_field_offset` is its companion: the field's offset is
+      read **once, before** the grow, because the prefix is copied verbatim so the
+      offset survives the realloc — the sub-block *address* does not.
+- [x] **Added task: `add` on a record-held `Set` uses it.**
+      `try_inplace_record_field_set_add_assign` — the worst record row in the suite
+      (`set (Record-Fixed) add`, 5794× c -O0) and the first growing operation to
+      reach a record field. Verified by `p121c-record-field-add-grow-rt`, which
+      forces ~250 geometric grows, **re-probes every element afterwards**
+      (`missing=0`), interleaves a removal with further growth, checks the sibling
+      scalar fields on both sides, and confirms a snapshot taken beforehand is still
+      empty — then grows a record-held `Map` through the same lowering
+      (`bad=0`). Every line byte-identical to `56b368996`. Pinned in codegen by
+      `add_on_a_record_field_grows_the_record_in_place` **paired with**
+      `add_on_a_plain_local_does_not_use_the_record_grow`, so an `InlineGrow` cannot
+      leak into the plain-local path and grow a record that is not there.
+- [ ] `set` on a record-held `Map`/`List` — the remaining Phase 2 operation. The
+      grow primitive it needs now exists (`add` proves it on the `Map` lowering);
+      what it still needs is its own arm plus the `List` case, whose element width
+      decides whether it grows at all.
 
 Acceptance: ~~the six `set`/`add`/`removeKey` record rows reach grade B or
 better~~ — measured per B9's replacement form rather than a bare grade letter;

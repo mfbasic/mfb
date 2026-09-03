@@ -165,3 +165,78 @@ fn a_field_followed_by_an_inlined_sibling_declines() {
          compacting its sub-block would shift the sibling that follows it"
     );
 }
+
+
+/// The first **growing** operation to reach a record field, and the one whose
+/// failure mode is heap corruption rather than a wrong value.
+///
+/// A growing op reallocates, and an inlined collection has no allocation of its
+/// own to replace — so `lower_map_set_in_place` is handed an `InlineGrow` and its
+/// two grow sites instead allocate `fieldOffset + mapSize`, copy the record
+/// prefix, publish the new **record** pointer, and free the old *record*. Handing
+/// it the sub-block address instead would make `emit_free_pre_grow_buffer` call
+/// `free()` on a pointer into the middle of a live allocation.
+///
+/// The behavioural fixture (`p121c-record-field-add-grow-rt`) forces hundreds of
+/// geometric grows and re-probes every element; this pins that the grow path is
+/// the one being emitted, which no output can show.
+#[test]
+fn add_on_a_record_field_grows_the_record_in_place() {
+    let plan = ncode(
+        "inplace_recfield_add",
+        "IMPORT collections\n\
+         TYPE SBox\n\
+        \x20 before AS Integer\n\
+        \x20 s AS Set OF Integer\n\
+        \x20 after AS Integer\n\
+         END TYPE\n\
+         FUNC fill(n AS Integer) AS Integer\n\
+        \x20 MUT rec AS SBox = SBox[1, Set OF Integer { }, 2]\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   rec = WITH rec { s := collections::add(rec.s, i) }\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(rec.s)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN fill(8)\n\
+         END FUNC\n",
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_fill", "inplace_inlined_field_off") >= 1,
+        "a growing record-field op must hoist the field offset before the realloc: \
+         the offset survives the grow (the prefix is copied verbatim) but the \
+         sub-block ADDRESS does not"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_fill", "inline_grow_prefix") >= 1,
+        "the grow must copy the record prefix into the newly allocated RECORD \
+         block — without it the record's fixed slots are lost"
+    );
+}
+
+/// The other half of the pair: a **plain local** Set `add` must NOT acquire the
+/// record-grow machinery. `lower_map_set_in_place` is shared, so an `InlineGrow`
+/// leaking into the plain-local path would grow a record that does not exist.
+#[test]
+fn add_on_a_plain_local_does_not_use_the_record_grow() {
+    let plan = ncode(
+        "inplace_local_add",
+        "IMPORT collections\n\
+         FUNC fill(n AS Integer) AS Integer\n\
+        \x20 MUT s AS Set OF Integer = Set OF Integer { }\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   s = collections::add(s, i)\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(s)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN fill(8)\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_fill", "inline_grow_prefix"),
+        0,
+        "a plain local owns its block outright: growing it must not copy a record \
+         prefix or free a record that is not there"
+    );
+}
