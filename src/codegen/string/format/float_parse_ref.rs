@@ -292,11 +292,29 @@ pub(crate) fn parse(text: &str) -> Option<f64> {
     Some(finish(&scanned))
 }
 
+/// The parse the emitted helper performs: no Clinger shortcut.
+pub(crate) fn parse_without_fast_path(text: &str) -> Option<f64> {
+    let scanned = scan(text)?;
+    Some(finish_inner(&scanned, false))
+}
+
 pub(crate) fn finish(scanned: &Scanned) -> f64 {
+    finish_inner(scanned, true)
+}
+
+/// `use_fast_path == false` drops Clinger's shortcut, which is how the emitted
+/// helper runs: see `float_parse.rs`. Kept as a parameter so
+/// `lemire_alone_is_sufficient` can prove the shortcut is an optimization and
+/// not a correctness crutch.
+pub(crate) fn finish_inner(scanned: &Scanned, use_fast_path: bool) -> f64 {
     // Clinger's exactly-representable fast path: both the mantissa and the
     // power of ten are exact in binary64, so one multiply or divide is
     // correctly rounded by IEEE 754 itself.
-    if !scanned.many_digits && scanned.mantissa < (1u64 << 53) && scanned.exponent.abs() <= 22 {
+    if use_fast_path
+        && !scanned.many_digits
+        && scanned.mantissa < (1u64 << 53)
+        && scanned.exponent.abs() <= 22
+    {
         let value = scanned.mantissa as f64;
         let power = 10f64.powi(scanned.exponent.abs());
         let result = if scanned.exponent >= 0 {
@@ -703,6 +721,62 @@ mod tests {
             "", "+", "-", ".", "1.2.3", "1e", "1e+", "abc", "1a", " 1", "1 ", "1e5x", "0x1",
         ] {
             assert!(scan(text).is_none(), "{text} should be rejected");
+        }
+    }
+
+    #[test]
+    fn lemire_alone_is_sufficient() {
+        // The emitted helper omits Clinger's fast path, because it is the only
+        // part of the algorithm that needs f64 arithmetic and a hand-written
+        // NIR helper may not name a physical FP register. That is only safe if
+        // the shortcut is an optimization rather than a correctness crutch, so
+        // run every vector both ways and require identical bits.
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..20_000 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let value = f64::from_bits(state);
+            if !value.is_finite() {
+                continue;
+            }
+            let text = format!("{value:e}");
+            let with = parse(&text).expect("accepted");
+            let without = parse_without_fast_path(&text).expect("accepted");
+            assert_eq!(
+                with.to_bits(),
+                without.to_bits(),
+                "{text}: fast path {:#018x} vs Lemire {:#018x}",
+                with.to_bits(),
+                without.to_bits()
+            );
+        }
+        // And the exactly-representable range the shortcut exists to serve.
+        for text in [
+            "1",
+            "10",
+            "100",
+            "1e22",
+            "1e-22",
+            "0.5",
+            "0.25",
+            "123456789",
+            "9007199254740992",
+            "1.5",
+            "2.5",
+            "1e15",
+            "1e-15",
+            "3",
+            "7",
+            "0.1",
+            "0.2",
+            "0.3",
+        ] {
+            let with = parse(text).expect("accepted");
+            let without = parse_without_fast_path(text).expect("accepted");
+            assert_eq!(with.to_bits(), without.to_bits(), "{text}");
+            let std: f64 = text.parse().unwrap();
+            assert_eq!(without.to_bits(), std.to_bits(), "{text} vs std");
         }
     }
 

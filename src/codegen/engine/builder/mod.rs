@@ -2124,6 +2124,18 @@ pub(crate) fn lower_module_for_platform(
     if uses_float_to_string {
         code_functions.push(lower_float_to_string_helper());
     }
+    // plan-120-F: the correctly-rounded String -> Float parser and the four
+    // helpers it calls. Same relocation gate; the family is all-or-nothing
+    // because the entry point is the only caller of the rest.
+    let uses_string_to_float = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to == crate::codegen::string::format::float_parse::STRING_TO_FLOAT_SYMBOL
+        })
+    });
+    if uses_string_to_float {
+        code_functions
+            .extend(crate::codegen::string::format::float_parse::lower_string_to_float_helpers());
+    }
     // plan-118-C: the integer twin of the float formatter, same gate.
     let uses_int_to_string = code_functions.iter().any(|function| {
         function

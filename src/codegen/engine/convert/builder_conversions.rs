@@ -2,17 +2,16 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
-use crate::target::shared::abi;
-use crate::target::shared::nir::*;
-use crate::types::ParameterType;
 /// Upper bound on the decimal exponent magnitude accumulated while parsing a
 /// numeric string. The representable range of an IEEE-754 double spans roughly
 /// 10^-324 to 10^308, so any exponent magnitude at or beyond this clamp drives
 /// every representable mantissa to overflow (infinity) or underflow (zero). The
 /// value is well above that useful range yet far below 2^63, so accumulation can
 /// never wrap a 64-bit register. It also fits the AArch64 12-bit `cmp` immediate.
-const DECIMAL_EXPONENT_CLAMP: &str = "1000";
-
+use crate::codegen::string::format::float_parse::STRING_TO_FLOAT_SYMBOL;
+use crate::target::shared::abi;
+use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_to_int(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
@@ -1323,235 +1322,34 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Parse a decimal String into `FP_SCRATCH[0]`, branching to `invalid_label`
+    /// when the text is not a number.
+    ///
+    /// plan-120-F: this used to be ~300 inline instructions that accumulated
+    /// digits in binary64 and applied the exponent by repeated multiply/divide
+    /// by 10.0 — the classic double-rounding construction, wrong by up to 1 ULP
+    /// even for values binary64 represents exactly. It now calls
+    /// `_mfb_rt_string_to_float`, an Eisel–Lemire parser with an exact
+    /// big-integer fallback (`codegen::string::format::float_parse`).
+    ///
+    /// The seam is unchanged on purpose: the helper still leaves its result in
+    /// `FP_SCRATCH[0]` and still saturates to ±infinity rather than reporting
+    /// overflow itself, so both call sites keep their existing
+    /// `emit_double_overflow_check` and `toFloat`/`toFixed` raise exactly the
+    /// codes they raised before.
     pub(crate) fn emit_parse_decimal_string_to_double(
         &mut self,
         source_register: impl Into<Operand>,
         invalid_label: &str,
     ) -> Result<(), String> {
-        let string_reg = self.temporary_vreg();
-        let length_reg = self.temporary_vreg();
-        let index_reg = self.temporary_vreg();
-        let cursor_reg = self.temporary_vreg();
-        let byte_reg = self.temporary_vreg();
-        let digit_reg = self.temporary_vreg();
-        let negative_reg = self.temporary_vreg();
-        let seen_digit_reg = self.temporary_vreg();
-        let ten_bits_reg = self.temporary_vreg();
-        let dot_seen_reg = self.temporary_vreg();
-        let zero_src_reg = self.temporary_vreg();
-        let one_bits_reg = self.temporary_vreg();
-        let exponent_reg = self.temporary_vreg();
-        let exponent_negative_reg = self.temporary_vreg();
-        let exponent_ten_reg = self.temporary_vreg();
-        let string = &string_reg;
-        let length = &length_reg;
-        let index = &index_reg;
-        let cursor = &cursor_reg;
-        let byte = &byte_reg;
-        let digit = &digit_reg;
-        let negative = &negative_reg;
-        let seen_digit = &seen_digit_reg;
-        let ten_bits = &ten_bits_reg;
-        let dot_seen = &dot_seen_reg;
-        let zero_src = &zero_src_reg;
-        let one_bits = &one_bits_reg;
-        let exponent = &exponent_reg;
-        let exponent_negative = &exponent_negative_reg;
-        let exponent_ten = &exponent_ten_reg;
-        let loop_start = self.label("parse_decimal_loop");
-        let after_sign = self.label("parse_decimal_after_sign");
-        let not_minus = self.label("parse_decimal_not_minus");
-        let sign_done = self.label("parse_decimal_sign_done");
-        let dot = self.label("parse_decimal_dot");
-        let frac_digit = self.label("parse_decimal_frac_digit");
-        let int_digit = self.label("parse_decimal_int_digit");
-        let next = self.label("parse_decimal_next");
-        let finish = self.label("parse_decimal_finish");
-        let positive = self.label("parse_decimal_positive");
-        let exponent_start = self.label("parse_decimal_exponent_start");
-        let exponent_not_minus = self.label("parse_decimal_exponent_not_minus");
-        let exponent_sign_done = self.label("parse_decimal_exponent_sign_done");
-        let exponent_loop = self.label("parse_decimal_exponent_loop");
-        let exponent_apply = self.label("parse_decimal_exponent_apply");
-        let exponent_multiply_loop = self.label("parse_decimal_exponent_multiply_loop");
-        let exponent_divide_loop = self.label("parse_decimal_exponent_divide_loop");
-        let exponent_apply_done = self.label("parse_decimal_exponent_apply_done");
-        let exponent_skip_accum = self.label("parse_decimal_exponent_skip_accum");
-        self.emit(abi::move_register(string, source_register));
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(invalid_label));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
-        self.emit(abi::move_immediate(dot_seen, "Integer", "0"));
-        self.emit(abi::move_immediate(exponent_ten, "Integer", "10"));
-        self.emit(abi::move_immediate(zero_src, "Integer", "0"));
-        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], zero_src));
-        self.emit_f64_const(abi::FP_SCRATCH[1], ten_bits, 10.0);
-        self.emit_f64_const(abi::FP_SCRATCH[3], one_bits, 1.0);
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&not_minus));
-        self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::branch(&after_sign));
-        self.emit(abi::label(&not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&sign_done));
-        self.emit(abi::label(&after_sign));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(invalid_label));
-        self.emit(abi::label(&sign_done));
-
-        self.emit(abi::label(&loop_start));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&finish));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "46"));
-        self.emit(abi::branch_eq(&dot));
-        self.emit(abi::compare_immediate(byte, "69"));
-        self.emit(abi::branch_eq(&exponent_start));
-        self.emit(abi::compare_immediate(byte, "101"));
-        self.emit(abi::branch_eq(&exponent_start));
-        self.emit(abi::compare_immediate(byte, "48"));
-        self.emit(abi::branch_lo(invalid_label));
-        self.emit(abi::compare_immediate(byte, "57"));
-        self.emit(abi::branch_hi(invalid_label));
-        self.emit(abi::subtract_immediate(digit, byte, 48));
-        self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], digit));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
-        self.emit(abi::compare_immediate(dot_seen, "0"));
-        self.emit(abi::branch_ne(&frac_digit));
-        self.emit(abi::label(&int_digit));
-        self.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        self.emit(abi::float_add_d(
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[2],
-        ));
-        self.emit(abi::branch(&next));
-        self.emit(abi::label(&frac_digit));
-        self.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[3],
-            abi::FP_SCRATCH[3],
-            abi::FP_SCRATCH[1],
-        ));
-        self.emit(abi::float_divide_d(
-            abi::FP_SCRATCH[2],
-            abi::FP_SCRATCH[2],
-            abi::FP_SCRATCH[3],
-        ));
-        self.emit(abi::float_add_d(
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[2],
-        ));
-        self.emit(abi::branch(&next));
-        self.emit(abi::label(&dot));
-        self.emit(abi::compare_immediate(dot_seen, "0"));
+        self.emit(abi::move_register(abi::c_arg(0), source_register));
+        self.emit_symbol_call(STRING_TO_FLOAT_SYMBOL);
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, "0"));
         self.emit(abi::branch_ne(invalid_label));
-        self.emit(abi::move_immediate(dot_seen, "Integer", "1"));
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&loop_start));
-
-        self.emit(abi::label(&exponent_start));
-        self.emit(abi::compare_immediate(seen_digit, "0"));
-        self.emit(abi::branch_eq(invalid_label));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(invalid_label));
-        self.emit(abi::move_immediate(exponent, "Integer", "0"));
-        self.emit(abi::move_immediate(exponent_negative, "Integer", "0"));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&exponent_not_minus));
-        self.emit(abi::move_immediate(exponent_negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&exponent_sign_done));
-        self.emit(abi::label(&exponent_not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&exponent_sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::label(&exponent_sign_done));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(invalid_label));
-
-        self.emit(abi::label(&exponent_loop));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&exponent_apply));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "48"));
-        self.emit(abi::branch_lo(invalid_label));
-        self.emit(abi::compare_immediate(byte, "57"));
-        self.emit(abi::branch_hi(invalid_label));
-        self.emit(abi::subtract_immediate(digit, byte, 48));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
-        // Clamp exponent accumulation to avoid 64-bit wraparound on absurdly
-        // large exponents (e.g. `1e18446744073709551616`). Once the magnitude
-        // reaches EXPONENT_CLAMP, any representable mantissa is already forced to
-        // overflow to infinity (positive exponent) or underflow to zero
-        // (negative exponent), so additional digits cannot change the result.
-        // Skipping further accumulation keeps the register far below 2^63 and
-        // preserves the overflow/underflow outcome instead of wrapping to a
-        // small, wrongly-accepted value.
-        self.emit(abi::compare_immediate(exponent, DECIMAL_EXPONENT_CLAMP));
-        self.emit(abi::branch_ge(&exponent_skip_accum));
-        self.emit(abi::multiply_registers(exponent, exponent, exponent_ten));
-        self.emit(abi::add_registers(exponent, exponent, digit));
-        self.emit(abi::label(&exponent_skip_accum));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&exponent_loop));
-
-        self.emit(abi::label(&exponent_apply));
-        self.emit(abi::compare_immediate(seen_digit, "0"));
-        self.emit(abi::branch_eq(invalid_label));
-        self.emit(abi::compare_immediate(exponent_negative, "0"));
-        self.emit(abi::branch_ne(&exponent_divide_loop));
-        self.emit(abi::label(&exponent_multiply_loop));
-        self.emit(abi::compare_immediate(exponent, "0"));
-        self.emit(abi::branch_eq(&exponent_apply_done));
-        self.emit(abi::float_multiply_d(
+        self.emit(abi::float_move_d_from_x(
             abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[1],
+            RESULT_VALUE_REGISTER,
         ));
-        self.emit(abi::subtract_immediate(exponent, exponent, 1));
-        self.emit(abi::branch(&exponent_multiply_loop));
-        self.emit(abi::label(&exponent_divide_loop));
-        self.emit(abi::compare_immediate(exponent, "0"));
-        self.emit(abi::branch_eq(&exponent_apply_done));
-        self.emit(abi::float_divide_d(
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        self.emit(abi::subtract_immediate(exponent, exponent, 1));
-        self.emit(abi::branch(&exponent_divide_loop));
-        self.emit(abi::label(&exponent_apply_done));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
-        self.emit(abi::branch(&finish));
-
-        self.emit(abi::label(&finish));
-        self.emit(abi::compare_immediate(seen_digit, "0"));
-        self.emit(abi::branch_eq(invalid_label));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&positive));
-        self.emit(abi::float_negate_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]));
-        self.emit(abi::label(&positive));
         Ok(())
     }
 
