@@ -514,10 +514,13 @@ Commit: 8c4fa49a6
       0 missing`, and `git status --short` reports **no** modified file. The delta is
       empty, and **not because nothing changed** — see **F11**.
 - [ ] `cargo test --no-fail-fast` on mac RELEASE.
-- [ ] `cargo test --no-fail-fast --bin mfb` on mac DEBUG — the only run on any machine
+- [x] `cargo test --no-fail-fast --bin mfb` on mac DEBUG — the only run on any machine
       in any pipeline that executes the ~40 `debug_assert!`s, four of which sit on the
       canvas item block this letter grew (per **E6**, which letters F–J were told to
-      keep).
+      keep). **3757 passed, 0 failed, 1 ignored**, 476.96s. Run with
+      `CARGO_TARGET_DIR=/tmp/p116-debug` so it did not contend with the release row for
+      the build lock — the two rows differ only in profile, so a separate target
+      directory is the whole isolation needed.
 - [ ] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228.
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
