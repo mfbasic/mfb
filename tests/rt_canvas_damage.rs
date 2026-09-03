@@ -302,11 +302,14 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
 /// a zero-area rectangle: the frame would be reported as changed and repaint nothing,
 /// which reads as "the screen only updates on full redraws".
 ///
-/// The sleeps are load-bearing for the reason `UNCHANGED` records — redraw requests
-/// coalesce, and without them this measures the scheduler.
+/// **No sleeps, unlike `UNCHANGED` and `MOVED` above.** Those predate this harness
+/// setting `MFB_CANVAS_SYNC=1` unconditionally, and with it `present` already waits for
+/// the frame it asked for — so the coalescing those sleeps guard against cannot happen
+/// here, and a fixed delay would only be a way for a slow or contended machine to make
+/// these flaky. Verified rather than assumed: the frame-count assertions below hold
+/// without them.
 const GROUP_REPLACED: &str = r#"IMPORT app
 IMPORT canvas
-IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
@@ -316,10 +319,8 @@ SUB main()
   canvas::setGroup("panel", [a])
   LET node AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 300.0, name := "panel"]
   canvas::present([far, node])
-  os::sleep(150)
   canvas::setGroup("panel", [b])
   canvas::present([far, node])
-  os::sleep(150)
 END SUB
 "#;
 
@@ -383,7 +384,6 @@ fn replacing_a_group_damages_where_the_group_draws() {
 /// an implementation keying damage off the geometry would see nothing changed.
 const GROUP_MOVED: &str = r#"IMPORT app
 IMPORT canvas
-IMPORT os
 
 SUB main()
   app::setMode(app::Mode.Canvas)
@@ -392,9 +392,7 @@ SUB main()
   LET here AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "panel"]
   LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]
   canvas::present([here])
-  os::sleep(150)
   canvas::present([there])
-  os::sleep(150)
 END SUB
 "#;
 
