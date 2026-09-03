@@ -665,6 +665,26 @@ Noted for Phase 2 and Phase 3, which both remove a `Group` decline from these tw
 functions: they are the same two functions plan-116-F edited, so expect them to have
 moved again by the time H runs — find them by name.
 
+**They did, and by more than a line shift** (re-measured after plan-116-G landed):
+
+| symbol | now at |
+|---|---|
+| `__canvas_appendDraw` | `:163` — **new in G**, the group-expanding walk |
+| `__canvas_sceneOffsets` | `:251` (was `:122`) |
+| `__canvas_metalRenderable` | `:327` (was `:198`, given as `:180`) |
+| `__canvas_vulkanRenderable` | `:424` |
+
+`grep -n "FUNC __canvas_metalRenderable\|FUNC __canvas_vulkanRenderable\|FUNC
+__canvas_sceneOffsets\|FUNC __canvas_appendDraw"
+src/codegen/builtins/canvas/helper_render.rs` finds all four.
+
+The substantive change for H is not the offsets: it is that the decline the two
+predicates now carry is **not a `Group` check**. G expands every group away before a
+predicate sees the list, so there is no `Group` item left to find — both read
+`__CANVAS_DRAW_HAS_GROUP`, a flag the walk sets. Phase 2 and Phase 3 remove *that*, and a
+phase that went looking for a `CASE Group` arm to delete would find nothing and leave the
+decline in place.
+
 - **C1 (2026-09-01, review — pre-execution).** Aligned with the revised plan-116-A:
   Metal's edges (A) and gradient stops (F) live in frame-buffer regions, which is
   what makes "one instanced draw per group node" true for groups containing
