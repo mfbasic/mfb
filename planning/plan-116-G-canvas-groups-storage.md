@@ -785,9 +785,12 @@ With `Group` indistinguishable from `Picture`, the predicate can only decline bo
 neither — and declining every `Picture` scene is a silent performance regression for a
 kind that has nothing to do with this letter.
 
-The kinds today are `ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`
-(`grep -n 'LET __CANVAS_GEO_[A-Z]* AS Integer' src/codegen/builtins/canvas/helper_geometry.rs`),
-so 8 is next. It is spelled **twice** — once in MFBASIC, once as `GEO_KIND_GROUP` in
+The kinds today are dense 0–7 and are declared in **two** MFBASIC files:
+`__CANVAS_KIND_RECT 0`, `__CANVAS_KIND_CIRCLE 1`, `__CANVAS_KIND_SEGMENT 2` in
+`helper_draw.rs`, and `__CANVAS_GEO_ARC 3`, `POLYGON 4`, `NONE 5`, `TEXT 6`,
+`ELLIPSE 7` in `helper_geometry.rs`'s `GEO_LAYOUT`. So 8 is next, and it belongs in
+`GEO_LAYOUT` with the 3–7 block. Grepping only one of the two files makes the set look
+like it starts at 3. It is spelled **twice** — once in MFBASIC, once as `GEO_KIND_GROUP` in
 `runtime/canvas/mod.rs` beside `GEO_KIND_POLYGON` and `GEO_KIND_TEXT` — with no compiler
 between the two, which is precisely the arrangement
 `the_geo_layout_constants_match_their_rust_counterparts` exists to guard. It already
