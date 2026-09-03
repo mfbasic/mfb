@@ -562,6 +562,23 @@ The whole breaking surface change, with nothing yet reading it.
       and also `__canvas_tailMatches`, `__canvas_headerIsDeferred`,
       `__canvas_deferredHeader`, `__canvas_deferredHash` and `__canvas_hashItem`.
       Re-measure first: `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`.
+      Each arm's answer, worked out against the file as of 2026-09-03:
+
+      | Function | `CASE Group(g)` returns | Why |
+      |---|---|---|
+      | `__canvas_headerFor` | `__canvas_emptyHeader()` | Placeholder; Phase 4 puts the children's hull here (**G12**) |
+      | `__canvas_tailFor` | `[]` | A group's contents are in the table, not this record |
+      | `__canvas_tailMatches` | `TRUE` | No tail, so a cached entry's tail always matches; identity is in the hash |
+      | `__canvas_headerIsDeferred` | `TRUE` | **The load-bearing one** (**G6**) |
+      | `__canvas_deferredHeader` | `__canvas_emptyHeader()` | Same placeholder as `headerFor` |
+      | `__canvas_deferredHash` | `__canvas_groupHash(g)` | Carries the name the empty header cannot |
+      | `__canvas_hashItem` | `acc` | **Unreachable** — deferred kinds return before this `MATCH` — and required, because `MATCH` is exhaustive |
+
+      `__canvas_groupHash` is shaped like `__canvas_textHash`
+      (`sed -n 1006,1019p helper_geometry.rs`): a blank header with the kind, `dx` and
+      `dy` set, hashed with `__canvas_hashGeometry`, then the name's codepoints folded
+      in one at a time with `__canvas_hashStep` over `encoding::utf32Encode(g.name)`.
+      From Phase 4 the hull goes in too (**G12**).
 - [ ] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
       `__canvas_deferredHash` hashes its **name** and `dx`/`dy` (**G6**). A group has an
       empty header, and a non-deferred kind with an empty header makes every group in a
