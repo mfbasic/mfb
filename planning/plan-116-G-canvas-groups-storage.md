@@ -647,6 +647,12 @@ Commit: —
       for group nodes. **This replaces Phase 2's empty header** (**G12**): the bounds
       `__canvas_damageFor` reads are the geometry header's slots 16–19, so a group node
       whose header stays empty damages a zero-area rectangle.
+      **Do not route that header through `__canvas_paintHeader`.** A `Group` carries no
+      `Paint`, and `paintHeader` decides "has this kind an interior" by reading slot 0
+      and counts `stops * 5` into slot 1 when it thinks the answer is yes — a record
+      that declares a stop tail `__canvas_tailFor` never appends reads the *next*
+      record's header as its data (plan-116-F **F17**/**F18**, 874 px wrong there).
+      Build the group header directly from `__canvas_blankHeader()`.
 - [ ] `__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`
       (**G12**), for the reason `__canvas_hashGradient` exists: once the header carries
       real data, two nodes agreeing on everything hashed collide in the geometry cache
