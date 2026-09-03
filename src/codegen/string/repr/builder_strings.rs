@@ -5,6 +5,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::string::format::float_format_sci::FLOAT_TO_STRING_SCI_SYMBOL;
 use crate::codegen::string::format::*;
 use crate::operators::BinaryOp;
 use crate::target::shared::abi;
@@ -1952,6 +1953,41 @@ impl CodeBuilder<'_> {
             type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Float)".to_string(),
+        })
+    }
+
+    /// Call the scientific-digit helper (`float_format_sci.rs`,
+    /// `_mfb_rt_float_to_string_sci`). Same convention as its fixed sibling
+    /// above: the f64 bit pattern in `x0`, the arena-alloc Result out, and
+    /// allocation the only failure.
+    pub(crate) fn emit_sci_parts_call(
+        &mut self,
+        source_register: impl Into<Operand>,
+    ) -> Result<ValueResult, String> {
+        let alloc_ok = self.label("sci_parts_alloc_ok");
+        self.emit(abi::move_register(abi::c_arg(0), source_register));
+        self.emit(abi::branch_link(FLOAT_TO_STRING_SCI_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: FLOAT_TO_STRING_SCI_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.raise_error_bare("ErrOutOfMemory")?;
+        self.emit(abi::label(&alloc_ok));
+        let result = self.allocate_register();
+        self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::String,
+            location: Operand::from(result.render()),
+            text: "json::sciParts(Float)".to_string(),
         })
     }
 

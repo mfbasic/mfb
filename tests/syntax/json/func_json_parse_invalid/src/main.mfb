@@ -1,9 +1,18 @@
 IMPORT json
 
+' plan-120-E: `wrongReviver` proves the reviver PARAMETER's signature is
+' checked, not merely that the argument is some function. Without it the only
+' 2-argument case is `("{}", "{}")`, which a matcher accepting any callable
+' would still reject — so it cannot tell the two apart.
+FUNC wrongReviver(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
 FUNC main AS Integer
   LET missing AS json::Json = json::parse()
   LET wrongType AS json::Json = json::parse(TRUE)
   LET tooMany AS json::Json = json::parse("{}", "{}")
   LET badName AS json::Json = json::parse(textValue := "{}")
+  LET badReviver AS json::Json = json::parse("{}", wrongReviver)
   RETURN 0
 END FUNC

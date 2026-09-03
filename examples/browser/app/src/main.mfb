@@ -4,6 +4,7 @@ IMPORT display
 IMPORT dom
 IMPORT fetch
 IMPORT io
+IMPORT json
 IMPORT strings
 IMPORT term
 IMPORT thread
@@ -36,7 +37,8 @@ IMPORT thread
 ' Controls:
 '   Q / q      quit
 '   G / g      enter Address Mode
-'   R / r      (Display Mode) switch to Raw Mode — the parsed DOM as a tree
+'   R / r      (Display Mode) switch to Raw Mode — the parsed DOM as a tree, followed
+'              by each form's data object as JSON
 '   D / d      (Raw Mode) switch back to Display Mode
 '   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
 '                    URL and returns to Display Mode, Esc clears the address (and
@@ -46,10 +48,14 @@ IMPORT thread
 '   M / m      cycle the display width: (s)tandard=terminal width, (w)ide=300,
 '              (e)xtra-wide=600 columns (shown as (s)/(w)/(e) before Files). A new
 '              page load resets to standard.
-'   Tab        (Display Mode) focus the next on-screen link, wrapping within the
-'              links currently visible; the focused link is highlighted.
+'   Tab        (Display Mode) focus the next on-screen link or form field, wrapping
+'              within those currently visible; the focused one is highlighted.
 '   Enter      (Display Mode) follow the focused link.
-'   Esc        (Display Mode) un-focus the highlighted link.
+'   Esc        (Display Mode) un-focus the highlighted link or field.
+'   With a form field focused, every printable key types into it and Backspace
+'              deletes; Tab moves on to the next target and Esc leaves the field. The
+'              page keys (Q/G/R/L/M) are text while a field has focus, and Enter is
+'              ignored — a single-line <input> takes no newline.
 '   L / l      (Display Mode) open the Links list: a labelled multi-column list of
 '              every link on the page ("A) Link Text"). Type a link's letter(s) to
 '              follow it, Up/Down scroll, Esc returns to the page.
@@ -293,7 +299,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
+SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolean, linksMode AS Boolean, fieldMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, widthMode AS String, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -323,6 +329,9 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   MUT leftPart AS String = "[Q]uit  [G]o  [R]aw  [L]inks  [M]ode"
   IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument  [M]ode"
   IF linksMode THEN leftPart = "[Esc] Back"
+  ' A focused form field takes every printable key as text, so the page shortcuts
+  ' are unavailable — say what still works instead of advertising [Q]uit.
+  IF fieldMode THEN leftPart = "Type to edit  [Tab] Next  [Esc] Leave field"
   IF addressMode THEN leftPart = "[Esc] Clear/Cancel  [Enter] Go"
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
@@ -351,11 +360,13 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   END IF
 END SUB
 
-' ----- link navigation -----
+' ----- link and form-field navigation -----
 '
-' display::paint returns the page's links as `Target`s, each with the on-screen
-' rectangles its text occupies (brackets excluded). The app Tab-cycles the links that
-' are currently on screen, highlights the focused one, and loads its href on Enter.
+' display::paint returns the page's Tab targets — hyperlinks and editable <input>s —
+' each with the on-screen rectangles it occupies. The app Tab-cycles the targets that
+' are currently on screen and highlights the focused one. A link target (field = -1)
+' loads its href on Enter; a field target carries the dom field ordinal, and typing
+' rewrites that field's value in the document (see the key handling in main).
 
 ' Whether any of target `t`'s text is on a currently visible row and column.
 FUNC targetVisible(t AS Target, scroll AS Integer, contentH AS Integer, hscroll AS Integer, cols AS Integer) AS Boolean
@@ -383,6 +394,185 @@ FUNC nextVisibleTarget(targets AS List OF Target, from AS Integer, scroll AS Int
     k = k + 1
   LOOP
   RETURN -1
+END FUNC
+
+' The dom form-field ordinal of target `idx`, or -1 when it is a link (or `idx` names
+' no target). This is what tells the two kinds of target apart everywhere.
+FUNC targetField(targets AS List OF Target, idx AS Integer) AS Integer
+  IF idx < 0 OR idx >= len(targets) THEN RETURN -1
+  RETURN collections::get(targets, idx).field
+END FUNC
+
+' The index of the target for dom field `field`, or -1 when the page has none. Used to
+' carry a field's focus across a reflow: a keystroke rebuilds the document and repaints
+' it, so the target list is new but the field ordinal is stable.
+FUNC fieldTargetIndex(targets AS List OF Target, field AS Integer) AS Integer
+  IF field < 0 THEN RETURN -1
+  MUT i AS Integer = 0
+  LET n AS Integer = len(targets)
+  DO WHILE i < n
+    IF collections::get(targets, i).field = field THEN RETURN i
+    i = i + 1
+  LOOP
+  RETURN -1
+END FUNC
+
+' ----- form data -----
+'
+' What the reader types is held here, never in the document: one JSON object per form
+' (a json::JsonObj keyed by each field's data key — the shape a form submission has),
+' alongside dom's FieldSpec list describing the page's fields. dom::fieldSpecs gives
+' each field its form, its key, and how it draws; the document itself only carries the
+' form *structure*.
+'
+' Keeping the values out of the tree is what makes typing usable. A document is an
+' immutable tree, so recording a keystroke in it means rebuilding the whole thing —
+' measured at 70-330 ms per keystroke on a page at the parser's node cap, and getting
+' slower the longer you type. Rewriting one small JSON object instead is free, and the
+' values are folded back into a copy of the document only for the one operation that
+' genuinely needs a whole page: a full re-layout.
+
+' One JSON object per form, seeded with the values the page shipped its fields with
+' (an HTML `value=` attribute is the field's initial data, exactly as in a browser).
+FUNC initialFormData(fields AS List OF FieldSpec, forms AS Integer) AS List OF json::Json
+  LET empty AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  MUT maps AS List OF Map OF String TO json::Json = []
+  FOR i = 0 TO forms - 1
+    maps = collections::append(maps, empty)
+  NEXT
+  FOR EACH sp IN fields
+    IF sp.form >= 0 AND sp.form < forms THEN
+      LET seed AS json::Json = json::JsonStr[sp.initial]
+      maps = collections::set(maps, sp.form, collections::set(collections::get(maps, sp.form), sp.key, seed))
+    END IF
+  NEXT
+  MUT out AS List OF json::Json = []
+  FOR EACH m IN maps
+    LET obj AS json::Json = json::JsonObj[m]
+    out = collections::append(out, obj)
+  NEXT
+  RETURN out
+END FUNC
+
+' The spec for field ordinal `ord`. fieldSpecs is in document order, so the ordinal is
+' the index; an unknown ordinal yields a blank spec that reads and writes nothing.
+FUNC specOf(fields AS List OF FieldSpec, ord AS Integer) AS FieldSpec
+  IF ord >= 0 AND ord < len(fields) THEN RETURN collections::get(fields, ord)
+  RETURN FieldSpec[-1, -1, "", "text", 0, ""]
+END FUNC
+
+' The text `spec`'s field currently holds, or "" when its form has no entry for it.
+FUNC formValue(data AS List OF json::Json, spec AS FieldSpec) AS String
+  IF spec.form < 0 OR spec.form >= len(data) THEN RETURN ""
+  LET blank AS json::Json = json::JsonStr[""]
+  LET got AS json::Json = json::getOr(collections::get(data, spec.form), [spec.key], blank)
+  MATCH got
+    CASE json::JsonStr(str)
+      RETURN str.value
+    CASE ELSE
+      RETURN ""
+  END MATCH
+END FUNC
+
+' `data` with `spec`'s field set to `value` — one keystroke's worth of work.
+FUNC setFormValue(data AS List OF json::Json, spec AS FieldSpec, value AS String) AS List OF json::Json
+  IF spec.form < 0 OR spec.form >= len(data) THEN RETURN data
+  MUT members AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  LET current AS json::Json = collections::get(data, spec.form)
+  MATCH current
+    CASE json::JsonObj(o)
+      members = o.fields
+    CASE ELSE
+  END MATCH
+  LET text AS json::Json = json::JsonStr[value]
+  members = collections::set(members, spec.key, text)
+  LET updated AS json::Json = json::JsonObj[members]
+  RETURN collections::set(data, spec.form, updated)
+END FUNC
+
+' Every field's current value in ordinal order — the render input dom::applyFieldValues
+' folds into a copy of the document for a full re-layout.
+FUNC fieldValues(data AS List OF json::Json, fields AS List OF FieldSpec) AS List OF String
+  MUT out AS List OF String = []
+  FOR EACH sp IN fields
+    out = collections::append(out, formValue(data, sp))
+  NEXT
+  RETURN out
+END FUNC
+
+' The form data objects as JSON, appended to the [R]aw view: the payload each form
+' would submit, so what typing has recorded is visible and not just implied. The last
+' object is dom's implicit form — the one holding any field outside every <form>.
+FUNC formDataText(data AS List OF json::Json) AS String
+  LET n AS Integer = len(data)
+  IF n = 0 THEN RETURN ""
+  MUT out AS String = "\n\nForm data:"
+  MUT i AS Integer = 0
+  FOR EACH obj IN data
+    MUT label AS String = "form " & toString(i)
+    IF i = n - 1 THEN label = "outside any <form>"
+    out = out & "\n  " & label & ": " & json::stringify(obj)
+    i = i + 1
+  NEXT
+  RETURN out
+END FUNC
+
+' One field box to stamp over the painted page: where it goes, the box text the form
+' data currently renders to, and whether it is the focused field (so the stamp carries
+' the selection background the rest of the focused rectangle has).
+'
+' Typing does not re-lay-out the page either. A full paint of a page at the parser's
+' node cap costs about 300 ms — fine for a resize or a width-mode switch, far too slow
+' per keystroke — and it is not needed: a field's box is a fixed `size` columns wide
+' whatever its value, so editing one moves nothing else on the page. The app redraws
+' just the edited boxes over the cached rows, through the same dom::fieldBox the next
+' full layout will use, so the shortcut cannot drift from it.
+TYPE FieldPatch
+  rect AS Rect
+  text AS String
+  focused AS Boolean
+END TYPE
+
+' Whether `v` is already in `items` (the edited-field list is a small set).
+FUNC containsInt(items AS List OF Integer, v AS Integer) AS Boolean
+  FOR EACH x IN items
+    IF x = v THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' The stamps for every field edited since the last full paint: each edited field's
+' current box, at each rectangle its target occupies. A field whose target is gone
+' (the page was reflowed into a shape without it) simply contributes nothing.
+FUNC fieldPatches(fields AS List OF FieldSpec, data AS List OF json::Json, targets AS List OF Target, edited AS List OF Integer, focusIdx AS Integer) AS List OF FieldPatch
+  MUT out AS List OF FieldPatch = []
+  FOR EACH ord IN edited
+    LET idx AS Integer = fieldTargetIndex(targets, ord)
+    IF idx >= 0 THEN
+      LET spec AS FieldSpec = specOf(fields, ord)
+      LET box AS String = dom::fieldBox(spec, formValue(data, spec))
+      FOR EACH rc IN collections::get(targets, idx).rects
+        ' Clip to the rectangle the paint actually gave the box, so a box the layout
+        ' had to cut short never spills into the neighbouring cell.
+        out = collections::append(out, FieldPatch[rc, clipCols(box, rc.c1 - rc.c0 + 1), idx = focusIdx])
+      NEXT
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' `s` without its last grapheme (Backspace in a form field). Whole graphemes, so
+' deleting never splits an emoji or a base-plus-combining-mark cluster in half.
+FUNC dropLastGrapheme(s AS String) AS String
+  LET gs AS List OF String = strings::graphemes(s)
+  LET keep AS Integer = len(gs) - 1
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  DO WHILE i < keep
+    out = out & collections::get(gs, i)
+    i = i + 1
+  LOOP
+  RETURN out
 END FUNC
 
 ' Whether `ch` is a single A-Z letter (a link-label character).
@@ -413,9 +603,11 @@ END FUNC
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
 ' blanks included, so a shorter page leaves no stale lines behind. Each row is an
 ' AttributedString drawn with term::drawText, which honours its per-run bold /
-' underline / foreground colour. `focusRects` are the focused link's rectangles; their
-' cells get a selection background overlaid before the row is drawn.
-SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect)
+' underline / foreground colour. `focusRects` are the focused link's or field's
+' rectangles; their cells get a selection background overlaid before the row is drawn.
+' `patches` are the form-field boxes edited since the last full paint, stamped over
+' the cached row afterwards (see FieldPatch).
+SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect, patches AS List OF FieldPatch)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
   term::setBackground(0, 0, 0)
@@ -436,6 +628,18 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
         END IF
       NEXT
       term::drawText(0 - hscroll, 2 + r, rowA)
+      ' Stamp any edited field box over the row it lands on. drawText places each
+      ' cell absolutely, skipping negative columns and clipping at the right edge,
+      ' so the same horizontal window as the row applies.
+      FOR EACH pa IN patches
+        IF pa.rect.row = idx THEN
+          MUT boxA AS AttributedString = astrings::fromString(pa.text)
+          IF pa.focused AND len(pa.text) > 0 THEN
+            boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(60, 90, 150))
+          END IF
+          term::drawText(pa.rect.c0 - hscroll, 2 + r, boxA)
+        END IF
+      NEXT
     END IF
   NEXT
 END SUB
@@ -492,19 +696,35 @@ FUNC main AS Integer
   ' marks the content region for repaint (a load, a scroll, or a resize); the chrome
   ' is cheap and repainted every frame. term::didResize() reports a terminal resize.
   MUT wrapped AS List OF AttributedString = []
-  ' The page's navigation targets (links) from display::paint, recomputed with
-  ' `wrapped`. `focusIdx` is the Tab-selected link (-1 = none); it is only ever set to
-  ' an on-screen link and is dropped when the page reflows or that link scrolls away.
+  ' The page's Tab targets — links and editable form fields — from display::paint,
+  ' recomputed with `wrapped`. `focusIdx` is the Tab-selected target (-1 = none); it is
+  ' only ever set to an on-screen target and is dropped when that target scrolls away.
+  ' `focusField` mirrors it: the dom field ordinal when the focused target is a form
+  ' field, -1 when it is a link or nothing. It is the editing state — while it is set,
+  ' every printable key types into that field — and it is what survives a reflow: a
+  ' keystroke rebuilds the document, so the target list is new but the ordinal is not.
   MUT targets AS List OF Target = []
   MUT focusIdx AS Integer = -1
+  MUT focusField AS Integer = -1
+  ' The fields typed into since the last full paint. Their boxes are stamped over the
+  ' cached rows each frame (see FieldPatch) instead of re-laying-out the page per
+  ' keystroke; a real reflow repaints them from the form data and clears the list.
+  MUT editedFields AS List OF Integer = []
+  ' The page's editable fields (dom::fieldSpecs, indexed by field ordinal) and the
+  ' reader's data for them: one JSON object per form. This is where a typed value
+  ' lives — see the form-data section above.
+  MUT fields AS List OF FieldSpec = []
+  MUT formData AS List OF json::Json = []
   ' Every link on the current page (display::links), for the [L]inks view; recomputed
   ' on each load.
   MUT pageLinks AS List OF Link = []
   ' A URL to load this frame (set by Address-Mode Enter or activating a focused link),
   ' consumed by the load section below; "" means nothing to load.
   MUT loadTarget AS String = ""
-  ' An empty rect list, for drawing content with no link highlighted.
+  ' An empty rect list, for drawing content with no link highlighted, and an empty
+  ' patch list for content that has no form fields to stamp (the loading screen).
   LET noRects AS List OF Rect = []
+  LET noPatches AS List OF FieldPatch = []
   ' The widest content line, for clamping the horizontal scroll (Left/Right). The
   ' page can be laid out wider than the terminal (see layoutWidthFor / the width
   ' mode), and the viewport shows a `cols`-wide window starting at `hscroll`.
@@ -552,12 +772,16 @@ FUNC main AS Integer
           wrapped = display::linksView(pageLinks, layoutW)
           targets = []
         ELSEIF paintMode THEN
-          LET pr AS PaintResult = display::paint(pageDoc, layoutW, termCellPx(), termLinePx())
+          ' The one place a whole document is needed: fold the reader's form data into
+          ' a copy of the page and lay that out. pageDoc itself stays as the site sent
+          ' it, so the JSON objects remain the only store of what has been typed.
+          LET filled AS Node = dom::applyFieldValues(pageDoc, fieldValues(formData, fields))
+          LET pr AS PaintResult = display::paint(filled, layoutW, termCellPx(), termLinePx())
           wrapped = pr.rows
           targets = pr.targets
         ELSE
           IF haveDom THEN
-            content = display::tree(pageDoc, layoutW)
+            content = display::tree(pageDoc, layoutW) & formDataText(formData)
           ELSE
             content = fallback
           END IF
@@ -567,9 +791,15 @@ FUNC main AS Integer
         contentPixWidth = maxLineWidth(wrapped)
         lastContentWidth = layoutW
         needRecontent = FALSE
+        ' This paint read every field's value straight from the document, so no box
+        ' needs stamping any more.
+        editedFields = []
         contentDirty = TRUE
-        ' The page reflowed: any link selection no longer maps to it.
-        focusIdx = -1
+        ' The page reflowed, so the old target indices no longer map to it. A focused
+        ' form field is re-found by its ordinal (typing reflows the page every
+        ' keystroke, and focus has to survive that); a link selection is dropped.
+        focusIdx = fieldTargetIndex(targets, focusField)
+        IF focusIdx < 0 THEN focusField = -1
       END IF
 
       ' Keep the scroll offset in range; a change repaints the content region.
@@ -594,10 +824,11 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
-      ' A focused link that has scrolled out of view loses its selection.
+      ' A focused link or field that has scrolled out of view loses its selection.
       IF focusIdx >= 0 THEN
         IF NOT targetVisible(collections::get(targets, focusIdx), scroll, contentHeight(size), hscroll, cols) THEN
           focusIdx = -1
+          focusField = -1
           contentDirty = TRUE
         END IF
       END IF
@@ -607,9 +838,9 @@ FUNC main AS Integer
         focusRects = collections::get(targets, focusIdx).rects
       END IF
 
-      drawChrome(size, addressMode, rawMode, linksMode, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+      drawChrome(size, addressMode, rawMode, linksMode, focusField >= 0, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
       IF contentDirty THEN
-        drawContent(size, wrapped, scroll, hscroll, focusRects)
+        drawContent(size, wrapped, scroll, hscroll, focusRects, fieldPatches(fields, formData, targets, editedFields, focusIdx))
         contentDirty = FALSE
       END IF
       term::sync()
@@ -673,6 +904,63 @@ FUNC main AS Integer
           labelBuf = ""
         END IF
       END IF
+    ELSEIF focusField >= 0 THEN
+      ' A form field has focus, so the reader is typing into it: every printable key
+      ' is text, including the page shortcuts (Q/G/R/L/M). Only the keys that are not
+      ' text act — Tab moves on to the next target, Esc leaves the field, Backspace
+      ' deletes, and the arrows still scroll the page under it.
+      '
+      ' A keystroke rewrites one entry of the field's form data object (see the
+      ' form-data section above) and marks the field for redraw. Nothing is re-laid
+      ' out: the box is a fixed `size` columns wide, so its geometry — and the rest of
+      ' the page's — does not move as the value grows, and the next frame stamps the
+      ' new box over the cached row.
+      IF key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "\t" THEN
+        focusIdx = nextVisibleTarget(targets, focusIdx, scroll, contentHeight(size), hscroll, cols)
+        focusField = targetField(targets, focusIdx)
+        contentDirty = TRUE
+      ELSEIF key = "ESC" THEN
+        focusIdx = -1
+        focusField = -1
+        contentDirty = TRUE
+      ELSEIF key = "ENTER" THEN
+        ' A single-line <input> ignores newlines: Enter neither types nor submits.
+      ELSEIF key = "BACKSPACE" THEN
+        LET spec AS FieldSpec = specOf(fields, focusField)
+        LET current AS String = formValue(formData, spec)
+        IF len(current) > 0 THEN
+          formData = setFormValue(formData, spec, dropLastGrapheme(current))
+          IF NOT containsInt(editedFields, focusField) THEN
+            editedFields = collections::append(editedFields, focusField)
+          END IF
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "UP" THEN
+        IF scroll > 0 THEN
+          scroll = scroll - 1
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "DOWN" THEN
+        scroll = scroll + 1
+        contentDirty = TRUE
+      ELSEIF key = "LEFT" THEN
+        IF hscroll > 0 THEN
+          hscroll = hscroll - 1
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "RIGHT" THEN
+        hscroll = hscroll + 1
+        contentDirty = TRUE
+      ELSEIF isTextKey(key) THEN
+        LET spec AS FieldSpec = specOf(fields, focusField)
+        formData = setFormValue(formData, spec, formValue(formData, spec) & key)
+        IF NOT containsInt(editedFields, focusField) THEN
+          editedFields = collections::append(editedFields, focusField)
+        END IF
+        contentDirty = TRUE
+      END IF
     ELSE
       ' Display Mode or Raw Mode.
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
@@ -721,8 +1009,11 @@ FUNC main AS Integer
         needRecontent = TRUE
         contentDirty = TRUE
       ELSEIF key = "\t" THEN
-        ' Tab: focus the next on-screen link, wrapping within the visible set.
+        ' Tab: focus the next on-screen target (link or form field), wrapping within
+        ' the visible set. Landing on a field switches this frame's key handling to
+        ' the text-entry branch above.
         focusIdx = nextVisibleTarget(targets, focusIdx, scroll, contentHeight(size), hscroll, cols)
+        focusField = targetField(targets, focusIdx)
         contentDirty = TRUE
       ELSEIF key = "ENTER" THEN
         ' Enter activates the focused link: resolve its href against the current page
@@ -749,15 +1040,17 @@ FUNC main AS Integer
       loadState = "loading"
       pageTitle = ""
       focusIdx = -1
+      focusField = -1
+      editedFields = []
       LET loadingLines AS List OF AttributedString = attrLines(wrapContent("Loading " & target & " ...", cols))
-      drawChrome(size, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
-      drawContent(size, loadingLines, 0, 0, noRects)
+      drawChrome(size, FALSE, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+      drawContent(size, loadingLines, 0, 0, noRects, noPatches)
       term::sync()
 
       LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
       DO WHILE thread::isRunning(worker)
         spinner = spinner + 1
-        drawChrome(size, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
+        drawChrome(size, FALSE, FALSE, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, widthMode, filesLoaded, filesTotal)
         term::sync()
         ' Wait up to one frame for a key; Q aborts the load and quits.
         IF ready(100) THEN
@@ -782,10 +1075,16 @@ FUNC main AS Integer
           pageDoc = page.document
           pageTitle = page.title
           pageLinks = display::links(pageDoc)
+          ' Describe the new page's fields and open a data object per form, seeded
+          ' with the values the page shipped.
+          fields = dom::fieldSpecs(pageDoc)
+          formData = initialFormData(fields, dom::formCount(pageDoc))
         ELSE
           fallback = page.message
           pageTitle = ""
           pageLinks = []
+          fields = []
+          formData = []
         END IF
         rawMode = FALSE
         linksMode = FALSE

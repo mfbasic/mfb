@@ -1861,7 +1861,14 @@ impl<'a> Walker<'a> {
         if self.current_own_imports.contains(*owner) {
             return;
         }
-        let type_name = target_type.name();
+        // The rendered name is already package-qualified (`net.Address`), so
+        // interpolating it after `{owner}::` spelled the type `net::net.Address` —
+        // a doubled qualifier no program can write. Strip the owning package's
+        // prefix so the message names the type the way source does: `net::Address`.
+        let rendered = target_type.name();
+        let type_name = rendered
+            .strip_prefix(&format!("{owner}."))
+            .unwrap_or(rendered.as_ref());
         self.emit(
             "TYPE_UNKNOWN_VALUE",
             format!(
