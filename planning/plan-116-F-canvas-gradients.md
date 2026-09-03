@@ -489,7 +489,13 @@ Acceptance: `gradients.png` matches on both GPUs within `Tolerance::GPU_DEFAULT`
 `metalReady=TRUE`/`vulkanReady=TRUE`, and the over-cap scene is provably declined
 rather than truncated.
 
-**MET.** Metal: `rt_canvas_golden` 15/15, including
+**MET, and re-measured after the `main` merge (2026-09-03):**
+`scripts/test-canvas-vulkan.sh target/release/mfb --box 2227 --libc musl --icd auto`
+and `--box 2228 --libc glibc` both exit 0 on the merged tree, 12/12 checks each,
+`vulkanReady=TRUE gpuSelected=TRUE gpuFrames=1`, `worst=2 differing=0.8116%`.
+
+The pre-merge measurements below stand as recorded. Metal: `rt_canvas_golden` 15/15,
+including
 `the_gpu_draws_the_gradient_scene_the_reference_shows` (gated on `gpuFrames`, so a
 decline cannot pass it) and `a_frame_past_the_gradient_stop_cap_declines_to_software`.
 Vulkan: `scripts/test-canvas-vulkan.sh target/release/mfb --box 2228 --libc glibc` and
