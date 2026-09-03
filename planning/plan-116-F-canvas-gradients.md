@@ -565,7 +565,9 @@ Commit: 8c4fa49a6
       ran)"**, exit 0. 1358 is the number that matters: `cargo test`'s copy of the
       corpus ran 811 and skipped 519 `syntax/` fixtures, so this row is the only thing
       that executed the diagnostic-pinning half.
-- [ ] `scripts/artifact-gate.sh all` 0 diffs.
+- [ ] `scripts/artifact-gate.sh <mfb-exe> all` 0 diffs. **Two positionals, not one**
+      (**F19**): `all` alone prints usage and exits 2 — the script refuses a bare
+      invocation on purpose, so it can never be mistaken for a pass.
 - [x] Fix **F18**: a **stroked** `Text` reaches `__canvas_paintHeader` wearing
       `POLYGON`'s kind, so the `Text` skip does not fire and it counts a stop tail
       `__canvas_tailFor` never appends. 874 pixels wrong before, 0 after; pinned by
@@ -657,6 +659,24 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F19 — two ways this gate reports something other than what it measured, both hit
+here.** Neither is a defect in the gate; both are ways to misread it.
+
+*Wrong arity.* `scripts/artifact-gate.sh all` — which is how this plan's Phase 5 wrote
+it — prints its usage and exits **2**. The script takes `<mfb-exe> <selector>` and
+refuses a bare invocation deliberately, *"so a bare invocation can never be mistaken for
+a pass"*. The task line now spells both positionals.
+
+*Lock contention.* The correct invocation then exited **98** with *"Another
+artifact-gate (pid 85562) is running."* That pid was already gone. The lock check is
+`pgrep -f 'artifact-gate\.sh'`, and the script's own comments record it having been
+fooled before by a process that merely *contains* the string — which is exactly what
+happened: two orphaned `zsh` shells left over from chained commands stopped earlier in
+this session, each carrying `bash scripts/artifact-gate.sh all` in its command line,
+holding no lock at all. Killing them and re-running uncontended is the fix; project
+memory already records that **98 means refused, never a diff**, and that an arch batch
+must never be filed as noise on the strength of a contended run.
 
 **F18 — the same defect again, reached through a kind that gets rewritten.** F17 fixed
 the `Line`/`Arc` half by adding them to `__canvas_paintHeader`'s skip list, and the
