@@ -252,6 +252,62 @@ Commit: —
 - **Acceptance:** `cargo test --no-fail-fast`, `./scripts/test-accept.sh`, the
   artifact gate, `cargo fmt` per AGENTS.md.
 
+## Corrections
+
+### G1 — the optimization cannot live in `lower_reduce`; the reducer is a pointer there
+
+§3 says: *"Give `lower_reduce`'s accumulator the same representation
+`try_inplace_concat_assign` produces, when … the reducer's body is a self-concat
+of the accumulator."* **The reducer's body is not visible at `lower_reduce`.**
+
+By the time `lower_collection_reduce_impl` runs
+(`src/codegen/builtins/collections/gen_memory.rs:355`), the reducer is a
+**function value** — a pointer stored into `reduce_action` and called
+indirectly. Its only static check is `require_direct_callable`
+(`gen_flow.rs:63`), which inspects the *type* (`ParameterType::Func`) and asserts
+the location is not `void`. There is no body to pattern-match, so the §3
+condition cannot be evaluated where §3 places it.
+
+Nor can it be evaluated one layer up: `LowerContext` (`src/ir/lower.rs:27`)
+carries `function_returns`, `function_types` and `function_params` — **signatures
+only**. `src/monomorph/` holds full bodies but has no rewrite infrastructure.
+
+**Consequence for the design.** The cost is *inside* the reducer — each call
+returns a fresh tight `len(acc) + len(x)` string — so no change to how the fold
+*threads* the accumulator can remove it. The accumulator cannot be given a grown
+buffer that the reducer appends into, because the reducer is opaque and receives
+its argument under ordinary value semantics; a callee-side "append into `acc` in
+place" would corrupt the caller's string, since a caller does not give up
+ownership of a `String` argument.
+
+The only sound shape is therefore what the sub-plan's own title implies: **do not
+call the reducer at all for the recognized shape — rewrite the fold into the loop
+it is sugar for**, at a layer where the body is visible, and let the existing,
+already-proven `try_inplace_concat_assign` do the work. That needs no new buffer
+machinery.
+
+**What that rewrite actually requires** (the estimate of *medium (1h–2h)* is also
+wrong, and this is why):
+
+1. Plumbing HIR function bodies into the lowering context, which today has none.
+2. An expression-position hoisting walker — the benchmark row is
+   `acc = acc + len(collections::reduce(base, "", strConcatFn))`, so the call is
+   nested two deep and a statement-level rewrite does not reach it. The pattern
+   exists to copy (`rewrite_trap_operands`, `src/ir/lower.rs:1880`) but it is
+   ~200 lines of walker.
+3. Parameter substitution of the reducer body's right operand.
+4. **Two** loop forms: `NirOp::ForEach` for `reduce`, and `NirOp::For` with a
+   negative `step` for `reduceRight` — `ForEach` is forward-only. Phase 1's test
+   settled that this is sound (`reduceRight` = `543210`, i.e. still a left-append
+   fed in reverse), so the two share one body shape.
+5. A decline set that is exactly right, including `IrValue::Closure` captures —
+   substituting a body that references a capture is unsound.
+
+This lands in `src/ir/lower.rs`, which `.ai/collections.md` and the project's
+memory both flag as shape-coupled to lowering, where **a missed desugar shape
+miscompiles silently**. That is not a reason to skip it; it is the reason Phase 1
+pinned fifteen shapes with fifteen distinct answers first.
+
 ## Open Decisions
 
 - **How narrow to make the reducer condition** — recommend starting at the
