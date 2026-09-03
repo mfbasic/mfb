@@ -292,8 +292,10 @@ Both run on the worker, which is the only thread that may allocate or free
 
 **`setGroup(name, items)`:**
 
-1. Deep-copy `items` into a fresh block, exactly as `emit_publish`
-   (`gen_present.rs`) does for a scene — same code path, same guarantees.
+1. Deep-copy `items` into a fresh block with `CodeBuilder::copy_flat_block`, the
+   primitive `emit_publish` itself calls for a scene — same guarantees
+   (shrink-to-fit, so §3.1's content comparison holds), but **not** `emit_publish`
+   itself, which writes the scene slot (**G2**).
 2. Resolve each **nested** `Group` node's name to a slot index and **increment that
    slot's `refs`**. A nested name that does not resolve is left as a no-op node and
    takes no reference.
