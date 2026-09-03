@@ -3199,3 +3199,74 @@ fn a_group_offset_far_off_surface_draws_nothing_and_does_not_raise() {
          somewhere",
     );
 }
+
+/// A `Polygon` inside a translated group draws at the offset (plan-116-G).
+///
+/// Every other group test here uses a fixed-tail kind — `Rectangle`, `Circle`, `Text`.
+/// A polygon is the only shape whose geometry record has a **variable-length tail**: its
+/// points live past the 47-slot header as edges, and `__canvas_geoDistance` reads them
+/// from `offset + __CANVAS_GEO_HEADER`. The group offset moves the query point rather
+/// than the record, so those edge coordinates are consumed in *shape* space while the
+/// bounds that select the pixels are in *surface* space — the one place this letter's
+/// two directions meet on the same item.
+///
+/// Two polygons, deliberately: `__canvas_hashItem` folds a polygon's points in by hand
+/// because two different polygons can share a header (same bounds, same count, same
+/// paint), so a scene with one polygon cannot tell a correct per-item tail from a shared
+/// one. Here they differ only in shape, not in bounding box, which is exactly the
+/// collision that motivated the hand-folding.
+#[test]
+fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
+    let (frame, stats) = render(
+        "canvas_group_polygon",
+        &scene(
+            "  LET up AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 50.0, y := 100.0]], paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET down AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 100.0], canvas::Point[x := 100.0, y := 100.0], canvas::Point[x := 50.0, y := 0.0]], paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::setGroup(\"tri\", [up])\n  \
+             canvas::setGroup(\"tri2\", [down])\n  \
+             canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"tri\"], canvas::Group[dx := 500.0, dy := 200.0, name := \"tri2\"]])\n",
+        ),
+    );
+
+    // `up` is widest at its top edge: at (250, 205) — 5px down from the apex row — the
+    // triangle spans roughly x 202..298, so its centre column is inside.
+    assert_eq!(
+        pixel(&frame, 250, 210),
+        (255, 0, 0, 255),
+        "the up-pointing polygon did not draw inside its group at (200,200). Its edges \
+         live in the record's variable-length tail and are read in shape space, so a \
+         group offset applied to the record rather than to the query point puts the \
+         shape somewhere else entirely.",
+    );
+    assert_eq!(
+        pixel(&frame, 550, 290),
+        (0, 255, 0, 255),
+        "the down-pointing polygon did not draw inside its group at (500,200)",
+    );
+    // The two are different shapes in the same 100x100 box, so a per-item tail is the
+    // only thing that keeps them apart: `up` is empty near its bottom corners, `down` is
+    // filled there.
+    assert_eq!(
+        pixel(&frame, 210, 290),
+        (0, 0, 0, 255),
+        "the up-pointing polygon is filled at its bottom-left corner, so it drew the \
+         OTHER polygon's tail — two polygons can share a header, which is why \
+         `__canvas_hashItem` folds a polygon's points in by hand",
+    );
+    assert_eq!(
+        pixel(&frame, 510, 290),
+        (0, 255, 0, 255),
+        "the down-pointing polygon is empty at its bottom-left corner, so the tails were \
+         crossed the other way",
+    );
+
+    // Two distinct polygons, two cache entries — and the offset is not part of the key.
+    let entries = stats
+        .first()
+        .and_then(|l| l.split_whitespace().find_map(|f| f.strip_prefix("entries=")))
+        .expect("an entries= field");
+    assert_eq!(
+        entries, "2",
+        "expected one cache entry per distinct polygon: {stats:?}",
+    );
+}
