@@ -555,6 +555,12 @@ Commit: 8c4fa49a6
       `git merge-tree --write-tree HEAD main`, which exits 0 and writes a tree with no
       conflict entries — and the gates below are what proves it *semantically*, which a
       clean text merge does not.
+- [ ] Update `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things"*
+      checklist, which this letter invalidated in three ways (**F16**): F is missing
+      from the letter list; the count is now **six**, because a third buffer region
+      brought `METAL_GRADIENT_BASE` alongside `METAL_EDGE_BASE`; and item 4's formula
+      (`CANVAS_ITEM_BUFFER_BYTES / 4`) no longer describes the gradient base. This is
+      the checklist plan-116-G and -H will follow.
 - [ ] Un-stale the two `metal.rs` comments that still call the item stride "112 bytes"
       (`grep -n '112-byte stride' src/target/macos_aarch64/app/metal.rs`). This letter
       grew `ITEM_BLOCK_SIZE` to 208; the comments' *conclusion* survives — neither value
@@ -602,6 +608,27 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F16 — this letter invalidated the checklist the next two letters will follow.**
+`.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things, and three are
+silent"* opens *"A grew it for the item buffer, C for the transform, D for the arc caps,
+E for the ellipse"* — F grew it twice more (192 for the ellipse `ivec4`, 208 for the
+gradient one) and is absent. Worse than a missing name:
+
+* The count is **six**, not five. F added a third buffer region, so `METAL_GRADIENT_BASE`
+  now sits beside `METAL_EDGE_BASE` as a literal in the MSL that must match the Rust
+  layout, guarded by its own test the same way.
+* Item 4's formula is now incomplete. It says `METAL_EDGE_BASE` *"must equal
+  `CANVAS_ITEM_BUFFER_BYTES / 4`"*, which is still true; what it does not say is that
+  the gradient base is `CANVAS_ITEM_BUFFER_BYTES / 4 + METAL_MAX_FRAME_EDGES * 4`, so a
+  reader who grows the item block and fixes only the documented constant leaves the
+  third region overlapping the second.
+
+The section exists precisely because this change is *"the single most repeated change in
+plan-116"* and three of its consequences fail silently. Leaving it describing the world
+as of letter E, when G and H both grow the block again, is the one place in this letter
+where a stale document has a mechanism for causing a bug rather than merely
+misinforming.
 
 **F15 — "the stroke stays flat" is documented on two pages and asserted nowhere.**
 `Paint.fillGradient`'s description says *"`stroke` is unaffected — an outline is always
