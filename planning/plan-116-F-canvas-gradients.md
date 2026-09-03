@@ -567,9 +567,25 @@ Commit: 8c4fa49a6
       remote run reports a green suite whether or not the rsync that fed it carried the
       fix, and F18's whole symptom class is "plausible and wrong".
 
-      3756 here against 3764 on mac DEBUG is the eight macOS-gated tests, not a gap:
-      `cargo test --release --bin mfb macos 2>&1 | grep -c '^test .* ok'` on the Mac
-      accounts for them.
+      3756 here against 3764 on the Mac is exactly eight macOS-only tests, enumerated
+      rather than assumed. Both sides listed with
+      `cargo test --release --bin mfb -- --list | grep ': test$'`, sorted **`LC_ALL=C`
+      on both** (the two platforms' default collations differ, and comparing without it
+      manufactures hundreds of phantom differences), then `comm`:
+
+      | only on mac | only on linux |
+      |---|---|
+      | `arch::aarch64::backend::tests::backend_identifies_as_aarch64` | *(none)* |
+      | `os::macos::link::tests::a_vendoring_binary_still_launches` | |
+      | `os::macos::link::tests::links_and_launches_app_bundle_importing_libobjc` | |
+      | `os::macos::link::tests::links_and_runs_program_importing_from_two_dylibs` | |
+      | `os::macos::link::tests::noted_mach_o_verifies_and_runs` | |
+      | `os::macos::link::tests::runs_initializer_before_entry_with_imports` | |
+      | `os::macos::link::tests::runs_initializer_before_entry_without_imports` | |
+      | `os::macos::link::tests::writes_and_launches_app_bundle` | |
+
+      Nothing is only on Linux, so the Mac row is a strict superset and no test escaped
+      both rows — which is the only property the count difference had to establish.
 - [x] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**). `bash scripts/test-accept.sh
       target/release/mfb /tmp/p116-accept` → **"acceptance tests passed (1358 test(s)
