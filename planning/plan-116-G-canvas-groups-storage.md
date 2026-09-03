@@ -46,7 +46,7 @@ References:
 - `src/codegen/builtins/canvas/func_present.rs` — `__canvas_present` and the
   publish-then-render split.
 - `src/codegen/builtins/canvas/gen_present.rs:emit_publish` — the deep copy.
-- `src/codegen/builtins/canvas/mod.rs:935` — `every_draw_item_variant_carries_a_paint`,
+- `src/codegen/builtins/canvas/mod.rs:1161` — `every_draw_item_variant_carries_a_paint`,
   which `Group` does not satisfy. §2.
 - `src/rules/table.rs:1015` — `TYPE_RESOURCE_FIELD_FORBIDDEN`, retired by plan-114
   but still relevant: `canvas` has not yet migrated off its value handles
@@ -105,7 +105,7 @@ plan-116-J, which is gated on plan-116-I.
 
 ### The two invariants this letter contradicts, and how each is handled
 
-**(a) `every_draw_item_variant_carries_a_paint` (`mod.rs:935`).** The test asserts
+**(a) `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`).** The test asserts
 every union variant has a `paint AS Paint` field, with the rationale *"a variant that
 forgot it would silently draw with no way to colour it."*
 
@@ -127,7 +127,7 @@ variant *other than the container set* carries a paint, with the container set s
 as an explicit list (`["Group"]`) so a future variant is not silently exempted. The doc
 comment records plan-116-G as the reason.
 
-**(b) `draw_item_variant_set_is_frozen` (`mod.rs:884`).** Already amended once by
+**(b) `draw_item_variant_set_is_frozen` (`mod.rs:1109`).** Already amended once by
 plan-116-E for `Ellipse`; this letter appends `"Group"` **last**, by the same
 mechanism and for the same recorded reason. Order is append-only because it fixes the
 union tags.
@@ -170,7 +170,7 @@ counter folded into the comparison.
 | What | Count | Command |
 |---|---|---|
 | `DrawItem` variants after plan-116-E | 9 | `mod.rs` union list |
-| Tests pinning/iterating the variant list | 3 | `mod.rs:884`, `:913`, `:935` |
+| Tests pinning/iterating the variant list | 3 | `mod.rs:1109`, `:1139`, `:1161` |
 | plan-114 letters completed | 5 | `ls planning/completed/plan-114-*` (2026-09-01) |
 | Ban on resource record fields | retired by plan-114 | `sed -n 1008,1019p src/rules/table.rs` — reserved, never emitted |
 | Process-global canvas state symbols today | 1 (`CANVAS_SCENE_SYMBOL`) | `.ai/canvas-threading.md` §3 |
@@ -182,6 +182,18 @@ counter folded into the comparison.
 > reserved-not-emitted, 1 process-global canvas symbol, 13 compile-gated man members.
 > Unlike plan-116-I's (see its **I1**), none of these count *sites this letter must
 > sweep* — they are structural facts — which is why they did not move while I's did.
+
+> **Census re-verified again 2026-09-03, after plan-116-F landed.** All six counts are
+> unchanged — 9 variants (`Picture, Rectangle, Line, Polygon, Circle, Arc, Text,
+> RoundedRect, Ellipse`), 3 pinning tests, 5 archived plan-114 letters,
+> `2-203-0084` still reserved-and-never-emitted (its only in-tree uses are the two
+> `ir/verify/tests.rs` assertions that it is *not* raised, plus the spec's history
+> note), 1 process-global canvas symbol (`CANVAS_SCENE_SYMBOL`), 13 compile-gated man
+> members.
+>
+> **The line numbers this letter cites have not held.** F added the `GradientKind`
+> enum and the `GradientStop`/`Gradient` records to `mod.rs`, moving the three pinning
+> tests down by ~226 lines. See **G1**.
 
 ### Verified properties
 
@@ -434,7 +446,7 @@ The whole breaking surface change, with nothing yet reading it.
       `DrawItem` union.
 - [ ] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
       to name plan-116-G alongside plan-116-E).
-- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:935`) to exempt an
+- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
       explicit container list `["Group"]`, per §2(a). **Do not weaken the assertion for
       the other nine.**
 - [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
@@ -597,6 +609,24 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G1 (2026-09-03, pre-execution) — every line number this letter cites into
+`src/codegen/builtins/canvas/mod.rs` was stale before a single task ran.** The letter
+names `mod.rs:884`, `:913` and `:935` for the three tests that pin or iterate the
+`DrawItem` variant list; they are at `:1109`, `:1139` and `:1161`. plan-116-F added
+`GradientKind`, `GradientStop` and `Gradient` to that file between the letter being
+written and being executed, moving everything below them.
+
+Measured with `grep -n "fn draw_item_variant_set_is_frozen\|fn every_draw_item_variant"
+src/codegen/builtins/canvas/mod.rs`. The counts the citations *support* are all still
+right — 9 variants, 3 tests — so this is a navigation defect and not a scoping one,
+which is exactly why it is worth fixing rather than shrugging at: Phase 2 tells its
+executor to edit "`mod.rs:935`", and at `:935` today sits unrelated code that would
+look plausible enough to edit.
+
+Corrected in place in §2 and in Phase 2. The general lesson for G–J: cite a **symbol**
+and the command that finds it, not a line — every letter of this plan edits `mod.rs`,
+so every line citation into it decays the moment the letter before it lands.
 
 - **C1 (2026-09-01, review — pre-execution).** Refreshed against plan-114 landing
   (all five letters archived; `2-203-0084` retired at `src/rules/table.rs:1015`) and

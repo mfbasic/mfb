@@ -509,10 +509,23 @@ Commit: 8c4fa49a6
 - [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
       `scripts/man-run-examples.sh canvas --run` → `examples: 23 built: 23 ran: 23
       failed: 0`; `--fill canvas` → 19/19 pages, 31/31 params, 106/106 type fields.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → `141 golden(s) refreshed,
+      0 missing`, and `git status --short` reports **no** modified file. The delta is
+      empty, and **not because nothing changed** — see **F11**.
+- [ ] `cargo test --no-fail-fast` on mac RELEASE.
+- [ ] `cargo test --no-fail-fast --bin mfb` on mac DEBUG — the only run on any machine
+      in any pipeline that executes the ~40 `debug_assert!`s, four of which sit on the
+      canvas item block this letter grew (per **E6**, which letters F–J were told to
+      keep).
+- [ ] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228.
+- [ ] `scripts/test-accept.sh` green.
+- [ ] `scripts/artifact-gate.sh all` 0 diffs.
 
-Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
-`scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs.
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
+2228 RELEASE** (corrected from "mac+RELEASE and linux+DEBUG" per **E6**: CI is
+`--release` on all five platforms, so the debug row has to be run somewhere and the
+Mac is where),  `scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs.
 Commit: —
 
 ## Validation Plan
@@ -546,6 +559,29 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F11 — the `.ncodesum` gate says nothing about canvas, because no canvas fixture is
+hashed.** `regen-ncodesum.sh` refreshed 141 goldens and changed none, which reads as
+"this letter is codegen-neutral" and is not what it means: `ls tests/byte-identity/`
+lists 25 package directories and `canvas` is not among them, and no fixture there
+imports it. This letter changed MFBASIC helper source (`__canvas_metalRenderable`,
+`__canvas_gradientColor`) that every canvas program compiles, so a real delta exists
+and nothing measures it.
+
+Recorded rather than closed. A `canvas` byte-identity fixture is not this letter's
+scope and would be a poor instrument anyway — the package's whole surface is a window,
+a GPU and a present loop, which is why its coverage is `rt_canvas_*` plus the golden
+PNG harness instead. What is wrong is the *inference*, and letters G–J inherit it: a
+green `.ncodesum` is not evidence about a canvas change. The gates that are evidence
+are named in each phase's acceptance.
+
+**F12 — "green on mac+RELEASE and linux+DEBUG" was stale in this letter too.** The
+phrase predates the CI it describes; **E6** measured `.github/workflows/coverage.yml`
+as `cargo test --release` on all five platforms, which means `debug_assertions` is
+clear everywhere in CI and the ~40 `debug_assert!`s — four of them on the canvas item
+block this letter grew from 192 to 208 bytes — execute nowhere. E6 closed it by adding
+a Mac debug row and asked F–J to keep it. F's Phase 5 acceptance now names the three
+rows it actually runs.
 
 **F10 — `GradientKind`'s two variant descriptions named fields the record does not
 have.** Both were written in Phase 1 against `from`/`to` and never updated when
