@@ -589,6 +589,15 @@ The whole breaking surface change, with nothing yet reading it.
 Acceptance: `cargo test --no-fail-fast` green, every canvas golden byte-identical, and
 a scene containing a `Group` compiles and **draws nothing** (the members are registered
 but inert).
+
+**"Byte-identical" is achievable here, and that is measured rather than hoped.** Adding
+a registry record with prose descriptions is the change project memory flags as drifting
+`.ir` goldens by shifting line numbers — but plan-116-F added three records
+(`GradientKind`, `GradientStop`, `Gradient`) and two enum variants and moved **no**
+golden: its acceptance run reports 816 fixtures passed, 0 failed. The reason is F11's:
+no fixture in the corpus imports `canvas`, so the canvas registry is not in any golden's
+input. Expect the same here, and if a golden *does* move, that is a signal something
+other than the registry changed.
 Commit: —
 
 ### Phase 3 — The group table and the two members' bodies
