@@ -568,6 +568,10 @@ Commit: —
       rather than writing a second copy or calling `emit_publish`, which is bound to
       the scene slot (**G2**).
 - [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
+- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
+      Phase 5, because this phase's own acceptance asks to *measure* the leak and this
+      is the instrument that measures it (**G10**). It is also the only window onto
+      worker-owned state a test has (`.ai/canvas-threading.md` §11).
 - [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
       **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
       full" — so mint it, and grep the *literal code* for collisions at that moment
@@ -578,8 +582,8 @@ Commit: —
       `removeGroup` of an absent name is a no-op.
 
 Acceptance: the deep-copy and absent-name cases pass; nothing is freed yet, so this
-phase can leak by construction — assert that it does, so Phase 5's gate has a
-measurable "before".
+phase can leak by construction — assert that it does with `groups=`/`groupBytes=` (added
+in this phase, **G10**), so Phase 5's gate has a measurable "before".
 Commit: —
 
 ### Phase 4 — Resolution, depth limit, frame skip, software rendering
@@ -643,9 +647,6 @@ Memory-correctness, landed last, behind every test above.
       executed on the **worker**, at the top of `present` and **before the content
       comparison**, not beside `emit_reclaim_retired`, which only runs on the publish
       path (**G7**).
-- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` so the leak is
-      observable; this is the only window onto worker-owned state a test has
-      (`.ai/canvas-threading.md` §11).
 - [ ] **Build the mid-frame affordance the race rows need, or state them as
       probabilistic (G9).** §11 has four test affordances and none holds the graphics
       thread mid-frame; the only "mid-render" rows proven today (R5, R7) get there
@@ -742,6 +743,23 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G10 (2026-09-03, pre-execution) — Phase 3's acceptance needs an instrument Phase 5
+builds.** Phase 3 ends *"this phase can leak by construction — assert that it does, so
+Phase 5's gate has a measurable 'before'"*, and the thing that makes a group leak
+assertable — `groups=` and `groupBytes=` on `MFB_CANVAS_STATS` — was a Phase 5 task.
+The group table is worker-owned, and `.ai/canvas-threading.md` §11 is explicit that the
+stats line is the *only* window a test has onto state like that, so there is no
+substitute available in Phase 3.
+
+Left alone this resolves itself the wrong way: Phase 3's acceptance is unmeasurable, so
+it gets waved through, and Phase 5 then has no "before" to compare its gate against —
+which is exactly what that sentence was written to prevent. Moved the stats task to
+Phase 3.
+
+It costs Phase 5 nothing: the counters are two more fields on a line that is already
+being written, and having them two phases earlier means the deep-copy and replace paths
+are observable while they are being built rather than only after the free lands.
 
 **G9 (2026-09-03, pre-execution) — Phase 5's race matrix asks for "graphics mid-frame"
 and no affordance produces it.** `.ai/canvas-threading.md` §11 lists exactly four test
