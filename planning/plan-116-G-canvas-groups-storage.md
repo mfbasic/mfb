@@ -285,6 +285,17 @@ reads without a lock; a reallocating table would move under a reader. 256 slots 
 generous for a named-sub-picture facility; `setGroup` past it raises, rather than
 silently evicting.
 
+**Size it deliberately (G4).** The two existing canvas tables are 80 bytes
+(`CANVAS_SCENE_SLOTS * 8`) and 256 bytes (`CANVAS_FONT_SLOTS = 16` ×
+`CANVAS_FONT_SLOT_BYTES = 16`), and both are emitted as literal zero bytes
+(`value: "00".repeat(size)`) into **every** canvas binary. Six `u64` slots × 256
+entries is 12,288 bytes — 48× the larger of the two — carried by a program that
+installs no groups at all. That is a fraction of a percent of a real binary and is
+almost certainly the right trade for a table that must not move under a reader, but it
+should be a decision rather than a number inherited from this document: 64 slots
+(3,072 bytes) is still generous for named sub-pictures. Whichever is chosen, say why
+in the constant's doc comment.
+
 ### 4.2 `setGroup` and `removeGroup`
 
 Both run on the worker, which is the only thread that may allocate or free
