@@ -1950,3 +1950,116 @@ fn a_stroked_ellipse_is_hollow() {
         "15 px inside the +Y extreme is inside the hollow"
     );
 }
+
+/// Two gradients with identical headers and different stop colours get their own
+/// cache entries.
+///
+/// plan-116-F Phase 2, and the gradient sibling of
+/// `polygons_sharing_a_header_keep_their_own_points`. A gradient's stops live only in
+/// the record's **tail**: the header carries the count, the kind and the two points, so
+/// two ramps that differ only in colour produce byte-identical headers. Before the
+/// 2026-09-01 fix a polygon in exactly that position deterministically shared one entry
+/// and the second item drew the first's shape — a wrong picture, reported as success.
+///
+/// The two shapes here are the same size and same position apart from x, with the same
+/// stop offsets and different colours, which is the strongest form of the collision:
+/// everything the header can see is equal.
+#[test]
+fn gradients_sharing_a_header_keep_their_own_stops() {
+    let (frame, stats) = render(
+        "canvas_gradient_cache",
+        &scene(
+            "  LET aStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(255, 0, 0)]]\n  \
+             LET bStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+             color := canvas::rgb(0, 0, 255)], canvas::GradientStop[offset := 1.0, \
+             color := canvas::rgb(0, 0, 255)]]\n  \
+             LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 100.0], \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 100.0], \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
+             h := 100.0, paint := WITH canvas::fill(canvas::rgb(255, 0, 0)) { fillGradient := gA }]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
+             h := 100.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 255)) { fillGradient := gB }]\n  \
+             canvas::present([a, b])\n",
+        ),
+    );
+
+    // Two distinct cache entries. `entries=` is the only window onto the cache, since
+    // it lives in globals the graphics thread owns (.ai/canvas-threading.md §1).
+    let last = stats.last().expect("a stats line per frame");
+    assert!(
+        last.contains("entries=2"),
+        "two gradients differing only in their stop COLOURS must not share a cache \
+         entry — the stops live in the tail, so the headers are byte-identical and \
+         only the hash and __canvas_tailMatches separate them: {last}"
+    );
+
+    // Both items drew *something*, so `entries=2` is about two live records rather
+    // than one live and one empty.
+    //
+    // Deliberately NOT asserting the two ramps' colours here. Nothing evaluates a
+    // gradient until Phase 3, so at this phase each square draws its flat `fill` — and
+    // those differ between the two items, which would make a colour assertion pass
+    // without touching the gradient at all. `gradients_draw_their_own_ramps` in
+    // Phase 3 is where that becomes a real check, with both items sharing one flat
+    // fill so only the stops can separate them.
+    assert_ne!(
+        pixel(&frame, 150, 150),
+        (0, 0, 0, 255),
+        "the first item drew nothing"
+    );
+    assert_ne!(
+        pixel(&frame, 450, 150),
+        (0, 0, 0, 255),
+        "the second item drew nothing"
+    );
+}
+
+/// A gradient with fewer than two stops is not a gradient, and costs no tail.
+///
+/// The no-op rule from §4.1, checked where it is cheapest to get wrong: the *record
+/// length*. A one-stop gradient that still appended five floats would give a record
+/// whose slot 1 disagreed with what `__canvas_gradientStopBase` derives, and every
+/// later reader would index five slots off the end.
+#[test]
+fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
+    let flat = |extra: &str| {
+        format!(
+            "{extra}  LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, \
+             w := 200.0, h := 150.0, paint := {}]\n  canvas::present([a])\n",
+            if extra.is_empty() {
+                "canvas::fill(canvas::rgb(220, 90, 40))".to_string()
+            } else {
+                "WITH canvas::fill(canvas::rgb(220, 90, 40)) { fillGradient := g }".to_string()
+            }
+        )
+    };
+    let (plain, _) = render("canvas_gradient_none", &scene(&flat("")));
+
+    for (name, stops) in [
+        ("canvas_gradient_zero", "[]"),
+        (
+            "canvas_gradient_one",
+            "[canvas::GradientStop[offset := 0.0, color := canvas::rgb(0, 255, 0)]]",
+        ),
+    ] {
+        let decl = format!(
+            "  LET s AS List OF canvas::GradientStop = {stops}\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+             startPoint := canvas::Point[x := 100.0, y := 100.0], \
+             endPoint := canvas::Point[x := 300.0, y := 100.0], stops := s]\n"
+        );
+        let (got, _) = render(name, &scene(&flat(&decl)));
+        assert_eq!(
+            got, plain,
+            "{name}: fewer than two stops must render byte-for-byte as the flat fill — \
+             a difference means the no-op rule leaked, and an off-by-one in the record \
+             length is the likeliest cause"
+        );
+    }
+}

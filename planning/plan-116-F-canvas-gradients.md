@@ -370,27 +370,51 @@ Acceptance: `cargo test --no-fail-fast` green, **every** canvas golden byte-iden
 
 **MET.** `rt_canvas_golden` 12/12 with `git status --short tests/golden/canvas/`
 empty — the gradient is inert, as intended, since nothing reads the slots yet.
-`man-run-examples.sh canvas --run` → 22/22.
-Commit: —
+`man-run-examples.sh canvas --run` → 22/22, and
+`cargo test --release --no-fail-fast` → 96 test binaries, 0 failures.
+Commit: a8d0b9dc3
 
 ### Phase 2 — The tail, and the cache-key fix
 
 The correctness-critical piece, landed before any pixel depends on it.
 
-- [ ] Append the stop tail (five floats per stop) after any existing tail; one helper
-      computes the stop base as `HEADER_SLOTS + edgeCount * EDGE_SLOTS` and **every**
-      reader calls it.
-- [ ] Add the gradient arm to `__canvas_hashItem` (stop values after header/points)
+- [x] Append the stop tail (five floats per stop) after any existing tail; one helper
+      computes the stop base as ~~`HEADER_SLOTS + edgeCount * EDGE_SLOTS`~~
+      **`length − stopCount × 5`** and **every** reader calls it. → the plan's formula
+      is right only for a polygon; see **F4**. The record's own length is in slot 1 and
+      the stop tail is always last, so the base is derivable without knowing what the
+      other tail is. Edges come first, then stops, and that order is what makes it
+      derivable.
+- [x] Add the gradient arm to `__canvas_hashItem` (stop values after header/points)
       and to `__canvas_tailMatches` (stored-stop compare), beside the polygon arms
-      the 2026-09-01 fix landed (§4.2).
-- [ ] Tests: two gradients with identical headers and different stop colours get
-      different cache entries and draw their own ramps — the gradient sibling of
+      the 2026-09-01 fix landed (§4.2). → both, plus `__canvas_paintHeader` skipping
+      the kinds with no interior (`Text`, `NONE`) so a stop tail never lands on a
+      record whose tail means something else.
+- [x] Tests: two gradients with identical headers and different stop colours get
+      different cache entries ~~and draw their own ramps~~ — the gradient sibling of
       `polygons_sharing_a_header_keep_their_own_points`, which already pins the
-      polygon case and must stay green.
+      polygon case and must stay green. → `gradients_sharing_a_header_keep_their_own_stops`
+      asserts `entries=2`. The "draw their own ramps" half is **deliberately not here**:
+      nothing evaluates a gradient until Phase 3, so a colour assertion at this phase
+      would pass off the two items' flat fills without touching the gradient. It lands
+      in Phase 3 with both items sharing one flat fill, where only the stops can
+      separate them.
+- [x] **Added:** `a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill`.
+      The no-op rule checked where it is cheapest to get wrong — the record *length*. A
+      one-stop gradient that still appended five floats would leave slot 1 disagreeing
+      with what `__canvas_gradientStopBase` derives, and every later reader would index
+      off the end.
 
 Acceptance: the two cache-collision cases pass, every existing golden is
 byte-identical, and `MFB_CANVAS_STATS`'s `entries=`/`floats=` counters show the
 expected entry count for a scene with two near-identical polygons.
+
+**MET.** Both new cases pass; `rt_canvas_rasteriser` is 34 passed / 2 ignored with
+`polygons_sharing_a_header_keep_their_own_points` still green;
+`rt_canvas_golden` 12/12 and `git status --short tests/golden/canvas/` empty. The
+`entries=2` counter is what discriminates the real failure: with neither seam wired,
+the two records hash the same, `__canvas_headerMatches` agrees, `__canvas_tailMatches`
+agrees, and the second item silently draws the first's record.
 Commit: —
 
 ### Phase 3 — Software evaluation, and the reference image

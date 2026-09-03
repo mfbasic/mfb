@@ -193,6 +193,21 @@ FUNC __canvas_capTag(cap AS CapStyle) AS Integer
   RETURN 0
 END FUNC
 
+' Where a record's gradient stops begin, in slots from its offset (plan-116-F).
+'
+' Derived from the record itself rather than from a per-kind tail formula: slot 1 is
+' the whole record's length and the stop tail is always LAST, so the base is
+' `length - stopCount * 5` whatever the other tail happens to be. The plan's
+' `HEADER + edgeCount * EDGE_SLOTS` is right only for a polygon -- see Correction F4.
+'
+' Every reader calls this. Two readers computing it independently is how the polygon
+' cache bug of 2026-09-01 happened.
+FUNC __canvas_gradientStopBase(offset AS Integer) AS Integer
+  LET count AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT))
+  LET length AS Integer = toInt(__canvas_geoAt(offset, 1))
+  RETURN offset + length - count * 5
+END FUNC
+
 FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   MUT out AS List OF Float = h
   out = collections::set(out, 7, __canvas_strokeHalf(paint))
@@ -235,7 +250,24 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   ' are what the renderer needs before it walks them, and the count doubles as the
   ' has-a-gradient test: fewer than two stops is no gradient, so one comparison here
   ' decides it rather than a flag that could disagree with the list.
-  LET stopCount AS Integer = len(paint.fillGradient.stops)
+  ' A kind with no interior takes no gradient: `Text` draws from a cached coverage
+  ' bitmap and `NONE` draws nothing, so neither has a fill to replace. Skipping them
+  ' here is what keeps the stop tail off records whose tail means something else --
+  ' a glyph run's is three floats per glyph, not five per stop.
+  LET kind AS Integer = toInt(collections::getOr(out, 0, 0.0))
+  MUT stopCount AS Integer = len(paint.fillGradient.stops)
+  IF kind = __CANVAS_GEO_TEXT THEN
+    stopCount = 0
+  END IF
+  IF kind = __CANVAS_GEO_NONE THEN
+    stopCount = 0
+  END IF
+  ' Fewer than two stops is not a gradient (plan-116-F section 4.1), so it carries no
+  ' tail either -- one comparison decides both.
+  IF stopCount < 2 THEN
+    stopCount = 0
+  END IF
+  out = collections::set(out, 1, collections::getOr(out, 1, 0.0) + toFloat(stopCount * 5))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stopCount))
   MUT gkind AS Float = 0.0
   IF paint.fillGradient.kind = GradientKind.Radial THEN
@@ -512,19 +544,68 @@ r#"FUNC __canvas_polygonEdges(points AS List OF Point) AS List OF Float
   RETURN out
 END FUNC
 
+' The five floats one stop contributes: offset, then its colour's four channels.
+FUNC __canvas_gradientTail(paint AS Paint) AS List OF Float
+  LET count AS Integer = len(paint.fillGradient.stops)
+  MUT out AS List OF Float = []
+  IF count < 2 THEN
+    RETURN out
+  END IF
+  ' Offsets are clamped to 0..1 AND to the previous stop's, so the walk is monotonic
+  ' without sorting -- sorting would silently redraw something other than what the
+  ' program asked for (plan-116-F section 4.1). Clamping is visible and predictable.
+  MUT prev AS Float = 0.0
+  MUT i AS Integer = 0
+  WHILE i < count
+    LET st AS GradientStop = collections::getOr(paint.fillGradient.stops, i, GradientStop[offset := 0.0, color := __canvas_transparent()])
+    MUT o AS Float = st.offset
+    IF o < 0.0 THEN
+      o = 0.0
+    END IF
+    IF o > 1.0 THEN
+      o = 1.0
+    END IF
+    IF o < prev THEN
+      o = prev
+    END IF
+    prev = o
+    out = collections::append(out, o)
+    out = collections::append(out, toFloat(toInt(st.color.red)))
+    out = collections::append(out, toFloat(toInt(st.color.green)))
+    out = collections::append(out, toFloat(toInt(st.color.blue)))
+    out = collections::append(out, toFloat(toInt(st.color.alpha)))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __canvas_appendGradientTail(base AS List OF Float, paint AS Paint) AS List OF Float
+  MUT out AS List OF Float = base
+  LET stops AS List OF Float = __canvas_gradientTail(paint)
+  MUT i AS Integer = 0
+  LET n AS Integer = len(stops)
+  WHILE i < n
+    out = collections::append(out, collections::getOr(stops, i, 0.0))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
 FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
   MATCH item
     CASE Polygon(p)
       IF len(p.points) < 2 THEN
         RETURN []
       END IF
-      RETURN __canvas_polygonEdges(p.points)
+      ' Edges FIRST, then stops. The order is fixed so `__canvas_gradientStopBase` can
+      ' find the stops from the end of the record without knowing the edge count.
+      RETURN __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
     CASE Rectangle(r)
-      RETURN []
+      RETURN __canvas_appendGradientTail([], r.paint)
     CASE RoundedRect(rr)
-      RETURN []
+      RETURN __canvas_appendGradientTail([], rr.paint)
     CASE Circle(c)
-      RETURN []
+      RETURN __canvas_appendGradientTail([], c.paint)
     CASE Line(l)
       RETURN []
     CASE Arc(a)
@@ -532,7 +613,7 @@ FUNC __canvas_tailFor(item AS DrawItem) AS List OF Float
     CASE Picture(pic)
       RETURN []
     CASE Ellipse(e)
-      RETURN []
+      RETURN __canvas_appendGradientTail([], e.paint)
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
         RETURN __canvas_textEdges(t)
@@ -700,6 +781,31 @@ FUNC __canvas_polygonPointsMatch(offset AS Integer, points AS List OF Point) AS 
   RETURN TRUE
 END FUNC
 
+' Do this record's stored stops equal the ones this paint would write?
+'
+' The stop COUNT is in the header, so `__canvas_headerMatches` already separates a
+' two-stop gradient from a three-stop one. What it cannot see is two gradients with the
+' same count and different colours -- which is the polygon bug in a different costume.
+FUNC __canvas_gradientStopsMatch(offset AS Integer, paint AS Paint) AS Boolean
+  LET stored AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT))
+  IF stored <= 0 THEN
+    RETURN TRUE
+  END IF
+  LET want AS List OF Float = __canvas_gradientTail(paint)
+  IF len(want) <> stored * 5 THEN
+    RETURN FALSE
+  END IF
+  LET base AS Integer = __canvas_gradientStopBase(offset)
+  MUT i AS Integer = 0
+  WHILE i < stored * 5
+    IF collections::getOr(__CANVAS_GEO_DATA, base + i, 0.0) <> collections::getOr(want, i, 0.0) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
 FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
   MATCH item
     CASE Polygon(p)
@@ -707,15 +813,17 @@ FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
       ' NONE header with no tail, and comparing points against absent slots would
       ' refuse the hit every frame and grow the cache without bound.
       IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_POLYGON THEN
-        RETURN __canvas_polygonPointsMatch(offset, p.points)
+        IF NOT __canvas_polygonPointsMatch(offset, p.points) THEN
+          RETURN FALSE
+        END IF
       END IF
-      RETURN TRUE
+      RETURN __canvas_gradientStopsMatch(offset, p.paint)
     CASE Rectangle(r)
-      RETURN TRUE
+      RETURN __canvas_gradientStopsMatch(offset, r.paint)
     CASE RoundedRect(rr)
-      RETURN TRUE
+      RETURN __canvas_gradientStopsMatch(offset, rr.paint)
     CASE Circle(c)
-      RETURN TRUE
+      RETURN __canvas_gradientStopsMatch(offset, c.paint)
     CASE Line(l)
       RETURN TRUE
     CASE Arc(a)
@@ -725,7 +833,7 @@ FUNC __canvas_tailMatches(item AS DrawItem, offset AS Integer) AS Boolean
     CASE Picture(pic)
       RETURN TRUE
     CASE Ellipse(e)
-      RETURN TRUE
+      RETURN __canvas_gradientStopsMatch(offset, e.paint)
   END MATCH
 END FUNC
 
@@ -933,6 +1041,25 @@ FUNC __canvas_deferredHash(item AS DrawItem) AS Integer
   END MATCH
 END FUNC
 
+' Fold a paint's gradient stops into a running hash.
+'
+' The header already carries the count, the kind and the two points, so what this adds
+' is the stop VALUES -- the part that lives only in the tail. Without it, two gradients
+' differing only in colour hash the same, share a cache entry, and the second draws the
+' first's ramp. That is exactly the polygon failure of 2026-09-01, and it is why this
+' letter touches the hash and `__canvas_tailMatches` together rather than either alone.
+FUNC __canvas_hashGradient(acc AS Integer, paint AS Paint) AS Integer
+  LET stops AS List OF Float = __canvas_gradientTail(paint)
+  MUT out AS Integer = acc
+  MUT i AS Integer = 0
+  LET n AS Integer = len(stops)
+  WHILE i < n
+    out = __canvas_hashFloat(out, collections::getOr(stops, i, 0.0))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer
   ' A deferred kind has no header until its tail is flattened, so `__canvas_headerFor`
   ' answers the SAME empty header for every one of them -- and a deferred kind probes
@@ -960,13 +1087,13 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
         acc = __canvas_hashFloat(acc, q.y)
         i = i + 1
       END WHILE
-      RETURN acc
+      RETURN __canvas_hashGradient(acc, p.paint)
     CASE Rectangle(r)
-      RETURN acc
+      RETURN __canvas_hashGradient(acc, r.paint)
     CASE RoundedRect(rr)
-      RETURN acc
+      RETURN __canvas_hashGradient(acc, rr.paint)
     CASE Circle(c)
-      RETURN acc
+      RETURN __canvas_hashGradient(acc, c.paint)
     CASE Line(l)
       RETURN acc
     CASE Arc(a)
@@ -976,7 +1103,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     CASE Picture(pic)
       RETURN acc
     CASE Ellipse(e)
-      RETURN acc
+      RETURN __canvas_hashGradient(acc, e.paint)
   END MATCH
 END FUNC"#;
 
