@@ -341,27 +341,112 @@ Commit: a979053ce
 
 ### Phase 2 — the helper
 
-- [ ] Emit `_mfb_rt_string_to_float` (scan + fast path + Eisel–Lemire +
+- [x] Emit `_mfb_rt_string_to_float` (scan + ~~fast path~~ + Eisel–Lemire +
       limb fallback + range routing) with the powers-of-ten table as a data
       object; wire `lower_to_float`/`lower_to_fixed` String arms to call it.
-- [ ] Corpus test goes fully green; inspect + regenerate every drifted
-      golden per §3's direction rule.
-- [ ] Cross-interop proof: rebuild the review's jsoncmp probes; N02-class
+
+      Six symbols in `src/codegen/string/format/float_parse.rs`: the entry
+      point, `_mfb_rt_f2s_lemire`, and four bignum primitives (`mul_small`,
+      `shl`, `cmp`, and `cmp_scaled`, which cross-multiplies `D * 10^q` against
+      a candidate's midpoint `m * 2^e` so the fallback needs no division and has
+      no error to bound). The table is `float_parse_table.rs`, built with exact
+      big-integer arithmetic rather than pasted, and cross-checked against the
+      same construction in Python.
+
+      **The Clinger fast path is deliberately absent — see Correction F-C4.**
+      It is the only part of the algorithm needing f64 arithmetic, and a
+      hand-written NIR helper may not name a physical FP register; it was
+      measured to be a pure optimization first.
+
+      Both String arms are unchanged beyond the emission: the helper still
+      leaves its result in `FP_SCRATCH[0]` and still saturates rather than
+      reporting overflow, so `toFloat`/`toFixed` raise exactly the codes they
+      raised before. A 39-shape grammar probe confirms the accepted and rejected
+      sets are identical, including `1e400` still raising and `1e-400` still
+      returning zero.
+- [x] Corpus test goes fully green; inspect + regenerate every drifted
+      golden per §3's direction rule. **`checked=27 wrong=5` → `wrong=0`**, and
+      the corpus was then extended to 34 (Correction F-C5).
+
+      Drift was far smaller than §3 anticipated: `test-accept` reported exactly
+      **one** mismatch across 1350 tests — the corpus fixture itself — and every
+      changed line in its golden is a `WRONG` becoming `OK` against a `want`
+      value computed independently from the exact `man * 2^e2` decomposition, so
+      the direction rule is satisfied by inspection rather than by assertion. No
+      other fixture's output depended on the 1-ULP difference.
+
+      `artifact-gate` showed 10 diffs, all `.ncodesum`, confined to the
+      `general` and `json` cover fixtures — the only two that call `toFloat`.
+      **No `.ir` moved anywhere**, which is the signature this change should
+      have: it is codegen only. Regenerated; gate then reported
+      `1832 golden(s) checked, 0 diff(s)`.
+- [x] Cross-interop proof: rebuild the review's jsoncmp probes; N02-class
       check (Node parses MFB's output back to the bit-identical double) for
-      the corpus values.
-- [ ] Cross-arch: run the corpus fixture on the remote boxes (x86-64 Linux
+      the corpus values. **`same=26 different=0 render-fail=4`.**
+
+      Each vector is parsed by `toFloat`, rendered by `json::stringify`, and
+      that text handed to Node v24.12.0, which must land on the bit-identical
+      double it gets from the original literal. The review's headline case is
+      closed: `1e-7` now renders `0.0000001` and round-trips exactly, where N02
+      reported DIFFERENT.
+
+      The four RENDER-FAILs are `1e-30`, `-1e-30`, `2.2250738585072014e-308` and
+      `1e-45` — all below the ~1e-25 floor of `json::stringify`'s fixed-place
+      search. That is plan-120-G's defect, exactly as F-C1 established, and the
+      probe reports them separately so they can never be mistaken for a value
+      disagreement.
+- [x] Cross-arch: run the corpus fixture on the remote boxes (x86-64 Linux
       2227/2228, Windows 2230 via a console PE + ssh) — the 128-bit multiply
       path is per-arch codegen and needs runtime proof per the
-      emission-is-not-proof lesson.
-- [ ] Doc sync: `mfb man general toFloat` (now correctly rounded; overflow
+      emission-is-not-proof lesson. **All green, on more boxes than asked:**
+
+      | box | target | result |
+      |---|---|---|
+      | — | macos-aarch64 (host) | `checked=34 wrong=0` |
+      | 2223 | linux-aarch64 glibc | 1 passed, 0 failed |
+      | 2228 | linux-x86_64 glibc | 1 passed, 0 failed |
+      | 2227 | linux-x86_64 musl | 1 passed, 0 failed |
+      | 2229 | linux-riscv64 musl | 1 passed, 0 failed |
+      | 2230 | windows-x86_64 | `checked=34 wrong=0` |
+
+      Linux used the existing `scripts/linux-runtime-proof.sh` with
+      `FILTER=tofloat-correct-rounding`; Windows was a cross-built console PE
+      shipped by `scp` and run over ssh, since no script covers a plain console
+      fixture.
+
+      Windows is the load-bearing one: `umulh` clobbers the register `c_arg(1)`
+      maps to there (it *is* `rdx`), so it is the box that would have caught a
+      missing vreg copy at entry — and the helper does that copy for exactly
+      this reason.
+- [x] Doc sync: `mfb man general toFloat` (now correctly rounded; overflow
       contract restated); retire the stale memory note wording via the
-      repo docs (`.ai/codegen-invariants.md` if it records the defect).
+      repo docs (~~`.ai/codegen-invariants.md` if it records the defect`~~ —
+      moot: grepped, no `.ai/` doc records it).
+
+      `func_to_float.rs` DESC gains the correctly-rounded guarantee, what
+      follows from it (exact text converts exactly; a value with enough digits
+      survives a trip through another correctly-rounded reader), and the
+      asymmetry that too-small converts to zero while too-large raises.
+
+      Added beyond the task: **the embedded spec never stated the conversion's
+      rounding contract at all**, and it is now a language-level guarantee a
+      reimplementation must reproduce, so `spec language types` §4.1 gains a
+      `Float` paragraph with a citation to the emitter.
+
+      Gates: `man-census.sh --memory-scope` 0 unclassified;
+      `man-run-examples.sh general --run` 34 built / 34 ran / 0 failed;
+      `spec_citations_resolve` and all 26 `docs::` tests green.
 
 Acceptance: corpus green on macOS + both remote arches; interop check SAME
 for all vectors; full `cargo test --no-fail-fast` +
 `scripts/test-accept.sh` + regenerated `artifact-gate.sh all`; fmt + check
 `--all-targets`.
 Commit: —
+
+**MET.** Corpus green on macOS and all five remote targets (the table above);
+interop check `same=26 different=0`; `artifact-gate` 1832 goldens / 0 diffs;
+`cargo test --no-fail-fast` 95 binaries / 4444 passed / 0 failed;
+`test-accept.sh` 1350 tests, 0 mismatches.
 
 ## Validation Plan
 
@@ -379,6 +464,63 @@ Commit: —
   proves awkward for `toFixed`'s in-place consumption.
 
 ## Corrections
+
+**F-C4 — the Clinger fast path is omitted, and that was measured before it was
+decided.** §3 step 2 specifies an exactly-representable fast path (mantissa
+< 2^53 and |exp10| <= 22, one f64 multiply or divide). It is not emitted, for a
+reason the plan could not have known: it is the only part of the algorithm that
+needs f64 arithmetic, and `finalize_vreg_body_with_locals` refuses a
+hand-written helper that names a physical register — FP scratch included. The
+options were to find a float-vreg convention for helper bodies, or to drop the
+shortcut.
+
+Dropping it is only safe if it is an optimization rather than a correctness
+crutch, so that was tested rather than assumed:
+`lemire_alone_is_sufficient` runs every input both ways and requires identical
+bits — 20,000 random doubles rendered and reparsed, plus the exactly-
+representable range the shortcut exists to serve (`1e22`, `1e-22`,
+`9007199254740992`, `0.5`, `0.1`, …). Zero differences. Eisel–Lemire certifies
+those cases itself.
+
+The emitted helper is therefore entirely integer, which also removes any
+question about FP register state across the call. The cost is a few extra
+instructions on the common path; the benefit is that the whole parser is one
+arithmetic domain.
+
+**F-C5 — the corpus did not exercise the exact fallback, so the cross-arch box
+would have proved half the helper.** The plan's acceptance is "run the corpus
+fixture on the remote boxes". Before doing that it was worth asking what the
+corpus actually reaches — and the answer, measured by
+`the_original_corpus_never_reached_the_exact_fallback`, is that **every one of
+the original 27 vectors is settled by Eisel–Lemire alone**. The big-integer
+comparison behind it is a large part of the new code, shares none of Lemire's
+arithmetic, and had no coverage at all; a green run on five architectures would
+have proved the 128-bit multiply and nothing else.
+
+Seven vectors were added, each the exact decimal midpoint between two adjacent
+doubles. A midpoint is dyadic, so its expansion is finite but far longer than
+the 19 significant digits the mantissa window keeps — which is precisely the
+input the fallback exists for. Each also lands exactly on the tie, making these
+the only vectors that exercise round-half-to-even. Two are subnormal-range
+midpoints whose literals run past 1000 digits, which additionally drives the
+significant-digit cap and the sticky flag that breaks a tie the cap would
+otherwise hide.
+
+Expectations come from the `man * 2^e2` decomposition with round-half-to-even —
+the construction the rest of the corpus used — and each was cross-checked
+against an independent correctly-rounded parser before being committed, so the
+fixture does not merely assert that we agree with whatever produced it. Corpus
+is now `checked=34 wrong=0` on all six targets.
+
+**F-C6 — a probe reported 168 failures that were not failures.** The generated
+557-vector round-trip probe first printed `wrong=168`. Every one was a value
+rendered by the probe generator in E-notation and by the formatter under test in
+plain decimal — the same number, different notation. Recorded because the
+failure mode is a convincing one: a long list of WRONG lines whose `in` and
+`out` differ in every character reads exactly like a broken parser, and the
+temptation is to start debugging the parser rather than the harness. The fix was
+one format specifier; the probe then reported `wrong=0`.
+
 
 **F-C1 — the I1 range claim is false; this letter is about ROUNDING only.**
 Inherited from plan-120-A's Correction C1, measured there with a probe that

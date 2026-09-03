@@ -298,6 +298,27 @@ pub(crate) fn parse_without_fast_path(text: &str) -> Option<f64> {
     Some(finish_inner(&scanned, false))
 }
 
+/// Whether this input reaches the exact big-integer fallback rather than being
+/// settled by Lemire alone.
+///
+/// The fallback is roughly 40% of the emitted helper and is the part with no
+/// 128-bit multiply in it, so it fails independently of everything Lemire
+/// exercises. Knowing which inputs reach it is what makes it possible to put
+/// some in the corpus rather than hope the existing vectors wander in.
+pub(crate) fn takes_exact_path(text: &str) -> bool {
+    let Some(scanned) = scan(text) else {
+        return false;
+    };
+    let mut fp = lemire(scanned.exponent, scanned.mantissa);
+    if scanned.many_digits && fp.e != DECLINED {
+        let upper = lemire(scanned.exponent, scanned.mantissa + 1);
+        if upper.e == DECLINED || upper != fp {
+            fp.e = DECLINED;
+        }
+    }
+    fp.e == DECLINED
+}
+
 pub(crate) fn finish(scanned: &Scanned) -> f64 {
     finish_inner(scanned, true)
 }
@@ -778,6 +799,153 @@ mod tests {
             let std: f64 = text.parse().unwrap();
             assert_eq!(without.to_bits(), std.to_bits(), "{text} vs std");
         }
+    }
+
+    #[test]
+    fn the_original_corpus_never_reached_the_exact_fallback() {
+        // Measured, not assumed. Every vector the corpus carried before
+        // plan-120-F's Phase 2 is settled by Lemire alone, so the cross-arch
+        // runs would have exercised the 128-bit multiply and none of the
+        // big-integer comparison — which is why the midpoint vectors below were
+        // added to the fixture. If a future vector does reach the fallback this
+        // assertion fails, and the right response is to relax it, not to drop
+        // the midpoints.
+        let mut reached = Vec::new();
+        for text in [
+            "1e-7",
+            "1e-30",
+            "5e-324",
+            "2.2250738585072011e-308",
+            "2.2250738585072014e-308",
+            "2.4703282292062327e-324",
+            "2.4703282292062328e-324",
+            "1e-323",
+            "0.1",
+            "9007199254740993",
+            "123456789012345678901234567890",
+            "1.000000000000000011102230246251565404236316680908203125",
+            "3.141592653589793238462643383279",
+            "1.7976931348623157e308",
+        ] {
+            if takes_exact_path(text) {
+                reached.push(text);
+            }
+        }
+        assert!(
+            reached.is_empty(),
+            "these corpus vectors DO reach the exact fallback: {reached:?}"
+        );
+    }
+
+    #[test]
+    fn the_exact_fallback_is_reachable_and_correct() {
+        // Midpoints are the constructive way in: the exact decimal expansion of
+        // the value halfway between two doubles has far more than 19 significant
+        // digits, so the truncated mantissa cannot decide it and only the
+        // big-integer comparison can. Each one also exercises the tie-to-even
+        // branch, which nothing else does.
+        let mut reached = 0;
+        for bits in [
+            0x3FF0_0000_0000_0000u64, // 1.0
+            0x3FF0_0000_0000_0001,
+            0x0000_0000_0000_0001, // smallest subnormal
+            0x000F_FFFF_FFFF_FFFF, // largest subnormal
+            0x0010_0000_0000_0000, // smallest normal
+            0x4024_0000_0000_0000, // 10.0
+            0x7FEF_FFFF_FFFF_FFFF, // largest finite
+            0x3FB9_999A_0000_0000,
+        ] {
+            let lower = f64::from_bits(bits);
+            let upper = f64::from_bits(bits + 1);
+            // The midpoint as an exact decimal string, via the halfway integer.
+            let text = midpoint_decimal(lower, upper);
+            if takes_exact_path(&text) {
+                reached += 1;
+            }
+            let want: f64 = text.parse().expect("std parses the midpoint");
+            let have = parse(&text).expect("accepted");
+            assert_eq!(
+                have.to_bits(),
+                want.to_bits(),
+                "{text}: want {:#018x}, got {:#018x}",
+                want.to_bits(),
+                have.to_bits()
+            );
+        }
+        assert!(
+            reached >= 6,
+            "only {reached} midpoints reached the exact fallback; the corpus \
+             would not be covering it"
+        );
+    }
+
+    /// The exact decimal expansion of the midpoint between two adjacent doubles.
+    /// Both are dyadic, so their mean is dyadic too and terminates in decimal.
+    fn midpoint_decimal(lower: f64, upper: f64) -> String {
+        // (lower + upper) / 2 == (m*2 + 1) * 2^(e-1) with (m, e) from `lower`.
+        let bits = lower.to_bits();
+        let biased = (bits >> 52) as i32;
+        let fraction = bits & ((1u64 << 52) - 1);
+        let (m, e) = if biased == 0 {
+            (fraction, -1074i32)
+        } else {
+            (fraction | (1u64 << 52), biased - 1075)
+        };
+        debug_assert_eq!(upper.to_bits(), bits + 1);
+        exact_dyadic(m as u128 * 2 + 1, e - 1)
+    }
+
+    /// `value * 2^exponent` as an exact decimal string.
+    fn exact_dyadic(value: u128, exponent: i32) -> String {
+        if exponent >= 0 {
+            let mut digits = vec![value];
+            let _ = &mut digits;
+            let mut result = num_to_string(value);
+            for _ in 0..exponent {
+                result = mul_decimal_by_two(&result);
+            }
+            return result;
+        }
+        // Multiplying by 5^k and shifting the point k places is exact.
+        let mut result = num_to_string(value);
+        for _ in 0..(-exponent) {
+            result = mul_decimal_by_five(&result);
+        }
+        let k = (-exponent) as usize;
+        let mut digits = result;
+        while digits.len() <= k {
+            digits.insert(0, '0');
+        }
+        let split = digits.len() - k;
+        format!("{}.{}", &digits[..split], &digits[split..])
+    }
+
+    fn num_to_string(value: u128) -> String {
+        value.to_string()
+    }
+
+    fn mul_decimal_by_two(text: &str) -> String {
+        mul_decimal_small(text, 2)
+    }
+
+    fn mul_decimal_by_five(text: &str) -> String {
+        mul_decimal_small(text, 5)
+    }
+
+    fn mul_decimal_small(text: &str, factor: u32) -> String {
+        let mut carry = 0u32;
+        let mut out: Vec<u8> = Vec::with_capacity(text.len() + 1);
+        for byte in text.bytes().rev() {
+            let digit = (byte - b'0') as u32 * factor + carry;
+            out.push(b'0' + (digit % 10) as u8);
+            carry = digit / 10;
+        }
+        while carry > 0 {
+            out.push(b'0' + (carry % 10) as u8);
+            carry /= 10;
+        }
+        out.reverse();
+        String::from_utf8(out).expect("digits")
     }
 
     #[test]
