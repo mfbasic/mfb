@@ -1,0 +1,30 @@
+' A union's payload is reached with MATCH (spec 4.3, 9). Reading a field off the
+' union itself has no meaning -- the value may be any member, and members need not
+' share a field.
+'
+' This is pinned in a COMPARISON rather than as an argument, because that is the
+' context where it used to get through: the access inferred `Unknown`, a builtin
+' argument position rejected `Unknown` and produced a confusing mismatch, but a
+' comparison accepted it, compiled, and read a field that is not there -- SIGSEGV at
+' runtime rather than a diagnostic.
+
+TYPE Circle
+  radius AS Float
+END TYPE
+
+TYPE Named
+  label AS String
+END TYPE
+
+UNION Shape
+  Circle
+  Named
+END UNION
+
+FUNC main AS Integer
+  LET s AS Shape = Named[label := "hi"]
+  IF s.label <> "hi" THEN
+    RETURN 1
+  END IF
+  RETURN 0
+END FUNC

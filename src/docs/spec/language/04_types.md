@@ -201,6 +201,11 @@ END UNION
 LET s AS Shape = Circle[radius := 2.0]
 ```
 
+A union value's payload is reached with `MATCH` (§9) and by no other means. Reading a
+field off the union itself — `s.radius` above — is `TYPE_FIELD_ACCESS_REQUIRES_RECORD`:
+the value may be any member, and members need not share a field, so there is nothing
+the access could denote.
+
 A union may include the members of another concrete union:
 
 ```basic
