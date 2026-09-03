@@ -340,6 +340,44 @@ Commit: —
 
 ## Corrections
 
+**J2 (2026-09-03, pre-execution, measured against plan-116-G as landed) — G's `setGroup`
+copies its item list with `copy_flat_block`, which is the wrong primitive the moment
+plan-116-I puts a `RES` in a `DrawItem`.** This is the concrete shape of §2's open
+question, and it is a defect that does not exist yet — it appears when I lands, in code
+G already wrote.
+
+`emit_set_group` (`src/codegen/builtins/canvas/gen_group.rs`) deep-copies the incoming
+`List OF DrawItem` with `builder.copy_flat_block(&items_type, …)`, which is correct today
+because no `DrawItem` carries a resource. `builder_collection_layout.rs` pins the rule
+that stops being true:
+
+> *"what keeps a resource-carrying collection out of `copy_flat_block` and out of
+> `is_freeable_flat_value` — both of which would be wrong for it"*
+> (`a_res_collection_does_not_diverge`)
+
+So J's Phase 2 — *"`setGroup`'s deep copy routes resource ownership per Phase 1's design
+instead of copying a handle"* — is not an addition to that call, it is a **replacement of
+it**. And J's Phase 3 inherits the same on the way out: `emit_free_items_block` frees the
+retired buffer as a flat block, which is `is_freeable_flat_value`'s other half.
+
+**§2's open question is answered by the two resource declarations themselves**, which say
+more than §2 does. Both `canvas::Image` and `canvas::Font` declare `live_slots: &[]`, and
+both comments state the reason it is sound and the condition that ends it — the `Font`
+one being the sharper:
+
+> *"opting a font in means auditing its record tail — **which holds the whole file** —
+> rather than flipping the bit."*
+
+So the tails are **not** empty; `live_slots: &[]` is an assertion that is only consistent
+with `sendable: false`. Installing a resource into a process-global buffer that the
+graphics thread reads is exactly the case `sendable` governs, so the answer to §2's *"does
+this constitute a transfer"* is **yes**, and the audit §2 asks for is a prerequisite of
+Phase 2 rather than a follow-up to it.
+
+*(Citations corrected: the declarations are at `mod.rs:1016` (`Image`) and `:1037`
+(`Font`), not `:748`/`:790`. `grep -n 'live_slots' src/codegen/builtins/canvas/mod.rs`
+finds both.)*
+
 **J1 (2026-09-03, pre-execution) — the rule-retirement row cited a line range that no
 longer contains what it describes.** The check was `sed -n 1008,1019p src/rules/table.rs`
 "under a *retired by plan-114-B* comment". The `Rule` block for `2-203-0084` does start
