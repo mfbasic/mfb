@@ -544,7 +544,9 @@ The whole breaking surface change, with nothing yet reading it.
       the other nine.**
 - [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
-      `tests/cli_canvas_man_examples_compile.rs`.
+      `tests/cli_canvas_man_examples_compile.rs`. Declare **`errors: vec![]`** in this
+      phase, not `ErrWrongMode` (**G14**) — the bodies are inert here and cannot raise
+      it; Phase 3 adds it with the native call that does.
 - [ ] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
       `helper_geometry.rs`'s `GEO_LAYOUT`, and a matching `GEO_KIND_GROUP: &str = "8"`
       in `runtime/canvas/mod.rs` — then extend
@@ -585,6 +587,8 @@ Commit: —
       Phase 5, because this phase's own acceptance asks to *measure* the leak and this
       is the instrument that measures it (**G10**). It is also the only window onto
       worker-owned state a test has (`.ai/canvas-threading.md` §11).
+- [ ] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
+      native call (**G14**), and assert both trap outside `app::Mode.Canvas`.
 - [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
       **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
       full" — so mint it, and grep the *literal code* for collisions at that moment
@@ -774,6 +778,26 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G14 (2026-09-03, pre-execution) — Phase 2's members must not declare `ErrWrongMode`,
+even though the finished members should raise it.** The natural registration copies
+`canvas::present`, which carries `errors: vec!["ErrWrongMode"]`. But `func_present.rs`
+does not gate anything itself — `grep -rln prepend_wrong_mode_gate
+src/codegen/builtins/canvas/` lists `gen_present.rs`, `func_create_image.rs`,
+`func_did_resize.rs` and `func_scene_hashes.rs`, and **not** `func_present.rs`.
+`present` raises it because the native `canvas::publishScene` its body calls does.
+
+Phase 2's bodies are inert MFBASIC that call nothing native, so they cannot raise it.
+Declaring it anyway puts a row in `mfb man canvas setGroup`'s Errors table for something
+that cannot happen — and the Errors table is *derived* from this field, so nothing else
+would contradict it. Declare `errors: vec![]` in Phase 2 and add `ErrWrongMode` in
+Phase 3 alongside the native call, with a test that both members trap outside
+`app::Mode.Canvas`.
+
+The general form is worth keeping: in this registry the `errors:` list is a **claim**
+the renderer prints, not a constraint the compiler checks, so it can be as wrong as any
+other prose field — which is the same hazard **F10** hit with `GradientKind`'s variant
+descriptions.
 
 **G13 (2026-09-03, pre-execution) — a `Group` needs its own geometry kind, and Phase 2
 never adds one.** Phase 2 gives `Group` an empty header, which carries
