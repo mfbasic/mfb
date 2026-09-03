@@ -965,6 +965,37 @@ sleeps), 2a1135971 (the overflow pin)
 
 ## Corrections
 
+**G29 (Phase 6, completeness check) — G5's enumeration audited by grepping the *effect*,
+not the names.** §4.5's **G5** asks for the positional reads to be enumerated rather than
+reasoned about, because reasoning from the distance path is what hid the glyph case. That
+enumeration was done while writing Phase 4; this is the check that it was complete.
+
+The shape of the audit is what makes it worth recording: after the change there are
+exactly **two** points in the pixel loop, and the question is which consumers see which.
+
+```
+:466  LET spy = toFloat(y) + 0.5      surface
+:467  LET py  = spy - gdy             shape
+:470  LET spx = toFloat(x) + 0.5      surface
+:471  LET px  = spx - gdx             shape
+```
+
+`grep -n 'spx\|spy' src/codegen/builtins/canvas/helper_items.rs` returns the two
+definitions and **one** consumer — `__canvas_clipCoverage(offset, spx, spy)` at `:528`.
+Everything else in the loop takes `px`/`py`, including both gradient arms (`:544-545`
+radial, `:550` linear), which is **G23**'s decision made visible: the gradient follows the
+group because it reads the shape point, and it needed no code of its own to do so.
+
+So the surface point has exactly one reader, and it is the one G5 names as the exception.
+That is a stronger statement than "the enumeration looks complete": a new consumer added
+to this loop takes `px`/`py` by default and therefore moves with the group, which is the
+right default for a shape, and anything that must not move has to name `spx`/`spy`
+explicitly and will be visible in that same one-line grep.
+
+(The first attempt at this audit matched `t = spx` and looked like a bug — it was
+`LET px AS Floa`**`t = spx`**` - gdx`. A grep whose pattern can match across a token
+boundary is not an audit; the definitions and consumers had to be listed by name.)
+
 **G27 (Phase 6, found by this letter's gates) — two pre-existing flakes in
 `tests/rt_tls_connect_allow_self_signed.rs`, both failing OPEN.** Not this letter's
 code, and recorded here because this letter's full-suite gate is what surfaced them —
