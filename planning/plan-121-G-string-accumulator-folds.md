@@ -213,20 +213,79 @@ Commit: —
 
 ### Phase 2 — Grown-buffer accumulator for the self-concat reducer
 
-- [ ] In `lower_reduce`, detect the narrow condition from §3 and thread the
-      accumulator through a grown buffer, freezing to the tight form when the
-      result is bound.
-- [ ] Decline — falling back to today's lowering — whenever the reducer is not
-      statically visible or does anything with `acc` other than a self-concat.
-- [ ] Apply the same to `reduceRight`, preserving fold direction.
-- [ ] Tests: every Phase 1 fixture must still pass unchanged; add a
-      codegen-inspection test proving the fast path is *taken* for the self-concat
-      reducer and *declined* for each of the Phase 1 negative shapes.
+- [x] ~~In `lower_reduce`, detect the narrow condition from §3 and thread the
+      accumulator through a grown buffer~~ — **done, but NOT there and NOT that
+      way; see Correction G1.** The reducer is a function *pointer* at
+      `lower_reduce`, and the cost is inside the reducer, so no way of threading
+      the accumulator can remove it. The fold is instead **rewritten into the loop
+      it is sugar for**, in `src/ir/lower.rs`, and the existing
+      `try_inplace_concat_assign` then does the work it already does — no new
+      buffer machinery.
 
-Acceptance: spike 4 re-run shows `reduce` tracking the hand loop's linear profile
-(within a small constant) at N = 1000…8000; every Phase 1 fixture passes
-unchanged; `cargo test --no-fail-fast` green; golden drift confined to the
-Phase 1 set.
+      A post-pass on the ops `lower_statement` produces, for the same reason
+      `hoist_trap_calls` is one: `lower_expression_with_expected` returns an
+      `IrValue` and has no statement sink, and threading one through it would
+      touch every recursive call in the core lowering path.
+- [x] Decline — falling back to today's lowering — whenever the reducer is not
+      statically visible or does anything with `acc` other than a self-concat.
+      **Six declines, each pinned by a test:** a `Closure` reducer (substituting a
+      body that reads a capture is unsound); a name not in the recognized table; a
+      left-concat `x & acc`; a right operand that names the accumulator
+      (`hir_mentions`, which answers "mentions" for any shape it does not
+      enumerate — the safe direction); a non-`String` accumulator; and a list or
+      seed that is not effect-free.
+
+      Plus one the plan did not anticipate, which is the *evaluation-order*
+      condition: the fold is hoisted to the front of its statement, so it is
+      rewritten **only when it is the first effectful node** in that statement.
+      Everything before it must be effect-free, or hoisting would reorder
+      observable work. `ir_value_is_effect_free` answers `false` for anything it
+      does not enumerate.
+- [x] Apply the same to `reduceRight`, preserving fold direction. **Done.**
+      `NirOp::ForEach` is forward-only, so `reduce` emits a `ForEach` and
+      `reduceRight` a counted `For` with a **negative step** over
+      `collections::get`. Phase 1's test is what made this safe to write: a
+      self-concat `reduceRight` is still a **left-append** (`543210`), so the two
+      share one loop body and differ only in iteration direction.
+- [x] Tests: every Phase 1 fixture must still pass unchanged; add a
+      codegen-inspection test proving the fast path is *taken* and *declined*.
+
+      **All fifteen Phase 1 answers are byte-identical after the rewrite**, and so
+      are both pre-existing fixtures — including `reduce-accumulator-reclaim-rt`,
+      the plan-86-B fixture Phase 1 flagged as the binding constraint (it pins the
+      accumulator reclamation and the bug-307 aliasing shapes). Neither engages
+      the four-question gate.
+
+      **`tests/codegen_reduce_concat_fold.rs`, 7 tests**, using the absence of
+      `lower_collection_reduce_impl`'s `reduce_call_loop` label as the instrument —
+      if the rewrite fires, that lowering is never reached. Three taken (`reduce`,
+      `reduceRight`, and the **nested-inside-`len`** shape the benchmark actually
+      uses) and four declined (left-concat, reads-the-accumulator,
+      ignores-the-accumulator, Integer accumulator).
+
+Acceptance: **MET.** Spike 4 re-run, same fold two ways over the same list,
+before (a compiler built from `56b368996`) and after:
+
+| N | hand loop | `reduce` before → after | `reduceRight` before → after |
+|---|---|---|---|
+| 1000 | 22 µs | 473 → **35** | 314 → **35** |
+| 2000 | 48 µs | 1739 → **58** | 1200 → **72** |
+| 4000 | 108 µs | 7652 → **112** | 4964 → **129** |
+| 8000 | 212 µs | 31868 → **219** | 20512 → **260** |
+
+`reduce` now tracks the hand loop **within 3%** (219 µs against 212 µs at
+N = 8000) and both are linear — doubling N doubles the time. That is **145×** for
+`reduce` and **79×** for `reduceRight`, with identical answers
+(`len 16000/16000/16000` throughout). The 790× gap the sub-plan was written
+against is closed.
+
+Every Phase 1 fixture passes unchanged. Golden drift: **3 diffs, all `.ir`**
+(`reduce-accumulator-reclaim-rt`, `hof-string-item-lifetime-rt`, and this
+sub-plan's own fixture) — which is exactly what a desugar moves. No `.ast` moved,
+and both pre-existing fixtures' **run output is byte-identical**, checked
+directly. Wider than Phase 1's predicted one root, but in the same direction and
+for the same reason F2 records: the census counted `.ncodesum` roots, and these
+three carry `.ir` goldens instead.
 Commit: —
 
 ### Phase 3 — Re-rank

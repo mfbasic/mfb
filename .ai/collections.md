@@ -212,6 +212,43 @@ Two rules from it that are easy to get wrong:
   the old path was *correct* and merely slow, an unchanged runtime result proves
   nothing about which path ran — `tests/codegen_string_set_shift.rs` is what
   distinguishes them.
+* **A String-accumulating `reduce` is rewritten into the loop it is sugar for
+  (plan-121-G).** `collections::reduce` over a `List OF String` with a
+  concatenating reducer was **O(N²)** — the reducer is called N times and each
+  call returns a fresh tight `len(acc) + len(x)` string. The identical fold as a
+  hand loop is O(N), because `a = a & x` on a `MUT String` local is matched by
+  `try_inplace_concat_assign`. At N = 8000 the two spellings were **790× apart
+  for the same answer**.
+
+  **The fix could not live in the fold's lowering**, and that is the reusable
+  lesson: at `lower_collection_reduce_impl` the reducer is a function **pointer**
+  called indirectly, so its body cannot be inspected — and the cost is *inside*
+  the reducer, so no way of threading the accumulator removes it. A callee-side
+  "append into `acc` in place" is unsound too: a caller does not give up ownership
+  of a `String` argument. The only sound move is to stop calling the reducer and
+  emit the loop, where the existing concat arm applies unchanged.
+
+  It is a post-pass over the ops `lower_statement` produces (`src/ir/lower.rs`),
+  mirroring `hoist_trap_calls` — the expression lowerer returns an `IrValue` and
+  has no statement sink.
+
+  **The condition is deliberately narrow, and one part of it is not about the
+  reducer at all:** because the fold is hoisted to the front of its statement, it
+  is rewritten only when it is the **first effectful node** there. Anything
+  evaluated before it must be effect-free or the hoist reorders observable work.
+  Note a call's *arguments* evaluate before the call, so a fold inside
+  `len(reduce(...))` — the benchmark's own spelling — still qualifies.
+
+  **This is the third time in plan-121 that a correct-looking optimization did
+  nothing and only measurement noticed.** The first version of this pass compiled,
+  kept all fifteen semantic fixtures green, and never fired: it declined
+  `len(reduce(...))` by treating the enclosing `len` as the first effectful node.
+  Because the old path was *correct* and merely slow, an unchanged runtime result
+  proves nothing — `tests/codegen_reduce_concat_fold.rs` uses the absence of
+  `reduce_call_loop` to tell "fired" from "never ran".
+
+  Result: `reduce` tracks the hand loop within 3% (219 µs vs 212 µs at N = 8000),
+  both linear — 145×, and 79× for `reduceRight`.
 * **When a shift-based op looks slow, compare it against its sibling before
   theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
   is what exposed the dead loop. Afterwards, two plausible explanations for the

@@ -199,9 +199,9 @@ directly about this path — read it before changing anything.
 
 Acceptance: **MET.** `p121f-string-set-readback-rt` exists and passes at HEAD
 (`firstBad=-1` on all three 200-element passes and the overflow pass). The
-expected-drift list is recorded above and is a single root. No `src/` change in
-this phase.
-Commit: —
+expected-drift list is recorded above and is a single root (**wrong — see
+Correction F2**). No `src/` change in this phase.
+Commit: 27b92883c
 
 ### Phase 2 — Shift within `dataCapacity` instead of reallocating
 
@@ -282,8 +282,9 @@ golden moved anywhere — and regeneration touched exactly those 24 and nothing
 else.
 
 Also met: `scripts/artifact-gate.sh` = **1856 golden(s), 0 diff(s)** after
-regeneration.
-Commit: —
+regeneration; `cargo test --no-fail-fast` = **99 results, 0 failed, EXIT=0**;
+`scripts/test-accept.sh` = passed, 1363 ran.
+Commit: 27b92883c
 
 ### Phase 3 — Confirm the container rows unblock
 
