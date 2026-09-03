@@ -448,6 +448,8 @@ interop check `same=26 different=0`; `artifact-gate` 1832 goldens / 0 diffs;
 `cargo test --no-fail-fast` 95 binaries / 4444 passed / 0 failed;
 `test-accept.sh` 1350 tests, 0 mismatches.
 
+Commit: 0baac868d, 8657ad9c1, f0972dbb5
+
 ## Validation Plan
 
 - Tests: the vector corpus (kept permanently); existing toFloat/toFixed
