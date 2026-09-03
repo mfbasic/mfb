@@ -560,7 +560,10 @@ Commit: 8c4fa49a6
       from the letter list; the count is now **six**, because a third buffer region
       brought `METAL_GRADIENT_BASE` alongside `METAL_EDGE_BASE`; and item 4's formula
       (`CANVAS_ITEM_BUFFER_BYTES / 4`) no longer describes the gradient base. This is
-      the checklist plan-116-G and -H will follow.
+      the checklist plan-116-G and -H will follow. While there, rename
+      `the_metal_shader_edge_base_matches_the_buffer_layout` — this letter extended
+      it to guard `METAL_GRADIENT_BASE` and the region chain as well, so the name
+      now under-describes it, and the doc points a reader at it by name.
 - [ ] Un-stale the two `metal.rs` comments that still call the item stride "112 bytes"
       (`grep -n '112-byte stride' src/target/macos_aarch64/app/metal.rs`). This letter
       grew `ITEM_BLOCK_SIZE` to 208; the comments' *conclusion* survives — neither value
