@@ -1705,3 +1705,248 @@ fn measure_the_ellipse_newton_iteration_count() {
         eprintln!();
     }
 }
+
+/// An `Ellipse` with equal radii is **byte-identical** to the `Circle` of that radius.
+///
+/// plan-116-E §1's load-bearing case, and the cheapest available check on the solve
+/// being right: if a 24-halving bisection and the closed-form circle distance disagree
+/// anywhere, one of them is wrong about what "distance to this curve" means.
+///
+/// It holds *by construction* rather than by convergence — `__canvas_ellipseDistance`
+/// short-circuits `rx = ry` to `sqrt(qx² + qy²) - rx`, literally the circle arm. A
+/// fixed-count solve is never algebraically exact, and a last-bit residual can flip the
+/// `clamp(0.5 - d, 0, 1)` quantisation on whichever edge pixel lands nearest a 1/255
+/// step, so equality could not have been promised from the iteration. Phase 1 measured
+/// the handover clean (0.0072 steps at `rx = 300`), which is what says the guard hides
+/// nothing.
+///
+/// Whole frames rather than sampled pixels: the difference this guards against is a
+/// one-step shift on the antialiased rim, which is exactly what spot checks miss.
+#[test]
+fn an_ellipse_with_equal_radii_is_identical_to_a_circle() {
+    let paint = "canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 9.0)";
+    let (circle, _) = render(
+        "canvas_ellipse_as_circle_ref",
+        &scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, \
+             radius := 120.0, paint := {paint}]\n  canvas::present([a])\n"
+        )),
+    );
+    let (ellipse, _) = render(
+        "canvas_ellipse_as_circle",
+        &scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
+             radiusX := 120.0, radiusY := 120.0, angle := 0.0, paint := {paint}]\n  \
+             canvas::present([a])\n"
+        )),
+    );
+    assert!(
+        circle.iter().any(|&b| b != 0),
+        "the reference circle drew nothing, so the comparison would be vacuous"
+    );
+    assert_eq!(
+        circle, ellipse,
+        "an Ellipse with radiusX = radiusY and angle 0 must render byte-for-byte as \
+         the Circle of that radius — a difference here is the rx == ry guard not \
+         firing, or firing on a different value than the circle arm computes"
+    );
+}
+
+/// An axis-aligned 3:1 ellipse covers its own extent and nothing beyond it.
+///
+/// The four extreme points are the ones a wrong SDF gets wrong first: an approximate
+/// ellipse distance (the `(‖p/r‖ − 1)·min(rx, ry)` form this letter rejected) is worst
+/// at the *flat* ends, where the curvature is lowest and the approximation's error is
+/// largest. So the assertions bracket both ends of both axes, one pixel either side.
+#[test]
+fn an_axis_aligned_ellipse_covers_its_extent() {
+    let (frame, _) = render(
+        "canvas_ellipse_axis",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
+             radiusX := 300.0, radiusY := 100.0, angle := 0.0, \
+             paint := canvas::fill(canvas::rgb(255, 255, 255))]\n  \
+             canvas::present([a])\n",
+        ),
+    );
+    // Inside, just short of each extreme.
+    for (x, y, what) in [
+        (698usize, 300usize, "the +X extreme"),
+        (102, 300, "the -X extreme"),
+        (400, 398, "the +Y extreme"),
+        (400, 202, "the -Y extreme"),
+        (400, 300, "the centre"),
+    ] {
+        assert_eq!(
+            pixel(&frame, x, y),
+            (255, 255, 255, 255),
+            "{what} should be inside a 300x100 ellipse centred at (400, 300)"
+        );
+    }
+    // Outside, just past each extreme.
+    for (x, y, what) in [
+        (702usize, 300usize, "past the +X extreme"),
+        (98, 300, "past the -X extreme"),
+        (400, 402, "past the +Y extreme"),
+        (400, 198, "past the -Y extreme"),
+        // The corner of the bounding box, well outside the curve — the case an
+        // implementation that filled its bounds rather than its shape would fail.
+        (650, 230, "the bounding box's corner region"),
+    ] {
+        assert_eq!(
+            pixel(&frame, x, y),
+            (0, 0, 0, 255),
+            "{what} should be outside"
+        );
+    }
+}
+
+/// Rotating an ellipse by 90° swaps which axis is long.
+///
+/// The cheapest exact statement available about `angle`: a 3:1 ellipse turned a quarter
+/// turn is the 1:3 ellipse, so the two frames must be identical. That catches a
+/// rotation applied with the wrong sign, applied to the point instead of the frame, or
+/// not applied at all — none of which a "does it look rotated" check would separate.
+#[test]
+fn rotating_an_ellipse_by_a_quarter_turn_swaps_its_axes() {
+    let ell = |rx: f64, ry: f64, angle: &str| {
+        format!(
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
+             radiusX := {rx:.1}, radiusY := {ry:.1}, angle := {angle}, \
+             paint := canvas::fill(canvas::rgb(255, 255, 255))]\n  \
+             canvas::present([a])\n"
+        )
+    };
+    let (turned, _) = render(
+        "canvas_ellipse_turned",
+        &scene(&ell(300.0, 100.0, "1.5707963267948966")),
+    );
+    let (swapped, _) = render("canvas_ellipse_swapped", &scene(&ell(100.0, 300.0, "0.0")));
+    assert!(
+        swapped.iter().any(|&b| b != 0),
+        "the reference ellipse drew nothing, so the comparison would be vacuous"
+    );
+
+    // Localized rather than `assert_eq!` on the two buffers: a whole-frame equality
+    // failure prints two 2.3 MB byte vectors, which is 16 MB of output and no
+    // information. Count what differs and report the first one.
+    let mut differing = 0usize;
+    let mut worst = 0u8;
+    let mut first = None;
+    for i in 0..turned.len() / 4 {
+        let (a, b) = (&turned[i * 4..i * 4 + 4], &swapped[i * 4..i * 4 + 4]);
+        if a != b {
+            differing += 1;
+            let delta = (0..4).map(|k| a[k].abs_diff(b[k])).max().unwrap_or(0);
+            if delta > worst {
+                worst = delta;
+            }
+            if first.is_none() {
+                first = Some((i % WIDTH, i / WIDTH, a.to_vec(), b.to_vec()));
+            }
+        }
+    }
+    // **Not byte-equality, and that is not a loosened assertion — byte-equality was
+    // never the right claim here.** It would assert a property of the *trigonometry*
+    // rather than of the rotation: `__canvas_cos(PI/2)` is the deterministic Taylor
+    // pair's answer, not an exact zero, and it cannot be one. Its worst error over the
+    // circle is 4.6e-7 (see `TRIG` in `helper_shapes.rs`), which at radius 300
+    // displaces the rim by 1.4e-4 px — 0.035 of a 1/255 coverage step. A rim pixel
+    // sitting within that of a quantisation boundary flips, and the sRGB encode turns
+    // one coverage step into up to two output steps near mid-grey.
+    //
+    // Measured: **16 of 576000 pixels differ, worst channel delta 2** — first at
+    // (432, 16), 211 against 210. The bound below is that measurement plus headroom,
+    // and it keeps every discriminating power the test was written for: a rotation with
+    // the wrong sign, applied to the shape instead of the query point, or not applied
+    // at all each move *whole regions* — a 3:1 ellipse against a 1:3 one differs over
+    // roughly 100,000 pixels, four orders of magnitude past this.
+    assert!(
+        worst <= 2 && differing * 500 < turned.len() / 4,
+        "a 3:1 ellipse turned a quarter turn must be the 1:3 ellipse: {differing} \
+         pixels differ (worst channel delta {worst}), first at {first:?}"
+    );
+    eprintln!(
+        "quarter-turn vs swapped axes: {differing} of {} pixels differ by at most {worst}",
+        turned.len() / 4
+    );
+}
+
+/// A degenerate radius draws nothing, the same rule `Circle` follows.
+#[test]
+fn an_ellipse_with_a_zero_radius_draws_nothing() {
+    for (name, rx, ry) in [
+        ("canvas_ellipse_zero_rx", "0.0", "80.0"),
+        ("canvas_ellipse_zero_ry", "80.0", "0.0"),
+        ("canvas_ellipse_neg_rx", "0.0 - 5.0", "80.0"),
+    ] {
+        let (frame, _) = render(
+            name,
+            &scene(&format!(
+                "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
+                 radiusX := {rx}, radiusY := {ry}, angle := 0.0, \
+                 paint := canvas::fill(canvas::rgb(255, 255, 255))]\n  \
+                 canvas::present([a])\n"
+            )),
+        );
+        assert!(
+            frame
+                .chunks_exact(4)
+                .all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
+            "{name}: a degenerate radius must draw nothing at all"
+        );
+    }
+}
+
+/// A stroked ellipse draws a band, hollow inside and bounded outside.
+///
+/// The stroke rides the same `|d| - half` band every other primitive uses, so what this
+/// checks is that `d` is a true *signed* distance: an unsigned or wrongly-signed one
+/// would fill the interior instead of leaving it hollow, and every fill-only test above
+/// would still pass.
+#[test]
+fn a_stroked_ellipse_is_hollow() {
+    let (frame, _) = render(
+        "canvas_ellipse_stroked",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
+             radiusX := 200.0, radiusY := 100.0, angle := 0.0, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 20.0)]\n  \
+             canvas::present([a])\n",
+        ),
+    );
+    assert_eq!(
+        pixel(&frame, 400, 300),
+        (0, 0, 0, 255),
+        "the centre of a stroked-only ellipse must be background — ink here means the \
+         distance is unsigned, and the band swallowed the interior"
+    );
+    // The band at the +X extreme: 200 +/- 10 from the centre at x = 400.
+    assert_eq!(
+        pixel(&frame, 600, 300),
+        (255, 255, 255, 255),
+        "the band's centre line at the +X extreme"
+    );
+    assert_eq!(
+        pixel(&frame, 585, 300),
+        (0, 0, 0, 255),
+        "15 px inside the +X extreme is inside the hollow"
+    );
+    assert_eq!(
+        pixel(&frame, 615, 300),
+        (0, 0, 0, 255),
+        "15 px outside the +X extreme is past the band"
+    );
+    // And at the +Y extreme, where the curvature is highest — the band's width there
+    // is the case an approximate distance gets wrong.
+    assert_eq!(
+        pixel(&frame, 400, 400),
+        (255, 255, 255, 255),
+        "the band's centre line at the +Y extreme"
+    );
+    assert_eq!(
+        pixel(&frame, 400, 385),
+        (0, 0, 0, 255),
+        "15 px inside the +Y extreme is inside the hollow"
+    );
+}

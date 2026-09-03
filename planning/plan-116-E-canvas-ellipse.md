@@ -443,19 +443,38 @@ Commit: b979761a1
 
 ### Phase 3 — The software SDF, and the circle equivalence
 
-- [ ] `__canvas_ellipseDistance` in `helper_shapes.rs`, implementing §4.2 at Phase 1's
-      `N`, using `__canvas_cos`/`__canvas_sin`.
-- [ ] Kind-7 arm in `__canvas_geoDistance` (`helper_draw.rs:61`).
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` —
+- [x] `__canvas_ellipseDistance` in `helper_shapes.rs`, implementing §4.2 at Phase 1's
+      `N`, using `__canvas_cos`/`__canvas_sin`. → the **bisection** solve at **24
+      halvings**, per Phase 1; the `cos`/`sin` are read from the header, where
+      `__canvas_ellipseHeader` evaluated them once, so no trigonometry is on the
+      per-pixel path.
+- [x] Kind-7 arm in `__canvas_geoDistance` (`helper_draw.rs:61`).
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` —
       **circle equivalence** (`Ellipse[rx := r, ry := r, angle := 0]` byte-identical to
       `Circle[radius := r]`, same paint, same position — the load-bearing case);
       an axis-aligned 3:1 ellipse (assert the four extreme points and four interior
-      points); the same ellipse at `angle := PI/4` (assert the rotated extremes);
+      points); ~~the same ellipse at `angle := PI/4` (assert the rotated extremes)~~ —
+      **replaced by a stronger case**: a 3:1 ellipse at `angle := PI/2` compared
+      against the 1:3 ellipse, which is an exact statement about the whole frame rather
+      than four hand-computed points (see **E5**);
       `radiusX = 0` (draws nothing); a stroked ellipse (assert the band's inner and
       outer edges).
 
 Acceptance: the five cases pass, **the circle-equivalence case is exact**, and every
 pre-existing golden is byte-identical.
+
+**MET.**
+
+- All five pass. **Circle equivalence is exact** — `assert_eq!` on the two whole
+  frames, which is the cheapest available check that a 24-halving bisection and the
+  closed-form circle distance agree about what "distance to this curve" means.
+- The quarter-turn case differs by **16 of 576000 pixels, worst channel delta 2**,
+  which is the `__canvas_cos(PI/2)` residual and not a rotation error — see **E5**.
+- Every pre-existing golden byte-identical: `rt_canvas_golden` 10/10,
+  `git status --short tests/golden/canvas/` empty.
+- Sanity on the shape itself: an `Ellipse` at `rx = 200, ry = 80` renders **50,726**
+  lit pixels against an area of `PI·200·80 = 50,265` — the excess is the antialiased
+  perimeter, which is about the right size for a ~900 px rim.
 Commit: —
 
 ### Phase 4 — Metal and Vulkan
@@ -530,6 +549,32 @@ Commit: —
   not loosen the tolerance — it is the gate that caught a real backend lie before.
 
 ## Corrections
+
+- **E5 (2026-09-02, Phase 3) — the rotation case cannot be byte-exact, and the plan's
+  version of it could not have failed usefully.** Phase 3 asks for "the same ellipse at
+  `angle := PI/4`, assert the rotated extremes" — four hand-computed points, which is
+  weak: a rotation applied to the shape instead of the query point, or with the wrong
+  sign, moves those four points to places a hand computation would have to be *right*
+  about to catch. The stronger statement available is that a 3:1 ellipse turned a
+  quarter turn **is** the 1:3 ellipse, comparing whole frames.
+
+  Which then cannot be asserted as equality. `__canvas_cos(PI/2)` is the deterministic
+  Taylor pair's answer and not an exact zero — it cannot be, and the whole reason that
+  series exists is that `math::cos` is worse. Its worst error over the circle is 4.6e-7,
+  which at radius 300 displaces the rim by 1.4e-4 px, or **0.035 of a 1/255 coverage
+  step**; a rim pixel within that of a quantisation boundary flips, and the sRGB encode
+  turns one coverage step into up to two output steps near mid-grey.
+
+  Measured: **16 of 576000 pixels differ, worst channel delta 2**, first at (432, 16),
+  211 against 210. The test asserts that bound rather than equality. It is not a
+  loosening: byte-equality would have been asserting a property of the *trigonometry*
+  rather than of the rotation, and every failure the case was written to catch moves
+  whole regions — a 3:1 ellipse against a 1:3 one differs over roughly 100,000 pixels,
+  four orders of magnitude past the bound.
+
+  A second, purely practical note: the first version used `assert_eq!` on the two frame
+  buffers, and its failure printed **16.5 MB** of bytes. An assertion over a large
+  buffer has to localize before it reports.
 
 - **E4 (2026-09-02, Phase 2) — there are seven exhaustive `MATCH`es over `DrawItem`,
   not the two the census names, and the census's own command cannot find them.** §2
