@@ -502,8 +502,13 @@ The whole breaking surface change, with nothing yet reading it.
 - [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
       `tests/cli_canvas_man_examples_compile.rs`.
-- [ ] Add the `Group` arms to `__canvas_headerFor` and `__canvas_tailFor` returning
-      `__canvas_emptyHeader()` — a group has no geometry of its own.
+- [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
+      `helper_geometry.rs`, not the two this letter originally named (**G6**):
+      `__canvas_headerFor` and `__canvas_tailFor` (both returning
+      `__canvas_emptyHeader()` / an empty tail — a group has no geometry of its own),
+      and also `__canvas_tailMatches`, `__canvas_headerIsDeferred`,
+      `__canvas_deferredHeader`, `__canvas_deferredHash` and `__canvas_hashItem`.
+      Re-measure first: `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`.
 - [ ] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
       `mfb man canvas types` lists `Group`.
 
@@ -680,6 +685,30 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G6 (2026-09-03, pre-execution) — a new `DrawItem` variant touches seven exhaustive
+`MATCH` sites, not two.** Phase 2 says *"Add the `Group` arms to `__canvas_headerFor`
+and `__canvas_tailFor`"*. Measured:
+`grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs` → **seven**, at
+`:142` `__canvas_headerFor`, `:595` `__canvas_tailFor`, `:810` `__canvas_tailMatches`,
+`:961` `__canvas_headerIsDeferred`, `:984` `__canvas_deferredHeader`, `:1022`
+`__canvas_deferredHash`, `:1080` `__canvas_hashItem`. `grep -n Ellipse` on the same file
+shows plan-116-E's variant in all seven (`CASE Ellipse(e)` at `:159, :615, :835, :978,
+:1001, :1039, :1105`) — so the letter immediately before this one already paid this cost
+and the count is not a guess about the future.
+
+MFBASIC `MATCH` over a union is exhaustive, so five of the seven would fail to compile
+and the task would self-correct — cheap. But two of them are the *hashing* path
+(`__canvas_deferredHash`, `__canvas_hashItem`), and hashing is where a lazily-written
+arm is dangerous rather than merely missing: `.ai/canvas-threading.md` §3.1 and the
+comment at `:1077` record that two different polygons sharing a header collided and one
+drew twice. A `Group` arm that hashes only `dx`/`dy` and not the **name** would make two
+different groups at the same offset collide exactly that way — and §4.4's revision has
+to be in there too, or the frame skip this letter's Phase 1 pins cannot see a
+`setGroup`.
+
+So the count matters less than the warning: when you add the five arms the compiler
+demands, do not write the hash ones to shut it up.
 
 **G5 (2026-09-03, pre-execution) — the software group path would slide every gradient,
 and this file is the oracle, so nothing downstream could catch it.** §4.5 says a
