@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 41-float header carrying the
+//! draws. Generation turns one into the other: a fixed 47-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 41-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 47-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 41 float compares
+//! is worse than a common slow one, and the confirmation costs 47 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 41
+r#"LET __CANVAS_GEO_HEADER AS Integer = 47
+LET __CANVAS_GEO_GRADIENT_COUNT AS Integer = 41
+LET __CANVAS_GEO_GRADIENT_KIND AS Integer = 42
+LET __CANVAS_GEO_GRADIENT_FROMX AS Integer = 43
+LET __CANVAS_GEO_GRADIENT_FROMY AS Integer = 44
+LET __CANVAS_GEO_GRADIENT_TOX AS Integer = 45
+LET __CANVAS_GEO_GRADIENT_TOY AS Integer = 46
 LET __CANVAS_GEO_ELLIPSE AS Integer = 7
 LET __CANVAS_GEO_ELLIPSE_COS AS Integer = 39
 LET __CANVAS_GEO_ELLIPSE_SIN AS Integer = 40
@@ -126,7 +132,7 @@ END FUNC"#;
 
 /// Build the fixed header for one item.
 ///
-/// Every arm writes the same 41 slots in the same order, so the rasteriser and the
+/// Every arm writes the same 47 slots in the same order, so the rasteriser and the
 /// cache comparison can both be written once against the layout instead of per kind.
 /// The `MATCH` is exhaustive over the frozen `DrawItem` set, so a ninth variant would
 /// fail to compile here rather than silently generating nothing.
@@ -225,6 +231,21 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
     blend = 3.0
   END IF
   out = collections::set(out, 26, blend)
+  ' plan-116-F: the gradient's scalars. The STOPS live in the tail -- these six slots
+  ' are what the renderer needs before it walks them, and the count doubles as the
+  ' has-a-gradient test: fewer than two stops is no gradient, so one comparison here
+  ' decides it rather than a flag that could disagree with the list.
+  LET stopCount AS Integer = len(paint.fillGradient.stops)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stopCount))
+  MUT gkind AS Float = 0.0
+  IF paint.fillGradient.kind = GradientKind.Radial THEN
+    gkind = 1.0
+  END IF
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, gkind)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMX, paint.fillGradient.startPoint.x)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMY, paint.fillGradient.startPoint.y)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, paint.fillGradient.endPoint.x)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, paint.fillGradient.endPoint.y)
   ' plan-116-C: the transform, INVERTED once here rather than per pixel in each of
   ' three renderers. `__canvas_invertTransform` is also the only place that knows an
   ' all-zero `Transform` means the identity, and the only place that decides what a

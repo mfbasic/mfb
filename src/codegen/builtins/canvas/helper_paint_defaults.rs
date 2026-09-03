@@ -167,10 +167,23 @@ r#"FUNC __canvas_noClip() AS Bounds
   RETURN Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0]
 END FUNC"#;
 
+/// The all-zero `Gradient`: no stops, so no gradient (plan-116-F).
+///
+/// The empty stop list is the no-op, and it is the *only* one that matters — the kind
+/// and the two points mean nothing without stops to interpolate between. That is the
+/// shape `__canvas_noClip`'s zero-area rectangle already has: a value the renderer
+/// tests in one comparison, rather than a sentinel it has to know about.
+#[rustfmt::skip]
+const NO_GRADIENT: &str =
+r#"FUNC __canvas_noGradient() AS Gradient
+  RETURN Gradient[kind := GradientKind.Linear, startPoint := Point[x := 0.0, y := 0.0], endPoint := Point[x := 0.0, y := 0.0], stops := []]
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_transparent", TRANSPARENT));
     pkg.add_helper(RegistryHelper::always("canvas_noTransform", NO_TRANSFORM));
     pkg.add_helper(RegistryHelper::always("canvas_noClip", NO_CLIP));
+    pkg.add_helper(RegistryHelper::always("canvas_noGradient", NO_GRADIENT));
     pkg.add_helper(RegistryHelper::always(
         "canvas_invertTransform",
         INVERT_TRANSFORM,

@@ -346,6 +346,23 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_enum(RegistryEnum {
+        name: "GradientKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Linear",
+                description: "Interpolate along the line from `from` to `to`. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Radial",
+                description: "Interpolate outward from `from`, reaching the last stop on the circle through `to`.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
         name: "CapStyle",
         export: true,
         variants: vec![
@@ -450,6 +467,69 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_record(RegistryRecord {
+        name: "GradientStop",
+        export: true,
+        description: "One colour stop of a `canvas::Gradient`. Stops are used **in \
+                      the order you give them** — they are not sorted, because \
+                      reordering them would silently redraw something other than what \
+                      the program asked for. An `offset` outside `0.0`..`1.0`, or one \
+                      that goes backwards, is clamped instead: visible and \
+                      predictable.",
+        props: vec![
+            RecordProp {
+                name: "offset",
+                ty: ParameterType::Float,
+                description: "Where along the gradient this colour sits, `0.0` at the \
+                              start and `1.0` at the end.",
+            },
+            RecordProp {
+                name: "color",
+                ty: ParameterType::named("Color"),
+                description: "The colour at that offset.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "Gradient",
+        export: true,
+        description: "A colour ramp used as an item's interior instead of a flat \
+                      `canvas::Paint.fill`. **Fewer than two stops is not a \
+                      gradient** — the item falls back to `fill`, so the all-zero \
+                      value is inert like every other `canvas::Paint` field. One stop \
+                      is a flat colour you should write as `canvas::fill`, and zero \
+                      stops name no colour at all. The ramp is measured in surface \
+                      pixels, so it composes with `canvas::Paint.transform` the same \
+                      way the shape does, and colours are blended the way everything \
+                      else on the surface is — see `mfb spec app canvas`.",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::named("GradientKind"),
+                description: "Linear along an axis, or radial outward from a centre.",
+            },
+            RecordProp {
+                name: "startPoint",
+                ty: ParameterType::named("Point"),
+                description: "Linear: where the ramp starts. Radial: the centre.",
+            },
+            RecordProp {
+                name: "endPoint",
+                ty: ParameterType::named("Point"),
+                description: "Linear: where the ramp ends. Radial: a point on the \
+                              outer circle. Giving the same point as `startPoint` \
+                              leaves the first stop's colour everywhere, rather than \
+                              failing.",
+            },
+            RecordProp {
+                name: "stops",
+                ty: ParameterType::list_of(ParameterType::named("GradientStop")),
+                description: "The colours along the ramp, in the order given.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
         name: "Paint",
         export: true,
         description: "How an item is filled, stroked, blended, transformed and \
@@ -520,6 +600,20 @@ pub(crate) fn register(r: &mut Registry) {
                               `canvas::Paint.transform` does not move it. Its edges \
                               may fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
+            },
+            RecordProp {
+                name: "fillGradient",
+                ty: ParameterType::named("Gradient"),
+                description: "Fill the item with a colour ramp instead of the flat \
+                              `fill`. A gradient with **fewer than two stops is \
+                              ignored** and `fill` is used, which is what makes the \
+                              zero value inert like every other field here. The ramp \
+                              is measured in surface pixels, so it composes with \
+                              `transform` the same way the shape does. `stroke` is \
+                              unaffected — an outline is always a flat colour — and a \
+                              `canvas::Text` item ignores this field, because a glyph \
+                              is drawn from a cached coverage bitmap rather than from \
+                              a distance field.",
             },
         ],
     });

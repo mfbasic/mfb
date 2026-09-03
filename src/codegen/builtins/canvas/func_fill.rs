@@ -21,7 +21,7 @@ LET spun AS Paint = WITH canvas::fill(red) { transform := tilt }
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all six `canvas::Paint` fields."#;
+without them every item would have to spell out all seven `canvas::Paint` fields."#;
 
 const EX: &str = r#"A solid yellow disc:
 

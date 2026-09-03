@@ -13,9 +13,9 @@ canvas::GradientStop
     offset AS Float         ' 0.0..1.0 along the gradient
     color  AS Color
 canvas::Gradient
-    kind  AS GradientKind
-    from  AS Point          ' Linear: the axis start.  Radial: the centre.
-    to    AS Point          ' Linear: the axis end.    Radial: a point on the outer circle.
+    kind       AS GradientKind
+    startPoint AS Point     ' Linear: the axis start.  Radial: the centre.
+    endPoint   AS Point     ' Linear: the axis end.    Radial: a point on the outer circle.
     stops AS List OF GradientStop
 ```
 
@@ -216,13 +216,13 @@ field).
 ```
 GradientKind : enum { Linear (zero), Radial }
 GradientStop : { offset AS Float, color AS Color }
-Gradient     : { kind AS GradientKind, from AS Point, to AS Point,
+Gradient     : { kind AS GradientKind, startPoint AS Point, endPoint AS Point,
                  stops AS List OF GradientStop }
 Paint        : … + fillGradient AS Gradient
 ```
 
 New default helper `__canvas_noGradient()` in `helper_paint_defaults.rs`, returning
-`Gradient[kind := GradientKind.Linear, from := Point[0,0], to := Point[0,0], stops := []]`
+`Gradient[kind := GradientKind.Linear, startPoint := Point[0,0], endPoint := Point[0,0], stops := []]`
 — the all-zero value, with an empty stop list. `__canvas_fillStroke` names it, which is
 the one code line that changes.
 
@@ -245,8 +245,8 @@ it:
 |---|---|
 | `HEADER_SLOTS`+0 = 41 | stop count (0 = no gradient) |
 | +1 = 42 | gradient kind (0 Linear, 1 Radial) |
-| +2, +3 = 43, 44 | `from.x`, `from.y` |
-| +4, +5 = 45, 46 | `to.x`, `to.y` |
+| +2, +3 = 43, 44 | `startPoint.x`, `startPoint.y` |
+| +4, +5 = 45, 46 | `endPoint.x`, `endPoint.y` |
 
 (Corrected 2026-09-02 from 42–47 / 48; see **F1**.)
 
@@ -297,11 +297,11 @@ already on main to copy.
 
 Per pixel, in surface coordinates:
 
-- **Linear** — `t = dot(p - from, to - from) / |to - from|²`, clamped to `0..1`. A
-  zero-length axis (`from == to`) yields `t = 0`, so the first stop's colour fills —
-  defined, not a divide by zero.
-- **Radial** — `t = |p - from| / |to - from|`, clamped to `0..1`. Same zero-length
-  rule.
+- **Linear** — `t = dot(p - startPoint, endPoint - startPoint) / |endPoint - startPoint|²`,
+  clamped to `0..1`. A zero-length axis (`startPoint == endPoint`) yields `t = 0`, so
+  the first stop's colour fills — defined, not a divide by zero.
+- **Radial** — `t = |p - startPoint| / |endPoint - startPoint|`, clamped to `0..1`.
+  Same zero-length rule.
 
 Then walk the stops for the bracketing pair and lerp. A linear walk is `O(stops)` per
 pixel; with the caps in §4.2 that is bounded, and it matches how
@@ -347,17 +347,30 @@ filled ellipse's edge identical to a flat-filled one's.
 
 The whole breaking surface change, with nothing yet reading it.
 
-- [ ] Add `GradientKind`, `GradientStop` and `Gradient` to `mod.rs`.
-- [ ] Add `fillGradient AS Gradient` to `Paint`, **last** in the prop list.
-- [ ] Add `__canvas_noGradient()` to `helper_paint_defaults.rs`; name it in
+- [x] Add `GradientKind`, `GradientStop` and `Gradient` to `mod.rs`. → the two
+      endpoints are `startPoint`/`endPoint`, not `from`/`to`: **`TO` is a reserved
+      keyword** and the record would not parse. See **F3**.
+- [x] Add `fillGradient AS Gradient` to `Paint`, **last** in the prop list. The three
+      constructors' prose that said "all six `canvas::Paint` fields" now says seven,
+      and `fillStroke`'s "blend, transform and clip" is now four no-ops.
+- [x] Add `__canvas_noGradient()` to `helper_paint_defaults.rs`; name it in
       `__canvas_fillStroke` (`func_fill_stroke.rs:43`).
-- [ ] Header slots **41–46** written by `__canvas_paintHeader`; `HEADER_SLOTS` → **47**;
-      every `__CANVAS_GEO_HEADER` reader updated.
-- [ ] Tests: `tests/cli_canvas_package.rs` builds a `Gradient` and a `Paint` carrying
-      one; `mfb man canvas types` lists all three new types.
+- [x] Header slots **41–46** written by `__canvas_paintHeader`; `HEADER_SLOTS` → **47**;
+      every `__CANVAS_GEO_HEADER` reader updated. → the last clause is free, not a
+      sweep: all 25 sites use the symbol (see Verified properties). The stop *count*
+      doubles as the has-a-gradient test, so one comparison decides it rather than a
+      flag that could disagree with the list.
+- [x] Tests: `tests/cli_canvas_package.rs` builds a `Gradient` and a `Paint` carrying
+      one; `mfb man canvas types` lists all three new types. → the scene builds a
+      two-stop radial gradient, wraps it in a `Paint` with `WITH`, and asserts the stop
+      count survives; all three types render on the types page.
 
 Acceptance: `cargo test --no-fail-fast` green, **every** canvas golden byte-identical,
 `scripts/man-run-examples.sh canvas --run` passes. Nothing reads the gradient yet.
+
+**MET.** `rt_canvas_golden` 12/12 with `git status --short tests/golden/canvas/`
+empty — the gradient is inert, as intended, since nothing reads the slots yet.
+`man-run-examples.sh canvas --run` → 22/22.
 Commit: —
 
 ### Phase 2 — The tail, and the cache-key fix
@@ -469,6 +482,58 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+- **F4 (2026-09-02, Phase 2 design) — the stop base formula is wrong for `Text`, and
+  the length accounting has a better home than the plan proposes.** Two findings from
+  reading the eight header builders before writing the tail.
+
+  **The formula.** §4.2 says every reader computes the stop base as
+  `HEADER_SLOTS + edgeCount * EDGE_SLOTS`. That is right for a `Polygon` and wrong for
+  a `Text`, whose tail is three floats per glyph rather than five per edge, and whose
+  slot 20 holds a glyph count rather than an edge count. It happens not to bite, because
+  §Non-goals rules out gradients on `Text` — but only if the *stops are actually not
+  appended* for a text item, which is a thing the code has to do rather than a thing the
+  non-goal achieves by itself. `__canvas_paintHeader` runs for every kind including
+  `Text`, so it must skip the ones with no interior (kind 6 `__CANVAS_GEO_TEXT`, kind 5
+  `__CANVAS_GEO_NONE`) explicitly; slot 0 is set before slot 1 in every builder, so it
+  can.
+
+  A base derivable from the *stored record* is better than one derived per kind:
+  `stopBase = slot1 − stopCount × 5`. Both terms are already in the header, it needs no
+  knowledge of what the other tail is, and it is correct for a polygon, a glyph run and
+  a plain shape alike. One helper, as the plan asks — just a different formula.
+
+  **The home.** §4.2 has each header builder account for the stop length in slot 1.
+  Reading them shows something better: **all eight set slot 1 immediately before calling
+  `__canvas_paintHeader`**, without exception (`grep -n "collections::set(out, 1,\|
+  __canvas_paintHeader(out"` → the two alternate, eight times). So `paintHeader` can
+  *add* the stop length to slot 1 itself, and no builder clobbers it afterwards. One
+  edit rather than eight, in the function that already knows the paint.
+
+  Why slot 1 has to be right *there* and not later, which is the trap: `header` is built
+  and compared by `__canvas_headerMatches` before the tail exists, so correcting slot 1
+  after `__canvas_tailFor` would make every stored record differ from every freshly
+  built one — the cache would never hit again and would grow without bound. That is a
+  performance cliff with no failing test, which is exactly the kind this letter's Phase 2
+  exists to prevent.
+
+- **F3 (2026-09-02, Phase 1) — `Gradient.to` cannot exist: `TO` is a reserved keyword.**
+  The plan names the two endpoints `from` and `to`, which reads best and is what most
+  drawing APIs call them. MFBASIC lexes `TO` as a keyword case-insensitively
+  (`src/lexer.rs:1225`, `value.eq_ignore_ascii_case("TO")`) for `FOR i = 1 TO 10`, so
+  the record declaration fails to parse:
+  `error[1-102-0003 MFB_PARSE_INVALID_IDENTIFIER]: Field name must be an identifier.`
+
+  Renamed to **`startPoint`** and **`endPoint`**, which is not a workaround but the
+  house style: `canvas::Arc` already carries `startAngle`/`endAngle`, so a reader
+  meeting `Gradient` finds the naming they have already seen on the neighbouring
+  variant. `from` is *not* reserved and could have been kept, but a `from`/`endPoint`
+  pair would be worse than either consistent choice.
+
+  Worth recording beyond the rename: **a plan that names a new field cannot know it is
+  legal**, because the reserved-word list is not something a designer consults. The
+  check is one build — `mfb build -app` on any canvas program — and it costs seconds at
+  Phase 1 versus a rename across the shaders, the emitters and the docs at Phase 4.
 
 - **F2 (2026-09-02, pre-execution) — plan-122-D will delete `canvas::Color`, and this
   letter adds new surface that names it.** Main landed plan-122's six sub-plan documents
