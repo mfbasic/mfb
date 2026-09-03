@@ -13,9 +13,15 @@
 //!
 //! * A built-in whose inline lowering can raise no domain error —
 //!   [`builtins::inline_builtin_is_infallible`], the same census that backs the
-//!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `toString`, `typeName`,
+//!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `typeName`, `toString`,
 //!   the total `bits::*` ops, and the pure-query / default-returning /
-//!   growth-only collection and string members).
+//!   growth-only collection and string members). That census is keyed on the
+//!   callee name **and** the call site's argument types: `toString` is
+//!   overloaded across every type and exactly one overload can fail —
+//!   `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding` (bug-486).
+//!   Every question asked here therefore carries argument types; a site that
+//!   cannot supply them falls back to the name-keyed answer, which for
+//!   `toString` is the *under*-approximating side.
 //! * A function declared in this project whose body cannot let an error escape,
 //!   decided by the fixpoint in [`analyze`].
 //!
@@ -31,11 +37,12 @@
 //! The two are deliberately separate: a report that over-reports is noisy, while
 //! a desugar that under-reports miscompiles.
 
+use super::lower::{expression_type, LowerContext};
 use crate::codegen::builtins;
 use crate::hir::{HirCallArg, HirConstructorArg, HirExpression, HirItem, HirProject, HirStatement};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// The project's fallibility verdicts, consulted by target name.
 #[derive(Default)]
@@ -63,8 +70,15 @@ impl Fallibility {
     /// `len$Ring`, never as bare `len`, so a *failing* override cannot be
     /// mistaken for the infallible built-in of the same source name. Verified by
     /// dumping the `-ir` of that shape, not assumed.
-    pub(super) fn call_is_fallible(&self, target: &str) -> bool {
-        if builtins::inline_builtin_is_infallible(target) {
+    ///
+    /// `arg_types` carries the call site's argument types so the built-in census
+    /// can answer for an overload rather than a name (bug-486): `toString` is
+    /// infallible on every argument type except `List OF Byte`, whose UTF-8 decode
+    /// raises `ErrEncoding`. A site that cannot type its arguments passes an empty
+    /// slice and gets the name-keyed verdict — the answer this had before, so such
+    /// a site *under*-approximates and must be fixed rather than relied on.
+    pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
+        if builtins::inline_builtin_is_infallible(target, arg_types) {
             return false;
         }
         if self.declared.contains(target) {
@@ -82,20 +96,29 @@ impl Fallibility {
 /// The rule is applied to a fixpoint so fallibility propagates up call chains,
 /// then re-applied once per declaration so an overload whose name a sibling
 /// already marked is still judged on its own body.
-pub(super) fn analyze(hir: &HirProject) -> Fallibility {
-    let functions: Vec<&crate::hir::HirFunction> = hir
+/// `context` is the type oracle. It is needed because the built-in census answers
+/// per *overload* now, not per name (bug-486): `toString(<List OF Byte>)` raises
+/// `ErrEncoding` where every other `toString` is total, so a function whose only
+/// failure path is a byte decode is fallible and this pass has to see that. The
+/// context is positioned on each function's own file before its body is walked,
+/// so a package-qualified name resolves through that file's import bindings.
+pub(super) fn analyze(hir: &HirProject, context: &mut LowerContext<'_>) -> Fallibility {
+    // Paired with the owning file index so the oracle can be positioned on it.
+    let functions: Vec<(usize, &crate::hir::HirFunction)> = hir
         .files
         .iter()
-        .flat_map(|file| file.items.iter())
-        .filter_map(|item| match item {
-            HirItem::Function(function) => Some(function),
-            _ => None,
+        .enumerate()
+        .flat_map(|(index, file)| {
+            file.items.iter().filter_map(move |item| match item {
+                HirItem::Function(function) => Some((index, function)),
+                _ => None,
+            })
         })
         .collect();
 
     let declared: HashSet<String> = functions
         .iter()
-        .map(|function| function.name.clone())
+        .map(|(_, function)| function.name.clone())
         .collect();
     let mut verdicts = Fallibility {
         fallible: HashSet::new(),
@@ -104,7 +127,7 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
 
     loop {
         let mut changed = false;
-        for function in &functions {
+        for (file_index, function) in &functions {
             if verdicts.fallible.contains(&function.name) {
                 continue;
             }
@@ -112,7 +135,20 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
                 Some(trap) => &trap.body,
                 None => &function.body,
             };
-            if block_escapes(block, &verdicts) {
+            context.current_imports = hir.files[*file_index].import_bindings();
+            // The parameters are the seed of the local type map; `statement_escapes`
+            // extends it as it walks. An argument the map cannot type answers
+            // `Unknown`, which lands on the name-keyed verdict.
+            let mut scope = EscapeScope {
+                verdicts: &verdicts,
+                locals: function
+                    .params
+                    .iter()
+                    .map(|param| (param.name.clone(), param.type_.clone()))
+                    .collect(),
+                context,
+            };
+            if block_escapes(block, &mut scope) {
                 verdicts.fallible.insert(function.name.clone());
                 changed = true;
             }
@@ -122,6 +158,52 @@ pub(super) fn analyze(hir: &HirProject) -> Fallibility {
         }
     }
     verdicts
+}
+
+/// The walk state [`analyze`]'s escape rules carry: the verdicts so far, the
+/// local type map built as the body is walked, and the type oracle that reads it.
+///
+/// The map exists only so the built-in census can be asked per *overload*
+/// (bug-486). It is deliberately partial — a name it never saw types as `Unknown`
+/// and the census falls back to its name-keyed answer, which is what this walk
+/// did before types entered it at all.
+struct EscapeScope<'a, 'c> {
+    verdicts: &'a Fallibility,
+    locals: HashMap<String, ParameterType>,
+    context: &'a LowerContext<'c>,
+}
+
+impl EscapeScope<'_, '_> {
+    /// The type this walk can prove for `expression`, `Unknown` when it cannot.
+    fn type_of(&self, expression: &HirExpression) -> ParameterType {
+        expression_type(expression, &self.locals, self.context).unwrap_or(ParameterType::Unknown)
+    }
+
+    /// [`Fallibility::call_is_fallible`] with the call site's argument types
+    /// resolved through the local map.
+    fn call_is_fallible(&self, callee: &str, arguments: &[HirCallArg]) -> bool {
+        let arg_types: Vec<ParameterType> = arguments
+            .iter()
+            .map(|argument| match argument {
+                HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
+                    self.type_of(value)
+                }
+            })
+            .collect();
+        self.verdicts.call_is_fallible(callee, &arg_types)
+    }
+
+    /// Record a binding this walk just introduced, so a later `toString(name)`
+    /// can be typed. An explicit annotation wins; otherwise the initializer is
+    /// typed with what is already known.
+    fn bind(&mut self, name: &str, declared: &ParameterType, value: Option<&HirExpression>) {
+        let type_ = if *declared == ParameterType::Unknown {
+            value.map(|v| self.type_of(v)).unwrap_or(ParameterType::Unknown)
+        } else {
+            declared.clone()
+        };
+        self.locals.insert(name.to_string(), type_);
+    }
 }
 
 /// The arithmetic operators (`mfb spec language operators` §11). Every one of
@@ -227,48 +309,67 @@ pub(super) fn unary_operator_can_raise(op: UnaryOp, result_type: &ParameterType)
 }
 
 /// Whether a block can let an error escape to the caller.
-fn block_escapes(body: &[HirStatement], verdicts: &Fallibility) -> bool {
-    body.iter()
-        .any(|statement| statement_escapes(statement, verdicts))
+///
+/// A plain loop, not `.any()`: each statement may extend `scope`'s local type map
+/// for the ones after it, so the walk has to reach them. Short-circuiting on the
+/// first escape is still correct — the verdict is already decided.
+fn block_escapes(body: &[HirStatement], scope: &mut EscapeScope<'_, '_>) -> bool {
+    for statement in body {
+        if statement_escapes(statement, scope) {
+            return true;
+        }
+    }
+    false
 }
 
-fn statement_escapes(statement: &HirStatement, verdicts: &Fallibility) -> bool {
+fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) -> bool {
     match statement {
         HirStatement::Fail { .. } | HirStatement::Propagate { .. } => true,
-        HirStatement::Let { value, .. } => value
-            .as_ref()
-            .is_some_and(|v| expression_escapes(v, verdicts)),
+        HirStatement::Let {
+            name,
+            type_,
+            value,
+            ..
+        } => {
+            let escapes = value
+                .as_ref()
+                .is_some_and(|v| expression_escapes(v, scope));
+            // Bound after the initializer is judged: the initializer cannot see
+            // the name it defines.
+            scope.bind(name, type_, value.as_ref());
+            escapes
+        }
         HirStatement::Return { value, .. } | HirStatement::Recover { value, .. } => value
             .as_ref()
-            .is_some_and(|v| expression_escapes(v, verdicts)),
+            .is_some_and(|v| expression_escapes(v, scope)),
         HirStatement::Exit { code, .. } => code
             .as_ref()
-            .is_some_and(|v| expression_escapes(v, verdicts)),
+            .is_some_and(|v| expression_escapes(v, scope)),
         HirStatement::Continue { .. } => false,
         HirStatement::Assign { value, .. }
         | HirStatement::StateAssign { value, .. }
         | HirStatement::Expression {
             expression: value, ..
-        } => expression_escapes(value, verdicts),
+        } => expression_escapes(value, scope),
         HirStatement::If {
             condition,
             then_body,
             else_body,
             ..
         } => {
-            expression_escapes(condition, verdicts)
-                || block_escapes(then_body, verdicts)
-                || block_escapes(else_body, verdicts)
+            expression_escapes(condition, scope)
+                || block_escapes(then_body, scope)
+                || block_escapes(else_body, scope)
         }
         HirStatement::Match {
             expression, cases, ..
         } => {
-            expression_escapes(expression, verdicts)
+            expression_escapes(expression, scope)
                 || cases.iter().any(|case| {
                     case.guard
                         .as_ref()
-                        .is_some_and(|guard| expression_escapes(guard, verdicts))
-                        || block_escapes(&case.body, verdicts)
+                        .is_some_and(|guard| expression_escapes(guard, scope))
+                        || block_escapes(&case.body, scope)
                 })
         }
         HirStatement::For {
@@ -278,22 +379,35 @@ fn statement_escapes(statement: &HirStatement, verdicts: &Fallibility) -> bool {
             body,
             ..
         } => {
-            expression_escapes(start, verdicts)
-                || expression_escapes(end, verdicts)
+            expression_escapes(start, scope)
+                || expression_escapes(end, scope)
                 || step
                     .as_ref()
-                    .is_some_and(|step| expression_escapes(step, verdicts))
-                || block_escapes(body, verdicts)
+                    .is_some_and(|step| expression_escapes(step, scope))
+                || block_escapes(body, scope)
         }
-        HirStatement::ForEach { iterable, body, .. } => {
-            expression_escapes(iterable, verdicts) || block_escapes(body, verdicts)
+        HirStatement::ForEach {
+            name,
+            iterable,
+            body,
+            ..
+        } => {
+            let escapes = expression_escapes(iterable, scope);
+            // The element binding, so a `toString(b)` over a `List OF Byte` inside
+            // the loop is typed like one over a parameter.
+            let element = match scope.type_of(iterable) {
+                ParameterType::ListOf(element) | ParameterType::SetOf(element) => *element,
+                _ => ParameterType::Unknown,
+            };
+            scope.locals.insert(name.clone(), element);
+            escapes || block_escapes(body, scope)
         }
         HirStatement::While {
             condition, body, ..
         }
         | HirStatement::DoUntil {
             body, condition, ..
-        } => expression_escapes(condition, verdicts) || block_escapes(body, verdicts),
+        } => expression_escapes(condition, scope) || block_escapes(body, scope),
     }
 }
 
@@ -303,7 +417,7 @@ fn statement_escapes(statement: &HirStatement, verdicts: &Fallibility) -> bool {
 /// direction: the trapped expression's own errors are routed to the handler, so
 /// only what the *handler* can raise escapes (bug-280's rule, applied to the
 /// nested-call shape this analysis now has to see through).
-fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> bool {
+fn expression_escapes(expression: &HirExpression, scope: &mut EscapeScope<'_, '_>) -> bool {
     match expression {
         HirExpression::String(_)
         | HirExpression::Number(_)
@@ -330,22 +444,22 @@ fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> boo
             ..
         } => {
             ARITHMETIC_OPERATORS.contains(operator)
-                || expression_escapes(left, verdicts)
-                || expression_escapes(right, verdicts)
+                || expression_escapes(left, scope)
+                || expression_escapes(right, scope)
         }
         HirExpression::Unary {
             operand, operator, ..
         } => {
             (*operator == UnaryOp::Negate && !matches!(operand.as_ref(), HirExpression::Number(_)))
-                || expression_escapes(operand, verdicts)
+                || expression_escapes(operand, scope)
         }
         HirExpression::Call {
             callee, arguments, ..
         } => {
-            verdicts.call_is_fallible(callee)
+            scope.call_is_fallible(callee, arguments)
                 || arguments.iter().any(|argument| match argument {
                     HirCallArg::Positional(value) | HirCallArg::Named { value, .. } => {
-                        expression_escapes(value, verdicts)
+                        expression_escapes(value, scope)
                     }
                 })
         }
@@ -355,26 +469,26 @@ fn expression_escapes(expression: &HirExpression, verdicts: &Fallibility) -> boo
         HirExpression::Constructor { arguments, .. } => {
             arguments.iter().any(|argument| match argument {
                 HirConstructorArg::Positional(value) | HirConstructorArg::Named { value, .. } => {
-                    expression_escapes(value, verdicts)
+                    expression_escapes(value, scope)
                 }
             })
         }
         HirExpression::WithUpdate { target, updates } => {
-            expression_escapes(target, verdicts)
+            expression_escapes(target, scope)
                 || updates
                     .iter()
-                    .any(|update| expression_escapes(&update.value, verdicts))
+                    .any(|update| expression_escapes(&update.value, scope))
         }
         HirExpression::ListLiteral(values) => {
-            values.iter().any(|v| expression_escapes(v, verdicts))
+            values.iter().any(|v| expression_escapes(v, scope))
         }
         HirExpression::SetLiteral { elements, .. } => {
-            elements.iter().any(|v| expression_escapes(v, verdicts))
+            elements.iter().any(|v| expression_escapes(v, scope))
         }
         HirExpression::MapLiteral { entries, .. } => entries
             .iter()
-            .any(|(k, v)| expression_escapes(k, verdicts) || expression_escapes(v, verdicts)),
-        HirExpression::MemberAccess { target, .. } => expression_escapes(target, verdicts),
-        HirExpression::Trapped { handler, .. } => block_escapes(handler, verdicts),
+            .any(|(k, v)| expression_escapes(k, scope) || expression_escapes(v, scope)),
+        HirExpression::MemberAccess { target, .. } => expression_escapes(target, scope),
+        HirExpression::Trapped { handler, .. } => block_escapes(handler, scope),
     }
 }

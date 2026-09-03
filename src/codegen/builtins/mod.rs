@@ -184,10 +184,43 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `target` is the canonical, dot-qualified callee (`strings.find`,
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
 /// `toString`, `typeName`).
-pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
+pub(crate) fn inline_trap_unsupported(target: &str, arg_types: &[ParameterType]) -> bool {
     (native_builtin_target(target).is_some() || matches!(target, "len" | "toString" | "typeName"))
-        && !inline_builtin_raw_supported(target)
-        && !inline_builtin_is_infallible(target)
+        && !inline_builtin_raw_supported(target, arg_types)
+        && !inline_builtin_is_infallible(target, arg_types)
+}
+
+/// The one inline built-in whose fallibility depends on its **argument type**
+/// rather than its name (bug-486).
+///
+/// `toString` is overloaded across every type, and exactly one of those overloads
+/// can fail: `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
+/// (`77020004`) on an ill-formed sequence
+/// (`builder_strings.rs:emit_byte_list_to_string_value`, the `invalid` label). Every
+/// other overload — `Integer`, `Float`, `Boolean`, `Scalar`, `AttributedString`,
+/// a record — is total, which is why the name-keyed verdict looked safe and why
+/// deleting `"toString"` from the census outright is the wrong fix: it would make
+/// `toString(42)` fallible and force `Result` plumbing through every interpolation.
+///
+/// `len` and `typeName`, the other two name-keyed general built-ins, were audited
+/// for the same hazard and have none: `lower_len`'s two arms (String, collection)
+/// emit no error return at all, and `typeName` folds to a string constant at
+/// compile time.
+///
+/// A caller that cannot type its arguments passes an empty slice (or `Unknown`),
+/// which answers the name-keyed verdict — the same answer as before this existed.
+/// That is the *under*-approximating side, so every site that can type its
+/// arguments must: [`inline_builtin_is_infallible`]'s consumers act on this to
+/// decide whether an inline `TRAP`'s handler is live.
+pub(crate) fn arg_type_makes_inline_builtin_fallible(
+    target: &str,
+    arg_types: &[ParameterType],
+) -> bool {
+    target == "toString"
+        && matches!(
+            arg_types.first(),
+            Some(ParameterType::ListOf(element)) if **element == ParameterType::Byte
+        )
 }
 
 /// Whether a fallible inline member has a raw-`Result` inline lowering
@@ -206,8 +239,15 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
 /// The infallible members are excluded here (they cannot fail, so there is
 /// nothing to capture; `lower_inline_infallible_raw` wraps them always-`Ok`
 /// instead). `target` is the canonical callee (`collections.get`,
-/// `strings.mid`, ...).
-pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
+/// `strings.mid`, ...); `arg_types` discriminates the one overload-dependent
+/// entry (see [`arg_type_makes_inline_builtin_fallible`]).
+pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterType]) -> bool {
+    // bug-486: `toString(<List OF Byte>)` is the one overload-dependent entry. Its
+    // raw lowering is `lower_to_string` run under a `raw_result_capture`, exactly
+    // like the members below.
+    if arg_type_makes_inline_builtin_fallible(target, arg_types) {
+        return true;
+    }
     // A migrated common-native member that declares an error is fallible: its raw
     // lowering redirects the domain error to the inline-`TRAP` capture point. The
     // `bits` variable shifts (`sl`/`sr`/`sra`) raise `ErrInvalidArgument` on an
@@ -244,10 +284,12 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// invalid-format). Allocation OOM does **not** count as trappable (umbrella Open
 /// Decision), so growth-only mutators (`append`/`prepend`) are infallible.
 ///
-/// Infallible: `len`, `toString`, `typeName`, every total `bits::*` op (all but
-/// the variable shifts), and the pure-query / default-returning / OOM-only members
-/// `contains`, `hasKey`, `keys`, `values`, `sum`, `getOr`, `append`, `prepend`,
-/// `removeKey`, `replace`.
+/// Infallible: `len`, `typeName`, `toString` on every argument type **except**
+/// `List OF Byte` (bug-486 — that overload decodes UTF-8 and raises
+/// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
+/// `bits::*` op (all but the variable shifts), and the pure-query /
+/// default-returning / OOM-only members `contains`, `hasKey`, `keys`, `values`,
+/// `sum`, `getOr`, `append`, `prepend`, `removeKey`, `replace`.
 ///
 /// Fallible (NOT infallible — raw-supported, so an inline `TRAP` traps their real
 /// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
@@ -256,7 +298,13 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// `forEach`/`transform`/`filter`/`reduce`/`reduceRight` (a failing callback
 /// raises a real error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
-pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
+pub(crate) fn inline_builtin_is_infallible(target: &str, arg_types: &[ParameterType]) -> bool {
+    // bug-486: the verdict is name-keyed *except* for the overloads
+    // `arg_type_makes_inline_builtin_fallible` names — today only
+    // `toString(<List OF Byte>)`, whose UTF-8 decode raises `ErrEncoding`.
+    if arg_type_makes_inline_builtin_fallible(target, arg_types) {
+        return false;
+    }
     // A migrated common-native member is infallible when it declares no error and
     // is not otherwise raw-supported. Every `bits` op qualifies (empty `errors`)
     // except the three variable shifts, which declare `ErrInvalidArgument`
@@ -266,7 +314,7 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
     if matches!(
         crate::codegen::registry::native_member_declares_error(target),
         Some(false)
-    ) && !inline_builtin_raw_supported(target)
+    ) && !inline_builtin_raw_supported(target, arg_types)
     {
         return true;
     }
@@ -856,7 +904,7 @@ mod tests {
             "collections.removeKey",
             "strings.replace",
         ] {
-            assert!(inline_builtin_is_infallible(c), "expected infallible: {c}");
+            assert!(inline_builtin_is_infallible(c, &[]), "expected infallible: {c}");
         }
         // Fallible inline members: a real domain error (index/range/not-found), an
         // out-of-range shift count, or a failing callback.
@@ -876,12 +924,52 @@ mod tests {
             "collections.filter",
             "collections.reduce",
         ] {
-            assert!(!inline_builtin_is_infallible(c), "expected fallible: {c}");
+            assert!(!inline_builtin_is_infallible(c, &[]), "expected fallible: {c}");
         }
         // Every inline member is classified one way or the other, and non-inline
         // callees (user functions) are not infallible built-ins.
-        assert!(!inline_builtin_is_infallible("myFunc"));
-        assert!(!inline_builtin_is_infallible("math.sqrt"));
+        assert!(!inline_builtin_is_infallible("myFunc", &[]));
+        assert!(!inline_builtin_is_infallible("math.sqrt", &[]));
+    }
+
+    /// bug-486: the census answers per OVERLOAD for the names whose fallibility
+    /// depends on the argument type. `toString(<List OF Byte>)` decodes UTF-8 and
+    /// raises `ErrEncoding`; every other `toString` is total, and the name-keyed
+    /// answer above must be untouched for them.
+    #[test]
+    fn tostring_is_fallible_only_on_a_byte_list() {
+        let bytes = [ParameterType::list_of(ParameterType::Byte)];
+        assert!(!inline_builtin_is_infallible("toString", &bytes));
+        assert!(inline_builtin_raw_supported("toString", &bytes));
+        assert!(!inline_trap_unsupported("toString", &bytes));
+
+        // Every other overload — including the two-argument precision form, a
+        // list of something else, and the no-types fallback — stays infallible.
+        for args in [
+            vec![ParameterType::Integer],
+            vec![ParameterType::Float, ParameterType::Byte],
+            vec![ParameterType::String],
+            vec![ParameterType::list_of(ParameterType::Integer)],
+            vec![ParameterType::Unknown],
+            vec![],
+        ] {
+            assert!(
+                inline_builtin_is_infallible("toString", &args),
+                "expected infallible: toString{args:?}"
+            );
+            assert!(!inline_builtin_raw_supported("toString", &args));
+        }
+
+        // The overload rule is `toString`'s alone: `len` and `typeName` were
+        // audited and have no fallible overload, so a byte-list argument must not
+        // flip them (`lower_len`'s two arms emit no error return; `typeName` folds
+        // to a string constant at compile time).
+        for name in ["len", "typeName"] {
+            assert!(
+                inline_builtin_is_infallible(name, &bytes),
+                "expected infallible: {name}(List OF Byte)"
+            );
+        }
     }
 
     #[test]
@@ -901,11 +989,11 @@ mod tests {
             "bits.sra",
         ] {
             assert!(
-                inline_builtin_raw_supported(c),
+                inline_builtin_raw_supported(c, &[]),
                 "expected raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c),
+                !inline_trap_unsupported(c, &[]),
                 "raw-supported must not be unsupported: {c}"
             );
         }
@@ -917,11 +1005,11 @@ mod tests {
             "collections.reduce",
         ] {
             assert!(
-                inline_builtin_raw_supported(c),
+                inline_builtin_raw_supported(c, &[]),
                 "expected raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c),
+                !inline_trap_unsupported(c, &[]),
                 "raw-supported must not be unsupported: {c}"
             );
         }
@@ -929,11 +1017,11 @@ mod tests {
         // still trappable via the always-`Ok` path — so also not unsupported.
         for c in ["collections.contains", "len", "bits.band"] {
             assert!(
-                !inline_builtin_raw_supported(c),
+                !inline_builtin_raw_supported(c, &[]),
                 "expected NOT raw-supported: {c}"
             );
             assert!(
-                !inline_trap_unsupported(c),
+                !inline_trap_unsupported(c, &[]),
                 "infallible must not be unsupported: {c}"
             );
         }
@@ -1156,7 +1244,7 @@ mod tests {
             "nope",                  // not a builtin at all
         ] {
             assert!(
-                !inline_trap_unsupported(target),
+                !inline_trap_unsupported(target, &[]),
                 "expected trappable (not unsupported): {target}"
             );
         }

@@ -1,0 +1,105 @@
+IMPORT collections
+IMPORT io
+
+' bug-486: `toString(List OF Byte)` decodes UTF-8 and raises ErrEncoding
+' (7-702-0004) on invalid bytes, so an inline TRAP on it must catch — exactly as
+' one on the sibling conversion `toInt` does. It is the ONE `toString` overload
+' that can fail; every other one stays provably infallible and keeps warning
+' TYPE_INLINE_TRAP_DEAD_HANDLER (shape F below, and the sibling fixture
+' `inline-trap-infallible-builtin-valid`).
+
+' "caf" + 0xE9 — "cafe" with an acute e in ISO-8859-1 / windows-1252, which is
+' NOT valid UTF-8. Built at runtime so the bytes are not a compile-time constant.
+FUNC latin1() AS List OF Byte
+  MUT b AS List OF Byte = []
+  FOR EACH n IN [99, 97, 102, 233]
+    b = collections::append(b, toByte(n))
+  NEXT
+  RETURN b
+END FUNC
+
+' Valid UTF-8 ("ok") — the success path an inline TRAP must leave untouched.
+FUNC utf8ok() AS List OF Byte
+  MUT b AS List OF Byte = []
+  FOR EACH n IN [111, 107]
+    b = collections::append(b, toByte(n))
+  NEXT
+  RETURN b
+END FUNC
+
+' Shape C — a function-level TRAP. The contrast case: it catches today, and
+' `examples/browser`'s `fetch::pageResult` depends on it. Must keep working with
+' the same error code.
+FUNC decodeFunctionTrap(bytes AS List OF Byte) AS String
+  RETURN toString(bytes)
+
+  TRAP(e)
+    RETURN "C caught: " & toString(e.code)
+  END TRAP
+END FUNC
+
+' Shape E's callee — a user function whose ONLY failure path is a byte decode.
+' `ir::fallible::analyze` must judge it fallible, or an inline TRAP on a call to
+' it whose scrutinee also hoists (below) leaves the root unchecked.
+FUNC decode(b AS List OF Byte) AS String
+  RETURN toString(b)
+END FUNC
+
+FUNC main AS Integer
+  ' Shape A — inline TRAP, scrutinee holds a nested call. The hoist list is
+  ' non-empty, so `ir::lower`'s `check_root` consults the fallibility census for
+  ' the root `toString`; a name-keyed "infallible" left it a plain Call and the
+  ' raise walked straight past the handler.
+  LET a AS String = toString(latin1()) TRAP(e)
+    RECOVER "A caught"
+  END TRAP
+  io::print(a)
+
+  ' Shape B — inline TRAP, scrutinee is a bare local. The IR is a correct
+  ' `callResult`, but codegen routed it to `lower_inline_infallible_raw`, which
+  ' lowers `toString` with no raw capture, so the ErrEncoding return
+  ' auto-propagated instead of joining the Result.
+  LET bytes AS List OF Byte = latin1()
+  LET b AS String = toString(bytes) TRAP(e)
+    RECOVER "B caught"
+  END TRAP
+  io::print(b)
+
+  ' Shape C — the function-level TRAP contrast case, with its real error code.
+  io::print(decodeFunctionTrap(latin1()))
+
+  ' Shape D — the decode nested inside a larger trapped expression. It is the
+  ' hoist that makes the handler live; while `toString` was named infallible
+  ' nothing hoisted and this valid program was REJECTED
+  ' (TYPE_INLINE_TRAP_REQUIRES_FALLIBLE, "this expression is not a call").
+  LET d AS String = "D " & toString(bytes) TRAP(e)
+    RECOVER "D caught"
+  END TRAP
+  io::print(d)
+
+  ' Shape E — the same defect one call deep: `decode`'s only raise is the byte
+  ' decode, and the scrutinee's nested `latin1()` makes the hoist list non-empty,
+  ' so the root is checked only if `decode` is judged fallible.
+  LET e2 AS String = decode(latin1()) TRAP(er)
+    RECOVER "E caught"
+  END TRAP
+  io::print(e2)
+
+  ' Shape F — the guard against the tempting wrong fix. `toString` on a NON-byte
+  ' argument is still provably infallible: this must still warn
+  ' TYPE_INLINE_TRAP_DEAD_HANDLER and the handler must stay dead (no DEAD-F).
+  LET f AS String = toString(486) TRAP(e)
+    io::print("DEAD-F")
+    RECOVER "?"
+  END TRAP
+  io::print("F " & f)
+
+  ' Shape G — the success path. Valid UTF-8 under an inline TRAP yields the real
+  ' string; no handler runs.
+  LET g AS String = toString(utf8ok()) TRAP(e)
+    RECOVER "DEAD-G"
+  END TRAP
+  io::print("G " & g)
+
+  RETURN 0
+END FUNC
