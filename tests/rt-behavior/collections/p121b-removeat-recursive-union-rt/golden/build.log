@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/p121b-removeat-recursive-union-rt
+Wrote AST to tests/rt-behavior/collections/p121b-removeat-recursive-union-rt/p121b_removeat_recursive_union_rt.ast
+Wrote IR to tests/rt-behavior/collections/p121b-removeat-recursive-union-rt/p121b_removeat_recursive_union_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/p121b-removeat-recursive-union-rt
+Wrote executable to tests/rt-behavior/collections/p121b-removeat-recursive-union-rt/build/p121b_removeat_recursive_union_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/p121b-removeat-recursive-union-rt/build/p121b_removeat_recursive_union_rt.out
+n=2 t0,t1,
+n=3 t0,t1,t2,
+n=8 t0,t1,t2,t3,t4,t5,t6,t7,
+render=seedAseedB
+insert=s0,s0,s0,
+[exit 0]

@@ -851,4 +851,236 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(())
     }
+
+    /// plan-121-B: recognize `name = collections::removeAt(name, i)` on a
+    /// uniquely-owned `MUT` list local and close the hole in the live buffer
+    /// instead of allocating a fresh tight block and copying every survivor into
+    /// it. The shift stays O(n) — that is `removeAt`'s defined cost and C pays it
+    /// too — but the per-call allocate + copy + free disappears, which spike 3
+    /// measured at 36x the data movement.
+    ///
+    /// **This arm's `FOR EACH` gate is stricter than `append`'s, and the
+    /// difference is the whole reason the gate inventory exists.** `append`
+    /// writes only *beyond* the count a live loop snapshotted at entry, so it may
+    /// proceed until it reallocs. `removeAt` shifts survivors *down*, rewriting
+    /// entries below that snapshot — which the loop can observe as a skipped or
+    /// repeated element even though no buffer was freed. So it declines on any
+    /// live `FOR EACH` over this binding, unconditionally
+    /// (`planning/plan-121-gate-inventory.md`, "the `removeAt` asymmetry").
+    pub(crate) fn try_inplace_remove_at_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        // Container (plan-121-A's seam). G7 — the live-`FOR EACH` decline — is
+        // enforced here for the shift reason above, not merely the realloc one.
+        let Some(target) =
+            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "removeAt", 2)
+        else {
+            return Ok(false);
+        };
+        let list_type = target.collection_type.clone();
+        // G9 — `removeAt` mutates a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // G24 — decline for a RECURSIVE element type. Unlike every other arm in
+        // this family, `removeAt` compacts the data region: it moves surviving
+        // payloads *down* inside the live buffer. That is safe only while nothing
+        // else refers into those payloads.
+        //
+        // `type_participates_in_cycle` is exactly the class where something does.
+        // Its own doc records why: a recursive value is a **pointer-linked graph**
+        // that inline copy codegen cannot reproduce, so it needs a per-type runtime
+        // copy function — which means an ordinary `collections::get` of such an
+        // element does not produce an independent deep copy the way a `String`,
+        // record or nested-list element does. Relocating the payload under a value
+        // already read out of the list leaves that value reading moved bytes.
+        //
+        // Measured, on `List OF Node` where `ElementNode.children` is `List OF Node`
+        // (the shape `tests/rt_recursive_thread_transfer.rs` builds):
+        // `get(xs, 0)` then `xs = removeAt(xs, 0)` then `MATCH` on the value read
+        // fell to `CASE ELSE` for every element whose removal actually moved bytes,
+        // and was correct only for the last one — where `count == 1` makes the
+        // shift length zero. Dropping `children` from the record (making the union
+        // non-recursive) makes the same program pass, which is what isolates the
+        // predicate.
+        //
+        // The copying path is unaffected because it never disturbs the original
+        // buffer, so declining restores exactly the previous behavior. `insert` and
+        // `prepend` need no such gate: they place the new payload at the data tail
+        // and shift only the 40-byte lookup entries, so no existing payload moves.
+        if crate::codegen::collection::layout::type_participates_in_cycle(
+            &self.type_model,
+            &element_type,
+        ) {
+            return Ok(false);
+        }
+        let index = self.lower_value(&target.args[1])?;
+        // E1 — the index is Integer by construction; a mismatch is a codegen
+        // invariant violation, not a program to decline.
+        if index.type_ != ParameterType::Integer {
+            return Err(format!(
+                "native collection removeAt index must be Integer, got {}",
+                index.type_
+            ));
+        }
+        let index = self.materialize_value(index)?;
+        let index_slot = self.allocate_stack_object("inplace_remove_at_index", 8);
+        self.emit(abi::store_u64(
+            &index.location,
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        self.lower_list_remove_at_in_place(
+            target.dest.block_slot(),
+            index_slot,
+            &list_type,
+            &element_type,
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// plan-121-B: recognize `name = collections::remove(name, v)` on a
+    /// uniquely-owned `MUT` `Set` local and delete the entry in place.
+    ///
+    /// A `Set` is a `Map` to `TRUE` and `collections::remove` already reuses
+    /// `lower_map_remove_key` out of place, so the in-place form is the same
+    /// reuse of [`Self::lower_map_remove_key_in_place`] — entry-table compaction
+    /// plus `BUCKETS_READY = 0` so the next probe rebuilds the index. That the
+    /// arm did not exist is the entire gap: `set (Fixed) remove` measured **677x
+    /// c -O0** while the Map sibling with the identical lowering was 32x.
+    ///
+    /// Gates match the Map `removeKey` arm exactly, including the live-`FOR EACH`
+    /// decline: the compaction shift moves entries below a live iterator's
+    /// snapshot, which it can observe (bug-142's non-freeing twin).
+    pub(crate) fn try_inplace_set_remove_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        let Some(target) =
+            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "remove", 2)
+        else {
+            return Ok(false);
+        };
+        let set_type = target.collection_type.clone();
+        // G9 — `remove` mutates a Set. (`removeKey` handles the Map spelling.)
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // G11 — the removed value must be statically the set's element type.
+        match self.static_item_type(&target.args[1]) {
+            Some(t) if t == element_type => {}
+            _ => return Ok(false),
+        }
+        let item = self.lower_value(&target.args[1])?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_set_remove_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        self.lower_map_remove_key_in_place(
+            target.dest.block_slot(),
+            item_slot,
+            &set_type,
+            &element_type,
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
+    /// plan-121-B: recognize `name = collections::insert(name, i, v)` on a
+    /// uniquely-owned `MUT` list local and splice into the live buffer instead of
+    /// allocating a fresh block and copying the whole list per call. The shift
+    /// stays O(N) — that is `insert`'s defined cost and C pays it too — but the
+    /// per-call allocate + copy + free disappears, which spike 3 measured at 36x
+    /// the data movement.
+    ///
+    /// **Declines under a live `FOR EACH`, where `append` would not.** The shift
+    /// moves entries up from an index *inside* the range the loop snapshotted at
+    /// entry, so the loop can observe it; `append` writes only beyond that count.
+    /// See `planning/plan-121-gate-inventory.md`, "the `removeAt` asymmetry",
+    /// which covers `insert` for the same reason.
+    pub(crate) fn try_inplace_insert_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        // Container (plan-121-A's seam). G7 — the live-`FOR EACH` decline — is
+        // enforced here for the shift reason above, not merely the realloc one.
+        let Some(target) =
+            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "insert", 3)
+        else {
+            return Ok(false);
+        };
+        let list_type = target.collection_type.clone();
+        // G9 — `insert` mutates a List.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // Source order, matching the out-of-place lowering: index then item.
+        let index = self.lower_value(&target.args[1])?;
+        // E1 — the index is Integer by construction; a mismatch is a codegen
+        // invariant violation, not a program to decline.
+        if index.type_ != ParameterType::Integer {
+            return Err(format!(
+                "native collection insert index must be Integer, got {}",
+                index.type_
+            ));
+        }
+        let index = self.materialize_value(index)?;
+        let index_slot = self.allocate_stack_object("inplace_insert_index", 8);
+        self.emit(abi::store_u64(
+            &index.location,
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        let item = self.lower_value(&target.args[2])?;
+        // Observation boundary: an in-place spliced `Float` must be finite
+        // (plan-17).
+        self.observe_float(&target.args[2], &item)?;
+        // E2 — like `set`/`prepend`, the source checker enforces the item type and
+        // this post-lowering check catches any mismatch as a hard error, so there
+        // is no static G11 gate (`insert` has no bulk form to distinguish).
+        if item.type_ != element_type {
+            return Err(format!(
+                "native collection insert item must be {element_type}, got {}",
+                item.type_
+            ));
+        }
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_insert_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        self.lower_list_insert_in_place(
+            target.dest.block_slot(),
+            index_slot,
+            item_slot,
+            &list_type,
+            &element_type,
+        )?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
 }

@@ -1,0 +1,19 @@
+{
+  "name": "p121b_removeat_recursive_union_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

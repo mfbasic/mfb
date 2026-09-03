@@ -845,6 +845,29 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                                 by_ref,
                             )?
+                            // plan-121-B: `removeAt` and Set `remove` had no arm in
+                            // any container, so every call allocated a fresh block
+                            // and copied the whole collection. Order within this
+                            // chain is immaterial — the arms match disjoint builtin
+                            // names — so they are appended rather than interleaved.
+                            && !self.try_inplace_remove_at_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_insert_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
+                            && !self.try_inplace_set_remove_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_record_field_append(
                                 name,

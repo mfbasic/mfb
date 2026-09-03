@@ -61,6 +61,34 @@ Two rules from it that are easy to get wrong:
   which a live iterator can observe, so those must decline whenever any
   `FOR EACH` walks the collection. `append`'s permissive reasoning does not
   transfer.
+* **There is a SECOND aliasing surface, and only payload-relocating ops hit it.**
+  The `FOR EACH` rule above is about what an *iterator* sees; it is not the whole
+  question. Ask also: **what else holds a reference into the bytes this operation
+  moves?**
+
+  | op | what it moves |
+  |---|---|
+  | `append`, bulk `append` | writes only *past* the live data |
+  | `insert`, `prepend` | shift the 40-byte *lookup entries*; new payload goes at the data *tail* |
+  | `set` (same-size) | overwrites one payload in place |
+  | **`removeAt`** | **compacts the data region — relocates surviving payloads** |
+
+  Relocating a payload is safe only while nothing refers into it, and for a
+  **recursive** element type something does. `type_participates_in_cycle`
+  (`collection/layout/builder_collection_layout.rs`) marks exactly that class:
+  such a value is a *pointer-linked graph* that inline copy codegen cannot
+  reproduce, so it needs a per-type runtime copy function — and an ordinary
+  `collections::get` of one is therefore **not** the independent deep copy a
+  `String`, record or nested-list element gets. Read an element, remove one in
+  place, and the value you read follows moved bytes.
+
+  `try_inplace_remove_at_assign` declines on that predicate (gate `G24`).
+  **Any future arm that relocates existing payloads inherits it** — including a
+  length-changing `set`, which shifts the data tail by design. An arm that shifts
+  only *entries* does not: `insert` on the same recursive-union shape was measured
+  byte-identical to the pre-change compiler. The failure signature is worth
+  recognising: every element wrong except the last, because at `count == 1` the
+  shift length is zero.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

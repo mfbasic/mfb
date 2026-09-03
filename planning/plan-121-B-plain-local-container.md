@@ -243,32 +243,100 @@ the point of measuring first:
   Correction B2.
 
 No `src/` file was modified; `spikes/s6` and `spikes/s7` are new.
-Commit: —
+Commit: 56b368996
 
 ### Phase 2 — `insert` and `removeAt` in-place (plain local)
 
-- [ ] Add the `insert` arm via `InPlaceDest`; register it in the
+- [x] Add the `insert` arm via `InPlaceDest`; register it in the
       `builder_control.rs` dispatch chain.
-- [ ] Add the `removeAt` arm, **declining on any live `FOR EACH` over the list**
+      **`try_inplace_insert_assign`.** Rather than duplicate `prepend`'s ~250
+      lines of room check and geometric grow — which are index-independent —
+      `lower_list_prepend_in_place` was generalized into
+      `lower_list_splice_in_place(buffer, at: SpliceAt, …)`, with `prepend` a
+      thin `SpliceAt::Front` wrapper and `insert` a `SpliceAt::At(index_slot)`
+      one. `Front` is a distinct variant, not "a slot holding 0", precisely so
+      prepend keeps emitting the instructions it emitted before: materializing a
+      constant zero would add instructions and churn a committed golden for
+      nothing.
+- [x] Add the `removeAt` arm, **declining on any live `FOR EACH` over the list**
       (§3). Add a codegen-inspection test asserting it declines there.
-- [ ] Tests: an rt-behavior fixture per op covering the aliasing cases —
+      **`try_inplace_remove_at_assign` + `lower_list_remove_at_in_place`.** The
+      shift runs *downward*, so the destination trails the source and
+      `emit_block_copy_advance`'s forward copy is safe on the overlap — the
+      opposite direction from `insert`/`prepend`, which need
+      `emit_block_copy_backward`. Decline asserted by
+      `remove_at_declines_under_a_live_for_each`.
+- [x] Tests: an rt-behavior fixture per op covering the aliasing cases —
       mutation during `FOR EACH`, a second binding taken before the call, a
       by_ref parameter — each asserting the *copying* semantics still hold.
-- [ ] Tests: a positive codegen-inspection test per op proving the fast path is
-      taken (a black-box fixture only gets slower, it does not fail).
-- [ ] Regenerate only the goldens listed in Phase 1; diff the set that moved
-      against that list.
+      **`tests/rt-behavior/collections/p121b-removeat-insert-aliasing-rt`**, 8
+      cases: `removeAt`/`insert` during `FOR EACH`; a second binding taken
+      first; a by-value parameter; every boundary index past a geometric grow
+      (reading back *every* element, so a partial offset fixup fails loudly);
+      a single-element list; the fixed-width entry-free representation; and Set
+      `remove` including absent/duplicate removal.
 
-Acceptance: `cargo test --no-fail-fast` green; spike 3 re-run shows `insert` and
-`removeAt` flat (not rising) in per-call cost across N = 100…6400; the four
-benchmark rows for these ops reach grade B or better; golden drift is exactly the
-Phase 1 set.
+      **The by_ref case in the plan cannot be written, and the fixture says so
+      instead of pretending.** A local is `by_ref` only when bound to a
+      by-reference *lambda capture* (`NirValue::Capture { by_ref: true }`,
+      `builder_control.rs:337`) — MFBASIC has no by-ref parameter, and a lambda
+      body is a single expression, so no reassignment can occur inside one. G1 is
+      therefore **defence in depth for these arms, not a reachable path**. The
+      case was replaced with the reachable thing it was reaching for: a by-value
+      parameter must not write through to the argument.
+- [x] Tests: a positive codegen-inspection test per op proving the fast path is
+      taken (a black-box fixture only gets slower, it does not fail).
+      **`tests/codegen_inplace_remove_at_insert.rs`, 6 cases** — taken *and*
+      declined for each of `removeAt`, `insert` and Set `remove`. All green.
+- [x] Regenerate only the goldens listed in Phase 1; diff the set that moved
+      against that list.
+      **Exactly the one predicted file moved.** `cargo test --test golden`
+      before regenerating: `1828 golden(s) checked, 1 diff(s)`, and the diff was
+      `rt-behavior/collections/list-ops-codegen-rt/list_ops_codegen_rt.macos-aarch64.ncode`
+      — the file Phase 1's census named. Scoped acceptance over the 13 fixtures
+      that touch these ops reported `1 mismatch(es) (13 test(s) ran)`, and the
+      mismatch was that same `.ncode`: every fixture's *behavior*
+      (`build.log`, `.run`, `.ast`, `.ir`) matched unchanged. Regenerated with
+      `scripts/sync-goldens.sh target/release/mfb list-ops-codegen-rt`.
+
+Acceptance: `cargo test --no-fail-fast` green; ~~spike 3 re-run shows `insert`
+and `removeAt` flat (not rising) in per-call cost across N = 100…6400~~ —
+**this clause contradicts §1's own non-goal and is replaced, not dropped** (see
+Correction B4): the non-goals state that `insert`/`removeAt` **stay O(N)**,
+because the shift is the operation's defined cost and C pays it too, so a flat
+per-call cost was never achievable and never wanted. The checkable criterion it
+was reaching for is *the allocation is gone, leaving only the shift*, and that is
+what is measured below; the four benchmark rows for these ops reach grade B or
+better; golden drift is exactly the Phase 1 set.
+
+**Runtime, `spikes/s3` P2 re-run** (500 calls held constant, ns/call), against
+the baseline recorded in `spikes/README.md`:
+
+| op | before (N=100 → 6400) | after | at N = 6400 |
+|---|---|---|---|
+| `append` (control) | 26 → 12 | 26 → 10 | — |
+| **`insert`** | 2790 → 72360 | **718 → 12048** | **6.0× faster** |
+| **`removeAt`** | 1862 → 28670 | **522 → 2666** | **10.8× faster** |
+| `prepend` (no change made) | 762 → 13792 | 730 → 18146 | — |
+
+`removeAt` at N = 6400 shifts ≈ 6650 elements (≈ 53 KB) in 2666 ns — about
+**20 GB/s, i.e. memmove rate**. It is now memory-bandwidth-bound, which is the
+floor §1 accepts. `insert` shifts ≈ N/2 and lands at 12048 ns for the same
+reason. `prepend` is unchanged because nothing was changed about it (B2), and
+its numbers move only with box noise.
+
 Commit: —
 
 ### Phase 3 — Set `remove` in-place, and the `prepend`/`removeKey` constants
 
-- [ ] Add the Set `remove` arm, mirroring the Map `removeKey` arm including
-      `BUCKETS_READY=0`.
+- [x] Add the Set `remove` arm, mirroring the Map `removeKey` arm including
+      `BUCKETS_READY=0`. **Landed in Phase 2's commit rather than this one** —
+      it is three lines of new logic (a `Set` element type instead of a `Map`
+      key, then the same `lower_map_remove_key_in_place`), so splitting it from
+      `removeAt` would have meant two builds and two full-suite runs to land one
+      arm. Recorded here rather than moved, so the phase boundary still says what
+      happened. `set_remove_on_a_plain_local_mutates_in_place` and
+      `set_remove_declines_under_a_live_for_each` cover it.
 - [x] ~~Apply whatever Phase 1 showed to be the reachable win on `prepend` (its
       arm exists; the gap is the constant).~~ — **moot: there is no reachable
       win. `spikes/s7` measures the arm at 0.55–1.86× the cost of a block copy of
@@ -287,8 +355,20 @@ Commit: —
       needs the bucket index to survive a delete — which `.ai/collections.md`
       records as structural and §1's non-goals put out of bounds. Recorded as a
       referral in Correction B1 rather than silently marked moot.
-- [ ] Tests: rt-behavior fixture for Set `remove` covering removal of an absent
+- [x] Tests: rt-behavior fixture for Set `remove` covering removal of an absent
       element, the last element, and during iteration.
+      **Case 8 of `p121b-removeat-insert-aliasing-rt`**: absent element (a
+      no-op), the last-added element, the same element twice (idempotent), then
+      an enumeration and two `contains` probes so the entry compaction is proven
+      to have left the set readable rather than merely shorter. The
+      *during-iteration* half is the decline, which is a codegen property no
+      black-box fixture can observe — pinned by
+      `set_remove_declines_under_a_live_for_each`.
+- [x] Added task: bounds coverage for the new in-place paths.
+      `func_collection_{insert,removeAt}_inplace_out_of_range` — the existing
+      out-of-range fixtures are written as `LET`, which the arms do not match, so
+      the new gates arrived with no coverage at all while looking covered. This
+      found a real bug; see Correction B6.
 
 Acceptance: `set (Fixed) remove` moves from 677× to grade B or better;
 `cargo test --no-fail-fast` green; `./scripts/test-accept.sh` shows no mismatch
@@ -308,6 +388,11 @@ Commit: —
   stop rising with N.
 - **Doc sync:** `.ai/collections.md` gains the `removeAt`-vs-`FOR EACH`
   asymmetry from §3 — it is exactly the kind of invariant that doc exists for.
+  **DONE, and it gained the more valuable half too:** the `FOR EACH` rule is about
+  what an *iterator* sees, and B7 showed that is not the whole question. The doc
+  now carries both, with the per-op table of *what each arm moves* and the `G24`
+  predicate, so the next arm that relocates payloads (plan-121-F's length-changing
+  `set`) inherits the rule instead of rediscovering it.
 - **Acceptance:** `cargo test --no-fail-fast`, `./scripts/test-accept.sh`, the
   artifact gate, and `cargo fmt` per AGENTS.md.
 
@@ -368,6 +453,165 @@ fall away**, and this sub-plan's measurable outcome is exactly the six rows that
 have no arm at all — `list (Fixed|Dynamic) insert`, `list (Fixed|Dynamic)
 removeAt`, `set (Fixed|Dynamic) remove`. §1's goal is unchanged; the tuning half
 of the sub-plan is answered by measurement rather than by code.
+
+### B4 — Phase 2's "flat, not rising" acceptance contradicted the non-goals (2026-09-02)
+
+Phase 2's acceptance asked for "spike 3 re-run shows `insert` and `removeAt`
+**flat (not rising)** in per-call cost across N = 100…6400". §1's non-goals say
+the opposite, and are right: "**`insert`/`removeAt`/`prepend` stay O(N).**
+Shifting N elements is the operation's defined cost and C pays it too
+(`memmove`)."
+
+Both cannot hold. A flat per-call cost would require not moving the elements at
+all, which means a different data structure — exactly what the non-goals rule
+out. As written the criterion was unmeetable, and meeting it would have meant
+violating the sub-plan's own constraint.
+
+**Strengthened, not weakened**, per the rule that an unmeetable acceptance
+criterion is replaced by something checkable: the claim worth making is *the
+per-call allocation is gone, leaving only the shift*, and that is checkable two
+ways, both of which now stand in the acceptance:
+
+1. the per-call cost at N = 6400 falls **6.0×** for `insert` and **10.8×** for
+   `removeAt` against the recorded baseline; and
+2. what remains is at memmove rate — `removeAt` moves ≈ 53 KB in 2666 ns,
+   ≈ 20 GB/s — so the residual is the shift itself and not an allocator.
+
+That is a stricter test than "flat" would have been, because "flat" could also
+be satisfied by a measurement that never scaled the work.
+
+### B5 — the `by_ref` aliasing case cannot be written in MFBASIC (2026-09-02)
+
+Phase 2's test task lists the aliasing cases to cover as "mutation during
+`FOR EACH`, a second binding taken before the call, **a by_ref parameter**". The
+third does not exist: MFBASIC has no by-reference parameter. A local is `by_ref`
+only when it is bound to a by-reference **lambda capture**
+(`NirValue::Capture { by_ref: true }`, `builder_control.rs:337`), and a lambda
+body is a single expression (`LAMBDA(x AS Integer) -> x + base`), so a
+reassignment of a captured collection cannot appear inside one.
+
+Writing `FUNC dropFirst(MUT ys AS List OF Integer)` fails to parse
+("Parameter name must be an identifier").
+
+So **G1 is defence in depth for the plain-local arms, not a reachable path** —
+worth keeping (declining is always correct, and a future capture form could
+reach it) but not worth a test that claims to exercise it. The fixture covers the
+reachable thing the case was aiming at instead: a by-value parameter is a copy
+and must not write through to the caller's list. The corresponding
+`remove_at_declines_on_a_by_ref_parameter` codegen case was dropped for the same
+reason rather than shipped green-but-vacuous.
+
+### B6 — the splice generalization silently dropped `insert`'s bounds check (2026-09-02)
+
+**A bug this sub-plan introduced, caught before landing, and worth recording
+because the mechanism generalizes.**
+
+`insert` was implemented by generalizing `lower_list_prepend_in_place` into
+`lower_list_splice_in_place`. That is the right shape — the room check and the
+geometric grow are index-independent, so duplicating ~250 lines of them would
+have been worse — but it inherits an assumption that is only true for `prepend`:
+**index 0 is always in range, so prepend needs no bounds check.** The
+out-of-place `lower_list_insert` does have one (`0 <= index <= count`, raising
+`ErrIndexOutOfRange` at `list_mutate.rs:454`), and the generalized splice had
+none. A self-assigned `xs = collections::insert(xs, 99, v)` on a 3-element list
+would have shifted and written past the end instead of raising.
+
+**Why the existing test suite could not catch it, which is the reusable part:**
+`tests/rt-error/collections/func_collection_insert_out_of_range` spells the call
+as `LET values = collections::insert([1, 2], 3, 9)` — a `LET`, not a
+self-assignment. The in-place arm only matches `name = insert(name, …)` (G5/G6),
+so that fixture exercises the **copying** path and can never reach the new gate.
+Every out-of-range fixture for these operations has the same shape. The arms
+added here therefore arrived with *zero* bounds coverage while looking covered.
+
+Fixed and pinned three ways:
+
+- the check is in the `SpliceAt::At` arm only, before the room check, so a raise
+  leaves the list untouched — and `Front` still emits none of it, keeping
+  `prepend` byte-identical;
+- two new rt-error fixtures in the **self-assign** shape,
+  `func_collection_{insert,removeAt}_inplace_out_of_range`, verified to produce
+  byte-identical output to the pre-change compiler (`Error: 7-705-0001`,
+  `[exit 255]`);
+- two codegen-inspection cases, `insert_in_place_still_bounds_checks` and
+  `remove_at_in_place_still_bounds_checks`, each asserting the in-place path is
+  taken *and* that its `*_inplace_invalid` raise label is emitted — so a future
+  refactor that drops the check fails at codegen rather than at runtime.
+
+The generalizable lesson: **when a new operation is implemented by widening an
+existing one, the existing one's preconditions become assumptions, and the tests
+that would have caught the difference may be written in a spelling the new path
+does not match.** Check what the old path validated that the new caller does not.
+
+### B7 — in-place `removeAt` relocates payloads, and that is observable (2026-09-02)
+
+**The most important finding in this sub-plan.** `cargo test --no-fail-fast`
+turned `tests/rt_recursive_thread_transfer.rs` red:
+
+```
+bare Node transfer produced wrong text:
+bare=seedB          (expected bare=seedAseedB)
+```
+
+§3's correctness analysis was about *iterator* aliasing — the `FOR EACH`
+snapshot, which is what the whole gate inventory is organised around. It missed a
+second aliasing surface entirely, and `removeAt` is the only arm in the family
+that touches it:
+
+| arm | what it moves |
+|---|---|
+| `append` | writes only **past** the live data |
+| `insert`, `prepend` | shift the 40-byte **lookup entries**; the new payload goes at the data **tail** |
+| **`removeAt`** | **compacts the data region — relocates surviving payloads inside the live buffer** |
+
+Relocating a payload is safe only while nothing else refers into it. For a
+**recursive** element type, something does. `type_participates_in_cycle`
+(`builder_collection_layout.rs`) already marks exactly that class, and its own doc
+says why: such a value is a **pointer-linked graph that inline copy codegen cannot
+reproduce**, so it needs a per-type runtime copy function — which means an
+ordinary `collections::get` of one does *not* hand back the independent deep copy
+a `String`, record or nested-list element gets. Reading an element, then removing
+one in place, leaves the value read following moved bytes.
+
+**Isolating the predicate took a bisect, and the intermediate results were
+misleading** — worth recording, because four separate shapes passed before the
+real one was found:
+
+| shape | result |
+|---|---|
+| `List OF String`, `List OF Item` (record with a String + nested list) | pass |
+| `List OF List OF Integer` | pass |
+| `List OF Node` where Node is a **non-recursive** union | pass |
+| `List OF Holder` where Holder *contains* a union | pass |
+| `List OF Node` where `ElementNode.children` is `List OF Node` | **FAIL** |
+
+Adding `children AS List OF Node` to the record is the *only* difference between
+the last two rows. The failure signature is also diagnostic: for
+`?,?,?,?,?,?,?,t7,` the last element is always correct, because at `count == 1`
+the shift length is zero and no bytes move.
+
+Fixed by **G24**: `try_inplace_remove_at_assign` declines when
+`type_participates_in_cycle(element_type)`. Declining restores exactly the
+previous behavior, and it costs nothing on the rows this sub-plan targets, whose
+elements are `Integer` and `String`.
+
+`insert` was **measured**, not assumed, to need no such gate: the same
+recursive-union program under `insert` is byte-identical to the reference
+compiler, because it shifts only entries and appends the payload at the tail.
+`prepend` likewise — which is also why this is **not** a pre-existing bug: on a
+compiler with none of this sub-plan's arms, the same shape through `prepend` is
+correct.
+
+Pinned three ways: the rt fixture
+`tests/rt-behavior/collections/p121b-removeat-recursive-union-rt` (behavior,
+verified byte-identical to the pre-change compiler), a codegen case asserting the
+**decline**, and a companion asserting a *non*-recursive union still takes the
+fast path — so the guard cannot silently widen into "declines for every union".
+
+**The lesson worth carrying:** the gate inventory organises around what a live
+`FOR EACH` can observe, and that framing is what hid this. The question it does
+not ask is *what else holds a reference into the bytes this operation moves* —
+and `removeAt` was the first arm for which the answer was not "nothing".
 
 ### B3 — the expected-drift set is one golden, not a family (2026-09-02)
 

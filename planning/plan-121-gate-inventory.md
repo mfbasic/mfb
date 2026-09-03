@@ -53,6 +53,7 @@ checked line-by-line against the set.
 | **G21** | the target name reappears in a later operand (`s = s & x & s`) — `nir_value_reads_local` |
 | **G22** | an updated STATE field is inlined or a pointer composite (scalar arm only) |
 | **G23** | the updated field name is not found in the record's field list |
+| **G24** | the element type participates in a type cycle — `type_participates_in_cycle` (plan-121-B; **`removeAt` only**, see below) |
 
 Two conditions are enforced **after** lowering as a hard `Err`, not a decline —
 they are type-invariant assertions, not gates, and Phase 2 must keep them as
@@ -260,6 +261,41 @@ grow — it was falling off the in-place path **entirely**, into the whole-STATE
 rebuild, for both the single-element and the whole-list shapes. A one-sided
 negative test would have passed against the broken compiler; that is why the
 bulk case asserts both halves.
+
+---
+
+## G24 — the SECOND aliasing surface, which this inventory originally missed
+
+Every other condition here is organised around one question: **what can a live
+`FOR EACH` observe?** That framing is complete for the arms that existed when the
+inventory was written, and it is what let plan-121-B ship a miscompile.
+
+There is a second question, and only one operation has ever had to answer it:
+**what else holds a reference into the bytes this operation moves?**
+
+| arm | what it moves |
+|---|---|
+| `append`, bulk `append` | writes only **past** the live data |
+| `insert`, `prepend` | shift the 40-byte **lookup entries**; the new payload goes at the data **tail** |
+| `set` | overwrites one payload in place (same size) or rebuilds |
+| **`removeAt`** | **compacts the data region — relocates surviving payloads inside the live buffer** |
+
+`removeAt` is the only arm that relocates an existing payload. That is safe only
+while nothing refers into it — and for a **recursive** element type something
+does. `type_participates_in_cycle` marks exactly that class, and its own doc
+explains it: a recursive value is a **pointer-linked graph that inline copy
+codegen cannot reproduce**, so it needs a per-type runtime copy function, which
+means an ordinary `collections::get` of one is not the independent deep copy a
+`String`, record or nested-list element gets.
+
+**Any future arm that relocates existing payloads inherits G24.** That includes
+plan-121-F's length-changing `set`, which shifts the data tail by design — check
+it there rather than rediscovering this. An arm that only shifts *entries* does
+not (measured: `insert` on the same recursive-union shape is byte-identical to
+the pre-change compiler).
+
+Full evidence, including the four shapes that passed before the real predicate was
+isolated, is in plan-121-B Correction B7.
 
 ---
 

@@ -1,0 +1,14 @@
+IMPORT collections
+
+' plan-121-B: the IN-PLACE `removeAt` arm has its own bounds check, and the
+' existing `func_collection_removeAt_out_of_range` fixture cannot reach it --
+' it spells the call as `LET values = collections::removeAt([1, 2], 2)`, which
+' is not a self-assignment and so takes the out-of-place path.
+'
+' This is the self-assign shape. Valid range is `0 <= index < count`, checked
+' before any byte moves so a raise leaves the list exactly as it was.
+FUNC main AS Integer
+  MUT xs AS List OF Integer = [1, 2]
+  xs = collections::removeAt(xs, 2)
+  RETURN len(xs)
+END FUNC
