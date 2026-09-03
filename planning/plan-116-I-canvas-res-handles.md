@@ -97,7 +97,7 @@ tested against the finished renderer.)
   closed-guard that **raises `ErrResourceClosed`** on a destroyed resource.
 - The renderer's only resource reads are `t.font.id` — 5 sites, all in
   `helper_geometry.rs` (`grep -n 't\.font\.id' src/codegen/builtins/canvas/` →
-  `:367,:401,:422,:646,:717` at last read) feeding `__canvas_fontBlob`/glyph
+  `:626,:660,:681,:934,:942,:1009` as of 2026-09-03) feeding `__canvas_fontBlob`/glyph
   lookups by integer id. **Nothing reads `pic.image` anywhere** (bug-484).
 - Seam registrations naming the members:
   `src/codegen/memory/data/data_objects.rs:252` (`"canvas.imageRef"`), `:274`
@@ -317,7 +317,7 @@ Commit: —
 
 - [ ] Field types swapped; records/members deleted; seams cleaned
       (`data_objects.rs`, `module_analysis.rs`); pinning test replaced (§4.1).
-- [ ] `helper_geometry.rs`'s five reads → `canvas::fontHandle(t.font)` (§4.2).
+- [ ] `helper_geometry.rs`'s **six** reads of `t.font.id` → `canvas::fontHandle(t.font)` (§4.2). Six, not five — §2's table was corrected by **I1** and this task was not (**I3**); re-count at Phase 1 anyway.
 - [ ] Every construction site updated per §4.3 (re-censused list).
 - [ ] Census: no in-tree program sends a `DrawItem` across a thread plane
       (`grep` canvas + `thread::` co-use); record the result here.
@@ -401,6 +401,22 @@ Commit: —
   the lowering reuses `func_image_ref.rs`'s emitted shape verbatim.
 
 ## Corrections
+
+**I3 (2026-09-03, pre-execution) — I1 corrected the census table but not the task that
+consumes it.** §2's row reads *"Renderer reads of `t.font.id` — ~~5~~ **6**"*, while
+Phase 2's task still says *"`helper_geometry.rs`'s five reads"*. An executor working
+the checklist rather than the table sweeps five of six sites and leaves one reading
+`.id` off a field that is no longer a record — which fails to compile, so it is a
+cheap defect, but only because this particular field change is type-visible. The
+general form of that mistake is not.
+
+Re-measured: `grep -c 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs`
+→ **6**, at `:626, :660, :681, :934, :942, :1009`. The line list in §2 was also from
+the pre-C/D/E/F file and has been replaced.
+
+The lesson is narrower than I1's and worth keeping separate: when a correction changes
+a count, grep the letter for every *other* place that count is spelled. A number in a
+plan is usually written down more than once.
 
 **I2 (2026-09-03, pre-execution) — every `mod.rs` line citation in this letter is
 stale, the same defect plan-116-G recorded as G1.** Checked with
