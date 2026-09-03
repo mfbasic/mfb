@@ -3263,7 +3263,10 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
     // Two distinct polygons, two cache entries — and the offset is not part of the key.
     let entries = stats
         .first()
-        .and_then(|l| l.split_whitespace().find_map(|f| f.strip_prefix("entries=")))
+        .and_then(|l| {
+            l.split_whitespace()
+                .find_map(|f| f.strip_prefix("entries="))
+        })
         .expect("an entries= field");
     assert_eq!(
         entries, "2",
