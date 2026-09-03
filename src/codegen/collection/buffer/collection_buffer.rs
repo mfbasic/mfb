@@ -364,6 +364,71 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
     }
 
+    /// The mirror of [`Self::emit_offset_compaction_fixup`]: **add** `delta` to
+    /// each entry's `valueOffset` iff its payload sits **past** `at_offset`
+    /// (`valueOffset > at_offset`).
+    ///
+    /// plan-121-F. A length-changing `set` on a variable-width element widens the
+    /// span at `at_offset` rather than closing it, so every payload after it moves
+    /// **up** by `delta` and its entry must follow. The compaction helper cannot
+    /// serve this: it subtracts, and the two directions are not the same
+    /// operation with a negated argument — these offsets are read back as
+    /// unsigned, so passing a negative `hole_len` there would wrap.
+    ///
+    /// The `>` (not `>=`) is what leaves the written element's own entry alone:
+    /// its `valueOffset` is exactly `at_offset` and does not move — only its
+    /// `valueLength` changes, which the caller writes. Like its sibling, this
+    /// tests each entry's own offset rather than its list index, so it is correct
+    /// whatever order the data region happens to be in. `entry_base` and `count`
+    /// are clobbered.
+    pub(crate) fn emit_offset_expansion_fixup(
+        &mut self,
+        entry_base: impl Into<Operand>,
+        count: impl Into<Operand>,
+        at_offset: impl Into<Operand>,
+        delta: impl Into<Operand>,
+        label_prefix: &str,
+    ) {
+        let entry_base = entry_base.into();
+        let count = count.into();
+        let at_offset = at_offset.into();
+        let delta = delta.into();
+        let value_offset = self.temporary_vreg();
+        let loop_label = self.label(&format!("{label_prefix}_loop"));
+        let skip_label = self.label(&format!("{label_prefix}_skip"));
+        let done_label = self.label(&format!("{label_prefix}_done"));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(count.clone(), "0"));
+        self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::load_u64(
+            value_offset,
+            entry_base.clone(),
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::compare_registers(&value_offset, at_offset.clone()));
+        // `<= at_offset` means at or before the widened span, so it does not move.
+        self.emit(abi::branch_le(&skip_label));
+        self.emit(abi::add_registers(
+            value_offset,
+            value_offset,
+            delta.clone(),
+        ));
+        self.emit(abi::store_u64(
+            value_offset,
+            entry_base.clone(),
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::label(&skip_label));
+        self.emit(abi::add_immediate(
+            entry_base.clone(),
+            entry_base.clone(),
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::subtract_immediate(count.clone(), count.clone(), 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done_label));
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_copy_collection_entries(
         &mut self,

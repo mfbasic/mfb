@@ -166,6 +166,52 @@ Two rules from it that are easy to get wrong:
   `.ncodesum` fixture contains a STATE collection update at all, so it reports 0
   diffs either way. See `.ai/resources-packages.md` for the full rule and the
   instruments that can see it.
+* **A length-changing `set` on a variable-width element shifts inside the block;
+  it does NOT rebuild (plan-121-F).** A same-length replacement was always O(1)
+  (offsets unchanged, nothing to move). **Any** length change — longer *or*
+  shorter — used to take the `removeAt` + `insert` rebuild: three allocations and
+  two full copies per call. Measured, that was **O(N^1.6)**, not the O(N) a data
+  shift costs; the excess is the arena free-list degradation `benchmark/README.md`
+  documents under mixed-size transient churn.
+
+  The path is now: widen or narrow the span where it lies, then fix up every
+  entry whose payload sat after it. Three things about it are easy to get wrong:
+
+  - **The two directions are different code.** Widening moves the tail **up into
+    itself** and needs a **backward** copy; narrowing moves it down and needs a
+    forward one. A forward copy used for widening smears the first tail bytes
+    over the region whenever the shift distance is less than the tail length — and
+    still looks correct on a 1–2 element list, which is what a small test uses.
+  - **The offset fixup has two directions too, and they are not one operation
+    with a negated argument.** `emit_offset_compaction_fixup` subtracts;
+    `emit_offset_expansion_fixup` adds. Offsets are read back **unsigned**, so
+    passing a negative `hole_len` to the subtracting one wraps. Both use `>` not
+    `>=`, which is what leaves the written element's own entry alone.
+  - **The overflow path must grow GEOMETRICALLY, or the shift never runs.** This
+    is the one that hid: with an in-block shift added but the overflow still
+    falling back to the rebuild — which produces a **tight** buffer — every
+    widening overflowed on its first call, rebuilt tight, and overflowed again.
+    The widening cost was **unchanged** (72 → 828 → 11619 → 122465 ns/set over
+    N = 50…3200) while narrowing, which cannot overflow, improved ~7×. A test
+    exercising only the narrowing case would have shown a real win and hidden
+    that half the feature was dead code.
+
+  `emit_grow_list_data_capacity` is deliberately simpler than `append`'s grow:
+  because `capacity` is unchanged, the header, the entry table and the live data
+  are one **contiguous** prefix, so it is a single verbatim block copy — and the
+  data region keeps the same block-relative base ("data base uses capacity, never
+  count"), so no entry offset moves.
+
+  With both halves: **37× and 41× faster at N = 3200**, with the same-length path
+  flat at ~10 ns throughout as the control.
+
+  **Testing rule this path imposes:** the failure mode of a partial offset fixup
+  is a list that reads correctly up to the written index and returns **garbage
+  after**. A folded checksum can miss that. `p121f-string-set-readback-rt` reads
+  back **every** element and reports the **first** mismatching index. And because
+  the old path was *correct* and merely slow, an unchanged runtime result proves
+  nothing about which path ran — `tests/codegen_string_set_shift.rs` is what
+  distinguishes them.
 * **When a shift-based op looks slow, compare it against its sibling before
   theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
   is what exposed the dead loop. Afterwards, two plausible explanations for the
