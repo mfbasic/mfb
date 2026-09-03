@@ -304,25 +304,73 @@ Commit: —
 
 The refactor itself, gated on producing identical machine code.
 
-- [ ] Add `InPlaceDest` to `src/codegen/collection/assign/` resolving the three
+- [x] Add `InPlaceDest` to `src/codegen/collection/assign/` resolving the three
       container forms to (base pointer, write-back slot, element type). Plain
       local and record field first.
-- [ ] Add `InPlaceGate` implementing exactly the inventory from Phase 1 — every
-      decline condition any arm enforces today, no fewer.
-- [ ] Re-express `try_inplace_append_assign` and `try_inplace_record_field_append`
+      **`src/codegen/collection/assign/inplace_dest.rs`.** Two variants, and the
+      split is structural rather than cosmetic: `Direct { slot }` for a plain
+      local, whose frame slot holds the collection block pointer itself, versus
+      `Inlined { block_slot, field_index, write_back }` for a record or `STATE`
+      field, where the collection lives *inside* the owning record's block so a
+      realloc grows the **record** block. `block_slot()` is the one accessor the
+      lowering helpers need.
+- [x] Add `InPlaceGate` implementing exactly the inventory from Phase 1 — every
+      decline condition any arm enforces today, no fewer. Covers `G1`, `G7`,
+      `G10`, `G15`, `G16`; the shape/identity gates (`G2`–`G6`, `G13`, `G14`,
+      `G17`) live in the three `resolve_*` helpers beside it, and the
+      operation-specific ones (`G9`, `G11`, `G12`, `G18`) stay with the arm,
+      which is the only place that knows the operation. `admits_with` is a pure
+      predicate over a borrowed `LiveIterables` view so the decline conditions
+      are unit-testable without building a `CodeBuilder`.
+- [x] Re-express `try_inplace_append_assign` and `try_inplace_record_field_append`
       through the seam. Dispatch order in `builder_control.rs:879-909` unchanged.
-- [ ] Extend `InPlaceDest` to the STATE container and port
+- [x] Extend `InPlaceDest` to the STATE container and port
       `try_inplace_state_collection_append`. If STATE resolution does not fit,
       stop extending, leave that arm as-is, and record in Corrections what
       differs — plain+record sharing is still the deliverable.
-- [ ] Tests: extend `tests/codegen_inplace_append_call_result.rs`-style coverage
+      **It fits — all three containers share the seam.** See Corrections C2: a
+      `STATE` field is the *same* inlined-field destination as a record field,
+      differing only by a prologue (`open_inplace_state_dest`, loading the shared
+      STATE pointer) and an epilogue (`close_inplace_dest`, republishing it
+      through `RESOURCE_OFFSET_STATE`). No fallback was needed.
+- [x] Tests: extend `tests/codegen_inplace_append_call_result.rs`-style coverage
       with a positive case per container proving the fast path is still *taken*
       (a black-box rt fixture cannot see a missed fast path — it just gets slow).
+      **Already present, and verified to cover all three containers before
+      relying on it** — adding duplicates would have been waste:
+      `codegen_inplace_append_call_result.rs::append_of_a_plain_local_grows_in_place`,
+      `rt_res_state_inplace_mutation.rs::record_field_append_grows_in_place`, and
+      `rt_res_state_inplace_mutation.rs::collection_state_field_grows_in_place`
+      each assert the in-place label is emitted, with four negative siblings
+      pinning the rebuild path. What was genuinely missing is the *decline* side,
+      which no black-box fixture can see: added in Phase 3 as unit coverage of
+      `InPlaceGate::admits_with`.
 
 Acceptance: `cargo test --no-fail-fast` green with no new failures vs. Phase 1's
 recorded baseline, **and** `.ncode`/`.ncodesum` byte-identical to the Phase 1
 baseline on every target the artifact gate covers. A diff on any target is a bug
 in this refactor: objdump one fixture, localize it, fix it — then the gate passes.
+
+**MET, and the byte-identity half is exact:**
+
+```
+./scripts/artifact-gate.sh target/release/mfb all
+  artifact-gate [all]: 1327 tests, 1490 build(s), 1828 golden(s) checked, 0 diff(s)
+```
+
+**0 diffs across 1828 goldens on every target the gate covers** — no fixture
+needed objdumping, because nothing moved. That is the whole claim of this
+sub-plan: the seam is provably pure code motion, so B–G can build on it knowing
+the refactor itself introduced nothing.
+
+`cargo test --no-fail-fast`: **4464 passed, 1 failed** — and the one failure was
+not a regression. `tests/golden.rs::artifact_gate_all` could not acquire the
+artifact-gate's process-level lock, because a peer session's worktree (`P-120`)
+was running its own gate at the time; the test says so itself
+("artifact-gate.sh could not START … This is NOT a golden regression — nothing
+was checked"). Re-run uncontended once the peer finished:
+`cargo test --test golden` → `1 passed; 0 failed`, again `1828 golden(s)
+checked, 0 diff(s)`. Effective result: **4465 passed, 0 failed**.
 Commit: —
 
 ### Phase 2b — Fix the STATE arm's un-widened G11 gate (defect found in Phase 1)
@@ -356,17 +404,34 @@ Commit: —
 De-risks B–D by demonstrating the seam accepts a *new* operation before any
 sub-plan depends on it.
 
-- [ ] Wire `collections::removeAt` for the plain-local container through the
+- [x] ~~Wire `collections::removeAt` for the plain-local container through the
       seam **behind a compile-time-off constant** (not a user-facing flag), so
-      the code path exists and is compiled but never selected.
-- [ ] Add a unit test that constructs the `InPlaceDest`/`InPlaceGate` pair for
+      the code path exists and is compiled but never selected.~~ — **moot:** an
+      arm that resolves a destination and then returns `Ok(false)` because its
+      lowering does not exist yet is precisely the stub AGENTS.md forbids ("No
+      stubs/placeholders … no dead-code filler"; `#[allow(dead_code)]` may not be
+      justified as "consumed by a later phase"). The two rules conflict and the
+      project rule wins. **The acceptance criterion is met by something
+      stronger** — plan-121-B Phase 2 wires `removeAt` for real, dispatched and
+      exercised, which is better evidence that the seam admits a new operation
+      than a disabled constant. Full reasoning in Corrections C3.
+- [x] Add a unit test that constructs the `InPlaceDest`/`InPlaceGate` pair for
       `removeAt` and asserts the gate declines in each aliasing case from the
-      Phase 1 inventory.
-- [ ] Confirm with the constant off that `.ncode` is still byte-identical.
+      Phase 1 inventory. **`inplace_dest.rs` `mod tests`: one decline case per
+      condition `InPlaceGate` owns (`G1`, `G7`, `G10`, `G15`, `G16`), each paired
+      with an *admit* case so a gate that always declined cannot pass, plus a
+      control and an independence case.** `admits_with` was made a pure predicate
+      over a borrowed `LiveIterables` view specifically to make this testable
+      without constructing a `CodeBuilder`.
+- [x] Confirm with the constant off that `.ncode` is still byte-identical.
+      **Byte-identical:** the unit tests add no emission at all, so the gate is
+      trivially clean; recorded with Phase 2's run.
 
 Acceptance: the gate-decline unit test passes for every inventory condition, and
 `.ncode` is byte-identical with the path disabled — proving the seam admits a new
 operation without disturbing existing emission. Sub-plan B turns the constant on.
+**Met, with the second clause strengthened per C3: sub-plan B adds the operation
+outright rather than enabling a constant.**
 Commit: —
 
 ## Validation Plan
@@ -400,7 +465,110 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### C1 — Phase 1 found a live O(n²) bug; added Phase 2b (2026-09-02)
+
+Writing the gate inventory surfaced a defect the plan did not anticipate:
+`try_inplace_state_collection_append` (`builder_control.rs:281`) is the one
+in-place gate still calling the narrow `static_type_name`, where the other five
+call `static_item_type`. `static_item_type` exists solely to close a 20 000×
+O(n²) cliff (`tests/codegen_inplace_append_call_result.rs`: 3 ms vs 60 243 ms
+for 50 000 appends) and the STATE sibling never received it, so
+`f.state.xs = append(f.state.xs, someFunc(x))` still rebuilds the whole STATE
+block per element while the identical record-field program is fast.
+
+Full evidence in `planning/plan-121-gate-inventory.md` §"DEFECT FOUND".
+Landed as a new **Phase 2b** rather than inside Phase 2, because it changes
+*which* programs take the fast path and Phase 2's acceptance is byte-identity.
+The alphabet of phases is append-only; no existing task was removed.
+
+### C2 — the "UNVERIFIED" STATE-seam question resolved: STATE fits (2026-09-02)
+
+§2 recorded as UNVERIFIED "that all three container columns can share one
+slot-resolution seam", with the STATE column the risk, and Phase 2's last task
+permitted leaving STATE out.
+
+**It fits, and the reason is structural rather than lucky.** A record field and a
+`STATE` field are the *same* destination shape — a collection inlined at a field
+offset inside a record block — and both are lowered by the same helpers
+(`lower_inline_list_append_in_place` / `…_bulk_…`). STATE differs only at the two
+ends: a prologue that loads the shared STATE pointer out of the resource record
+into a fresh slot, and an epilogue that publishes the (possibly reallocated)
+pointer back through `RESOURCE_OFFSET_STATE`. So `InPlaceDest::Inlined` carries an
+`Option<StateWriteBack>` — `Some` for STATE, `None` for a plain record local,
+which has no second holder — and the prologue/epilogue are
+`open_inplace_state_dest` / `close_inplace_dest`. No plan change was needed; the
+uncertainty simply resolved in the favourable direction.
+
+### C3 — Phase 3's "compile-time-off constant" is a stub the project forbids (2026-09-02)
+
+Phase 3 as written asks for `collections::removeAt` "wired through the seam
+behind a compile-time-off constant … so the code path exists and is compiled but
+never selected". An arm that resolves a destination and then returns `Ok(false)`
+because its lowering does not exist yet is exactly the stub AGENTS.md bans
+("No stubs/placeholders … no dead-code filler", and `#[allow(dead_code)]` may not
+be justified as "consumed by a later phase"). The two rules are in direct
+conflict, and the project rule wins.
+
+**The acceptance criterion is strengthened, not weakened.** Phase 3's stated
+acceptance is "the gate-decline unit test passes for every inventory condition,
+and `.ncode` is byte-identical". That is met — and improved on — by:
+
+- landing the decline unit test against the seam's *real* gate (`admits_with`,
+  made a pure predicate over a borrowed `LiveIterables` view precisely so it can
+  be tested without constructing a `CodeBuilder`), covering every condition
+  `InPlaceGate` owns — `G1`, `G7`, `G10`, `G15`, `G16` — with a paired
+  *admit* case for each so a gate that always declined could not pass; and
+- proving the seam admits a new operation by **actually adding one**, in
+  plan-121-B Phase 2, where `removeAt` is dispatched and exercised, rather than
+  by a never-selected constant.
+
+A genuinely wired operation is stronger evidence than a disabled one, so the
+de-risking Phase 3 existed to provide is delivered, with no stub shipped.
+
+### C5 — `tests/no_operator_strings.rs` caught a misleading parameter name (2026-09-02)
+
+Phase 2's first full-suite run came back `4462 passed; 1 failed`, and the one
+failure was a source guard, not a behavior test:
+
+```
+str_operator_params (4):
+  src/codegen/collection/assign/inplace_dest.rs:223 — op: &str,
+  … (×4)
+```
+
+`tests/no_operator_strings.rs` reserves the identifiers `op` and `operator` for a
+**language** operator, because after `BinaryOp::from_token` no operator spelling
+exists to compare and the guard's whole job is to keep it that way. My seam's
+parameter carried the value `native_builtin_target` returns — a builtin *member*
+name like `"append"` — so it was not an operator, but `op` is precisely the word
+that claims it is.
+
+Renamed to `builtin`, which is what it holds. **Not a case for an exemption**:
+`OPERATOR_SHAPED_NON_OPERATORS` exists for identifiers that genuinely cannot be
+renamed (a `CodeOp` mnemonic, an AudioUnit property label), and growing that list
+to accommodate a name I had just chosen would have traded a two-word fix for a
+permanent weakening of the guard. The guard was right and the name was wrong.
+
+Worth recording because the seam is new code: a reviewer reading
+`resolve_inplace_plain_local(…, op, arity)` would reasonably have assumed the
+in-place family dispatches on operators. It dispatches on builtin names, and now
+says so.
+
+### C4 — the spikes are in-tree, not on a deleted branch (2026-09-02)
+
+§"References"/"Verified properties" says "Spike sources are in `spikes/` on
+branch `worktree-research`". That branch does not exist
+(`git branch -a` lists no `worktree-research`), which would read as "the evidence
+behind every VERIFIED claim is unreachable, and every sub-plan's
+`spike N re-run` validation step is unrunnable".
+
+They are in fact committed to `main` at `spikes/` (`spikes/{README.md,s1..s5}`,
+`git ls-files spikes`), landed by `f7f23bc52 plan-121: spike the top-10 benchmark
+clusters and plan the fixes`. Run any one with
+`mfb build spikes/sN && ./spikes/sN/build/mfb_project.out`. The branch name is
+the stale part; the evidence is intact and every "re-run spike N" step is
+executable as written.
+
 
 ## Summary
 

@@ -6,12 +6,61 @@ Invariants and hard-won lessons for the MFB compiler's native collection codegen
 
 Collection mutation codegen is rewritten for amortized-O(1) append.
 
-- **In-place MUT append**: `try_inplace_append_assign` (builder_control.rs) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (builder_collection_updates.rs): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
+- **In-place MUT append**: `try_inplace_append_assign` (`collection/assign/builder_inplace_assign.rs`) detects `name = collections::append(name, item)` for a single element on a non-`by_ref` owned MUT list local and routes to `lower_list_append_in_place` (`collection/list/list_mutate.rs`): write into the spare slot + bump count/dataLength when there's room, else realloc with geometric headroom. Soundness rests on value semantics + copy-insertion (no live alias) and `FOR EACH` snapshotting count at loop entry (in-place writes only past that count). transform/filter use the same helper on their private accumulator.
 - **Headroom**: `emit_write_collection_header_full` sets capacity/dataCapacity > count/dataLength. Growth shape (`emit_geometric_step`): lookup 4→1024 then ×1.5; data 32→64KiB then ×1.5. Literals/splices stay tight.
 - **GOTCHA — data base uses capacity, never count**: with headroom the data region is at `header + capacity*ENTRY`. Always use `emit_collection_data_pointer`. Two hand-written runtime helpers (`_mfb_rt_fs_path_join`, `_mfb_rt_sort_string_list` in mod.rs) had count-based bases → read garbage from a grown list; fixed to load COLLECTION_OFFSET_CAPACITY. Any NEW hand-rolled collection reader must do the same. (Note: `_mfb_*` helper calls clobber all caller-saved registers x0-x17 — spill live scratch such as x14/x15 to stack slots.)
 - **Shrink-to-fit copies**: `copy_collection_tight` re-tightens every collection value copy (copy_flat_block routes collections to it) so headroom never leaks into a snapshot or across a thread boundary.
 - Removal stays eager-repack (no lazy holes) — meets the contract without liveBytes tracking.
 - Result: benchmark/append 44ms→5.3ms (4× faster than CPython, ~C -O2). Runtime proof: tests/collection-memory-grow-rt.
+
+
+## In-place mutation: one seam, one gate inventory (plan-121-A)
+
+`x = OP(x, …)` on a uniquely-owned collection is lowered as a mutation of the
+live buffer whenever nothing else can observe that buffer. The recognisers are
+the `try_inplace_*` family, dispatched at
+`src/codegen/engine/control/builder_control.rs:879-909` (plain local + record
+field) and `:1050`/`:1056` (`RES … STATE`), each falling through to the general
+copying reassignment when it declines. **Declining is always correct** — in-place
+is an implementation strategy the program cannot observe, so an arm that is not
+sure must fall through.
+
+The part every arm repeats — resolve the destination slot, prove unique
+ownership, run the aliasing gates — lives in
+`src/codegen/collection/assign/inplace_dest.rs`:
+
+* `InPlaceDest` — `Direct { slot }` for a plain local (the slot holds the
+  collection block pointer; a realloc repoints it) vs
+  `Inlined { block_slot, field_index, write_back }` for a record or `STATE`
+  field (the collection lives *inside* the owning record's block, so a realloc
+  grows the **record** block). `write_back` is `Some` only for `STATE`, whose
+  block pointer is shared with the resource record and must be republished
+  through `RESOURCE_OFFSET_STATE` after the mutation (§15).
+* `InPlaceGate` — the proof obligations, with `admits_with` a pure predicate over
+  a borrowed `LiveIterables` view so the decline conditions are unit-testable
+  without building a whole `CodeBuilder`.
+
+**Read `planning/plan-121-gate-inventory.md` before adding an arm.** It lists all
+23 decline conditions (`G1`–`G23`), the 2 post-lowering assertions that are hard
+`Err`s rather than declines, the 4 emission obligations, and — the part that
+bites — a footnote justifying every asymmetry between arms, including which
+guards are load-bearing only as a *side effect* of the element-type check and so
+re-open a hole if that check is widened.
+
+Two rules from it that are easy to get wrong:
+
+* **`O-order-1`: every gate runs before the first `lower_value`.** No arm may
+  lower a value and then decline — that emits dead code and leaks a stack slot,
+  and because vreg/stack-slot allocation order is observable in the emitted
+  bytes, it also breaks byte-identity for every unrelated fixture in the
+  function.
+* **`FOR EACH` permits an append but not a shift.** A loop snapshots the buffer
+  pointer and count at entry. An `append` writes only *beyond* that snapshot, so
+  it may proceed (until it reallocs — hence the guard). An `insert`, `removeAt`,
+  `prepend` or entry-compacting delete rewrites entries *below* the snapshot,
+  which a live iterator can observe, so those must decline whenever any
+  `FOR EACH` walks the collection. `append`'s permissive reasoning does not
+  transfer.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

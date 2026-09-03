@@ -1,4 +1,5 @@
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::assign::inplace_dest::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::control::{nir_value_reads_local, string_self_append_operands};
 use crate::codegen::error::constants::*;
@@ -26,54 +27,34 @@ impl CodeBuilder<'_> {
         stack_offset: usize,
         by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::Call { target, args, .. } = value else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        let NirValue::Local(arg0) = &args[0] else {
+        // Container (plan-121-A's shared seam): `name = append(name, …)` on a
+        // uniquely-owned `MUT` local. Discharges G1 `by_ref`, G2 the call shape,
+        // G3/G4 target and arity, G5/G6 the self-update, G7 the live `FOR EACH`
+        // hazard (the grow frees the buffer the loop snapshotted — bug-142),
+        // G8 the local exists, and G10 the collection layout.
+        let Some(target) =
+            self.resolve_inplace_plain_local(name, value, stack_offset, by_ref, "append", 2)
+        else {
             return Ok(false);
         };
-        if arg0 != name {
-            return Ok(false);
-        }
-        // A live `FOR EACH` iterable snapshots the buffer pointer/count at loop
-        // entry; the grow path frees the old buffer once the append outgrows
-        // capacity, so an in-place append to the list being iterated is a
-        // use-after-free (bug-142). Force the out-of-place (copying) path, matching
-        // the set/prepend guards.
-        if self.for_each_iterable_locals.iter().any(|n| n == name) {
-            return Ok(false);
-        }
-        let Some(local) = self.locals.get(name) else {
-            return Ok(false);
-        };
-        let list_type = local.type_.clone();
+        let list_type = target.collection_type.clone();
+        // G9 — `append` mutates a List.
         let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&list_type).cloned()
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
-            return Ok(false);
-        }
-        // Commit only for a statically-known single element of the list's element
-        // type. A bulk `append(list, otherList)` has item type == list_type and
-        // falls through to the general (concatenating) path.
-        match self.static_item_type(&args[1]) {
+        // G11: commit only for a statically-known single element of the list's
+        // element type. A bulk `append(list, otherList)` has item type ==
+        // list_type and falls through to the general (concatenating) path.
+        match self.static_item_type(&target.args[1]) {
             Some(item_type) if item_type == element_type => {}
             _ => return Ok(false),
         }
-        let item = self.lower_value(&args[1])?;
+        let item = self.lower_value(&target.args[1])?;
         // Observation boundary: an in-place appended `Float` must be finite
         // (plan-17).
-        self.observe_float(&args[1], &item)?;
+        self.observe_float(&target.args[1], &item)?;
         // Materialize a `d`-native float before the payload spill (plan-01).
         let item = self.materialize_value(item)?;
         let item_slot = self.allocate_stack_object("inplace_append_item", 8);
@@ -82,7 +63,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.lower_list_append_in_place(stack_offset, item_slot, &list_type, &element_type)?;
+        self.lower_list_append_in_place(
+            target.dest.block_slot(),
+            item_slot,
+            &list_type,
+            &element_type,
+        )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -110,82 +96,46 @@ impl CodeBuilder<'_> {
         stack_offset: usize,
         by_ref: bool,
     ) -> Result<bool, String> {
-        if by_ref {
-            return Ok(false);
-        }
-        let NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } = value
+        // Container (plan-121-A's shared seam): the record-field self-update
+        // `rec = WITH rec { field := append(rec.field, …) }`. Discharges G1
+        // `by_ref`, G2 the `WithUpdate`-then-`Call` shape, G13 the self-update,
+        // G14 the single updated field (a second field would make the elided
+        // whole-record rebuild lose that field's new value), G15 the live
+        // `FOR EACH` over this field, G17 the last-inlined requirement, G10 the
+        // layout, and G3/G4 the call target and arity.
+        let Some(target) = self.resolve_inplace_record_field(name, value, by_ref, "append", 2)
         else {
             return Ok(false);
         };
-        // The update must rebuild THIS same local (self-update), not install some
-        // other record as the new value.
-        if !matches!(target.as_ref(), NirValue::Local(n) if n == name) {
-            return Ok(false);
-        }
-        if updates.len() != 1 {
-            return Ok(false);
-        }
-        let update = &updates[0];
-        // A live `FOR EACH` over this record's field aliases the buffer the grow
-        // would free — take the non-freeing rebuild instead.
-        if self
-            .for_each_iterable_record_fields
-            .iter()
-            .any(|(base, field)| base == name && field == &update.field)
-        {
-            return Ok(false);
-        }
-        let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(type_, &update.field)
-        else {
-            return Ok(false);
-        };
-        let field_type_parsed = field_type.clone();
+        let field_type_parsed = target.field_type.clone();
+        // G9 — `append` mutates a List. (Subsumed by G17, which already refuses a
+        // non-`List` field; kept because the lowering needs the element type.)
         let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(&field_type_parsed).cloned()
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&field_type_parsed)
-            .is_none()
-        {
+        // G18 — the appended-to source must be exactly this same field
+        // (self-append). `WITH rec { a := append(rec.b, x) }` writes a's buffer
+        // from b's and must rebuild.
+        if !self.value_is_record_field(&target.args[0], name, target.field) {
             return Ok(false);
         }
-        let NirValue::Call {
-            target: call_target,
-            args,
-            ..
-        } = &update.value
-        else {
-            return Ok(false);
-        };
-        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append")
-            || args.len() != 2
-        {
-            return Ok(false);
-        }
-        // The appended-to source must be exactly this same field (self-append).
-        if !self.value_is_record_field(&args[0], name, &update.field) {
-            return Ok(false);
-        }
-        // Single element (item type == element type) vs bulk concatenation.
-        let bulk = match self.static_item_type(&args[1]) {
+        // G11 — single element (item type == element type) vs bulk concatenation.
+        let bulk = match self.static_item_type(&target.args[1]) {
             Some(t) if t == element_type => false,
             Some(t) if t == field_type_parsed => true,
             _ => return Ok(false),
         };
-        // Exclude the self-alias `append(field, field)`.
-        if self.value_is_record_field(&args[1], name, &update.field) {
+        // G12 — exclude the self-alias `append(field, field)`: the grow frees the
+        // old block out from under the RHS copy.
+        if self.value_is_record_field(&target.args[1], name, target.field) {
             return Ok(false);
         }
 
         // Evaluate the appended value and spill it for the grow helper.
-        let rhs = self.lower_value(&args[1])?;
-        self.observe_float(&args[1], &rhs)?;
+        let rhs = self.lower_value(&target.args[1])?;
+        self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object("inplace_recfield_rhs", 8);
         self.emit(abi::store_u64(
@@ -195,24 +145,21 @@ impl CodeBuilder<'_> {
         ));
 
         // The local slot holds the record pointer; the grow helper repoints it on
-        // a realloc, so the reassignment `rec = …` needs no further store.
-        if bulk {
-            self.lower_inline_list_bulk_append_in_place(
-                stack_offset,
-                field_index,
-                &field_type_parsed,
-                &element_type,
-                rhs_slot,
-            )?;
-        } else {
-            self.lower_inline_list_append_in_place(
-                stack_offset,
-                field_index,
-                &field_type_parsed,
-                &element_type,
-                rhs_slot,
-            )?;
-        }
+        // a realloc, so the reassignment `rec = …` needs no further store — and
+        // therefore no `close_inplace_dest` write-back, unlike the STATE sibling.
+        let dest = InPlaceDest::Inlined {
+            block_slot: stack_offset,
+            field_index: target.field_index,
+            write_back: None,
+        };
+        self.lower_inplace_inlined_list_grow(
+            &dest,
+            bulk,
+            &field_type_parsed,
+            &element_type,
+            rhs_slot,
+        )?;
+        self.close_inplace_dest(&dest)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
