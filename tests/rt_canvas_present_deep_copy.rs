@@ -53,6 +53,32 @@ fn app_ncode(name: &str, source: &str) -> Value {
     plan
 }
 
+/// As `app_ncode`, without `-app`.
+///
+/// A program that does not import `canvas` cannot be built with `-app` — the `app`
+/// package requires app mode — so the one test that checks what a *non*-canvas program
+/// emits needs the plain form.
+fn ncode(name: &str, source: &str) -> Value {
+    let project = common::temp_project(name, source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-ncode")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -ncode");
+    assert!(
+        output.status.success(),
+        "mfb build -ncode failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let text =
+        std::fs::read_to_string(project.join(format!("{name}.ncode"))).expect("read ncode dump");
+    let plan: Value = serde_json::from_str(&text).expect("parse ncode json");
+    let _ = std::fs::remove_dir_all(&project);
+    plan
+}
+
 fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
     plan["functions"]
         .as_array()
@@ -375,4 +401,40 @@ fn remove_group_clears_the_name_first_and_retires_the_buffer() {
         retired_at < items_cleared,
         "`items` (+8) was cleared before it was copied to RETIRED_ITEMS (+48), so the          buffer was lost rather than retired: {offsets:?}",
     );
+}
+
+/// The group table is emitted only for a program that uses `canvas`.
+///
+/// `CANVAS_MAX_GROUPS` is 256 slots of 64 bytes plus a header — 16,392 bytes of literal
+/// zeroes in the data section. That size was chosen deliberately (plan-116-G's **G4**)
+/// on the argument that it is carried only by canvas programs, and this is the assertion
+/// that makes the argument true rather than intended: the data object sits behind
+/// `module_uses_canvas(module)` in `engine/builder/mod.rs`, beside the scene region and
+/// the font table.
+///
+/// Worth pinning rather than assuming because the gate is one `if` around three pushes,
+/// and a fourth added outside it would be invisible — every canvas test would still
+/// pass, and every program in the language would grow by 16 KB.
+#[test]
+fn the_group_table_is_absent_from_a_program_that_does_not_use_canvas() {
+    const PLAIN: &str = "IMPORT io\n\
+         FUNC main AS Integer\n\
+        \x20 io::print(\"no canvas here\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n";
+    let plan = ncode("canvas_group_table_gate", PLAIN);
+    let text = plan.to_string();
+    for symbol in [
+        "_mfb_rt_canvas_groups",
+        "_mfb_rt_canvas_scene",
+        "_mfb_rt_canvas_fonts",
+    ] {
+        assert!(
+            !text.contains(symbol),
+            "`{symbol}` was emitted into a program that never mentions canvas. The three \
+             canvas globals share one `module_uses_canvas` gate, so a data object added \
+             outside it grows every program in the language — and no canvas test would \
+             notice.",
+        );
+    }
 }
