@@ -548,7 +548,8 @@ The whole breaking surface change, with nothing yet reading it.
 - [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
       `helper_geometry.rs`, not the two this letter originally named (**G6**):
       `__canvas_headerFor` and `__canvas_tailFor` (both returning
-      `__canvas_emptyHeader()` / an empty tail — a group has no geometry of its own),
+      `__canvas_emptyHeader()` / an empty tail **for this phase only** — §4.6 needs the
+      node's header to carry a bounds hull, which Phase 4 fills in; see **G12**),
       and also `__canvas_tailMatches`, `__canvas_headerIsDeferred`,
       `__canvas_deferredHeader`, `__canvas_deferredHash` and `__canvas_hashItem`.
       Re-measure first: `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`.
@@ -615,7 +616,13 @@ Commit: —
       `06_canvas.md`, and pin it with the diamond test. Recommended: it follows.
 - [ ] The resolution pass records each group node's damage bounds as its resolved
       children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
-      for group nodes.
+      for group nodes. **This replaces Phase 2's empty header** (**G12**): the bounds
+      `__canvas_damageFor` reads are the geometry header's slots 16–19, so a group node
+      whose header stays empty damages a zero-area rectangle.
+- [ ] `__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`
+      (**G12**), for the reason `__canvas_hashGradient` exists: once the header carries
+      real data, two nodes agreeing on everything hashed collide in the geometry cache
+      and one draws the other's rectangle.
 - [ ] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
       GPU cannot draw one until plan-116-H, and a predicate that accepted a kind its
       shader does not know is the exact failure `.ai/canvas-threading.md` §10 records
@@ -760,6 +767,31 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G12 (2026-09-03, pre-execution) — Phase 2's "empty header" and §4.6's "hull of its
+children" cannot both be the group node's header.** Phase 2 gives `Group`
+`__canvas_emptyHeader()`; §4.6 requires *"a resolved group node's recorded bounds are
+the axis-aligned hull of its resolved children's bounds, offset by the node's
+accumulated `(dx, dy)`"*. Those are the same four slots.
+
+`__canvas_damageFor` reads the current frame's bounds as
+`__canvas_geoAt(offset, 16..19)` and the previous frame's from `__CANVAS_LAST_BOUNDS`,
+then skips any box where `bx1 > bx0 AND by1 > by0` is false
+(`sed -n 118,142p src/codegen/builtins/canvas/helper_damage.rs`). An empty header is
+all zeros, so a group node contributes **no damage at all** — and §4.6 already names
+that failure (*"the partial-redraw path would clear and repaint nothing where the group
+actually renders"*). The two statements are consistent only if Phase 2's empty header
+is understood as a placeholder Phase 4 replaces, which is now written down in both
+places.
+
+It has a second consequence worth stating, because it changes what **G6** is about.
+While the header is empty, a `Group` arm in `__canvas_deferredHash` matters for
+telling groups apart *by name*; once the header carries a hull, it matters for the same
+reason `__canvas_hashGradient` exists — two nodes whose hashed fields agree share a
+geometry-cache entry, and the second draws the first's rectangle. So the hash has to
+carry the name **and** the hull, and `__canvas_groupHash` should be written the way
+`__canvas_textHash` is: build a blank header, set the fields, hash it, then fold the
+string's codepoints in by hand (`sed -n 1006,1019p helper_geometry.rs`).
 
 **G11 (2026-09-03, pre-execution) — Phase 1's harness can count frames but cannot see
 which scene rendered.** The phase asks for a test in `tests/rt_canvas_graphics_thread.rs`
