@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: FIXED
 Regression Test: `tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/` (new, Phase 1)
 
 `toString(List OF Byte)` decodes bytes as UTF-8 and **raises** `77020004`
@@ -382,21 +382,37 @@ Commit: `65a634b8b`, `2d3210c0e` (gate the typing), `e5b78f535` (shapes I/J)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate only the goldens the fix legitimately shifts; diff and confirm the
-      delta is exactly the intended change. A broad `.ncode` churn means the change
-      leaked into the general `toString` path — investigate rather than regenerate.
-- [ ] `cargo test --no-fail-fast` (a failing `golden.rs` otherwise skips every later
-      `rt_*`), then the acceptance harness `scripts/test-accept.sh` — it is not part
-      of `cargo test`, so a green cargo run hides stale goldens. Watch the `N ran`
-      count.
-- [ ] Re-run the repro on macos-aarch64 and on the Linux axis; confirm A, B and C all
-      report caught, exit 0.
-- [ ] Rebuild `examples/browser` and confirm a non-UTF-8 page still surfaces as an
-      error page rather than killing the browser (shape C unchanged).
+- [x] Regenerate only the goldens the fix legitimately shifts. **The only goldens
+      that moved in the whole tree are this bug's own new fixture's four.** Measured:
+      a full `scripts/test-accept.sh` over the pre-final binary reported
+      `1352 test(s) ran` with 3 mismatches, and all three were
+      `rt-behavior/trap/inline-trap-tostring-bytes-rt` (its source had grown a shape
+      since those goldens were cut). No `.ncode` anywhere churned, which is the
+      signal this box asks for: the change did not leak into the general `toString`
+      path.
+- [x] `cargo test --no-fail-fast`: **every `test result:` line `ok`, 0 failed**
+      (`3757 passed` in the `--bin mfb` suite — the build that actually runs the
+      `debug_assert!`s the hoist walkers carry — plus 96 `rt_*`/integration binaries).
+      Acceptance harness: **`acceptance tests passed (1352 test(s) ran)`, 0
+      mismatches.** Trap noted for the record: `cargo test … | tail` reports *tail's*
+      exit status, so the first run's "exit 0" proved nothing; re-run capturing
+      cargo's own status.
+- [x] Re-run the repro on macos-aarch64 and on the Linux axis. The committed repro
+      prints `A caught` / `B caught` / `C caught: 77020004` at exit 0 on **macOS
+      aarch64, Linux aarch64 (2223) and Linux x86_64 (2228)**. The full eleven-shape
+      fixture was cross-built and run on both Linux boxes too, all green — and shape
+      K was RED on Linux *before* its fix, which is what shows that gap is in shared
+      HIR analysis rather than a backend.
+- [x] Rebuild `examples/browser` (all four projects, in dependency order) and
+      confirm a non-UTF-8 page still surfaces as an error page. Proven end to end, not
+      by inspection: a loopback `tcp` server answering `caf\xE9` as `text/html`,
+      fetched through `thread::start(fetch::fetch, …)` exactly as `app/src/main.mfb`
+      does, yields `ok=FALSE` / "Error loading … Text encoding or decoding failed."
+      at exit 0 — an error page, with the process alive.
 
 Acceptance: full suite green; golden deltas are exactly the intended change; the
-reproduction passes everywhere it previously failed.
-Commit: `—`
+reproduction passes everywhere it previously failed. **Met.**
+Commit: `77edf0dfe` (goldens), `6def750a1` (doc), plus the post-merge re-run.
 
 ## Corrections
 
@@ -455,15 +471,19 @@ Two mechanical notes worth keeping:
 
 ## Open Decisions
 
-- **Where the type-aware verdict lives** — extend `inline_builtin_is_infallible` with an
-  optional argument-type slice (recommended: one census, one place to be wrong) vs. a
-  separate `builtin_is_fallible_for_args` consulted only by the inline-TRAP paths
-  (smaller blast radius, but two lists that can disagree — the classic recogniser /
-  measurer split). (§Fix Design)
+- **Where the type-aware verdict lives** — **RESOLVED as recommended: one census.**
+  `inline_builtin_is_infallible` and `inline_builtin_raw_supported` both take
+  `arg_types` and both defer to a single `arg_type_makes_inline_builtin_fallible`.
+  The recogniser/measurer split the decision warned about was avoided a second time
+  too: the cheap gate consumers use to decide *whether to bother typing arguments*
+  (`inline_builtin_fallibility_depends_on_args`) shares its `matches!` with the rule
+  it gates, and a unit test pins the direction that matters — a name the gate skips
+  can never be flipped by an argument type.
 - **Whether to also add an explicit decoder** (`encoding::utf8Decode`-style, strict and
-  lossy) — recommended as a *follow-up* bug, not folded in here; it is what the
-  non-UTF-8 charset gap really needs, but it does not close this one. (§Fix Design,
-  rejected alternatives)
+  lossy) — **still a follow-up, still not folded in.** Nothing learned here changes
+  that: the charset gap is real (a Latin-1 page has no lossless path today) but an
+  explicit decoder would not have closed this bug, since every existing
+  `toString(bytes)` call site would have kept the uncatchable abort.
 
 ## Summary
 
@@ -475,3 +495,51 @@ work. A second, smaller unknown — why a correctly-emitted `callResult toString
 aborts (shape B) — must be proven in Phase 1 before it is fixed. Left untouched: the
 success path, `len`/`typeName`, the function-level `TRAP` route `examples/browser`
 depends on, and the existing fixture proving `toString(42)` is genuinely infallible.
+
+
+## STATUS: FIXED
+
+Landed on `worktree-B-486`, merged to `main`.
+
+**What was wrong, in one line:** one name-keyed fact — `toString` is infallible —
+consulted by five places, when exactly one of `toString`'s overloads
+(`List OF Byte`, a UTF-8 decode) can raise.
+
+**What changed:** the census answers per overload
+(`arg_type_makes_inline_builtin_fallible`), and every consumer now passes argument
+types: `ir/lower.rs` (`check_root`, `trap_hoist_kind`), `ir/verify/resources.rs`,
+`ir/shape.rs`, `ir/fallible.rs:analyze`, and `builder_values.rs`'s `CallResult` arm.
+The byte-list overload became raw-supported, reusing the existing
+`raw_result_capture` seam rather than inventing a mechanism.
+
+**Deviations from the plan as written, all upward in scope:**
+
+- The document named **three** census consumers; there are **five**. The unlisted
+  `builder_values.rs` arm *is* shape B's mechanism (H1), and `ir/shape.rs` was listed
+  only as "audit" but genuinely needed the change.
+- The document scoped the fixture to shapes **A/B/C**; it ships **A–K**. Shapes D, E,
+  I, J and K are each a separate reproduced failure found while fixing — including J,
+  `toString(resp.body)`, which is the very idiom the document's opening paragraph is
+  written against. See Corrections.
+- `ir/fallible.rs:analyze` needed a **type oracle it did not have**, so `lower_facts`
+  now builds the lowering context first and runs the fallibility fixpoint through it
+  (it also runs after binding inference now, which is strictly better information).
+  The Fix Design did not anticipate this; it is the largest structural change here.
+
+**Gates, all measured on the merged tree:** `cargo test --no-fail-fast` every
+`test result: ok`, 0 failed; `scripts/test-accept.sh` `1352 test(s) ran`, 0
+mismatches; the repro and the eleven-shape fixture green on macOS aarch64, Linux
+aarch64 and Linux x86_64; `examples/browser` proven end-to-end against a loopback
+server serving non-UTF-8 HTML.
+
+**Non-goals held.** `toString` on every other argument type is still infallible and
+still warns `TYPE_INLINE_TRAP_DEAD_HANDLER`;
+`tests/rt-behavior/trap/inline-trap-infallible-builtin-valid` is green **and
+unmodified**; the success path, `len`/`typeName`, the function-level `TRAP` route,
+and error code `77020004` are all unchanged; `bug-479` is untouched.
+
+**One thing deliberately left undone.** `src/audit/collect/source.rs` under-reports a
+byte decode in `mfb audit`'s Control-flow section. That census is an AST-level
+reporting oracle with no types and is separate from the lowering oracle *by design*
+(a report that over-reports is noisy; a desugar that under-reports miscompiles), so
+making it type-aware is its own concern, not this bug's.
