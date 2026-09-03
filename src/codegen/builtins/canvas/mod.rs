@@ -161,6 +161,11 @@ safe, because the scene holds only its id."#;
 /// change — a user's `SELECT CASE` over the union stops being exhaustive — so the
 /// full set is frozen here rather than shipped as a subset and extended
 /// (plan-98-A invariant 6).
+///
+/// It has been extended **once**, deliberately: plan-116-E appended `Ellipse` as the
+/// ninth, last, so no existing variant's tag moved. `draw_item_variant_set_is_frozen`
+/// pins the list and its order, and is what makes a tenth exactly as visible as the
+/// ninth was.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("canvas", MODULE_INTRO, MODULE_DESC);
     // The companion source needs `collections` (the surface is a `List OF Byte`),
@@ -519,7 +524,7 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // ---- The eight `DrawItem` variants (a CLOSED set) ---------------------
+    // ---- The nine `DrawItem` variants (a CLOSED set) ----------------------
 
     pkg.add_record(RegistryRecord {
         name: "Rectangle",

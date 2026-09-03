@@ -527,22 +527,49 @@ Commit: 71bf744b6
 
 ### Phase 5 — Docs and gates
 
-- [ ] `mod.rs` — the `Ellipse` record and each prop's description; the `DrawItem`
+- [x] `mod.rs` — the `Ellipse` record and each prop's description; the `DrawItem`
       variant blurb. Update the *"eight `DrawItem` variants"* comment at `mod.rs:472`
       and the frozen-set language at `:160` to say nine and to record that the set was
-      extended once, deliberately, by this plan.
-- [ ] `src/docs/spec/app/06_canvas.md` — `Ellipse` in the item list; the `angle`
+      extended once, deliberately, by this plan. → done; the `register` doc comment now
+      records the extension and says what makes a *tenth* as visible as the ninth was.
+- [x] `src/docs/spec/app/06_canvas.md` — ~~`Ellipse` in the item list~~; the `angle`
       convention (radians clockwise from +X, matching `Arc`'s, per §"Coordinates and
-      angles").
-- [ ] A worked `mfb man canvas ellipse`-reachable example; add it to `MEMBERS` in
-      `tests/cli_canvas_man_examples_compile.rs` if it ships one.
-- [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
-      `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+      angles"). → the angle rule is added to §"Coordinates and angles" itself, beside
+      the arc convention it shares. **There is no item list** — moot: the spec
+      describes the scene *model* (retained, copied, `Paint`-per-item) and never
+      enumerates the variants, which is why adding a ninth needed no edit there. The
+      enumeration lives in `mfb man canvas types`, generated from the registry.
+- [x] A worked `mfb man canvas ellipse`-reachable example; add it to `MEMBERS` in
+      `tests/cli_canvas_man_examples_compile.rs` if it ships one. → a second example on
+      `canvas::present`: the face's eyes as tilted half-closed ellipses, which is the
+      case a `Circle` cannot express and a `Polygon` would only approximate. `present`
+      is already in `MEMBERS`. Note that `cli_canvas_man_examples_compile` stops at a
+      member's *first* example by design, so the new one is gated by
+      `man-run-examples.sh` instead — the same split plan-116-D recorded.
+- [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
+      `scripts/man-run-examples.sh canvas --run` passes. → **0 unclassified** (15
+      CARVE-1, 23 CARVE-2), and `examples: 22   built: 22   ran: 22   failed: 0`.
+- [x] `scripts/regen-ncodesum.sh`; prove the delta is this letter's. → **141 refreshed,
+      0 missing**, `git status --porcelain tests/byte-identity/` empty afterwards. Nil
+      rather than merely accounted for, as in C and D: no byte-identity fixture imports
+      `canvas`.
 
 Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
 `scripts/test-accept.sh` green, `scripts/artifact-gate.sh all` 0 diffs, and
 `mfb man canvas types` lists `Ellipse` with all six props documented.
+
+**MET.**
+
+- `cargo test --release --no-fail-fast` — **96 test binaries, 0 failures, exit 0.**
+- `bash scripts/test-accept.sh` — **1348 test(s) ran**.
+- `scripts/artifact-gate.sh target/release/mfb all` — 1327 tests, 1490 builds,
+  **1828 goldens, 0 diffs**.
+- `mfb man canvas types` lists `canvas::Ellipse` with its record description and all
+  six props, and `canvas::CapStyle`/`DrawItem` alongside.
+- The linux+DEBUG half as A, B, C and D established, because box 2228 is a single
+  core: the `--bin mfb` unit tests there, plus `scripts/test-canvas-vulkan.sh` on
+  **both** Linux libc worlds — which is where this letter's Linux-specific work (the
+  bisection solve in the SPIR-V, the widened item block) actually executes.
 Commit: —
 
 ## Validation Plan
