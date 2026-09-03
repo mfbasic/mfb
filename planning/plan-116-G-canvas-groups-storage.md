@@ -335,9 +335,27 @@ The second condition is **exactly the gate `.ai/canvas-threading.md` §7 specifi
 textures and §3 specifies for retired scene blocks**, reused deliberately so there is
 one drain rule in the subsystem rather than three.
 
-The free itself happens on the **worker**, at the top of the next `present` — the same
-place and the same reason the scene ring reclaims (§3 step 3). The graphics thread
+The free itself happens on the **worker**, on the next `present`. The graphics thread
 never returns memory.
+
+**But not where the scene ring reclaims (G7).** `emit_reclaim_retired` is emitted
+*after* `builder.emit(abi::label(&publish))` in `gen_present.rs`, and the unchanged path
+returns at the `skip` label above it — so the ring reclaims **only on a publish that
+actually changes the scene**. Placing the group free "beside" it inherits that, and then
+`removeGroup("panel")` followed by presents of an unchanged scene never frees the
+buffer: the frame skip is working, so the reclaim never runs, and the memory is held
+until something unrelated changes the scene.
+
+The group free must therefore run **before** the content comparison, on every `present`,
+not on the publish path. It is a scan of at most `CANVAS_MAX_GROUPS` slots with no
+allocation, so it is cheap enough to be unconditional — and a memory bound that depends
+on the scene changing is not a bound.
+
+Phase 5's own race-matrix row *"the same, then a completed frame, then a `present`: the
+buffer is freed exactly once and `groups=` drops by one"* is the test that catches this,
+**provided its final `present` presents an unchanged scene.** Write it that way
+deliberately; a test that changes the scene between the remove and the check passes on
+the wrong implementation.
 
 **Reference accounting, precisely:**
 
@@ -600,8 +618,9 @@ Memory-correctness, landed last, behind every test above.
 - [ ] Implement the reference accounting of §4.3 exactly: table reference, per-scene
       references, per-parent-group references, and the drop-on-scene-reclaim rule.
 - [ ] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
-      executed on the **worker**, at the top of `present`, beside the scene ring's own
-      reclaim.
+      executed on the **worker**, at the top of `present` and **before the content
+      comparison**, not beside `emit_reclaim_retired`, which only runs on the publish
+      path (**G7**).
 - [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` so the leak is
       observable; this is the only window onto worker-owned state a test has
       (`.ai/canvas-threading.md` §11).
@@ -609,8 +628,10 @@ Memory-correctness, landed last, behind every test above.
       rows to that document too:
       - `present([Group A])` → `removeGroup(A)` → graphics mid-frame: the in-flight
         frame completes normally.
-      - the same, then a completed frame, then a `present`: the buffer is freed exactly
-        once and `groups=` drops by one.
+      - the same, then a completed frame, then a `present` **of an unchanged scene**:
+        the buffer is freed exactly once and `groups=` drops by one. The "unchanged" is
+        the whole point of the row (**G7**) — a scene that changes takes the publish
+        path and would pass against a free placed where the ring's reclaim is.
       - `removeGroup(A)` while a **parent group** still names A: not freed.
       - `setGroup(A, …)` replacing a live A: the old buffer is freed only after a
         frame completes.
@@ -689,6 +710,29 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G7 (2026-09-03, pre-execution) — "beside the scene ring's own reclaim" is the one
+place the group free must not go.** §4.3 and Phase 5 both site the free "at the top of
+`present`, beside the scene ring's own reclaim". Measured: `sed -n 218,254p
+src/codegen/builtins/canvas/gen_present.rs` shows `emit_compare_bytes_branch` sending
+the unchanged case to a `skip` label that sets `RESULT_OK_TAG` and **returns**, with
+`emit_reclaim_retired` emitted after the `publish` label below it. The ring therefore
+reclaims only when the scene content changed.
+
+That is right for the ring — it is reclaiming a block *displaced by this publish*, so
+there is nothing to reclaim when nothing was published. It is wrong for groups, whose
+lifetime is driven by `setGroup`/`removeGroup`, calls that change no scene item at all.
+`removeGroup("panel")` on a static scene would then hold the buffer forever: the frame
+skip works, so the reclaim never runs.
+
+The fix is to site the group free before the comparison rather than beside the ring's
+reclaim, and it is cheap enough to be unconditional — a scan of at most
+`CANVAS_MAX_GROUPS` slots, no allocation. Both §4.3 and the Phase 5 task now say so.
+
+Phase 5's race-matrix row already describes the catching test, but only if its final
+`present` is of an **unchanged** scene; as written that was unspecified, and the
+natural way to write the test — change something so a frame renders — is exactly the
+way that passes against the wrong placement. The row now says so.
 
 **G6 (2026-09-03, pre-execution) — a new `DrawItem` variant touches seven exhaustive
 `MATCH` sites, not two.** Phase 2 says *"Add the `Group` arms to `__canvas_headerFor`
