@@ -107,6 +107,13 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' not need re-publishing when only the signature moved -- a group's contents live in
   ' the group table and the renderer reads them from there -- so this asks for a
   ' RE-RENDER, not a re-publish.
+  ' plan-116-G Phase 5: the drain gate, FIRST and unconditional. It frees every group
+  ' buffer a frame has completed past. It runs here rather than beside the scene ring's
+  ' own reclaim because that one sits on the publish path (G7): `removeGroup("panel")`
+  ' followed by presents of an unchanged scene would then never free anything -- the
+  ' frame skip would be working exactly as designed and the memory would be held anyway.
+  ' A memory bound that depends on the scene changing is not a bound.
+  canvas::groupReclaim()
   LET installed AS Boolean = canvas::publishScene(items)
   LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)

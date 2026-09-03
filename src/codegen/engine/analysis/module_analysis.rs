@@ -28,6 +28,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.groupResolve",
             "canvas.groupRevision",
             "canvas.groupItems",
+            "canvas.groupReclaim",
             "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",

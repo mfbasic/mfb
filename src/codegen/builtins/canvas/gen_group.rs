@@ -10,10 +10,12 @@
 //! pointer that is half-written. Dropping a slot reverses it: the name goes first.
 
 // --- codegen tier imports (migration) ---
+use super::gen_present::emit_load_frame_counter;
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::native_arena::emit_arena_free;
 use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
@@ -256,6 +258,18 @@ pub(crate) fn emit_set_group(
     let scratch = builder.temporary_vreg();
     builder.emit(abi::load_u64(&dst, abi::stack_pointer(), target));
 
+    // Replacing a live name RETIRES the buffer it displaces rather than freeing it: the
+    // graphics thread may be mid-copy of exactly that block. Stamping the frame is what
+    // lets `__canvas_groupReclaim` know when no render can still be inside it.
+    //
+    // A slot can hold one retired buffer, and that is sufficient rather than lucky: a
+    // second replacement before the first drains would find this word occupied, and the
+    // drain gate runs at the top of every `present` — so reaching here twice without an
+    // intervening drain means no frame completed in between, and the two `setGroup`
+    // calls are then indistinguishable to any reader. The first block is freed here in
+    // that case, because nothing can have started reading it.
+    emit_retire_current_items(builder, &dst, &symbol)?;
+
     // Everything but the name first. A graphics thread scanning concurrently either
     // sees the old name (and the old, still-valid pointers, since Phase 5 is what
     // frees them) or the new name with everything already in place.
@@ -267,12 +281,15 @@ pub(crate) fn emit_set_group(
     // One reference: the table's own. Scenes and parent groups add theirs in Phase 5.
     builder.emit(abi::move_immediate(&scratch, "Integer", "1"));
     builder.emit(abi::store_u64(&scratch, &dst, CANVAS_GROUP_REFS));
-    // -1 by arithmetic: `move_immediate` takes an unsigned encoding, so a negative
-    // literal is rejected outright rather than wrapping. Zero would be a live frame
-    // number, so the sentinel has to be a value no frame counter can hold.
-    builder.emit(abi::move_immediate(&scratch, "Integer", "0"));
-    builder.emit(abi::subtract_immediate(&scratch, &scratch, 1));
-    builder.emit(abi::store_u64(&scratch, &dst, CANVAS_GROUP_RETIRED_FRAME));
+    // `CANVAS_GROUP_RETIRED_FRAME` is deliberately NOT written here. The retire above
+    // has just stamped it with the frame this slot's displaced buffer must outlive, and
+    // an "unretired" sentinel written afterwards destroys exactly that: with -1 the
+    // gate `frame_now <= stamped` is true against every unsigned frame number, so a
+    // replaced buffer was never freed while a removed one was. Measured as
+    // `groupBytes=2112` holding across six frames.
+    //
+    // No sentinel is needed. `RETIRED_ITEMS` is the discriminator the drain reads
+    // first, and this word means nothing while that one is zero.
 
     // The revision bump is LAST of the payload words and before the name, so a
     // resolver that reads a name reads a revision at least as new as the items.
@@ -363,6 +380,10 @@ pub(crate) fn emit_remove_group(
     builder.emit(abi::subtract_immediate(&refs, &refs, 1));
     builder.emit(abi::store_u64(&refs, &found, CANVAS_GROUP_REFS));
 
+    // The buffer is retired, not freed: a frame may be mid-copy of it. The drain gate
+    // at the top of `present` frees it once a frame has completed.
+    emit_retire_current_items(builder, &found, &symbol)?;
+
     builder.emit(abi::label(&done));
     // The epilogue is explicit, as it is in every `abi_function` lowering here: the
     // builder does not append one, so a body that just returns its `ValueResult` falls
@@ -383,6 +404,173 @@ pub(crate) fn emit_remove_group(
         ctx.presentation_mode_offset,
         ModeRequirement::Canvas,
     );
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+/// Move a slot's live `items` into its retired word and stamp the frame.
+///
+/// The buffer is not freed here and must not be: `canvas::groupItems` copies out of it
+/// on the graphics thread, so a free at this moment races a reader. This is the same
+/// retire-then-drain rule `.ai/canvas-threading.md` §3 gives for scene blocks and §7
+/// for textures, which is why it is spelled the same way — one drain rule in the
+/// subsystem rather than three.
+///
+/// If the slot already had a retired buffer, that one is freed first. It is safe by
+/// construction rather than by luck: the drain gate runs at the top of every `present`,
+/// so a still-occupied retired word means no frame has completed since it was retired,
+/// which means no render can have started reading it.
+fn emit_retire_current_items(
+    builder: &mut CodeBuilder,
+    slot: &VirtualRegister,
+    symbol: &str,
+) -> Result<(), String> {
+    let list_type = ParameterType::list_of(ParameterType::named("DrawItem"));
+    let no_prior = builder.label("canvas_group_retire_no_prior");
+    let done = builder.label("canvas_group_retire_done");
+
+    let prior = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&prior, slot, CANVAS_GROUP_RETIRED_ITEMS));
+    builder.emit(abi::compare_immediate(&prior, "0"));
+    builder.emit(abi::branch_eq(&no_prior));
+    emit_free_items_block(builder, &prior, symbol, &list_type)?;
+    builder.emit(abi::label(&no_prior));
+
+    let live = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&live, slot, CANVAS_GROUP_ITEMS));
+    builder.emit(abi::store_u64(&live, slot, CANVAS_GROUP_RETIRED_ITEMS));
+    builder.emit(abi::store_u64(abi::ZERO, slot, CANVAS_GROUP_ITEMS));
+
+    let frame_now = builder.temporary_vreg();
+    emit_load_frame_counter(builder, &frame_now, symbol);
+    builder.emit(abi::store_u64(&frame_now, slot, CANVAS_GROUP_RETIRED_FRAME));
+
+    builder.emit(abi::label(&done));
+    Ok(())
+}
+
+/// Free one item block and take its bytes back off the table's owned total.
+///
+/// The size comes from the block itself rather than from anything remembered, which is
+/// what keeps `groupBytes=` honest across a replace: the number that goes back is the
+/// one that was added, because both are `emit_inlined_block_size_from_ptr_slot` of the
+/// same block.
+fn emit_free_items_block(
+    builder: &mut CodeBuilder,
+    block: &VirtualRegister,
+    symbol: &str,
+    list_type: &ParameterType,
+) -> Result<(), String> {
+    let ptr_slot = builder.allocate_stack_object("canvas_group_free_ptr", 8);
+    let size_slot = builder.allocate_stack_object("canvas_group_free_size", 8);
+    builder.emit(abi::store_u64(block, abi::stack_pointer(), ptr_slot));
+    builder.emit_inlined_block_size_from_ptr_slot(list_type, ptr_slot, size_slot)?;
+
+    let base = groups_base(builder);
+    let owned = builder.temporary_vreg();
+    let taken = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&owned, &base, CANVAS_GROUP_OWNED_BYTES));
+    builder.emit(abi::load_u64(&taken, abi::stack_pointer(), size_slot));
+    builder.emit(abi::subtract_registers(&owned, &owned, &taken));
+    builder.emit(abi::store_u64(&owned, &base, CANVAS_GROUP_OWNED_BYTES));
+
+    builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ptr_slot));
+    builder.emit(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        size_slot,
+    ));
+    emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
+    Ok(())
+}
+
+/// `canvas::groupReclaim()` — free every retired buffer a frame has completed past.
+///
+/// Internal-only, called from `__canvas_present` **before** the content comparison and
+/// on every present, not on the publish path (**G7**). `emit_reclaim_retired` — the
+/// scene ring's equivalent — sits after the publish label, so it runs only when the
+/// scene actually changed; a group free placed beside it would never run for
+/// `removeGroup("panel")` followed by presents of an unchanged scene. The frame skip
+/// would be working correctly and the memory would be held anyway.
+///
+/// A scan of at most `CANVAS_MAX_GROUPS` slots with no allocation, which is why it can
+/// be unconditional. A memory bound that depends on the scene changing is not a bound.
+pub(crate) fn emit_group_reclaim(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let list_type = ParameterType::list_of(ParameterType::named("DrawItem"));
+    let head = builder.label("canvas_group_reclaim_head");
+    let next = builder.label("canvas_group_reclaim_next");
+    let done = builder.label("canvas_group_reclaim_done");
+
+    let cursor = builder.allocate_stack_object("canvas_group_reclaim_cursor", 8);
+    let index = builder.allocate_stack_object("canvas_group_reclaim_index", 8);
+    let base = groups_base(builder);
+    builder.emit(abi::store_u64(&base, abi::stack_pointer(), cursor));
+    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index));
+
+    builder.emit(abi::label(&head));
+    let i = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&i, abi::stack_pointer(), index));
+    builder.emit(abi::compare_immediate(&i, &CANVAS_MAX_GROUPS.to_string()));
+    builder.emit(abi::branch_ge(&done));
+
+    let slot = builder.temporary_vreg();
+    let retired = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&slot, abi::stack_pointer(), cursor));
+    builder.emit(abi::load_u64(&retired, &slot, CANVAS_GROUP_RETIRED_ITEMS));
+    builder.emit(abi::compare_immediate(&retired, "0"));
+    builder.emit(abi::branch_eq(&next));
+
+    // The gate: a frame must have COMPLETED since the retirement. `branch_ls` is the
+    // same unsigned comparison the scene ring's reclaim uses, so the two agree on the
+    // boundary case rather than differing by one.
+    let stamped = builder.temporary_vreg();
+    let frame_now = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&stamped, &slot, CANVAS_GROUP_RETIRED_FRAME));
+    emit_load_frame_counter(builder, &frame_now, &symbol);
+    builder.emit(abi::compare_registers(&frame_now, &stamped));
+    builder.emit(abi::branch_ls(&next));
+
+    emit_free_items_block(builder, &retired, &symbol, &list_type)?;
+    let slot_again = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&slot_again, abi::stack_pointer(), cursor));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        &slot_again,
+        CANVAS_GROUP_RETIRED_ITEMS,
+    ));
+
+    builder.emit(abi::label(&next));
+    let advance = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&advance, abi::stack_pointer(), cursor));
+    builder.emit(abi::add_immediate(
+        &advance,
+        &advance,
+        CANVAS_GROUP_SLOT_BYTES,
+    ));
+    builder.emit(abi::store_u64(&advance, abi::stack_pointer(), cursor));
+    let bumped = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&bumped, abi::stack_pointer(), index));
+    builder.emit(abi::add_immediate(&bumped, &bumped, 1));
+    builder.emit(abi::store_u64(&bumped, abi::stack_pointer(), index));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
 
     Ok(ValueResult {
         origin: None,

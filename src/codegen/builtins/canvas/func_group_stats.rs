@@ -6,7 +6,8 @@
 //! process-global block no MFBASIC expression can reach.
 
 use super::gen_group::{
-    emit_group_bytes, emit_group_count, emit_group_items, emit_group_resolve, emit_group_revision,
+    emit_group_bytes, emit_group_count, emit_group_items, emit_group_reclaim, emit_group_resolve,
+    emit_group_revision,
 };
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -103,6 +104,23 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::named("DrawItem")),
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(emit_group_items),
+        }],
+    });
+    // The drain gate. Called from `__canvas_present` on EVERY present and before the
+    // content comparison, not on the publish path -- see the function's own comment for
+    // why the scene ring's placement would not do (G7).
+    pkg.add_function(RegistryFunction {
+        name: "groupReclaim",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(emit_group_reclaim),
         }],
     });
 }

@@ -44,6 +44,7 @@ impl NativeBackend for Backend {
                 "canvas.groupResolve",
                 "canvas.groupRevision",
                 "canvas.groupItems",
+                "canvas.groupReclaim",
                 "canvas.removeGroup",
                 "canvas.presentLayers",
                 "canvas.publishScene",

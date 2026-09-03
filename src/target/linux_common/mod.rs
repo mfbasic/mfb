@@ -59,6 +59,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.groupResolve",
     "canvas.groupRevision",
     "canvas.groupItems",
+    "canvas.groupReclaim",
     "canvas.removeGroup",
     "canvas.presentLayers",
     "canvas.publishScene",

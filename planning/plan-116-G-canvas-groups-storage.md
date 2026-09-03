@@ -798,7 +798,7 @@ Gates: `cargo test --release --bin mfb --no-fail-fast` **3765 passed, 0 failed**
 `rt_canvas_font` 13, `rt_canvas_graphics_thread` 8, all 0 failed;
 `scripts/test-accept.sh` **1359 ran, 0 failed** with no golden moved;
 `cargo check --all-targets` 0 warnings.
-Commit: —
+Commit: 15093211c
 
 ### Phase 5 — Lifetime: the refcount and the drain gate (largest blast radius)
 

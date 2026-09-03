@@ -2634,11 +2634,15 @@ fn set_group_deep_copies_and_remove_group_frees_nothing_yet() {
     );
     assert_eq!(
         bytes[3], bytes[2],
-        "`removeGroup` freed the items. It must not: a frame may be mid-walk over them, \
-         so the block is retired and the free waits for the drain gate. \
-         **When plan-116-G Phase 5 lands that gate, this is the assertion to change** — \
-         it should then become a drop, and this phase's leak is what gives that change \
-         a measured `before`.",
+        "`removeGroup` freed the items immediately. It must not: a frame may be mid-copy \
+         of that block, so it is retired and the free waits for the drain gate. \
+         \n\nPhase 5 landed that gate and this assertion did **not** need to change, \
+         which is worth stating because the phase expected it would: the drain runs at \
+         the TOP of a present and requires a frame to have completed since the \
+         retirement, so the earliest it can release this buffer is the present after \
+         the one below. `a_removed_groups_buffer_is_retired_not_freed` and \
+         `the_group_drain_does_not_depend_on_the_scene_changing` cover the release \
+         itself.",
     );
 }
 
@@ -2861,5 +2865,199 @@ fn a_clip_inside_a_translated_group_stays_on_the_surface() {
         "the right half of the square is painted, so the clip moved with the group. A \
          clip is a SURFACE rectangle: the group translates the shape through it, and \
          following the group would put this clip at (600,100) where it cuts nothing.",
+    );
+}
+
+/// A removed group's buffer is **retired, not freed** (plan-116-G Phase 5).
+///
+/// The free cannot happen inside `removeGroup`: `canvas::groupItems` copies out of that
+/// block on the graphics thread, so a render may be part-way through it. The block is
+/// therefore handed to the drain gate, which releases it once a frame has completed —
+/// the same rule `.ai/canvas-threading.md` §3 gives for retired scene blocks and §7 for
+/// textures.
+///
+/// Observable because both states produce a frame: the name disappears immediately
+/// (`groups=` drops), while the bytes stay charged (`groupBytes=` does not).
+#[test]
+fn a_removed_groups_buffer_is_retired_not_freed() {
+    let (_, stats) = render(
+        "canvas_group_retire",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::setGroup(\"panel\", [red])\n  \
+             LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"panel\"]\n  \
+             canvas::present([keep, node])\n  \
+             canvas::removeGroup(\"panel\")\n  \
+             canvas::present([keep, node])\n",
+        ),
+    );
+
+    assert_eq!(stats.len(), 2, "expected two frames: {stats:?}");
+    let groups: Vec<String> = stats.iter().map(|l| stat(l, "groups=")).collect();
+    let bytes: Vec<String> = stats.iter().map(|l| stat(l, "groupBytes=")).collect();
+
+    assert_eq!(
+        groups,
+        vec!["1", "0"],
+        "the name must go the moment `removeGroup` is called: {stats:?}",
+    );
+    assert_ne!(bytes[0], "0", "the installed group must own bytes");
+    assert_eq!(
+        bytes[1], bytes[0],
+        "the buffer was freed the instant `removeGroup` was called. It must be RETIRED \
+         instead — a render may be mid-copy of exactly that block — and released only \
+         once a frame has completed since: {stats:?}",
+    );
+}
+
+/// The drain does not depend on the scene ever changing again (**G7**).
+///
+/// This is the row the placement of the gate is decided by, and it is written as a
+/// **memory bound** rather than as a single free, because a single free cannot tell the
+/// two placements apart: whichever present eventually publishes will run either gate.
+///
+/// The loop installs and removes a group under a name **the presented scene never
+/// references**, so the scene is byte-identical every time and the signature never
+/// moves — every one of those presents is skipped, and no publish happens at all. With
+/// the free placed beside the scene ring's `emit_reclaim_retired`, which sits after the
+/// publish label, nothing would ever be released and the table would accumulate one
+/// buffer per iteration. With the gate at the top of `present`, each iteration's
+/// predecessor is drained on the next call.
+///
+/// The final present changes the scene only so that a stats line is written to read the
+/// answer off; by then the bound has already been established or lost.
+#[test]
+fn the_group_drain_does_not_depend_on_the_scene_changing() {
+    let (_, stats) = render(
+        "canvas_group_drain_bound",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::present([keep])\n  \
+             MUT i AS Integer = 0\n  \
+             WHILE i < 40\n  \
+               canvas::setGroup(\"scratch\" & toString(i), [red, red, red, red, red, red, red, red])\n  \
+               canvas::present([keep])\n  \
+               canvas::removeGroup(\"scratch\" & toString(i))\n  \
+               canvas::present([keep])\n  \
+               i = i + 1\n  \
+             END WHILE\n  \
+             LET last AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::present([keep, last])\n",
+        ),
+    );
+
+    let bytes: i64 = stat(stats.last().expect("a final frame"), "groupBytes=")
+        .parse()
+        .expect("groupBytes is a number");
+    let groups = stat(stats.last().unwrap(), "groups=");
+    assert_eq!(groups, "0", "every scratch group was removed: {stats:?}");
+    // One eight-item group is ~1 KB; forty of them would be ~40 KB. Allow one
+    // outstanding buffer — the last iteration's may legitimately still be retired.
+    assert!(
+        bytes < 4096,
+        "the table still owns {bytes} bytes after 40 install/remove cycles, so the \
+         buffers were not drained. Every present in that loop showed an unchanged scene \
+         and was skipped, which is exactly the case a free placed on the publish path \
+         never reaches — the frame skip works and the memory is held anyway. {stats:?}",
+    );
+}
+
+/// Replacing a live group frees the **old** buffer and not the new one, once a frame
+/// has completed (plan-116-G Phase 5).
+///
+/// The sharp part is the second half: after the drain, `groupBytes` must equal what one
+/// copy of the new contents costs — not zero (which would mean the live buffer was
+/// freed too) and not the sum of both (which would mean the old one never was). The new
+/// group is deliberately a *different size* from the old, so "one copy of the new
+/// contents" is a number only the correct implementation produces.
+#[test]
+fn replacing_a_group_frees_only_the_displaced_buffer() {
+    let (_, stats) = render(
+        "canvas_group_replace_drain",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET b AS canvas::DrawItem = canvas::Circle[x := 10.0, y := 10.0, radius := 10.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"panel\"]\n  \
+             canvas::setGroup(\"one\", [a])\n  \
+             canvas::present([canvas::Group[dx := 400.0, dy := 400.0, name := \"one\"]])\n  \
+             canvas::setGroup(\"panel\", [a, a, a])\n  \
+             canvas::present([canvas::Group[dx := 400.0, dy := 400.0, name := \"one\"], node])\n  \
+             canvas::setGroup(\"panel\", [b])\n  \
+             canvas::present([canvas::Group[dx := 400.0, dy := 400.0, name := \"one\"], node])\n  \
+             canvas::present([canvas::Group[dx := 400.0, dy := 400.0, name := \"one\"], node])\n",
+        ),
+    );
+
+    assert_eq!(stats.len(), 4, "expected four frames: {stats:?}");
+    let n: Vec<i64> = stats
+        .iter()
+        .map(|l| stat(l, "groupBytes=").parse().unwrap())
+        .collect();
+    let groups: Vec<String> = stats.iter().map(|l| stat(l, "groups=")).collect();
+
+    assert_eq!(
+        groups,
+        vec!["1", "2", "2", "2"],
+        "the replacement reuses the slot, so the name count must not move: {stats:?}",
+    );
+    assert!(
+        n[2] > n[1],
+        "replacing a group must charge the new copy before the old one drains — both \
+         are held for one frame, which is what the drain gate costs: {stats:?}",
+    );
+    assert!(
+        n[3] < n[2],
+        "the displaced buffer was never freed: {stats:?}",
+    );
+    assert!(
+        n[3] > 0,
+        "everything was freed, including the LIVE buffer — a replace must retire only \
+         the block it displaced: {stats:?}",
+    );
+    // The three-item group is gone and the one-item group replaced it, so the total
+    // must be below what the frame carrying both cost, and below the pre-replace total.
+    assert!(
+        n[3] < n[1],
+        "after the drain the table should hold the one-item replacement plus the \
+         unrelated group, which is less than the three-item version it replaced: {stats:?}",
+    );
+}
+
+/// A group removed while a **parent group** still names it keeps drawing.
+///
+/// The parent holds no pointer into the child's buffer — a `canvas::Group` node carries
+/// a name, and the renderer resolves it per frame — so "still referenced" here means the
+/// name resolves, and removing the child makes the parent's node a silent no-op like any
+/// other unresolved name. This asserts that outcome rather than a refcount, because the
+/// refcount is what the design does not have (**G24**).
+#[test]
+fn removing_a_group_a_parent_names_makes_the_parents_node_a_no_op() {
+    let (frame, _) = render(
+        "canvas_group_child_removed",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET mark AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::setGroup(\"child\", [red])\n  \
+             canvas::setGroup(\"parent\", [canvas::Group[dx := 0.0, dy := 0.0, name := \"child\"], mark])\n  \
+             LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"parent\"]\n  \
+             canvas::present([node])\n  \
+             canvas::removeGroup(\"child\")\n  \
+             canvas::present([node])\n",
+        ),
+    );
+
+    assert_eq!(
+        pixel(&frame, 130, 130),
+        (0, 0, 0, 255),
+        "the removed child still drew. Removing a name makes every `canvas::Group` that \
+         referenced it a no-op, including one inside another group.",
+    );
+    assert_eq!(
+        pixel(&frame, 830, 630),
+        (0, 0, 255, 255),
+        "the parent group's OTHER item stopped drawing, so removing the child took the \
+         parent down with it",
     );
 }

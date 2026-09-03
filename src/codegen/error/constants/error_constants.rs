@@ -485,12 +485,26 @@ pub(crate) const CANVAS_GROUP_COUNT: usize = 16;
 pub(crate) const CANVAS_GROUP_REVISION: usize = 24;
 /// Live references: the table's own, plus each published scene and parent group.
 pub(crate) const CANVAS_GROUP_REFS: usize = 32;
-/// The frame at which the last reference dropped, or `-1` while referenced.
+/// The frame at which this slot's buffer was retired.
+///
+/// Meaningless while `CANVAS_GROUP_RETIRED_ITEMS` is zero, which is the discriminator
+/// the drain reads first — there is deliberately no "not retired" sentinel here, and an
+/// earlier draft that wrote one destroyed the stamp the retire had just made.
 ///
 /// The buffer is freed only once `REFS == 0` **and** a frame has completed since —
 /// the same drain gate `.ai/canvas-threading.md` §7 specifies for textures and §3 for
 /// retired scene blocks, reused so the subsystem has one rule rather than three.
 pub(crate) const CANVAS_GROUP_RETIRED_FRAME: usize = 40;
+/// The buffer a `removeGroup` or a replacing `setGroup` displaced, held until a frame
+/// has completed since (plan-116-G Phase 5).
+///
+/// Retiring rather than freeing immediately is the same rule the scene ring follows
+/// (`.ai/canvas-threading.md` §3) and for the same reason: the graphics thread may be
+/// mid-copy of the block being displaced. It is a single word rather than a queue
+/// because a slot can retire at most one buffer per frame — a second `setGroup` in the
+/// same frame would find the first still here, and the drain gate below is what makes
+/// that impossible to reach without freeing it first.
+pub(crate) const CANVAS_GROUP_RETIRED_ITEMS: usize = 48;
 /// Bytes per slot: **64**, not the 48 the six words need.
 ///
 /// A power of two, so a slot index converts to an address with a shift. The six-word
@@ -499,9 +513,8 @@ pub(crate) const CANVAS_GROUP_RETIRED_FRAME: usize = 40;
 /// every resolve and every render walk, so paying 16 bytes a slot (4 KB across the
 /// table) to make it two shifts is the right trade twice over.
 ///
-/// The two spare words are deliberately left unnamed. Phase 5's reference accounting
-/// and plan-116-J's resource ownership both want slot state, and a named-but-unused
-/// constant would be a promise about which.
+/// One spare word remains after Phase 5 took the other for `RETIRED_ITEMS`. It is left
+/// unnamed for plan-116-J's resource ownership rather than claimed speculatively.
 pub(crate) const CANVAS_GROUP_SLOT_BYTES: usize = 64;
 /// `log2(CANVAS_GROUP_SLOT_BYTES)` — the shift that converts a slot index to a byte
 /// offset. Spelled beside the size so the two cannot drift; `the_group_slot_size_is_a_power_of_two`
