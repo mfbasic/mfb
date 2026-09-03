@@ -479,21 +479,50 @@ Commit: 72cfa908d
 
 ### Phase 4 — Metal and Vulkan
 
-- [ ] The same solve in MSL and in both GLSL files; extend the item block by one
-      `ivec4` for `cos`/`sin`; `scripts/regen-spirv.sh`.
-- [ ] Both `*Renderable` predicates: kind 7's payload fits the item block, so neither
+- [x] The same solve in MSL and in both GLSL files; extend the item block by one
+      `ivec4` for `cos`/`sin`; `scripts/regen-spirv.sh`. → `ITEM_BLOCK_SIZE` 176 → 192,
+      `frag -> 27708 bytes`, `vert -> 4276 bytes`. Both `ItemBlock` declarations
+      widened, per plan-116-D's **D6** — the vertex one is what sets the std430 stride.
+      Re-measured on box 2228: `ellipse: offset 176 … topLevelArrayStride 192`,
+      `numMembers 12`.
+- [x] Both `*Renderable` predicates: kind 7's payload fits the item block, so neither
       needs to decline it. **Confirm by test** — a predicate that silently accepts a
       kind its shader does not know renders the item as *nothing* and reports success,
       which `.ai/canvas-threading.md` §10 records as having actually happened
-      (4,536 pixels wrong, reported as success).
-- [ ] New reference image `tests/golden/canvas/ellipses.png`: axis-aligned, rotated,
-      high-eccentricity, filled and stroked.
-- [ ] Tests: both GPUs match the oracle on `ellipses.png` within
+      (4,536 pixels wrong, reported as success). → confirmed by
+      `the_gpu_draws_the_ellipse_scene_the_reference_shows`, which asserts
+      `gpuSelected=TRUE` before comparing a pixel, and by the Vulkan harness
+      (`entries=25`, `gpuSelected=TRUE`). This is the letter where that check matters
+      most: `Ellipse` is a brand-new kind, so "accepted but not drawn" is exactly the
+      failure available.
+- [x] New reference image `tests/golden/canvas/ellipses.png`: axis-aligned, rotated,
+      high-eccentricity, filled and stroked. → four rows. The first is a 3:1 beside the
+      circle its `radiusX` would give, so the picture shows the *shape*; the second is
+      the 10:1 case where an approximate distance is worst, with the same shape a
+      quarter turn round in its own column; the third is filled-and-stroked and
+      stroke-only at 30°, where a band of constant width over ninefold-varying
+      curvature is the thing to look at; the fourth is the load-bearing pair — an
+      `Ellipse` with equal radii beside a real `Circle`, indistinguishable, which is
+      what §1's claim looks like as a picture.
+- [x] Tests: both GPUs match the oracle on `ellipses.png` within
       `Tolerance::GPU_DEFAULT`.
 
 Acceptance: `ellipses.png` matches on both GPUs within `Tolerance::GPU_DEFAULT`, with
 `MFB_CANVAS_STATS` confirming `metalReady=TRUE` / `vulkanReady=TRUE`. If the tolerance
 is exceeded, carry more precomputed constants — do not loosen the tolerance.
+
+**MET, and nothing was loosened.**
+
+- **Metal**: 356 of 576000 pixels differ (**0.062%**), worst channel delta **2**,
+  against `GPU_DEFAULT`'s ≤2 steps and ≤2%. Stats `gpuSelected=TRUE metalReady=TRUE`.
+- **Vulkan, both libc worlds**: box 2228 glibc and box 2227 musl, 12/12 each,
+  `vulkanReady=TRUE gpuSelected=TRUE`, `worst=2 differing=0.7929%` — up from 0.7818%,
+  which is the new ellipse's own antialiased rim rather than a no-op.
+- The margin is there because the shaders call **no trigonometry** for an ellipse: the
+  `cos`/`sin` are the CPU's deterministic Taylor pair carried in the item block, so the
+  one place §4.3 predicted the three renderers could not agree does not arise for this
+  kind. The precaution the acceptance names — "carry more precomputed constants" — was
+  taken by design rather than in response to a measurement.
 Commit: —
 
 ### Phase 5 — Docs and gates

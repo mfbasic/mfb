@@ -27,6 +27,7 @@ struct ItemBlock {
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
     ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px)
+    ivec4 ellipse; // an ellipse's rotation cos, sin (16.16 px); two unused
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -102,6 +103,35 @@ float segmentDistanceButt(vec2 p, vec2 a, vec2 b, float half_) {
     float d = length(w - v * clamp(t, 0.0, 1.0)) - half_;
     d = max(d, -t * length_);
     return max(d, (t - 1.0) * length_);
+}
+
+// Signed distance to a rotated ellipse (plan-116-E) — 24 halvings of a bisection on
+// the folded first quadrant, the same count and the same arithmetic the software
+// oracle uses. Not Newton: plan-116-E Phase 1 measured a fixed-count Newton at 127.5
+// coverage steps wrong at every count from 1 to 8, because outside the evolute of an
+// eccentric ellipse the squared distance has three stationary points in the quadrant.
+// The bisection's bracket is guaranteed by construction after the |q| fold.
+//
+// `ca`/`sa` are the CPU's deterministic Taylor pair, carried in the item block, so this
+// calls no trigonometry — which is what lets an ellipse agree with the oracle far more
+// closely than the arc kind does.
+float ellipseDistance(vec2 p, vec2 c, float rx, float ry, float ca, float sa) {
+    vec2 d = p - c;
+    vec2 q = abs(vec2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca));
+    // Equal radii short-circuit to the exact circle distance, so an Ellipse with
+    // rx == ry is the Circle of that radius rather than merely close to it.
+    if (rx == ry) { return length(q) - rx; }
+    vec2 a = vec2(1.0, 0.0);
+    vec2 b = vec2(0.0, 1.0);
+    vec2 m = a;
+    for (int i = 0; i < 24; ++i) {
+        m = normalize(a + b);
+        float g = (q.x - rx * m.x) * (-rx * m.y) + (q.y - ry * m.y) * (ry * m.x);
+        if (g > 0.0) { a = m; } else { b = m; }
+    }
+    float dist = length(q - vec2(rx * m.x, ry * m.y));
+    vec2 u = vec2(q.x / rx, q.y / ry);
+    return dot(u, u) < 1.0 ? -dist : dist;
 }
 
 bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
@@ -181,6 +211,10 @@ float geoDistance(vec2 p) {
         vec2 ce = vec2(fx(item.arcCaps.z), fx(item.arcCaps.w));
         band = min(band, length(p - cs) - radius);
         return min(band, length(p - ce) - radius);
+    }
+    if (item.misc.x == 7) {
+        return ellipseDistance(p, c, fx(item.shape.z), fx(item.shape.w),
+                               fx(item.ellipse.x), fx(item.ellipse.y)) - radius;
     }
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, item.misc.w, p);
