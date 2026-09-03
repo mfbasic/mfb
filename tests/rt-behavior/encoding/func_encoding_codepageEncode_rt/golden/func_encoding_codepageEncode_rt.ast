@@ -1,0 +1,211 @@
+{
+  "project": "func_encoding_codepageEncode_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 13 },
+    { "module": "encoding", "line": 14 },
+    { "module": "collections", "line": 15 },
+    { "module": "errorCode", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 21,
+      "params": [
+      { "name": "cp", "type": "encoding.Codepage", "default": null, "line": 21 },
+      { "name": "b", "type": "Integer", "default": null, "line": 21 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "one", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "one" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.codepageEncode", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "text" }] }, "line": 24 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }, "right": { "kind": "number", "value": "1" } },
+        "line": 25,
+        "then": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 26 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "back" }, { "kind": "number", "value": "0" }] }] }, "right": { "kind": "identifier", "value": "b" } },
+        "line": 28,
+        "then": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 29 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 31 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 32,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } },
+        "line": 33,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 34 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 36 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "report",
+      "line": 40,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 40 },
+      { "name": "cp", "type": "encoding.Codepage", "default": null, "line": 40 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "ok", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 41 },
+      { "kind": "binding", "mutable": true, "name": "hole", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 42 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 43 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 44 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "256" } },
+        "line": 45,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "b" }] }, "line": 46 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "1" } },
+          "line": 47,
+          "then": [
+          { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "number", "value": "1" } }, "line": 48 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "0" } },
+          "line": 50,
+          "then": [
+          { "kind": "assignment", "name": "hole", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "hole" }, "right": { "kind": "number", "value": "1" } }, "line": 51 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "number", "value": "0" } },
+          "line": 53,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 54 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "b", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "1" } }, "line": 56 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "name" }, "right": { "kind": "string", "value": " ok=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] } }, "right": { "kind": "string", "value": " hole=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "hole" }] } }, "right": { "kind": "string", "value": " bad=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] } }] }, "line": 58 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 59 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "encodeOr",
+      "line": 62,
+      "params": [
+      { "name": "cp", "type": "encoding.Codepage", "default": null, "line": 62 },
+      { "name": "text", "type": "String", "default": null, "line": 62 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "encoding.codepageEncode", "arguments": [{ "kind": "identifier", "value": "cp" }, { "kind": "identifier", "value": "text" }] }] }, "line": 63 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 64,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } },
+        "line": 65,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "raised" }, "line": 66 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "other " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 68 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 72,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "string", "value": "café" }] }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "string", "value": "世" }] }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows874" }, { "kind": "string", "value": "�" }] }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "string", "value": "�" }] }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "string", "value": "é" }] }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_5" }, { "kind": "string", "value": "" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encodeOr", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Utf8" }, { "kind": "string", "value": "héllo 世界" }] }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Ibm866" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Ibm866" }] }, "line": 97 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_2" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_2" }] }, "line": 98 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_3" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_3" }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_4" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_4" }] }, "line": 100 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_5" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_5" }] }, "line": 101 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_6" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_6" }] }, "line": 102 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_7" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_7" }] }, "line": 103 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_8" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_8" }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_8I" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_8I" }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_10" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_10" }] }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_13" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_13" }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_14" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_14" }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_15" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_15" }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Iso8859_16" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Iso8859_16" }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Koi8R" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Koi8R" }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Koi8U" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Koi8U" }] }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Macintosh" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Macintosh" }] }, "line": 113 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows874" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows874" }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1250" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1250" }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1251" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1251" }] }, "line": 116 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1252" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1253" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1253" }] }, "line": 118 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1254" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1254" }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1255" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1255" }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1256" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1256" }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1257" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1257" }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "Windows1258" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1258" }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "MacCyrillic" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "MacCyrillic" }] }, "line": 124 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 125 }
+      ]
+    }
+    ]
+  }
+  ]
+}

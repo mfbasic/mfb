@@ -404,7 +404,7 @@ Cheapest experiment that could invalidate the design, before any bulk work.
 Acceptance: a one-codepage `codepageDecode` decodes `99 97 102 233` to `café` and
 raises `77050003` on a hole byte, run as an rt fixture; the golden delta is fully
 enumerated and every moved golden's diff is attributed to this change.
-Commit: `—`
+Commit: `526bb1a72`
 
 ### Phase 2 — vendor the index files and generate all 27 tables
 
@@ -447,7 +447,7 @@ Commit: `—`
 Acceptance: `sh scripts/check-generated.sh` reproduces the committed table file
 byte-for-byte; `codepage_tables_match_the_vendored_index_files` passes over all
 28 x 128 mappings; and `mfb man encoding types` renders all 29 `Codepage` variants.
-Commit: `—`
+Commit: `2ef39e200` (Phases 2 and 3 land together: Phase 2's tables and Phase 3's member promotion move the same goldens, and splitting them would have meant two full golden sweeps for one net change.)
 
 ### Phase 3 — the member, differential validation, and docs (largest blast radius last)
 
@@ -517,7 +517,7 @@ Acceptance: the differential fixture passes for all 28 variants against the vend
 index files; `cargo test --no-fail-fast` and `scripts/test-accept.sh` are green (watch
 the `N ran` count); `mfb man encoding codepageDecode` renders and its examples run;
 golden deltas are only line shifts plus the new member's own entries.
-Commit: `—`
+Commit: `2ef39e200`
 
 ## Validation Plan
 

@@ -36,6 +36,10 @@ FUNC codepageDecodeFn(cp AS encoding::Codepage, bytes AS List OF Byte) AS String
   RETURN encoding::codepageDecode(cp, bytes)
 END FUNC
 
+FUNC codepageEncodeFn(cp AS encoding::Codepage, text AS String) AS List OF Byte
+  RETURN encoding::codepageEncode(cp, text)
+END FUNC
+
 FUNC utf32DecodeFn(points AS List OF Integer) AS String
   RETURN encoding::utf32Decode(points)
 END FUNC
@@ -274,6 +278,31 @@ TESTING
         expectTrap(codepageDecodeFn(encoding::Codepage.Windows874, hole), errorCode::ErrInvalidFormat)
         LET mapped AS List OF Byte = [toByte(161)]
         expectString(codepageDecodeFn(encoding::Codepage.Windows874, mapped), "ก")
+      END TCASE
+      TCASE "codepageEncode is the inverse of codepageDecode"
+        ' A List OF Byte is not comparable, so the bytes are compared as hex text.
+        expectString(encoding::hexEncode(encoding::codepageEncode(encoding::Codepage.Windows1252, "café")), "636166e9")
+        LET raw AS List OF Byte = [toByte(65), toByte(200), toByte(255)]
+        LET text AS String = encoding::codepageDecode(encoding::Codepage.Iso8859_5, raw)
+        expectString(encoding::hexEncode(encoding::codepageEncode(encoding::Codepage.Iso8859_5, text)), encoding::hexEncode(raw))
+        expectString(encoding::hexEncode(encoding::codepageEncode(encoding::Codepage.Windows1252, "")), "")
+      END TCASE
+      TCASE "Codepage.Utf8 encodes the whole string as UTF-8"
+        LET utf AS List OF Byte = encoding::utf8Encode("héllo 世界")
+        expectString(encoding::hexEncode(encoding::codepageEncode(encoding::Codepage.Utf8, "héllo 世界")), encoding::hexEncode(utf))
+      END TCASE
+      TCASE "codepageEncode rejects a character the codepage cannot spell"
+        ' U+4E16 has no windows-1252 byte. U+FFFD must be rejected BEFORE the table
+        ' search or it would match an unmapped slot and emit that slot's byte --
+        ' wrong bytes rather than an error. windows-1252 has no holes at all, so its
+        ' rejection proves the guard is unconditional rather than hole-dependent.
+        expectTrap(codepageEncodeFn(encoding::Codepage.Windows1252, "世"), errorCode::ErrInvalidFormat)
+        expectTrap(codepageEncodeFn(encoding::Codepage.Windows874, "\u{FFFD}"), errorCode::ErrInvalidFormat)
+        expectTrap(codepageEncodeFn(encoding::Codepage.Windows1252, "\u{FFFD}"), errorCode::ErrInvalidFormat)
+        ' A combining sequence is more than one scalar, so no single-byte codepage
+        ' has one byte for it.
+        expectTrap(codepageEncodeFn(encoding::Codepage.Windows1252, "e\u{0301}"), errorCode::ErrInvalidFormat)
+        expectString(encoding::hexEncode(codepageEncodeFn(encoding::Codepage.Windows1252, "é")), "e9")
       END TCASE
     END TGROUP
 

@@ -58,6 +58,7 @@ mod func_base64_encode;
 mod func_base64_url_decode;
 mod func_base64_url_encode;
 mod func_codepage_decode;
+mod func_codepage_encode;
 mod func_form_url_decode;
 mod func_form_url_encode;
 mod func_hex_decode;
@@ -231,6 +232,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_varint_encode::register(&mut pkg);
     func_varint_decode::register(&mut pkg);
     func_codepage_decode::register(&mut pkg);
+    func_codepage_encode::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -286,9 +288,9 @@ mod tests {
         let pkg = registry()
             .resolve_package("encoding")
             .expect("encoding package");
-        // 29 public members (2 overloaded + 27 non-overloaded). `codepageDecode`
-        // is the 29th (plan-123-A); `codepageEncode` makes it 30 in plan-123-B.
-        assert_eq!(pkg.functions().len(), 29);
+        // 30 public members (2 overloaded + 28 non-overloaded), the last two being
+        // `codepageDecode` (plan-123-A) and `codepageEncode` (plan-123-B).
+        assert_eq!(pkg.functions().len(), 30);
     }
 
     #[test]
@@ -685,5 +687,65 @@ mod codepage_tables {
 
         assert_eq!(got, want, "rt fixture digests vs. the vendored index files");
         assert_eq!(got.len(), 28, "one digest line per single-byte codepage");
+    }
+
+    /// The round-trip fixture's per-codepage counts, recomputed here from the
+    /// vendored index files (plan-123-B).
+    ///
+    /// `func_encoding_codepageEncode_rt` walks all 256 bytes of every single-byte
+    /// codepage, decodes each and re-encodes the result, and prints
+    /// `<name> ok=<n> hole=<n> bad=<n>`. `bad` counts a byte that came back as
+    /// something other than itself — the wrong-bytes failure the U+FFFD sentinel
+    /// guard exists to prevent, which no byte-count assertion would catch — so
+    /// **every line must report `bad=0`**. `ok` must be the 128 ASCII bytes plus the
+    /// codepage's mapped high bytes, and `hole` the rest; deriving both from
+    /// `tools/codepage-index/` here is what stops the golden from being blessed
+    /// wrong.
+    #[test]
+    fn codepage_roundtrip_counts_match_the_vendored_index_files() {
+        let log = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/rt-behavior/encoding/func_encoding_codepageEncode_rt/golden/build.log");
+        let text =
+            std::fs::read_to_string(&log).unwrap_or_else(|e| panic!("read {}: {e}", log.display()));
+
+        let mut got: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
+        for line in text.lines() {
+            let Some((name, rest)) = line.split_once(" ok=") else {
+                continue;
+            };
+            let (ok, rest) = rest.split_once(" hole=").expect("round-trip line shape");
+            let (hole, bad) = rest.split_once(" bad=").expect("round-trip line shape");
+            got.insert(
+                name.to_string(),
+                (
+                    ok.parse().expect("ok"),
+                    hole.parse().expect("hole"),
+                    bad.parse().expect("bad"),
+                ),
+            );
+        }
+
+        let mut want: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
+        for (name, label, _desc) in VARIANTS {
+            if label.is_empty() {
+                // `Utf8` is not a single-byte codepage: a lone high byte is not
+                // valid UTF-8, so it has no per-byte round trip and the fixture
+                // covers it separately.
+                continue;
+            }
+            let mapped = read_index(label).len();
+            want.insert((*name).to_string(), (128 + mapped, 128 - mapped, 0));
+        }
+
+        assert_eq!(
+            got, want,
+            "round-trip counts vs. the vendored index files (third number is `bad`, \
+             which must be 0 everywhere)"
+        );
+        assert_eq!(got.len(), 28, "one line per single-byte codepage");
+        assert!(
+            got.values().all(|(_ok, _hole, bad)| *bad == 0),
+            "a byte re-encoded to something other than itself"
+        );
     }
 }

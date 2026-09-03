@@ -150,7 +150,9 @@ Rejected alternatives:
 - **Generate a second, inverted table** — rejected for now: doubles the generated
   data and the audit surface to remove a bounded 128-scalar scan. Revisit only if
   Phase 3's throughput measurement says so, and then as a generator change in
-  plan-123-A's file, not a hand-written table here.
+  plan-123-A's file, not a hand-written table here. **Measured in Phase 3 and still
+  rejected — but the number is now on the record rather than assumed; see
+  Corrections 7 for what a future session would need to know to revisit it.**
 - **Lossy fallback to `?`** — rejected: silently corrupts data. A caller that wants
   it can catch `77050003` and substitute.
 
@@ -243,23 +245,48 @@ Commit: `—`
 
 ### Phase 2 — the member
 
-- [ ] Add `src/codegen/builtins/encoding/func_codepage_encode.rs` per §4, and
-      register it in `src/codegen/builtins/encoding/mod.rs:register`.
-- [ ] Read `mfb man strings find` and confirm the not-found behavior the body
-      depends on; adjust §4 and the body to match what it actually does.
-- [ ] Add `codepageEncode` to `tests/byte-identity/encoding/src/main.mfb` so the
+- [x] Add `src/codegen/builtins/encoding/func_codepage_encode.rs` per §4, and
+      register it in `src/codegen/builtins/encoding/mod.rs:register`. `encoding` is
+      now 30 members (2 overloaded + 28 non-overloaded).
+- [x] Read `mfb man strings find` and confirm the not-found behavior the body
+      depends on; adjust §4 and the body to match what it actually does. It raises
+      `ErrNotFound` and never returns `-1`; the page itself says to guard with
+      `strings::contains` when absence is an ordinary outcome, which it is here. §4
+      and the body use the guard rather than the sketched inline `TRAP`/`RECOVER`
+      (Corrections 2).
+- [x] Add `codepageEncode` to `tests/byte-identity/encoding/src/main.mfb` so the
       `encoding_codegen_cover_rt` `.ncodesum` goldens actually hash it, and
-      regenerate them with `scripts/regen-ncodesum.sh`.
-- [ ] Tests: **round-trip** rt fixture — for every `Codepage` variant, every byte
+      regenerate them with `scripts/regen-ncodesum.sh`. Three arms covered
+      (windows-1252, windows-874, and the `Utf8` delegation);
+      `141 golden(s) refreshed, 0 missing`.
+- [x] Tests: **round-trip** rt fixture — for every `Codepage` variant, every byte
       0x80–0xFF that decodes without raising must survive
-      `codepageEncode(cp, codepageDecode(cp, [b])) == [b]`. Whole-range, not a sample.
-- [ ] Tests: `tests/rt-error/encoding/` fixture for the unrepresentable-character
+      `codepageEncode(cp, codepageDecode(cp, [b])) == [b]`. Whole-range, not a
+      sample. `tests/rt-behavior/encoding/func_encoding_codepageEncode_rt` walks all
+      **256** bytes (the ASCII half too, not just the high half) of all 28 single-byte
+      variants and reports `ok`/`hole`/`bad` per codepage. **Every line reports
+      `bad=0`**, and `codepage_roundtrip_counts_match_the_vendored_index_files`
+      re-derives every `ok`/`hole` pair from `tools/codepage-index/` (`ok` = 128 ASCII
+      + the codepage's mapped count) so the golden cannot be blessed wrong.
+- [x] Tests: `tests/rt-error/encoding/` fixture for the unrepresentable-character
       raise, including the **U+FFFD sentinel case** explicitly.
-- [ ] Tests: `tests/syntax/encoding/func_encoding_codepageEncode_invalid` for wrong
-      arg types / arity.
-- [ ] A new rt fixture needs all four goldens (`build.log`/`.ast`/`.ir`/`.run`);
+      `func_encoding_codepageEncode_unrepresentable` lets the raise escape
+      (`Error: 7-705-0003`, exit 255) rather than trapping it, so the fixture pins
+      that nothing is substituted in its place. The U+FFFD case is pinned in the
+      round-trip fixture and the acceptance suite, against **both** `Windows874`
+      (which has holes) and `Windows1252` (which has none) — the second is what
+      proves the sentinel guard is unconditional rather than hole-dependent.
+- [x] Tests: `tests/syntax/encoding/func_encoding_codepageEncode_invalid` for wrong
+      arg types / arity (0, 1 and 3 arguments; a `String` codepage; a `List OF Byte`
+      where the `String` goes).
+- [x] A new rt fixture needs all four goldens (`build.log`/`.ast`/`.ir`/`.run`);
       `sync-goldens.sh` creates none, and a missing one only surfaces in a full
-      `scripts/test-accept.sh` run.
+      `scripts/test-accept.sh` run. Confirmed the hard way in plan-123-A: a fixture
+      with no `golden/` directory is treated as a *behavioral* test and run through
+      `mfb test`, producing a `test.log` and no artifact goldens at all. The seeding
+      order that works is: create `golden/`, `touch` `build.log` and `<pkg>.run`
+      (the `.run` is an empty execute-marker whose contents are never compared),
+      then run the harness and copy its actual output in.
 
 Acceptance: the whole-range round-trip fixture passes for all 28 single-byte
 variants; encoding U+FFFD raises `77050003` rather than emitting a hole byte.
@@ -267,18 +294,35 @@ Commit: `—`
 
 ### Phase 3 — docs, throughput, and full validation
 
-- [ ] Write the member's `intro`/`desc`/`example` and per-`Parameter` `desc` per
+- [x] Write the member's `intro`/`desc`/`example` and per-`Parameter` `desc` per
       `.ai/man-content.md`; `scripts/man-census.sh --memory-scope` must report 0
-      unclassified hits (no C/Rust memory vocabulary).
-- [ ] Update `encoding`'s package `DESC` to name the encode direction, and sync the
-      embedded spec per `.ai/specifications.md`.
-- [ ] Add `codepageEncode` coverage to `tests/acceptance/src/encoding.mfb` (one
-      project — FUNC names are global).
-- [ ] Measure encode throughput on a ~100 KB string and record the number. If the
+      unclassified hits (no C/Rust memory vocabulary). `--memory-scope encoding` → 0,
+      `--scope encoding` → 0, `--fill encoding` → 30 pages with 30/30 intro, desc and
+      example, 32/32 parameter descriptions, 29/29 types.
+- [x] Update `encoding`'s package `DESC` to name the encode direction, and sync the
+      embedded spec per `.ai/specifications.md`. Both were written to cover the pair
+      in plan-123-A's Phase 3, so `DESC` already names
+      `codepageDecode`/`codepageEncode` and the spec's "Legacy single-byte codepages"
+      section already documents the encoder, the exactness of the reverse lookup, and
+      the U+FFFD guard.
+- [x] Add `codepageEncode` coverage to `tests/acceptance/src/encoding.mfb` (one
+      project — FUNC names are global). 3 new `TCASE`s (8 in the `codepage` group
+      overall); `Tests: 737  Pass: 737  Fail: 0`. Note that a `List OF Byte` is not
+      comparable, so the byte assertions compare `encoding::hexEncode` output as a
+      `String` rather than the lists themselves.
+- [x] Measure encode throughput on a ~100 KB string and record the number. If the
       128-scalar scan dominates, do **not** hand-write an inverted table here —
-      record it as a correction against plan-123-A's generator.
-- [ ] `scripts/man-run-examples.sh encoding --run` — every example must compile and run.
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
+      record it as a correction against plan-123-A's generator. **~26 ms for a
+      realistic 100 KB page** (against ~7 ms to decode it). Decomposed by varying only
+      the number of table searches: 23 ms with none, 26 ms at one-in-17, 215 ms with
+      every character high — so the scan is 2 ms of 26 on a Western page but ~190 ms
+      of 215 on an all-non-ASCII one. Kept, deliberately, with the exact remedy
+      written down for whoever needs it (Corrections 7).
+- [x] `scripts/man-run-examples.sh encoding --run` — every example must compile and
+      run. `bash scripts/man-run-examples.sh encoding --run codepageEncode` →
+      `examples: 2   built: 2   ran: 2   failed: 0`, printing `636166e9` and
+      `c8e9` / `unrepresentable`.
+- [x] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
 
 Acceptance: `cargo test --no-fail-fast` and `scripts/test-accept.sh` green (watch the
 `N ran` count); `mfb man encoding codepageEncode` renders and its examples run; every
@@ -361,7 +405,38 @@ Both are **RESOLVED**.
    its gates are green — which is verifiable now and is the actual precondition for
    building an encoder on A's enum and tables.
 
-6. **The plan's `out = out & ch` warning does NOT apply to this member, but for a
+7. **The reverse scan was measured, and it is kept — with the caveat written down
+   rather than left implicit.** Phase 3's task said: measure, and *if the
+   128-scalar scan dominates, do not hand-write an inverted table here — record it
+   as a correction against plan-123-A's generator*. Measured, on three 100 KB
+   windows-1252 strings that differ only in how many characters need the table
+   search (`/tmp/p123bench`, 3 runs each):
+
+   | body | table searches | encode ms |
+   |---|---|---|
+   | all ASCII (every char takes the `< 128` fast path) | 0 | 23, 25, 23 |
+   | one high byte in 17 (a realistic Western page) | ~6,000 | 26, 25, 25 |
+   | every character high (a Cyrillic / Greek / Hebrew page) | 102,400 | 273, 215, 215 |
+
+   So the scan does **not** dominate a realistic page — 2 ms of 26. The ~23 ms floor
+   is the per-grapheme walk itself (`strings::graphemes`, `len`,
+   `__encoding_codepoints`, `collections::append`), paid whether or not a search
+   happens. It **does** dominate an all-non-ASCII body, at ~190 ms of 215 — about
+   1.9 µs per character, i.e. the expected ~128 scalar comparisons.
+
+   Kept anyway, deliberately: 215 ms to encode a 100 KB fully-non-ASCII body is slow
+   but not pathological, encoding is the rarer direction (you decode a page to read
+   it), and a second generated table doubles the data a reviewer must trust in a plan
+   whose non-goals forbid touching A's tables. **What a future session needs to know
+   to revisit it:** the fix is not a hand-written table and not a per-call `Map` —
+   it is a generator change in plan-123-A's `gen_codepage_tables.py`, emitting per
+   codepage a 128-scalar String of its code points **sorted ascending** plus a
+   parallel 128-scalar String giving the byte at each sorted position, so the lookup
+   becomes a 7-step binary search over `strings::mid` instead of a 128-scalar scan.
+   That would take the all-high case from ~215 ms to roughly the ~25 ms floor; it
+   cannot improve the ASCII case at all, because that case never searches.
+
+8. **The plan's `out = out & ch` warning does NOT apply to this member, but for a
    different reason than plan-123-A's.** A measured that a `String` accumulator beats
    a `List OF String` + `strings::join` by ~3x on the decode path (its Corrections 4).
    The encoder accumulates a `List OF Byte`, which has no `&` operator at all, so
