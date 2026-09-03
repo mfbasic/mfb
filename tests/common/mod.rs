@@ -113,16 +113,16 @@ pub fn app_binary(project: &Path, name: &str) -> PathBuf {
         .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
-/// Which of the two Linux AppImages this host can actually load.
+/// Which of the two Linux libc worlds this host can actually load.
 ///
-/// An app build always emits both flavors, and only one of them runs here: a
+/// A build always emits both flavors, and only one of them runs here: a
 /// glibc-linked binary has no loader on Alpine, and the test boxes deliberately
 /// carry no `gcompat` shim that would hide that. The musl loader lives at a
 /// fixed, arch-suffixed name under `/lib`, and no glibc distribution ships one,
 /// so its presence is the whole test. Note this asks about the *host*, not
 /// about the libc this test binary was linked against — CI's musl matrix row
 /// builds for musl but runs on a glibc runner.
-fn host_libc_flavor() -> &'static str {
+pub fn host_libc_flavor() -> &'static str {
     let musl = std::fs::read_dir("/lib").is_ok_and(|entries| {
         entries
             .flatten()
