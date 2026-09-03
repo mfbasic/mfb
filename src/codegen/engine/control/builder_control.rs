@@ -138,7 +138,12 @@ impl CodeBuilder<'_> {
 
     /// True when `value` reads exactly `<resource>.state.<field>` — the
     /// self-append source/alias check for bug-430.
-    fn value_is_state_field(&self, value: &NirValue, resource: &str, field: &str) -> bool {
+    pub(crate) fn value_is_state_field(
+        &self,
+        value: &NirValue,
+        resource: &str,
+        field: &str,
+    ) -> bool {
         let NirValue::MemberAccess { target, member } = value else {
             return false;
         };
@@ -226,10 +231,13 @@ impl CodeBuilder<'_> {
     ///   depends on which operation is running, which is exactly why it is shared.
     /// * **Which operation is this?** — this function, one arm per builtin.
     ///
-    /// `append` is deliberately the ONLY arm here. Phase 1 changes no behaviour:
-    /// every gate, in the same order, with the same outcome, so the `.ncode`
-    /// goldens cannot move. Phase 2 adds the remaining six operations as further
-    /// `&& !self.try_inplace_state_…` terms, additively.
+    /// Phase 1 dispatched `append` alone and changed no behaviour. **Phase 2 adds
+    /// `removeKey`, `add` and `set`**; Phase 3 adds the remaining three.
+    ///
+    /// Order is irrelevant to correctness — each arm re-matches the operation name
+    /// through `resolve_inplace_state_field`, so at most one can accept a given
+    /// statement — but it is kept in phase order so the ledger reads against the
+    /// code.
     ///
     /// Returning `false` is always correct: it falls through to the whole-record
     /// STATE replace below, which is the slow path, never a wrong one.
@@ -238,7 +246,10 @@ impl CodeBuilder<'_> {
         resource: &str,
         value: &NirValue,
     ) -> Result<bool, String> {
-        self.try_inplace_state_collection_append(resource, value)
+        Ok(self.try_inplace_state_collection_append(resource, value)?
+            || self.try_inplace_state_remove_key_assign(resource, value)?
+            || self.try_inplace_state_set_add_assign(resource, value)?
+            || self.try_inplace_state_set_assign(resource, value)?)
     }
 
     /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`

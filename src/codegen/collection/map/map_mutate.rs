@@ -88,7 +88,11 @@ impl CodeBuilder<'_> {
     ///
     /// Returns the slot holding the new record pointer, which the caller publishes
     /// only after the old block has been freed.
-    pub(crate) fn emit_inline_grow_split(&mut self, inline: &InlineGrow, new_buf_slot: usize) -> usize {
+    pub(crate) fn emit_inline_grow_split(
+        &mut self,
+        inline: &InlineGrow,
+        new_buf_slot: usize,
+    ) -> usize {
         let new_rec_slot = self.allocate_stack_object("inline_grow_newrec", 8);
         let new_rec = self.temporary_vreg();
         let old_rec = self.temporary_vreg();
@@ -97,11 +101,7 @@ impl CodeBuilder<'_> {
 
         // The allocator's result is the new record block.
         self.emit(abi::load_u64(&new_rec, abi::stack_pointer(), new_buf_slot));
-        self.emit(abi::store_u64(
-            &new_rec,
-            abi::stack_pointer(),
-            new_rec_slot,
-        ));
+        self.emit(abi::store_u64(&new_rec, abi::stack_pointer(), new_rec_slot));
 
         // Copy the fixed prefix [0, fieldOffset) verbatim.
         self.emit(abi::load_u64(
@@ -126,11 +126,7 @@ impl CodeBuilder<'_> {
             inline.field_off_slot,
         ));
         self.emit(abi::add_registers(&new_rec, &new_rec, &off));
-        self.emit(abi::store_u64(
-            &new_rec,
-            abi::stack_pointer(),
-            new_buf_slot,
-        ));
+        self.emit(abi::store_u64(&new_rec, abi::stack_pointer(), new_buf_slot));
         new_rec_slot
     }
 

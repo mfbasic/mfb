@@ -166,7 +166,6 @@ fn a_field_followed_by_an_inlined_sibling_declines() {
     );
 }
 
-
 /// The first **growing** operation to reach a record field, and the one whose
 /// failure mode is heap corruption rather than a wrong value.
 ///
@@ -240,7 +239,6 @@ fn add_on_a_plain_local_does_not_use_the_record_grow() {
          prefix or free a record that is not there"
     );
 }
-
 
 /// `set` on a record-held `List` of a **fixed-width** element takes the cheap
 /// route: the replacement is always exactly the size of what it replaces, so
@@ -348,7 +346,6 @@ fn set_on_a_record_map_grows_the_record() {
          prefix — the same route `add` takes"
     );
 }
-
 
 /// `insert` and `prepend` on a record-held list — the last two operations, and
 /// both growing, so both take the record-grow route rather than the sub-block one.

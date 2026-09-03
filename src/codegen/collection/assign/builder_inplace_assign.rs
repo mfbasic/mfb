@@ -731,7 +731,11 @@ impl CodeBuilder<'_> {
         }
         let key = self.materialize_value(key)?;
         let key_slot = self.allocate_stack_object("inplace_recfield_set_key", 8);
-        self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
         let val = self.lower_value(&target.args[2])?;
         // Observation boundary: an in-place `Float` map value must be finite (plan-17).
         self.observe_float(&target.args[2], &val)?;
@@ -765,6 +769,313 @@ impl CodeBuilder<'_> {
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
+        Ok(true)
+    }
+
+    // ----------------------------------------------------------------------
+    // plan-121-D Phase 2 — the `RES … STATE` container.
+    //
+    // Each of these is its record-field twin with the container swapped, and the
+    // swap is genuinely the whole of it: the *lowerings* are shared verbatim,
+    // because the reallocation split (plan-121-C Correction C2) is a property of
+    // the operation, not of who owns the block. A non-growing op is handed the
+    // inlined sub-block address; a growing one is handed an `InlineGrow` so its
+    // own realloc sites grow the STATE block and repoint it.
+    //
+    // The ONE thing the record container did not need is `O4`. A record local's
+    // block has no second holder, so nothing has to be told it moved. A `STATE`
+    // block does — the resource record's `RESOURCE_OFFSET_STATE` slot, which every
+    // alias of the handle reads through (§15) — so every arm below finishes with
+    // `close_inplace_dest`, and it is a no-op for the other two containers by
+    // construction.
+    //
+    // ORDERING. `open_inplace_state_dest` runs after every gate (`O-order-1`) and
+    // *before* the operands are lowered (`O-order-4`), which is the opposite of
+    // the record arms and deliberately so: it matches the shipped bug-430 `append`
+    // arm, so all seven STATE operations snapshot the STATE pointer at the same
+    // point and cannot disagree with each other.
+    // ----------------------------------------------------------------------
+
+    /// The `block_slot` of a destination that is known to be inlined.
+    ///
+    /// Every `open_inplace_state_dest` returns `InPlaceDest::Inlined`, so the
+    /// other arm is unreachable rather than a decline — reaching it would mean an
+    /// arm matched a container and then asked for a different one, which is a bug
+    /// in the arm and not a program to fall back on.
+    fn inplace_dest_block_slot(dest: &InPlaceDest) -> Result<usize, String> {
+        match dest {
+            InPlaceDest::Inlined { block_slot, .. } => Ok(*block_slot),
+            _ => Err("native in-place STATE arm resolved a non-inlined destination".to_string()),
+        }
+    }
+
+    /// plan-121-D: `s.state.field = removeKey(s.state.field, k)` on a STATE-held
+    /// `Map` — the STATE twin of [`Self::try_inplace_record_field_remove_key_assign`].
+    ///
+    /// Non-growing, so it takes the sub-block route unchanged:
+    /// `lower_map_remove_key_in_place` only ever *loads* the slot it is given, and
+    /// compacts the entry table in place while clearing `BUCKETS_READY` so the next
+    /// probe rebuilds the index. Nothing is reallocated, so the write-back at the
+    /// end publishes the same pointer it read — correct, and cheap enough not to
+    /// be worth a special case.
+    ///
+    /// `map (State-Dynamic) removeKey` is 326.0x in the element-type overhead
+    /// table; the copy this removes is the whole of that.
+    pub(crate) fn try_inplace_state_remove_key_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        // Container: `G2`, `G13`, `G14`, `G16`, `G17`, `G10`, `G3`, `G4`.
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "removeKey", 2) else {
+            return Ok(false);
+        };
+        let map_type = target.field_type.clone();
+        // `G9` — `removeKey` mutates a Map. The container matcher admits any
+        // collection kind, so each arm states its own.
+        let Some((key_type, _value_type)) =
+            crate::codegen::engine::types::typed_map_type_parts(&map_type)
+                .map(|(k, v)| (k.clone(), v.clone()))
+        else {
+            return Ok(false);
+        };
+        // `G18` — deleting from exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the key must be the map's key type.
+        match self.static_item_type(&target.args[1]) {
+            Some(kt) if kt == key_type => {}
+            _ => return Ok(false),
+        }
+
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let key = self.lower_value(&target.args[1])?;
+        let key = self.materialize_value(key)?;
+        let key_slot = self.allocate_stack_object("inplace_state_remove_key", 8);
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
+        let map_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_remove_key_in_place(map_slot, key_slot, &map_type, &key_type)?;
+        // `O4`.
+        self.close_inplace_dest(&dest)?;
+        Ok(true)
+    }
+
+    /// plan-121-D: `s.state.field = add(s.state.field, v)` on a STATE-held `Set`.
+    ///
+    /// **Growing**, so it takes the [`InlineGrow`] route rather than the sub-block
+    /// one — handing `lower_map_set_in_place` a sub-block address would have it
+    /// `free()` a pointer into the middle of the live STATE block.
+    ///
+    /// `set (State-Dynamic) add` is the worst element-type overhead row in the
+    /// whole suite at **701.6x**, and it is two copies per call: the out-of-place
+    /// `add` copies the set, then the `WITH` rebuilds the STATE record around it.
+    pub(crate) fn try_inplace_state_set_add_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "add", 2) else {
+            return Ok(false);
+        };
+        let set_type = target.field_type.clone();
+        // `G9` — `add` mutates a Set.
+        let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(&set_type).cloned()
+        else {
+            return Ok(false);
+        };
+        // `G18` — adding to exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+        // `G11` — the added value must be the set's element type.
+        match self.static_item_type(&target.args[1]) {
+            Some(vt) if vt == element_type => {}
+            _ => return Ok(false),
+        }
+        // `G12` — exclude the self-alias `add(field, field)`: the grow frees the
+        // old block out from under the RHS copy.
+        if self.value_is_state_field(&target.args[1], resource, target.field) {
+            return Ok(false);
+        }
+
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let block_slot = Self::inplace_dest_block_slot(&dest)?;
+        let item = self.lower_value(&target.args[1])?;
+        self.observe_float(&target.args[1], &item)?;
+        let item = self.materialize_value(item)?;
+        let item_slot = self.allocate_stack_object("inplace_state_add_item", 8);
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
+        // A Set is a Map to TRUE.
+        let true_slot = self.allocate_stack_object("inplace_state_add_true", 8);
+        let true_reg = self.allocate_register();
+        self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+        self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+
+        // The field's block-relative offset, read once and held across the grow:
+        // the prefix is copied verbatim, so the offset survives a realloc where
+        // the sub-block *address* does not.
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let set_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_set_in_place(
+            set_slot,
+            item_slot,
+            true_slot,
+            &set_type,
+            &element_type,
+            &ParameterType::Boolean,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot,
+                field_off_slot,
+            }),
+        )?;
+        // `O4` — the grow may have moved the STATE block; publish it.
+        self.close_inplace_dest(&dest)?;
+        Ok(true)
+    }
+
+    /// plan-121-D: `s.state.field = set(s.state.field, k, v)` — the STATE twin of
+    /// [`Self::try_inplace_record_field_set_assign`], and it splits the same three
+    /// ways, by **element width** rather than by collection kind:
+    ///
+    /// * **`Map`** — [`InlineGrow`]: a new key grows the map and so the STATE block.
+    /// * **`List` of a fixed-width element** — the sub-block route. A fixed-width
+    ///   payload is always replaced by one of exactly its own size, so
+    ///   `lower_list_set_in_place`'s rebuild branch (the one that would install a
+    ///   fresh block) is unreachable, which its own comment records.
+    /// * **`List` of a variable-width element** — declines: the replacement can be
+    ///   longer, making that branch reachable. `list (State-Dynamic) set` is the
+    ///   worst row in the suite at 17742x, and it belongs to plan-121-F along with
+    ///   the rest of the String-representation work — not to a wrong fast path here.
+    pub(crate) fn try_inplace_state_set_assign(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let Some(target) = self.resolve_inplace_state_field(resource, value, "set", 3) else {
+            return Ok(false);
+        };
+        let collection_type = target.field_type.clone();
+        // `G18` — setting into exactly this same field.
+        if !self.value_is_state_field(&target.args[0], resource, target.field) {
+            return Ok(false);
+        }
+
+        // --- List ---------------------------------------------------------
+        if let Some(element_type) =
+            crate::codegen::engine::types::typed_list_element_type(&collection_type).cloned()
+        {
+            // plan-121-F owns the variable-width row; see the doc comment.
+            if crate::codegen::collection::layout::list_element_is_fixed_width(&element_type)
+                .is_none()
+            {
+                return Ok(false);
+            }
+            let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+            let index = self.lower_value(&target.args[1])?;
+            if index.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native collection set list index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index = self.materialize_value(index)?;
+            let index_slot = self.allocate_stack_object("inplace_state_set_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
+            ));
+            let item = self.lower_value(&target.args[2])?;
+            // Observation boundary: an in-place replacement `Float` element must
+            // be finite (plan-17).
+            self.observe_float(&target.args[2], &item)?;
+            if item.type_ != element_type {
+                return Err(format!(
+                    "native collection set list item must be {element_type}, got {}",
+                    item.type_
+                ));
+            }
+            let item = self.materialize_value(item)?;
+            let item_slot = self.allocate_stack_object("inplace_state_set_item", 8);
+            self.emit(abi::store_u64(
+                &item.location,
+                abi::stack_pointer(),
+                item_slot,
+            ));
+            let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
+            self.lower_list_set_in_place(
+                buffer_slot,
+                index_slot,
+                item_slot,
+                &collection_type,
+                &element_type,
+            )?;
+            // `O4`. Nothing moved on this route, so this republishes the pointer
+            // it read -- kept rather than special-cased, so no STATE arm can be
+            // read as "this one does not have to publish".
+            self.close_inplace_dest(&dest)?;
+            return Ok(true);
+        }
+
+        // --- Map ----------------------------------------------------------
+        let Some((key_type, value_type)) =
+            crate::codegen::engine::types::typed_map_type_parts(&collection_type)
+                .map(|(k, v)| (k.clone(), v.clone()))
+        else {
+            return Ok(false);
+        };
+        let dest = self.open_inplace_state_dest(resource, target.field_index)?;
+        let block_slot = Self::inplace_dest_block_slot(&dest)?;
+        let key = self.lower_value(&target.args[1])?;
+        // Observation boundary: an in-place `Float` map key must be finite (plan-17).
+        self.observe_float(&target.args[1], &key)?;
+        if key.type_ != key_type {
+            return Err(format!(
+                "native collection set map key must be {key_type}, got {}",
+                key.type_
+            ));
+        }
+        let key = self.materialize_value(key)?;
+        let key_slot = self.allocate_stack_object("inplace_state_set_key", 8);
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
+        let val = self.lower_value(&target.args[2])?;
+        // Observation boundary: an in-place `Float` map value must be finite (plan-17).
+        self.observe_float(&target.args[2], &val)?;
+        if val.type_ != value_type {
+            return Err(format!(
+                "native collection set map value must be {value_type}, got {}",
+                val.type_
+            ));
+        }
+        let val = self.materialize_value(val)?;
+        let value_slot = self.allocate_stack_object("inplace_state_set_value", 8);
+        self.emit(abi::store_u64(
+            &val.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+        let map_slot = self.open_inplace_inlined_subblock(&dest)?;
+        self.lower_map_set_in_place(
+            map_slot,
+            key_slot,
+            value_slot,
+            &collection_type,
+            &key_type,
+            &value_type,
+            Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                block_slot,
+                field_off_slot,
+            }),
+        )?;
+        // `O4`.
+        self.close_inplace_dest(&dest)?;
         Ok(true)
     }
 

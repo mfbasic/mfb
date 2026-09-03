@@ -267,3 +267,229 @@ fn record_field_append_not_last_inlined_rebuilds() {
          keep the whole-record rebuild."
     );
 }
+
+// ---------------------------------------------------------------------------
+// plan-121-D Phase 2 — `removeKey`, `add` and `set` on a STATE-held collection.
+//
+// These tests carry more weight than their record-field counterparts, and the
+// reason is measured rather than stylistic: Correction D1 established that NO
+// `.ncodesum` fixture in the tree contains a STATE collection update, so the
+// artifact gate reports 0 diffs whether these arms fire or not. Codegen
+// inspection is the only instrument that can see the path being taken at all.
+//
+// Each arm gets a pair, per the rule that a fast-path test alone is half a test:
+//   * a POSITIVE — the arm fires (no `state_assign_value`, i.e. the whole-record
+//     rebuild was elided, plus the slot the arm itself allocates); and
+//   * a DECLINE — a neighbouring shape that must NOT take it, asserted by the
+//     rebuild temp still being there. A missed decline miscompiles; only the
+//     negative sees it.
+// ---------------------------------------------------------------------------
+
+/// Preamble shared by the STATE Phase 2 sources: a stateful `fs::File` whose
+/// STATE holds one collection field and one sibling scalar.
+fn state_src(state_ty: &str, field: &str, body: &str) -> String {
+    format!(
+        "IMPORT fs\n\
+         IMPORT collections\n\
+         TYPE St\n\
+        \x20 {field} AS {state_ty}\n\
+        \x20 n AS Integer\n\
+         END TYPE\n\
+         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+        \x20 {body}\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n"
+    )
+}
+
+#[test]
+fn remove_key_on_a_state_field_mutates_in_place() {
+    let plan = ncode(
+        "p121d_state_removekey",
+        &state_src(
+            "Map OF String TO Integer",
+            "m",
+            "f.state.m = collections::removeKey(f.state.m, k)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `removeKey` on a STATE-held Map must delete the entry inside \
+         the existing STATE block, not rebuild the whole STATE record \
+         (`state_assign_value` is the whole-record replace temp)."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_remove_key"),
+        1,
+        "plan-121-D: the STATE `removeKey` arm must be the one that fired -- this \
+         slot is allocated by no other path, so it distinguishes `removeKey` \
+         reaching the STATE container from some neighbouring arm eliding the \
+         rebuild for a different reason."
+    );
+}
+
+#[test]
+fn add_on_a_state_field_grows_the_state_block() {
+    let plan = ncode(
+        "p121d_state_add",
+        &state_src(
+            "Set OF Integer",
+            "s",
+            "f.state.s = collections::add(f.state.s, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `add` on a STATE-held Set must grow the STATE block in place \
+         rather than rebuilding the STATE record around a fresh copy of the set. \
+         `set (State-Dynamic) add` is the worst element-type overhead row in the \
+         suite at 701.6x, and that is exactly these two copies per call."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_add_item"),
+        1,
+        "plan-121-D: the STATE `add` arm must be the one that fired."
+    );
+}
+
+/// The growing arms must take the `InlineGrow` route, NOT the sub-block one.
+/// This is the distinction Correction C2 exists for, and getting it wrong is
+/// heap corruption rather than a slow path: `lower_map_set_in_place` calls
+/// `emit_free_pre_grow_buffer` on the slot it is given, so a sub-block address
+/// would `free()` a pointer into the middle of the live STATE block.
+#[test]
+fn a_growing_state_arm_reads_the_field_offset_before_the_grow() {
+    let plan = ncode(
+        "p121d_state_add_off",
+        &state_src(
+            "Set OF Integer",
+            "s",
+            "f.state.s = collections::add(f.state.s, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_inlined_field_off"),
+        1,
+        "plan-121-D: a growing STATE arm must hoist the field's block-relative \
+         offset BEFORE the grow. The realloc copies the record prefix verbatim so \
+         the offset survives it, while the sub-block ADDRESS does not -- reading \
+         the address across the grow is the use-after-free this hoist prevents."
+    );
+}
+
+#[test]
+fn map_set_on_a_state_field_grows_the_state_block() {
+    let plan = ncode(
+        "p121d_state_mapset",
+        &state_src(
+            "Map OF String TO Integer",
+            "m",
+            "f.state.m = collections::set(f.state.m, k, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `set` on a STATE-held Map must assign the key inside the \
+         existing STATE block (`map (State-Dynamic) set` is 370.1x)."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_set_key"),
+        1,
+        "plan-121-D: the STATE map-`set` arm must be the one that fired."
+    );
+}
+
+#[test]
+fn fixed_width_list_set_on_a_state_field_writes_in_place() {
+    let plan = ncode(
+        "p121d_state_listset_fixed",
+        &state_src(
+            "List OF Integer",
+            "xs",
+            "f.state.xs = collections::set(f.state.xs, v, v)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        0,
+        "plan-121-D: `set` of a FIXED-width element into a STATE-held List needs \
+         no grow at all -- the payload is replaced by one of exactly its own size, \
+         which makes `lower_list_set_in_place`'s rebuild branch unreachable -- so \
+         it takes the cheaper sub-block route. `list (State-Fixed) set` is 284.9x."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_set_index"),
+        1,
+        "plan-121-D: the STATE list-`set` arm must be the one that fired."
+    );
+}
+
+/// DECLINE, and the most important test in this file. A variable-width element
+/// can be replaced by a LONGER one, which makes `lower_list_set_in_place`'s
+/// rebuild branch reachable -- and that branch installs a fresh block, which an
+/// inlined sub-block address must never receive. `list (State-Dynamic) set` is
+/// the worst row in the whole suite at 17742x, so the temptation to take it here
+/// is exactly proportional to how wrong it would be. plan-121-F owns that row.
+#[test]
+fn variable_width_list_set_on_a_state_field_declines() {
+    let plan = ncode(
+        "p121d_state_listset_var",
+        &state_src(
+            "List OF String",
+            "ss",
+            "f.state.ss = collections::set(f.state.ss, v, k)",
+        ),
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
+        1,
+        "plan-121-D: `set` of a VARIABLE-width element into a STATE-held List must \
+         DECLINE to the copying rebuild. The replacement can outgrow what it \
+         replaces, making the rebuild branch reachable; taking the sub-block route \
+         would hand that branch an address inside the live STATE block. Declining \
+         is slow, never wrong -- and only this negative test can see it, because \
+         no `.ncode` golden covers a STATE collection update at all (Correction D1)."
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_set_index"),
+        0,
+        "plan-121-D: the declining shape must not allocate the in-place arm's slot."
+    );
+}
+
+/// DECLINE. `G14` -- a `WITH` that updates a SECOND field cannot elide the
+/// record rebuild, because the arm returning `true` is what drops the rebuild,
+/// and the sibling's new value would go with it. A wrong answer, not a slow one.
+#[test]
+fn a_second_updated_state_field_declines_to_the_rebuild() {
+    let plan = ncode(
+        "p121d_state_two_fields",
+        "IMPORT fs\n\
+         IMPORT collections\n\
+         TYPE St\n\
+        \x20 m AS Map OF String TO Integer\n\
+        \x20 n AS Integer\n\
+         END TYPE\n\
+         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+        \x20 f.state = WITH f.state { m := collections::removeKey(f.state.m, k), n := v }\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_remove_key"),
+        0,
+        "plan-121-D: a two-field `WITH` over `.state` must NOT take any in-place \
+         arm. `G14` (`updates.len() == 1`) is what makes eliding the rebuild sound; \
+         match a second updated field and that field's new value is silently \
+         dropped."
+    );
+}

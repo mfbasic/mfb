@@ -13,4 +13,6 @@ map removeKey len=133 gone=67 kept=133 keptbad=0
 set len=200 n=250 bad=0 ghost=0
 list fixed len=100 n=100 bad=0
 list var len=60 n=60 bad=0
+snapshot beforeLen=2 beforeHasA=TRUE beforeN=2
+snapshot liveLen=101 liveHasA=FALSE liveN=101
 [exit 0]

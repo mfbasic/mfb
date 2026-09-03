@@ -206,5 +206,32 @@ FUNC main AS Integer
   io::print("list var len=" & toString(len(d.state.ss)) & " n=" & toString(d.state.n) & " bad=" & toString(vbad))
   fs::close(d)
 
+  ' ---- A read taken BEFORE the update must not observe it. ----
+  ' The load-bearing semantic check for in-place mutation. `LET before = ...`
+  ' binds a VALUE, so it is a snapshot: mutating the STATE afterwards must not
+  ' change it. An in-place arm that let the binding keep pointing at the live
+  ' sub-block would show up here -- and NOWHERE else in this fixture, because
+  ' every other assertion reads the collection through the resource, where the
+  ' mutation is supposed to be visible.
+  '
+  ' Both directions are checked. `before` must be frozen; the live field must
+  ' have moved on. Asserting only the first would also pass on a compiler that
+  ' silently dropped the mutation entirely.
+  RES e AS fs::File STATE MapState = fs::openFile(path)
+  e.state.n = 0
+  putMap(e, "a", 1)
+  putMap(e, "b", 2)
+  LET before AS Map OF String TO Integer = e.state.m
+  LET beforeN AS Integer = e.state.n
+  i = 0
+  WHILE i < 100
+    putMap(e, "z" & toString(i), i)
+    i = i + 1
+  END WHILE
+  dropMap(e, "a")
+  io::print("snapshot beforeLen=" & toString(len(before)) & " beforeHasA=" & toString(collections::hasKey(before, "a")) & " beforeN=" & toString(beforeN))
+  io::print("snapshot liveLen=" & toString(len(e.state.m)) & " liveHasA=" & toString(collections::hasKey(e.state.m, "a")) & " liveN=" & toString(e.state.n))
+  fs::close(e)
+
   RETURN 0
 END FUNC

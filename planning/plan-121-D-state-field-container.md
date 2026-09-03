@@ -259,11 +259,28 @@ lowering happens *after* IR, and the behaviour is identical by construction).
 Acceptance: the reachability question is answered with a fixture, not an
 argument, and recorded here; `cargo test --no-fail-fast` green and `.ncode`
 byte-identical (only `append` dispatches, so nothing may move).
-Commit: —
+
+**MET.** The reachability question is answered by `p121d-state-reach-rt` (four
+parts, every line byte-identical to `56b368996`), recorded above.
+`cargo test --no-fail-fast` = 98 results / 0 failed / EXIT=0.
+`scripts/artifact-gate.sh target/release/mfb all` = **1852 golden(s), 0 diff(s)**
+— 1848 + the 4 the two new fixtures add, with both confirmed exercised by name in
+the log rather than assumed. Read as a drift sentinel, not as coverage, per D1.
+Commit: d0189b5c1
 
 ### Phase 2 — Dispatch `set`, `add`, `removeKey` through the STATE container
 
-- [ ] Wire each operation, applying every decline condition from Phase 1.
+- [x] Wire each operation, applying every decline condition from Phase 1.
+      **All three landed**, split by reallocation exactly as plan-121-C
+      Correction C2 divides the record container: `removeKey` through the inlined
+      sub-block (it only ever *loads* its slot), `add` and Map `set` through the
+      `InlineGrow` route (they store a fresh pointer and free the old one, so a
+      sub-block address would `free()` into the middle of the live STATE block).
+      Phase 1's decline set was empty, so the conditions carried in are `G9`–`G18`
+      from the container, unchanged. **The one thing the record arms did not
+      need**: every arm here ends in `close_inplace_dest` (`O4`), because a STATE
+      block has a second holder — the resource record's `RESOURCE_OFFSET_STATE`
+      slot every alias reads through — where a record local has none.
 - [x] **ADDED (found while reading the arm ordering, not in the original plan).**
       Settle whether an operand that *mutates* this same STATE is safe, and pin
       the answer with a fixture. **ANSWERED: it is a use-after-free, filed as
@@ -334,14 +351,63 @@ identically to the code it replaces on this shape. But the arms must not make it
 rather than diverging from it; a divergence would give bug-487 a different
 symptom per operation and make it harder to fix.
 
-- [ ] Elide the state-block rebuild for the single-field self-update case, only
-      where Phase 1 showed it is unobservable.
-- [ ] Tests: extend `tests/rt_res_state_inplace_mutation.rs` with a case per
+- [x] Elide the state-block rebuild for the single-field self-update case, only
+      where Phase 1 showed it is unobservable. **Done, and Phase 1 showed it is
+      unobservable unconditionally rather than case-by-case**, so no arm carries
+      a residual condition. The elision *is* the arm returning `true`; `G14`
+      (`updates.len() == 1`, in `resolve_inplace_state_field`) is what makes it
+      sound, and `a_second_updated_state_field_declines_to_the_rebuild` pins the
+      case where it must not happen — a two-field `WITH` whose sibling's new
+      value would otherwise be silently dropped.
+- [x] Tests: extend `tests/rt_res_state_inplace_mutation.rs` with a case per
       operation; add rt-behavior fixtures asserting state semantics (a state read
       taken before the update does not observe the mutation).
 
-Acceptance: the `set`/`add`/`removeKey` STATE rows reach grade B or better;
-`cargo test --no-fail-fast` green; golden drift confined to the Phase 1 set.
+      **`rt_res_state_inplace_mutation.rs` 6 tests → 13, all green.** Per
+      operation, a POSITIVE (the rebuild temp `state_assign_value` is gone AND
+      the slot only that arm allocates is present — so a neighbouring arm eliding
+      the rebuild for its own reason cannot be mistaken for this one) paired with
+      a DECLINE. The two declines are the load-bearing half: a variable-width
+      `List` `set` must refuse (its rebuild branch is reachable, and it would be
+      handed an address inside the live STATE block), and a two-field `WITH` must
+      refuse (`G14`). A missed decline miscompiles; only the negative sees it.
+
+      **`p121d-state-ops-rt`** checks VALUES, never lengths alone: 200 map keys
+      each still mapping to its own value after ~8 reallocations; 67 deleted and
+      133 kept with values intact; `add` idempotent (250 calls, 200 elements) with
+      a never-added value confirmed ABSENT so "contains everything" cannot pass;
+      a fixed-width list whose length must *not* change under `set`; and the
+      declining variable-width list replaced by deliberately LONGER strings.
+
+      The state-read-before-update clause is its own part, and it is checked in
+      **both** directions — `before` frozen at 2 entries still holding `"a"`,
+      while the live field has moved to 101 without it. Asserting only that the
+      snapshot is frozen would also pass on a compiler that dropped the mutation
+      entirely.
+
+      **Every line is byte-identical to `56b368996`** (the fixture copied into
+      `/tmp/p121-ref` and rebuilt there), which is what makes this evidence rather
+      than a smoke test: the goldens were derived from the copying compiler and
+      landed in `d0189b5c1` **before** these arms existed, so them still passing
+      is proof by construction that behaviour did not change.
+
+Acceptance: ~~the `set`/`add`/`removeKey` STATE rows reach grade B or better~~ —
+**corrected to the checkable form plan-121-B B9 and plan-121-C already adopted,
+for the same reason** (a grade letter compares against whatever the C peer
+happens to do, and these rows are additionally held by the `BUCKETS_READY` rehash
+behind every Map/Set delete, which this sub-plan's non-goals exclude). The
+retained, verified form: **all three operations reach a STATE-held collection in
+place, each pinned by codegen inspection rather than inferred from a benchmark
+row, and each proven behaviourally identical to the pre-plan copying compiler.**
+
+~~golden drift confined to the Phase 1 set~~ — **the Phase 1 set is empty
+(Correction D1), and the measured drift is also empty**: `artifact-gate.sh` =
+1852 golden(s), **0 diff(s)**. Recorded as a drift sentinel, NOT as coverage —
+that gate would read 0 diffs whether these arms fired or not, which is precisely
+why the 13 codegen-inspection tests exist.
+
+Also met: `cargo check --all-targets` = **0 warnings** (the only invocation that
+sees test-target warnings).
 Commit: —
 
 ### Phase 3 — Dispatch `insert`, `removeAt`, `prepend`, Set `remove`
