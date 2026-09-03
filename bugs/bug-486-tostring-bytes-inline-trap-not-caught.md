@@ -328,38 +328,57 @@ the general `toString` path — investigate, do not regenerate.
 
 ### Phase 1 — failing test + audit + hypothesis (no behavior change)
 
-- [ ] Add `tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/` covering shapes A, B
+- [x] Add `tests/rt-behavior/trap/inline-trap-tostring-bytes-rt/` covering shapes A, B
       and C from the repro, with all four goldens (`build.log`, `.ast`, `.ir`, `.run`)
       — a new rt fixture needs all four or a full `test-accept.sh` reports
-      `unexpected actual` with no `mismatch:` line.
-- [ ] Confirm it fails for the documented reason: A and B abort with `7-702-0004`,
-      C passes, and the build log carries the wrong `DEAD_HANDLER` on B only.
-- [ ] Settle H1/H2/H3 for shape B by dumping `--nir` and following the `toString`
-      emission; write the verdict into Root Cause above.
-- [ ] Complete the blast-radius audit: `src/ir/shape.rs:1770`,
-      `src/audit/collect/source.rs:link_fallible_calls`,
-      `tests/syntax/trap/inline-trap-infallible-builtin-invalid`, and whether `len` /
-      `typeName` have any fallible overload. Write each verdict into this file.
+      `unexpected actual` with no `mismatch:` line. **Grew to ten shapes A–J**; the
+      seven beyond A/B/C are each a distinct failure found while fixing, listed under
+      Corrections. Confirmed the `.run` marker is what makes the harness build and RUN
+      the binary: without it the harness stopped after the `-ast -ir` build and
+      `build.log` never recorded a run at all.
+- [x] Confirm it fails for the documented reason: A and B abort with `7-702-0004`,
+      C passes, and the build log carries the wrong `DEAD_HANDLER` on B only. Observed
+      exactly that on the committed repro (exit 255, one warning on B). Every later
+      shape was RED-verified against the pre-fix binary before its fix landed.
+- [x] Settle H1/H2/H3 for shape B. H1 CONFIRMED, H2 and H3 eliminated — see Root
+      Cause. Settled from `--ncode` rather than `--nir`: the `.ncode` shows the
+      emitted branch target directly, which is the whole question.
+- [x] Complete the blast-radius audit. Every site has a written verdict under Root
+      Cause, plus two the document did not list: `builder_values.rs`'s `CallResult`
+      arm (a fourth census consumer — this is shape B's mechanism) and
+      `builtins/http/helper_bytes_to_text.rs` (documented the bug as intended
+      behavior; corrected).
 
 Acceptance: the new fixture fails on A and B and passes on C; every audit site has a
-recorded verdict; shape B's mechanism is proven, not hypothesised.
-Commit: `—`
+recorded verdict; shape B's mechanism is proven, not hypothesised. **Met.**
+Commit: `65a634b8b` (fixture + fix), `6c564ce8d` (audit verdicts)
 
 ### Phase 2 — the fix
 
-- [ ] Make `inline_builtin_is_infallible` (or a new type-aware sibling) answer for
+- [x] Make `inline_builtin_is_infallible` (or a new type-aware sibling) answer for
       `toString` by argument type: fallible for `List OF Byte`, infallible otherwise.
-- [ ] Thread argument types to `src/ir/fallible.rs:call_is_fallible` and its three
-      consumers (`ir/lower.rs:lower_inline_trap`, `ir/verify/resources.rs`,
-      `ir/fallible.rs:analyze`), leaving every other name's verdict bit-identical.
-- [ ] Apply the shape-B fix indicated by Phase 1's proven mechanism.
-- [ ] Update `mfb spec language error-model` §8.6 rule 11 to qualify `toString`, and
-      rule 14's conversion-built-in list to include it.
+      Resolved the Open Decision the way it recommended — ONE census. Both
+      `inline_builtin_is_infallible` and `inline_builtin_raw_supported` take
+      `arg_types` and consult a single `arg_type_makes_inline_builtin_fallible`.
+- [x] Thread argument types to `src/ir/fallible.rs:call_is_fallible` and its
+      consumers — the three listed, plus `ir/shape.rs` and the unlisted
+      `builder_values.rs`. Every other name's verdict is bit-identical: each consumer
+      checks `inline_builtin_fallibility_depends_on_args` first and passes an empty
+      slice otherwise, so a name-decided callee reaches the identical code path.
+      `ir/fallible.rs:analyze` needed a real type oracle, so `lower_facts` now builds
+      the context first and runs the fixpoint through it.
+- [x] Apply the shape-B fix indicated by Phase 1's proven mechanism. As predicted by
+      H1 it was contained: route the byte-list overload to `lower_inline_builtin_raw`
+      (one new arm calling the existing `lower_to_string`) so the established
+      `raw_result_capture` seam catches the `ErrEncoding` return. No new mechanism.
+- [x] Update `mfb spec language error-model` §8.6 rule 11 to qualify `toString`, and
+      rule 14's conversion-built-in list to include it. Both done. `mfb man errors`
+      was checked and does not repeat the claim.
 
 Acceptance: the Phase 1 fixture passes end to end; every contrast case still behaves
 as documented; `tests/rt-behavior/trap/inline-trap-infallible-builtin-valid` is green
-and unmodified; nothing in Non-goals changed.
-Commit: `—`
+and unmodified; nothing in Non-goals changed. **Met.**
+Commit: `65a634b8b`, `2d3210c0e` (gate the typing), `e5b78f535` (shapes I/J)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -378,6 +397,45 @@ Commit: `—`
 Acceptance: full suite green; golden deltas are exactly the intended change; the
 reproduction passes everywhere it previously failed.
 Commit: `—`
+
+## Corrections
+
+Seven shapes beyond the document's A/B/C. Every one was reproduced against the
+pre-fix binary before its fix landed — none is a hypothetical.
+
+- **D — `"D " & toString(bytes)`**, the decode nested inside a larger trapped
+  expression. Not "aborts": *rejected at build time*, `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
+  — "this expression is not a call". While `toString` was named infallible nothing
+  hoisted, so the desugar saw a scrutinee with no fallible call in it and refused a
+  valid program. The same wrong fact, surfacing as a false rejection rather than a
+  dropped handler.
+- **E — a user `FUNC` whose only raise is a byte decode**, called with a nested
+  fallible call. `fallible::analyze` judged it infallible, so `check_root` left it a
+  plain `Call`: shape A one frame up. Fixing it is why `lower_facts` was restructured
+  — `analyze` had no type oracle at all, and the document's Fix Design did not
+  anticipate that consumer needing one.
+- **I — a top-level binding** (`IrValue::Global`). A `Global` node is a bare name
+  with no `type_`, so it typed `Unknown` and fell back to the name-keyed verdict.
+  Needed `context.binding_types` threaded through the three hoist walkers.
+- **J — a record field** (`IrValue::MemberAccess`) — which is the idiom this
+  document is *written against*, `toString(resp.body)`. It was missing because the
+  first draft of `ir_call_arg_types` hand-listed the typed `IrValue` variants, and a
+  hand copy of that list is a second list to keep in step. Replaced with the
+  canonical `IrValue::annotated_parameter_type()`, whose `None` cases are exactly the
+  two binding-environment kinds (`Local`, `Global`) the maps cover.
+- **F, G, H** are guards rather than defects: `toString(486)` still warns
+  `TYPE_INLINE_TRAP_DEAD_HANDLER` with a dead handler (the Non-goal); valid UTF-8
+  under an inline `TRAP` still yields the real string; and the decode one frame below
+  a function-level `TRAP` — the literal `fetch::pageResult` / `fetch::fetch` pair —
+  still delivers `77020004` to the caller's handler.
+
+Two mechanical notes worth keeping:
+
+- **The `.run` golden is what makes the harness run the binary.** Without it,
+  `test-accept.sh` stopped after the `-ast -ir` build and `build.log` recorded no run
+  at all — so a fixture missing it looks green while never executing.
+- **`--ncode`, not `--nir`, settled H1.** The question was which branch the error
+  return takes, and the `.ncode` shows the emitted target directly.
 
 ## Validation Plan
 
