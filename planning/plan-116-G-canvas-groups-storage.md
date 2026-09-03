@@ -176,6 +176,13 @@ counter folded into the comparison.
 | Process-global canvas state symbols today | 1 (`CANVAS_SCENE_SYMBOL`) | `.ai/canvas-threading.md` §3 |
 | `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
 
+> **Census re-verified 2026-09-02 (pre-execution).** All six rows still hold exactly
+> after plan-116-C, D and E: 9 `DrawItem` variants, 3 tests pinning or iterating the
+> variant list, 5 archived plan-114 letters, the resource-field ban still
+> reserved-not-emitted, 1 process-global canvas symbol, 13 compile-gated man members.
+> Unlike plan-116-I's (see its **I1**), none of these count *sites this letter must
+> sweep* — they are structural facts — which is why they did not move while I's did.
+
 ### Verified properties
 
 - **Arena state is per-thread**, so a group table in arena globals would be invisible
