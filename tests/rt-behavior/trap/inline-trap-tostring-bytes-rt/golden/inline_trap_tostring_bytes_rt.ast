@@ -1,0 +1,193 @@
+{
+  "project": "inline_trap_tostring_bytes_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "latin1",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "b", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 14 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "list", "values": [{ "kind": "number", "value": "99" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "233" }] },
+        "line": 15,
+        "body": [
+        { "kind": "assignment", "name": "b", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "n" }] }] }, "line": 16 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "utf8ok",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "b", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 23 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "list", "values": [{ "kind": "number", "value": "111" }, { "kind": "number", "value": "107" }] },
+        "line": 24,
+        "body": [
+        { "kind": "assignment", "name": "b", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "n" }] }] }, "line": 25 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "decodeFunctionTrap",
+      "line": 33,
+      "params": [
+      { "name": "bytes", "type": "List OF Byte", "default": null, "line": 33 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 34 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 36,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "C caught: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 37 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "decode",
+      "line": 44,
+      "params": [
+      { "name": "b", "type": "List OF Byte", "default": null, "line": 44 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 45 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "decodeViaCallerTrap",
+      "line": 53,
+      "params": [
+      { "name": "b", "type": "List OF Byte", "default": null, "line": 53 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "H " }, "right": { "kind": "call", "callee": "decode", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 54 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 56,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "H caught: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 57 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 61,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 66,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "latin1", "arguments": [] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "A caught" }, "line": 67 }
+        ]
+      }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "call", "callee": "latin1", "arguments": [] }, "line": 75 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 76,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "B caught" }, "line": 77 }
+        ]
+      }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "decodeFunctionTrap", "arguments": [{ "kind": "call", "callee": "latin1", "arguments": [] }] }] }, "line": 82 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 88,
+        "expression": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "D " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] } },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "D caught" }, "line": 89 }
+        ]
+      }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "d" }] }, "line": 91 },
+      { "kind": "binding", "mutable": false, "name": "e2", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "er",
+        "line": 96,
+        "expression": { "kind": "call", "callee": "decode", "arguments": [{ "kind": "call", "callee": "latin1", "arguments": [] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "E caught" }, "line": 97 }
+        ]
+      }, "line": 96 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "e2" }] }, "line": 99 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 104,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "486" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-F" }] }, "line": 105 },
+        { "kind": "recover", "value": { "kind": "string", "value": "?" }, "line": 106 }
+        ]
+      }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "F " }, "right": { "kind": "identifier", "value": "f" } }] }, "line": 108 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 112,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "utf8ok", "arguments": [] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "DEAD-G" }, "line": 113 }
+        ]
+      }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "G " }, "right": { "kind": "identifier", "value": "g" } }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "decodeViaCallerTrap", "arguments": [{ "kind": "identifier", "value": "bytes" }] }] }, "line": 118 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 120 }
+      ]
+    }
+    ]
+  }
+  ]
+}
