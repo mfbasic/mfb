@@ -545,6 +545,13 @@ The whole breaking surface change, with nothing yet reading it.
 - [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
       `tests/cli_canvas_man_examples_compile.rs`.
+- [ ] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
+      `helper_geometry.rs`'s `GEO_LAYOUT`, and a matching `GEO_KIND_GROUP: &str = "8"`
+      in `runtime/canvas/mod.rs` — then extend
+      `the_geo_layout_constants_match_their_rust_counterparts` to pin the pair, which
+      already does exactly this for `TEXT` and `POLYGON` (**G13**). 8 is the next free
+      value (`ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`); re-check before using it,
+      since a peer letter may have taken it.
 - [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
       `helper_geometry.rs`, not the two this letter originally named (**G6**):
       `__canvas_headerFor` and `__canvas_tailFor` (both returning
@@ -767,6 +774,28 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G13 (2026-09-03, pre-execution) — a `Group` needs its own geometry kind, and Phase 2
+never adds one.** Phase 2 gives `Group` an empty header, which carries
+`__CANVAS_GEO_NONE` (5) in slot 0 — the same kind a `Picture` gets today. Phase 4 then
+requires *"both `*Renderable` predicates decline any scene containing a `Group`"*, and
+those predicates are handed `offsets` and read the kind out of the record
+(`LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))`).
+With `Group` indistinguishable from `Picture`, the predicate can only decline both or
+neither — and declining every `Picture` scene is a silent performance regression for a
+kind that has nothing to do with this letter.
+
+The kinds today are `ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`
+(`grep -n 'LET __CANVAS_GEO_[A-Z]* AS Integer' src/codegen/builtins/canvas/helper_geometry.rs`),
+so 8 is next. It is spelled **twice** — once in MFBASIC, once as `GEO_KIND_GROUP` in
+`runtime/canvas/mod.rs` beside `GEO_KIND_POLYGON` and `GEO_KIND_TEXT` — with no compiler
+between the two, which is precisely the arrangement
+`the_geo_layout_constants_match_their_rust_counterparts` exists to guard. It already
+pins `TEXT` and `POLYGON` that way; extend it rather than adding a second test.
+
+Re-check that 8 is free at execution time. Kind numbers are the same class of
+cross-session hazard as rule codes: a peer letter adding a variant takes the next value,
+and grepping the *name* proves nothing about the *number*.
 
 **G12 (2026-09-03, pre-execution) — Phase 2's "empty header" and §4.6's "hull of its
 children" cannot both be the group node's header.** Phase 2 gives `Group`
