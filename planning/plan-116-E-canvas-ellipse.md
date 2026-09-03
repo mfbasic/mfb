@@ -566,9 +566,17 @@ Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
   **1828 goldens, 0 diffs**.
 - `mfb man canvas types` lists `canvas::Ellipse` with its record description and all
   six props, and `canvas::CapStyle`/`DrawItem` alongside.
-- The linux+DEBUG half as A, B, C and D established, because box 2228 is a single
-  core: the `--bin mfb` unit tests there, plus `scripts/test-canvas-vulkan.sh` on
-  **both** Linux libc worlds — which is where this letter's Linux-specific work (the
+- **`cargo test --no-fail-fast --bin mfb` on mac, in DEBUG — 3732 passed, 0 failed.**
+  Added here and worth keeping for every later letter: CI runs `--release` on all five
+  platforms (`.github/workflows/coverage.yml`, whose own comment says so), and
+  `--release` clears `debug_assertions`, so the four `debug_assert!`s in the canvas
+  emitters — `ITEM_BLOCK_SIZE % 8` in both `emit_item_publish`es and
+  `BLEND_MODE_COUNT` in both pipeline loops — execute **nowhere in CI at all**. They
+  sit on exactly the code every letter of this plan edits, and they had not run since
+  plan-116-A. See **E6**.
+- The Linux row on box 2228, as A, B, C and D established, because that box is a
+  single core: the `--bin mfb` unit tests there, plus `scripts/test-canvas-vulkan.sh`
+  on **both** Linux libc worlds — which is where this letter's Linux-specific work (the
   bisection solve in the SPIR-V, the widened item block) actually executes.
 Commit: b25a8e835
 
@@ -605,6 +613,29 @@ Commit: b25a8e835
   not loosen the tolerance — it is the gate that caught a real backend lie before.
 
 ## Corrections
+
+- **E6 (2026-09-02, Phase 5) — "linux+DEBUG" no longer describes CI, and the profile
+  gap it was guarding moved somewhere worse.** Every letter's acceptance says
+  `cargo test --no-fail-fast` green on "mac+RELEASE and linux+DEBUG".
+  `.github/workflows/coverage.yml` shows CI is **release on all five platforms** — the
+  `build` job is `cargo build --release --bin mfb`, the five-row `test` matrix
+  (linux glibc / linux musl / linux aarch64 / windows / macos) each runs
+  `cargo test --release --workspace`, and `acceptance`/`artifact` download
+  `target/release/mfb`. So the Linux runs A–E made on box 2228 with `--release` match
+  CI; the plan's phrase does not.
+
+  The consequence is not cosmetic. `--release` clears `debug_assertions`, so the ~40
+  `debug_assert!` guards in `src/` run **nowhere in CI**, which the workflow states in
+  its own comment. Four of them are in the canvas emitters and sit on precisely what
+  every letter of plan-116 edits: `ITEM_BLOCK_SIZE % 8` in both `emit_item_publish`es
+  (the block has grown in A, C, D and E) and `BLEND_MODE_COUNT` in both pipeline loops.
+  They had not executed since plan-116-A, which is the last letter that ran a debug
+  build.
+
+  Closed here by adding `cargo test --no-fail-fast --bin mfb` (no `--release`) on the
+  Mac to the acceptance: **3732 passed, 0 failed**, ~400s, and it is the only thing on
+  any machine in any pipeline that runs those guards. Letters F–J should keep it. The
+  stale project memory that said "CI = linux + DEBUG" has been corrected.
 
 - **E5 (2026-09-02, Phase 3) — the rotation case cannot be byte-exact, and the plan's
   version of it could not have failed usefully.** Phase 3 asks for "the same ellipse at
