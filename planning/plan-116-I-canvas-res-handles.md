@@ -188,7 +188,8 @@ Three pieces:
    `0`** — the id that already means "no image / no font" throughout the renderer
    (the zero-handle idiom the old records documented). `helper_geometry.rs`'s five
    `t.font.id` reads become `canvas::fontHandle(t.font)`.
-3. **The docs** — the module comment (`mod.rs`'s module comment, `:138`, `:385-396`, `:731`),
+3. **The docs** — the module comment and the `ImageRef`/`FontRef` prose in `mod.rs`
+   (`grep -n 'ImageRef' src/codegen/builtins/canvas/mod.rs`),
    `func_present.rs`'s DESC, the load/create/measure/get/set member docs, the spec's
    §"Images are named, not embedded", and `.ai/canvas-threading.md` §7's last
    paragraph.
@@ -350,7 +351,8 @@ Commit: —
 
 ### Phase 4 — Docs, spec, and gates
 
-- [ ] `mod.rs` module comment (`:27`, `:138`, `:385-396`, `:731`),
+- [ ] `mod.rs` module comment and every `ImageRef`/`FontRef` mention in it
+      (`grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs`),
       `func_present.rs` DESC, and the load/create/measure/get/set docs: the scene
       draws *through the handle you still own*; destroying afterwards draws
       nothing. **No memory vocabulary** — copy/mutate/value/alias-for-RES only

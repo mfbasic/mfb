@@ -97,7 +97,7 @@ the time of writing, so a future implementer can see what changed.
 | `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs`'s `Picture` record and `ImageRef` record |
 | `Text.font` type | `FontRef` | `mod.rs`'s `Text` record |
 | Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs`'s two `add_resource` calls |
-| `live_slots` on both | `&[]`, `sendable: false` | `mod.rs`'s `Image` resource (`live_slots`), `:790` |
+| `live_slots` on both | `&[]`, `sendable: false` | the `live_slots` and `sendable` fields of each `pkg.add_resource` call in `mod.rs` |
 
 ### Verified properties
 
@@ -228,7 +228,7 @@ The letter opens against a world that did not exist when it was written.
 - [ ] Settle the §2 open question: does installing a resource into a process-global,
       graphics-thread-readable group buffer constitute a transfer under plan-114's
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
-      accordingly (`mod.rs`'s `Image` resource (`live_slots`), `:790`) — *"opting an image in means auditing its
+      accordingly (the `live_slots` field of each `pkg.add_resource` call in `mod.rs`) — *"opting an image in means auditing its
       record tail first, not just flipping the bit."*
 - [ ] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
       now carries a `RES`, and the renderer reads a closed handle as the zero id, so

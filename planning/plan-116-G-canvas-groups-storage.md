@@ -139,7 +139,8 @@ landed 2026-09-01 (`ls planning/completed/plan-114-*` → 5 matches; the rule si
 reserved-not-emitted at `src/rules/table.rs:1015` under a "retired by plan-114-B"
 comment). A record field CAN now hold a `RES`. What has NOT changed is `canvas`
 itself: `Picture` still names its image through the `ImageRef` value handle and
-`Text` through `FontRef` (`mod.rs:398`, `:412`) — the migration to direct `RES`
+`Text` through `FontRef` (the `ImageRef`/`FontRef` records in `mod.rs`) — the
+migration to direct `RES`
 fields is plan-116-I.
 
 So every `DrawItem` variant's fields are value types — `Picture` names an image through
