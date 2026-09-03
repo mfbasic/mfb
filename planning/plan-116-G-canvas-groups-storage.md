@@ -405,12 +405,26 @@ distance function, the coverage rule and the stroke band, and covers nothing els
   so it is on a separate path from "evaluate the distance at `p - offset`" and a fix
   written for distances misses it. Text in a translated group would sample the wrong
   texels.
-* **`Paint.fillGradient` must move to `p - offset`.** plan-116-F evaluates the ramp at
-  the surface point (`px`/`py` against `gradFX`/`gradFY` in
-  `helper_items.rs`) against an axis authored in the item's own coordinates.
-  Untranslated they coincide; offset, the shape moves and the ramp does not, so the
-  gradient slides across the shape and the same group drawn at two offsets is two
-  different pictures.
+* **`Paint.fillGradient` is an open decision, not a defect — settle it in Phase 4.**
+  plan-116-F evaluates the ramp at the surface point (`px`/`py` against
+  `gradFX`/`gradFY`, `sed -n 342,350p` and `:500,510p` of `helper_items.rs`) against an
+  axis read straight from the record with **no transform applied**. So a gradient is
+  surface-anchored today and `Paint.transform` does not drag it — which
+  `06_canvas.md` states deliberately ("rather than being dragged around by it").
+
+  A group offset could therefore go either way, and the two answers are both defensible:
+  leave it surface-anchored, consistent with `Paint.transform` and with the clip; or
+  move it, consistent with a group being a self-contained sub-picture.
+
+  **Recommend moving it**, on the letter's own stated goal: §1 records the user's goal
+  (1) as *reuse* — "a sub-picture authored once and referenced from many scenes and
+  positions". A gradient-filled item that renders differently at every position is not
+  reusable, and a group is the one construct here whose entire purpose is to be drawn
+  somewhere else. `Paint.transform` is a different thing — it reshapes one item in
+  place — so following it is not obviously the consistent choice.
+
+  Whichever is chosen: **write it in `06_canvas.md`, and pin it with the diamond test**,
+  which is the scene that can tell the two apart.
 
 Phase 4 must do this and test it, and the reason it matters *here* rather than in
 plan-116-H is that this file defines the **oracle**. H compares both GPUs against it. A
@@ -534,10 +548,12 @@ Commit: —
       comparison sees a `setGroup` as a change.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
-- [ ] The gradient **and** the glyph sampling are evaluated at `p - offset`, and the
-      clip at `p` (§4.5, **G5**). They go opposite ways; enumerate the positional
-      reads rather than reasoning from the distance path, which is what hid the
-      glyph case on the first pass.
+- [ ] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
+      (§4.5, **G5**). Enumerate the positional reads rather than reasoning from the
+      distance path, which is what hid the glyph case.
+- [ ] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
+      **G5**), implement the decision in the oracle, document it in
+      `06_canvas.md`, and pin it with the diamond test. Recommended: it follows.
 - [ ] The resolution pass records each group node's damage bounds as its resolved
       children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
       for group nodes.
@@ -671,12 +687,19 @@ at `p - offset`", and concludes that no distance function changes. True, and not
 sufficient: two per-item things are positional and are *not* distance functions.
 
 `Paint.clip` is a surface rectangle (plan-116-B) and must **not** move with the group.
-`Paint.fillGradient` must. plan-116-F evaluates the ramp at the surface point — `px`,
-`py` against the item's `gradFX`/`gradFY` (`sed -n 500,510p
-src/codegen/builtins/canvas/helper_items.rs`) — with the axis authored in the item's own
-coordinates. Untranslated those are the same point, which is why plan-116-F is correct
-and its goldens pass. Offset, they are not, and the ramp stays where the axis says while
-the shape moves.
+A **`Text` item's glyph sampling** must: a glyph is a cached bitmap indexed by whole
+pixels from the run's origin, not a distance field, so it sits on a different path from
+"evaluate the distance at `p - offset`" and a fix written for distances misses it
+entirely — text in a translated group would sample shifted texels, and blank ones once
+the offset exceeds the glyph.
+
+**`Paint.fillGradient` is a decision, and an earlier draft of this correction asserted
+it was a bug.** It is not: `sed -n 342,350p src/codegen/builtins/canvas/helper_items.rs`
+shows the axis read straight from the geometry record with no transform applied, so a
+gradient is surface-anchored and `Paint.transform` does not drag it either — which
+`06_canvas.md` states on purpose. A group offset could consistently follow either
+convention, so §4.5 now poses it as a decision with a recommendation rather than a
+fix.
 
 The reason this is a G defect and not an H one, even though H is the letter that touches
 shaders: **this file defines the oracle.** plan-116-H's whole acceptance is "both GPUs

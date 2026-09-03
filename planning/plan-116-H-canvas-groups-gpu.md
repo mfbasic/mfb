@@ -252,14 +252,15 @@ band — is unchanged, because they take `p` and nothing else positional.
   therefore samples the wrong texels: shifted by the offset, and blank once the offset
   exceeds the glyph's width. Both the transformed and untransformed branches of that
   line take `p`.
-* **The gradient must MOVE to `p`, and does not read it today.** plan-116-F evaluates
-  the ramp at the surface point — `gradientColour(gl_FragCoord.xy)`
-  (`mfb_canvas.frag:442`), `gradientColour(in.pos.xy, …)` in MSL, and `px`/`py` against
-  `gradFX`/`gradFY` in the oracle (`helper_items.rs`) — against an axis authored in the
-  item's own coordinates. Under a translation those disagree: the shape moves and the
-  ramp does not, so a group drawn at an offset shows its gradient sliding across it,
-  and the same group drawn twice at two offsets shows two *different* pictures. Switch
-  all three to `p`.
+* **The gradient goes wherever plan-116-G decided, and it is not `p` today.**
+  plan-116-F evaluates the ramp at the surface point —
+  `gradientColour(gl_FragCoord.xy)` (`mfb_canvas.frag:442`),
+  `gradientColour(in.pos.xy, …)` in MSL — against an axis read from the record with no
+  transform applied, so a gradient is surface-anchored and `Paint.transform` does not
+  drag it. Whether a *group* offset should is a semantic question plan-116-G **G5**
+  settles for the oracle; this letter's job is to match whatever the oracle does, on
+  both backends. Read G's answer before touching this line, and do not infer it from
+  the clip — the clip is surface-anchored for a documented reason of its own.
 
 `grep -n gl_FragCoord src/codegen/runtime/canvas/shaders/mfb_canvas.frag` returns
 **four** call sites and that is the whole list: `:419` clip (stays), `:428` glyph
