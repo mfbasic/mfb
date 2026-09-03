@@ -485,9 +485,52 @@ moment the letter before it lands. Verify with
   Most of the growth is this plan's own — C added the transformed-text fixtures and a
   golden scene that loads a font, D and E added GPU harness scenes — with the rest from
   peers. **This matters more here than in the letters before it**: D and E were
-  *additive* changes whose census错 only mis-scoped an estimate, whereas this letter is
+  *additive* changes whose census only mis-scoped an estimate, whereas this letter is
   a mechanical sweep *over* these populations, so a stale count is not a scoping detail,
   it is the work itself. A missed `Text[` site is a site that keeps the old handle.
+
+  **Re-measured again 2026-09-03, after plan-116-F and G landed — and this time with the
+  commands written down, which I1 did not do.** A census row whose command is not
+  recorded cannot be re-run by the next reader, only re-invented, and two re-inventions
+  of the same row are two different rows:
+
+  ```
+  grep -rl 'imageRef\|fontRef\|ImageRef\|FontRef' src tests | wc -l   -> 29
+  grep -rn 'Text\[' src tests | wc -l                                  -> 20
+  grep -rn 't\.font\.id' src | wc -l                                   ->  6
+  grep -rn 'Picture\[' src tests | wc -l                                ->  7
+  grep -rn 'pic\.image' src | wc -l                                     ->  0
+  ```
+
+  Every total is unchanged from I1 — but **the composition is not**: plan-116-G added a
+  `Text[` site (`tests/rt_canvas_font.rs:378`, the text-in-a-translated-group case) and
+  the total still reads 20, so something else lost one. Do not read "the same number"
+  as "the same set". The sweep is over *sites*, and Phase 1 should diff the file list,
+  not the count.
+
+  **The sixth row had no command, and its NAME is wrong** — recovered here by
+  measurement. "Fabricated zero-handle uses: 5" is not what it sounds like. The obvious
+  reading, `grep -rnE '(FontRef|ImageRef)\[ *id *:= *0'`, yields **2**, both in
+  `tests/cli_canvas_package.rs`. The number that reproduces 5 is *every hand-built ref
+  record*, zero or not:
+
+  ```
+  grep -rn 'FontRef\[\|ImageRef\[' src tests | wc -l   -> 5
+  ```
+
+  | site | handle |
+  |---|---|
+  | `tests/rt_canvas_present_deep_copy.rs:104` | `FontRef[id := 1]` |
+  | `tests/rt_canvas_font.rs:672` | `FontRef[id := 12345]` |
+  | `tests/cli_canvas_package.rs:54` | `ImageRef[id := 0]` |
+  | `tests/cli_canvas_package.rs:55` | `FontRef[id := 0]` |
+  | `tests/cli_canvas_package.rs:233` | `FontRef[id := 3]` |
+
+  The row is right about the *population* and wrong about the *predicate*, and the
+  distinction is this letter's subject: what the `RES` migration removes is a ref record
+  hand-built from an integer — `id := 12345` names no font just as surely as `id := 0`
+  does. A Phase 1 that swept only the zero ones would leave three sites constructing a
+  handle out of a literal, which is the exact shape this letter exists to delete.
 
   Re-run every row at Phase 1 rather than trusting the table, and heed plan-116-D's two
   ways this goes wrong: **D2**, a count measured at plan time on a shared checkout, and
