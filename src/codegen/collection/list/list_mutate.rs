@@ -259,67 +259,16 @@ impl CodeBuilder<'_> {
                 "list_insert_ord_tail",
             );
 
-            // --- Lookup table: the identity mapping over all n + m entries. ---
-            // Written rather than spliced. Still O(n) entry writes, exactly as the
-            // three-way splice below is, and every entry is now derivable from its
-            // index — which is what lets a linear reader be correct.
-            let ident_loop = self.label("list_insert_ident_loop");
-            let ident_done = self.label("list_insert_ident_done");
-            self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
-            self.emit(abi::add_immediate(&scratch17, &nb, COLLECTION_HEADER_SIZE));
-            self.emit(abi::load_u64(&scratch13, &nb, COLLECTION_OFFSET_COUNT)); // n + m
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
-            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
-            self.emit(abi::label(&ident_loop));
-            self.emit(abi::compare_registers(&scratch14, &scratch13));
-            self.emit(abi::branch_ge(&ident_done));
-            self.emit(abi::move_immediate(
-                &scratch15,
-                "Integer",
-                &COLLECTION_ENTRY_FLAG_USED.to_string(),
-            ));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_FLAGS,
-                ));
-            }
-            // A list entry carries no key.
-            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-                ));
-            }
-            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16)); // k * p
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch16,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-                ));
-            }
-            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::branch(&ident_loop));
-            self.emit(abi::label(&ident_done));
+            // No lookup table to write: this branch is `list_element_is_fixed_width`,
+            // and `list_entry_stride` returns 0 for exactly that predicate
+            // (`builder_collection_layout.rs`), so the result list is entry-FREE.
+            // Element `k` is found at `k * payload` by arithmetic, which is what lets a
+            // linear reader be correct — not an entry record.
+            //
+            // The identity-mapping loop that used to stand here was dead for the same
+            // reason its in-place twin in `lower_list_splice_in_place` was: every store
+            // sat behind `entry_stride != 0`, unreachable inside this branch, so it ran
+            // `n + m` iterations per call and wrote nothing into the block.
         } else {
             // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
             self.emit_collection_data_pointer_for(&scratch17, &nb, &element_type); // dst data base
@@ -2809,8 +2758,6 @@ impl CodeBuilder<'_> {
         // caller-saved registers).
         if let Some(payload) = list_element_is_fixed_width(element_type) {
             let payload_text = payload.to_string();
-            let ident_loop = self.label(&format!("{prefix}_inplace_ident_loop"));
-            let ident_done = self.label(&format!("{prefix}_inplace_ident_done"));
 
             // Shift the whole live data region up by one payload, backwards —
             // source and destination overlap for any count above one.
@@ -2886,65 +2833,21 @@ impl CodeBuilder<'_> {
                 COLLECTION_OFFSET_DATA_LENGTH,
             ));
 
-            // Entries 0..count as the identity mapping. This replaces the
-            // right-shift loop entirely: every entry is now derivable from its
-            // index, so there is nothing to preserve from the old table.
-            self.emit(abi::add_immediate(
-                &scratch17,
-                &scratch8,
-                COLLECTION_HEADER_SIZE,
-            ));
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // k
-            self.emit(abi::move_immediate(&scratch16, "Integer", &payload_text));
-            self.emit(abi::label(&ident_loop));
-            self.emit(abi::compare_registers(&scratch14, &scratch9));
-            self.emit(abi::branch_ge(&ident_done));
-            self.emit(abi::move_immediate(
-                &scratch15,
-                "Integer",
-                &COLLECTION_ENTRY_FLAG_USED.to_string(),
-            ));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_FLAGS,
-                ));
-            }
-            self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-                ));
-            }
-            self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16));
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch15,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-                ));
-            }
-            if entry_stride != 0 {
-                self.emit(abi::store_u64(
-                    &scratch16,
-                    &scratch17,
-                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-                ));
-            }
-            self.emit(abi::add_immediate(&scratch17, &scratch17, entry_stride));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::branch(&ident_loop));
-            self.emit(abi::label(&ident_done));
+            // No lookup table to write: this branch is `list_element_is_fixed_width`,
+            // and `list_entry_stride` returns 0 for exactly that predicate
+            // (`builder_collection_layout.rs`), so a fixed-width list is entry-FREE —
+            // element `i` lives at `i * payload` and is found by arithmetic, not by a
+            // 40-byte entry record.
+            //
+            // A loop writing "the identity mapping over entries 0..count" used to stand
+            // here (and still does in the `else` arm, where entries exist). Every store
+            // in it was guarded by `entry_stride != 0`, which is unreachable inside this
+            // branch, so it ran `count` iterations per call and wrote nothing into the
+            // block: 20 instructions per element whose only effects were a spill slot
+            // overwritten three times and never read, and an `add_imm x8, x8, 0`.
+            // That made a fixed-width `insert`/`prepend` O(N) in dead work on top of the
+            // O(N) shift, which is why `list (Fixed) removeAt` (no such loop) ran at
+            // memmove rate while `insert` sat ~10x below it.
         } else {
             // Shift lookup entries [0..count) → [1..count+1), backward to avoid overlap.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));

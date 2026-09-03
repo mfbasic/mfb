@@ -409,3 +409,92 @@ fn remove_at_still_fires_for_a_non_recursive_union_element() {
          gates on participating in a cycle, not on being a union"
     );
 }
+
+/// A fixed-width list is **entry-free**: `list_entry_stride` returns 0 for
+/// exactly the `list_element_is_fixed_width` predicate
+/// (`builder_collection_layout.rs`), so element `i` is found at `i * payload` by
+/// arithmetic and there is no 40-byte entry record to maintain.
+///
+/// An "identity mapping over entries 0..count" loop used to be emitted anyway, in
+/// both the in-place splice (`prepend`/`insert`) and the out-of-place
+/// `lower_list_insert`. Every store in it sat behind `entry_stride != 0`, which
+/// is unreachable inside a fixed-width branch, so the loop ran `count` iterations
+/// per call and wrote nothing into the block -- 20 instructions per element whose
+/// only architectural effects were a spill slot overwritten three times and never
+/// read, plus an `add_imm x8, x8, 0`.
+///
+/// That is why this is a codegen-inspection test and not a benchmark row: the
+/// loop was pure waste, so **no behavioral test could ever see it** -- every
+/// fixture passed the whole time. Only the emitted instruction stream shows it,
+/// and only a test asserting on the absence keeps it gone.
+#[test]
+fn a_fixed_width_splice_emits_no_identity_entry_loop() {
+    let plan = ncode(
+        "inplace_ident_fixed",
+        "IMPORT collections\n\
+         FUNC grow(n AS Integer) AS Integer\n\
+        \x20 MUT xs AS List OF Integer = []\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   xs = collections::prepend(xs, i)\n\
+        \x20 NEXT\n\
+        \x20 MUT ys AS List OF Integer = [0]\n\
+        \x20 FOR i = 1 TO n - 1\n\
+        \x20   ys = collections::insert(ys, 1, i)\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(xs) + len(ys)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN grow(8)\n\
+         END FUNC\n",
+    );
+    // Both arms must still be taken...
+    assert!(
+        label_count(&plan, "_mfb_fn_grow", "prepend_inplace") >= 1,
+        "prepend must still take the in-place path"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_grow", "insert_inplace") >= 1,
+        "insert must still take the in-place path"
+    );
+    // ...and neither may emit the dead per-element loop.
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_grow", "ident_loop"),
+        0,
+        "a fixed-width list has no lookup entries, so an identity-entry loop is \
+         `count` iterations of dead work per call"
+    );
+}
+
+/// The other half of the pair, and the reason the fix is a deletion confined to
+/// one branch rather than a blanket removal: a **variable-width** element type
+/// genuinely has a 40-byte entry table, so its splice must still shift those
+/// entries.
+///
+/// Without this case, deleting the entry loop outright would also satisfy the
+/// test above -- and silently miscompile every `List OF String` prepend.
+#[test]
+fn a_variable_width_splice_still_shifts_its_entry_table() {
+    let plan = ncode(
+        "inplace_ident_var",
+        "IMPORT collections\n\
+         FUNC grow(n AS Integer) AS Integer\n\
+        \x20 MUT xs AS List OF String = []\n\
+        \x20 FOR i = 0 TO n - 1\n\
+        \x20   xs = collections::prepend(xs, \"s\")\n\
+        \x20 NEXT\n\
+        \x20 RETURN len(xs)\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN grow(8)\n\
+         END FUNC\n",
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_grow", "prepend_inplace") >= 1,
+        "prepend on a String list must still take the in-place path"
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_grow", "shift_loop") >= 1,
+        "a variable-width list keeps its lookup table, so the entry shift is \
+         load-bearing and must survive the fixed-width deletion"
+    );
+}

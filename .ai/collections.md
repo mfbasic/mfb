@@ -89,6 +89,40 @@ Two rules from it that are easy to get wrong:
   byte-identical to the pre-change compiler. The failure signature is worth
   recognising: every element wrong except the last, because at `count == 1` the
   shift length is zero.
+* **A fixed-width list is entry-FREE, and the two are the same predicate.**
+  `list_entry_stride` returns 0 for exactly `list_element_is_fixed_width`
+  (`collection/layout/builder_collection_layout.rs`), so inside any
+  `if let Some(payload) = list_element_is_fixed_width(..)` branch, **every
+  `if entry_stride != 0` is dead**. Element `i` is found at `i * payload` by
+  arithmetic; there is no 40-byte entry record to maintain, shift or rebuild.
+
+  Two loops "writing the identity mapping over entries `0..count`" lived inside
+  such a branch — in `lower_list_splice_in_place` (`prepend`/`insert`) and in the
+  out-of-place `lower_list_insert_collection`, which `collections::set` also
+  reaches. Each ran `count` iterations per call and wrote **nothing**: 20
+  instructions per element whose only effects were a spill slot overwritten three
+  times and never read, and an `add_imm x8, x8, 0`. Removing them made
+  `list (Fixed) insert` 2.3× faster (0.754 → 0.329 ms) and left `removeAt`, which
+  never had one, unchanged.
+
+  **The general lesson: dead work is invisible to every behavioural test, by
+  construction.** No fixture, golden or spike could go red, because the loop
+  changed no observable value — a spike comparing two programs cannot see waste
+  present in both. It is findable only by reading the emitted instruction stream,
+  and it stays gone only if a codegen-inspection test asserts the label's
+  *absence* (`a_fixed_width_splice_emits_no_identity_entry_loop`), paired with one
+  asserting the variable-width entry shift survives so the deletion cannot later
+  widen into a miscompile.
+* **When a shift-based op looks slow, compare it against its sibling before
+  theorising.** `insert` sat at 10× worse per byte moved than `removeAt`; that gap
+  is what exposed the dead loop. Afterwards, two plausible explanations for the
+  remainder were both **measured and refuted**: a descending word copy is *not*
+  slower than an ascending one on Apple silicon (46.2 vs 45.7 GB/s, and chunking
+  it is 2.12× *worse*), and the `sub`-before-`ldr` ordering in
+  `emit_block_copy_backward` costs nothing (1.00×). `insert` runs its shift at
+  7.0 GB/s against a `-O0` C word loop's 7.36 — it is at the rate of the loop it
+  emits, and what is left is that it shifts *while growing* into fresh buffers
+  where `removeAt` shifts inside one that only gets hotter.
 
 ## In-place map mutation: branch arg order, dead slack, BUCKETS_READY
 

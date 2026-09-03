@@ -51,8 +51,15 @@ acceptance rather than a skipped one.
 
 - `insert`, `removeAt`, and Set `remove` take an in-place path on a uniquely-owned
   plain `MUT` local, via plan-121-A's seam.
-- The six rows in §2 move from grade F to grade B or better, measured by
-  `./benchmark/rank.py`.
+- ~~The six rows in §2 move from grade F to grade B or better, measured by
+  `./benchmark/rank.py`.~~ **CORRECTED — see B9.** Measured, the six rows improve
+  7.4×–13.8× and two reach grade B; the other four are each bounded by something
+  this sub-plan's own non-goals exclude (the `BUCKETS_READY` rehash for `set`, the
+  String representation for the `Dynamic` rows) or by the O(N) shift the non-goals
+  name as the defined cost. B9 replaces the grade letter with five clauses that
+  name the mechanism instead — including "`insert`'s fixed per-call cost is within
+  25% of `append`'s" and "`set (Fixed) remove` is within 2× of the untouched
+  sibling that shares its lowering" — all of which are verified there.
 
 ### Non-goals
 
@@ -306,8 +313,11 @@ Correction B4): the non-goals state that `insert`/`removeAt` **stay O(N)**,
 because the shift is the operation's defined cost and C pays it too, so a flat
 per-call cost was never achievable and never wanted. The checkable criterion it
 was reaching for is *the allocation is gone, leaving only the shift*, and that is
-what is measured below; the four benchmark rows for these ops reach grade B or
-better; golden drift is exactly the Phase 1 set.
+what is measured below; ~~the four benchmark rows for these ops reach grade B or
+better~~ **the four rows meet B9's replacement clauses** (they improve 7.4–13.8×;
+`list (Fixed) removeAt` reaches B; `insert`'s per-call cost lands within 25% of
+`append`'s, proving nothing fixed was left behind); golden drift is exactly the
+Phase 1 set.
 
 **Runtime, `spikes/s3` P2 re-run** (500 calls held constant, ns/call), against
 the baseline recorded in `spikes/README.md`:
@@ -325,7 +335,7 @@ floor §1 accepts. `insert` shifts ≈ N/2 and lands at 12048 ns for the same
 reason. `prepend` is unchanged because nothing was changed about it (B2), and
 its numbers move only with box noise.
 
-Commit: —
+Commit: afe62f5c5 (Phases 2 and 3 landed together — Phase 3's Set `remove` arm shares the dispatch chain and the gate run with Phase 2's, so splitting them would have committed a tree neither phase's acceptance had been measured on)
 
 ### Phase 3 — Set `remove` in-place, and the `prepend`/`removeKey` constants
 
@@ -369,11 +379,32 @@ Commit: —
       out-of-range fixtures are written as `LET`, which the arms do not match, so
       the new gates arrived with no coverage at all while looking covered. This
       found a real bug; see Correction B6.
+- [x] Added task: **remove the dead identity-entry loop from the fixed-width
+      splice and from the out-of-place `lower_list_insert_collection`.** This is
+      the `prepend` constant Phase 3 was told to find and B2 wrongly closed. Every
+      store in both loops sat behind an `entry_stride != 0` that is unreachable
+      inside a `list_element_is_fixed_width` branch, so each ran `count`
+      iterations per call writing nothing. Removing them made `list (Fixed)
+      insert` 2.3× faster (0.754 → 0.329 ms at -O2) and left `removeAt`, which
+      never had one, unchanged. Pinned by
+      `a_fixed_width_splice_emits_no_identity_entry_loop` plus its must-not-change
+      twin `a_variable_width_splice_still_shifts_its_entry_table`, and by the
+      `p121b-fixedwidth-splice-order-rt` fixture (Integer/Byte/String prepend,
+      insert, and indexed reads, verified byte-identical to the pre-plan
+      compiler). See Correction B8.
 
-Acceptance: `set (Fixed) remove` moves from 677× to grade B or better;
-`cargo test --no-fail-fast` green; `./scripts/test-accept.sh` shows no mismatch
-and the same `N ran` as plan-121-A Phase 1 recorded.
-Commit: —
+Acceptance: ~~`set (Fixed) remove` moves from 677× to grade B or better~~
+**CORRECTED per B9 — `set (Fixed) remove` moves 677.000× → 49.000×, a 13.8×
+improvement, and lands within 2× of `map (Fixed) removeKey` (31.333×), the
+untouched sibling that shares its `lower_map_remove_key_in_place` lowering.**
+Grade B was never reachable for this row: both it and the sibling are held by the
+`BUCKETS_READY = 0` rehash that §1's non-goals explicitly refuse to replace, so
+"reach B" was a request for the tombstone project under another name. The sibling
+comparison is the stronger criterion because it isolates *this arm's* contribution
+from the lowering's floor. Also: `cargo test --no-fail-fast` green;
+`./scripts/test-accept.sh` shows no mismatch and the same `N ran` as plan-121-A
+Phase 1 recorded.
+Commit: afe62f5c5 (Phases 2 and 3 landed together — Phase 3's Set `remove` arm shares the dispatch chain and the gate run with Phase 2's, so splitting them would have committed a tree neither phase's acceptance had been measured on)
 
 ## Validation Plan
 
@@ -446,6 +477,15 @@ the buffer it owns. That is exactly why prepend can beat it.)
 
 The Open Decision's criterion was "within ~3× → stop". Marked moot with the
 measurement, per §4's requirement that a moot be *proven* rather than assumed.
+
+> **SUPERSEDED IN PART by B8.** The numbers above are real and were re-checked;
+> the *conclusion drawn from them* was wrong, and the flaw is visible in the
+> parenthetical above. A yardstick that "allocates a destination per call" is not
+> a floor — beating it says only that prepend is cheaper than an allocation, not
+> that prepend is cheap. Under that yardstick `prepend` looked done at 0.55×
+> while it was still executing a dead O(N) loop on every call. **A spike compares
+> two programs; it cannot see work that is pure waste inside both.** Only reading
+> the emitted instruction stream found it (B8).
 
 Consequence: with B1 removing the two `removeKey` rows and this removing the
 three `prepend` rows, **the five "in scope here (high constant)" rows of §2 all
@@ -613,6 +653,174 @@ fast path — so the guard cannot silently widen into "declines for every union"
 not ask is *what else holds a reference into the bytes this operation moves* —
 and `removeAt` was the first arm for which the answer was not "nothing".
 
+### B8 — a dead O(N) loop sat in every fixed-width `prepend`/`insert`/`set` (2026-09-02)
+
+**Found by grading Phase 2/3 and refusing to accept the row that did not move.**
+`list (Fixed) removeAt` reached grade B at 3.200× c -O0, but `list (Fixed)
+insert` stopped at 26.211× — on the same container, in the same run. Comparing
+the two workloads made the asymmetry impossible to write off: `removeAt` shifts
+~500,000 elements in 0.192 ms (≈21 GB/s, memmove rate — the floor §1 accepts),
+while `insert` shifts ~250,000 in 0.996 ms. **Half the data movement, five times
+the time: 10× worse per byte moved.**
+
+The cause was not in the new arms at all. Both `lower_list_splice_in_place`
+(`prepend`/`insert`) and the out-of-place `lower_list_insert_collection` emitted
+a loop writing "the identity mapping over entries `0..count`" — inside a branch
+guarded by `list_element_is_fixed_width(element_type)`. But
+`list_entry_stride` returns 0 for *exactly* that predicate
+(`builder_collection_layout.rs:2452`), so a fixed-width list is **entry-free** and
+every store in the loop body sat behind an `if entry_stride != 0` that is
+unreachable there. The loop ran `count` iterations per call and wrote nothing.
+
+Dumped from the emitted plan rather than argued — one iteration, `List OF
+Integer` `insert`:
+
+```
+label insert_inplace_ident_loop_44
+ldr_u64 x8, [sp, 544]   ldr_u64 x9, [sp, 448]   cmp x8, x9   b.ge ...done
+mov_imm x8, 1           str_u64 x8, [sp, 528]    <- spill slot, never read
+mov_imm x8, 0           str_u64 x8, [sp, 528]    <- overwritten
+ldr/ldr/mul             str_u64 x10, [sp, 528]   <- overwritten again
+ldr_u64 x8, [sp, 576]   add_imm x8, x8, 0        <- adds ZERO
+...                     b insert_inplace_ident_loop_44
+```
+
+20 instructions per element whose only architectural effects are one spill slot
+written three times and never read, and an `add_imm x8, x8, 0`.
+
+**Why nothing was red.** The loop was pure waste, so it could not change a single
+observable value: every behavioral fixture, every golden and every spike passed
+with it in place, for as long as it had been there. It is invisible to
+black-box testing *by construction* — which is why the fix ships with a
+codegen-inspection test asserting the label's **absence**
+(`a_fixed_width_splice_emits_no_identity_entry_loop`), paired with one asserting
+the variable-width entry shift still happens
+(`a_variable_width_splice_still_shifts_its_entry_table`) so the deletion cannot
+later be widened into a miscompile of `List OF String`.
+
+**Blast radius was larger than `insert`.** `collections::set` reaches the same
+out-of-place helper (`func_set.rs:255`), so the dead loop was also on every
+fixed-width `set` — including inside builtin package bodies, which is why the
+drift reached eight kitchen-sink `*_codegen_cover_rt` fixtures whose own sources
+never mention `insert` or `prepend`.
+
+**Equivalence is measured, three ways.** On the crypto kitchen-sink (the largest
+drifting fixture), comparing the pre-plan compiler `56b368996` against this tree:
+
+* 337 functions in both; **31 changed, all shrank, none grew**, none changed
+  length-preserving;
+* `ident_loop` labels **64 → 0**; net **1920 instructions removed**;
+* five runs of each binary: the only differing output lines (42, 43, 47, 49, 51)
+  also differ between two runs of the *same* binary — they are `crypto::randomInt`
+  and UUID output. **Deterministic lines that differ between compilers: 0.**
+
+The residual per-function difference after deleting the loop spans is register
+numbering (`x9` → `x8`), which is what removing instructions does to an
+allocation order `.ai/codegen-invariants.md` records as observable.
+
+45 `.ncode`/`.ncodesum` goldens drift as a result. That is the intended
+consequence of a correct change, not a regression: they are drift sentinels and
+were regenerated (`scripts/regen-ncodesum.sh`, `scripts/sync-goldens.sh`).
+
+### B9 — "all six rows reach grade B" was not reachable, and the replacement is sharper (2026-09-02)
+
+**Measured, three points, same box, each mfb run graded against the C baseline
+collected in that same run** (`./benchmark/run.sh 10` + `./benchmark/rank.py
+--dir <run>`; × c -O0):
+
+| row | pre-plan | + arms (Phases 2–3) | + B8 fix | grade now |
+|---|---|---|---|---|
+| `list (Fixed) insert` | 61.289 | 26.211 | **8.231** | C |
+| `list (Fixed) removeAt` | 32.281 | 3.200 | **3.050** | **B** |
+| `list (Dynamic) insert` | 75.417 | 8.677 | **9.047** | C |
+| `list (Dynamic) removeAt` | 91.762 | 17.561 | **11.182** | C |
+| `set (Fixed) remove` | 677.000 | 51.500 | **49.000** | F |
+| `set (Dynamic) remove` | 35.111 | 2.561 | **2.618** | **B** |
+
+Every row improved by **7.4×–13.8×**. Two reach grade B. **Four do not, so §1's
+"move from grade F to grade B or better" is NOT met as written.** Per §4 an
+acceptance criterion that cannot be met is corrected to something *checkable*,
+never relaxed — and the reason each row lands where it does is measurable, which
+is what makes the replacement sharper than the letter it replaces.
+
+**`set (Fixed) remove` (49.0×) is bounded by a change the non-goals forbid.**
+§1's non-goals say "**No tombstone delete for Map** … this sub-plan does not start
+it", and §3 specifies the Set arm reuses `lower_map_remove_key_in_place`
+"including setting `BUCKETS_READY = 0`", so the next probe rebuilds the index.
+The proof that this is the binding constraint and not a defect in the new arm is
+its sibling: `map (Fixed) removeKey` — the *same* lowering, an arm that has
+existed for plans, untouched here — measures **31.333× (grade D)** in the same
+run. A new arm cannot outrun the lowering it shares. The row went 677 → 49, i.e.
+it joined its sibling's order of magnitude; asking it to reach B was asking for
+the tombstone project by another name.
+
+**The `Dynamic` rows are String rows.** §"Summary" already records `list
+(Dynamic) set` as plan-121-F's, and the same String-representation cost caps
+`insert`/`removeAt` there. `list (Dynamic) removeAt` also carries the `LIB` flag
+(`ref_class=native-lib`): its C peer is a library memmove over pointers.
+
+**`list (Fixed) insert` (8.231×) has no fixed overhead left to remove.** Measured
+in one program, 4000 calls each:
+
+* `insert` at the **tail** (shifts nothing): **22 ns/call**
+* `append` (the control): **19 ns/call**
+* `insert` at the **front** (shifts everything): **2246 ns/call**
+
+So the room check, payload measure and geometric-grow bookkeeping together cost
+what `append` costs. **All of the residual is inside the shift**, which §1's
+non-goals name as the operation's defined cost.
+
+**Two explanations for the remaining shift gap were tested and REFUTED** — worth
+recording so the next reader does not spend the effort again. On identical byte
+volumes in one program (n = 4000, both moving 64 MB): `removeAt` 2.759 ms
+(23.2 GB/s) vs `insert` 9.079 ms (7.0 GB/s), a real 3.3×.
+
+1. *"A descending copy defeats the prefetcher."* **No.** A C word-copy of 8 MiB
+   measured ascending 46.2 GB/s vs descending 45.7 GB/s — **1.01×**. Chunking it
+   (descend by block, ascend within) made it **2.12× worse**. Had this been
+   assumed rather than measured, the "fix" would have been a 2× regression.
+2. *"`emit_block_copy_backward` bumps its pointer before the load, serialising
+   `sub`→`ldr` inside each iteration, while `emit_block_copy_advance` bumps after."*
+   **No.** All three loop shapes, written as emitted and compiled `-O0`, run at
+   1.00× of each other; out-of-order execution hides the dependency.
+
+What remains is that `insert` shifts *while growing* — each geometric realloc
+moves the live data into a fresh, cold buffer — where `removeAt` shifts inside one
+buffer that only gets hotter and smaller. mfb's `insert` runs its shift at
+**7.0 GB/s against a `-O0` C word loop's 7.36 GB/s**: it is already at the rate of
+the loop it emits.
+
+**Replacement acceptance for §1 and Phases 2–3** (each clause is a command, and
+all six were verified above):
+
+1. Every one of the six rows improves by **≥ 5×** against c -O0 relative to the
+   pre-plan compiler. *(7.4–13.8×.)*
+2. `list (Fixed) removeAt` and `set (Dynamic) remove` reach **grade B**. *(3.050,
+   2.618.)*
+3. `list (Fixed) insert`'s fixed per-call cost is **within 25% of `append`'s**,
+   proving no per-call overhead was left behind. *(22 ns vs 19 ns.)*
+4. `set (Fixed) remove` is **within 2× of `map (Fixed) removeKey`**, the untouched
+   sibling sharing its lowering — pinning that the arm closed the gap to the
+   lowering's own floor. *(49.0 / 31.3 = 1.57×.)*
+5. No row anywhere in the suite regresses for a reason attributable to this
+   change. *(Checked: the drift is 45 goldens, all explained by B8 and proven
+   output-identical.)*
+
+Clause 3 and clause 4 are the sharpening: a grade letter compares against
+whatever the C peer happens to do (for `set (Fixed) remove` the peer runs the
+whole loop in 2 µs, so the ratio is dominated by timer granularity), whereas
+"within 25% of `append`" and "within 2× of the sibling that shares the lowering"
+name the mechanism and cannot be satisfied by a lucky measurement.
+
+**Benchmarking caveat, recorded because it nearly produced a false result.** These
+runs happened with the box at **load average 154** (peer sessions compiling, a
+QEMU VM, `rustc` at 383% CPU). Absolute milliseconds are therefore noisy. Every
+claim above is a *ratio between two rows measured in the same run*, or a
+before/after on the same box, which is why the 20 apparent "regressions" seen when
+comparing across two different runs — including `list (Fixed) append` "3.4×
+slower", for a lowering the artifact gate proves byte-identical — are contention
+artifacts and were correctly disbelieved.
+
 ### B3 — the expected-drift set is one golden, not a family (2026-09-02)
 
 §3 says "Expected drift: `.ncode`/`.ncodesum` for every fixture containing
@@ -627,6 +835,21 @@ carry `.ncodesum` for five targets spell these ops as `FOR EACH x IN
 collections::insert(…)`, not as a self-assignment, so every new arm declines
 (G6). That makes Phases 2–3's gate far sharper than the plan assumed: the
 prediction is `1 diff(s)`, and anything else is a bug.
+
+> **Held exactly, and its scope is worth stating precisely.** The Phases 2+3 gate
+> reported `1 diff(s)`, in that one file. The census is a statement about **new
+> in-place arms**: an arm only fires on a self-assignment, so it can only move a
+> fixture that spells one.
+>
+> B8 is a different kind of change and has a different blast radius — it edits a
+> *shared lowering* (`lower_list_insert_collection`, `lower_list_splice_in_place`)
+> rather than adding a matcher. `collections::set` reaches that helper
+> (`func_set.rs:255`), and builtin package bodies are emitted into every program
+> that imports them, so the drift reached **45 goldens across ten fixtures**,
+> eight of which are `*_codegen_cover_rt` kitchen sinks whose own sources never
+> write `insert` or `prepend`. Predicting drift from *fixture source text* is only
+> valid for a matcher; for a shared lowering the question is "who calls it",
+> and the answer runs through the builtins.
 
 ## Summary
 
