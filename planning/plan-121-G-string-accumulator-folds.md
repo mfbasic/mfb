@@ -29,8 +29,8 @@ inside a HOF) is larger than E's.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Suite green at HEAD | `cargo test --no-fail-fast` | UNMEASURED — run first |
-| `try_inplace_concat_assign` still present | `grep -c "fn try_inplace_concat_assign" src/codegen/collection/assign/builder_inplace_assign.rs` → 1 | MET |
+| Suite green at HEAD | `cargo test --no-fail-fast` | **MET** — 99 results, 0 failed, EXIT=0 |
+| `try_inplace_concat_assign` still present | `grep -c "fn try_inplace_concat_assign" src/codegen/collection/assign/builder_inplace_assign.rs` → 1 | **MET** — 1 |
 
 ## 1. Goal
 
@@ -139,16 +139,76 @@ containing a String-accumulating `reduce`. Phase 1 records the set.
 
 ### Phase 1 — Pin the semantics that must not move
 
-- [ ] Write rt fixtures for the fold's observable contract *before* optimizing:
-      a reducer that ignores `acc`; one that returns a constant; one that
-      concatenates on the left (`x & acc`); `reduceRight` order; an empty list;
-      a single-element list; a reducer that is a named `FUNC` and one that is a
-      lambda. Confirm all pass at HEAD.
-- [ ] Confirm by test which side `reduceRight`'s self-concat appends on (§3).
-- [ ] Record the `.ncode` goldens containing String-accumulating `reduce`.
+- [x] Write rt fixtures for the fold's observable contract *before* optimizing.
+      **`tests/rt-behavior/collections/p121g-reduce-accumulator-rt`**, passing at
+      HEAD. Every requested shape plus three the plan did not list, and each
+      negative has a DISTINCT answer, so a wrong accept cannot hide behind a
+      coincidentally-equal result:
 
-Acceptance: the fixtures exist and pass at HEAD, and the `reduceRight` direction
-question is answered by a test rather than by reasoning. No `src/` change.
+      | shape | answer at HEAD | why it is here |
+      |---|---|---|
+      | `acc & x` (`reduce`) | `012345` | the shape the optimization is for |
+      | `acc & x` (`reduceRight`) | `543210` | direction — see below |
+      | hand loop | `012345` | `reduce` must agree with the loop it is sugar for |
+      | `x & acc` | `543210` | prepends; cannot become an append — must decline |
+      | `x & acc` (`reduceRight`) | `012345` | the mirror |
+      | ignores `acc` | `5` | result is the LAST element |
+      | returns a constant | `K` | uses neither operand |
+      | `acc & toString(len(acc)) & x` | `0021426384105` | **reads** `acc`, so the tight form is observable |
+      | `acc & x & x` | `001122334455` | `acc` appears once but it is not one append |
+      | LAMBDA reducer | `012345` | the same shape, not statically a named `FUNC` |
+      | empty list | `[seed]` | the seed is the whole result |
+      | single element | `solo` | one step |
+      | **non-empty seed** (added) | `SEED:012345` | a buffer that assumed an empty start would drop the seed |
+      | **non-empty seed, right** (added) | `SEED:543210` | the seed stays at the FRONT |
+      | **result is a normal String** (added) | `len=90`, `head=01234567`, `tail=4849`, `copyEq=TRUE` | measurable, sliceable, comparable, and independent of any buffer it was built in |
+- [x] Confirm by test which side `reduceRight`'s self-concat appends on (§3).
+      **ANSWERED BY TEST, and §3's hypothesis is confirmed:**
+      `reduceRight(xs, "", acc & x)` = `543210`. The accumulator stays on the
+      **LEFT** and the elements arrive in **reverse**, so it is still a
+      **left-append into the buffer** — the same append the forward fold does,
+      fed in the opposite order. `seededRight = SEED:543210` confirms the seed
+      stays at the front rather than being appended last. So `reduceRight` needs
+      no different buffer strategy, only its existing iteration order.
+- [x] Record the `.ncode` goldens containing String-accumulating `reduce`.
+      **`tests/byte-identity/collections` — one root**, and this time the census
+      also asked the question Correction F2 says to ask.
+
+      | query | result |
+      |---|---|
+      | `.ncodesum` roots that resolve (control) | **141 of 141** |
+      | roots mentioning `collections::` (control) | 6 |
+      | roots calling `reduce`/`reduceRight` | **1 — `byte-identity/collections`** |
+      | **builtin bodies** calling `reduce`/`reduceRight` (the F2 question) | `func_reduce.rs`, `func_reduce_right.rs`, **`func_sum.rs`** |
+
+      **`collections::sum` is implemented via `reduce`.** That matters: a change
+      to `reduce`'s *general* lowering would drift every fixture that calls `sum`,
+      which is far more than one root. It does not apply here only because the
+      planned change is gated on a **String** accumulator and `sum` folds
+      `Integer`/`Float`/`Fixed` — but if Phase 2's condition ever widens beyond
+      String, this is the row that makes the drift set explode.
+
+#### What already exists on this path, and what it constrains
+
+Two fixtures already cover `reduce`'s accumulator and **neither may change**:
+
+- **`reduce-accumulator-reclaim-rt` (plan-86-B) is the binding constraint Phase 2
+  must respect, and §3 does not mention it.** Native `reduce` already **reclaims
+  the superseded accumulator and item on every iteration** — the pre-fix lowering
+  freed neither, so a `List OF String` fold grew arena RSS by about one block per
+  element per pass — and the reclamation is **guarded by runtime pointer-equality**
+  so the bug-307 aliasing shapes stay safe. A grown-buffer accumulator threads a
+  block that must *not* be reclaimed each step, so Phase 2 has to keep those
+  guards true rather than merely not crash: the fixture's own header says a
+  use-after-free or double-free surfaces there as corrupted output or a crash.
+- **`hof-string-item-lifetime-rt`** covers String item lifetime through the HOFs.
+
+Both pass unchanged, so neither engages AGENTS.md's four-question gate.
+
+Acceptance: **MET.** `p121g-reduce-accumulator-rt` exists and passes at HEAD
+across all fifteen shapes; the `reduceRight` direction is answered by the test
+(`543210` — accumulator left, elements reversed, so still a left-append), not by
+reasoning. No `src/` change in this phase.
 Commit: —
 
 ### Phase 2 — Grown-buffer accumulator for the self-concat reducer
