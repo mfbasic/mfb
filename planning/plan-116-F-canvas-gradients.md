@@ -317,7 +317,9 @@ filled ellipse's edge identical to a flat-filled one's.
   — so most user code is unaffected.
 - **Three new exported types**; `mfb man canvas types` grows.
 - **No existing scene changes** — every existing `Paint` gets an empty `fillGradient`.
-- **`HEADER_SLOTS` 42 → 48**, **`ITEM_BLOCK_SIZE` 192 → 224** — internal.
+- **`HEADER_SLOTS` 41 → 47**, **`ITEM_BLOCK_SIZE` 192 → 224** — internal.
+  (Corrected 2026-09-02 from 42 → 48; see **F1** in Corrections. `ITEM_BLOCK_SIZE` was
+  assumed correctly — plan-116-E landed 192.)
 - **`.ncodesum` churn**; both `.spv` blobs regenerate.
 
 ## Phases
@@ -334,7 +336,7 @@ The whole breaking surface change, with nothing yet reading it.
 - [ ] Add `fillGradient AS Gradient` to `Paint`, **last** in the prop list.
 - [ ] Add `__canvas_noGradient()` to `helper_paint_defaults.rs`; name it in
       `__canvas_fillStroke` (`func_fill_stroke.rs:43`).
-- [ ] Header slots 42–47 written by `__canvas_paintHeader`; `HEADER_SLOTS` → 48;
+- [ ] Header slots **41–46** written by `__canvas_paintHeader`; `HEADER_SLOTS` → **47**;
       every `__CANVAS_GEO_HEADER` reader updated.
 - [ ] Tests: `tests/cli_canvas_package.rs` builds a `Gradient` and a `Paint` carrying
       one; `mfb man canvas types` lists all three new types.
@@ -452,6 +454,26 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+- **F1 (2026-09-02, pre-execution) — the header slot numbers are one high, for the
+  fourth letter running.** This letter puts the gradient's six slots at 42–47 and takes
+  `HEADER_SLOTS` to 48. plan-116-E landed **41**
+  (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs`;
+  `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 41`), so they are
+  **41–46** and `HEADER_SLOTS` → **47**. `ITEM_BLOCK_SIZE` 192 → 224 stands; E landed
+  192 as assumed.
+
+  The root is plan-116-C's Correction C2 — C measured that it needed no per-axis slot
+  and landed one lower than every later letter had predicted — and D, E and now F have
+  each inherited it (D1, E1, F1). **Do not write absolute slot numbers in a plan.**
+  Take the base from `HEADER_SLOTS` and describe new slots as offsets from it, which is
+  what this letter's own §4.2 already does correctly for the *stop* base
+  (`HEADER_SLOTS + edgeCount * EDGE_SLOTS`) and what the fixed numbers above should
+  have done too.
+
+  Letters G–J were checked at the same time and carry no absolute slot numbers, so this
+  is the last of the four. plan-116-H's census row `ITEM_BLOCK_SIZE after plan-116-F |
+  224` is consistent with the corrected figures and needs no edit.
 
 - **C1 (2026-09-01, review — pre-execution).** The "latent" polygon cache gap this
   letter planned to close in Phase 2 was reproduced as a LIVE mis-render and fixed
