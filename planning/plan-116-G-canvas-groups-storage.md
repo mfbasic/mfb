@@ -58,7 +58,10 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-F complete and archived | `ls planning/completed/plan-116-F-*` → one match | NOT MET |
+| plan-116-F complete and archived | `ls planning/completed/plan-116-F-*` → one match | **MET** (2026-09-03: exactly one match, `planning/completed/plan-116-F-canvas-gradients.md`, archived by `41ca7f09e` and landed on main at the same hash. Every F box resolved; final gates mac RELEASE 96 binaries / 0 failures, mac DEBUG 3764/0, box 2228 RELEASE 3756/0 with the source hash-verified, test-accept 1358 ran, artifact-gate 1844 goldens 0 diffs, Vulkan green on 2228 glibc and 2227 musl.) |
+| SPIR-V regen reachable (A's gate 1) | `scripts/regen-spirv.sh` | **MET** (2026-09-03, re-run at G's start: exit 0, "Glslang Version: 11:15.2.0", vert→4420 B, frag→36648 B, and `git status --short src/codegen/runtime/canvas/shaders/` **empty** — the checked-in blobs reproduce byte-identically, so the regen path is trustworthy for a real GLSL edit.) |
+| The Metal box runs `rt_canvas_metal` (A's gate 2) | `cargo test --release --test rt_canvas_metal --no-fail-fast` | **MET** (2026-09-03: **4 passed, 0 failed**, 208.13s.) |
+| A Vulkan-capable Linux box (A's gate 3) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh target/release/mfb` | **MET** (2026-09-03: 7 ICDs on 2228 including `lvp_icd.json`; the harness ran end to end, exit 0, **12/12 ok**, "canvas Vulkan runtime tests passed".) |
 
 If plan-116-F is not complete, this letter cannot start, full stop.
 
