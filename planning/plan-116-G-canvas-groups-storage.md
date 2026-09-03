@@ -515,11 +515,16 @@ hulls the same way any moved item does — through the hash-change diff on bound
 
 The design's least obvious requirement (§2, §4.4), written as a failing test first.
 
-- [ ] Add a `#[ignore]`d test to `tests/rt_canvas_graphics_thread.rs` that, with
-      `MFB_CANVAS_SYNC=1`, does: `setGroup(A)` → `present([Group A])` → `setGroup(A')`
-      → `present([Group A])` (identical list) → asserts **two** frames were rendered
-      and the second shows `A'`.
+- [ ] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
+      `rt_canvas_graphics_thread.rs`, which cannot see *which* scene rendered
+      (**G11**) — doing: `setGroup(A)` → `present([Group A])` → `setGroup(A')` →
+      `present([Group A])` (identical list) → asserts **two** frames were rendered
+      **and** that the dumped frame shows `A'`. That harness already sets
+      `MFB_CANVAS_SYNC=1` and `MFB_CANVAS_DUMP`, and returns `(pixels, stats_lines)`:
+      the stats lines give the frame count, and the dump is the **last** frame because
+      `__canvas_presentSurface` writes it with `fs::writeBytes`, which overwrites.
 - [ ] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
+      This one can live in either harness; keep it beside the first.
 - [ ] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
 
 Acceptance: both tests exist and are ignored, and the design section they test (§4.4)
@@ -755,6 +760,27 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G11 (2026-09-03, pre-execution) — Phase 1's harness can count frames but cannot see
+which scene rendered.** The phase asks for a test in `tests/rt_canvas_graphics_thread.rs`
+asserting *"two frames were rendered **and the second shows `A'`**"*. That harness's
+`run()` returns `(stdout, stats_lines)` — the `frames` it yields are `MFB_CANVAS_STATS`
+lines (`sed -n 65,72p tests/rt_canvas_graphics_thread.rs`), so it can assert the count
+and nothing about the picture. A test written there would have to end at
+`frames.len() == 2`, and the half that actually distinguishes the fix from "republish
+always" is the half about `A'`.
+
+`tests/rt_canvas_rasteriser.rs`'s `render()` does both: it sets `MFB_CANVAS_SYNC=1` *and*
+`MFB_CANVAS_DUMP`, and returns `(Vec<u8>, Vec<String>)` — pixels and stats. And the
+pixels are the **last** frame, not the first, because `__canvas_presentSurface` dumps
+with `fs::writeBytes(path, buffer)`, which overwrites rather than appends
+(`sed -n 68,78p src/codegen/builtins/canvas/helper_surface.rs`). Last-frame is exactly
+what this test wants: after `setGroup(A')` the final present must show `A'`.
+
+Worth being explicit about the overwrite, because "each rendered frame's raw RGBA is
+written to a file" (`.ai/canvas-threading.md` §11) reads as though the frames accumulate,
+and a test written on that reading would assert against the *first* frame and pass while
+the revision fix was absent.
 
 **G10 (2026-09-03, pre-execution) — Phase 3's acceptance needs an instrument Phase 5
 builds.** Phase 3 ends *"this phase can leak by construction — assert that it does, so
