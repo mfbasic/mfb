@@ -2352,3 +2352,75 @@ fn a_gradients_stroke_stays_a_flat_colour() {
         pixel(&frame, 300, 200)
     );
 }
+
+/// A gradient on a `Line` or an `Arc` is ignored, and two such items never share a
+/// cache entry through it.
+///
+/// plan-116-F **F17**. `__canvas_paintHeader` says *"a kind with no interior takes no
+/// gradient"* and originally skipped only `Text` and `NONE`. A `Line` and an `Arc` have
+/// no interior either — `mfb spec app canvas` puts it in the same words — so they
+/// stored stops that nothing keyed on: `__canvas_hashItem` returns a bare `acc` for
+/// both and `__canvas_tailMatches` returns `TRUE`, so two `Line`s differing only in
+/// their gradient hashed alike, hit one geometry-cache entry, and the second drew the
+/// first's stops.
+///
+/// Two assertions, and the second is the one that would have failed before the fix.
+/// The first pins the rule (a gradient changes nothing on a stroke-only kind) by
+/// rendering the same scene twice, once with a gradient and once without, and requiring
+/// byte equality. The second puts two differently-gradiented lines in **one** scene:
+/// with the stops unkeyed they collide, and with them skipped there is nothing to
+/// collide over — either way the frame must equal the no-gradient one.
+#[test]
+fn a_gradient_on_a_stroke_only_kind_is_ignored() {
+    const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
+         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
+         paint := canvas::stroke(canvas::rgb(255, 240, 120), 9.0)]\n  \
+         LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
+         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
+         paint := canvas::stroke(canvas::rgb(120, 255, 200), 9.0)]\n  \
+         canvas::present([a, b])\n";
+
+    // The same two items, each carrying a DIFFERENT gradient. Different from each other
+    // is the point: identical ones could not collide.
+    const RAMPED: &str =
+        "  LET s1 AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+         color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+         color := canvas::rgb(0, 0, 255)]]\n  \
+         LET s2 AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
+         color := canvas::rgb(0, 255, 0)], canvas::GradientStop[offset := 1.0, \
+         color := canvas::rgb(255, 0, 255)]]\n  \
+         LET g1 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+         startPoint := canvas::Point[x := 40.0, y := 0.0], \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s1]\n  \
+         LET g2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
+         startPoint := canvas::Point[x := 40.0, y := 0.0], \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2]\n  \
+         LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
+         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
+         paint := WITH canvas::stroke(canvas::rgb(255, 240, 120), 9.0) { fillGradient := g1 }]\n  \
+         LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
+         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
+         paint := WITH canvas::stroke(canvas::rgb(120, 255, 200), 9.0) { fillGradient := g2 }]\n  \
+         canvas::present([a, b])\n";
+
+    let (plain, _) = render("canvas_stroke_only_plain", &scene(PLAIN));
+    let (ramped, _) = render("canvas_stroke_only_ramped", &scene(RAMPED));
+    assert_eq!(
+        plain.len(),
+        ramped.len(),
+        "the two frames are different sizes, so the comparison below would be \
+         meaningless"
+    );
+    let differing = plain
+        .chunks(4)
+        .zip(ramped.chunks(4))
+        .filter(|(p, r)| p != r)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "a gradient changed what a stroke-only item draws: `Line` and `Arc` are drawn \
+         entirely from `Paint.stroke` and have no interior, so `fillGradient` has no \
+         fill to replace and `__canvas_paintHeader` must skip them — {differing} \
+         pixels differ"
+    );
+}

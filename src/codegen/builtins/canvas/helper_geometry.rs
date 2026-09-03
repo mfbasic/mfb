@@ -250,16 +250,34 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   ' are what the renderer needs before it walks them, and the count doubles as the
   ' has-a-gradient test: fewer than two stops is no gradient, so one comparison here
   ' decides it rather than a flag that could disagree with the list.
-  ' A kind with no interior takes no gradient: `Text` draws from a cached coverage
-  ' bitmap and `NONE` draws nothing, so neither has a fill to replace. Skipping them
-  ' here is what keeps the stop tail off records whose tail means something else --
-  ' a glyph run's is three floats per glyph, not five per stop.
+  ' A kind with no interior takes no gradient, and there are FOUR of them: `Text`
+  ' draws from a cached coverage bitmap, `NONE` draws nothing, and a `Line` and an
+  ' `Arc` are drawn entirely from `Paint.stroke` -- `mfb spec app canvas` says so in
+  ' the same words ("both are drawn entirely from `Paint.stroke` and have no
+  ' interior"), which is also why those two are the only variants carrying a `cap`.
+  '
+  ' Skipping them here is what keeps the stop tail off records whose tail means
+  ' something else -- a glyph run's is three floats per glyph, not five per stop.
+  '
+  ' The segment and arc half of this was missed when the rule was written (plan-116-F
+  ' Correction F17) and it was not merely redundant: `__canvas_hashItem` returns a bare
+  ' `acc` for `CASE Line` and `CASE Arc`, and `__canvas_tailMatches` returns `TRUE` for
+  ' both, so stops stored on those kinds were never part of the cache key. Two `Line`s
+  ' differing only in their gradient shared an entry and the second drew the first's
+  ' stops -- the same collision the polygon points guard against below. Skipping is what
+  ' makes those two bare returns correct by construction rather than by luck.
   LET kind AS Integer = toInt(collections::getOr(out, 0, 0.0))
   MUT stopCount AS Integer = len(paint.fillGradient.stops)
   IF kind = __CANVAS_GEO_TEXT THEN
     stopCount = 0
   END IF
   IF kind = __CANVAS_GEO_NONE THEN
+    stopCount = 0
+  END IF
+  IF kind = __CANVAS_KIND_SEGMENT THEN
+    stopCount = 0
+  END IF
+  IF kind = __CANVAS_GEO_ARC THEN
     stopCount = 0
   END IF
   ' Fewer than two stops is not a gradient (plan-116-F section 4.1), so it carries no

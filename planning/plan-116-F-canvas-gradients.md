@@ -548,12 +548,15 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
-- [ ] Fix **F17**: `__canvas_paintHeader` skips the gradient for `Text` and `NONE` but
+- [x] Fix **F17**: `__canvas_paintHeader` skips the gradient for `Text` and `NONE` but
       not for `Line` or `Arc`, which `06_canvas.md` says are *"drawn entirely from
       `Paint.stroke` and have no interior"* — so its own stated rule ("a kind with no
       interior takes no gradient") is implemented for two of the four kinds it
       describes. Add `__CANVAS_KIND_SEGMENT` and `__CANVAS_GEO_ARC` to the skip, and
-      add a test that a gradient on a `Line` changes nothing.
+      add a test that a gradient on a `Line` changes nothing. Landed with
+      `a_gradient_on_a_stroke_only_kind_is_ignored`; the gradient + stroke-only
+      selection of `rt_canvas_rasteriser` is **9 passed, 0 failed**, and with the fix
+      reverted the same test *hangs* rather than failing — see the corrected severity.
 - [ ] Archive this letter to `planning/completed/` and land it on `main` with
       `git push . HEAD:main` (the repo sets `receive.denyCurrentBranch=updateInstead`,
       so this updates a checked-out `main` in place and **refuses** rather than
@@ -660,11 +663,31 @@ records whose tail means something else — the reason `Text` is skipped — and
 `hashItem`'s and `tailMatches`'s existing bare returns correct by construction rather
 than by luck. Taking that one.
 
-Severity is bounded but not zero: a `Line`'s fill coverage is its zero-radius distance
-field, so a gradient paints roughly a hairline along the centreline, under the stroke —
-invisible beneath an opaque stroke, and not beneath a translucent one. The test that
-lands with the fix asserts a gradient on a `Line` changes nothing, which pins the rule
-rather than the current visibility.
+**Severity, corrected — this is a geometry-buffer corruption, not a cosmetic one.** The
+first draft of this entry reasoned that a `Line`'s fill coverage is its zero-radius
+distance field, so a stray gradient would paint about a hairline under the stroke, and
+called it "bounded but not zero". Measuring it says otherwise, and the mechanism is one
+step further along than the hash:
+
+`__canvas_paintHeader` does `out = collections::set(out, 1, ...getOr(out, 1, 0.0) +
+toFloat(stopCount * 5))` — slot 1 is the record's **total length**, and the stop tail is
+counted into it unconditionally. But `__canvas_tailFor` returns a bare `[]` for
+`CASE Line(l)` and `CASE Arc(a)` (`sed -n 616,626p helper_geometry.rs`); neither routes
+through `__canvas_appendGradientTail` the way `Rectangle`, `Circle`, `Ellipse` and
+`Polygon` do. So a gradient-carrying `Line` writes a record whose declared length
+includes `stops * 5` floats **that were never appended**, and every consumer that walks
+the buffer by slot 1 lands inside the following record.
+
+Observed, with the fix reverted: `a_gradient_on_a_stroke_only_kind_is_ignored` does not
+fail, it **hangs** — the app process sat at `0:00.03` of CPU and 0% usage across repeated
+samples, never completing a frame, and had to be killed. With the fix in place the same
+test is green (9 passed in the gradient/stroke-only selection).
+
+So the RED evidence for this correction is a hang rather than a pixel diff, which is
+stronger than what the test asserts. The test still asserts pixel equality, because that
+is the rule worth pinning — "a gradient changes nothing on a kind with no interior" —
+and a test that asserted "does not hang" would keep passing if the corruption ever
+became quiet again.
 
 **F16 — this letter invalidated the checklist the next two letters will follow.**
 `.ai/canvas-threading.md`'s *"Growing `ITEM_BLOCK_SIZE` moves five things, and three are
