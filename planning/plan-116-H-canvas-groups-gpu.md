@@ -105,7 +105,7 @@ grouping, not a flat offset list.
 | `ITEM_BLOCK_SIZE` after plan-116-F | 224 | plan-116-F §4.2 |
 | Backends to convert | 2 | Metal (`src/target/macos_aarch64/app/metal.rs`), Vulkan (`src/codegen/runtime/canvas/vulkan.rs`) |
 | Shader files to edit | 3 | `metal.rs:METAL_SHADER_SOURCE`, `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag` |
-| `*Renderable` predicates | 2 | `helper_render.rs:180` (Metal), and the Vulkan sibling |
+| `*Renderable` predicates | 2 | `__canvas_metalRenderable` and `__canvas_vulkanRenderable` in `helper_render.rs` (`grep -n 'FUNC __canvas_.*Renderable' src/codegen/builtins/canvas/helper_render.rs`) |
 | Shared scene walk | 1 | `helper_render.rs:122` (`__canvas_sceneOffsets`) |
 
 > **Census re-verified 2026-09-02 (pre-execution).** Still 2 backends, 3 shader
@@ -387,6 +387,22 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H1 (2026-09-03, pre-execution) — one of this letter's three `helper_render.rs`
+citations is stale; the other two are exact.** `:180` is given as the Metal
+`*Renderable` predicate and is a line inside `__canvas_runSamples`
+(`awk 'NR==180' src/codegen/builtins/canvas/helper_render.rs`); the predicate is
+`__canvas_metalRenderable`, currently at `:198`, and plan-116-F moved it again when it
+replaced the Phase 3 blanket gradient decline with a frame-total cap.
+
+`:122` (`__canvas_sceneOffsets`) and `:75` (the geometry-cache warm-up comment, quoted
+verbatim in §4) both still land exactly, which is worth stating: this is not a reason
+to distrust the letter, it is one line to fix. Replaced with the two symbols and the
+grep that finds them, per plan-116-G's **G1**.
+
+Noted for Phase 2 and Phase 3, which both remove a `Group` decline from these two
+functions: they are the same two functions plan-116-F edited, so expect them to have
+moved again by the time H runs — find them by name.
 
 - **C1 (2026-09-01, review — pre-execution).** Aligned with the revised plan-116-A:
   Metal's edges (A) and gradient stops (F) live in frame-buffer regions, which is
