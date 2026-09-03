@@ -694,12 +694,22 @@ Commit: —
       worker-owned, refcount **plus** the existing drain gate, and why §7's "there is
       no refcount" is about textures and still true of them), and the new race-matrix
       rows from Phase 5.
-- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — the two new errors.
+- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error (the
+      table-full one), plus an extension of `ErrDepthExceeded`'s existing row to
+      name group nesting alongside `json::parse` (**G3** — the depth error is not
+      new).
 - [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence**: `ls tests/byte-identity/` has no `canvas` directory and no
+      fixture there imports it, so the ncodesum gate is silent about this package
+      (plan-116-F **F11**). The gates that are evidence for this letter are the
+      canvas rt tests and the golden harness.
 
-Acceptance: `cargo test --no-fail-fast` green on both axes, `scripts/test-accept.sh`
-green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
+(`--bin mfb`, the only run anywhere that executes the `debug_assert!`s — plan-116-E
+**E6**) and box 2228 RELEASE**, `scripts/test-accept.sh` green (read its `N ran` —
+`cargo test`'s copy of the corpus skips 519 `syntax/` fixtures, plan-116-F **F13**),
+`scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
 `removeGroup` / `mfb man canvas types` render correct, example-backed pages.
 Commit: —
 
