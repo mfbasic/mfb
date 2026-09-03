@@ -466,8 +466,10 @@ Commit: —
 
 - [ ] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
       storage beside `CANVAS_SCENE_SYMBOL`, with the §4.1 slot layout.
-- [ ] Implement `setGroup`'s deep copy by reusing `gen_present.rs:emit_publish`'s copy
-      rather than writing a second one.
+- [ ] Implement `setGroup`'s deep copy by calling
+      `CodeBuilder::copy_flat_block` — the primitive `emit_publish` itself calls —
+      rather than writing a second copy or calling `emit_publish`, which is bound to
+      the scene slot (**G2**).
 - [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
 - [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error.
 - [ ] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
@@ -609,6 +611,28 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G2 (2026-09-03, pre-execution) — `emit_publish` cannot be reused for `setGroup`;
+the copy underneath it can.** Phase 3 says to implement `setGroup`'s deep copy "by
+reusing `gen_present.rs:emit_publish`'s copy", which reads as *call `emit_publish`*.
+It is not callable for a group: `emit_publish` opens with `let scene =
+scene_base(builder)` and is parameterised by `SceneShape`, whose `slots()` and `tag()`
+name the scene ring's own two pointer/count pairs
+(`sed -n 85,101p src/codegen/builtins/canvas/gen_present.rs`). Publishing a *group*
+into the scene slot is precisely the bug that phrasing invites.
+
+What is reusable is the line `emit_publish` delegates the actual copy to —
+`builder.copy_flat_block(&list_type, &incoming)`, at
+`src/codegen/collection/layout/builder_collection_layout.rs:383`
+(`grep -rn "fn copy_flat_block" src/`). It takes a type and a source and returns a
+fresh pointer, with no opinion about where the result is stored, and for a collection
+it routes to `copy_collection_tight` — the shrink-to-fit copy that §3.1's content
+comparison depends on. That is the correct seam, and it is why Phase 3's task now
+names it.
+
+Recorded pre-execution rather than discovered mid-phase because the failure mode is
+not a compile error: `emit_publish` would build and would install the group's items as
+*the scene*.
 
 **G1 (2026-09-03, pre-execution) — every line number this letter cites into
 `src/codegen/builtins/canvas/mod.rs` was stale before a single task ran.** The letter
