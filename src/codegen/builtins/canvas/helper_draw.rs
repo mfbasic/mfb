@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -105,6 +105,11 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     LET e0y AS Float = py - capEY
     arcD = __canvas_minF(arcD, math::sqrt(s0x * s0x + s0y * s0y) - radius)
     RETURN __canvas_minF(arcD, math::sqrt(e0x * e0x + e0y * e0y) - radius)
+  END IF
+  IF kind = __CANVAS_GEO_ELLIPSE THEN
+    ' plan-116-E. `ca`/`sa` are the rotation's cosine and sine, precomputed once per
+    ' ellipse in `__canvas_ellipseHeader` -- no trigonometry on this path.
+    RETURN __canvas_ellipseDistance(px, py, p0, p1, p2, p3, ca, sa) - radius
   END IF
   RETURN __canvas_edgeDistance(tail, edges, px, py)
 END FUNC"#;

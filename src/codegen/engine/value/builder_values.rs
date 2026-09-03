@@ -1042,12 +1042,34 @@ impl CodeBuilder<'_> {
                 {
                     return self.lower_inline_conversion_raw(target, args);
                 }
+                // bug-486: the fallibility census is name-keyed except for the
+                // overloads whose argument type decides it — today only
+                // `toString(<List OF Byte>)`, whose UTF-8 decode raises
+                // `ErrEncoding`. `static_type_name_for_fold` is the widest arg-type
+                // oracle the builder has (it falls back to the registry's typed
+                // return-type resolver for a nested call); this is a read-only
+                // question with none of the fast-path coupling that keeps
+                // `static_type_name` itself narrow. An argument it cannot type
+                // answers `Unknown`, which lands on the name-keyed verdict.
+                let inline_arg_types: Vec<ParameterType> =
+                    if crate::codegen::builtins::inline_builtin_fallibility_depends_on_args(target)
+                    {
+                        args.iter()
+                            .map(|arg| {
+                                self.static_type_name_for_fold(arg)
+                                    .unwrap_or(ParameterType::Unknown)
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                 // An inline `TRAP` on a fallible inline member (`collections::get`,
                 // `strings::mid`, …) traps the raw `Result` the same way (plan-21-B):
                 // run the member's normal inline lowering under a raw capture so its
                 // domain error redirects to the capture point instead of propagating,
                 // then materialize the `Result OF <success>`.
-                if crate::codegen::builtins::inline_builtin_raw_supported(target) {
+                if crate::codegen::builtins::inline_builtin_raw_supported(target, &inline_arg_types)
+                {
                     return self.lower_inline_builtin_raw(target, args);
                 }
                 // An inline `TRAP` on a provably-infallible inline built-in
@@ -1056,7 +1078,8 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::codegen::builtins::inline_builtin_is_infallible(target) {
+                if crate::codegen::builtins::inline_builtin_is_infallible(target, &inline_arg_types)
+                {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
@@ -1074,7 +1097,7 @@ impl CodeBuilder<'_> {
                 // so this never fires today; it fails loudly if a *future* inline
                 // builtin is added to `native_builtin_target` without a raw or
                 // infallible lowering, instead of miscompiling.
-                if crate::codegen::builtins::inline_trap_unsupported(target) {
+                if crate::codegen::builtins::inline_trap_unsupported(target, &inline_arg_types) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
                          without a raw or infallible lowering; add one to \
@@ -1941,6 +1964,14 @@ impl CodeBuilder<'_> {
             // variable shifts) trapped by an inline `TRAP`: its domain error routes
             // through the `raw_result_capture` branch set above.
             result
+        } else if target == "toString" && (args.len() == 1 || args.len() == 2) {
+            // bug-486: `toString(<List OF Byte>)`. Only the byte-list overload
+            // reaches here (`inline_builtin_raw_supported` gates on the argument
+            // type); `lower_to_string`'s `List OF Byte` arm raises `ErrEncoding`
+            // through the same `emit_error_register_return` tail as the index
+            // members above, so the `raw_result_capture` set here redirects it to
+            // the capture point instead of auto-propagating past the handler.
+            self.lower_to_string(args)
         } else {
             match crate::codegen::builtins::native_builtin_target(target) {
                 Some("find") => self.lower_find(args),

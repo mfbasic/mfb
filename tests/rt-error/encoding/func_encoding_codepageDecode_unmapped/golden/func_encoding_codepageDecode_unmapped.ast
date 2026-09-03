@@ -1,0 +1,29 @@
+{
+  "project": "func_encoding_codepageDecode_unmapped",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "encoding", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "72" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "105" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "219" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.codepageDecode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows874" }, { "kind": "identifier", "value": "bytes" }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

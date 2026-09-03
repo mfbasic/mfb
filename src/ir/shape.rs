@@ -1765,9 +1765,28 @@ impl<'a> Walker<'a> {
                 }
                 if offender.is_none()
                     && conditional
-                    && self
-                        .context
-                        .call_is_fallible(&self.canonical_callee(callee))
+                    && self.context.call_is_fallible(
+                        &self.canonical_callee(callee),
+                        // bug-486: with the argument types, so a short-circuited
+                        // `toString(<List OF Byte>)` — which really can fail — is
+                        // reported, while `toString` on anything else is not.
+                        // Typed only for the names whose verdict can turn on them.
+                        &if crate::codegen::builtins::inline_builtin_fallibility_depends_on_args(
+                            callee,
+                        ) {
+                            arguments
+                                .iter()
+                                .map(|argument| match argument {
+                                    HirCallArg::Positional(value)
+                                    | HirCallArg::Named { value, .. } => {
+                                        self.type_of(value, locals)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        } else {
+                            Vec::new()
+                        },
+                    )
                 {
                     *offender = Some(callee.replace('.', "::"));
                 }
@@ -1861,7 +1880,14 @@ impl<'a> Walker<'a> {
         if self.current_own_imports.contains(*owner) {
             return;
         }
-        let type_name = target_type.name();
+        // The rendered name is already package-qualified (`net.Address`), so
+        // interpolating it after `{owner}::` spelled the type `net::net.Address` —
+        // a doubled qualifier no program can write. Strip the owning package's
+        // prefix so the message names the type the way source does: `net::Address`.
+        let rendered = target_type.name();
+        let type_name = rendered
+            .strip_prefix(&format!("{owner}."))
+            .unwrap_or(rendered.as_ref());
         self.emit(
             "TYPE_UNKNOWN_VALUE",
             format!(

@@ -46,7 +46,7 @@ References:
 - `src/codegen/builtins/canvas/func_present.rs` — `__canvas_present` and the
   publish-then-render split.
 - `src/codegen/builtins/canvas/gen_present.rs:emit_publish` — the deep copy.
-- `src/codegen/builtins/canvas/mod.rs:935` — `every_draw_item_variant_carries_a_paint`,
+- `src/codegen/builtins/canvas/mod.rs:1161` — `every_draw_item_variant_carries_a_paint`,
   which `Group` does not satisfy. §2.
 - `src/rules/table.rs:1015` — `TYPE_RESOURCE_FIELD_FORBIDDEN`, retired by plan-114
   but still relevant: `canvas` has not yet migrated off its value handles
@@ -105,7 +105,7 @@ plan-116-J, which is gated on plan-116-I.
 
 ### The two invariants this letter contradicts, and how each is handled
 
-**(a) `every_draw_item_variant_carries_a_paint` (`mod.rs:935`).** The test asserts
+**(a) `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`).** The test asserts
 every union variant has a `paint AS Paint` field, with the rationale *"a variant that
 forgot it would silently draw with no way to colour it."*
 
@@ -127,7 +127,7 @@ variant *other than the container set* carries a paint, with the container set s
 as an explicit list (`["Group"]`) so a future variant is not silently exempted. The doc
 comment records plan-116-G as the reason.
 
-**(b) `draw_item_variant_set_is_frozen` (`mod.rs:884`).** Already amended once by
+**(b) `draw_item_variant_set_is_frozen` (`mod.rs:1109`).** Already amended once by
 plan-116-E for `Ellipse`; this letter appends `"Group"` **last**, by the same
 mechanism and for the same recorded reason. Order is append-only because it fixes the
 union tags.
@@ -139,7 +139,8 @@ landed 2026-09-01 (`ls planning/completed/plan-114-*` → 5 matches; the rule si
 reserved-not-emitted at `src/rules/table.rs:1015` under a "retired by plan-114-B"
 comment). A record field CAN now hold a `RES`. What has NOT changed is `canvas`
 itself: `Picture` still names its image through the `ImageRef` value handle and
-`Text` through `FontRef` (`mod.rs:398`, `:412`) — the migration to direct `RES`
+`Text` through `FontRef` (the `ImageRef`/`FontRef` records in `mod.rs`) — the
+migration to direct `RES`
 fields is plan-116-I.
 
 So every `DrawItem` variant's fields are value types — `Picture` names an image through
@@ -170,11 +171,30 @@ counter folded into the comparison.
 | What | Count | Command |
 |---|---|---|
 | `DrawItem` variants after plan-116-E | 9 | `mod.rs` union list |
-| Tests pinning/iterating the variant list | 3 | `mod.rs:884`, `:913`, `:935` |
+| Tests pinning/iterating the variant list | 3 | `mod.rs:1109`, `:1139`, `:1161` |
 | plan-114 letters completed | 5 | `ls planning/completed/plan-114-*` (2026-09-01) |
 | Ban on resource record fields | retired by plan-114 | `sed -n 1008,1019p src/rules/table.rs` — reserved, never emitted |
-| Process-global canvas state symbols today | 1 (`CANVAS_SCENE_SYMBOL`) | `.ai/canvas-threading.md` §3 |
+| Process-global canvas state symbols today | ~~1~~ **3** | `sed -n 906,932p src/codegen/engine/builder/mod.rs` — `graphics_state_data_object()`, `CANVAS_SCENE_SYMBOL`, `CANVAS_FONTS_SYMBOL` (**G4**) |
 | `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
+
+> **Census re-verified 2026-09-02 (pre-execution).** All six rows still hold exactly
+> after plan-116-C, D and E: 9 `DrawItem` variants, 3 tests pinning or iterating the
+> variant list, 5 archived plan-114 letters, the resource-field ban still
+> reserved-not-emitted, 1 process-global canvas symbol, 13 compile-gated man members.
+> Unlike plan-116-I's (see its **I1**), none of these count *sites this letter must
+> sweep* — they are structural facts — which is why they did not move while I's did.
+
+> **Census re-verified again 2026-09-03, after plan-116-F landed.** All six counts are
+> unchanged — 9 variants (`Picture, Rectangle, Line, Polygon, Circle, Arc, Text,
+> RoundedRect, Ellipse`), 3 pinning tests, 5 archived plan-114 letters,
+> `2-203-0084` still reserved-and-never-emitted (its only in-tree uses are the two
+> `ir/verify/tests.rs` assertions that it is *not* raised, plus the spec's history
+> note), 1 process-global canvas symbol (`CANVAS_SCENE_SYMBOL`), 13 compile-gated man
+> members — except the process-global count, which was wrong when written (**G4**).
+>
+> **The line numbers this letter cites have not held.** F added the `GradientKind`
+> enum and the `GradientStop`/`Gradient` records to `mod.rs`, moving the three pinning
+> tests down by ~226 lines. See **G1**.
 
 ### Verified properties
 
@@ -266,6 +286,17 @@ reads without a lock; a reallocating table would move under a reader. 256 slots 
 generous for a named-sub-picture facility; `setGroup` past it raises, rather than
 silently evicting.
 
+**Size it deliberately (G4).** The two existing canvas tables are 80 bytes
+(`CANVAS_SCENE_SLOTS * 8`) and 256 bytes (`CANVAS_FONT_SLOTS = 16` ×
+`CANVAS_FONT_SLOT_BYTES = 16`), and both are emitted as literal zero bytes
+(`value: "00".repeat(size)`) into **every** canvas binary. Six `u64` slots × 256
+entries is 12,288 bytes — 48× the larger of the two — carried by a program that
+installs no groups at all. That is a fraction of a percent of a real binary and is
+almost certainly the right trade for a table that must not move under a reader, but it
+should be a decision rather than a number inherited from this document: 64 slots
+(3,072 bytes) is still generous for named sub-pictures. Whichever is chosen, say why
+in the constant's doc comment.
+
 ### 4.2 `setGroup` and `removeGroup`
 
 Both run on the worker, which is the only thread that may allocate or free
@@ -273,8 +304,10 @@ Both run on the worker, which is the only thread that may allocate or free
 
 **`setGroup(name, items)`:**
 
-1. Deep-copy `items` into a fresh block, exactly as `emit_publish`
-   (`gen_present.rs`) does for a scene — same code path, same guarantees.
+1. Deep-copy `items` into a fresh block with `CodeBuilder::copy_flat_block`, the
+   primitive `emit_publish` itself calls for a scene — same guarantees
+   (shrink-to-fit, so §3.1's content comparison holds), but **not** `emit_publish`
+   itself, which writes the scene slot (**G2**).
 2. Resolve each **nested** `Group` node's name to a slot index and **increment that
    slot's `refs`**. A nested name that does not resolve is left as a no-op node and
    takes no reference.
@@ -302,9 +335,27 @@ The second condition is **exactly the gate `.ai/canvas-threading.md` §7 specifi
 textures and §3 specifies for retired scene blocks**, reused deliberately so there is
 one drain rule in the subsystem rather than three.
 
-The free itself happens on the **worker**, at the top of the next `present` — the same
-place and the same reason the scene ring reclaims (§3 step 3). The graphics thread
+The free itself happens on the **worker**, on the next `present`. The graphics thread
 never returns memory.
+
+**But not where the scene ring reclaims (G7).** `emit_reclaim_retired` is emitted
+*after* `builder.emit(abi::label(&publish))` in `gen_present.rs`, and the unchanged path
+returns at the `skip` label above it — so the ring reclaims **only on a publish that
+actually changes the scene**. Placing the group free "beside" it inherits that, and then
+`removeGroup("panel")` followed by presents of an unchanged scene never frees the
+buffer: the frame skip is working, so the reclaim never runs, and the memory is held
+until something unrelated changes the scene.
+
+The group free must therefore run **before** the content comparison, on every `present`,
+not on the publish path. It is a scan of at most `CANVAS_MAX_GROUPS` slots with no
+allocation, so it is cheap enough to be unconditional — and a memory bound that depends
+on the scene changing is not a bound.
+
+Phase 5's own race-matrix row *"the same, then a completed frame, then a `present`: the
+buffer is freed exactly once and `groups=` drops by one"* is the test that catches this,
+**provided its final `present` presents an unchanged scene.** Write it that way
+deliberately; a test that changes the scene between the remove and the check passes on
+the wrong implementation.
 
 **Reference accounting, precisely:**
 
@@ -334,11 +385,31 @@ Depth is counted per *path*, not per node, so a diamond (two parents naming one 
 is legal and cheap.
 
 **The frame skip (§2's problem).** The comparison `publishScene` makes must include,
-for each resolved group node, that group's **current `revision`**. Concretely: the
-resolution pass writes `(slotIndex, revision)` into the published node, and the content
-comparison sees a changed revision as a changed scene. So `setGroup` followed by
-`present` with an unchanged list republishes and redraws; `present` twice with no
-`setGroup` between still skips.
+for each resolved group node, that group's **current `revision`**. So `setGroup`
+followed by `present` with an unchanged list republishes and redraws; `present` twice
+with no `setGroup` between still skips.
+
+**Not, however, "written into the published node" — there is nowhere to write it
+(G8).** `Group` is `dx AS Float`, `dy AS Float`, `name AS String`; the published node is
+a copy of that record and has no slot for a slot index or a revision, and adding two
+fields for the renderer's use would put them on the user's constructor. Nor can the
+`name` pointer carry the signal: two presents of the same scene reuse the same string,
+so it compares equal precisely when the revision needs to say otherwise.
+
+`publishScene` compares the **raw bytes of the `DrawItem` list's data region**
+(`emit_compare_bytes_branch` in `gen_present.rs`, over `capacity * stride` bytes), so
+anything the skip must see has to be inside those bytes or inside a second block
+compared alongside them.
+
+**Publish a parallel resolved-groups signature and compare it too** — a
+`List OF Integer` of `(slotIndex, revision)` pairs, one pair per resolved group node in
+scene order, built by the §4.4 walk. `publishScene` compares the items *and* the
+signature, publishing both or neither. A scene with no groups gets an empty signature
+and compares exactly as it does today, so nothing that does not use groups changes.
+
+Note this cannot reuse `publishHashes`, which looks like the same shape: `__canvas_present`
+calls `publishScene` first and `publishHashes` only inside the `IF`, so the hashes are
+written *after* the skip has already been decided (`sed -n 88,92p func_present.rs`).
 
 This also means **`setGroup` alone does not repaint** — it takes effect at the next
 `present`. That is the right semantics (it matches `present` being the install point
@@ -361,6 +432,42 @@ The accumulated offset is applied **before** the surface clamp: the item's bound
 offset first, then clamped to the surface, or a group translated partly off-screen
 would be clipped against the wrong rectangle. (This is the "clamp the quad to the
 surface *after* offsetting" rule from the feature request, stated for the CPU path.)
+
+**Two per-item things are in SURFACE coordinates and must be handled explicitly, in
+opposite directions (G5).** "Evaluate the distance at `p - offset`" covers every
+distance function, the coverage rule and the stroke band, and covers nothing else:
+
+* **`Paint.clip` stays at `p`.** It is a surface rectangle by definition
+  (plan-116-B §Non-goals), so a group's translation moves the shape and not the clip.
+* **A `Text` item's glyph sampling must move to `p - offset`.** A glyph is a cached
+  coverage bitmap indexed by whole pixels from the run's origin, not a distance field,
+  so it is on a separate path from "evaluate the distance at `p - offset`" and a fix
+  written for distances misses it. Text in a translated group would sample the wrong
+  texels.
+* **`Paint.fillGradient` is an open decision, not a defect — settle it in Phase 4.**
+  plan-116-F evaluates the ramp at the surface point (`px`/`py` against
+  `gradFX`/`gradFY`, `sed -n 342,350p` and `:500,510p` of `helper_items.rs`) against an
+  axis read straight from the record with **no transform applied**. So a gradient is
+  surface-anchored today and `Paint.transform` does not drag it — which
+  `06_canvas.md` states deliberately ("rather than being dragged around by it").
+
+  A group offset could therefore go either way, and the two answers are both defensible:
+  leave it surface-anchored, consistent with `Paint.transform` and with the clip; or
+  move it, consistent with a group being a self-contained sub-picture.
+
+  **Recommend moving it**, on the letter's own stated goal: §1 records the user's goal
+  (1) as *reuse* — "a sub-picture authored once and referenced from many scenes and
+  positions". A gradient-filled item that renders differently at every position is not
+  reusable, and a group is the one construct here whose entire purpose is to be drawn
+  somewhere else. `Paint.transform` is a different thing — it reshapes one item in
+  place — so following it is not obviously the consistent choice.
+
+  Whichever is chosen: **write it in `06_canvas.md`, and pin it with the diamond test**,
+  which is the scene that can tell the two apart.
+
+Phase 4 must do this and test it, and the reason it matters *here* rather than in
+plan-116-H is that this file defines the **oracle**. H compares both GPUs against it. A
+wrong software answer is not caught by that comparison — it is *ratified* by it.
 
 The geometry cache is unaffected: a group's items are cached by their own geometry, and
 the offset is applied at draw time, so the same group drawn at two offsets hits one
@@ -408,11 +515,16 @@ hulls the same way any moved item does — through the hash-change diff on bound
 
 The design's least obvious requirement (§2, §4.4), written as a failing test first.
 
-- [ ] Add a `#[ignore]`d test to `tests/rt_canvas_graphics_thread.rs` that, with
-      `MFB_CANVAS_SYNC=1`, does: `setGroup(A)` → `present([Group A])` → `setGroup(A')`
-      → `present([Group A])` (identical list) → asserts **two** frames were rendered
-      and the second shows `A'`.
+- [ ] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
+      `rt_canvas_graphics_thread.rs`, which cannot see *which* scene rendered
+      (**G11**) — doing: `setGroup(A)` → `present([Group A])` → `setGroup(A')` →
+      `present([Group A])` (identical list) → asserts **two** frames were rendered
+      **and** that the dumped frame shows `A'`. That harness already sets
+      `MFB_CANVAS_SYNC=1` and `MFB_CANVAS_DUMP`, and returns `(pixels, stats_lines)`:
+      the stats lines give the frame count, and the dump is the **last** frame because
+      `__canvas_presentSurface` writes it with `fs::writeBytes`, which overwrites.
 - [ ] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
+      This one can live in either harness; keep it beside the first.
 - [ ] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
 
 Acceptance: both tests exist and are ignored, and the design section they test (§4.4)
@@ -427,52 +539,133 @@ The whole breaking surface change, with nothing yet reading it.
       `DrawItem` union.
 - [ ] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
       to name plan-116-G alongside plan-116-E).
-- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:935`) to exempt an
+- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
       explicit container list `["Group"]`, per §2(a). **Do not weaken the assertion for
       the other nine.**
 - [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
-      `tests/cli_canvas_man_examples_compile.rs`.
-- [ ] Add the `Group` arms to `__canvas_headerFor` and `__canvas_tailFor` returning
-      `__canvas_emptyHeader()` — a group has no geometry of its own.
+      `tests/cli_canvas_man_examples_compile.rs`. Declare **`errors: vec![]`** in this
+      phase, not `ErrWrongMode` (**G14**) — the bodies are inert here and cannot raise
+      it; Phase 3 adds it with the native call that does.
+- [ ] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
+      `helper_geometry.rs`'s `GEO_LAYOUT`, and a matching `GEO_KIND_GROUP: &str = "8"`
+      in `runtime/canvas/mod.rs` — then extend
+      `the_geo_layout_constants_match_their_rust_counterparts` to pin the pair, which
+      already does exactly this for `TEXT` and `POLYGON` (**G13**). 8 is the next free
+      value (`ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`); re-check before using it,
+      since a peer letter may have taken it.
+- [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
+      `helper_geometry.rs`, not the two this letter originally named (**G6**):
+      `__canvas_headerFor` and `__canvas_tailFor` (both returning
+      `__canvas_emptyHeader()` / an empty tail **for this phase only** — §4.6 needs the
+      node's header to carry a bounds hull, which Phase 4 fills in; see **G12**),
+      and also `__canvas_tailMatches`, `__canvas_headerIsDeferred`,
+      `__canvas_deferredHeader`, `__canvas_deferredHash` and `__canvas_hashItem`.
+      Re-measure first: `grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs`.
+      Each arm's answer, worked out against the file as of 2026-09-03:
+
+      | Function | `CASE Group(g)` returns | Why |
+      |---|---|---|
+      | `__canvas_headerFor` | `__canvas_emptyHeader()` | Placeholder; Phase 4 puts the children's hull here (**G12**) |
+      | `__canvas_tailFor` | `[]` | A group's contents are in the table, not this record |
+      | `__canvas_tailMatches` | `TRUE` | No tail, so a cached entry's tail always matches; identity is in the hash |
+      | `__canvas_headerIsDeferred` | `TRUE` | **The load-bearing one** (**G6**) |
+      | `__canvas_deferredHeader` | `__canvas_emptyHeader()` | Same placeholder as `headerFor` |
+      | `__canvas_deferredHash` | `__canvas_groupHash(g)` | Carries the name the empty header cannot |
+      | `__canvas_hashItem` | `acc` | **Unreachable** — deferred kinds return before this `MATCH` — and required, because `MATCH` is exhaustive |
+
+      `__canvas_groupHash` is shaped like `__canvas_textHash`
+      (`sed -n 1006,1019p helper_geometry.rs`): a blank header with the kind, `dx` and
+      `dy` set, hashed with `__canvas_hashGeometry`, then the name's codepoints folded
+      in one at a time with `__canvas_hashStep` over `encoding::utf32Encode(g.name)`.
+      From Phase 4 the hull goes in too (**G12**).
+- [ ] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
+      `__canvas_deferredHash` hashes its **name** and `dx`/`dy` (**G6**). A group has an
+      empty header, and a non-deferred kind with an empty header makes every group in a
+      scene share one geometry-cache entry — plan-98-G Correction 14, reproduced.
 - [ ] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
       `mfb man canvas types` lists `Group`.
 
 Acceptance: `cargo test --no-fail-fast` green, every canvas golden byte-identical, and
 a scene containing a `Group` compiles and **draws nothing** (the members are registered
 but inert).
+
+**"Byte-identical" is achievable here, and that is measured rather than hoped.** Adding
+a registry record with prose descriptions is the change project memory flags as drifting
+`.ir` goldens by shifting line numbers — but plan-116-F added three records
+(`GradientKind`, `GradientStop`, `Gradient`) and two enum variants and moved **no**
+golden: its acceptance run reports 816 fixtures passed, 0 failed. The reason is F11's:
+no fixture in the corpus imports `canvas`, so the canvas registry is not in any golden's
+input. Expect the same here, and if a golden *does* move, that is a signal something
+other than the registry changed.
 Commit: —
 
 ### Phase 3 — The group table and the two members' bodies
 
 - [ ] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
       storage beside `CANVAS_SCENE_SYMBOL`, with the §4.1 slot layout.
-- [ ] Implement `setGroup`'s deep copy by reusing `gen_present.rs:emit_publish`'s copy
-      rather than writing a second one.
+- [ ] Implement `setGroup`'s deep copy by calling
+      `CodeBuilder::copy_flat_block` — the primitive `emit_publish` itself calls —
+      rather than writing a second copy or calling `emit_publish`, which is bound to
+      the scene slot (**G2**).
 - [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
-- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error.
+- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
+      Phase 5, because this phase's own acceptance asks to *measure* the leak and this
+      is the instrument that measures it (**G10**). It is also the only window onto
+      worker-owned state a test has (`.ai/canvas-threading.md` §11).
+- [ ] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
+      native call (**G14**), and assert both trap outside `app::Mode.Canvas`.
+- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
+      **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
+      full" — so mint it, and grep the *literal code* for collisions at that moment
+      (`grep -rn '7705002[0-9]\|7705003[0-9]' src/ | grep -v docs/`), not the name
+      (**G3**).
 - [ ] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
       list the caller passed to `setGroup` and assert the installed group is unchanged.
       `removeGroup` of an absent name is a no-op.
 
 Acceptance: the deep-copy and absent-name cases pass; nothing is freed yet, so this
-phase can leak by construction — assert that it does, so Phase 5's gate has a
-measurable "before".
+phase can leak by construction — assert that it does with `groups=`/`groupBytes=` (added
+in this phase, **G10**), so Phase 5's gate has a measurable "before".
 Commit: —
 
 ### Phase 4 — Resolution, depth limit, frame skip, software rendering
 
 - [ ] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
       depth-first, depth > 64 raises.
-- [ ] The depth error is a named trappable error with the §4.4 message, listed in
-      `present`'s `errors:` and in `src/docs/spec/diagnostics/02_error-codes.md`.
-- [ ] Fold each resolved group's `revision` into the published node so the content
-      comparison sees a `setGroup` as a change.
+- [ ] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
+      new code — it already means exactly this (**G3**) — with the §4.4 message, listed
+      in `present`'s `errors:`, and `02_error-codes.md`'s row extended to name group
+      nesting alongside `json::parse`. Re-check the code is still that constant before
+      you rely on it; codes race between sessions and grepping the *name* never proves
+      the *code*.
+- [ ] Fold each resolved group's `revision` into a **parallel signature block** that
+      `publishScene` compares alongside the items — not into the published node, which
+      has no room for it (§4.4, **G8**). An empty signature for a group-free scene must
+      compare exactly as today.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
+- [ ] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
+      (§4.5, **G5**). Enumerate the positional reads rather than reasoning from the
+      distance path, which is what hid the glyph case.
+- [ ] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
+      **G5**), implement the decision in the oracle, document it in
+      `06_canvas.md`, and pin it with the diamond test. Recommended: it follows.
 - [ ] The resolution pass records each group node's damage bounds as its resolved
       children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
-      for group nodes.
+      for group nodes. **This replaces Phase 2's empty header** (**G12**): the bounds
+      `__canvas_damageFor` reads are the geometry header's slots 16–19, so a group node
+      whose header stays empty damages a zero-area rectangle.
+      **Do not route that header through `__canvas_paintHeader`.** A `Group` carries no
+      `Paint`, and `paintHeader` decides "has this kind an interior" by reading slot 0
+      and counts `stops * 5` into slot 1 when it thinks the answer is yes — a record
+      that declares a stop tail `__canvas_tailFor` never appends reads the *next*
+      record's header as its data (plan-116-F **F17**/**F18**, 874 px wrong there).
+      Build the group header directly from `__canvas_blankHeader()`.
+- [ ] `__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`
+      (**G12**), for the reason `__canvas_hashGradient` exists: once the header carries
+      real data, two nodes agreeing on everything hashed collide in the geometry cache
+      and one draws the other's rectangle.
 - [ ] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
       GPU cannot draw one until plan-116-H, and a predicate that accepted a kind its
       shader does not know is the exact failure `.ai/canvas-threading.md` §10 records
@@ -483,6 +676,13 @@ Commit: —
       group raises with the same error; a `Group` naming an absent group draws nothing
       and does **not** raise; a group drawn at two offsets produces **one** geometry
       cache entry (`MFB_CANVAS_STATS` `entries=`).
+- [ ] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
+      same group drawn at `(37, 53)` are the same picture translated — the diamond form
+      is the sharp one, because it proves the ramp followed the shape rather than the
+      buffer. A **`Text`** item in a translated group draws its glyphs at the offset and
+      not blank — the glyph arm is on a different path from the distance one and a fix
+      written for distances misses it. And a **clipped** item in a translated group
+      keeps its clip where the surface rectangle is, not where the group moved to.
 - [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
       `setGroup(A')` then an identical `present` yields a **partial** frame whose
       damage rectangle covers the group's drawn area (assert via the stats
@@ -501,17 +701,27 @@ Memory-correctness, landed last, behind every test above.
 - [ ] Implement the reference accounting of §4.3 exactly: table reference, per-scene
       references, per-parent-group references, and the drop-on-scene-reclaim rule.
 - [ ] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
-      executed on the **worker**, at the top of `present`, beside the scene ring's own
-      reclaim.
-- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` so the leak is
-      observable; this is the only window onto worker-owned state a test has
-      (`.ai/canvas-threading.md` §11).
+      executed on the **worker**, at the top of `present` and **before the content
+      comparison**, not beside `emit_reclaim_retired`, which only runs on the publish
+      path (**G7**).
+- [ ] **Build the mid-frame affordance the race rows need, or state them as
+      probabilistic (G9).** §11 has four test affordances and none holds the graphics
+      thread mid-frame; the only "mid-render" rows proven today (R5, R7) get there
+      through `MFB_CANVAS_RESIZE_W`/`_H`, which is resize-specific, and R1 — the row
+      closest to these — is marked *not yet reachable*. Decide this before writing the
+      matrix below, because a row tested by luck reports the same green as one tested by
+      construction.
 - [ ] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
       rows to that document too:
       - `present([Group A])` → `removeGroup(A)` → graphics mid-frame: the in-flight
-        frame completes normally.
-      - the same, then a completed frame, then a `present`: the buffer is freed exactly
-        once and `groups=` drops by one.
+        frame completes normally. **This is the row that needs G9's decision** — with
+        `MFB_CANVAS_SYNC` off, `present` returns before the frame is drawn and the
+        worker can reach `removeGroup` while it is in flight, but nothing guarantees it
+        does.
+      - the same, then a completed frame, then a `present` **of an unchanged scene**:
+        the buffer is freed exactly once and `groups=` drops by one. The "unchanged" is
+        the whole point of the row (**G7**) — a scene that changes takes the publish
+        path and would pass against a free placed where the ring's reclaim is.
       - `removeGroup(A)` while a **parent group** still names A: not freed.
       - `setGroup(A, …)` replacing a live A: the old buffer is freed only after a
         frame completes.
@@ -541,12 +751,22 @@ Commit: —
       worker-owned, refcount **plus** the existing drain gate, and why §7's "there is
       no refcount" is about textures and still true of them), and the new race-matrix
       rows from Phase 5.
-- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — the two new errors.
+- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error (the
+      table-full one), plus an extension of `ErrDepthExceeded`'s existing row to
+      name group nesting alongside `json::parse` (**G3** — the depth error is not
+      new).
 - [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence**: `ls tests/byte-identity/` has no `canvas` directory and no
+      fixture there imports it, so the ncodesum gate is silent about this package
+      (plan-116-F **F11**). The gates that are evidence for this letter are the
+      canvas rt tests and the golden harness.
 
-Acceptance: `cargo test --no-fail-fast` green on both axes, `scripts/test-accept.sh`
-green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
+(`--bin mfb`, the only run anywhere that executes the `debug_assert!`s — plan-116-E
+**E6**) and box 2228 RELEASE**, `scripts/test-accept.sh` green (read its `N ran` —
+`cargo test`'s copy of the corpus skips 519 `syntax/` fixtures, plan-116-F **F13**),
+`scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
 `removeGroup` / `mfb man canvas types` render correct, example-backed pages.
 Commit: —
 
@@ -590,6 +810,355 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G14 (2026-09-03, pre-execution) — Phase 2's members must not declare `ErrWrongMode`,
+even though the finished members should raise it.** The natural registration copies
+`canvas::present`, which carries `errors: vec!["ErrWrongMode"]`. But `func_present.rs`
+does not gate anything itself — `grep -rln prepend_wrong_mode_gate
+src/codegen/builtins/canvas/` lists `gen_present.rs`, `func_create_image.rs`,
+`func_did_resize.rs` and `func_scene_hashes.rs`, and **not** `func_present.rs`.
+`present` raises it because the native `canvas::publishScene` its body calls does.
+
+Phase 2's bodies are inert MFBASIC that call nothing native, so they cannot raise it.
+Declaring it anyway puts a row in `mfb man canvas setGroup`'s Errors table for something
+that cannot happen — and the Errors table is *derived* from this field, so nothing else
+would contradict it. Declare `errors: vec![]` in Phase 2 and add `ErrWrongMode` in
+Phase 3 alongside the native call, with a test that both members trap outside
+`app::Mode.Canvas`.
+
+The general form is worth keeping: in this registry the `errors:` list is a **claim**
+the renderer prints, not a constraint the compiler checks, so it can be as wrong as any
+other prose field — which is the same hazard **F10** hit with `GradientKind`'s variant
+descriptions.
+
+**G13 (2026-09-03, pre-execution) — a `Group` needs its own geometry kind, and Phase 2
+never adds one.** Phase 2 gives `Group` an empty header, which carries
+`__CANVAS_GEO_NONE` (5) in slot 0 — the same kind a `Picture` gets today. Phase 4 then
+requires *"both `*Renderable` predicates decline any scene containing a `Group`"*, and
+those predicates are handed `offsets` and read the kind out of the record
+(`LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))`).
+With `Group` indistinguishable from `Picture`, the predicate can only decline both or
+neither — and declining every `Picture` scene is a silent performance regression for a
+kind that has nothing to do with this letter.
+
+The kinds today are dense 0–7 and are declared in **two** MFBASIC files:
+`__CANVAS_KIND_RECT 0`, `__CANVAS_KIND_CIRCLE 1`, `__CANVAS_KIND_SEGMENT 2` in
+`helper_draw.rs`, and `__CANVAS_GEO_ARC 3`, `POLYGON 4`, `NONE 5`, `TEXT 6`,
+`ELLIPSE 7` in `helper_geometry.rs`'s `GEO_LAYOUT`. So 8 is next, and it belongs in
+`GEO_LAYOUT` with the 3–7 block. Grepping only one of the two files makes the set look
+like it starts at 3. It is spelled **twice** — once in MFBASIC, once as `GEO_KIND_GROUP` in
+`runtime/canvas/mod.rs` beside `GEO_KIND_POLYGON` and `GEO_KIND_TEXT` — with no compiler
+between the two, which is precisely the arrangement
+`the_geo_layout_constants_match_their_rust_counterparts` exists to guard. It already
+pins `TEXT` and `POLYGON` that way; extend it rather than adding a second test.
+
+Re-check that 8 is free at execution time. Kind numbers are the same class of
+cross-session hazard as rule codes: a peer letter adding a variant takes the next value,
+and grepping the *name* proves nothing about the *number*.
+
+**G12 (2026-09-03, pre-execution) — Phase 2's "empty header" and §4.6's "hull of its
+children" cannot both be the group node's header.** Phase 2 gives `Group`
+`__canvas_emptyHeader()`; §4.6 requires *"a resolved group node's recorded bounds are
+the axis-aligned hull of its resolved children's bounds, offset by the node's
+accumulated `(dx, dy)`"*. Those are the same four slots.
+
+`__canvas_damageFor` reads the current frame's bounds as
+`__canvas_geoAt(offset, 16..19)` and the previous frame's from `__CANVAS_LAST_BOUNDS`,
+then skips any box where `bx1 > bx0 AND by1 > by0` is false
+(`sed -n 118,142p src/codegen/builtins/canvas/helper_damage.rs`). An empty header is
+all zeros, so a group node contributes **no damage at all** — and §4.6 already names
+that failure (*"the partial-redraw path would clear and repaint nothing where the group
+actually renders"*). The two statements are consistent only if Phase 2's empty header
+is understood as a placeholder Phase 4 replaces, which is now written down in both
+places.
+
+It has a second consequence worth stating, because it changes what **G6** is about.
+While the header is empty, a `Group` arm in `__canvas_deferredHash` matters for
+telling groups apart *by name*; once the header carries a hull, it matters for the same
+reason `__canvas_hashGradient` exists — two nodes whose hashed fields agree share a
+geometry-cache entry, and the second draws the first's rectangle. So the hash has to
+carry the name **and** the hull, and `__canvas_groupHash` should be written the way
+`__canvas_textHash` is: build a blank header, set the fields, hash it, then fold the
+string's codepoints in by hand (`sed -n 1006,1019p helper_geometry.rs`).
+
+**G11 (2026-09-03, pre-execution) — Phase 1's harness can count frames but cannot see
+which scene rendered.** The phase asks for a test in `tests/rt_canvas_graphics_thread.rs`
+asserting *"two frames were rendered **and the second shows `A'`**"*. That harness's
+`run()` returns `(stdout, stats_lines)` — the `frames` it yields are `MFB_CANVAS_STATS`
+lines (`sed -n 65,72p tests/rt_canvas_graphics_thread.rs`), so it can assert the count
+and nothing about the picture. A test written there would have to end at
+`frames.len() == 2`, and the half that actually distinguishes the fix from "republish
+always" is the half about `A'`.
+
+`tests/rt_canvas_rasteriser.rs`'s `render()` does both: it sets `MFB_CANVAS_SYNC=1` *and*
+`MFB_CANVAS_DUMP`, and returns `(Vec<u8>, Vec<String>)` — pixels and stats. And the
+pixels are the **last** frame, not the first, because `__canvas_presentSurface` dumps
+with `fs::writeBytes(path, buffer)`, which overwrites rather than appends
+(`sed -n 68,78p src/codegen/builtins/canvas/helper_surface.rs`). Last-frame is exactly
+what this test wants: after `setGroup(A')` the final present must show `A'`.
+
+Worth being explicit about the overwrite, because "each rendered frame's raw RGBA is
+written to a file" (`.ai/canvas-threading.md` §11) reads as though the frames accumulate,
+and a test written on that reading would assert against the *first* frame and pass while
+the revision fix was absent.
+
+**G10 (2026-09-03, pre-execution) — Phase 3's acceptance needs an instrument Phase 5
+builds.** Phase 3 ends *"this phase can leak by construction — assert that it does, so
+Phase 5's gate has a measurable 'before'"*, and the thing that makes a group leak
+assertable — `groups=` and `groupBytes=` on `MFB_CANVAS_STATS` — was a Phase 5 task.
+The group table is worker-owned, and `.ai/canvas-threading.md` §11 is explicit that the
+stats line is the *only* window a test has onto state like that, so there is no
+substitute available in Phase 3.
+
+Left alone this resolves itself the wrong way: Phase 3's acceptance is unmeasurable, so
+it gets waved through, and Phase 5 then has no "before" to compare its gate against —
+which is exactly what that sentence was written to prevent. Moved the stats task to
+Phase 3.
+
+It costs Phase 5 nothing: the counters are two more fields on a line that is already
+being written, and having them two phases earlier means the deep-copy and replace paths
+are observable while they are being built rather than only after the free lands.
+
+**G9 (2026-09-03, pre-execution) — Phase 5's race matrix asks for "graphics mid-frame"
+and no affordance produces it.** `.ai/canvas-threading.md` §11 lists exactly four test
+affordances — `MFB_CANVAS_RESIZE_W`/`_H`, `MFB_CANVAS_DUMP`, `MFB_CANVAS_STATS`,
+`MFB_CANVAS_GLYPH_BUDGET` — and none holds the graphics thread inside a frame. §8's two
+"mid-render" rows that *are* proven (R5 present-during-render, R7 resize-during-render)
+reach it through `MFB_CANVAS_RESIZE_W`/`_H` firing after the first completed frame while
+the worker sits in `os::sleep`, which is specific to resize. R1 — *"present →
+`destroyImage` → graphics mid-record"*, the row structurally identical to the one this
+phase adds — is marked **not yet reachable**.
+
+Phase 5 is the memory-corruption phase, so this is the phase where "tested by luck"
+matters most. Two honest ways forward, and the letter should pick one rather than
+discover the problem while writing the test:
+
+* **Build the affordance.** A `MFB_CANVAS_FRAME_HOLD_MS` that makes the graphics thread
+  sleep at a fixed point inside a frame turns every one of these rows deterministic, and
+  would retroactively make R1 reachable — which is worth more than this letter. It is
+  off by default and off the production path, like the other four.
+* **State them as probabilistic** and run the scene N times, asserting no crash and a
+  correct final frame. Weaker, and it must *say* it is weaker in the test's own comment,
+  or the next reader takes a green run as proof of the ordering.
+
+The skill's rule applies squarely: a provability gap is a missing prerequisite, not a
+reason to write a weaker test quietly.
+
+**G8 (2026-09-03, pre-execution) — §4.4's revision has nowhere to live.** The section
+says *"the resolution pass writes `(slotIndex, revision)` into the published node"*.
+The published node is a copy of a `Group` record, and §Goal defines that record as
+`dx AS Float`, `dy AS Float`, `name AS String` — three fields, no spare words. Adding
+two would put renderer bookkeeping on the user's constructor, which MFBASIC named
+construction makes mandatory to supply.
+
+Nor can the existing bytes carry it. `publishScene` compares the raw data region of the
+`DrawItem` list (`emit_compare_bytes_branch`, `sed -n 200,228p
+src/codegen/builtins/canvas/gen_present.rs`), and a `Group` node's bytes are its two
+floats and a string **pointer** — the same pointer on every present of the same scene,
+which is exactly when the revision needs to differ.
+
+Recommended and written into §4.4: publish a parallel `List OF Integer` signature of
+`(slotIndex, revision)` pairs and have `publishScene` compare it alongside the items,
+publishing both or neither. A group-free scene gets an empty signature and behaves
+byte-for-byte as today, which is what keeps this letter's "no existing golden may move"
+non-goal true.
+
+The trap next to it: `publishHashes` looks like the block to reuse and is not.
+`__canvas_present` calls `publishScene` first and `publishHashes` only *inside* the
+resulting `IF`, so the hashes are written after the skip has been decided — a revision
+folded in there is read one present too late, which presents as "the screen updates on
+the present *after* the one that should have updated it". That is the §2 bug wearing a
+different hat.
+
+**G7 (2026-09-03, pre-execution) — "beside the scene ring's own reclaim" is the one
+place the group free must not go.** §4.3 and Phase 5 both site the free "at the top of
+`present`, beside the scene ring's own reclaim". Measured: `sed -n 218,254p
+src/codegen/builtins/canvas/gen_present.rs` shows `emit_compare_bytes_branch` sending
+the unchanged case to a `skip` label that sets `RESULT_OK_TAG` and **returns**, with
+`emit_reclaim_retired` emitted after the `publish` label below it. The ring therefore
+reclaims only when the scene content changed.
+
+That is right for the ring — it is reclaiming a block *displaced by this publish*, so
+there is nothing to reclaim when nothing was published. It is wrong for groups, whose
+lifetime is driven by `setGroup`/`removeGroup`, calls that change no scene item at all.
+`removeGroup("panel")` on a static scene would then hold the buffer forever: the frame
+skip works, so the reclaim never runs.
+
+The fix is to site the group free before the comparison rather than beside the ring's
+reclaim, and it is cheap enough to be unconditional — a scan of at most
+`CANVAS_MAX_GROUPS` slots, no allocation. Both §4.3 and the Phase 5 task now say so.
+
+Phase 5's race-matrix row already describes the catching test, but only if its final
+`present` is of an **unchanged** scene; as written that was unspecified, and the
+natural way to write the test — change something so a frame renders — is exactly the
+way that passes against the wrong placement. The row now says so.
+
+**G6 (2026-09-03, pre-execution) — a new `DrawItem` variant touches seven exhaustive
+`MATCH` sites, not two.** Phase 2 says *"Add the `Group` arms to `__canvas_headerFor`
+and `__canvas_tailFor`"*. Measured:
+`grep -n 'MATCH item' src/codegen/builtins/canvas/helper_geometry.rs` → **seven**, at
+`:142` `__canvas_headerFor`, `:595` `__canvas_tailFor`, `:810` `__canvas_tailMatches`,
+`:961` `__canvas_headerIsDeferred`, `:984` `__canvas_deferredHeader`, `:1022`
+`__canvas_deferredHash`, `:1080` `__canvas_hashItem`. `grep -n Ellipse` on the same file
+shows plan-116-E's variant in all seven (`CASE Ellipse(e)` at `:159, :615, :835, :978,
+:1001, :1039, :1105`) — so the letter immediately before this one already paid this cost
+and the count is not a guess about the future.
+
+MFBASIC `MATCH` over a union is exhaustive, so the missing arms fail to compile and the
+task self-corrects — cheap. The count is not the finding. **The finding is that a
+`Group` must be a DEFERRED kind**, and the letter does not say so.
+
+`__canvas_hashItem`'s own comment (`sed -n 1063,1073p`) states the rule and the scar:
+
+> *"a deferred kind probes the geometry cache on the hash alone. Hashing that empty
+> header would therefore give every string on screen one hash, and the cache would hand
+> all of them the first string's glyph run: a sixty-item scene drew one glyph, sixty
+> times, in one place (plan-98-G Correction 14)."*
+
+Phase 2 gives `Group` `__canvas_emptyHeader()`. Every group in a scene would then hash
+identically, and `__canvas_geometryFor` would hand them all the first group's cache
+entry — a scene of five different groups drawing the first one five times, which is
+plan-98-G Correction 14 exactly, reproduced by following this letter as written.
+
+`Text` is the only kind that answers `TRUE` from `__canvas_headerIsDeferred` today
+(`sed -n 961,981p`), and the deferred path exists precisely so a kind with no header of
+its own can carry by hand what the header would have carried. `Group` is the second such
+kind. So: `__canvas_headerIsDeferred` returns `TRUE`, and `__canvas_deferredHash` gets an
+arm hashing the **name** and `dx`/`dy` — the name above all, since two groups at the same
+offset differ only by it.
+
+**This is separate from §4.4's revision, and the two must not be confused.**
+`__canvas_present` calls `canvas::publishScene(items)` and only *then*
+`publishHashes(__canvas_hashScene(items))` (`sed -n 88,92p func_present.rs`) — the skip
+is decided before any hash is published, so the frame-skip revision belongs in the
+published node exactly as §4.4 says, and the hash is the *geometry cache* key. Putting
+the revision in the hash as well is defensible (a `setGroup` should invalidate the cached
+geometry too) but it does not substitute for §4.4, and §4.4 does not substitute for this.
+
+**G5 (2026-09-03, pre-execution) — the software group path would slide every gradient,
+and this file is the oracle, so nothing downstream could catch it.** §4.5 says a
+translated group is drawn "by offsetting the item's bounds and evaluating the distance
+at `p - offset`", and concludes that no distance function changes. True, and not
+sufficient: two per-item things are positional and are *not* distance functions.
+
+`Paint.clip` is a surface rectangle (plan-116-B) and must **not** move with the group.
+A **`Text` item's glyph sampling** must: a glyph is a cached bitmap indexed by whole
+pixels from the run's origin, not a distance field, so it sits on a different path from
+"evaluate the distance at `p - offset`" and a fix written for distances misses it
+entirely — text in a translated group would sample shifted texels, and blank ones once
+the offset exceeds the glyph.
+
+**`Paint.fillGradient` is a decision, and an earlier draft of this correction asserted
+it was a bug.** It is not: `sed -n 342,350p src/codegen/builtins/canvas/helper_items.rs`
+shows the axis read straight from the geometry record with no transform applied, so a
+gradient is surface-anchored and `Paint.transform` does not drag it either — which
+`06_canvas.md` states on purpose. A group offset could consistently follow either
+convention, so §4.5 now poses it as a decision with a recommendation rather than a
+fix.
+
+The reason this is a G defect and not an H one, even though H is the letter that touches
+shaders: **this file defines the oracle.** plan-116-H's whole acceptance is "both GPUs
+match the software oracle within `Tolerance::GPU_DEFAULT`". If the oracle slides a
+group's gradient and both shaders are then written to match it, every comparison in H
+passes and the picture is wrong on all three renderers. A wrong oracle is not caught by
+comparison against the oracle; it is ratified by it.
+
+Recorded as a Phase 4 task and a Phase 4 test, with plan-116-H's **H2** carrying the
+same fix for the two shaders. The diamond is the test that can see it — one group, two
+offsets, one buffer, and the two draws must be the same picture translated.
+
+**G4 (2026-09-03, pre-execution) — there are three process-global canvas symbols, not
+one, and the third is the precedent this letter needed.** §2's table says *"Process-
+global canvas state symbols today — 1 (`CANVAS_SCENE_SYMBOL`)"*. Measured with
+`sed -n 906,932p src/codegen/engine/builder/mod.rs`, the `module_uses_canvas(module)`
+arm pushes **three**:
+
+* `graphics_state_data_object()` (`src/codegen/runtime/canvas/mod.rs`),
+* `CANVAS_SCENE_SYMBOL` = `_mfb_rt_canvas_scene`, and
+* `CANVAS_FONTS_SYMBOL` = `_mfb_rt_canvas_fonts` — added by plan-98-G with the comment
+  *"the loaded-font table, process-global for the same reason — the worker loads a font
+  and the graphics thread rasterises from it."*
+
+Both constants live in `src/codegen/error/constants/error_constants.rs:404,:422`.
+
+This is not a nitpick, it changes what §4.1 has to argue. As written, §4.1 justifies a
+process-global group table from first principles (arena state is per-thread, so a
+reader on the graphics thread cannot see worker arena memory) as though it were the
+second such table ever. It is the **fourth**, and `CANVAS_FONTS_SYMBOL` is a
+name-keyed, worker-written, graphics-read, fixed-size table — structurally the same
+object as the group table, added for the same stated reason.
+
+So the group table should be built as `CANVAS_FONTS_SYMBOL`'s sibling, and Phase 3
+should read that declaration before writing a new one. A design that re-derives an
+existing pattern usually diverges from it in some small way, and here the small ways
+(fixed size, no reallocation, worker-only writes) are the ones that keep a reader on
+another thread safe.
+
+Corrected in the table. §4.1's *conclusion* is right and unchanged; only its claim to
+novelty was wrong.
+
+**G3 (2026-09-03, pre-execution) — the depth error already exists; only the table-full
+one is new.** Phase 4 asks for "a named trappable error" for group nesting past 64, and
+Phase 3 for one when `setGroup` exceeds `CANVAS_MAX_GROUPS`, without saying whether
+either is new. Measured:
+`grep -rn '7705002[0-9]' src/ | grep -v docs/` shows the canvas block runs `77050020`
+`ErrWrongMode` … `77050025` `ErrInvalidSurrogate`, and `77050024` is **`ErrDepthExceeded`**,
+declared in `src/codegen/builtins/errorcode/mod.rs` as *"Structural nesting exceeds the
+implementation depth limit… (`json::parse` stops at 256)"*.
+
+That is this error, not a near-miss: a group cycle is unbounded structural nesting, and
+a user who traps `ErrDepthExceeded` around a parser and around a `present` is asking
+the same question both times. Minting a second depth code would split one concept
+across two constants for no behavioural gain — and §4.4's own argument, that a cycle
+and 65 honest levels need the same message, is the same argument one code down.
+
+The table-full error genuinely is new: nothing in `7-705-00xx` means "a fixed-size
+table is full".
+
+Both tasks now say which, and both carry the warning the project memory records: a rule
+or error code can be claimed by a peer session between this measurement and the phase
+that uses it, and grepping the *name* never proves the *code* is free. Re-run the
+literal-code grep at the moment of minting.
+
+**G2 (2026-09-03, pre-execution) — `emit_publish` cannot be reused for `setGroup`;
+the copy underneath it can.** Phase 3 says to implement `setGroup`'s deep copy "by
+reusing `gen_present.rs:emit_publish`'s copy", which reads as *call `emit_publish`*.
+It is not callable for a group: `emit_publish` opens with `let scene =
+scene_base(builder)` and is parameterised by `SceneShape`, whose `slots()` and `tag()`
+name the scene ring's own two pointer/count pairs
+(`sed -n 85,101p src/codegen/builtins/canvas/gen_present.rs`). Publishing a *group*
+into the scene slot is precisely the bug that phrasing invites.
+
+What is reusable is the line `emit_publish` delegates the actual copy to —
+`builder.copy_flat_block(&list_type, &incoming)`, at
+`src/codegen/collection/layout/builder_collection_layout.rs:383`
+(`grep -rn "fn copy_flat_block" src/`). It takes a type and a source and returns a
+fresh pointer, with no opinion about where the result is stored, and for a collection
+it routes to `copy_collection_tight` — the shrink-to-fit copy that §3.1's content
+comparison depends on. That is the correct seam, and it is why Phase 3's task now
+names it.
+
+Recorded pre-execution rather than discovered mid-phase because the failure mode is
+not a compile error: `emit_publish` would build and would install the group's items as
+*the scene*.
+
+**G1 (2026-09-03, pre-execution) — every line number this letter cites into
+`src/codegen/builtins/canvas/mod.rs` was stale before a single task ran.** The letter
+names `mod.rs:884`, `:913` and `:935` for the three tests that pin or iterate the
+`DrawItem` variant list; they are at `:1109`, `:1139` and `:1161`. plan-116-F added
+`GradientKind`, `GradientStop` and `Gradient` to that file between the letter being
+written and being executed, moving everything below them.
+
+Measured with `grep -n "fn draw_item_variant_set_is_frozen\|fn every_draw_item_variant"
+src/codegen/builtins/canvas/mod.rs`. The counts the citations *support* are all still
+right — 9 variants, 3 tests — so this is a navigation defect and not a scoping one,
+which is exactly why it is worth fixing rather than shrugging at: Phase 2 tells its
+executor to edit "`mod.rs:935`", and at `:935` today sits unrelated code that would
+look plausible enough to edit.
+
+Corrected in place in §2 and in Phase 2. The general lesson for G–J: cite a **symbol**
+and the command that finds it, not a line — every letter of this plan edits `mod.rs`,
+so every line citation into it decays the moment the letter before it lands.
 
 - **C1 (2026-09-01, review — pre-execution).** Refreshed against plan-114 landing
   (all five letters archived; `2-203-0084` retired at `src/rules/table.rs:1015`) and

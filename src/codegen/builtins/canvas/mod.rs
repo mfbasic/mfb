@@ -161,6 +161,11 @@ safe, because the scene holds only its id."#;
 /// change — a user's `SELECT CASE` over the union stops being exhaustive — so the
 /// full set is frozen here rather than shipped as a subset and extended
 /// (plan-98-A invariant 6).
+///
+/// It has been extended **once**, deliberately: plan-116-E appended `Ellipse` as the
+/// ninth, last, so no existing variant's tag moved. `draw_item_variant_set_is_frozen`
+/// pins the list and its order, and is what makes a tenth exactly as visible as the
+/// ninth was.
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("canvas", MODULE_INTRO, MODULE_DESC);
     // The companion source needs `collections` (the surface is a `List OF Byte`),
@@ -341,6 +346,32 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_enum(RegistryEnum {
+        name: "GradientKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Linear",
+                description: "Interpolate along the line from `startPoint` to \
+                              `endPoint`. A point's position on the ramp is its \
+                              distance ALONG that line, so the ramp runs in the \
+                              direction of the axis and is constant across it. The \
+                              zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Radial",
+                description: "Interpolate outward from `startPoint`, reaching the last \
+                              stop on the circle through `endPoint`. A point's \
+                              position on the ramp is its distance FROM the centre \
+                              over that radius, so the ramp is circular whatever shape \
+                              it fills — an ellipse's radial gradient does not become \
+                              elliptical.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
         name: "CapStyle",
         export: true,
         variants: vec![
@@ -445,6 +476,75 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_record(RegistryRecord {
+        name: "GradientStop",
+        export: true,
+        description: "One colour stop of a `canvas::Gradient`. Stops are used **in \
+                      the order you give them** — they are not sorted, because \
+                      reordering them would silently redraw something other than what \
+                      the program asked for. An `offset` outside `0.0`..`1.0`, or one \
+                      that goes backwards, is clamped instead: visible and \
+                      predictable.",
+        props: vec![
+            RecordProp {
+                name: "offset",
+                ty: ParameterType::Float,
+                description: "Where along the gradient this colour sits, `0.0` at the \
+                              start and `1.0` at the end.",
+            },
+            RecordProp {
+                name: "color",
+                ty: ParameterType::named("Color"),
+                description: "The colour at that offset.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "Gradient",
+        export: true,
+        description: "A colour ramp used as an item's interior instead of a flat \
+                      `canvas::Paint.fill`. **Fewer than two stops is not a \
+                      gradient** — the item falls back to `fill`, so the all-zero \
+                      value is inert like every other `canvas::Paint` field. One stop \
+                      is a flat colour you should write as `canvas::fill`, and zero \
+                      stops name no colour at all. The ramp is measured in surface \
+                      pixels — from its own two points, never from the shape's bounds \
+                      — so `canvas::Paint.transform` does **not** carry it: rotating an \
+                      item spins the shape through a ramp that stays where you put it. \
+                      That is also what keeps a radial gradient circular inside an \
+                      ellipse. Colours between two stops are mixed in \
+                      **linear light**, the same space everything else on the surface \
+                      is blended in, so a black-to-white ramp is evenly bright across \
+                      its width rather than dark for most of it — see \
+                      `mfb spec app canvas`.",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::named("GradientKind"),
+                description: "Linear along an axis, or radial outward from a centre.",
+            },
+            RecordProp {
+                name: "startPoint",
+                ty: ParameterType::named("Point"),
+                description: "Linear: where the ramp starts. Radial: the centre.",
+            },
+            RecordProp {
+                name: "endPoint",
+                ty: ParameterType::named("Point"),
+                description: "Linear: where the ramp ends. Radial: a point on the \
+                              outer circle. Giving the same point as `startPoint` \
+                              leaves the first stop's colour everywhere, rather than \
+                              failing.",
+            },
+            RecordProp {
+                name: "stops",
+                ty: ParameterType::list_of(ParameterType::named("GradientStop")),
+                description: "The colours along the ramp, in the order given.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
         name: "Paint",
         export: true,
         description: "How an item is filled, stroked, blended, transformed and \
@@ -516,10 +616,26 @@ pub(crate) fn register(r: &mut Registry) {
                               may fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
             },
+            RecordProp {
+                name: "fillGradient",
+                ty: ParameterType::named("Gradient"),
+                description: "Fill the item with a colour ramp instead of the flat \
+                              `fill`. A gradient with **fewer than two stops is \
+                              ignored** and `fill` is used, which is what makes the \
+                              zero value inert like every other field here. The ramp \
+                              is measured in surface pixels, from the gradient's own \
+                              two points — so `transform` does **not** carry it: \
+                              rotating an item spins the shape through a ramp that \
+                              stays where you put it. `stroke` is \
+                              unaffected — an outline is always a flat colour — and a \
+                              `canvas::Text` item ignores this field, because a glyph \
+                              is drawn from a cached coverage bitmap rather than from \
+                              a distance field.",
+            },
         ],
     });
 
-    // ---- The eight `DrawItem` variants (a CLOSED set) ---------------------
+    // ---- The nine `DrawItem` variants (a CLOSED set) ----------------------
 
     pkg.add_record(RegistryRecord {
         name: "Rectangle",
@@ -766,6 +882,47 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "RoundedRect",
                 description: "A rectangle with rounded corners.",
             },
+            // plan-116-E. Appended LAST deliberately: the order fixes each variant's
+            // tag, so inserting `Ellipse` beside `Circle` where it reads better would
+            // renumber `Arc`, `Text` and `RoundedRect`.
+            UnionVariant {
+                name: "Ellipse",
+                description: "An ellipse, optionally rotated.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "Ellipse",
+        export: true,
+        description: "An ellipse given by its centre, two radii and a rotation.                       `radiusX = radiusY` with `angle := 0.0` is a circle, and draws                       identically to `canvas::Circle` of that radius — so an                       animation that squashes a circle can use one item type                       throughout. Rotation is about the centre, so an ellipse is                       placed by `x`/`y` and oriented by `angle` independently. A                       radius of `0.0` or less draws nothing, the same rule                       `canvas::Circle` follows.",
+        props: vec![
+            RecordProp {
+                name: "x",
+                ty: ParameterType::Float,
+                description: "The centre's X coordinate in pixels.",
+            },
+            RecordProp {
+                name: "y",
+                ty: ParameterType::Float,
+                description: "The centre's Y coordinate in pixels.",
+            },
+            RecordProp {
+                name: "radiusX",
+                ty: ParameterType::Float,
+                description: "The radius along the ellipse's own X axis, in pixels —                               before `angle` rotates it.",
+            },
+            RecordProp {
+                name: "radiusY",
+                ty: ParameterType::Float,
+                description: "The radius along the ellipse's own Y axis, in pixels.",
+            },
+            RecordProp {
+                name: "angle",
+                ty: ParameterType::Float,
+                description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+            },
+            paint_prop(),
         ],
     });
 
@@ -940,10 +1097,19 @@ mod tests {
     use crate::codegen::registry::registry;
     use crate::types::ParameterType;
 
-    /// The eight `DrawItem` variants are a **closed set** (plan-98-A invariant 6):
-    /// adding one later stops a user's `SELECT CASE` being exhaustive, which is a
-    /// breaking change. Pinning the exact list — and its order, which fixes the
-    /// tags — makes any addition a deliberate, visible act rather than a silent one.
+    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
+    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
+    /// change. Pinning the exact list — and its order, which fixes the tags — makes
+    /// any addition a deliberate, visible act rather than a silent one.
+    ///
+    /// It has been extended exactly once, and this is the record of it: **plan-116-E
+    /// appended `Ellipse`**, ninth and last. Appended rather than inserted beside
+    /// `Circle` where it reads better, because the order fixes the tags and inserting
+    /// would renumber `Arc`, `Text` and `RoundedRect`.
+    ///
+    /// Note what this amendment is not: the assertion did not become laxer. The list
+    /// grew by one entry that a reader can see, the message keeps its warning, and the
+    /// next addition is exactly as visible as this one was.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         let pkg = registry()
@@ -966,6 +1132,7 @@ mod tests {
                 "Arc",
                 "Text",
                 "RoundedRect",
+                "Ellipse",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );

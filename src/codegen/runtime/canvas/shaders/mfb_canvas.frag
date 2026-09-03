@@ -22,11 +22,14 @@ struct ItemBlock {
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
     ivec4 arc;     // startAngle / glyph height, endAngle (16.16 rad), edgeBase, capStyle
-    ivec4 surface; // width, height, blendMode, unused
+    ivec4 surface; // width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
     ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px)
+    ivec4 ellipse; // an ellipse's rotation cos, sin (16.16); then a gradient's
+                   //   stop count and first-stop index
+    ivec4 gradient; // a gradient's axis startX,startY,endX,endY (16.16 px)
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -67,6 +70,11 @@ layout(std430, set = 0, binding = 0) readonly buffer Edges {
 // `VULKAN_GLYPH_BASE_WORDS` by a unit test rather than by two hand-edited numbers.
 const int GLYPH_BASE = 65536;
 
+// Where the gradient region starts in that same buffer (plan-116-F), kept in step
+// with `VULKAN_GRADIENT_BASE_WORDS` by a unit test rather than by two hand-edited
+// numbers — the arrangement `GLYPH_BASE` already has.
+const int GRADIENT_BASE = 1114112;
+
 layout(location = 0) out vec4 fragColor;
 
 const float FIXED = 65536.0;
@@ -102,6 +110,35 @@ float segmentDistanceButt(vec2 p, vec2 a, vec2 b, float half_) {
     float d = length(w - v * clamp(t, 0.0, 1.0)) - half_;
     d = max(d, -t * length_);
     return max(d, (t - 1.0) * length_);
+}
+
+// Signed distance to a rotated ellipse (plan-116-E) — 24 halvings of a bisection on
+// the folded first quadrant, the same count and the same arithmetic the software
+// oracle uses. Not Newton: plan-116-E Phase 1 measured a fixed-count Newton at 127.5
+// coverage steps wrong at every count from 1 to 8, because outside the evolute of an
+// eccentric ellipse the squared distance has three stationary points in the quadrant.
+// The bisection's bracket is guaranteed by construction after the |q| fold.
+//
+// `ca`/`sa` are the CPU's deterministic Taylor pair, carried in the item block, so this
+// calls no trigonometry — which is what lets an ellipse agree with the oracle far more
+// closely than the arc kind does.
+float ellipseDistance(vec2 p, vec2 c, float rx, float ry, float ca, float sa) {
+    vec2 d = p - c;
+    vec2 q = abs(vec2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca));
+    // Equal radii short-circuit to the exact circle distance, so an Ellipse with
+    // rx == ry is the Circle of that radius rather than merely close to it.
+    if (rx == ry) { return length(q) - rx; }
+    vec2 a = vec2(1.0, 0.0);
+    vec2 b = vec2(0.0, 1.0);
+    vec2 m = a;
+    for (int i = 0; i < 24; ++i) {
+        m = normalize(a + b);
+        float g = (q.x - rx * m.x) * (-rx * m.y) + (q.y - ry * m.y) * (ry * m.x);
+        if (g > 0.0) { a = m; } else { b = m; }
+    }
+    float dist = length(q - vec2(rx * m.x, ry * m.y));
+    vec2 u = vec2(q.x / rx, q.y / ry);
+    return dot(u, u) < 1.0 ? -dist : dist;
 }
 
 bool arcInSweep(vec2 d, vec2 s, vec2 e, bool reflex) {
@@ -182,6 +219,10 @@ float geoDistance(vec2 p) {
         band = min(band, length(p - cs) - radius);
         return min(band, length(p - ce) - radius);
     }
+    if (item.misc.x == 7) {
+        return ellipseDistance(p, c, fx(item.shape.z), fx(item.shape.w),
+                               fx(item.ellipse.x), fx(item.ellipse.y)) - radius;
+    }
     if (item.misc.x == 4) {
         return edgeDistance(item.arc.z, item.misc.w, p);
     }
@@ -215,6 +256,103 @@ int glyphCoverage(vec2 p) {
 float srgbToLinear(float c) {
     c = c / 255.0;
     return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);
+}
+
+// The colour a gradient shows at `p`, as an `ivec4` of 0..255 (plan-116-F).
+//
+// Returned encoded rather than linear so it drops straight into `covered`, which is
+// what decodes — the *interpolation* still happens in linear light, which is the whole
+// point of §4.3 and the one thing that has to match the oracle. Each channel is
+// therefore decoded, mixed and re-encoded here.
+//
+// The stops are five words each in the buffer's third region: the offset in 16.16,
+// then four whole 0..255 channels. Offsets arrive already clamped and monotonic from
+// `__canvas_gradientTail`, so this walk needs no defence against a stop that goes
+// backwards — and it is a linear walk for the reason `edgeDistance` is: the count is
+// small, bounded, and the shape matches what the oracle does.
+// One entry of the oracle's 256-entry forward table, recomputed rather than uploaded.
+//
+// `__canvas_srgbTable` holds the curve ROUNDED to integers on a 0..65535 scale, and the
+// lerp below happens in that quantised space — so the shader has to quantise the same
+// way or it lands a step off wherever the true value sits near a boundary.
+float srgbTable(int i) {
+    return floor(srgbToLinear(float(i)) * 65535.0 + 0.5);
+}
+
+// One channel of a gradient, reproducing `__canvas_gradientChannel` exactly.
+//
+// `num` is the position within the stop pair, already quantised to 1/4096 by
+// TRUNCATION, because that is what the oracle does — and a continuous `f` here instead
+// biases the whole ramp by up to a step, which measured as 2.3% of the gradient scene
+// wrong when this was a float `mix`.
+//
+// The result is the byte whose LINEAR value is nearest, the rule the oracle's binary
+// search applies; the analytic encode lands within one byte, so testing the midpoint
+// either side settles it in two comparisons rather than eight.
+int gradientChannel(int loSrgb, int hiSrgb, int num) {
+    float loLin = srgbTable(loSrgb);
+    float hiLin = srgbTable(hiSrgb);
+    float lin = loLin + trunc((hiLin - loLin) * float(num) / 4096.0);
+    float e = lin <= 205.4 ? (lin / 65535.0 * 12.92)
+                           : (1.055 * pow(lin / 65535.0, 1.0 / 2.4) - 0.055);
+    int c = int(clamp(e * 255.0, 0.0, 255.0));
+    if (c > 0 && lin <= floor((srgbTable(c - 1) + srgbTable(c)) * 0.5)) {
+        return c - 1;
+    }
+    if (c < 255 && lin > floor((srgbTable(c) + srgbTable(c + 1)) * 0.5)) {
+        return c + 1;
+    }
+    return c;
+}
+
+ivec4 gradientColour(vec2 p) {
+    int count = item.ellipse.z;
+    int base = GRADIENT_BASE + item.ellipse.w * 5;
+    vec2 from = vec2(fx(item.gradient.x), fx(item.gradient.y));
+    vec2 to = vec2(fx(item.gradient.z), fx(item.gradient.w));
+    vec2 axis = to - from;
+    float len2 = dot(axis, axis);
+    float t = 0.0;
+    if (item.surface.w == 1) {
+        // Radial: distance from the centre, over the axis length. A zero-length axis
+        // leaves t at 0, so the first stop fills — defined, not a divide by zero.
+        float len = sqrt(len2);
+        if (len > 0.0) { t = length(p - from) / len; }
+    } else {
+        if (len2 > 0.0) { t = dot(p - from, axis) / len2; }
+    }
+    t = clamp(t, 0.0, 1.0);
+
+    // The first stop at or past t; before the first and after the last, the end stop's
+    // colour holds rather than extrapolating.
+    int idx = count;
+    for (int i = 0; i < count; ++i) {
+        if (idx == count && fx(edges.values[base + i * 5]) >= t) { idx = i; }
+    }
+    if (idx >= count) {
+        int last = base + (count - 1) * 5;
+        return ivec4(edges.values[last + 1], edges.values[last + 2],
+                     edges.values[last + 3], edges.values[last + 4]);
+    }
+    if (idx <= 0) {
+        return ivec4(edges.values[base + 1], edges.values[base + 2],
+                     edges.values[base + 3], edges.values[base + 4]);
+    }
+    int lo = base + (idx - 1) * 5;
+    int hi = base + idx * 5;
+    float loOff = fx(edges.values[lo]);
+    float hiOff = fx(edges.values[hi]);
+    // Quantised to 1/4096 by truncation, exactly as `__canvas_gradientColor` does — the
+    // one number both paths have to agree on before any colour arithmetic starts.
+    int num = hiOff > loOff ? int((t - loOff) / (hiOff - loOff) * 4096.0) : 0;
+    num = clamp(num, 0, 4096);
+    int loA = edges.values[lo + 4];
+    int hiA = edges.values[hi + 4];
+    return ivec4(
+        gradientChannel(edges.values[lo + 1], edges.values[hi + 1], num),
+        gradientChannel(edges.values[lo + 2], edges.values[hi + 2], num),
+        gradientChannel(edges.values[lo + 3], edges.values[hi + 3], num),
+        loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));
 }
 
 vec4 covered(ivec4 rgba, int coverage) {
@@ -299,7 +437,10 @@ void main() {
     float dRaw = ds.x;
     float dScale = ds.y;
     float d = dRaw / dScale;
-    vec4 colour = covered(item.fill,
+    // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
+    // distance, its coverage and its stroke are untouched.
+    ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(gl_FragCoord.xy) : item.fill;
+    vec4 colour = covered(fillRgba,
         (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
     float halfWidth = fx(item.misc.z);
     if (halfWidth > 0.0) {

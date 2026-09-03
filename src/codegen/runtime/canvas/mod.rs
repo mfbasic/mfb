@@ -314,13 +314,14 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 176` with members at
-/// 0/16/32/48/64/80/96/112/128/144/160 (`glslangValidator -V -q mfb_canvas.vert`,
-/// re-measured 2026-09-02 when plan-116-D added the arc cap `ivec4`), matching the
+/// `ItemBlock` reports `topLevelArrayStride 208` with members at
+/// 0/16/32/48/64/80/96/112/128/144/160/176/192 (`glslangValidator -V -q
+/// mfb_canvas.vert`, re-measured 2026-09-02 when plan-116-F added the gradient axis
+/// `ivec4`), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 176;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 208;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -407,6 +408,58 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
+/// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
+///
+/// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
+/// std430 rounds the array stride to a multiple of 16 anyway, so a half-used `ivec4`
+/// costs exactly what a full one does and keeps every member `ivec4`-sized — which is
+/// the property `the_item_block_matches_the_std430_stride` exists to hold.
+///
+/// **16.16 is enough here and would not be for the radii.** These are a cosine and a
+/// sine, so `|v| <= 1` and the fixed-point step is 1/65536 — an angular error under
+/// 1.6e-5 rad, which at radius 900 displaces the rim by 0.014 px, a fiftieth of a
+/// coverage step. The CPU still evaluates the deterministic Taylor pair; this is only
+/// how the answer travels.
+pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
+/// A gradient's axis in 16.16 — `startPoint.x, startPoint.y, endPoint.x, endPoint.y`
+/// (plan-116-F).
+///
+/// The thirteenth `ivec4`, and the block had to grow for it: the `ellipse` block's two
+/// spare words went to the stop count and base, and four coordinates do not fit in the
+/// one word left elsewhere. The gradient's *kind* does fit there, and takes it —
+/// `ITEM_SURFACE_GRADIENT_KIND`.
+///
+/// Growing the block moves Metal's hand-assigned frame and `METAL_EDGE_BASE` with it;
+/// `.ai/canvas-threading.md` lists the five things that move and which three are
+/// silent.
+pub(crate) const ITEM_OFFSET_GRADIENT: usize = 192;
+/// The gradient's kind (0 linear, 1 radial) in `surface.w`, which was the block's last
+/// spare word.
+pub(crate) const ITEM_SURFACE_GRADIENT_KIND: usize = 12;
+/// The gradient's axis in the geometry header — `startPoint.x` at 43, running to
+/// `endPoint.y` at 46 — and its kind at 42.
+pub(crate) const HEADER_GRADIENT_KIND: usize = 42;
+pub(crate) const HEADER_GRADIENT_FROM_X: usize = 43;
+/// An ellipse's rotation in the geometry header, as its cosine then its sine
+/// (plan-116-E). Evaluated once per ellipse by `__canvas_ellipseHeader` with the
+/// deterministic Taylor pair, so all three renderers read the same two numbers.
+/// The gradient's stop count in the geometry header, 0 when there is none
+/// (plan-116-F). The header also carries the kind and the two points at 42–46; the
+/// emitters need only the count, because the shader reads the rest out of the block.
+pub(crate) const HEADER_GRADIENT_COUNT: usize = 41;
+/// The gradient's stop count and first-stop index, in the item block's `ellipse`
+/// `ivec4` (plan-116-F).
+///
+/// Words 2 and 3 of that block were spare: an ellipse reads only `cos` and `sin` from
+/// it, and no item is an ellipse *and* something else. Reusing them is the same
+/// per-kind sharing `ITEM_OFFSET_ARC` already does three ways (edge base, glyph
+/// height, cap), and it keeps `ITEM_BLOCK_SIZE` at 192 — which matters more than it
+/// looks, because growing the block shifts Metal's whole hand-assigned frame and
+/// `METAL_EDGE_BASE` with it (`.ai/canvas-threading.md`).
+pub(crate) const ITEM_ELLIPSE_GRADIENT_COUNT: usize = 8;
+pub(crate) const ITEM_ELLIPSE_GRADIENT_BASE: usize = 12;
+pub(crate) const HEADER_ELLIPSE_COS: usize = 39;
+pub(crate) const HEADER_ELLIPSE_SIN: usize = 40;
 // The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
 // positionally by the same loop that writes the six terms — a named offset for it
 // would be a second way to say where it lives, and one of the two would eventually be
@@ -451,7 +504,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 39-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 47-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -544,7 +597,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 39;
+pub(crate) const HEADER_SLOTS: usize = 47;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.
@@ -610,11 +663,29 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
 /// polygon's `ITEM_ARC_EDGE_BASE` rather than reading a separately-offset binding,
 /// which is the same shape `VULKAN_GLYPH_BASE_WORDS` already uses — and it sidesteps
 /// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
-/// offset. `the_metal_shader_edge_base_matches_the_buffer_layout` pins the number
+/// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
 pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
-/// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each).
-pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES + METAL_MAX_FRAME_EDGES * 16;
+/// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
+///
+/// A starting value, as the plan says: raise it only against a measured scene. Five
+/// words a stop, so 4096 stops is 80 KiB — noise beside the edge and glyph regions.
+///
+/// The same number on both backends deliberately. A scene that renders on Metal and
+/// declines on Vulkan (or the reverse) would make "the GPU path" mean something
+/// different per host, and the oracle comparison could not be read the same way on
+/// both.
+pub(crate) const MAX_FRAME_GRADIENT_STOPS: usize = 4096;
+/// Five 32-bit words a stop: offset, then the four colour channels.
+pub(crate) const GRADIENT_STOP_WORDS: usize = 5;
+/// Where Metal's gradient region starts, in 32-bit words — after the items and edges.
+pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
+    CANVAS_ITEM_BUFFER_BYTES / 4 + METAL_MAX_FRAME_EDGES * 4;
+/// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
+/// gradient stops (five each).
+pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES
+    + METAL_MAX_FRAME_EDGES * 16
+    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
 
 /// The most coverage samples one **frame**'s glyphs may carry on the Vulkan path.
 ///
@@ -632,9 +703,16 @@ pub(crate) const METAL_BUFFER_BYTES: usize = CANVAS_ITEM_BUFFER_BYTES + METAL_MA
 pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 20;
 /// Where the glyph region starts, in 32-bit words — i.e. immediately after the edges.
 pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
-/// The whole shared buffer: edges, then glyph coverage.
-pub(crate) const VULKAN_BUFFER_BYTES: usize =
-    VULKAN_EDGE_BYTES + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
+/// Where the gradient region starts, in 32-bit words — after the edges and glyphs
+/// (plan-116-F). A third region of the one buffer, for the reason the second one gave:
+/// a separate buffer would need its own allocation, memory-type search, descriptor
+/// binding and upload, for data with exactly the same lifetime and access pattern.
+pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
+    VULKAN_GLYPH_BASE_WORDS + VULKAN_MAX_FRAME_GLYPH_SAMPLES;
+/// The whole shared buffer: edges, then glyph coverage, then gradient stops.
+pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
+    + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
+    + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
 
 /// The most coverage samples one glyph may carry on the **Metal** path.
 ///

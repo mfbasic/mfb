@@ -22,19 +22,21 @@ IMPORT os
 ' So this program presents once per *change* — a mood switch or a resize — not
 ' once per frame, and spends the rest of its time waiting for one.
 '
-' Two of the reference art's features have no primitive here, so each is built
-' from the ones there are. They are worth reading as a pair, because they are the
-' same trick twice: the canvas draws flat-filled signed distance fields, so
-' anything else is spelled as a series of them.
+' Three of the reference art's features once had no primitive here and were spelled
+' out of the ones there were. Each is now a single field, antialiased by the backend
+' like every other edge in the picture:
 '
-'   the shaded face   the fill is one flat colour, so the gradient is a stack of
-'                     discs (faceDisc)
-'   the oval eyes     Circle is the only curve primitive and Paint.transform is
-'                     not applied, so an oval is a Polygon (ovalPoints)
+'   the face's shading  canvas::Paint.fillGradient (faceDisc). It was a stack of 32
+'                       flat discs, each a step smaller and a step lighter than the
+'                       one under it, because a Paint filled with one colour.
+'   the oval eyes       canvas::Ellipse (eyeAt). They were a 44-vertex Polygon
+'                       sampled around an oval, because Circle was the only curve
+'                       and Paint.transform is not applied to an item's geometry.
+'   the mouth's ends    canvas::CapStyle.Round on the Arc (mouthArc), in place of
+'                       a disc of the stroke's half-width dropped at each end.
 '
-' The mouth's soft ends are not in that set. They were once a third instance of
-' the trick — a disc of the stroke's half-width dropped at each end of the arc —
-' and are now one field: canvas::CapStyle.Round caps the Arc itself (mouthArc).
+' Both gradient kinds are drawn here: the face's shading is Radial and the backdrop's
+' wash is Linear (sceneFor).
 
 ' --- Proportions, as fractions of the face radius ---------------------------
 '
@@ -46,7 +48,6 @@ LET EYE_DX AS Float = 0.32           ' eye centre, out from the face's axis
 LET EYE_DY AS Float = 0.22           ' eye centre, up from the face's centre
 LET EYE_RX AS Float = 0.090          ' eye half-width  — the eyes are ovals,
 LET EYE_RY AS Float = 0.135          ' eye half-height   taller than they are wide
-LET EYE_SIDES AS Integer = 44        ' vertices in each eye's polygon
 
 LET MOUTH_HALF AS Float = 0.32       ' half the mouth's span
 LET MOUTH_TOP AS Float = 0.24        ' top of the mouth's band, below the centre
@@ -54,9 +55,8 @@ LET MOUTH_SAG AS Float = 0.10        ' how far the curve departs from its chord
 LET MOUTH_THICK AS Float = 0.072     ' the mouth's stroke width
 
 LET RIM_THICK AS Float = 0.020       ' the darker line around the face's edge
-LET SHADE_STEPS AS Integer = 32      ' discs in the shaded face
-LET SHADE_LIFT AS Float = 0.62       ' how far the shading's centre rides above
-LET SHADE_TIGHT AS Float = 0.88      ' how far in the innermost disc shrinks
+LET SHADE_LIFT AS Float = 0.55       ' how far the highlight rides above the centre
+LET SHADE_KNEE AS Float = 0.25       ' where the ramp's middle stop sits along it
 
 ' --- Proportions of the window ----------------------------------------------
 
@@ -74,6 +74,13 @@ FUNC skinLit AS canvas::Color
   RETURN canvas::rgb(254, 228, 116)
 END FUNC
 
+' The colour at SHADE_KNEE, a quarter of the way out of the face's ramp. Not the
+' halfway mix — it is already most of the way to skinRim, which is what keeps the lit
+' spot small. See faceDisc.
+FUNC skinMid AS canvas::Color
+  RETURN canvas::rgb(245, 185, 73)
+END FUNC
+
 ' The face's shaded edge — the colour the lit centre falls off to.
 FUNC skinRim AS canvas::Color
   RETURN canvas::rgb(240, 158, 46)
@@ -87,18 +94,6 @@ END FUNC
 ' The one dark warm brown the eyes and the mouth are drawn in.
 FUNC inkColor AS canvas::Color
   RETURN canvas::rgb(66, 47, 24)
-END FUNC
-
-' --- Colour arithmetic ------------------------------------------------------
-
-FUNC mixChannel(a AS Integer, b AS Integer, t AS Float) AS Integer
-  RETURN math::round(toFloat(a) + (toFloat(b) - toFloat(a)) * t)
-END FUNC
-
-' `a` at t = 0, `b` at t = 1. Colour channels are Byte, so they come out through
-' toInt before the arithmetic and go back in through canvas::rgb.
-FUNC mixColor(a AS canvas::Color, b AS canvas::Color, t AS Float) AS canvas::Color
-  RETURN canvas::rgb(mixChannel(toInt(a.red), toInt(b.red), t), mixChannel(toInt(a.green), toInt(b.green), t), mixChannel(toInt(a.blue), toInt(b.blue), t))
 END FUNC
 
 ' --- The face ---------------------------------------------------------------
@@ -131,57 +126,48 @@ FUNC usableHeightFor(surface AS canvas::Size) AS Float
   RETURN toFloat(surface.height) - hintSizeFor(surface) * HINT_BAND
 END FUNC
 
-' The shaded disc, as a stack of flat ones.
+' The shaded disc: one canvas::Circle whose interior is a radial ramp.
 '
-' A canvas::Paint fills with a single colour — there is no gradient — so the
-' falloff is built rather than described: SHADE_STEPS discs, each a step smaller
-' and a step lighter than the one under it, of which only an annulus survives.
+' canvas::Paint.fillGradient replaces an item's fill colour with a canvas::Gradient
+' and changes nothing else — the same circle, the same antialiased edge, one item
+' instead of the 32 flat discs this used to stack up to fake the falloff.
 '
-' The centre creeps upward as the discs shrink (SHADE_LIFT), which is what makes
-' this read as a ball under a light above it rather than as a target: the lit
-' centre sits high, the shaded band is wide along the bottom and narrow across the
-' top. Each disc has to stay inside its predecessor for the annuli to tile, which
-' is why the lift per step is smaller than the shrink per step.
+' The ramp's centre rides above the face's centre (SHADE_LIFT), which is what makes
+' this read as a ball under a light above it rather than as a target: the lit spot
+' sits high, so the shaded band comes out wide along the bottom and narrow across
+' the top. Its outer circle is r * (1 + SHADE_LIFT) away, which lands the last stop
+' exactly on the bottom of the face — no ramp is left unused, and none is cut off.
 '
-' At 32 steps no channel moves more than three levels between neighbours, and each
-' disc antialiases against the one below it, so the bands do not read as bands.
+' GradientKind.Radial measures t as the distance FROM startPoint over that radius,
+' so the ramp is circular whatever it fills, and both points are in surface pixels
+' rather than in the shape's own space — which is why they are derived from cx, cy
+' and r here and so follow the face across a resize.
+'
+' Three stops, and the middle one is deliberately not the midpoint. Two stops spread
+' the light evenly over the whole radius and the face comes out a flat yellow wash;
+' skinMid is most of the way to skinRim already and sits at SHADE_KNEE, a quarter of
+' the way out, so the highlight stays small and the shaded band stays wide — the
+' falloff the disc stack had. Between two stops the mix is done in linear light, the
+' same space the surface composites in.
 FUNC faceDisc(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::DrawItem
-  MUT out AS List OF canvas::DrawItem = []
-  MUT i AS Integer = 0
-  DO WHILE i < SHADE_STEPS
-    LET t AS Float = toFloat(i) / toFloat(SHADE_STEPS - 1)
-    LET disc AS canvas::DrawItem = canvas::Circle[x := cx, y := cy - r * SHADE_LIFT * t, radius := r * (1.0 - SHADE_TIGHT * t), paint := canvas::fill(mixColor(skinRim(), skinLit(), t))]
-    out = collections::append(out, disc)
-    i = i + 1
-  LOOP
+  LET hy AS Float = cy - r * SHADE_LIFT
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := skinLit()], canvas::GradientStop[offset := SHADE_KNEE, color := skinMid()], canvas::GradientStop[offset := 1.0, color := skinRim()]]
+  LET shading AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := cx, y := hy], endPoint := canvas::Point[x := cx, y := hy + r * (1.0 + SHADE_LIFT)], stops := stops]
+  LET disc AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := r, paint := WITH canvas::fill(skinLit()) { fillGradient := shading }]
 
-  ' The edge line, drawn last so it lands on top of the shading. A stroke straddles
-  ' the path, so the path is pulled in by half a width to keep the ink inside r.
+  ' The edge line, second so it lands on top of the shading. A stroke straddles the
+  ' path, so the path is pulled in by half a width to keep the ink inside r.
   LET rim AS canvas::DrawItem = canvas::Circle[x := cx, y := cy, radius := r - r * RIM_THICK / 2.0, paint := canvas::stroke(skinEdge(), r * RIM_THICK)]
-  RETURN collections::append(out, rim)
+  RETURN [disc, rim]
 END FUNC
 
-' An oval as a closed polygon.
+' The eyes are ovals, and an oval is one item: canvas::Ellipse, given a centre,
+' a radius along each of its own axes, and a rotation about that centre.
 '
-' Circle is the canvas's only curve, and Paint.transform is not applied to an
-' item's geometry, so there is no way to squash one — the eyes are sampled instead.
-' A polygon is a signed distance field like every other item, so this antialiases
-' exactly as a circle would; at 44 vertices the flats are far under a pixel at any
-' size this face is drawn.
-FUNC ovalPoints(cx AS Float, cy AS Float, rx AS Float, ry AS Float, sides AS Integer) AS List OF canvas::Point
-  MUT pts AS List OF canvas::Point = []
-  MUT i AS Integer = 0
-  DO WHILE i < sides
-    LET a AS Float = math::pi * 2.0 * toFloat(i) / toFloat(sides)
-    LET p AS canvas::Point = canvas::Point[x := cx + rx * math::cos(a), y := cy + ry * math::sin(a)]
-    pts = collections::append(pts, p)
-    i = i + 1
-  LOOP
-  RETURN pts
-END FUNC
-
+' They are unrotated, so `angle` is 0.0. `side` is -1.0 for the eye left of the
+' face's axis and 1.0 for the one right of it.
 FUNC eyeAt(cx AS Float, cy AS Float, r AS Float, side AS Float) AS canvas::DrawItem
-  RETURN canvas::Polygon[points := ovalPoints(cx + side * r * EYE_DX, cy - r * EYE_DY, r * EYE_RX, r * EYE_RY, EYE_SIDES), paint := canvas::fill(inkColor())]
+  RETURN canvas::Ellipse[x := cx + side * r * EYE_DX, y := cy - r * EYE_DY, radiusX := r * EYE_RX, radiusY := r * EYE_RY, angle := 0.0, paint := canvas::fill(inkColor())]
 END FUNC
 
 ' The mouth: a circular arc through three known points, round-capped.
@@ -275,8 +261,15 @@ FUNC sceneFor(smiling AS Boolean, surface AS canvas::Size, face AS canvas::Font)
   LET faceCy AS Float = top + radius
 
   ' The surface is not cleared to any particular colour on our behalf, so the scene
-  ' paints its own background first — the reference art's white card.
-  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(surface.width), h := toFloat(surface.height), paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  ' paints its own background first — the reference art's white card, under a wash
+  ' faint enough to read as light falling across it rather than as a second colour.
+  '
+  ' GradientKind.Linear is the other kind: t is the distance ALONG the axis, so a
+  ' vertical axis shades top to bottom and holds constant across the width. The axis
+  ' is the window's own height, so the wash restretches on every resize.
+  LET washStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 255, 255)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(243, 240, 234)]]
+  LET wash AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 0.0, y := toFloat(surface.height)], stops := washStops]
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(surface.width), h := toFloat(surface.height), paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { fillGradient := wash }]
 
   MUT scene AS List OF canvas::DrawItem = [backdrop]
   FOR EACH item IN facePicture(smiling, cx, faceCy, radius)

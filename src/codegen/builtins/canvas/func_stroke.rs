@@ -20,7 +20,7 @@ set blend, transform or clip, update the result with `WITH`.
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[stroke := c]` is a constructor-arity error, not a partial record —
-so without them every item would have to spell out all six `canvas::Paint` fields."#;
+so without them every item would have to spell out all seven `canvas::Paint` fields."#;
 
 const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are radians clockwise from
 +X, and Y increases downward, so `0.0`..`PI` sweeps *below* the centre:

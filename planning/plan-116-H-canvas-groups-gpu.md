@@ -105,8 +105,14 @@ grouping, not a flat offset list.
 | `ITEM_BLOCK_SIZE` after plan-116-F | 224 | plan-116-F §4.2 |
 | Backends to convert | 2 | Metal (`src/target/macos_aarch64/app/metal.rs`), Vulkan (`src/codegen/runtime/canvas/vulkan.rs`) |
 | Shader files to edit | 3 | `metal.rs:METAL_SHADER_SOURCE`, `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag` |
-| `*Renderable` predicates | 2 | `helper_render.rs:180` (Metal), and the Vulkan sibling |
+| `*Renderable` predicates | 2 | `__canvas_metalRenderable` and `__canvas_vulkanRenderable` in `helper_render.rs` (`grep -n 'FUNC __canvas_.*Renderable' src/codegen/builtins/canvas/helper_render.rs`) |
 | Shared scene walk | 1 | `helper_render.rs:122` (`__canvas_sceneOffsets`) |
+
+> **Census re-verified 2026-09-02 (pre-execution).** Still 2 backends, 3 shader
+> sources, 2 `*Renderable` predicates and 1 shared scene walk. The
+> `ITEM_BLOCK_SIZE after plan-116-F | 224` row depends on plan-116-F landing its own
+> corrected figures — see **F1** there, which took F's header from 42→48 to 41→47; the
+> block size 192 → 224 is unaffected, since plan-116-E landed 192 as F assumed.
 
 ### Verified properties
 
@@ -192,8 +198,19 @@ plan-116-A §4.3):
 
 A group node ends the current run, emits the group's own runs recursively at the
 composed offset, and starts a new run after it. So a scene of `[rect, Group(A) @ (10,20),
-circle]` where A is `[c1, c2]` yields three draws: `(0,1,0,0)`, `(A,2,10,20)`,
-`(2,1,0,0)`.
+circle]` where A is `[c1, c2]` yields three draws — and **what the third one's base is
+depends on §4.3's undecided question, which is the point (H3)**:
+
+* If a shared group's blocks are written **once per reference**, inline, the flattened
+  block order is `rect=0, c1=1, c2=2, circle=3` and the draws are
+  `(0,1,0,0)`, `(1,2,10,20)`, `(3,1,0,0)`.
+* If they are written **once** and referenced, the scene's own blocks are `rect=0,
+  circle=1`, A's live at its own base `a`, and the draws are
+  `(0,1,0,0)`, `(a,2,10,20)`, `(1,1,0,0)`.
+
+The second is what makes a diamond share a buffer, which is what this letter is arranged
+around — so it is the likely answer, but Phase 1 decides it and **the Phase 1 test's
+expected sequence must be written from that decision**, not copied from here.
 
 Keeping `__canvas_sceneOffsets` alongside it, rather than replacing it, is deliberate:
 it is also what feeds the geometry-cache warm-up (`helper_render.rs:75` — *"Generating
@@ -205,11 +222,24 @@ the cache and the software walk that follows hits it"*), and that role is unchan
 **Interface.** A two-word per-draw payload `ivec2 offset` in 16.16, pushed before each
 draw:
 
-- **Vulkan** — a push constant. The item block left the push-constant range in
-  plan-116-A, so the range is free; two words is trivially inside the 128-byte
-  guarantee.
-- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer
-  index. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
+- **Vulkan** — a push constant. Two words is trivially inside the 128-byte guarantee,
+  but the range is not "free" so much as **gone (H4)**: plan-116-A did not vacate it,
+  it deleted it. `VkPipelineLayoutCreateInfo` is built with `rangeCount` 0 and a null
+  `pPushConstantRanges`, and the comment there
+  (`grep -n 'NO push-constant range' src/codegen/runtime/canvas/vulkan.rs`) records why
+  that was deliberate: *"a layout that declares bytes no stage consumes is a layout the
+  validation layers flag"*. So this phase re-adds the range **and** the two shader
+  declarations in one step, with both stages consuming it — vertex offsets, fragment
+  subtracts — or the layout is invalid in a way that only shows on a box with the
+  validation layers on.
+- **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer index.
+  **`setVertexBytes:length:atIndex:` no longer exists and must be re-added (H5)**:
+  plan-116-A *deleted* the selector from `metal_data_objects` rather than leaving it
+  unused, because *"every selector in `metal_data_objects` is a C string emitted into
+  every canvas binary and registered with the ObjC runtime at startup, so an unsent one
+  is not free"* (`sed -n 570,588p src/target/macos_aarch64/app/metal.rs`).
+  `setFragmentBytes:` survives — the glyph bitmaps still ride it — so only the vertex
+  one is missing. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
   removed was per-ITEM payloads inside one instanced draw; the offset changes only
   between draws, which is exactly what `setBytes:` is for (and what the glyph
   draws still use for their bitmaps).
@@ -230,11 +260,43 @@ vec2 p = gl_FragCoord.xy - offset;   // back into the group's own coordinates
 ```
 
 Everything downstream of `p` — every distance function, the coverage rule, the stroke
-band, the clip test, the gradient parameter — is unchanged, because they all take `p`
-and nothing else positional. **The clip is the one thing to check by test rather than
-by reasoning**: `Paint.clip` is defined in *surface* pixels (plan-116-B §Non-goals), so
-it must be evaluated at `gl_FragCoord.xy`, **not** at `p`. A group's translation moves
-the shape, not the clip rectangle. Phase 3 tests exactly that.
+band — is unchanged, because they take `p` and nothing else positional.
+
+**Two things are not downstream of `p` today, and they go opposite ways (H2).**
+
+* **The clip must stay at `gl_FragCoord.xy`.** `Paint.clip` is defined in *surface*
+  pixels (plan-116-B §Non-goals), so a group's translation moves the shape and not the
+  clip rectangle. It already reads `gl_FragCoord.xy` / `in.pos.xy`; leave it.
+* **The glyph arm must MOVE to `p`, and never sees it.** `item.misc.x == 6` returns
+  *before* `shapeDistanceAndScale` is ever called
+  (`sed -n 419,432p src/codegen/runtime/canvas/shaders/mfb_canvas.frag`), so introducing
+  `p` at the `geoDistance` call site leaves `Text` reading `gl_FragCoord.xy` — and it
+  indexes the cached bitmap as `int(floor(gp.x)) - item.shape.x`, with `item.shape.x`
+  the glyph origin in the item's own coordinates. A `Text` item in a translated group
+  therefore samples the wrong texels: shifted by the offset, and blank once the offset
+  exceeds the glyph's width. Both the transformed and untransformed branches of that
+  line take `p`.
+* **The gradient goes wherever plan-116-G decided, and it is not `p` today.**
+  plan-116-F evaluates the ramp at the surface point —
+  `gradientColour(gl_FragCoord.xy)` (`mfb_canvas.frag:442`),
+  `gradientColour(in.pos.xy, …)` in MSL — against an axis read from the record with no
+  transform applied, so a gradient is surface-anchored and `Paint.transform` does not
+  drag it. Whether a *group* offset should is a semantic question plan-116-G **G5**
+  settles for the oracle; this letter's job is to match whatever the oracle does, on
+  both backends. Read G's answer before touching this line, and do not infer it from
+  the clip — the clip is surface-anchored for a documented reason of its own.
+
+`grep -n gl_FragCoord src/codegen/runtime/canvas/shaders/mfb_canvas.frag` returns
+**four** call sites and that is the whole list: `:419` clip (stays), `:428` glyph
+(moves), `:436` `shapeDistanceAndScale` (the one §4.2 already describes), `:442`
+gradient (moves). Everything else — the arc cap discs at `:217`, the ellipse, the
+stroke band — is computed against the point those four pass in, so it follows for free.
+Do the same grep on `METAL_SHADER_SOURCE` for the MSL twin.
+
+None of this is a reasoning step — **Phase 2 and Phase 3 must each test the clipped
+item, the gradient-filled item and the `Text` item inside a translated group.** The
+diamond scene is the sharp one: one group, two offsets, one buffer, and the two draws
+must be the same picture translated.
 
 ### 4.3 The predicates
 
@@ -280,6 +342,9 @@ CPU-side only; no shader change, no predicate change. Both backends still declin
       expected `(base, count, dx, dy)` sequence for: a flat scene; one group; a nested
       group; a diamond. Assert the **diamond's two draws name the same item base** —
       that is the buffer-sharing property this whole letter is arranged around.
+      Derive the expected bases from the decision above, not from §4.1's example
+      (**H3**): the example predates the decision and is arithmetically wrong under
+      either answer.
 
 Acceptance: the four draw-list cases pass, the diamond shares a base, and every
 existing golden and every plan-116-G group scene is byte-identical (the software
@@ -300,7 +365,9 @@ Vulkan first, as in plan-116-A, because glslang gives measured reflection.
       caps to sum over the resolved tree per §4.3.
 - [ ] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
       `(37, 53)` matches the oracle; a nested group matches; a diamond matches; a
-      **clipped** item inside a translated group matches (the §4.2 clip case).
+      **clipped** item inside a translated group matches (the §4.2 clip case); and a **gradient-filled** item and a **`Text`** item
+      inside a translated group match (the §4.2 gradient and glyph cases, **H2** —
+      both fail today).
 
 Acceptance: all five scenes match the software oracle within
 `Tolerance::GPU_DEFAULT` with `MFB_CANVAS_STATS` reporting `vulkanReady=TRUE`. The
@@ -316,7 +383,8 @@ Commit: —
 - [ ] Convert the Metal emitter to walk `__canvas_sceneDraws`, issuing one
       `drawPrimitives:vertexStart:vertexCount:instanceCount:` per draw entry.
 - [ ] Remove the `Group` decline from `__canvas_metalRenderable`; update its caps.
-- [ ] Tests: the same five scenes in `tests/rt_canvas_metal.rs`.
+- [ ] Tests: the same seven scenes in `tests/rt_canvas_metal.rs` — five, plus the
+      gradient-in-a-translated-group and `Text`-in-a-translated-group cases (**H2**).
 
 Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`.
@@ -327,7 +395,10 @@ Commit: —
 - [ ] New reference image `tests/golden/canvas/groups.png`: a group at the origin, the
       same group at an offset, a nested group, and a diamond — enough that a
       vertex-only offset, a missing clamp reorder, or a flattened diamond each change
-      it visibly.
+      it visibly. **The group's item list must include a gradient-filled item, a
+      `Text` item and a clipped item** (**H2**): those are the three positional reads
+      that do not follow `p` for free, and a scene of plain shapes cannot see any of
+      them go wrong.
 - [ ] Assert `groups.png` on all three renderers: software exactly, both GPUs within
       `Tolerance::GPU_DEFAULT`.
 - [ ] `.ai/canvas-threading.md` §10 — record that a group is one instanced draw per
@@ -338,10 +409,11 @@ Commit: —
       geometry but not `Paint.clip`, which stays in surface pixels.
 - [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
       `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
 Acceptance: `groups.png` matches on all three renderers; `cargo test --no-fail-fast`
-green on mac+RELEASE and linux+DEBUG; `scripts/test-accept.sh` green;
+green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here); `scripts/test-accept.sh` green;
 `scripts/artifact-gate.sh all` 0 diffs.
 Commit: —
 
@@ -381,6 +453,125 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H5 (2026-09-03, pre-execution) — `setVertexBytes:` is not available to bind the Metal
+offset; plan-116-A deleted it.** §4.2 names `setVertexBytes:` and `setFragmentBytes:` as
+though both were on hand. `grep -n 'setVertexBytes' src/target/macos_aarch64/app/metal.rs`
+finds it only inside a doc comment explaining its removal: plan-116-A replaced
+`drawPrimitives:vertexStart:vertexCount:` and `setVertexBytes:length:atIndex:` with the
+instanced draw and *deleted* both selectors, on the stated grounds that an unsent
+selector still costs a C string and a runtime registration in every canvas binary.
+`setFragmentBytes:` is still there, carrying the glyph bitmaps.
+
+So Phase 3 re-adds one selector to `metal_data_objects` alongside the shader change. The
+failure if it is missed is not a compile error — the emitter would send to a selector
+that was never registered.
+
+Two things next to it that are *not* problems, checked while here: the instanced draw
+already carries `baseInstance:`, which is exactly the "name your own blocks" mechanism a
+per-group draw needs, and MSL's `[[instance_id]]` already includes it (plan-116-A
+Correction C5 measured that, having predicted the opposite). And the comment's rejected
+alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — is still rejected: it
+cites a "112-byte stride", which is stale (plan-116-A/C/D/E/F have grown
+`ITEM_BLOCK_SIZE` to 208), but 208 no more meets the `MTLBuffer` offset alignment than
+112 did, so the conclusion survives its own arithmetic. The stale number is being
+corrected by plan-116-F's close-out.
+
+**H4 (2026-09-03, pre-execution) — the Vulkan push-constant range was deleted, not
+vacated.** §4.2 says *"the item block left the push-constant range in plan-116-A, so the
+range is free"*, which reads as "a declared range is sitting there unused". It is not:
+`emit_struct` zeroes `VkPipelineLayoutCreateInfo` and the emitter leaves `rangeCount` at
+0 with `pPushConstantRanges` null, and both the struct comment (`:501-503`) and the
+pipeline-layout comment (`:1799-1804`) say the absence is the point — *"a layout that
+declares bytes no stage consumes is a layout the validation layers flag."*
+
+The work is therefore re-adding a range, not filling one, and the range and the shader
+declarations have to land together: a range with no consumer is flagged, and a shader
+declaration with no range is a layout mismatch. Both stages must consume it, which
+§4.2's own arithmetic already has them doing.
+
+Worth writing down because the failure is invisible on a box without validation layers —
+`scripts/test-canvas-vulkan.sh` runs against lavapipe on 2227 and whatever ICD 2228 has,
+and a layout error that the driver tolerates is exactly the kind that reaches a user's
+machine and not ours.
+
+**H3 (2026-09-03, pre-execution) — §4.1's worked example does not add up under either
+answer to §4.3's open question.** It gives `[rect, Group(A) @ (10,20), circle]` with A =
+`[c1, c2]` as `(0,1,0,0)`, `(A,2,10,20)`, `(2,1,0,0)`.
+
+Work the third entry both ways. Inline-per-reference: blocks are `rect=0, c1=1, c2=2,
+circle=3`, so `circle` is base **3**. Uploaded-once: A's blocks are not in the scene's
+sequence at all, the scene holds `rect=0, circle=1`, so `circle` is base **1**. The
+example says 2, which is the base `circle` would have if A contributed exactly one block
+— and A has two, which the same line says.
+
+Small, and it matters because Phase 1's acceptance is *"asserts `__canvas_sceneDraws`
+produces the expected `(base, count, dx, dy)` sequence"*. The natural way to write that
+test is to copy the numbers from the design section, and those numbers encode an
+expectation no correct implementation can satisfy — so the test fails, gets "fixed" by
+reading them off the implementation, and stops being an independent check of anything.
+
+Rewritten to give both sequences explicitly and to say which question picks between
+them. The recommendation stands where §4.3 left it: uploaded-once is what makes a
+diamond share a buffer, which is the property this letter exists for.
+
+**H2 (2026-09-03, pre-execution) — §4.2's list of "everything downstream of `p`" names
+the gradient, and the gradient is not downstream of `p`.** The sentence reads *"every
+distance function, the coverage rule, the stroke band, the clip test, the gradient
+parameter — is unchanged, because they all take `p` and nothing else positional"*, then
+flags the clip as the single exception. Two errors in one sentence: the clip is not
+"downstream of `p`" either (that is why it is the exception), and neither is the
+gradient — but for the opposite reason and with the opposite fix.
+
+Measured. plan-116-F landed the ramp evaluated at the **surface** point on all three
+renderers:
+
+* `grep -n 'gradientColour(' src/codegen/runtime/canvas/shaders/mfb_canvas.frag`
+  → `:442  ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(gl_FragCoord.xy) : item.fill;`
+* the MSL twin passes `in.pos.xy`
+  (`grep -n 'gradientColour(in.pos.xy' src/target/macos_aarch64/app/metal.rs`)
+* the oracle uses the loop's `px`/`py` against `gradFX`/`gradFY`
+  (`sed -n 500,510p src/codegen/builtins/canvas/helper_items.rs`)
+
+and the axis itself comes from the item's own geometry record, authored in the item's
+coordinates. Untranslated those coincide, which is why plan-116-F is correct and its
+goldens pass. Under a group offset they do not: the shape is drawn at `+ (dx, dy)` and
+the ramp is not, so the gradient slides across the shape — and a **diamond**, one group
+drawn at two offsets, renders two different pictures from one buffer, which is the
+property this whole letter is arranged around.
+
+The fix is one line per renderer (evaluate the ramp at `p`), so this is cheap — but
+only if it is *done*. Left as §4.2 reads, an executor checks the sentence, sees the
+gradient listed as already handled, and ships it. Recorded as a task in Phase 2 and
+Phase 3 with the diamond named as the test that can see it.
+
+A third case turned up on the second pass and is the reason the grep above is in the
+letter rather than the finding: the **glyph arm returns before `geoDistance` is
+reached**, so a fix applied at the `geoDistance` call site — which is where §4.2
+puts it — silently misses `Text` entirely. Enumerate the `gl_FragCoord` call sites;
+do not reason from the data flow.
+
+Note the asymmetry is real and worth stating in the spec when H lands: a **clip** is a
+surface rectangle and does not move with a group; a **gradient** is part of the item's
+paint and does. `src/docs/spec/app/06_canvas.md`'s gradient subsection (plan-116-F)
+currently says the ramp is "measured in surface pixels", which will need the group
+qualification.
+
+**H1 (2026-09-03, pre-execution) — one of this letter's three `helper_render.rs`
+citations is stale; the other two are exact.** `:180` is given as the Metal
+`*Renderable` predicate and is a line inside `__canvas_runSamples`
+(`awk 'NR==180' src/codegen/builtins/canvas/helper_render.rs`); the predicate is
+`__canvas_metalRenderable`, currently at `:198`, and plan-116-F moved it again when it
+replaced the Phase 3 blanket gradient decline with a frame-total cap.
+
+`:122` (`__canvas_sceneOffsets`) and `:75` (the geometry-cache warm-up comment, quoted
+verbatim in §4) both still land exactly, which is worth stating: this is not a reason
+to distrust the letter, it is one line to fix. Replaced with the two symbols and the
+grep that finds them, per plan-116-G's **G1**.
+
+Noted for Phase 2 and Phase 3, which both remove a `Group` decline from these two
+functions: they are the same two functions plan-116-F edited, so expect them to have
+moved again by the time H runs — find them by name.
 
 - **C1 (2026-09-01, review — pre-execution).** Aligned with the revised plan-116-A:
   Metal's edges (A) and gradient stops (F) live in frame-buffer regions, which is

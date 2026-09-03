@@ -13,6 +13,18 @@
 | `Byte` | unsigned 8-bit |
 | `Scalar` | 32-bit Unicode scalar value, register-carried |
 
+`Float` is IEEE 754 binary64. Converting text to `Float` — `toFloat(String)`,
+and every parser built on it, including `json` and `csv` — is **correctly
+rounded**: the result is the representable value nearest the one the text
+denotes, with ties resolved to even. This holds over the entire range, subnormals
+included, and for a decimal of any length: every digit is read, rather than the
+leading few. Two consequences a program may rely on are that text denoting an
+exactly representable value converts exactly, and that a value written with
+enough digits to identify it converts back to the same `Float` under any other
+correctly-rounded reader. Magnitude beyond the range raises `77050010`; magnitude
+below it converts to zero rather than failing.
+[[src/codegen/string/format/float_parse.rs:lower_string_to_float_helpers]]
+
 `Fixed` is a binary fixed-point number with an integer part and a `1 / 2^32` fractional part (the 8-byte runtime storage layout is specified by `./mfb spec memory scalar-storage`). Its range is approximately `-2147483648.0` through `2147483647.9999999998`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result with code `77050010`; divide-by-zero and invalid numeric domains produce an error result with code `77050002`.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. For exact base-10 financial arithmetic, use `Money` (see below), whose decimal scale, rounding, and overflow rules are specified separately.

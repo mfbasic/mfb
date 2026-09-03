@@ -10,7 +10,7 @@ to the record binding's scope (`mfb spec language resource-management` §15, §1
 `canvas` predates that: `Picture` names its image through the `ImageRef` value
 handle and `Text` its font through `FontRef`, each a one-field record wrapping the
 backend's integer id, minted by `canvas::imageRef` / `canvas::fontRef`
-(`mod.rs:398-423`, `func_image_ref.rs`, `func_font_ref.rs`).
+(`mod.rs`'s `ImageRef`/`FontRef` records, `func_image_ref.rs`, `func_font_ref.rs`).
 
 This letter migrates both, **by user direction (2026-09-01)**: `Picture.image`
 becomes `RES canvas::Image`, `Text.font` becomes `RES canvas::Font`, and the
@@ -76,8 +76,10 @@ tested against the finished renderer.)
 - **No `Picture` rendering.** A `Picture` draws nothing today (bug-484 —
   `__canvas_headerFor` gives it an empty `NONE` header and no draw path exists);
   this letter migrates its field type and leaves bug-484 to its own fix.
-- **No `sendable`/`live_slots` change on `Image`/`Font`** (`mod.rs:744-748`,
-  `:765`). They stay `sendable: false`; the transfer-audit question belongs to
+- **No `sendable`/`live_slots` change on `Image`/`Font`** — the two
+  `pkg.add_resource(RegistryResource { … })` calls in `mod.rs`
+  (`grep -n 'add_resource\|sendable' src/codegen/builtins/canvas/mod.rs`). They stay
+  `sendable: false`; the transfer-audit question belongs to
   plan-116-J Phase 1. Consequence, documented not softened: a `DrawItem` list
   containing a `Picture`/`Text` cannot cross a thread data plane
   (`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`) — where the old integer
@@ -90,12 +92,12 @@ tested against the finished renderer.)
 
 ### The two handles and who touches them
 
-- `ImageRef`/`FontRef` records: `mod.rs:398-423`; minting members:
+- `ImageRef`/`FontRef` records: `mod.rs`'s two `add_record` calls; minting members:
   `func_image_ref.rs` / `func_font_ref.rs`, each reading `handle@8` behind a
   closed-guard that **raises `ErrResourceClosed`** on a destroyed resource.
 - The renderer's only resource reads are `t.font.id` — 5 sites, all in
   `helper_geometry.rs` (`grep -n 't\.font\.id' src/codegen/builtins/canvas/` →
-  `:367,:401,:422,:646,:717` at last read) feeding `__canvas_fontBlob`/glyph
+  `:626,:660,:681,:934,:942,:1009` as of 2026-09-03) feeding `__canvas_fontBlob`/glyph
   lookups by integer id. **Nothing reads `pic.image` anywhere** (bug-484).
 - Seam registrations naming the members:
   `src/codegen/memory/data/data_objects.rs:252` (`"canvas.imageRef"`), `:274`
@@ -104,19 +106,28 @@ tested against the finished renderer.)
   These are the force-emit/analysis pairings the
   `adding-a-call-to-an-existing-native-pkg` memory warns about — on removal they
   must be deleted or `catalog_is_consistent`-class tests fail.
-- The pinning test `resource_handles_are_plain_integer_values` (`mod.rs:984`)
+- The pinning test `resource_handles_are_plain_integer_values`
+  (`grep -n resource_handles_are_plain_integer_values src/codegen/builtins/canvas/mod.rs`)
   asserts exactly the design this letter retires.
 
 ### Measured populations (2026-09-01)
 
 | What | Count | Command |
 |---|---|---|
-| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
+| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | ~~22~~ **29** | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
 | `Picture[` construction sites (code + doc examples) | 7 | `grep -rn 'Picture\[' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
-| `Text[` construction sites | 12 | same grep, `Text\[` |
-| Renderer reads of `t.font.id` | 5 | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
+| `Text[` construction sites | ~~12~~ **20** | same grep, `Text\[` |
+| Renderer reads of `t.font.id` | ~~5~~ **6** | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
 | Renderer reads of `pic.image` | 0 | `grep -rn 'pic\.image' src/codegen/builtins/canvas/` (bug-484) |
-| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | 3 | `tests/cli_canvas_package.rs:54,55`, `tests/rt_canvas_font.rs:634` |
+| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | ~~3~~ **5** | `tests/cli_canvas_package.rs` ×3, `tests/rt_canvas_font.rs`, `tests/rt_canvas_present_deep_copy.rs` |
+
+> **Re-measured 2026-09-02 (I1).** Four of the six rows had drifted, two of them by
+> more than half. The growth is this plan's own: letters C, D and E added text and
+> scene fixtures, and peers landed more. **Re-run every row again at Phase 1** — this
+> letter's whole job is a mechanical sweep over these populations, so a stale count is
+> not a scoping detail here, it is the work itself. plan-116-D's D2 and D5 are the two
+> ways that goes wrong: a count measured at plan time, and a census whose command
+> cannot see every site.
 
 Re-run every row at Phase 1 start — the series letters before this one add sites
 (plan-116-D touched the same fixture files and counts have moved once already).
@@ -177,8 +188,9 @@ Three pieces:
    `0`** — the id that already means "no image / no font" throughout the renderer
    (the zero-handle idiom the old records documented). `helper_geometry.rs`'s five
    `t.font.id` reads become `canvas::fontHandle(t.font)`.
-3. **The docs** — the module comment (`mod.rs:27`, `:138`, `:385-396`, `:731`),
-   `func_present.rs:28`, the load/create/measure/get/set member docs, the spec's
+3. **The docs** — the module comment and the `ImageRef`/`FontRef` prose in `mod.rs`
+   (`grep -n 'ImageRef' src/codegen/builtins/canvas/mod.rs`),
+   `func_present.rs`'s DESC, the load/create/measure/get/set member docs, the spec's
    §"Images are named, not embedded", and `.ai/canvas-threading.md` §7's last
    paragraph.
 
@@ -226,10 +238,10 @@ every fixture that minted a handle.
   description rewritten ("The image to draw. The scene keeps drawing through this
   handle; destroying the image afterwards makes this item draw nothing — the
   handle stays yours to close"). Same shape for `Text.font`.
-- Delete the two `add_record` calls (`mod.rs:397-423`), `func_image_ref.rs`,
+- Delete the two `add_record` calls (`ImageRef` and `FontRef` in `mod.rs`), `func_image_ref.rs`,
   `func_font_ref.rs`, their `register` lines, and the seam rows
   (`data_objects.rs:252`, `:274`'s `"canvas.fontRef"`, `module_analysis.rs:47`).
-- Replace `resource_handles_are_plain_integer_values` (`mod.rs:984`) with
+- Replace `resource_handles_are_plain_integer_values` with
   `picture_and_text_hold_res_handles`, pinning the NEW shape (field `ty` is
   `Res(Image)`/`Res(Font)`), doc comment citing this plan — the same
   amend-with-the-reason treatment plan-116-E gives the frozen-set test. Under the
@@ -306,7 +318,7 @@ Commit: —
 
 - [ ] Field types swapped; records/members deleted; seams cleaned
       (`data_objects.rs`, `module_analysis.rs`); pinning test replaced (§4.1).
-- [ ] `helper_geometry.rs`'s five reads → `canvas::fontHandle(t.font)` (§4.2).
+- [ ] `helper_geometry.rs`'s **six** reads of `t.font.id` → `canvas::fontHandle(t.font)` (§4.2). Six, not five — §2's table was corrected by **I1** and this task was not (**I3**); re-count at Phase 1 anyway.
 - [ ] Every construction site updated per §4.3 (re-censused list).
 - [ ] Census: no in-tree program sends a `DrawItem` across a thread plane
       (`grep` canvas + `thread::` co-use); record the result here.
@@ -315,7 +327,7 @@ Commit: —
       destroy-then-present rewrite; a new negative case pins `2-203-0138` for a
       `DrawItem` on a thread plane.
 
-Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG;
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 every canvas golden byte-identical on disk; `mfb man canvas --all | grep -ci
 'imageRef\|fontRef\|ImageRef\|FontRef'` → 0.
 Commit: —
@@ -339,7 +351,8 @@ Commit: —
 
 ### Phase 4 — Docs, spec, and gates
 
-- [ ] `mod.rs` module comment (`:27`, `:138`, `:385-396`, `:731`),
+- [ ] `mod.rs` module comment and every `ImageRef`/`FontRef` mention in it
+      (`grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs`),
       `func_present.rs` DESC, and the load/create/measure/get/set docs: the scene
       draws *through the handle you still own*; destroying afterwards draws
       nothing. **No memory vocabulary** — copy/mutate/value/alias-for-RES only
@@ -352,9 +365,10 @@ Commit: —
       rule (§4.2).
 - [ ] `scripts/man-run-examples.sh canvas --run` passes (every example now names
       resources directly).
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
-Acceptance: `cargo test --no-fail-fast` green on both axes;
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs;
 `mfb man canvas picture`-reachable pages describe the new model with zero banned
 vocabulary.
@@ -391,7 +405,76 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+**I3 (2026-09-03, pre-execution) — I1 corrected the census table but not the task that
+consumes it.** §2's row reads *"Renderer reads of `t.font.id` — ~~5~~ **6**"*, while
+Phase 2's task still says *"`helper_geometry.rs`'s five reads"*. An executor working
+the checklist rather than the table sweeps five of six sites and leaves one reading
+`.id` off a field that is no longer a record — which fails to compile, so it is a
+cheap defect, but only because this particular field change is type-visible. The
+general form of that mistake is not.
+
+Re-measured: `grep -c 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs`
+→ **6**, at `:626, :660, :681, :934, :942, :1009`. The line list in §2 was also from
+the pre-C/D/E/F file and has been replaced.
+
+The lesson is narrower than I1's and worth keeping separate: when a correction changes
+a count, grep the letter for every *other* place that count is spelled. A number in a
+plan is usually written down more than once.
+
+**I2 (2026-09-03, pre-execution) — every `mod.rs` line citation in this letter is
+stale, the same defect plan-116-G recorded as G1.** Checked with
+`awk 'NR==N {print}' src/codegen/builtins/canvas/mod.rs` for each cited N; not one
+lands on what the letter says is there. A sample:
+
+* `mod.rs:398`, given as `Picture`'s image field, is a sentence about
+  `canvas::Paint.transform`.
+* `mod.rs:397`, given as the `ImageRef` integer id, is a sentence about a
+  degenerate transform collapsing points to the origin.
+* `mod.rs:398-423`, given as the `ImageRef`/`FontRef` record declarations, spans a
+  `Paint.transform` sentence to a `Float` prop type.
+
+Not every citation was wrong, and the ones that hold are worth naming so this
+correction is not read as blanket distrust: `mod.rs:27` (the module comment on the
+value handles) is exact, and `src/codegen/registry/mod.rs:1928` — a *different*
+file — really is the `ParameterType::Res` arm this letter's premise rests on.
+An earlier draft of this note claimed that one was past end-of-file; it is not,
+and `awk 'NR==1928' src/codegen/registry/mod.rs` shows the `Res` qualify arm in a
+5254-line file.
+
+The letters were written before plan-116-C, D, E and F each added records and
+descriptions to that file. The counts and claims these citations *support* are not in
+question — this is a navigation defect — but it is the dangerous kind, because the line
+a reader lands on is plausible code they could edit in good faith.
+
+Every one is replaced with the **symbol** and the command that finds it, per G1's
+lesson: every letter of this plan edits `mod.rs`, so a line citation into it decays the
+moment the letter before it lands. Verify with
+`grep -n 'name: \"Picture\"\|live_slots\|keeps the scene from retaining' src/codegen/builtins/canvas/mod.rs`.
+
+- **I1 (2026-09-02, pre-execution) — four of the six measured populations had drifted,
+  two by more than half.** Re-measured against the tree after plan-116-C, D and E
+  landed:
+
+  | Row | Plan (2026-09-01) | Now |
+  |---|---|---|
+  | Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | **29** |
+  | `Text[` construction sites | 12 | **20** |
+  | Renderer reads of `t.font.id` | 5 | **6** |
+  | Fabricated zero-handle uses | 3 | **5** |
+  | `Picture[` sites | 7 | 7 |
+  | Renderer reads of `pic.image` | 0 | 0 |
+
+  Most of the growth is this plan's own — C added the transformed-text fixtures and a
+  golden scene that loads a font, D and E added GPU harness scenes — with the rest from
+  peers. **This matters more here than in the letters before it**: D and E were
+  *additive* changes whose census错 only mis-scoped an estimate, whereas this letter is
+  a mechanical sweep *over* these populations, so a stale count is not a scoping detail,
+  it is the work itself. A missed `Text[` site is a site that keeps the old handle.
+
+  Re-run every row at Phase 1 rather than trusting the table, and heed plan-116-D's two
+  ways this goes wrong: **D2**, a count measured at plan time on a shared checkout, and
+  **D5**, a census whose command cannot see every site (there, MFBASIC embedded in a
+  shell heredoc, which `--include='*.rs' --include='*.mfb'` cannot match).
 
 ## Summary
 

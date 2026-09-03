@@ -72,7 +72,7 @@ directed it into the series as plan-116-I on 2026-09-01.)
 ### Non-goals (explicit constraints)
 
 - **`present` does not take ownership.** A published scene retaining resources would
-  reverse `mod.rs:385`'s design and `func_present.rs`'s documented promise that
+  reverse `mod.rs`'s "keeps the scene from retaining anything" comment's design and `func_present.rs`'s documented promise that
   *"an installed scene never keeps an image open"*. Only `setGroup` owns, because only
   a group has a lifetime longer than one `present`.
 - **No change to `canvas::destroyImage` / `destroyFont` semantics.** Closing a resource
@@ -94,14 +94,14 @@ the time of writing, so a future implementer can see what changed.
 |---|---|---|
 | `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `sed -n 1008,1019p src/rules/table.rs` (2026-09-01) |
 | plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
-| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs:647-668`, `:397-410` |
-| `Text.font` type | `FontRef` | `mod.rs:609-646` |
-| Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs:730-826` |
-| `live_slots` on both | `&[]`, `sendable: false` | `mod.rs:748`, `:790` |
+| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs`'s `Picture` record and `ImageRef` record |
+| `Text.font` type | `FontRef` | `mod.rs`'s `Text` record |
+| Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs`'s two `add_resource` calls |
+| `live_slots` on both | `&[]`, `sendable: false` | the `live_slots` and `sendable` fields of each `pkg.add_resource` call in `mod.rs` |
 
 ### Verified properties
 
-- **The two `canvas` resources are not transfer-audited.** Read `mod.rs:744-748`:
+- **The two `canvas` resources are not transfer-audited.** Read the two `pkg.add_resource` calls in `mod.rs`:
   `sendable: false`, `live_slots: &[]`, with the comment *"Not audited for transfer
   (bug-464 left canvas out of scope). Empty here is only consistent with
   `sendable: false`; opting an image in means auditing its record tail first, not just
@@ -112,7 +112,9 @@ the time of writing, so a future implementer can see what changed.
 - **A `Picture` holding a `RES Image` cannot cross a thread data plane, and after
   plan-114-A that is a hard compile error rather than a silent acceptance.**
   plan-114-A added **`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`** — now landed
-  on main (`src/rules/table.rs:748`, verified 2026-09-01). Combined with
+  on main (`grep -n TYPE_THREAD_RESOURCE_PLANE_REQUIRED src/rules/table.rs` → the rule
+  is at `:741-746` with message *"a resource cannot cross the thread data plane"*;
+  re-verified 2026-09-03). Combined with
   `canvas::Image`'s `sendable: false`, a record carrying one is refused at any thread
   boundary.
 
@@ -130,8 +132,17 @@ the time of writing, so a future implementer can see what changed.
   about thread-boundary **types**; nothing in it inspects storage duration or which
   thread touches a value, so process-global storage, a module-level `MUT`, and any
   buffer the graphics thread reads are all outside its reach. plan-116-G's design
-  stands on this axis. plan-114-A has landed; **re-verify the fire-sites claim in
-  Phase 1** against `src/ir/verify/resources.rs` as merged rather than inheriting it.
+  stands on this axis.
+
+  **Re-verified 2026-09-03 against `resources.rs` as merged, and it holds.**
+  `grep -n emit_thread_resource_plane_required src/ir/verify/resources.rs` gives one
+  definition (`:574`, whose own doc comment says *"the one place `2-203-0138` is
+  worded"*) and exactly **three** callers, at `:559`, `:622` and `:749`, inside
+  `require_thread_sendable` (`:555`), `check_thread_sendability` (`:591`) and
+  `check_thread_boundary_sendability` (`:662`). All three take a `ParameterType` and
+  nothing else; none can see storage duration or which thread touches a value. So the
+  claim is measured rather than inherited, and Phase 1 can tick this row by re-running
+  that grep instead of re-deriving the argument.
 
 - **The constraint that *does* govern the group table is the arena one, not the rule.**
   Arena state is per-thread and a spawned thread sees its own zeroed copy, so
@@ -228,7 +239,7 @@ The letter opens against a world that did not exist when it was written.
 - [ ] Settle the §2 open question: does installing a resource into a process-global,
       graphics-thread-readable group buffer constitute a transfer under plan-114's
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
-      accordingly (`mod.rs:748`, `:790`) — *"opting an image in means auditing its
+      accordingly (the `live_slots` field of each `pkg.add_resource` call in `mod.rs`) — *"opting an image in means auditing its
       record tail first, not just flipping the bit."*
 - [ ] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
       now carries a `RES`, and the renderer reads a closed handle as the zero id, so
@@ -269,7 +280,7 @@ Commit: —
 
 Acceptance: all five rows pass; the 200-cycle loop shows no fd growth (`lsof` on the
 process, or the platform equivalent) and no `groupBytes=` growth;
-`cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG.
+`cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
 Commit: —
 
 ### Phase 4 — Docs and gates
@@ -284,9 +295,10 @@ Commit: —
       exception to *"a published scene never keeps an image open"*.
 - [ ] `.ai/canvas-threading.md` — §7's re-derived paragraph and §8's new rows.
 - [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
+- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
-Acceptance: `cargo test --no-fail-fast` green on both axes, `scripts/test-accept.sh`
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
 green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` describes
 the lifetime in observable terms with zero memory vocabulary.
 Commit: —
@@ -328,6 +340,31 @@ Commit: —
 
 ## Corrections
 
+**J1 (2026-09-03, pre-execution) — every `mod.rs` line citation in this letter is
+stale, the same defect plan-116-G recorded as G1.** Checked with
+`awk 'NR==N {print}' src/codegen/builtins/canvas/mod.rs` for each cited N; not one
+lands on what the letter says is there. A sample:
+
+* `mod.rs:748`, given twice as `Image`'s record tail and `live_slots`, is a bare
+  `RecordProp {` opening brace.
+* `mod.rs:385`, given as *"This is what keeps the scene from retaining anything"*,
+  is a `CapStyle.Round` description; the real comment is at `:447`.
+* `mod.rs:744`, given as the `Image` resource, is prose about arc sweep direction.
+* `src/rules/table.rs:748`, given as `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, is a
+  comment about a *different*, retired rule (`2-203-0102`). The rule this letter
+  depends on is real and landed — `2-203-0138`, at `:741-746` — so the claim held
+  and only the pointer was wrong, which is the pattern throughout.
+
+The letters were written before plan-116-C, D, E and F each added records and
+descriptions to that file. The counts and claims these citations *support* are not in
+question — this is a navigation defect — but it is the dangerous kind, because the line
+a reader lands on is plausible code they could edit in good faith.
+
+Every one is replaced with the **symbol** and the command that finds it, per G1's
+lesson: every letter of this plan edits `mod.rs`, so a line citation into it decays the
+moment the letter before it lands. Verify with
+`grep -n 'name: \"Picture\"\|live_slots\|keeps the scene from retaining' src/codegen/builtins/canvas/mod.rs`.
+
 <!-- Filled in during execution. -->
 
 ## Summary
@@ -340,7 +377,7 @@ plan-116-G already ships groups in full, including the lifetime gate this letter
 into; what is added here is only *who closes the resources and when*. The parts worth
 real care are two: whether a process-global, second-thread-readable group buffer counts
 as a transfer under plan-114's rules — which decides whether `Image` and `Font` need the
-record-tail audit `mod.rs:748` says they have never had — and whether
+record-tail audit `mod.rs`'s `Image` resource (`live_slots`) says they have never had — and whether
 `.ai/canvas-threading.md` §7's "presenting a stale handle draws nothing" survives
 `Picture` becoming a resource. Both are scheduled as Phase 1 reading tasks, because
 both are assumptions that would otherwise be inherited silently.

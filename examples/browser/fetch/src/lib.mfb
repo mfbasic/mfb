@@ -196,6 +196,9 @@ FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS Loa
   ' Resolve each element's Style from the parsed rules + inline styles now, on the
   ' worker thread, so the fully-styled document is deep-copied back to the UI.
   document = dom::resolveStyles(document)
+  ' Number the page's editable <input>s so the app can focus and type into them; the
+  ' ordinal rides along on each field through every later layout pass.
+  document = dom::indexFields(document)
   RETURN LoadResult[TRUE, document, dom::title(document), "", secure, loaded, total]
 END FUNC
 

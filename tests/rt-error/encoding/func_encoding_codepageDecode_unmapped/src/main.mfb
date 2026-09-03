@@ -1,0 +1,17 @@
+REM plan-123-A: a byte the selected codepage leaves unmapped is REJECTED, not
+REM substituted. windows-874 defines 120 of its 128 high bytes; 0xDB (table index
+REM 91) is one of the eight holes, so this decode raises ErrInvalidFormat
+REM (7-705-0003) and the process exits non-zero.
+REM
+REM The decode is deliberately NOT wrapped in a TRAP: the point is that the raise
+REM escapes rather than the hole's U+FFFD sentinel leaking out as a decoded
+REM character.
+
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  LET bytes AS List OF Byte = [toByte(72), toByte(105), toByte(219)]
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows874, bytes))
+  RETURN 0
+END FUNC

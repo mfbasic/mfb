@@ -29,9 +29,9 @@ built-in injection chain.
 - `url` — the URL parsing/rendering model (`net::Url`).
 - `math-rng` — the PCG64 algorithm, seeding, and `math::seed` semantics.
 - `encoding` — the byte↔text and Unicode codec models (UTF-8/16/32, the
-  hex/Base32/Base64 families, percent/form escaping, HTML entities, Punycode, and
-  the LEB128/varint integer codecs), built on the `bits` package and
-  `strings::toBytes`. The integer bitwise/shift/rotate primitives in `bits` are
+  hex/Base32/Base64 families, percent/form escaping, HTML entities, Punycode, the
+  LEB128/varint integer codecs, and the WHATWG legacy single-byte codepages), built
+  on the `bits` package and `strings::toBytes`. The integer bitwise/shift/rotate primitives in `bits` are
   native single-instruction operations documented in `./mfb man bits`.
 - `vector` — the nine fixed-width math-vector value records and the overloaded
   geometry/interpolation/utility/2D functions over them: the value model, the

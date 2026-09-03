@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/encoding/func_encoding_codepageDecode_unmapped
+Wrote AST to tests/rt-error/encoding/func_encoding_codepageDecode_unmapped/func_encoding_codepageDecode_unmapped.ast
+Wrote IR to tests/rt-error/encoding/func_encoding_codepageDecode_unmapped/func_encoding_codepageDecode_unmapped.ir
+[exit 0]
+$ mfb build tests/rt-error/encoding/func_encoding_codepageDecode_unmapped
+Wrote executable to tests/rt-error/encoding/func_encoding_codepageDecode_unmapped/build/func_encoding_codepageDecode_unmapped.out
+[exit 0]
+$ tests/rt-error/encoding/func_encoding_codepageDecode_unmapped/build/func_encoding_codepageDecode_unmapped.out
+Error: 7-705-0003
+byte not mapped in this codepage
+[exit 255]

@@ -58,16 +58,19 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
-    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X,
-    HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R,
-    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
-    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
-    ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES,
-    METAL_MAX_GLYPH_SAMPLES,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
+    HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
+    HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
+    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS,
+    HEADER_SHAPE, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA,
+    HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX,
+    HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
+    ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
+    ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
+    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND, MAX_EDGES,
+    MAX_FRAME_GRADIENT_STOPS, METAL_GRADIENT_BASE_WORDS, METAL_MAX_GLYPH_SAMPLES,
 };
 
 /// The one-time setup helper's symbol.
@@ -117,11 +120,12 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // does (114688 -> 131072 when plan-116-B widened the block to 128 bytes). Spelled
     // as a literal because
     // `METAL_SHADER_SOURCE` is a `concat!` of string literals and cannot interpolate a
-    // computed value; `the_metal_shader_edge_base_matches_the_buffer_layout` is what
+    // computed value; `the_metal_shader_region_bases_match_the_buffer_layout` is what
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 180224;\n",
+    "constant int METAL_EDGE_BASE = 212992;\n",
+    "constant int METAL_GRADIENT_BASE = 278528;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
@@ -131,11 +135,13 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), edgeBase, capStyle
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
-    "  int surfacePad;\n",
+    "  int gradientKind;\n", // 0 linear, 1 radial (plan-116-F); was the block's pad
     "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
     "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
     "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
+    "  int4 ellipse;\n", // ellipse cos, sin (16.16); gradient stop count and base
+    "  int4 gradient;\n", // a gradient's axis startX,startY,endX,endY (16.16)
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -152,7 +158,8 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // drew nothing at all (plan-116-A Correction C5).
     //
     // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
-    // sidesteps `MTLBuffer` offset alignment, which a 112-byte stride does not satisfy.
+    // sidesteps `MTLBuffer` offset alignment, which the item stride does not satisfy
+    // (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; 112 when this was written).
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
     "                      uint iid [[instance_id]],\n",
     "                      constant MfbItem *items [[buffer(0)]]) {\n",
@@ -191,6 +198,27 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
     "  d = max(d, -t * len);\n",
     "  return max(d, (t - 1.0) * len);\n",
+    "}\n",
+    // plan-116-E: the ellipse SDF, the twin of `ellipseDistance` in
+    // `runtime/canvas/shaders/mfb_canvas.frag`. 24 bisection halvings on the folded
+    // first quadrant -- the same count and arithmetic the software oracle uses -- and
+    // no trigonometry, because `ca`/`sa` are the CPU's deterministic Taylor pair
+    // carried in the item block.
+    "static float ellipseDistance(float2 p, float2 c, float rx, float ry, float ca, float sa) {\n",
+    "  float2 d = p - c;\n",
+    "  float2 q = abs(float2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca));\n",
+    "  if (rx == ry) { return length(q) - rx; }\n",
+    "  float2 a = float2(1.0, 0.0);\n",
+    "  float2 b = float2(0.0, 1.0);\n",
+    "  float2 m = a;\n",
+    "  for (int i = 0; i < 24; ++i) {\n",
+    "    m = normalize(a + b);\n",
+    "    float g = (q.x - rx * m.x) * (-rx * m.y) + (q.y - ry * m.y) * (ry * m.x);\n",
+    "    if (g > 0.0) { a = m; } else { b = m; }\n",
+    "  }\n",
+    "  float dist = length(q - float2(rx * m.x, ry * m.y));\n",
+    "  float2 u = float2(q.x / rx, q.y / ry);\n",
+    "  return dot(u, u) < 1.0 ? -dist : dist;\n",
     "}\n",
     "static bool arcInSweep(float2 d, float2 s, float2 e, bool reflex) {\n",
     "  bool afterStart = s.x * d.y - s.y * d.x >= 0.0;\n",
@@ -242,6 +270,10 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    }\n",
     "    return segmentDistanceButt(p, c, float2(fx(item.shape.z), fx(item.shape.w)), radius);\n",
     "  }\n",
+    "  if (item.misc.x == 7) {\n",
+    "    return ellipseDistance(p, c, fx(item.shape.z), fx(item.shape.w),\n",
+    "                           fx(item.ellipse.x), fx(item.ellipse.y)) - radius;\n",
+    "  }\n",
     "  if (item.misc.x == 3) {\n",
     "    float2 d = p - c;\n",
     "    float a0 = fx(item.arc.x), a1 = fx(item.arc.y);\n",
@@ -284,6 +316,76 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
     "  return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);\n",
+    "}\n",
+    // plan-116-F: the colour a gradient shows at `p`, as 0..255 — the twin of
+    // `gradientColour` in `runtime/canvas/shaders/mfb_canvas.frag` and of
+    // `__canvas_gradientColor` in the oracle. The lerp is in LINEAR light, which is the
+    // one property that must match; the result is returned encoded so it drops straight
+    // into `covered`, which is what decodes.
+    // One entry of the oracle's forward table, recomputed rather than uploaded: the
+    // curve ROUNDED to integers on a 0..65535 scale, which is the space its lerp
+    // happens in.
+    "static float srgbTable(int i) {\n",
+    "  return floor(srgbToLinear(float(i)) * 65535.0 + 0.5);\n",
+    "}\n",
+    // One channel, reproducing `__canvas_gradientChannel` exactly. `num` is already
+    // quantised to 1/4096 by TRUNCATION because the oracle quantises there; a
+    // continuous fraction here biases the whole ramp by up to a step. The answer is the
+    // byte nearest in LINEAR value, the rule the oracle's binary search applies.
+    "static int gradientChannel(int loSrgb, int hiSrgb, int num) {\n",
+    "  float loLin = srgbTable(loSrgb);\n",
+    "  float hiLin = srgbTable(hiSrgb);\n",
+    "  float lin = loLin + trunc((hiLin - loLin) * float(num) / 4096.0);\n",
+    "  float e = lin <= 205.4 ? (lin / 65535.0 * 12.92)\n",
+    "                         : (1.055 * pow(lin / 65535.0, 1.0 / 2.4) - 0.055);\n",
+    "  int c = int(clamp(e * 255.0, 0.0, 255.0));\n",
+    "  if (c > 0 && lin <= floor((srgbTable(c - 1) + srgbTable(c)) * 0.5)) {\n",
+    "    return c - 1;\n",
+    "  }\n",
+    "  if (c < 255 && lin > floor((srgbTable(c) + srgbTable(c + 1)) * 0.5)) {\n",
+    "    return c + 1;\n",
+    "  }\n",
+    "  return c;\n",
+    "}\n",
+    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    "  int count = item.ellipse.z;\n",
+    "  int base = METAL_GRADIENT_BASE + item.ellipse.w * 5;\n",
+    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
+    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
+    "  float2 axis = gto - gfrom;\n",
+    "  float len2 = dot(axis, axis);\n",
+    "  float t = 0.0;\n",
+    "  if (item.gradientKind == 1) {\n",
+    "    float len = sqrt(len2);\n",
+    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
+    "  } else {\n",
+    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
+    "  }\n",
+    "  t = clamp(t, 0.0, 1.0);\n",
+    "  int idx = count;\n",
+    "  for (int i = 0; i < count; ++i) {\n",
+    "    if (idx == count && fx(edges[base + i * 5]) >= t) { idx = i; }\n",
+    "  }\n",
+    "  if (idx >= count) {\n",
+    "    int last = base + (count - 1) * 5;\n",
+    "    return int4(edges[last + 1], edges[last + 2], edges[last + 3], edges[last + 4]);\n",
+    "  }\n",
+    "  if (idx <= 0) {\n",
+    "    return int4(edges[base + 1], edges[base + 2], edges[base + 3], edges[base + 4]);\n",
+    "  }\n",
+    "  int lo = base + (idx - 1) * 5;\n",
+    "  int hi = base + idx * 5;\n",
+    "  float loOff = fx(edges[lo]);\n",
+    "  float hiOff = fx(edges[hi]);\n",
+    // Quantised to 1/4096 by truncation, exactly as `__canvas_gradientColor` does.
+    "  int num = hiOff > loOff ? int((t - loOff) / (hiOff - loOff) * 4096.0) : 0;\n",
+    "  num = clamp(num, 0, 4096);\n",
+    "  int loA = edges[lo + 4];\n",
+    "  int hiA = edges[hi + 4];\n",
+    "  return int4(gradientChannel(edges[lo + 1], edges[hi + 1], num),\n",
+    "              gradientChannel(edges[lo + 2], edges[hi + 2], num),\n",
+    "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
+    "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
     "}\n",
     "static float4 covered(int4 rgba, int coverage) {\n",
     "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
@@ -364,7 +466,9 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float dRaw = ds.x;\n",
     "  float dScale = ds.y;\n",
     "  float d = dRaw / dScale;\n",
-    "  float4 colour = covered(item.fill,\n",
+    // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
+    "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(in.pos.xy, edges, item) : item.fill;\n",
+    "  float4 colour = covered(fillRgba,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
     "  if (halfWidth > 0.0) {\n",
@@ -481,7 +585,9 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
 /// the extra `[[base_instance]]` it called for double-counted (Correction C5).
 ///
 /// The alternative — binding the buffer at `base * ITEM_BLOCK_SIZE` — would put an
-/// `MTLBuffer` offset-alignment requirement on a 112-byte stride that does not meet it.
+/// `MTLBuffer` offset-alignment requirement on a stride that does not meet it
+/// (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; it was 112 when this was written, and
+/// neither value meets the alignment, so the conclusion is unchanged).
 pub(super) const SEL_DRAW_PRIMITIVES_INSTANCED: (&str, &str) = (
     "_mfb_macapp_sel_drawPrimitivesInstanced",
     "drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:",
@@ -943,7 +1049,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 528;
+const DRAW_FRAME: usize = 576;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -952,44 +1058,44 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 368;
+const OFF_TEXTURE: usize = 400;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 376;
-const OFF_GLYPH_COV: usize = 384;
-const OFF_GLYPH_INDEX: usize = 392;
-const OFF_GLYPH_COUNT: usize = 400;
-const OFF_GLYPH_HEADER: usize = 408;
-const OFF_GLYPH_W: usize = 416;
-const OFF_GLYPH_H: usize = 424;
-const OFF_GLYPH_X: usize = 432;
-const OFF_GLYPH_Y: usize = 440;
+const OFF_GLYPH_META: usize = 408;
+const OFF_GLYPH_COV: usize = 416;
+const OFF_GLYPH_INDEX: usize = 424;
+const OFF_GLYPH_COUNT: usize = 432;
+const OFF_GLYPH_HEADER: usize = 440;
+const OFF_GLYPH_W: usize = 448;
+const OFF_GLYPH_H: usize = 456;
+const OFF_GLYPH_X: usize = 464;
+const OFF_GLYPH_Y: usize = 472;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 448;
+const OFF_GLYPH_SRC: usize = 480;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 456;
+const OFF_CONTENTS: usize = 488;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
 /// to live somewhere the argument staging cannot clobber.
-const OFF_ITEM_CURSOR: usize = 464;
-const OFF_RUN_START: usize = 472;
-const OFF_RUN_COUNT: usize = 480;
+const OFF_ITEM_CURSOR: usize = 496;
+const OFF_RUN_START: usize = 504;
+const OFF_RUN_COUNT: usize = 512;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 488;
+const OFF_EDGE_CURSOR: usize = 520;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 496;
+const OFF_GLYPH_INSTANCE: usize = 528;
 /// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
 /// two-instance split (plan-116-B).
 ///
@@ -997,9 +1103,12 @@ const OFF_GLYPH_INSTANCE: usize = 496;
 /// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
 /// registers, so a value saved across it comes back as a mapped address — and as a
 /// stroke width that reads like an enormous band the oracle never drew.
-const OFF_BOUND_MODE: usize = 504;
-const OFF_ITEM_MODE: usize = 512;
-const OFF_SAVED_STROKE: usize = 520;
+const OFF_BOUND_MODE: usize = 536;
+const OFF_ITEM_MODE: usize = 544;
+const OFF_SAVED_STROKE: usize = 552;
+/// The frame's gradient-stop cursor, in STOPS — the third region's twin of
+/// `OFF_EDGE_CURSOR` (plan-116-F).
+const OFF_GRAD_CURSOR: usize = 560;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -1338,6 +1447,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_ITEM_CURSOR,
         OFF_RUN_START,
         OFF_EDGE_CURSOR,
+        // plan-116-F. A cursor left at the previous frame's value would put this
+        // frame's stops past the region's end on the very first gradient, and the
+        // over-cap arm then stores a count of 0 -- which draws the flat fill.
+        OFF_GRAD_CURSOR,
         OFF_BOUND_MODE,
     ] {
         asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
@@ -1477,6 +1590,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // ordering as the Vulkan emitter.
     emit_item_block(&mut asm);
     emit_edge_buffer(&mut asm);
+    emit_gradient_buffer(&mut asm);
     // Published, not drawn. The draw happens at the end of the run this item joins,
     // which is what makes consecutive shapes one instanced draw instead of N — and
     // there is nothing left to bind per item now that the edges ride the frame buffer
@@ -2135,6 +2249,29 @@ fn emit_item_block(asm: &mut Asm) {
                 HEADER_CAP_END_X + 1,
             ],
         ),
+        // plan-116-E: an ellipse's rotation as cos, sin. The trailing pair repeats the
+        // sine rather than naming an unused slot, because this loop writes four words
+        // and the shader reads only x and y — the same shape the arc row above uses.
+        (
+            ITEM_OFFSET_ELLIPSE,
+            [
+                HEADER_ELLIPSE_COS,
+                HEADER_ELLIPSE_SIN,
+                HEADER_ELLIPSE_SIN,
+                HEADER_ELLIPSE_SIN,
+            ],
+        ),
+        // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
+        // 16.16 exactly like the bounds and the arc caps.
+        (
+            ITEM_OFFSET_GRADIENT,
+            [
+                HEADER_GRADIENT_FROM_X,
+                HEADER_GRADIENT_FROM_X + 1,
+                HEADER_GRADIENT_FROM_X + 2,
+                HEADER_GRADIENT_FROM_X + 3,
+            ],
+        ),
         // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
         // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
         // the bounds above, and no arithmetic repeated per item.
@@ -2278,6 +2415,22 @@ fn emit_item_block(asm: &mut Asm) {
 
     // The cap tag, in the per-kind block's last free word (plan-116-D) — the twin of
     // the block in `runtime/canvas/vulkan.rs`, and unconditional for the same reason.
+    // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_SURFACE + ITEM_SURFACE_GRADIENT_KIND,
+    ));
+
     asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CAP * 8));
     asm.push(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
@@ -2557,6 +2710,178 @@ fn emit_run_flush(asm: &mut Asm, label: &str) {
 /// A non-polygon zeroes both the count and the base and reads nothing: slot 20 is the
 /// arc's start angle for an arc, so walking a tail that is not there would read the
 /// *next* item's header as edge coordinates.
+/// Copy this item's gradient stops into the frame buffer's third region, and record
+/// where they landed in the item block.
+///
+/// The twin of `emit_edge_buffer`, and of `emit_gradient_upload` in
+/// `runtime/canvas/vulkan.rs` — one buffer, three regions, a per-item base index.
+///
+/// The stops sit at the END of the geometry record (`slot1 − count * 5`), because
+/// `__canvas_tailFor` appends them after whatever other tail the kind has. Deriving the
+/// base from the record's own length is what makes this work for a gradient-filled
+/// polygon, whose tail is edges *then* stops, without the emitter knowing an edge count.
+fn emit_gradient_buffer(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_grad_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_grad_done");
+    let empty = format!("{METAL_DRAW_SYMBOL}_grad_empty");
+    let convert = format!("{METAL_DRAW_SYMBOL}_grad_convert");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let scale = abi::FP_SCRATCH[0];
+
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    // Fewer than two stops is not a gradient, and the header already says so: the count
+    // slot is 0 for no gradient, one stop, and any kind with no interior alike.
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(count, "2"));
+    asm.push(abi::branch_lt(&empty));
+    // Would this item's stops fit the frame's region? Unreachable — the predicate
+    // declines a frame whose stops sum past the cap — and kept for the reason the edge
+    // one is: the alternative to declining is writing past the buffer.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_GRAD_CURSOR,
+    ));
+    asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[5], count));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[6],
+        &MAX_FRAME_GRADIENT_STOPS.to_string(),
+    ));
+    asm.push(abi::branch_le(&convert));
+
+    asm.push(abi::label(&empty));
+    asm.push(abi::move_immediate(count, "Integer", "0"));
+    asm.push(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    asm.push(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_BASE,
+    ));
+    asm.push(abi::branch(&done));
+
+    asm.push(abi::label(&convert));
+    asm.push(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_BASE,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_GRAD_CURSOR,
+    ));
+
+    // source = header + (slot1 - count * 5) * 8
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    asm.push(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &GRADIENT_STOP_WORDS.to_string(),
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[8],
+        count,
+        abi::SCRATCH[7],
+    ));
+    asm.push(abi::subtract_registers(source, source, abi::SCRATCH[8]));
+    asm.push(abi::shift_left_immediate(source, source, 3));
+    asm.push(abi::add_registers(source, header, source));
+
+    // target = contents + METAL_GRADIENT_BASE_WORDS * 4 + base * 20. The region offset
+    // goes through a register: it is far past the 12-bit immediate an `add` encodes.
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[5],
+        abi::SCRATCH[5],
+        abi::SCRATCH[7],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[5],
+        abi::SCRATCH[5],
+        2,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        &(METAL_GRADIENT_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[6],
+        abi::SCRATCH[6],
+        abi::SCRATCH[5],
+    ));
+
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+
+    asm.push(abi::label(&head));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&done));
+    // The offset in 16.16, then four whole 0..255 channels.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 0));
+    asm.push(abi::float_multiply_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        scale,
+    ));
+    asm.push(abi::float_round_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
+    for channel in 1..=4usize {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], source, channel * 8));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+        asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
+    }
+    asm.push(abi::add_immediate(source, source, GRADIENT_STOP_WORDS * 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&head));
+
+    asm.push(abi::label(&done));
+}
+
 fn emit_edge_buffer(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_edge_head");
     let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
@@ -2961,6 +3286,7 @@ mod tests {
             (OFF_RUN_START, 8, "runStart"),
             (OFF_RUN_COUNT, 8, "runCount"),
             (OFF_EDGE_CURSOR, 8, "edgeCursor"),
+            (OFF_GRAD_CURSOR, 8, "gradCursor"),
             (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
             (OFF_BOUND_MODE, 8, "boundMode"),
             (OFF_ITEM_MODE, 8, "itemMode"),
@@ -2999,7 +3325,7 @@ mod tests {
     /// That is the exact failure mode `the_shaders_glyph_base_matches_the_buffer_layout`
     /// exists for on the Vulkan side.
     #[test]
-    fn the_metal_shader_edge_base_matches_the_buffer_layout() {
+    fn the_metal_shader_region_bases_match_the_buffer_layout() {
         assert!(
             METAL_SHADER_SOURCE.contains(&format!(
                 "constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};"
@@ -3008,10 +3334,27 @@ mod tests {
              ({METAL_EDGE_BASE_WORDS}); every polygon would read edges from the wrong \
              offset of a buffer that is entirely valid memory"
         );
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};"
+            )),
+            "the MSL declares a gradient-region base that is not \
+             METAL_GRADIENT_BASE_WORDS ({METAL_GRADIENT_BASE_WORDS}); every gradient \
+             would read its stops from the wrong offset of a buffer that is entirely \
+             valid memory, and render a plausible wrong ramp"
+        );
+        // A running chain rather than a sum, so a fourth region means extending it
+        // rather than rewriting an equation — plan-116-F added the third and found this
+        // asserting the two-region total.
+        assert_eq!(
+            METAL_GRADIENT_BASE_WORDS * 4,
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the gradient region must start where the edge region ends"
+        );
         assert_eq!(
             METAL_BUFFER_BYTES,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the buffer must hold both regions: the blocks the base skips, then the edges"
+            METAL_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
+            "the buffer must be exactly its three regions, with nothing past the last"
         );
     }
 

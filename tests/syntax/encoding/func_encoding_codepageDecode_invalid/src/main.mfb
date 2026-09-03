@@ -1,0 +1,10 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET a AS String = encoding::codepageDecode()
+  LET b AS String = encoding::codepageDecode(encoding::Codepage.Windows1252)
+  LET c AS String = encoding::codepageDecode(encoding::Codepage.Windows1252, [toByte(65)], "x")
+  LET d AS String = encoding::codepageDecode("windows-1252", [toByte(65)])
+  LET e AS String = encoding::codepageDecode(encoding::Codepage.Windows1252, "text")
+  RETURN 0
+END FUNC

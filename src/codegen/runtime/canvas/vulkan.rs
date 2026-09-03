@@ -44,31 +44,35 @@ use crate::codegen::runtime::canvas::{
     push_symbol_address, BLEND_MODE_COUNT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS,
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
-    GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
-    GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
-    GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
-    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES, GRAPHICS_OFFSET_VULKAN_QUEUE,
-    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
-    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
-    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X,
-    HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1,
-    HEADER_FILL_R, HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
+    GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
+    GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
+    GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
+    GRAPHICS_OFFSET_VULKAN_IMAGE, GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW, GRAPHICS_OFFSET_VULKAN_INSTANCE,
+    GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER, GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
+    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
+    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
+    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
+    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
+    HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0,
+    HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_ELLIPSE_COS, HEADER_ELLIPSE_SIN,
+    HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
+    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
     HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
     HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
-    ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
-    ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD,
-    ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM,
-    ITEM_SURFACE_BLEND, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE,
+    ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
+    ITEM_OFFSET_CLIP, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
+    ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND,
+    MAX_FRAME_GRADIENT_STOPS, VULKAN_BUFFER_BYTES, VULKAN_GLYPH_BASE_WORDS,
+    VULKAN_GRADIENT_BASE_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -3374,6 +3378,29 @@ fn emit_item_block(
                 HEADER_CAP_END_X + 1,
             ],
         ),
+        // plan-116-E: an ellipse's rotation as cos, sin. The trailing pair repeats the
+        // sine rather than naming an unused slot, because this loop writes four words
+        // and the shader reads only x and y — the same shape the arc row above uses.
+        (
+            ITEM_OFFSET_ELLIPSE,
+            [
+                HEADER_ELLIPSE_COS,
+                HEADER_ELLIPSE_SIN,
+                HEADER_ELLIPSE_SIN,
+                HEADER_ELLIPSE_SIN,
+            ],
+        ),
+        // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
+        // 16.16 exactly like the bounds and the arc caps.
+        (
+            ITEM_OFFSET_GRADIENT,
+            [
+                HEADER_GRADIENT_FROM_X,
+                HEADER_GRADIENT_FROM_X + 1,
+                HEADER_GRADIENT_FROM_X + 2,
+                HEADER_GRADIENT_FROM_X + 3,
+            ],
+        ),
         // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
         // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
         // the bounds above, and no arithmetic repeated per item.
@@ -3519,6 +3546,22 @@ fn emit_item_block(
     // Copied for every kind rather than under a `Line`/`Arc` branch: it is one store,
     // and the branch would cost more than it saves while giving the word two meanings
     // depending on how the item got here.
+    // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_KIND * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_SURFACE + ITEM_SURFACE_GRADIENT_KIND,
+    ));
+
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CAP * 8));
     builder.emit(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
@@ -3547,6 +3590,200 @@ fn emit_item_block(
 /// the one quantity fixed point represents badly — a 100-px edge gives 1e-4, which
 /// is 6 in 16.16 — and a GPU has the divide for free, so dropping it from the
 /// payload is both smaller and more accurate.
+/// Copy this item's gradient stops into the frame buffer's third region, and record
+/// where they landed in the item block.
+///
+/// The twin of `emit_edge_upload`, deliberately the same shape: one buffer, three
+/// regions, one binding, with a per-item base index rather than a rebind. A gradient's
+/// stops are variable-length per item for exactly the reason a polygon's edges are, so
+/// the machinery that already solved that is the machinery to reuse.
+///
+/// The stops sit at the END of the geometry record — `slot1 − count * 5` — because
+/// `__canvas_tailFor` appends them after whatever other tail the kind has. Computing
+/// the base from the record's own length is what lets this work for a gradient-filled
+/// polygon, whose tail is edges *then* stops, without the emitter knowing an edge count.
+///
+/// The offset is 16.16 like every other coordinate; the four channels are whole 0..255
+/// bytes, which is how the item block already carries `fill` and `stroke`.
+fn emit_gradient_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_grad_cursor: usize,
+) {
+    let head = builder.label("vk_grad_head");
+    let done = builder.label("vk_grad_done");
+    let empty = builder.label("vk_grad_empty");
+    let copy = builder.label("vk_grad_copy");
+
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let scale = abi::FP_SCRATCH[0];
+
+    // Fewer than two stops is not a gradient, and the header already says so — the
+    // count slot is written as 0 in that case, so one compare covers "no gradient",
+    // "one stop" and "a kind with no interior".
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[6],
+        abi::stack_pointer(),
+        off_header,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        abi::SCRATCH[6],
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(count, "2"));
+    builder.emit(abi::branch_lt(&empty));
+
+    // Does this frame still have room? The predicate already declined a scene whose
+    // stops do not fit, so this is unreachable — kept for the reason the edge one is:
+    // the alternative to declining is writing past the buffer, and truncating a ramp
+    // would draw a *different picture*.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_grad_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], count));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &MAX_FRAME_GRADIENT_STOPS.to_string(),
+    ));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&empty));
+
+    builder.emit(abi::label(&copy));
+    // The block carries the count and the base, in stops.
+    builder.emit(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_BASE,
+    ));
+
+    // target = mapped + (GRADIENT_BASE_WORDS + cursor * 5) * 4
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &GRADIENT_STOP_WORDS.to_string(),
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        VULKAN_GRADIENT_BASE_WORDS,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        2,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+
+    // The cursor moves on now, while the pre-advance value is already in the block.
+    builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], count));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_grad_cursor,
+    ));
+
+    // source = header + (slot1 - count * 5) * 8, the record's own stop base.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], abi::SCRATCH[6], 8));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[8],
+        count,
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::subtract_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        abi::SCRATCH[8],
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        3,
+    ));
+    builder.emit(abi::add_registers(source, abi::SCRATCH[6], abi::SCRATCH[1]));
+
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&done));
+    // The offset, 16.16.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 0));
+    builder.emit(abi::float_multiply_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        scale,
+    ));
+    builder.emit(abi::float_round_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
+    // The four channels, whole 0..255 — the form the block already uses for fill.
+    for channel in 1..=4usize {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, channel * 8));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, GRADIENT_STOP_WORDS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&empty));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_BASE,
+    ));
+
+    builder.emit(abi::label(&done));
+}
+
 fn emit_edge_upload(
     builder: &mut CodeBuilder,
     off_state: usize,
@@ -4534,6 +4771,9 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_cmd_handle = builder.allocate_stack_object("vk_cmd_handle", 8);
     let off_desc_set_handle = builder.allocate_stack_object("vk_desc_set_handle", 8);
     let off_edge_cursor = builder.allocate_stack_object("vk_edge_cursor", 8);
+    // The frame's gradient-stop cursor — the third region's twin of the edge one,
+    // counted in STOPS rather than words so the arithmetic below matches the shader's.
+    let off_grad_cursor = builder.allocate_stack_object("vk_grad_cursor", 8);
     // The frame's item-buffer cursor, and the base of the instanced run currently being
     // accumulated. `run_count` is scratch for the flush, which has to compute
     // `cursor - run_start` somewhere the argument staging cannot clobber.
@@ -4945,6 +5185,11 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_glyph_cursor,
     ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_grad_cursor,
+    ));
     // The item-buffer cursor and the current run's base, both starting at quad zero.
     builder.emit(abi::store_u64(
         abi::SCRATCH[0],
@@ -5142,6 +5387,7 @@ pub(crate) fn emit_vulkan_draw_scene(
 
     emit_item_block(builder, off_item, off_width, off_height);
     emit_edge_upload(builder, off_state, off_item, off_header, off_edge_cursor);
+    emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // Published, not drawn. The draw happens at the end of the run this item joins —
     // which is what makes consecutive shapes one instanced `vkCmdDraw` instead of N.
     emit_split_or_publish(
@@ -5778,6 +6024,7 @@ fn emit_zero_range(builder: &mut CodeBuilder, base: usize, length: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::runtime::canvas::VULKAN_EDGE_BYTES;
     use crate::codegen::runtime::canvas::{
         GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE,
     };
@@ -5879,6 +6126,24 @@ mod tests {
         );
     }
 
+    /// The GLSL's `GRADIENT_BASE` is `VULKAN_GRADIENT_BASE_WORDS` (plan-116-F).
+    ///
+    /// The same arrangement `GLYPH_BASE` has and for the same reason: the shader cannot
+    /// see a Rust constant and the SPIR-V is checked in, so this is the only thing
+    /// standing between the two numbers. A disagreement would not fail anywhere —
+    /// every gradient would simply read its stops from the wrong place in a buffer that
+    /// is entirely valid memory, and render a plausible wrong ramp.
+    #[test]
+    fn the_shaders_gradient_base_matches_the_buffer_layout() {
+        const GLSL: &str = include_str!("shaders/mfb_canvas.frag");
+        let want = format!("const int GRADIENT_BASE = {VULKAN_GRADIENT_BASE_WORDS};");
+        assert!(
+            GLSL.contains(&want),
+            "the GLSL declares a gradient-region base that is not \
+             VULKAN_GRADIENT_BASE_WORDS ({VULKAN_GRADIENT_BASE_WORDS})"
+        );
+    }
+
     /// The GLSL's `GLYPH_BASE` is `VULKAN_GLYPH_BASE_WORDS`.
     ///
     /// The shader cannot see a Rust constant and the SPIR-V is checked in, so this is
@@ -5905,13 +6170,28 @@ mod tests {
         );
     }
 
-    /// The shared buffer is big enough for both regions it is asked to hold.
+    /// The shared buffer is exactly the regions it is asked to hold, and each region
+    /// starts where the one before it ends.
+    ///
+    /// Written as a running total rather than as a sum, so adding a fourth region means
+    /// extending the chain rather than rewriting an equation — plan-116-F added the
+    /// third and found this asserting the two-region total.
     #[test]
-    fn the_shared_buffer_holds_both_regions() {
+    fn the_shared_buffer_holds_every_region() {
+        assert_eq!(
+            VULKAN_GLYPH_BASE_WORDS * 4,
+            VULKAN_EDGE_BYTES,
+            "the glyph region must start where the edge region ends",
+        );
+        assert_eq!(
+            VULKAN_GRADIENT_BASE_WORDS * 4,
+            VULKAN_EDGE_BYTES + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4,
+            "the gradient region must start where the glyph region ends",
+        );
         assert_eq!(
             VULKAN_BUFFER_BYTES,
-            VULKAN_GLYPH_BASE_WORDS * 4 + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4,
-            "the buffer must be exactly the edge region plus the glyph region",
+            VULKAN_GRADIENT_BASE_WORDS * 4 + MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
+            "the buffer must be exactly its three regions, with nothing past the last",
         );
     }
 }

@@ -401,7 +401,7 @@ fn set_permissions(_path: &Path, _mode: u32) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[cfg(unix)]
@@ -413,9 +413,19 @@ mod tests {
     /// so every test that exercises it must run one at a time. Acquiring the
     /// guard also clears the variable, so a test that panics mid-way cannot
     /// leak a fingerprint into the next one.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ///
+    /// **`pub(crate)` because `client::tests` exercises it too, through
+    /// `link_fetch`'s trust-on-first-use pin.** While this was private to this
+    /// module the invariant above was stated and unenforceable: a client test had no
+    /// way to take the lock, so it could read the variable while
+    /// `pin_server_key_honours_an_out_of_band_fingerprint` had it set and take the
+    /// "does not match the expected" path instead of its own. Observed as
+    /// `link_fetch_rejects_a_blob_that_is_not_an_ident_keypair` asserting on
+    /// "pairing blob ident keypair is inconsistent" and receiving a fingerprint
+    /// mismatch — a wrong *answer*, not an error, and green when run alone.
+    pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn env_guard() -> std::sync::MutexGuard<'static, ()> {
         let guard = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         std::env::remove_var("MFB_REPO_SERVER_FINGERPRINT");
         guard

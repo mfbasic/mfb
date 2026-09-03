@@ -17,6 +17,22 @@ raises `ErrInvalidFormat`, and a value outside the range a `Float` can hold
 raises `ErrOverflow`. `isNumeric` answers first if you would rather test than
 trap.
 
+The result is **correctly rounded**: you get the `Float` nearest the value the
+text names, with ties going to the even one, and never the one next to it. That
+holds across the whole range, including values so small they are subnormal, and
+however many digits the text carries — `toFloat` reads them all rather than
+stopping at the ones a `Float` can hold.
+
+Two things follow that are worth relying on. Text naming a value a `Float` holds
+exactly comes back exactly, so `"0.5"`, `"1024"` and `"9007199254740992"` are not
+approximations. And a number written out with enough digits to identify a `Float`
+reads back as that same `Float`, so a value can cross a file or a network to
+another correctly-rounded reader — JavaScript's `JSON.parse`, or Python — and
+arrive unchanged.
+
+A value too small for a `Float` becomes zero rather than failing; only magnitude
+too *large* raises `ErrOverflow`.
+
 From an **`Integer`** the conversion is exact for values up to about 2^53; above
 that, a `Float` cannot represent every integer and the result is the nearest one
 it can.

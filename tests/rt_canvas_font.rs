@@ -1007,7 +1007,7 @@ fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
         return;
     }
     assert!(
-        stats.contains("gpuSelected=TRUE"),
+        !stats.contains("gpuFrames=0"),
         "a scene whose only item carries a transform was refused by the renderable \
          predicate and fell back to software. The transform slots sit past the header \
          fields the predicates read, so nothing in them should reach either: {stats}"

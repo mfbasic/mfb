@@ -61,12 +61,19 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
     \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
     \x20 LET h AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
-    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h]\n\
-    \x20 IF len(scene) <> 8 THEN\n\
+    \x20 LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := yellow], canvas::GradientStop[offset := 1.0, color := green]]\n\
+    \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 8.0, y := 0.0], stops := stops]\n\
+    \x20 LET gradPaint AS canvas::Paint = WITH canvas::fill(yellow) { fillGradient := grad }\n\
+    \x20 IF len(gradPaint.fillGradient.stops) <> 2 THEN\n\
+    \x20   RETURN 7\n\
+    \x20 END IF\n\
+    \x20 LET i AS canvas::DrawItem = canvas::Ellipse[x := 5.0, y := 5.0, radiusX := 4.0, radiusY := 2.0, angle := 0.3, paint := canvas::fill(yellow)]\n\
+    \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i]\n\
+    \x20 IF len(scene) <> 9 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
     \x20 LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := scene]\n\
-    \x20 IF len(layer.items) <> 8 THEN\n\
+    \x20 IF len(layer.items) <> 9 THEN\n\
     \x20   RETURN 6\n\
     \x20 END IF\n\
     \x20 io::print(\"CANVAS_SURFACE_OK\")\n\

@@ -11,8 +11,9 @@ const DESC: &str = r#"`fillStroke` builds a `canvas::Paint` with both channels s
 `fill` and its outline is `width` pixels of `stroke`. `canvas::fill` and
 `canvas::stroke` are the one-channel forms.
 
-Blend, transform and clip are left at their no-op values (`Normal`, the identity,
-unclipped). To set one of those, update the result:
+Blend, transform, clip and the fill gradient are left at their no-op values
+(`Normal`, the identity, unclipped, and no stops). To set one of those, update the
+result:
 
 ```
 LET glow AS Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := BlendMode.Add }
@@ -20,7 +21,7 @@ LET glow AS Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := BlendMod
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all six `canvas::Paint` fields."#;
+without them every item would have to spell out all seven `canvas::Paint` fields."#;
 
 const EX: &str = r#"A filled circle with a contrasting outline:
 
@@ -71,7 +72,7 @@ want it to stay put."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_fillStroke(fill AS Color, stroke AS Color, width AS Float) AS Paint
-  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip()]
+  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip(), fillGradient := __canvas_noGradient()]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -194,7 +194,35 @@ SUB main()
   ' plan-116-D, so without this the cap-disc arm is compiled into the SPIR-V and never
   ' taken.
   LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(canvas::rgb(120, 255, 200), 20.0)]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc]
+  ' plan-116-E: a rotated, eccentric, stroked ellipse -- kind 7 is a brand-new geometry
+  ' kind, so without one here the SPIR-V's ellipse arm is compiled and never taken and
+  ' a predicate that accepted a kind the shader does not know would render it as
+  ' NOTHING and report success (`.ai/canvas-threading.md` section 10).
+  LET ell AS canvas::DrawItem = canvas::Ellipse[x := 760.0, y := 430.0, radiusX := 110.0, radiusY := 38.0, angle := 0.5235987755982988, paint := canvas::fillStroke(canvas::rgb(226, 150, 255), canvas::rgb(255, 255, 255), 8.0)]
+  ' plan-116-F: a linear ramp, a radial ramp, and a gradient-filled POLYGON. Without
+  ' one here the SPIR-V's gradient walk is compiled into the blob and never taken, and
+  ' a shader that could not read the stops would draw the flat `fill` beneath -- which
+  ' every one of these sets to black on purpose, so that failure is a black shape and
+  ' not a subtly wrong one.
+  '
+  ' The polygon is the one that earns its place. A gradient's stops sit at the END of
+  ' the geometry record, so for a polygon the tail is edges *then* stops and the upload
+  ' finds its base by subtracting from the record's own length. On any other kind the
+  ' stops start right after the header and a base computed either way agrees -- so a
+  ' polygon is the only shape that can tell a correct base from a lucky one.
+  '
+  ' Two gradient items rather than one, for the reason there are two polygons above:
+  ' with a single one, a per-item first-stop index of zero would pass whether or not it
+  ' was ever written.
+  LET rampStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 430.0, y := 100.0], endPoint := canvas::Point[x := 580.0, y := 160.0], stops := rampStops]
+  LET gradBar AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 100.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gLin }]
+  LET orbStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(90, 30, 120)]]
+  LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 820.0, y := 300.0], endPoint := canvas::Point[x := 865.0, y := 300.0], stops := orbStops]
+  LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad }]
+  LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops]
+  LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gPoly }]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

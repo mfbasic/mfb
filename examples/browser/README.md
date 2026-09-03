@@ -79,15 +79,24 @@ far-left indicator is a spinner while loading, 🔒 for an https page, 🔓 othe
 - **G** — enter Address Mode; type a URL, **Backspace** deletes, **Enter** loads
   it, **Esc** clears the address (press it again on an empty field to cancel).
   `https://` is assumed when you omit the scheme.
-- **R** — (Display Mode) switch to **Raw Mode**: the parsed DOM as an indented tree.
+- **R** — (Display Mode) switch to **Raw Mode**: the parsed DOM as an indented tree,
+  followed by each form's data object as JSON (see **Form data**, below).
 - **D** — (Raw Mode) switch back to Display Mode.
 - **Up / Down** — scroll vertically. **Left / Right** — pan horizontally across a
   page laid out wider than the terminal (a mouse/trackpad's scroll drives these too,
   via the terminal's alternate-screen scroll translation).
-- **Tab** — (Display Mode) focus the next **on-screen link**, wrapping within the links
-  currently visible; the focused link is highlighted. **Enter** follows it, **Esc**
-  un-focuses. Scroll to bring the links you want on screen, then Tab through them; a
-  link that scrolls out of view (or a reflow from resize/mode) drops the selection.
+- **Tab** — (Display Mode) focus the next **on-screen link or form field**, wrapping
+  within those currently visible; the focused one is highlighted. **Enter** follows a
+  focused link, **Esc** un-focuses. Scroll to bring the targets you want on screen,
+  then Tab through them; a target that scrolls out of view (or a reflow from
+  resize/mode) drops the selection — except a focused field, which is re-found by its
+  ordinal so typing survives a resize.
+- **Typing into a field** — with a form field focused, every printable key types into
+  it and **Backspace** deletes. **Tab** moves on to the next target and **Esc** leaves
+  the field; the page shortcuts (Q/G/R/L/M) are text while a field has focus, and
+  **Enter** is ignored — a single-line `<input>` takes no newline. The box shows the
+  value it holds, keeping its `size` width (an over-long value shows its tail, and a
+  `password` is masked).
 - **L** — (Display Mode) open the **Links list**: a labelled multi-column list of *every*
   link on the page — `A) Link Text`, `B) …` (two letters past 26 links). Type a link's
   letter(s) to follow it, **Up / Down** scroll the list, **Esc** returns to the page. The
@@ -242,6 +251,32 @@ cell, never corrupt the frame.)
 a link looks like plain words), so the inline layout decorates them into the flowed
 text: a link's text is wrapped in `[brackets]` (and coloured), a `<button>`/`<input
 type=submit>` label in `<angle brackets>`, and an `<input>` becomes a field glyph —
-`|S:----|` for text, `|N:----|` for a number (the dashes span its `size`), `[ ]`/`( )`
-for a checkbox/radio. A `<textarea>` is a replaced block drawn as `rows` lines of
-`|----|` (each `cols` wide).
+`|S:----|` for text, `|N:----|` for a number, `|P:----|` for a password (the box spans
+its `size`, showing the field's value then `-` filler), `[ ]`/`( )` for a
+checkbox/radio. A `<textarea>` is a replaced block drawn as `rows` lines of `|----|`
+(each `cols` wide). A space inside a field renders as U+00A0 so the inline whitespace
+collapse and the word wrap cannot shrink or split the box.
+
+### Form data
+
+The document describes a page's form **structure**; it never holds what you type.
+`dom::indexFields` stamps each editable `<input>` with its ordinal in document order —
+the identity the renderer exposes as a Tab target — and `dom::fieldSpecs` describes
+each field: which `<form>` owns it, the key it takes in that form's data, how it draws,
+and the value the page shipped it with. Fields outside every `<form>` share one
+implicit form, numbered last.
+
+The app holds the live values as **one `json::JsonObj` per form**, keyed by each
+field's data key (its `name`, made unique within the form, synthesized when the element
+has none) — the shape a form submission has. A keystroke rewrites that one small
+object. This is why the values do not live in the tree: a document is immutable, so
+recording a keystroke in it means rebuilding the whole thing — measured at 70–330 ms
+per keystroke on a page at the parser's node cap, and degrading the longer you type.
+Against the JSON object it is a flat 1–3 ms on any page.
+
+Two paths draw a field, and both render through `dom::fieldBox` so they cannot
+disagree. A **full re-layout** (load, resize, width mode) folds the values into a
+throw-away copy of the document with `dom::applyFieldValues` and paints that, leaving
+the page's own document untouched. **Typing** repaints nothing else: a field's box is a
+fixed `size` columns wide whatever it holds, so editing one moves nothing on the page,
+and the app stamps just the edited box over the cached rows.

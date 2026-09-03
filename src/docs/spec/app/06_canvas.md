@@ -93,6 +93,13 @@ direction that makes a `0`..`PI` arc sweep *below* its centre.
 The convention is stated because an arc is the one primitive where getting it
 wrong is silent: a smile renders as a frown rather than failing.
 
+`Ellipse.angle` follows the same rule: it rotates the ellipse about its own centre,
+clockwise from +X, so a positive angle turns the long axis towards the bottom-right.
+`0.0` leaves `radiusX` along the surface's X axis. An ellipse is therefore *placed* by
+`x`/`y` and *oriented* by `angle`, independently — and `radiusX = radiusY` with
+`angle := 0.0` renders identically to the `Circle` of that radius, so squashing a
+circle does not mean changing item type.
+
 ## Rendering conventions
 
 These are the observable contract a backend must meet, not implementation notes.
@@ -219,6 +226,53 @@ clip's own `clamp(0.5 - d, 0, 1)` on the signed distance to that rectangle,
 multiplied into the shape's coverage as `(coverage * clipCoverage) / 255`. A clip
 edge is therefore antialiased exactly as a shape edge is, and clipping a shape to a
 rectangle larger than it changes nothing.
+
+**`Paint.fillGradient` replaces an item's fill colour with a ramp.** It replaces the
+*colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
+mode are exactly what they would be with a flat `Paint.fill`. A stroke is never a
+gradient — an outline is one colour.
+
+A gradient with **fewer than two stops is not a gradient** and `Paint.fill` is used
+instead, which is what makes the all-zero `Gradient` inert like every other `Paint`
+field. A `Text` item ignores the field: a glyph is drawn from a cached coverage bitmap,
+and the cache is keyed by glyph and size, so a gradient would either be baked into the
+cache or key it per colour.
+
+The ramp position `t` at a surface point `p` is measured in **surface pixels**, from the
+gradient's own `startPoint` and `endPoint` and never from the shape's bounds:
+
+| `GradientKind` | `t` |
+|---|---|
+| `Linear` | `dot(p - startPoint, endPoint - startPoint) / dot(endPoint - startPoint, endPoint - startPoint)` |
+| `Radial` | `length(p - startPoint) / length(endPoint - startPoint)` |
+
+`t` is then clamped to `0.0`..`1.0`. A zero-length axis leaves `t` at `0`, so the first
+stop's colour fills the shape — defined, rather than a division by zero.
+
+Measuring in surface pixels has two consequences worth stating outright, because both
+are the opposite of what a reader coming from a drawing API that defines gradients in
+user space would expect:
+
+* A **radial** gradient stays circular inside an `Ellipse` rather than becoming
+  elliptical — the ramp does not take the shape's proportions.
+* **`Paint.transform` does not carry the ramp.** A rotated item spins its shape through
+  a gradient that stays where the two points put it, so a rotating square appears to
+  sweep through the colours rather than to carry them round with it. To rotate a
+  gradient, rotate `startPoint` and `endPoint`.
+
+**Stops are used in the order given.** They are not sorted. An `offset` outside
+`0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset
+instead — so a stop given out of order produces a hard edge there, which is visible and
+diagnosable, where sorting would silently draw a picture the program did not describe.
+Before the first stop and after the last, that end stop's colour holds; neither end
+extrapolates.
+
+**A gradient interpolates in linear light**, the same space compositing uses, through
+the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
+to linear, mixed, and re-encoded. A black-to-white ramp is therefore evenly bright
+across its width; mixing the encoded bytes directly would make it dark for most of its
+length, which is the same error as blending encoded bytes and is just as plausible-
+looking.
 
 ## Images are named, not embedded
 

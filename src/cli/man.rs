@@ -957,13 +957,17 @@ mod tests {
 
     #[test]
     fn types_shows_a_friendly_message_when_the_package_has_no_public_types() {
-        // `encoding` declares no records/unions/enums/resources (and no function
-        // named `types`), so `mfb man encoding types` prints the friendly
-        // no-public-types message instead of an unknown-function error.
+        // `bits` declares no records/unions/enums/resources (and no function named
+        // `types`), so `mfb man bits types` prints the friendly no-public-types
+        // message instead of an unknown-function error.
+        //
+        // This was `encoding` until plan-123-A gave it a public `Codepage` enum;
+        // `bits` is the stable stand-in because its surface is a frozen set of
+        // integer operations over `Integer`, with no type of its own to grow.
         assert!(!has_public_types(
-            registry().resolve_package("encoding").unwrap()
+            registry().resolve_package("bits").unwrap()
         ));
-        assert!(show_man(&s(&["encoding", "types"])).is_ok());
+        assert!(show_man(&s(&["bits", "types"])).is_ok());
     }
 
     #[test]
@@ -994,9 +998,10 @@ mod tests {
         // csv exports records, so the overview points at its types page.
         assert!(md.contains("## See also"));
         assert!(md.contains("`mfb man csv types`"));
-        // A package with no public types gets no such pointer.
-        let encoding = registry().resolve_package("encoding").unwrap();
-        assert!(!render_package_markdown(encoding).contains("## See also"));
+        // A package with no public types gets no such pointer. (`bits`, not
+        // `encoding`: plan-123-A gave `encoding` a public `Codepage` enum.)
+        let bits = registry().resolve_package("bits").unwrap();
+        assert!(!render_package_markdown(bits).contains("## See also"));
     }
 
     #[test]
