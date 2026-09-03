@@ -575,9 +575,11 @@ Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
   sit on exactly the code every letter of this plan edits, and they had not run since
   plan-116-A. See **E6**.
 - The Linux row on box 2228, as A, B, C and D established, because that box is a
-  single core: the `--bin mfb` unit tests there, plus `scripts/test-canvas-vulkan.sh`
-  on **both** Linux libc worlds — which is where this letter's Linux-specific work (the
-  bisection solve in the SPIR-V, the widened item block) actually executes.
+  single core: `cargo test --release --no-fail-fast --bin mfb` → **3724 passed, 0
+  failed** (1354.07s of tests after a ~2h single-core compile). Plus
+  `scripts/test-canvas-vulkan.sh` on **both** Linux libc worlds — which is where this
+  letter's Linux-specific work (the bisection solve in the SPIR-V, the widened item
+  block) actually executes: 12/12 on 2228 glibc and 2227 musl.
 Commit: b25a8e835
 
 ## Validation Plan
