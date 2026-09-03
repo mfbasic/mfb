@@ -548,6 +548,11 @@ Commit: 8c4fa49a6
 - [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**).
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
+- [ ] Archive this letter to `planning/completed/` and land it on `main` with
+      `git push . HEAD:main` (the repo sets `receive.denyCurrentBranch=updateInstead`,
+      so this updates a checked-out `main` in place and **refuses** rather than
+      discarding if that tree is dirty with a peer's work). The worktree and the
+      `worktree-P-116` branch stay — plan-116 continues with G.
 - [x] Fix this letter's own claim that the ramp "composes with `Paint.transform` the
       same way the shape does" — it does not, and the sentence says the opposite of
       what the code does (**F14**). Three places: `Gradient`'s and
