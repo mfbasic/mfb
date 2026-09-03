@@ -535,6 +535,12 @@ Commit: 8c4fa49a6
       `Paint.fillGradient`'s descriptions in `mod.rs`, and the gradient subsection
       of `06_canvas.md` — and this document's own §1 goal line, which is where the
       sentence came from.
+- [ ] Merge `main` into `worktree-P-116` and re-run the gates on the merged state.
+      `main` advanced by 17 commits under this letter (plan-123, encoding/codepage
+      tables): 198 files, +110495/−60389, and **nothing** under
+      `src/codegen/{builtins,runtime}/canvas/`, `src/target/macos_aarch64/app/` or the
+      canvas tests (`git diff --stat dc025452a..main -- <those paths>` is empty), so the
+      merge is expected to be textually clean and the gates below are what proves it.
 - [ ] Test the one documented gradient claim with no test behind it: a gradient-filled
       item that **also strokes** keeps a flat outline (**F15**). Seven gradient cases
       exist in `tests/rt_canvas_rasteriser.rs` and every one is fill-only, so
