@@ -96,6 +96,7 @@ impl Fallibility {
 /// The rule is applied to a fixpoint so fallibility propagates up call chains,
 /// then re-applied once per declaration so an overload whose name a sibling
 /// already marked is still judged on its own body.
+///
 /// `context` is the type oracle. It is needed because the built-in census answers
 /// per *overload* now, not per name (bug-486): `toString(<List OF Byte>)` raises
 /// `ErrEncoding` where every other `toString` is total, so a function whose only
@@ -181,7 +182,15 @@ impl EscapeScope<'_, '_> {
 
     /// [`Fallibility::call_is_fallible`] with the call site's argument types
     /// resolved through the local map.
+    ///
+    /// Gated: this runs on every call node of every function on every pass of the
+    /// fixpoint, while only the handful of names in
+    /// `inline_builtin_fallibility_depends_on_args` can act on the types. For
+    /// every other callee the verdict is name-decided, so the typing is skipped.
     fn call_is_fallible(&self, callee: &str, arguments: &[HirCallArg]) -> bool {
+        if !builtins::inline_builtin_fallibility_depends_on_args(callee) {
+            return self.verdicts.call_is_fallible(callee, &[]);
+        }
         let arg_types: Vec<ParameterType> = arguments
             .iter()
             .map(|argument| match argument {
@@ -198,7 +207,9 @@ impl EscapeScope<'_, '_> {
     /// typed with what is already known.
     fn bind(&mut self, name: &str, declared: &ParameterType, value: Option<&HirExpression>) {
         let type_ = if *declared == ParameterType::Unknown {
-            value.map(|v| self.type_of(v)).unwrap_or(ParameterType::Unknown)
+            value
+                .map(|v| self.type_of(v))
+                .unwrap_or(ParameterType::Unknown)
         } else {
             declared.clone()
         };
@@ -326,25 +337,20 @@ fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) 
     match statement {
         HirStatement::Fail { .. } | HirStatement::Propagate { .. } => true,
         HirStatement::Let {
-            name,
-            type_,
-            value,
-            ..
+            name, type_, value, ..
         } => {
-            let escapes = value
-                .as_ref()
-                .is_some_and(|v| expression_escapes(v, scope));
+            let escapes = value.as_ref().is_some_and(|v| expression_escapes(v, scope));
             // Bound after the initializer is judged: the initializer cannot see
             // the name it defines.
             scope.bind(name, type_, value.as_ref());
             escapes
         }
-        HirStatement::Return { value, .. } | HirStatement::Recover { value, .. } => value
-            .as_ref()
-            .is_some_and(|v| expression_escapes(v, scope)),
-        HirStatement::Exit { code, .. } => code
-            .as_ref()
-            .is_some_and(|v| expression_escapes(v, scope)),
+        HirStatement::Return { value, .. } | HirStatement::Recover { value, .. } => {
+            value.as_ref().is_some_and(|v| expression_escapes(v, scope))
+        }
+        HirStatement::Exit { code, .. } => {
+            code.as_ref().is_some_and(|v| expression_escapes(v, scope))
+        }
         HirStatement::Continue { .. } => false,
         HirStatement::Assign { value, .. }
         | HirStatement::StateAssign { value, .. }
@@ -479,9 +485,7 @@ fn expression_escapes(expression: &HirExpression, scope: &mut EscapeScope<'_, '_
                     .iter()
                     .any(|update| expression_escapes(&update.value, scope))
         }
-        HirExpression::ListLiteral(values) => {
-            values.iter().any(|v| expression_escapes(v, scope))
-        }
+        HirExpression::ListLiteral(values) => values.iter().any(|v| expression_escapes(v, scope)),
         HirExpression::SetLiteral { elements, .. } => {
             elements.iter().any(|v| expression_escapes(v, scope))
         }

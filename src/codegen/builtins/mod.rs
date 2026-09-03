@@ -216,11 +216,23 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
     target: &str,
     arg_types: &[ParameterType],
 ) -> bool {
-    target == "toString"
+    inline_builtin_fallibility_depends_on_args(target)
         && matches!(
             arg_types.first(),
             Some(ParameterType::ListOf(element)) if **element == ParameterType::Byte
         )
+}
+
+/// Whether `target`'s verdict depends on its argument types at all — the cheap
+/// gate a caller uses to skip typing arguments it would not consult.
+///
+/// Deliberately the *same* name list [`arg_type_makes_inline_builtin_fallible`]
+/// tests, not a second copy of it: a recogniser and its measurer kept as two
+/// lists is exactly the shape that loses an entry when one grows. Adding a name
+/// here without a rule there only costs wasted work; the reverse would be a
+/// miscompile, and the shared `matches!` makes it impossible.
+pub(crate) fn inline_builtin_fallibility_depends_on_args(target: &str) -> bool {
+    matches!(target, "toString")
 }
 
 /// Whether a fallible inline member has a raw-`Result` inline lowering
@@ -904,7 +916,10 @@ mod tests {
             "collections.removeKey",
             "strings.replace",
         ] {
-            assert!(inline_builtin_is_infallible(c, &[]), "expected infallible: {c}");
+            assert!(
+                inline_builtin_is_infallible(c, &[]),
+                "expected infallible: {c}"
+            );
         }
         // Fallible inline members: a real domain error (index/range/not-found), an
         // out-of-range shift count, or a failing callback.
@@ -924,7 +939,10 @@ mod tests {
             "collections.filter",
             "collections.reduce",
         ] {
-            assert!(!inline_builtin_is_infallible(c, &[]), "expected fallible: {c}");
+            assert!(
+                !inline_builtin_is_infallible(c, &[]),
+                "expected fallible: {c}"
+            );
         }
         // Every inline member is classified one way or the other, and non-inline
         // callees (user functions) are not infallible built-ins.
@@ -958,6 +976,26 @@ mod tests {
                 "expected infallible: toString{args:?}"
             );
             assert!(!inline_builtin_raw_supported("toString", &args));
+        }
+
+        // The cheap gate every consumer uses to decide whether to type its
+        // arguments must agree with the rule it gates: a name the gate skips can
+        // never be flipped by an argument type, or the consumer would skip the
+        // typing and get the wrong verdict.
+        for name in [
+            "toString",
+            "len",
+            "typeName",
+            "collections.get",
+            "strings.mid",
+            "bits.sl",
+            "myFunc",
+        ] {
+            assert!(
+                inline_builtin_fallibility_depends_on_args(name)
+                    || !arg_type_makes_inline_builtin_fallible(name, &bytes),
+                "{name} is flipped by an argument type but the gate skips typing it"
+            );
         }
 
         // The overload rule is `toString`'s alone: `len` and `typeName` were

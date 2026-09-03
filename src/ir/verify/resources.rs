@@ -862,12 +862,17 @@ impl TypeEnv {
                     // decodes UTF-8 and really can fail, so advising the author to
                     // delete its handler was advising them to delete the only thing
                     // standing between a non-UTF-8 input and a dead process.
-                    &args
-                        .iter()
-                        .map(|arg| {
-                            self.infer_type(arg, locals).unwrap_or(ParameterType::Unknown)
-                        })
-                        .collect::<Vec<_>>(),
+                    // Typed only for the names whose verdict can turn on them.
+                    &if builtins::inline_builtin_fallibility_depends_on_args(target) {
+                        args.iter()
+                            .map(|arg| {
+                                self.infer_type(arg, locals)
+                                    .unwrap_or(ParameterType::Unknown)
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    },
                 ) {
                     // A provably-infallible inline built-in (`len`, `toString`,
                     // every `bits::*`, …) under a TRAP compiles and runs; its

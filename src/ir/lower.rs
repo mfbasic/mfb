@@ -1383,7 +1383,7 @@ fn lower_inline_trap(
             hoists.is_empty()
                 || context
                     .fallible
-                    .call_is_fallible(target, &ir_call_arg_types(args, locals))
+                    .call_is_fallible(target, &ir_call_arg_types(target, args, locals))
         }
         _ => hoists.is_empty() || root_operator_raises,
     };
@@ -1827,7 +1827,9 @@ fn scan_trap_operands(
         | IrValue::ResultError { value }
         | IrValue::Checked { value, .. }
         | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => scan_trap_call(value, fallible, locals, next, out),
+        | IrValue::MemberAccess { target: value, .. } => {
+            scan_trap_call(value, fallible, locals, next, out)
+        }
         IrValue::WithUpdate {
             target, updates, ..
         } => {
@@ -1872,9 +1874,9 @@ fn trap_hoist_kind(
     locals: &HashMap<String, ParameterType>,
 ) -> Option<bool> {
     match value {
-        IrValue::Call { target, args, .. } => Some(
-            fallible.call_is_fallible(target, &ir_call_arg_types(args, locals)),
-        ),
+        IrValue::Call { target, args, .. } => {
+            Some(fallible.call_is_fallible(target, &ir_call_arg_types(target, args, locals)))
+        }
         // The spelling of a negative literal, which cannot raise — see
         // `fallible::is_total_literal_negation` for why, and why `Byte` is not
         // exempt.
@@ -1920,10 +1922,17 @@ fn scan_trap_call(
 /// every source local live). Anything else answers `Unknown`, which lands the
 /// census on its name-keyed verdict — the answer it gave before argument types
 /// reached it.
+///
+/// Gated on `target` so the walk only pays for the names whose verdict can turn
+/// on an argument type; every other callee is decided by name alone.
 fn ir_call_arg_types(
+    target: &str,
     args: &[IrValue],
     locals: &HashMap<String, ParameterType>,
 ) -> Vec<ParameterType> {
+    if !builtins::inline_builtin_fallibility_depends_on_args(target) {
+        return Vec::new();
+    }
     args.iter()
         .map(|arg| match arg {
             IrValue::Local(name) => locals.get(name).cloned().unwrap_or(ParameterType::Unknown),

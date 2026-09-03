@@ -1051,22 +1051,25 @@ impl CodeBuilder<'_> {
                 // question with none of the fast-path coupling that keeps
                 // `static_type_name` itself narrow. An argument it cannot type
                 // answers `Unknown`, which lands on the name-keyed verdict.
-                let inline_arg_types: Vec<ParameterType> = args
-                    .iter()
-                    .map(|arg| {
-                        self.static_type_name_for_fold(arg)
-                            .unwrap_or(ParameterType::Unknown)
-                    })
-                    .collect();
+                let inline_arg_types: Vec<ParameterType> =
+                    if crate::codegen::builtins::inline_builtin_fallibility_depends_on_args(target)
+                    {
+                        args.iter()
+                            .map(|arg| {
+                                self.static_type_name_for_fold(arg)
+                                    .unwrap_or(ParameterType::Unknown)
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                 // An inline `TRAP` on a fallible inline member (`collections::get`,
                 // `strings::mid`, …) traps the raw `Result` the same way (plan-21-B):
                 // run the member's normal inline lowering under a raw capture so its
                 // domain error redirects to the capture point instead of propagating,
                 // then materialize the `Result OF <success>`.
-                if crate::codegen::builtins::inline_builtin_raw_supported(
-                    target,
-                    &inline_arg_types,
-                ) {
+                if crate::codegen::builtins::inline_builtin_raw_supported(target, &inline_arg_types)
+                {
                     return self.lower_inline_builtin_raw(target, args);
                 }
                 // An inline `TRAP` on a provably-infallible inline built-in
@@ -1075,10 +1078,8 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::codegen::builtins::inline_builtin_is_infallible(
-                    target,
-                    &inline_arg_types,
-                ) {
+                if crate::codegen::builtins::inline_builtin_is_infallible(target, &inline_arg_types)
+                {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
