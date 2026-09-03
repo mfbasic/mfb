@@ -236,11 +236,26 @@ vec2 p = gl_FragCoord.xy - offset;   // back into the group's own coordinates
 ```
 
 Everything downstream of `p` — every distance function, the coverage rule, the stroke
-band, the clip test, the gradient parameter — is unchanged, because they all take `p`
-and nothing else positional. **The clip is the one thing to check by test rather than
-by reasoning**: `Paint.clip` is defined in *surface* pixels (plan-116-B §Non-goals), so
-it must be evaluated at `gl_FragCoord.xy`, **not** at `p`. A group's translation moves
-the shape, not the clip rectangle. Phase 3 tests exactly that.
+band — is unchanged, because they take `p` and nothing else positional.
+
+**Two things are not downstream of `p` today, and they go opposite ways (H2).**
+
+* **The clip must stay at `gl_FragCoord.xy`.** `Paint.clip` is defined in *surface*
+  pixels (plan-116-B §Non-goals), so a group's translation moves the shape and not the
+  clip rectangle. It already reads `gl_FragCoord.xy` / `in.pos.xy`; leave it.
+* **The gradient must MOVE to `p`, and does not read it today.** plan-116-F evaluates
+  the ramp at the surface point — `gradientColour(gl_FragCoord.xy)`
+  (`mfb_canvas.frag:442`), `gradientColour(in.pos.xy, …)` in MSL, and `px`/`py` against
+  `gradFX`/`gradFY` in the oracle (`helper_items.rs`) — against an axis authored in the
+  item's own coordinates. Under a translation those disagree: the shape moves and the
+  ramp does not, so a group drawn at an offset shows its gradient sliding across it,
+  and the same group drawn twice at two offsets shows two *different* pictures. Switch
+  all three to `p`.
+
+Both are one line per renderer, and neither is a reasoning step — **Phase 2 and Phase 3
+must each test the clipped case and the gradient case.** The diamond scene is the sharp
+one for the gradient: one group, two offsets, and the two draws must be the same
+picture translated.
 
 ### 4.3 The predicates
 
@@ -306,7 +321,8 @@ Vulkan first, as in plan-116-A, because glslang gives measured reflection.
       caps to sum over the resolved tree per §4.3.
 - [ ] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
       `(37, 53)` matches the oracle; a nested group matches; a diamond matches; a
-      **clipped** item inside a translated group matches (the §4.2 clip case).
+      **clipped** item inside a translated group matches (the §4.2 clip case); and a **gradient-filled** item inside a translated
+      group matches (the §4.2 gradient case, **H2** — it fails today).
 
 Acceptance: all five scenes match the software oracle within
 `Tolerance::GPU_DEFAULT` with `MFB_CANVAS_STATS` reporting `vulkanReady=TRUE`. The
@@ -322,7 +338,8 @@ Commit: —
 - [ ] Convert the Metal emitter to walk `__canvas_sceneDraws`, issuing one
       `drawPrimitives:vertexStart:vertexCount:instanceCount:` per draw entry.
 - [ ] Remove the `Group` decline from `__canvas_metalRenderable`; update its caps.
-- [ ] Tests: the same five scenes in `tests/rt_canvas_metal.rs`.
+- [ ] Tests: the same six scenes in `tests/rt_canvas_metal.rs` — five, plus the
+      gradient-in-a-translated-group case (**H2**).
 
 Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`.
@@ -387,6 +404,42 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H2 (2026-09-03, pre-execution) — §4.2's list of "everything downstream of `p`" names
+the gradient, and the gradient is not downstream of `p`.** The sentence reads *"every
+distance function, the coverage rule, the stroke band, the clip test, the gradient
+parameter — is unchanged, because they all take `p` and nothing else positional"*, then
+flags the clip as the single exception. Two errors in one sentence: the clip is not
+"downstream of `p`" either (that is why it is the exception), and neither is the
+gradient — but for the opposite reason and with the opposite fix.
+
+Measured. plan-116-F landed the ramp evaluated at the **surface** point on all three
+renderers:
+
+* `grep -n 'gradientColour(' src/codegen/runtime/canvas/shaders/mfb_canvas.frag`
+  → `:442  ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(gl_FragCoord.xy) : item.fill;`
+* the MSL twin passes `in.pos.xy`
+  (`grep -n 'gradientColour(in.pos.xy' src/target/macos_aarch64/app/metal.rs`)
+* the oracle uses the loop's `px`/`py` against `gradFX`/`gradFY`
+  (`sed -n 500,510p src/codegen/builtins/canvas/helper_items.rs`)
+
+and the axis itself comes from the item's own geometry record, authored in the item's
+coordinates. Untranslated those coincide, which is why plan-116-F is correct and its
+goldens pass. Under a group offset they do not: the shape is drawn at `+ (dx, dy)` and
+the ramp is not, so the gradient slides across the shape — and a **diamond**, one group
+drawn at two offsets, renders two different pictures from one buffer, which is the
+property this whole letter is arranged around.
+
+The fix is one line per renderer (evaluate the ramp at `p`), so this is cheap — but
+only if it is *done*. Left as §4.2 reads, an executor checks the sentence, sees the
+gradient listed as already handled, and ships it. Recorded as a task in Phase 2 and
+Phase 3 with the diamond named as the test that can see it.
+
+Note the asymmetry is real and worth stating in the spec when H lands: a **clip** is a
+surface rectangle and does not move with a group; a **gradient** is part of the item's
+paint and does. `src/docs/spec/app/06_canvas.md`'s gradient subsection (plan-116-F)
+currently says the ramp is "measured in surface pixels", which will need the group
+qualification.
 
 **H1 (2026-09-03, pre-execution) — one of this letter's three `helper_render.rs`
 citations is stale; the other two are exact.** `:180` is given as the Metal
