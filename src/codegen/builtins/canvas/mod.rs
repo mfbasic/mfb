@@ -351,12 +351,21 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "Linear",
-                description: "Interpolate along the line from `from` to `to`. The zero value.",
+                description: "Interpolate along the line from `startPoint` to \
+                              `endPoint`. A point's position on the ramp is its \
+                              distance ALONG that line, so the ramp runs in the \
+                              direction of the axis and is constant across it. The \
+                              zero value.",
                 advisory: None,
             },
             EnumVariant {
                 name: "Radial",
-                description: "Interpolate outward from `from`, reaching the last stop on the circle through `to`.",
+                description: "Interpolate outward from `startPoint`, reaching the last \
+                              stop on the circle through `endPoint`. A point's \
+                              position on the ramp is its distance FROM the centre \
+                              over that radius, so the ramp is circular whatever shape \
+                              it fills — an ellipse's radial gradient does not become \
+                              elliptical.",
                 advisory: None,
             },
         ],
@@ -500,8 +509,11 @@ pub(crate) fn register(r: &mut Registry) {
                       is a flat colour you should write as `canvas::fill`, and zero \
                       stops name no colour at all. The ramp is measured in surface \
                       pixels, so it composes with `canvas::Paint.transform` the same \
-                      way the shape does, and colours are blended the way everything \
-                      else on the surface is — see `mfb spec app canvas`.",
+                      way the shape does. Colours between two stops are mixed in \
+                      **linear light**, the same space everything else on the surface \
+                      is blended in, so a black-to-white ramp is evenly bright across \
+                      its width rather than dark for most of it — see \
+                      `mfb spec app canvas`.",
         props: vec![
             RecordProp {
                 name: "kind",

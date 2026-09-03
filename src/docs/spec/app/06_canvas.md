@@ -227,6 +227,46 @@ multiplied into the shape's coverage as `(coverage * clipCoverage) / 255`. A cli
 edge is therefore antialiased exactly as a shape edge is, and clipping a shape to a
 rectangle larger than it changes nothing.
 
+**`Paint.fillGradient` replaces an item's fill colour with a ramp.** It replaces the
+*colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
+mode are exactly what they would be with a flat `Paint.fill`. A stroke is never a
+gradient — an outline is one colour.
+
+A gradient with **fewer than two stops is not a gradient** and `Paint.fill` is used
+instead, which is what makes the all-zero `Gradient` inert like every other `Paint`
+field. A `Text` item ignores the field: a glyph is drawn from a cached coverage bitmap,
+and the cache is keyed by glyph and size, so a gradient would either be baked into the
+cache or key it per colour.
+
+The ramp position `t` at a surface point `p` is measured in **surface pixels**, from the
+gradient's own `startPoint` and `endPoint` and never from the shape's bounds:
+
+| `GradientKind` | `t` |
+|---|---|
+| `Linear` | `dot(p - startPoint, endPoint - startPoint) / dot(endPoint - startPoint, endPoint - startPoint)` |
+| `Radial` | `length(p - startPoint) / length(endPoint - startPoint)` |
+
+`t` is then clamped to `0.0`..`1.0`. A zero-length axis leaves `t` at `0`, so the first
+stop's colour fills the shape — defined, rather than a division by zero.
+
+Measuring in surface pixels is what makes a radial gradient stay **circular** inside an
+`Ellipse` rather than becoming elliptical, and what makes the ramp compose with
+`Paint.transform` the same way the shape does rather than being dragged around by it.
+
+**Stops are used in the order given.** They are not sorted. An `offset` outside
+`0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset
+instead — so a stop given out of order produces a hard edge there, which is visible and
+diagnosable, where sorting would silently draw a picture the program did not describe.
+Before the first stop and after the last, that end stop's colour holds; neither end
+extrapolates.
+
+**A gradient interpolates in linear light**, the same space compositing uses, through
+the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
+to linear, mixed, and re-encoded. A black-to-white ramp is therefore evenly bright
+across its width; mixing the encoded bytes directly would make it dark for most of its
+length, which is the same error as blending encoded bytes and is just as plausible-
+looking.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with

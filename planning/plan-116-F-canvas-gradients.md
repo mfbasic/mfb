@@ -495,20 +495,20 @@ canvas` 71/71.
 
 Two defects were found here rather than reasoned about, both of which drew a *plausible
 wrong picture* rather than failing — see **F7** and **F8**.
-Commit: —
+Commit: 8c4fa49a6
 
 ### Phase 5 — Docs and gates
 
-- [ ] `mod.rs` — the three types, their props, and `Paint.fillGradient`. State the
+- [x] `mod.rs` — the three types, their props, and `Paint.fillGradient`. State the
       fewer-than-two-stops no-op, the offset clamping, that stops are **not** sorted,
       that interpolation is in linear light, and that `Text` has no gradient fill.
-- [ ] `src/docs/spec/app/06_canvas.md` — a gradient subsection under §"Rendering
+      This also corrected two stale variant descriptions (**F10**).
+- [x] `src/docs/spec/app/06_canvas.md` — a gradient subsection under §"Rendering
       conventions" with the two `t` formulas and the interpolation space.
-- [ ] A worked example on `canvas::fill` or `canvas::fillStroke` showing a gradient;
-      both are already in `MEMBERS`
-      (`sed -n 23,37p tests/cli_canvas_man_examples_compile.rs`).
-- [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
-      `scripts/man-run-examples.sh canvas --run` passes.
+- [x] A worked example on `canvas::fill` showing a gradient, linear and radial.
+- [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
+      `scripts/man-run-examples.sh canvas --run` → `examples: 23 built: 23 ran: 23
+      failed: 0`; `--fill canvas` → 19/19 pages, 31/31 params, 106/106 type fields.
 - [ ] `scripts/regen-ncodesum.sh`; prove the delta is this letter's.
 
 Acceptance: `cargo test --no-fail-fast` green on mac+RELEASE and linux+DEBUG,
@@ -546,6 +546,16 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+**F10 — `GradientKind`'s two variant descriptions named fields the record does not
+have.** Both were written in Phase 1 against `from`/`to` and never updated when
+Correction **F2** renamed those to `startPoint`/`endPoint` (`TO` is a case-insensitive
+keyword, so `Gradient.to` would not parse). `mfb man canvas types` rendered
+"Interpolate along the line from `from` to `to`" — a reader following it writes a
+program that does not compile. No compiler gate could catch this: the prose fields are
+`&'static str` the compiler never reads, which is exactly the hazard `AGENTS.md`
+records for man content. Both now name the real fields, and each states what `t`
+measures, so the two variants are distinguishable from the enum page alone.
 
 **F7 — the Metal gradient cursor was zeroed per ITEM, not per frame, and with the
 header pointer.** A `store_u64(SCRATCH[0], sp, OFF_GRAD_CURSOR)` landed inside
