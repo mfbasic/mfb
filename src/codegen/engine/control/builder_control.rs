@@ -238,12 +238,19 @@ impl CodeBuilder<'_> {
         // G11 — single element (item type == element type) vs bulk concatenation
         // (item type == the whole list type).
         //
-        // NOTE: this asks the NARROW `static_type_name`, where the plain-local,
-        // bulk, set-add, remove-key, list-set and record-field arms all ask
-        // `static_item_type`. That is a defect, not a design choice — see
-        // `planning/plan-121-gate-inventory.md` §"DEFECT FOUND". It is widened in
-        // plan-121-A Phase 2b, kept here so THIS commit stays byte-identical.
-        let bulk = match self.static_type_name(&target.args[1]) {
+        // `static_item_type`, not `static_type_name`: the narrow helper's
+        // `NirValue::Call` arm is a hand-written table of a few builtin names and
+        // answers `None` for EVERY user function, so
+        // `f.state.xs = append(f.state.xs, someFunc(x))` fell off this path
+        // entirely — not even reaching the bulk grow — and rebuilt the whole STATE
+        // block per element (O(n²)), while the identical record-field program was
+        // fast. This was the one gate site the widening never reached; see
+        // `planning/plan-121-gate-inventory.md` §"DEFECT FOUND". Reading a
+        // callee's declared `returns` is exactly as static as reading a local's
+        // declared type, and the `field_type` arm below still separates a whole
+        // `List OF T` result from a `T` one, so the widening cannot reclassify a
+        // concatenation as a single element.
+        let bulk = match self.static_item_type(&target.args[1]) {
             Some(t) if t == element_type => false,
             Some(t) if t == field_type => true,
             _ => return Ok(false),

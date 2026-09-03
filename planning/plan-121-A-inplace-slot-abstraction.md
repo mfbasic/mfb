@@ -383,20 +383,43 @@ declines the fast path. Full evidence in `planning/plan-121-gate-inventory.md`
 §"DEFECT FOUND". Separated from Phase 2 because it changes *which* programs are
 fast, and Phase 2's acceptance is byte-identity.
 
-- [ ] Add a RED codegen-inspection case to
+- [x] Add a RED codegen-inspection case to
       `tests/codegen_inplace_append_call_result.rs`: a state-field append of a
       user-call result must emit the in-place `append_inplace`/`inline_*` label.
       Confirm it FAILS before the fix.
-- [ ] Change `builder_control.rs:281` to `static_item_type`; the test goes green.
-- [ ] Add the bulk-negative case (a call returning the whole `List OF T` is a
+      **`state_field_append_of_a_user_call_result_grows_in_place` — confirmed RED
+      before the fix**, `cargo test --test codegen_inplace_append_call_result`:
+      `3 passed; 2 failed`, panicking on
+      `label_count(_mfb_fn_feed, "inline_append_write") >= 1`. Green after
+      (`5 passed; 0 failed`).
+- [x] Change `builder_control.rs:281` to `static_item_type`; the test goes green.
+- [x] Add the bulk-negative case (a call returning the whole `List OF T` is a
       concatenation, not a single element) so the widening cannot silently
       reclassify bulk as single.
-- [ ] Re-run the artifact gate: no golden may drift (no fixture exercises the
+      **`state_field_append_of_a_call_returning_a_list_takes_the_bulk_grow`** —
+      it asserts both halves: *no* `inline_append_write` (not a single element)
+      **and** at least one `inline_bulk_write` (so the widening routes it to the
+      concatenating grow rather than off the fast path entirely). A one-sided
+      negative would have passed even if the widening had broken the row.
+- [x] Re-run the artifact gate: no golden may drift (no fixture exercises the
       shape — Phase 1 recorded the census).
+      **Confirmed:** `artifact-gate [all]: 1327 tests, 1490 build(s),
+      1828 golden(s) checked, 0 diff(s)`. The census held — widening the gate
+      moved no fixture, so this behavior change is invisible to byte-identity.
+
+- [x] Correct the precedent test's doc comment, which enumerated the gate's
+      "set/map/record-field siblings" and silently omitted the STATE one — the
+      claim that made the missing site invisible. Added task: an enumeration in a
+      doc comment is a claim, and this is the file where it gets checked.
 
 Acceptance: the new state-field case fails at Phase 2's commit and passes after
 this one; `cargo test --no-fail-fast` green; `.ncode`/`.ncodesum` still
 byte-identical to the Phase 1 baseline.
+
+**MET.** RED→GREEN shown above; the full suite and the artifact gate are the same
+runs recorded under Phase 2 (both phases were verified together after the
+`op`→`builtin` rename): 4465 passed / 0 failed, and `1828 golden(s) checked,
+0 diff(s)`.
 Commit: —
 
 ### Phase 3 — Prove the seam is reusable, without adding a fast path

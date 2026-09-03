@@ -250,6 +250,17 @@ byte-identity — mixing them would make a clean gate unreadable. It is landed a
 **Phase 2b**, immediately after Phase 2's gate passes, with a RED-first
 codegen-inspection test. Recorded in plan-121-A Corrections.
 
+**MEASURED — the defect is worse than "misclassified as bulk".** Both new tests
+were confirmed RED before the fix (`cargo test --test
+codegen_inplace_append_call_result` → `3 passed; 2 failed`). The informative one
+is the bulk case: its *first* assertion (no single-element `inline_append_write`)
+**passed**, and its *second* (at least one `inline_bulk_write`) **failed**. So
+`f.state.raw = append(f.state.raw, chunk(v))` was not being routed down the wrong
+grow — it was falling off the in-place path **entirely**, into the whole-STATE-block
+rebuild, for both the single-element and the whole-list shapes. A one-sided
+negative test would have passed against the broken compiler; that is why the
+bulk case asserts both halves.
+
 ---
 
 ## The `removeAt` asymmetry (forward reference, plan-121-B §3)
