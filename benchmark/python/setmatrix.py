@@ -95,15 +95,35 @@ def run_all(run, now_ns_fn, record_fn):
         emit("difference", alg(lambda a, b: a - b), lambda: _build(ty, S["alg_n"]))
         emit("symmetricDifference", alg(lambda a, b: a ^ b), lambda: _build(ty, S["alg_n"]))
 
-        def pred(fn):
+        # plan-121-E: these predicates used to run against a partially
+        # overlapping `other` and were FALSE on every call, so each language
+        # early-exited at whatever point ITS OWN iteration order met the single
+        # counterexample -- C walked its hash slot array and stopped after 2-3
+        # probes where mfb, walking in entry order, did 501. Same answer, 250x
+        # the work, and the row reported iteration order rather than throughput.
+        #
+        # Now every predicate is TRUE, which forces a FULL scan everywhere: there
+        # is no counterexample to meet early or late. `other` is chosen per
+        # predicate to make that so, at the same `alg_n` size all three languages
+        # already shared.
+        def _pred(fn, other_fn):
             def run(base):
-                other = _build(ty, S["alg_n"], S["alg_sh"])
+                other = other_fn()
                 acc = 0
                 for _ in range(S["k_pred"]):
                     if fn(base, other):
                         acc += 1
                 return acc
             return run
-        emit("isSubset", pred(lambda a, b: a <= b), lambda: _build(ty, S["alg_n"]))
-        emit("isSuperset", pred(lambda a, b: a >= b), lambda: _build(ty, S["alg_n"]))
-        emit("isDisjoint", pred(lambda a, b: a.isdisjoint(b)), lambda: _build(ty, S["alg_n"]))
+
+        # subset/superset: compare the set with itself -> TRUE, full scan.
+        def pred_same(fn):
+            return _pred(fn, lambda: _build(ty, S["alg_n"]))
+
+        # disjoint: shift clear of the base by its own size -> TRUE, full scan.
+        def pred_disj(fn):
+            return _pred(fn, lambda: _build(ty, S["alg_n"], S["alg_n"]))
+
+        emit("isSubset", pred_same(lambda a, b: a <= b), lambda: _build(ty, S["alg_n"]))
+        emit("isSuperset", pred_same(lambda a, b: a >= b), lambda: _build(ty, S["alg_n"]))
+        emit("isDisjoint", pred_disj(lambda a, b: a.isdisjoint(b)), lambda: _build(ty, S["alg_n"]))

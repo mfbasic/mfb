@@ -96,15 +96,23 @@ static void run_iset(const char *group, const char *pfx) {
     free(b); }
   { ISet *b = iset_new(); for (int i = 0; i < S.alg_n; i++) iset_add(b, i);
     ISet *o = iset_new(); for (int i = 0; i < S.alg_n; i++) iset_add(o, i + S.alg_sh);
+    /* plan-121-E: fully disjoint from `b`, for the TRUE `isDisjoint` form. */
+    ISet *d = iset_new(); for (int i = 0; i < S.alg_n; i++) iset_add(d, i + S.alg_n);
     ROW("toSet", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { ISet *r = iset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) iset_add(r, b->k[s2]); a += r->n; free(r); } checksum = a; });
     ROW("union", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { ISet *r = iset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) iset_add(r, b->k[s2]); for (int s2 = 0; s2 < SCAP; s2++) if (o->used[s2] == 1) iset_add(r, o->k[s2]); a += r->n; free(r); } checksum = a; });
     ROW("intersection", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { ISet *r = iset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && iset_has(o, b->k[s2])) iset_add(r, b->k[s2]); a += r->n; free(r); } checksum = a; });
     ROW("difference", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { ISet *r = iset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && !iset_has(o, b->k[s2])) iset_add(r, b->k[s2]); a += r->n; free(r); } checksum = a; });
     ROW("symmetricDifference", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { ISet *r = iset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && !iset_has(o, b->k[s2])) iset_add(r, b->k[s2]); for (int s2 = 0; s2 < SCAP; s2++) if (o->used[s2] == 1 && !iset_has(b, o->k[s2])) iset_add(r, o->k[s2]); a += r->n; free(r); } checksum = a; });
-    ROW("isSubset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sub = 1; for (int s2 = 0; s2 < SCAP && sub; s2++) if (b->used[s2] == 1 && !iset_has(o, b->k[s2])) sub = 0; a += sub; } checksum = a; });
-    ROW("isSuperset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sup = 1; for (int s2 = 0; s2 < SCAP && sup; s2++) if (o->used[s2] == 1 && !iset_has(b, o->k[s2])) sup = 0; a += sup; } checksum = a; });
-    ROW("isDisjoint", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int dis = 1; for (int s2 = 0; s2 < SCAP && dis; s2++) if (b->used[s2] == 1 && iset_has(o, b->k[s2])) dis = 0; a += dis; } checksum = a; });
-    free(b); free(o); }
+    /* plan-121-E: the predicates take a TRUE form so every language scans the
+     * WHOLE set. Previously all three were FALSE and every language early-exited
+     * at whatever point its own iteration order met the counterexample -- C walks
+     * the hash SLOT array and stopped after 2-3 probes where mfb, walking in
+     * entry order, did 501. Same answer, 250x the work. `d` is disjoint from `b`;
+     * subset/superset compare `b` with itself. */
+    ROW("isSubset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sub = 1; for (int s2 = 0; s2 < SCAP && sub; s2++) if (b->used[s2] == 1 && !iset_has(b, b->k[s2])) sub = 0; a += sub; } checksum = a; });
+    ROW("isSuperset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sup = 1; for (int s2 = 0; s2 < SCAP && sup; s2++) if (b->used[s2] == 1 && !iset_has(b, b->k[s2])) sup = 0; a += sup; } checksum = a; });
+    ROW("isDisjoint", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int dis = 1; for (int s2 = 0; s2 < SCAP && dis; s2++) if (b->used[s2] == 1 && iset_has(d, b->k[s2])) dis = 0; a += dis; } checksum = a; });
+    free(b); free(o); free(d); }
 }
 
 static void run_sset(const char *group, const char *pfx) {
@@ -119,15 +127,18 @@ static void run_sset(const char *group, const char *pfx) {
     sset_free(b); }
   { SSet *b = sset_new(); for (int i = 0; i < S.alg_n; i++) { snprintf(buf, sizeof buf, "s%d", i); sset_add(b, buf); }
     SSet *o = sset_new(); for (int i = 0; i < S.alg_n; i++) { snprintf(buf, sizeof buf, "s%d", i + S.alg_sh); sset_add(o, buf); }
+    /* plan-121-E: fully disjoint from `b`, for the TRUE `isDisjoint` form. */
+    SSet *d = sset_new(); for (int i = 0; i < S.alg_n; i++) { snprintf(buf, sizeof buf, "s%d", i + S.alg_n); sset_add(d, buf); }
     ROW("toSet", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { SSet *r = sset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) sset_add(r, b->k[s2]); a += r->n; sset_free(r); } checksum = a; });
     ROW("union", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { SSet *r = sset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) sset_add(r, b->k[s2]); for (int s2 = 0; s2 < SCAP; s2++) if (o->used[s2] == 1) sset_add(r, o->k[s2]); a += r->n; sset_free(r); } checksum = a; });
     ROW("intersection", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { SSet *r = sset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && sset_has(o, b->k[s2])) sset_add(r, b->k[s2]); a += r->n; sset_free(r); } checksum = a; });
     ROW("difference", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { SSet *r = sset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && !sset_has(o, b->k[s2])) sset_add(r, b->k[s2]); a += r->n; sset_free(r); } checksum = a; });
     ROW("symmetricDifference", { long long a = 0; for (int k = 0; k < S.k_alg; k++) { SSet *r = sset_new(); for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1 && !sset_has(o, b->k[s2])) sset_add(r, b->k[s2]); for (int s2 = 0; s2 < SCAP; s2++) if (o->used[s2] == 1 && !sset_has(b, o->k[s2])) sset_add(r, o->k[s2]); a += r->n; sset_free(r); } checksum = a; });
-    ROW("isSubset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sub = 1; for (int s2 = 0; s2 < SCAP && sub; s2++) if (b->used[s2] == 1 && !sset_has(o, b->k[s2])) sub = 0; a += sub; } checksum = a; });
-    ROW("isSuperset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sup = 1; for (int s2 = 0; s2 < SCAP && sup; s2++) if (o->used[s2] == 1 && !sset_has(b, o->k[s2])) sup = 0; a += sup; } checksum = a; });
-    ROW("isDisjoint", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int dis = 1; for (int s2 = 0; s2 < SCAP && dis; s2++) if (b->used[s2] == 1 && sset_has(o, b->k[s2])) dis = 0; a += dis; } checksum = a; });
-    sset_free(b); sset_free(o); }
+    /* plan-121-E: TRUE form, see the Integer block above. */
+    ROW("isSubset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sub = 1; for (int s2 = 0; s2 < SCAP && sub; s2++) if (b->used[s2] == 1 && !sset_has(b, b->k[s2])) sub = 0; a += sub; } checksum = a; });
+    ROW("isSuperset", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int sup = 1; for (int s2 = 0; s2 < SCAP && sup; s2++) if (b->used[s2] == 1 && !sset_has(b, b->k[s2])) sup = 0; a += sup; } checksum = a; });
+    ROW("isDisjoint", { long long a = 0; for (int k = 0; k < S.k_pred; k++) { int dis = 1; for (int s2 = 0; s2 < SCAP && dis; s2++) if (b->used[s2] == 1 && sset_has(d, b->k[s2])) dis = 0; a += dis; } checksum = a; });
+    sset_free(b); sset_free(o); sset_free(d); }
 }
 
 void run_setmatrix_group(void) {

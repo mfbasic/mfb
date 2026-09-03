@@ -191,12 +191,46 @@ for _n in ('union', 'intersection', 'difference', 'symmetricDifference'):
     _binary(_n)
 
 
+# plan-121-E: the three set predicates USED to run at `ro_n`/`ro_sh` against a
+# partially-overlapping `other`, which was wrong twice over.
+#
+#  1. WRONG SIZE. C (`setmatrix.c`) and Python (`setmatrix.py`) both build these
+#     rows from `alg_n`/`alg_sh`; only mfb used `ro_n`/`ro_sh`, so it compared
+#     sets 3.3x larger (Integer) than its peers. A templating slip -- `_pred` was
+#     written from the `contains`/`toList` shape, which legitimately uses `ro_n`,
+#     instead of from `_binary` above, which correctly uses `alg_n`.
+#
+#  2. EARLY-EXIT LUCK. The predicate was FALSE on every call, so all three
+#     languages searched for one counterexample and stopped -- and they meet it at
+#     different points, because C walks its hash SLOT array while mfb walks the
+#     set in ENTRY order. Measured (plan-121-E Phase 1): per call C did 2 probes
+#     for `isSuperset` and 3 for `isDisjoint`; mfb did 501 of each. The rows were
+#     reporting iteration order, not throughput.
+#
+# Both are fixed here. The predicate is now TRUE in every case, which forces a
+# FULL scan in all three languages and removes early-exit luck entirely -- there
+# is no counterexample to find early or late. `other` is chosen per predicate to
+# make it so, at the shared `alg_n` size:
+#
+#     isSubset(base, other)   other == base            -> TRUE, scans all alg_n
+#     isSuperset(base, other) other == base            -> TRUE, scans all alg_n
+#     isDisjoint(base, other) other == base + alg_n    -> TRUE, scans all alg_n
+#
+# Every probe now hits (subset/superset) or misses (disjoint) and the loop always
+# runs to completion, so the three languages examine exactly the same number of
+# elements. The checksum changes from 0 to k_pred, which is the point: a checksum
+# of 0 was the signal that the predicate never held.
+_PRED_SHIFT = {'isSubset': 0, 'isSuperset': 0, 'isDisjoint': None}
+
+
 def _pred(name):
     @op(name)
     def _(c, E):
-        return ro(c, E, _bld(E, E['ro_n']), E['k_pred'],
+        sh = _PRED_SHIFT[name]
+        shift = E['alg_n'] if sh is None else sh
+        return ro(c, E, _bld(E, E['alg_n']), E['k_pred'],
                   lambda L: [f'IF collections::{name}({L}, other) THEN', '  acc = acc + 1', 'END IF'],
-                  extra_outside=[f'LET other AS Set OF {E["ty"]} = {_oth(E, E["ro_n"], E["ro_sh"])}'])
+                  extra_outside=[f'LET other AS Set OF {E["ty"]} = {_oth(E, E["alg_n"], shift)}'])
 
 
 for _n in ('isSubset', 'isSuperset', 'isDisjoint'):

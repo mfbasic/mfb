@@ -216,3 +216,41 @@ Rules for reading a result:
    score justifies the schedule.
 4. **`RED` before `F`.** A grade-F row with no RED flag may just be a missing
    optimisation; a RED row is a defect.
+
+## Early-exit predicates: probe-count before you believe the ratio
+
+A large ratio on a row whose operation **early-exits** is not evidence of slow
+code until the *work* has been counted. Such a row can satisfy the suite's
+work-equivalence rule — same inputs, same answer, matching checksums — while the
+languages examine completely different numbers of elements, because each stops at
+the first counterexample and each meets it at a different point in its own
+iteration order.
+
+This is not hypothetical. Before plan-121-E, `isSuperset` and `isDisjoint` were
+FALSE on every call. Measured probes per call:
+
+| predicate | C | mfb |
+|---|---|---|
+| `isSubset` | 1 | 1 |
+| `isSuperset` | 2 | 501 |
+| `isDisjoint` | 3 | 501 |
+
+C walks its hash **slot** array; mfb walks the set in **entry** order. The rows
+graded F/RED at 265–412×, of which essentially all was probe count: at 19.4
+ns/probe against C's 13.3, mfb was **1.5–2.4× per probe**, not 265×.
+
+`isSubset` is the tell. It does one probe in both languages and grades A/S — same
+builtin, same `contains`, same set type. When one predicate in a family is fine
+and its siblings are catastrophic, suspect the work, not the code.
+
+**Rules:**
+
+1. **A checksum of `0` on a predicate row means the predicate never held**, so
+   every call early-exited. Treat any large ratio on such a row as unproven.
+2. **Count the probes before filing a plan against the implementation.** A
+   ~20-line instrumented copy of each peer answers it in minutes and is the
+   difference between fixing a benchmark and optimizing something that is not
+   slow.
+3. **Prefer a TRUE predicate.** It forces a full scan in every language and
+   removes the luck permanently; matching iteration order across three different
+   set implementations is not achievable.
