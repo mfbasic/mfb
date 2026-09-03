@@ -473,3 +473,52 @@ Three seams the plan did not know about were found and closed: the
 `ADDED_SINCE_MIGRATION` guard (C4), the `errors:` declarations that drive the
 rendered Errors tables and are gated by nothing (C7), and a `get`-to-`stringify`
 copy-paste in a parameter description (C5).
+
+## Family merge-back (all seven letters)
+
+`main` had advanced by 53 commits while plan-120 ran, so it was merged into
+`worktree-P-120` and every gate re-run on the merged tree before landing.
+
+**Nine conflicts, all `.ncodesum`** — five `crypto_codegen_cover_rt` and four
+`crypto-ec-valid`. Both sides had legitimately changed them: plan-120-E's
+indirect-call tag check on this branch (it adds a check at every call through a
+`FUNC`-typed value, and crypto's callbacks are such calls), and main's own work.
+A `.ncodesum` is a drift sentinel rather than a behavioural test, so neither
+side's text is the answer — the value for the merged code is. They were
+regenerated from the merged tree, and `regen-ncodesum.sh` refreshing 141 goldens
+while changing exactly those 9 is the evidence that the merge disturbed nothing
+else.
+
+| Gate, on the merged tree | Result |
+|---|---|
+| `cargo test --no-fail-fast` | **4477 passed, 0 failed** |
+| `scripts/test-accept.sh` | **1351 test(s) ran, 0 mismatches** |
+| `scripts/artifact-gate.sh all` | **1330 tests, 1493 build(s), 1834 golden(s), 0 diff(s)** |
+| acceptance TESTING app | **758 / 758** |
+| `cargo fmt --all` + the `repository/` workspace | clean |
+
+### What the family delivered
+
+Seven letters, all seven closed:
+
+| Letter | Change |
+|---|---|
+| A | `ErrDepthExceeded` / `ErrInvalidSurrogate`, six re-pointed FAIL sites |
+| B | array traversal in `get`/`getOr`, by decimal index |
+| C | `JSON.stringify`'s byte shape: no `\/`, `-0` renders `0` |
+| D | `stringify(value, indent)` pretty-printing |
+| E | `parse(text, reviver)` — and the indirect-call error-propagation fix it uncovered |
+| F | correctly-rounded `toFloat(String)` (Eisel–Lemire + exact fallback) |
+| G | ECMAScript number rendering, byte-identical to `JSON.stringify` |
+
+Two compiler defects were found and fixed along the way that no letter set out
+to find: **errors did not propagate out of a call through a `FUNC`-typed value**
+(E-C1 — silently wrong for a scalar return, SIGSEGV for a pointer-typed one),
+and **`toFloat` was not correctly rounded** (F, the root of the review's I3).
+The first was found because a reviver needed to be able to fail; the second
+because G's rendering could not be verified without it.
+
+The two interop probes that motivated the family both close:
+`same=30 different=0 render-fail=0`, where the 2026-09-01 review recorded
+`1e-7` reading back as a *different* double in Node and `1e-30`/`5e-324` having
+no JSON form at all.
