@@ -385,11 +385,31 @@ Depth is counted per *path*, not per node, so a diamond (two parents naming one 
 is legal and cheap.
 
 **The frame skip (§2's problem).** The comparison `publishScene` makes must include,
-for each resolved group node, that group's **current `revision`**. Concretely: the
-resolution pass writes `(slotIndex, revision)` into the published node, and the content
-comparison sees a changed revision as a changed scene. So `setGroup` followed by
-`present` with an unchanged list republishes and redraws; `present` twice with no
-`setGroup` between still skips.
+for each resolved group node, that group's **current `revision`**. So `setGroup`
+followed by `present` with an unchanged list republishes and redraws; `present` twice
+with no `setGroup` between still skips.
+
+**Not, however, "written into the published node" — there is nowhere to write it
+(G8).** `Group` is `dx AS Float`, `dy AS Float`, `name AS String`; the published node is
+a copy of that record and has no slot for a slot index or a revision, and adding two
+fields for the renderer's use would put them on the user's constructor. Nor can the
+`name` pointer carry the signal: two presents of the same scene reuse the same string,
+so it compares equal precisely when the revision needs to say otherwise.
+
+`publishScene` compares the **raw bytes of the `DrawItem` list's data region**
+(`emit_compare_bytes_branch` in `gen_present.rs`, over `capacity * stride` bytes), so
+anything the skip must see has to be inside those bytes or inside a second block
+compared alongside them.
+
+**Publish a parallel resolved-groups signature and compare it too** — a
+`List OF Integer` of `(slotIndex, revision)` pairs, one pair per resolved group node in
+scene order, built by the §4.4 walk. `publishScene` compares the items *and* the
+signature, publishing both or neither. A scene with no groups gets an empty signature
+and compares exactly as it does today, so nothing that does not use groups changes.
+
+Note this cannot reuse `publishHashes`, which looks like the same shape: `__canvas_present`
+calls `publishScene` first and `publishHashes` only inside the `IF`, so the hashes are
+written *after* the skip has already been decided (`sed -n 88,92p func_present.rs`).
 
 This also means **`setGroup` alone does not repaint** — it takes effect at the next
 `present`. That is the right semantics (it matches `present` being the install point
@@ -572,8 +592,10 @@ Commit: —
       nesting alongside `json::parse`. Re-check the code is still that constant before
       you rely on it; codes race between sessions and grepping the *name* never proves
       the *code*.
-- [ ] Fold each resolved group's `revision` into the published node so the content
-      comparison sees a `setGroup` as a change.
+- [ ] Fold each resolved group's `revision` into a **parallel signature block** that
+      `publishScene` compares alongside the items — not into the published node, which
+      has no room for it (§4.4, **G8**). An empty signature for a group-free scene must
+      compare exactly as today.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
 - [ ] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
@@ -710,6 +732,32 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G8 (2026-09-03, pre-execution) — §4.4's revision has nowhere to live.** The section
+says *"the resolution pass writes `(slotIndex, revision)` into the published node"*.
+The published node is a copy of a `Group` record, and §Goal defines that record as
+`dx AS Float`, `dy AS Float`, `name AS String` — three fields, no spare words. Adding
+two would put renderer bookkeeping on the user's constructor, which MFBASIC named
+construction makes mandatory to supply.
+
+Nor can the existing bytes carry it. `publishScene` compares the raw data region of the
+`DrawItem` list (`emit_compare_bytes_branch`, `sed -n 200,228p
+src/codegen/builtins/canvas/gen_present.rs`), and a `Group` node's bytes are its two
+floats and a string **pointer** — the same pointer on every present of the same scene,
+which is exactly when the revision needs to differ.
+
+Recommended and written into §4.4: publish a parallel `List OF Integer` signature of
+`(slotIndex, revision)` pairs and have `publishScene` compare it alongside the items,
+publishing both or neither. A group-free scene gets an empty signature and behaves
+byte-for-byte as today, which is what keeps this letter's "no existing golden may move"
+non-goal true.
+
+The trap next to it: `publishHashes` looks like the block to reuse and is not.
+`__canvas_present` calls `publishScene` first and `publishHashes` only *inside* the
+resulting `IF`, so the hashes are written after the skip has been decided — a revision
+folded in there is read one present too late, which presents as "the screen updates on
+the present *after* the one that should have updated it". That is the §2 bug wearing a
+different hat.
 
 **G7 (2026-09-03, pre-execution) — "beside the scene ring's own reclaim" is the one
 place the group free must not go.** §4.3 and Phase 5 both site the free "at the top of
