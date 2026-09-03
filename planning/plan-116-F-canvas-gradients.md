@@ -688,6 +688,21 @@ fail, it **hangs** — the app process sat at `0:00.03` of CPU and 0% usage acro
 samples, never completing a frame, and had to be killed. With the fix in place the same
 test is green (9 passed in the gradient/stroke-only selection).
 
+**Is that the whole class?** Yes, checked both directions rather than assumed. The
+invariant is: a kind counts stops into slot 1 exactly when its `__canvas_tailFor` arm
+appends them.
+
+* Skipped in `paintHeader` after this fix: `TEXT`, `NONE`, `SEGMENT`, `ARC`.
+* `tailFor` arms that do **not** route through `__canvas_appendGradientTail`:
+  `Line` (`SEGMENT`), `Arc` (`ARC`), `Picture` and `Text`. `Picture`'s header is
+  `__canvas_emptyHeader()`, which sets slot 0 to `NONE`, so it is covered by the `NONE`
+  skip — that is why it was never broken.
+* Arms that *do* append: `Polygon`, `Rectangle`, `RoundedRect`, `Circle`, `Ellipse` —
+  kinds `POLYGON`, `RECT`, `RECT`, `CIRCLE`, `ELLIPSE`, none of them skipped.
+
+The two sets are now complements, so no kind counts a tail it does not write and none
+writes one it does not count.
+
 So the RED evidence for this correction is a hang rather than a pixel diff, which is
 stronger than what the test asserts. The test still asserts pixel equality, because that
 is the rule worth pinning — "a gradient changes nothing on a kind with no interior" —
