@@ -1,0 +1,16 @@
+REM plan-123-B: a character the selected codepage cannot spell is REJECTED, not
+REM substituted. U+4E16 has no windows-1252 byte, so this encode raises
+REM ErrInvalidFormat (7-705-0003) and the process exits non-zero.
+REM
+REM The encode is deliberately NOT wrapped in a TRAP: the point is that the raise
+REM escapes rather than a `?`, an HTML numeric reference, or some arbitrary byte
+REM being emitted in its place. Substituting is a caller policy, and this call does
+REM not make it for you.
+
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::hexEncode(encoding::codepageEncode(encoding::Codepage.Windows1252, "hi 世")))
+  RETURN 0
+END FUNC

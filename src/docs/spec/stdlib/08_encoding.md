@@ -1,7 +1,8 @@
 # Encoding Codecs
 
 The `encoding` package is a pure-MFBASIC source package that converts between raw
-bytes and text and between text and Unicode code units. It is built on the
+bytes and text, between text and Unicode code units, and between bytes and text in
+the legacy single-byte codepages. It is built on the
 built-in `bits` package (bitwise/shift/rotate primitives), `strings::toBytes`
 (the raw UTF-8 bytes of a `String`, the inverse of `toString(List OF Byte)`), and
 `collections`. [[src/codegen/builtins/encoding/mod.rs]]
@@ -14,7 +15,8 @@ instructions) owned by `./mfb man bits`.
 
 Outputs are standardized, so the native and Binary Representation execution paths
 produce identical results, and every encoder/decoder pair round-trips. Encoders
-are **total** except `uleb128Encode`, which rejects a negative value; decoders
+are **total** except `uleb128Encode`, which rejects a negative value, and
+`codepageEncode`, which rejects a character its codepage cannot spell; decoders
 fail closed with `ErrInvalidFormat` (`77050003`) on malformed input, so a `TRAP`
 can recover from bad data.
 
@@ -102,6 +104,49 @@ or a truncated sequence.
 - **`varintEncode`/`Decode`** map the signed value through ZigZag
   (`(n << 1) XOR (n >> 63)`) and then unsigned LEB128, so small-magnitude negative
   numbers stay short. Decoding reverses the ZigZag mapping.
+
+## Legacy single-byte codepages
+
+`codepageDecode`/`codepageEncode` move between a `List OF Byte` and a `String` in
+one of the `Codepage` members, so content that is not UTF-8 — a `windows-1252` page
+body, a `KOI8-R` mail part, an `IBM866` DOS file — can be read and written without
+a second package. `Codepage` is an `EXPORT ENUM` of the WHATWG Encoding Standard's
+**28 legacy single-byte labels** plus `Codepage.Utf8`.
+
+The table data is the standard's own: each codepage is one of the 27 distinct
+`index-<label>.txt` files vendored under `tools/codepage-index/`, generated into
+`helper_codepage_table.rs` by `scripts/gen_codepage_tables.py` and checked back
+against those files at test time. ISO-8859-8-I has no index of its own and shares
+ISO-8859-8's mapping — the two differ only in bidi display direction, not in the
+byte↔code-point mapping.
+
+- **Representation.** A codepage's high half is one 128-scalar `String` literal:
+  scalar *i* is the code point for byte `128 + i`. A byte the codepage leaves
+  undefined carries `U+FFFD`, which is unambiguous because the highest code point
+  across all 27 tables is `U+FB02`. `U+FFFD` is a table sentinel only; it is never
+  a decoded output value.
+- **Decoding** follows the standard's single-byte decoder. Bytes `0x00`–`0x7F` are
+  ASCII in every single-byte codepage and decode to themselves; `0x80`–`0xFF` index
+  the table. A byte the codepage leaves undefined raises `ErrInvalidFormat`
+  (`77050003`) rather than becoming `U+FFFD`, so a decode either spells the whole
+  input or fails — the standard's replacement-character error mode is a caller
+  policy, not this package's.
+- **Encoding** is the same table read backwards, and is exact: within any one index
+  no code point appears twice, so a character maps to at most one byte. A scalar
+  below `U+0080` emits its own byte; anything else is searched for in the table. A
+  character the codepage cannot spell — including a grapheme wider than one scalar,
+  and including `U+FFFD` itself, which must be rejected before the search or it
+  would match a table hole — raises `ErrInvalidFormat`.
+- **Round-trip.** For every single-byte `Codepage`, every byte sequence that decodes
+  without raising re-encodes to exactly those bytes.
+- **`Codepage.Utf8`** is not a single-byte codepage: both directions delegate to
+  `utf8Decode`/`utf8Encode`, so one call site can dispatch on a charset label
+  without a separate branch for the most common encoding.
+- **Out of scope here.** Resolving a charset *label* (`"windows-1252"` and the
+  standard's ~220 aliases) to a `Codepage`, and the multi-byte legacy encodings
+  (GBK, gb18030, Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR), whose four index
+  tables hold 67,302 mappings against these 3,342 and need a different
+  representation.
 
 ## See Also
 

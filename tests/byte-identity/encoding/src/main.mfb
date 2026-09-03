@@ -65,6 +65,20 @@ FUNC main() AS Integer
   s = s & encoding::utf8Decode(hb)
   s = s & encoding::utf8Decode(hi)
 
+  ' --- codepage decoding: List OF Byte -> String over the Codepage enum (plan-123-A) ---
+  ' Two single-byte variants with different table shapes (windows-1252 is full,
+  ' windows-874 has holes) plus the Utf8 delegation arm, so a codegen change to the
+  ' dispatch or the table lookup flips this fixture's .ncodesum.
+  s = s & encoding::codepageDecode(encoding::Codepage.Windows1252, [toByte(99), toByte(97), toByte(102), toByte(233)])
+  s = s & encoding::codepageDecode(encoding::Codepage.Windows874, [toByte(161), toByte(162)])
+  s = s & encoding::codepageDecode(encoding::Codepage.Utf8, eb)
+
+  ' --- codepage encoding: String -> List OF Byte, the same three arms (plan-123-B) ---
+  LET cpOut AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows1252, "café")
+  LET cpThai AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows874, "กข")
+  LET cpUtf AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Utf8, "hi")
+  acc = acc + len(cpOut) + len(cpThai) + len(cpUtf)
+
   io::print(toString(acc) & s)
   RETURN 0
 END FUNC

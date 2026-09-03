@@ -1,0 +1,10 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET a AS List OF Byte = encoding::codepageEncode()
+  LET b AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows1252)
+  LET c AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows1252, "x", "y")
+  LET d AS List OF Byte = encoding::codepageEncode("windows-1252", "x")
+  LET e AS List OF Byte = encoding::codepageEncode(encoding::Codepage.Windows1252, [toByte(65)])
+  RETURN 0
+END FUNC

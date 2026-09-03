@@ -1,0 +1,104 @@
+REM plan-123-A: `encoding::codepageDecode` over the WHATWG legacy single-byte
+REM codepages.
+REM
+REM The per-codepage lines are a WHOLE-RANGE differential, not a spot check: for
+REM every single-byte variant this walks all 128 high bytes 0x80-0xFF, counts the
+REM ones the codepage maps, and folds each mapped byte's code point into a
+REM POSITION-WEIGHTED sum. The weight is what makes it differential -- a table
+REM shifted by one byte keeps the same code points and the same mapped count but
+REM cannot keep the same sum. `codepage_digests_match_the_vendored_index_files`
+REM recomputes every line below from tools/codepage-index/ and compares it against
+REM this fixture's golden, so the golden cannot be blessed wrong.
+
+IMPORT io
+IMPORT encoding
+IMPORT collections
+IMPORT errorCode
+
+' The code point byte `b` decodes to in `cp`, or -1 when `cp` leaves it unmapped.
+' Any other failure answers -2, so a wrong error code cannot pass as a hole.
+FUNC codepointOf(cp AS encoding::Codepage, b AS Integer) AS Integer
+  LET one AS List OF Byte = [toByte(b)]
+  LET text AS String = encoding::codepageDecode(cp, one)
+  LET points AS List OF Integer = encoding::utf32Encode(text)
+  RETURN collections::get(points, 0)
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
+FUNC digest(name AS String, cp AS encoding::Codepage) AS Nothing
+  MUT mapped AS Integer = 0
+  MUT sum AS Integer = 0
+  MUT b AS Integer = 128
+  WHILE b < 256
+    LET point AS Integer = codepointOf(cp, b)
+    IF point >= 0 THEN
+      mapped = mapped + 1
+      sum = sum + (b - 127) * point
+    END IF
+    b = b + 1
+  END WHILE
+  io::print(name & " mapped=" & toString(mapped) & " sum=" & toString(sum))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  ' The plan's single behavioral outcome: bytes that toString rejects as UTF-8
+  ' read as text here.
+  LET cafe AS List OF Byte = [toByte(99), toByte(97), toByte(102), toByte(233)]
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows1252, cafe))
+
+  ' Bytes 0x00-0x7F are ASCII in every single-byte codepage.
+  LET ascii AS List OF Byte = encoding::utf8Encode("Hi!~ 0")
+  io::print(encoding::codepageDecode(encoding::Codepage.Windows1252, ascii))
+  io::print(encoding::codepageDecode(encoding::Codepage.Koi8R, ascii))
+  io::print(encoding::codepageDecode(encoding::Codepage.Ibm866, ascii))
+
+  ' The empty input decodes to the empty string.
+  LET none AS List OF Byte = []
+  io::print("[" & encoding::codepageDecode(encoding::Codepage.Iso8859_5, none) & "]")
+
+  ' `Codepage.Utf8` decodes the whole input as UTF-8 instead of a byte at a time.
+  LET wide AS List OF Byte = encoding::utf8Encode("héllo 世界")
+  io::print(encoding::codepageDecode(encoding::Codepage.Utf8, wide))
+
+  ' ISO-8859-8-I has no index file of its own and shares ISO-8859-8's mapping.
+  LET hebrew AS List OF Byte = [toByte(224), toByte(225), toByte(226)]
+  io::print(encoding::codepageDecode(encoding::Codepage.Iso8859_8, hebrew))
+  io::print(encoding::codepageDecode(encoding::Codepage.Iso8859_8I, hebrew))
+
+  ' Whole-range digests, one line per single-byte codepage, in discriminant order.
+  digest("Ibm866", encoding::Codepage.Ibm866)
+  digest("Iso8859_2", encoding::Codepage.Iso8859_2)
+  digest("Iso8859_3", encoding::Codepage.Iso8859_3)
+  digest("Iso8859_4", encoding::Codepage.Iso8859_4)
+  digest("Iso8859_5", encoding::Codepage.Iso8859_5)
+  digest("Iso8859_6", encoding::Codepage.Iso8859_6)
+  digest("Iso8859_7", encoding::Codepage.Iso8859_7)
+  digest("Iso8859_8", encoding::Codepage.Iso8859_8)
+  digest("Iso8859_8I", encoding::Codepage.Iso8859_8I)
+  digest("Iso8859_10", encoding::Codepage.Iso8859_10)
+  digest("Iso8859_13", encoding::Codepage.Iso8859_13)
+  digest("Iso8859_14", encoding::Codepage.Iso8859_14)
+  digest("Iso8859_15", encoding::Codepage.Iso8859_15)
+  digest("Iso8859_16", encoding::Codepage.Iso8859_16)
+  digest("Koi8R", encoding::Codepage.Koi8R)
+  digest("Koi8U", encoding::Codepage.Koi8U)
+  digest("Macintosh", encoding::Codepage.Macintosh)
+  digest("Windows874", encoding::Codepage.Windows874)
+  digest("Windows1250", encoding::Codepage.Windows1250)
+  digest("Windows1251", encoding::Codepage.Windows1251)
+  digest("Windows1252", encoding::Codepage.Windows1252)
+  digest("Windows1253", encoding::Codepage.Windows1253)
+  digest("Windows1254", encoding::Codepage.Windows1254)
+  digest("Windows1255", encoding::Codepage.Windows1255)
+  digest("Windows1256", encoding::Codepage.Windows1256)
+  digest("Windows1257", encoding::Codepage.Windows1257)
+  digest("Windows1258", encoding::Codepage.Windows1258)
+  digest("MacCyrillic", encoding::Codepage.MacCyrillic)
+  RETURN 0
+END FUNC

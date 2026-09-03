@@ -1,0 +1,28 @@
+{
+  "project": "func_encoding_codepageEncode_unrepresentable",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "encoding", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "encoding.codepageEncode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "encoding.Codepage" }, "member": "Windows1252" }, { "kind": "string", "value": "hi 世" }] }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

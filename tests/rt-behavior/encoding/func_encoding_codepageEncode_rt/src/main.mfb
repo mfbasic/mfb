@@ -1,0 +1,126 @@
+REM plan-123-B: `encoding::codepageEncode` is the exact inverse of
+REM `encoding::codepageDecode`.
+REM
+REM The per-codepage lines are a WHOLE-RANGE round trip, not a sample: for every
+REM single-byte variant this walks all 256 bytes 0x00-0xFF, decodes each one, and
+REM re-encodes the result. A byte the codepage maps must come back byte-identical;
+REM a byte it leaves unmapped must have raised on the way in and is counted as a
+REM hole instead. `codepage_roundtrip_counts_match_the_vendored_index_files`
+REM recomputes every line below from tools/codepage-index/ and compares it against
+REM this fixture's golden, so the golden cannot be blessed wrong -- and `bad=0` on
+REM every line is what says the inverse actually holds.
+
+IMPORT io
+IMPORT encoding
+IMPORT collections
+IMPORT errorCode
+
+' 1 when byte `b` round-trips through `cp` unchanged, 0 when `cp` leaves it
+' unmapped, and -1 when it round-trips to something else -- which is the failure
+' this fixture exists to catch.
+FUNC roundTrip(cp AS encoding::Codepage, b AS Integer) AS Integer
+  LET one AS List OF Byte = [toByte(b)]
+  LET text AS String = encoding::codepageDecode(cp, one)
+  LET back AS List OF Byte = encoding::codepageEncode(cp, text)
+  IF len(back) <> 1 THEN
+    RETURN -1
+  END IF
+  IF toInt(collections::get(back, 0)) <> b THEN
+    RETURN -1
+  END IF
+  RETURN 1
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      RETURN 0
+    END IF
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC report(name AS String, cp AS encoding::Codepage) AS Nothing
+  MUT ok AS Integer = 0
+  MUT hole AS Integer = 0
+  MUT bad AS Integer = 0
+  MUT b AS Integer = 0
+  WHILE b < 256
+    LET r AS Integer = roundTrip(cp, b)
+    IF r = 1 THEN
+      ok = ok + 1
+    END IF
+    IF r = 0 THEN
+      hole = hole + 1
+    END IF
+    IF r < 0 THEN
+      bad = bad + 1
+    END IF
+    b = b + 1
+  END WHILE
+  io::print(name & " ok=" & toString(ok) & " hole=" & toString(hole) & " bad=" & toString(bad))
+  RETURN NOTHING
+END FUNC
+
+FUNC encodeOr(cp AS encoding::Codepage, text AS String) AS String
+  RETURN encoding::hexEncode(encoding::codepageEncode(cp, text))
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      RETURN "raised"
+    END IF
+    RETURN "other " & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' The plan's single behavioral outcome.
+  io::print(encodeOr(encoding::Codepage.Windows1252, "café"))
+
+  ' A character the codepage cannot spell raises rather than substituting.
+  io::print(encodeOr(encoding::Codepage.Windows1252, "世"))
+
+  ' The U+FFFD hole sentinel must be rejected BEFORE the table search. Without
+  ' that guard it would match an unmapped slot and emit that slot's byte -- wrong
+  ' bytes, not an error, which a byte-count assertion would never catch.
+  io::print(encodeOr(encoding::Codepage.Windows874, "\u{FFFD}"))
+  io::print(encodeOr(encoding::Codepage.Windows1252, "\u{FFFD}"))
+
+  ' A combining sequence is more than one scalar, so no single-byte codepage has
+  ' one byte for it.
+  io::print(encodeOr(encoding::Codepage.Windows1252, "e\u{0301}"))
+
+  ' The empty string encodes to no bytes.
+  io::print("[" & encodeOr(encoding::Codepage.Iso8859_5, "") & "]")
+
+  ' `Codepage.Utf8` encodes the whole string as UTF-8.
+  io::print(encodeOr(encoding::Codepage.Utf8, "héllo 世界"))
+
+  ' Whole-range round trips, one line per single-byte codepage, in discriminant
+  ' order. Every line must report bad=0.
+  report("Ibm866", encoding::Codepage.Ibm866)
+  report("Iso8859_2", encoding::Codepage.Iso8859_2)
+  report("Iso8859_3", encoding::Codepage.Iso8859_3)
+  report("Iso8859_4", encoding::Codepage.Iso8859_4)
+  report("Iso8859_5", encoding::Codepage.Iso8859_5)
+  report("Iso8859_6", encoding::Codepage.Iso8859_6)
+  report("Iso8859_7", encoding::Codepage.Iso8859_7)
+  report("Iso8859_8", encoding::Codepage.Iso8859_8)
+  report("Iso8859_8I", encoding::Codepage.Iso8859_8I)
+  report("Iso8859_10", encoding::Codepage.Iso8859_10)
+  report("Iso8859_13", encoding::Codepage.Iso8859_13)
+  report("Iso8859_14", encoding::Codepage.Iso8859_14)
+  report("Iso8859_15", encoding::Codepage.Iso8859_15)
+  report("Iso8859_16", encoding::Codepage.Iso8859_16)
+  report("Koi8R", encoding::Codepage.Koi8R)
+  report("Koi8U", encoding::Codepage.Koi8U)
+  report("Macintosh", encoding::Codepage.Macintosh)
+  report("Windows874", encoding::Codepage.Windows874)
+  report("Windows1250", encoding::Codepage.Windows1250)
+  report("Windows1251", encoding::Codepage.Windows1251)
+  report("Windows1252", encoding::Codepage.Windows1252)
+  report("Windows1253", encoding::Codepage.Windows1253)
+  report("Windows1254", encoding::Codepage.Windows1254)
+  report("Windows1255", encoding::Codepage.Windows1255)
+  report("Windows1256", encoding::Codepage.Windows1256)
+  report("Windows1257", encoding::Codepage.Windows1257)
+  report("Windows1258", encoding::Codepage.Windows1258)
+  report("MacCyrillic", encoding::Codepage.MacCyrillic)
+  RETURN 0
+END FUNC
