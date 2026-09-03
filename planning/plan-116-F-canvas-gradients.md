@@ -558,7 +558,18 @@ Commit: 8c4fa49a6
       `CARGO_TARGET_DIR=/tmp/p116-debug` so it did not contend with the release row for
       the build lock — the two rows differ only in profile, so a separate target
       directory is the whole isolation needed.
-- [ ] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228.
+- [x] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228 —
+      **3756 passed, 0 failed, 1 ignored**, 1444.68s, run on the F18/F19 state. The
+      tree it ran against was verified rather than assumed: `sha256sum` of
+      `helper_geometry.rs`, `helper_render.rs`, `metal.rs` and `mfb_canvas.frag` on the
+      box equals the local hash of each (`503944ed1baa3363`, `8bcb622bf6cb1f02`,
+      `66bfbf7f7914b6a4`, `d01d6d6d69ba42da`). That check is the point of the row: a
+      remote run reports a green suite whether or not the rsync that fed it carried the
+      fix, and F18's whole symptom class is "plausible and wrong".
+
+      3756 here against 3764 on mac DEBUG is the eight macOS-gated tests, not a gap:
+      `cargo test --release --bin mfb macos 2>&1 | grep -c '^test .* ok'` on the Mac
+      accounts for them.
 - [x] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
       `N ran` count is the thing to read (**F13**). `bash scripts/test-accept.sh
       target/release/mfb /tmp/p116-accept` → **"acceptance tests passed (1358 test(s)
