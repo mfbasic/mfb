@@ -646,10 +646,20 @@ Memory-correctness, landed last, behind every test above.
 - [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` so the leak is
       observable; this is the only window onto worker-owned state a test has
       (`.ai/canvas-threading.md` §11).
+- [ ] **Build the mid-frame affordance the race rows need, or state them as
+      probabilistic (G9).** §11 has four test affordances and none holds the graphics
+      thread mid-frame; the only "mid-render" rows proven today (R5, R7) get there
+      through `MFB_CANVAS_RESIZE_W`/`_H`, which is resize-specific, and R1 — the row
+      closest to these — is marked *not yet reachable*. Decide this before writing the
+      matrix below, because a row tested by luck reports the same green as one tested by
+      construction.
 - [ ] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
       rows to that document too:
       - `present([Group A])` → `removeGroup(A)` → graphics mid-frame: the in-flight
-        frame completes normally.
+        frame completes normally. **This is the row that needs G9's decision** — with
+        `MFB_CANVAS_SYNC` off, `present` returns before the frame is drawn and the
+        worker can reach `removeGroup` while it is in flight, but nothing guarantees it
+        does.
       - the same, then a completed frame, then a `present` **of an unchanged scene**:
         the buffer is freed exactly once and `groups=` drops by one. The "unchanged" is
         the whole point of the row (**G7**) — a scene that changes takes the publish
@@ -732,6 +742,31 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G9 (2026-09-03, pre-execution) — Phase 5's race matrix asks for "graphics mid-frame"
+and no affordance produces it.** `.ai/canvas-threading.md` §11 lists exactly four test
+affordances — `MFB_CANVAS_RESIZE_W`/`_H`, `MFB_CANVAS_DUMP`, `MFB_CANVAS_STATS`,
+`MFB_CANVAS_GLYPH_BUDGET` — and none holds the graphics thread inside a frame. §8's two
+"mid-render" rows that *are* proven (R5 present-during-render, R7 resize-during-render)
+reach it through `MFB_CANVAS_RESIZE_W`/`_H` firing after the first completed frame while
+the worker sits in `os::sleep`, which is specific to resize. R1 — *"present →
+`destroyImage` → graphics mid-record"*, the row structurally identical to the one this
+phase adds — is marked **not yet reachable**.
+
+Phase 5 is the memory-corruption phase, so this is the phase where "tested by luck"
+matters most. Two honest ways forward, and the letter should pick one rather than
+discover the problem while writing the test:
+
+* **Build the affordance.** A `MFB_CANVAS_FRAME_HOLD_MS` that makes the graphics thread
+  sleep at a fixed point inside a frame turns every one of these rows deterministic, and
+  would retroactively make R1 reachable — which is worth more than this letter. It is
+  off by default and off the production path, like the other four.
+* **State them as probabilistic** and run the scene N times, asserting no crash and a
+  correct final frame. Weaker, and it must *say* it is weaker in the test's own comment,
+  or the next reader takes a green run as proof of the ordering.
+
+The skill's rule applies squarely: a provability gap is a missing prerequisite, not a
+reason to write a weaker test quietly.
 
 **G8 (2026-09-03, pre-execution) — §4.4's revision has nowhere to live.** The section
 says *"the resolution pass writes `(slotIndex, revision)` into the published node"*.
