@@ -72,7 +72,7 @@ directed it into the series as plan-116-I on 2026-09-01.)
 ### Non-goals (explicit constraints)
 
 - **`present` does not take ownership.** A published scene retaining resources would
-  reverse `mod.rs:385`'s design and `func_present.rs`'s documented promise that
+  reverse `mod.rs`'s "keeps the scene from retaining anything" comment's design and `func_present.rs`'s documented promise that
   *"an installed scene never keeps an image open"*. Only `setGroup` owns, because only
   a group has a lifetime longer than one `present`.
 - **No change to `canvas::destroyImage` / `destroyFont` semantics.** Closing a resource
@@ -94,14 +94,14 @@ the time of writing, so a future implementer can see what changed.
 |---|---|---|
 | `TYPE_RESOURCE_FIELD_FORBIDDEN` | retired (reserved-not-emitted) | `sed -n 1008,1019p src/rules/table.rs` (2026-09-01) |
 | plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
-| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs:647-668`, `:397-410` |
-| `Text.font` type | `FontRef` | `mod.rs:609-646` |
-| Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs:730-826` |
-| `live_slots` on both | `&[]`, `sendable: false` | `mod.rs:748`, `:790` |
+| `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs`'s `Picture` record and `ImageRef` record |
+| `Text.font` type | `FontRef` | `mod.rs`'s `Text` record |
+| Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs`'s two `add_resource` calls |
+| `live_slots` on both | `&[]`, `sendable: false` | `mod.rs`'s `Image` resource (`live_slots`), `:790` |
 
 ### Verified properties
 
-- **The two `canvas` resources are not transfer-audited.** Read `mod.rs:744-748`:
+- **The two `canvas` resources are not transfer-audited.** Read the two `pkg.add_resource` calls in `mod.rs`:
   `sendable: false`, `live_slots: &[]`, with the comment *"Not audited for transfer
   (bug-464 left canvas out of scope). Empty here is only consistent with
   `sendable: false`; opting an image in means auditing its record tail first, not just
@@ -228,7 +228,7 @@ The letter opens against a world that did not exist when it was written.
 - [ ] Settle the §2 open question: does installing a resource into a process-global,
       graphics-thread-readable group buffer constitute a transfer under plan-114's
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
-      accordingly (`mod.rs:748`, `:790`) — *"opting an image in means auditing its
+      accordingly (`mod.rs`'s `Image` resource (`live_slots`), `:790`) — *"opting an image in means auditing its
       record tail first, not just flipping the bit."*
 - [ ] Read `.ai/canvas-threading.md` §7 **as plan-116-I rewrote it** (a `Picture`
       now carries a `RES`, and the renderer reads a closed handle as the zero id, so
@@ -328,6 +328,27 @@ Commit: —
 
 ## Corrections
 
+**J1 (2026-09-03, pre-execution) — every `mod.rs` line citation in this letter is
+stale, the same defect plan-116-G recorded as G1.** Checked with
+`awk 'NR==N {print}' src/codegen/builtins/canvas/mod.rs` for each cited N; not one
+lands on what the letter says is there. A sample:
+
+* `mod.rs:748`, given twice as `Image`'s record tail and `live_slots`, is a bare
+  `RecordProp {` opening brace.
+* `mod.rs:385`, given as *"This is what keeps the scene from retaining anything"*,
+  is a `CapStyle.Round` description; the real comment is at `:447`.
+* `mod.rs:744`, given as the `Image` resource, is prose about arc sweep direction.
+
+The letters were written before plan-116-C, D, E and F each added records and
+descriptions to that file. The counts and claims these citations *support* are not in
+question — this is a navigation defect — but it is the dangerous kind, because the line
+a reader lands on is plausible code they could edit in good faith.
+
+Every one is replaced with the **symbol** and the command that finds it, per G1's
+lesson: every letter of this plan edits `mod.rs`, so a line citation into it decays the
+moment the letter before it lands. Verify with
+`grep -n 'name: \"Picture\"\|live_slots\|keeps the scene from retaining' src/codegen/builtins/canvas/mod.rs`.
+
 <!-- Filled in during execution. -->
 
 ## Summary
@@ -340,7 +361,7 @@ plan-116-G already ships groups in full, including the lifetime gate this letter
 into; what is added here is only *who closes the resources and when*. The parts worth
 real care are two: whether a process-global, second-thread-readable group buffer counts
 as a transfer under plan-114's rules — which decides whether `Image` and `Font` need the
-record-tail audit `mod.rs:748` says they have never had — and whether
+record-tail audit `mod.rs`'s `Image` resource (`live_slots`) says they have never had — and whether
 `.ai/canvas-threading.md` §7's "presenting a stale handle draws nothing" survives
 `Picture` becoming a resource. Both are scheduled as Phase 1 reading tasks, because
 both are assumptions that would otherwise be inherited silently.
