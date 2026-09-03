@@ -222,9 +222,16 @@ the cache and the software walk that follows hits it"*), and that role is unchan
 **Interface.** A two-word per-draw payload `ivec2 offset` in 16.16, pushed before each
 draw:
 
-- **Vulkan** — a push constant. The item block left the push-constant range in
-  plan-116-A, so the range is free; two words is trivially inside the 128-byte
-  guarantee.
+- **Vulkan** — a push constant. Two words is trivially inside the 128-byte guarantee,
+  but the range is not "free" so much as **gone (H4)**: plan-116-A did not vacate it,
+  it deleted it. `VkPipelineLayoutCreateInfo` is built with `rangeCount` 0 and a null
+  `pPushConstantRanges`, and the comment there
+  (`grep -n 'NO push-constant range' src/codegen/runtime/canvas/vulkan.rs`) records why
+  that was deliberate: *"a layout that declares bytes no stage consumes is a layout the
+  validation layers flag"*. So this phase re-adds the range **and** the two shader
+  declarations in one step, with both stages consuming it — vertex offsets, fragment
+  subtracts — or the layout is invalid in a way that only shows on a box with the
+  validation layers on.
 - **Metal** — `setVertexBytes:` and `setFragmentBytes:` at a dedicated buffer
   index. Per-DRAW state through `setBytes:` is fine — the conflict plan-116-A
   removed was per-ITEM payloads inside one instanced draw; the offset changes only
@@ -436,6 +443,24 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H4 (2026-09-03, pre-execution) — the Vulkan push-constant range was deleted, not
+vacated.** §4.2 says *"the item block left the push-constant range in plan-116-A, so the
+range is free"*, which reads as "a declared range is sitting there unused". It is not:
+`emit_struct` zeroes `VkPipelineLayoutCreateInfo` and the emitter leaves `rangeCount` at
+0 with `pPushConstantRanges` null, and both the struct comment (`:501-503`) and the
+pipeline-layout comment (`:1799-1804`) say the absence is the point — *"a layout that
+declares bytes no stage consumes is a layout the validation layers flag."*
+
+The work is therefore re-adding a range, not filling one, and the range and the shader
+declarations have to land together: a range with no consumer is flagged, and a shader
+declaration with no range is a layout mismatch. Both stages must consume it, which
+§4.2's own arithmetic already has them doing.
+
+Worth writing down because the failure is invisible on a box without validation layers —
+`scripts/test-canvas-vulkan.sh` runs against lavapipe on 2227 and whatever ICD 2228 has,
+and a layout error that the driver tolerates is exactly the kind that reaches a user's
+machine and not ours.
 
 **H3 (2026-09-03, pre-execution) — §4.1's worked example does not add up under either
 answer to §4.3's open question.** It gives `[rect, Group(A) @ (10,20), circle]` with A =
