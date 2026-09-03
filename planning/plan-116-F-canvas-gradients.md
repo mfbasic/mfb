@@ -415,7 +415,7 @@ expected entry count for a scene with two near-identical polygons.
 `entries=2` counter is what discriminates the real failure: with neither seam wired,
 the two records hash the same, `__canvas_headerMatches` agrees, `__canvas_tailMatches`
 agrees, and the second item silently draws the first's record.
-Commit: —
+Commit: fae99b90d
 
 ### Phase 3 — Software evaluation, and the reference image
 
