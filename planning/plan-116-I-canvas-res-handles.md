@@ -459,6 +459,17 @@ An earlier draft of this note claimed that one was past end-of-file; it is not,
 and `awk 'NR==1928' src/codegen/registry/mod.rs` shows the `Res` qualify arm in a
 5254-line file.
 
+*Both survivors re-checked 2026-09-03, after plan-116-F, plan-116-G and a 38-commit
+merge of `main`:* `mod.rs:27` is still the module comment's *"through the
+`ImageRef`/`FontRef` value handles, since a record field cannot hold"* line, and
+`registry/mod.rs:1928` is still the `ParameterType::Res(inner) =>` qualify arm. Both
+held through changes that moved every other canvas citation, which is worth knowing —
+they are stable anchors, and this letter's premise rests on the second one.
+
+Prefer the symbol grep regardless: `grep -n "ParameterType::Res(" src/codegen/registry/mod.rs`
+finds the arm at 1928 and two more uses at 2264/2267 that a line citation would have
+hidden.
+
 The letters were written before plan-116-C, D, E and F each added records and
 descriptions to that file. The counts and claims these citations *support* are not in
 question — this is a navigation defect — but it is the dangerous kind, because the line
