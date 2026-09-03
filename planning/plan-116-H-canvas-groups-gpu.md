@@ -243,6 +243,15 @@ band — is unchanged, because they take `p` and nothing else positional.
 * **The clip must stay at `gl_FragCoord.xy`.** `Paint.clip` is defined in *surface*
   pixels (plan-116-B §Non-goals), so a group's translation moves the shape and not the
   clip rectangle. It already reads `gl_FragCoord.xy` / `in.pos.xy`; leave it.
+* **The glyph arm must MOVE to `p`, and never sees it.** `item.misc.x == 6` returns
+  *before* `shapeDistanceAndScale` is ever called
+  (`sed -n 419,432p src/codegen/runtime/canvas/shaders/mfb_canvas.frag`), so introducing
+  `p` at the `geoDistance` call site leaves `Text` reading `gl_FragCoord.xy` — and it
+  indexes the cached bitmap as `int(floor(gp.x)) - item.shape.x`, with `item.shape.x`
+  the glyph origin in the item's own coordinates. A `Text` item in a translated group
+  therefore samples the wrong texels: shifted by the offset, and blank once the offset
+  exceeds the glyph's width. Both the transformed and untransformed branches of that
+  line take `p`.
 * **The gradient must MOVE to `p`, and does not read it today.** plan-116-F evaluates
   the ramp at the surface point — `gradientColour(gl_FragCoord.xy)`
   (`mfb_canvas.frag:442`), `gradientColour(in.pos.xy, …)` in MSL, and `px`/`py` against
@@ -252,10 +261,17 @@ band — is unchanged, because they take `p` and nothing else positional.
   and the same group drawn twice at two offsets shows two *different* pictures. Switch
   all three to `p`.
 
-Both are one line per renderer, and neither is a reasoning step — **Phase 2 and Phase 3
-must each test the clipped case and the gradient case.** The diamond scene is the sharp
-one for the gradient: one group, two offsets, and the two draws must be the same
-picture translated.
+`grep -n gl_FragCoord src/codegen/runtime/canvas/shaders/mfb_canvas.frag` returns
+**four** call sites and that is the whole list: `:419` clip (stays), `:428` glyph
+(moves), `:436` `shapeDistanceAndScale` (the one §4.2 already describes), `:442`
+gradient (moves). Everything else — the arc cap discs at `:217`, the ellipse, the
+stroke band — is computed against the point those four pass in, so it follows for free.
+Do the same grep on `METAL_SHADER_SOURCE` for the MSL twin.
+
+None of this is a reasoning step — **Phase 2 and Phase 3 must each test the clipped
+item, the gradient-filled item and the `Text` item inside a translated group.** The
+diamond scene is the sharp one: one group, two offsets, one buffer, and the two draws
+must be the same picture translated.
 
 ### 4.3 The predicates
 
@@ -321,8 +337,9 @@ Vulkan first, as in plan-116-A, because glslang gives measured reflection.
       caps to sum over the resolved tree per §4.3.
 - [ ] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
       `(37, 53)` matches the oracle; a nested group matches; a diamond matches; a
-      **clipped** item inside a translated group matches (the §4.2 clip case); and a **gradient-filled** item inside a translated
-      group matches (the §4.2 gradient case, **H2** — it fails today).
+      **clipped** item inside a translated group matches (the §4.2 clip case); and a **gradient-filled** item and a **`Text`** item
+      inside a translated group match (the §4.2 gradient and glyph cases, **H2** —
+      both fail today).
 
 Acceptance: all five scenes match the software oracle within
 `Tolerance::GPU_DEFAULT` with `MFB_CANVAS_STATS` reporting `vulkanReady=TRUE`. The
@@ -338,8 +355,8 @@ Commit: —
 - [ ] Convert the Metal emitter to walk `__canvas_sceneDraws`, issuing one
       `drawPrimitives:vertexStart:vertexCount:instanceCount:` per draw entry.
 - [ ] Remove the `Group` decline from `__canvas_metalRenderable`; update its caps.
-- [ ] Tests: the same six scenes in `tests/rt_canvas_metal.rs` — five, plus the
-      gradient-in-a-translated-group case (**H2**).
+- [ ] Tests: the same seven scenes in `tests/rt_canvas_metal.rs` — five, plus the
+      gradient-in-a-translated-group and `Text`-in-a-translated-group cases (**H2**).
 
 Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`.
@@ -434,6 +451,12 @@ The fix is one line per renderer (evaluate the ramp at `p`), so this is cheap �
 only if it is *done*. Left as §4.2 reads, an executor checks the sentence, sees the
 gradient listed as already handled, and ships it. Recorded as a task in Phase 2 and
 Phase 3 with the diamond named as the test that can see it.
+
+A third case turned up on the second pass and is the reason the grep above is in the
+letter rather than the finding: the **glyph arm returns before `geoDistance` is
+reached**, so a fix applied at the `geoDistance` call site — which is where §4.2
+puts it — silently misses `Text` entirely. Enumerate the `gl_FragCoord` call sites;
+do not reason from the data flow.
 
 Note the asymmetry is real and worth stating in the spec when H lands: a **clip** is a
 surface rectangle and does not move with a group; a **gradient** is part of the item's

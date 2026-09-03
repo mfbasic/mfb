@@ -400,6 +400,11 @@ distance function, the coverage rule and the stroke band, and covers nothing els
 
 * **`Paint.clip` stays at `p`.** It is a surface rectangle by definition
   (plan-116-B §Non-goals), so a group's translation moves the shape and not the clip.
+* **A `Text` item's glyph sampling must move to `p - offset`.** A glyph is a cached
+  coverage bitmap indexed by whole pixels from the run's origin, not a distance field,
+  so it is on a separate path from "evaluate the distance at `p - offset`" and a fix
+  written for distances misses it. Text in a translated group would sample the wrong
+  texels.
 * **`Paint.fillGradient` must move to `p - offset`.** plan-116-F evaluates the ramp at
   the surface point (`px`/`py` against `gradFX`/`gradFY` in
   `helper_items.rs`) against an axis authored in the item's own coordinates.
@@ -529,8 +534,10 @@ Commit: —
       comparison sees a `setGroup` as a change.
 - [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
-- [ ] The gradient is evaluated at `p - offset` and the clip at `p` (§4.5, **G5**) —
-      they go opposite ways, and the gradient is wrong today under any offset.
+- [ ] The gradient **and** the glyph sampling are evaluated at `p - offset`, and the
+      clip at `p` (§4.5, **G5**). They go opposite ways; enumerate the positional
+      reads rather than reasoning from the distance path, which is what hid the
+      glyph case on the first pass.
 - [ ] The resolution pass records each group node's damage bounds as its resolved
       children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
       for group nodes.
