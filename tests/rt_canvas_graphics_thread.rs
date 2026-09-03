@@ -11,7 +11,6 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Build a `--app` program and run it headless, returning `(stdout, frame lines)`.
@@ -26,24 +25,13 @@ fn run(name: &str, source: &str, sync: bool) -> (String, Vec<String>) {
 /// As `run`, plus the `MFB_CANVAS_GPU` selector (plan-98-E).
 fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<String>) {
     let project = common::temp_project(name, source);
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}",
-        String::from_utf8_lossy(&build.stderr),
-    );
-
     let stats = project.join("stats.txt");
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let mut command = Command::new(&binary);
     command
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats);
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
@@ -70,25 +58,6 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
     let out = String::from_utf8_lossy(&run.stdout).to_string();
     let _ = std::fs::remove_dir_all(&project);
     (out, lines)
-}
-
-fn app_binary(project: &Path, name: &str) -> PathBuf {
-    let bundle = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundle.exists() {
-        return bundle;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project
-        .join("build")
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// A program body, wrapped in the canvas-mode boilerplate.

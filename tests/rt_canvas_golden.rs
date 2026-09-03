@@ -129,22 +129,9 @@ fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) ->
         std::fs::write(project.join("fixture.ttf"), fixture_truetype())
             .expect("write the font fixture");
     }
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-
     let frame_path = project.join("frame.rgba");
     let stats_path = project.join("stats.txt");
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let mut command = Command::new(&binary);
     command
         // The project directory, so a scene that opens `fixture.ttf` finds it. Running
@@ -185,25 +172,6 @@ fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) ->
     let stats = std::fs::read_to_string(&stats_path).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&project);
     (Frame::from_rgba(WIDTH, HEIGHT, pixels), stats)
-}
-
-fn app_binary(project: &Path, name: &str) -> PathBuf {
-    let bundle = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundle.exists() {
-        return bundle;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project
-        .join("build")
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// The software rasteriser reproduces its reference image exactly.

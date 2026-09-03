@@ -21,20 +21,7 @@ use std::process::Command;
 /// Build a `--app` program, run it headless, and return its stdout lines.
 fn run(name: &str, source: &str) -> Vec<String> {
     let project = common::temp_project(name, source);
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
@@ -55,26 +42,6 @@ fn run(name: &str, source: &str) -> Vec<String> {
         .collect();
     let _ = std::fs::remove_dir_all(&project);
     lines
-}
-
-/// The built executable, which on macOS is inside an `.app` bundle.
-fn app_binary(project: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let bundle = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundle.exists() {
-        return bundle;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project
-        .join("build")
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// Writes a 12-byte sfnt header with the given first four bytes, then loads it.
@@ -327,19 +294,7 @@ fn minimal_truetype() -> Vec<u8> {
 fn run_with_font(name: &str, source: &str) -> Vec<String> {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
@@ -471,20 +426,8 @@ fn render_with(name: &str, source: &str, gpu: bool) -> Vec<u8> {
 fn render_env(name: &str, source: &str, extra: &[(&str, &str)]) -> (Vec<u8>, String) {
     let project = common::temp_project(name, source);
     std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
     let frame = project.join("frame.rgba");
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let stats = project.join("stats.txt");
     let mut command = Command::new(&binary);
     command

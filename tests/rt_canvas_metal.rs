@@ -25,7 +25,7 @@
 mod common;
 
 use common::canvas_image::{compare_exact, compare_within_tolerance, Frame, Tolerance};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 const WIDTH: u32 = 900;
@@ -224,19 +224,7 @@ impl Drop for Program {
 
 fn build(name: &str, source: &str) -> Program {
     let project = common::temp_project(name, source);
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     Program { project, binary }
 }
 
@@ -267,21 +255,6 @@ fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
     let pixels = std::fs::read(&frame_path).expect("canvas dump written");
     let stats = std::fs::read_to_string(&stats_path).expect("canvas stats written");
     (Frame::from_rgba(WIDTH, HEIGHT, pixels), stats)
-}
-
-fn app_binary(project: &Path, name: &str) -> PathBuf {
-    let bundle = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundle.exists() {
-        return bundle;
-    }
-    project
-        .join("build")
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// `true` when the run actually built a Metal pipeline; `false` only when the host

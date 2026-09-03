@@ -25,25 +25,13 @@ const HEIGHT: usize = 640;
 /// whatever the geometry cache reported for each frame.
 fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
     let project = common::temp_project(name, source);
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-
     let frame = project.join("frame.rgba");
     let stats = project.join("stats.txt");
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         // Render synchronously: since plan-98-D Phase 2 the render runs on a
@@ -85,26 +73,6 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
         .collect();
     let _ = std::fs::remove_dir_all(&project);
     (pixels, lines)
-}
-
-/// The built executable, which on macOS is inside an `.app` bundle.
-fn app_binary(project: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let bundle = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundle.exists() {
-        return bundle;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project
-        .join("build")
-        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
