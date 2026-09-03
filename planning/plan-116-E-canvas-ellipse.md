@@ -523,7 +523,7 @@ is exceeded, carry more precomputed constants — do not loosen the tolerance.
   one place §4.3 predicted the three renderers could not agree does not arise for this
   kind. The precaution the acceptance names — "carry more precomputed constants" — was
   taken by design rather than in response to a measurement.
-Commit: —
+Commit: 71bf744b6
 
 ### Phase 5 — Docs and gates
 
