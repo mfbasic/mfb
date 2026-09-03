@@ -44,8 +44,8 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
         run.status.success(),
-        "program exited {:?}:\n{}\n{}",
-        run.status.code(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr),
     );
@@ -275,21 +275,35 @@ fn an_identical_re_present_draws_no_second_metal_frame() {
     );
 }
 
-/// The renderer seam reports a real Metal device, and selecting it is opt-in.
+/// The renderer seam reports the device this host actually has, and selecting it
+/// is opt-in.
 ///
 /// This is plan-98-E's first checkable claim, and it is deliberately about the
-/// *plumbing* rather than about pixels: `metal=TRUE` means `Metal.framework`'s
-/// install name resolved, its import-table row bound, and
+/// *plumbing* rather than about pixels: on macOS `metal=TRUE` means
+/// `Metal.framework`'s install name resolved, its import-table row bound, and
 /// `MTLCreateSystemDefaultDevice` returned a device. Every later piece of the Metal
 /// backend rests on those three, and a failure in any of them is far cheaper to read
 /// here than as a blank window several hundred lines later.
 ///
-/// `gpuSelected` must be FALSE by default. The software renderer is the oracle the
-/// GPU path is measured against (plan-98-A invariant 7) and its goldens are
-/// exact-match; if selecting Metal were the default, every one of those goldens would
-/// silently become a tolerance test against a reference that no longer exists.
+/// Off macOS the same field must read FALSE. That is not a weaker claim, it is the
+/// other half of the same one: there is no `Metal.framework` on Windows or Linux, so
+/// a `metal=TRUE` there would mean the field is fabricated rather than measured —
+/// and a fabricated readiness flag is exactly what makes a GPU suite pass while
+/// never touching the GPU.
+///
+/// `gpuSelected` must be FALSE by default on every platform. The software renderer
+/// is the oracle the GPU path is measured against (plan-98-A invariant 7) and its
+/// goldens are exact-match; if selecting the GPU were the default, every one of
+/// those goldens would silently become a tolerance test against a reference that no
+/// longer exists.
+///
+/// Whether `MFB_CANVAS_GPU` then *succeeds* depends on there being a device to
+/// select, so that half is gated on the run's own readiness field — the same way
+/// [`the_metal_path_gives_one_completed_frame_per_changed_present`] gates itself,
+/// and for the same reason: a host with no GPU must not be able to fail this, and
+/// a host with one must not be able to skip it.
 #[test]
-fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
+fn the_renderer_seam_reports_its_device_and_leaves_it_unselected() {
     let source = program(&format!(
         "{ONE_BOX}  canvas::present([box])\n  io::print(\"done\")\n"
     ));
@@ -303,11 +317,16 @@ fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
             .unwrap_or_else(|| panic!("no {name} field in {lines:?}"))
     };
 
-    let (_, default_run) = run_with("canvas_metal_default", &source, true, false);
+    let (_, default_run) = run_with("canvas_gpu_default", &source, true, false);
     assert_eq!(
         field(&default_run, "metal="),
-        "TRUE",
-        "MTLCreateSystemDefaultDevice must bind and return a device on this host",
+        if cfg!(target_os = "macos") {
+            "TRUE"
+        } else {
+            "FALSE"
+        },
+        "the metal field must report this host: MTLCreateSystemDefaultDevice binds \
+         and returns a device on macOS, and there is no Metal to find anywhere else",
     );
     assert_eq!(
         field(&default_run, "gpuSelected="),
@@ -315,10 +334,16 @@ fn the_renderer_seam_finds_a_metal_device_and_leaves_it_unselected() {
         "the software renderer must stay the default — it is the exact-match oracle",
     );
 
-    let (_, selected) = run_with("canvas_metal_selected", &source, true, true);
+    let (_, selected) = run_with("canvas_gpu_selected", &source, true, true);
+    let ready =
+        field(&selected, "metalReady=") == "TRUE" || field(&selected, "vulkanReady=") == "TRUE";
+    if !ready {
+        eprintln!("skip: this host built no GPU pipeline\n{selected:?}");
+        return;
+    }
     assert_eq!(
         field(&selected, "gpuSelected="),
         "TRUE",
-        "MFB_CANVAS_GPU must select the Metal renderer",
+        "MFB_CANVAS_GPU must select the GPU renderer on a host that has one",
     );
 }
