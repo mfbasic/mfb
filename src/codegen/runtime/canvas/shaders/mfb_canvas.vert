@@ -22,9 +22,12 @@ struct ItemBlock {
     ivec4 fill;    // 32: RGBA 0..255
     ivec4 stroke;  // 48: RGBA 0..255
     ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
-    ivec4 arc;     // 80: startAngle, endAngle (16.16 rad), edgeBase, unused
+    ivec4 arc;     // 80: startAngle, endAngle (16.16 rad), edgeBase, capStyle
     ivec4 surface; //  96: width, height, blendMode, unused
     ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
+    ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1), unused
+    ivec4 arcCaps; // 160: an arc's sweep endpoints startX,startY,endX,endY (16.16 px)
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

@@ -59,11 +59,14 @@ use crate::codegen::runtime::canvas::{
 use crate::codegen::runtime::canvas::{
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, HEADER_AUX0,
-    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
-    HEADER_CLIP_Y1, HEADER_FILL_R, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
-    HEADER_STROKE_HALF, HEADER_STROKE_R, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC,
+    HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_CAP_END_X, HEADER_CAP_START_X,
+    HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0, HEADER_CLIP_Y1, HEADER_FILL_R,
+    HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_RADIUS, HEADER_SHAPE, HEADER_SLOTS,
+    HEADER_STROKE_HALF, HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB,
+    HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID, HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY,
+    ITEM_ARC_CAP, ITEM_ARC_GLYPH_HEIGHT, ITEM_BLOCK_SIZE, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS,
     ITEM_OFFSET_CLIP, ITEM_OFFSET_FILL, ITEM_OFFSET_MISC, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE,
-    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_SURFACE_BLEND, MAX_EDGES,
+    ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_SURFACE_BLEND, MAX_EDGES,
     METAL_MAX_GLYPH_SAMPLES,
 };
 
@@ -118,18 +121,21 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // keeps it equal to `METAL_EDGE_BASE_WORDS`. A disagreement would not fail
     // anywhere -- every polygon would simply read edges from the wrong place in a
     // buffer that is entirely valid memory.
-    "constant int METAL_EDGE_BASE = 131072;\n",
+    "constant int METAL_EDGE_BASE = 180224;\n",
     "struct MfbItem {\n",
     "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
     "  int4 shape;\n",    // p0..p3 (16.16 px)
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), unused, unused
+    "  int4 arc;\n",      // startAngle, endAngle (16.16 rad), edgeBase, capStyle
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
     "  int surfacePad;\n",
-    "  int4 clip;\n", // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
+    "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -170,6 +176,22 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  float t = len2 > 0.0 ? clamp(dot(w, v) / len2, 0.0, 1.0) : 0.0;\n",
     "  return length(w - v * t);\n",
     "}\n",
+    // plan-116-D: the butt-capped twin, and the twin of `segmentDistanceButt` in
+    // `runtime/canvas/shaders/mfb_canvas.frag`. `half` comes off BEFORE the two `max`es
+    // because a butt stroke is the round band intersected with the slab between the end
+    // planes — subtracting after would compare each plane against the half-width rather
+    // than against zero, so the cap would not bite until a pixel was more than `half`
+    // past the endpoint.
+    "static float segmentDistanceButt(float2 p, float2 a, float2 b, float halfW) {\n",
+    "  float2 v = b - a, w = p - a;\n",
+    "  float len2 = dot(v, v);\n",
+    "  if (len2 <= 0.0) { return 1.0e6; }\n",
+    "  float len = sqrt(len2);\n",
+    "  float t = dot(w, v) / len2;\n",
+    "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
+    "  d = max(d, -t * len);\n",
+    "  return max(d, (t - 1.0) * len);\n",
+    "}\n",
     "static bool arcInSweep(float2 d, float2 s, float2 e, bool reflex) {\n",
     "  bool afterStart = s.x * d.y - s.y * d.x >= 0.0;\n",
     "  bool beforeEnd  = e.x * d.y - e.y * d.x <= 0.0;\n",
@@ -195,6 +217,15 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "  }\n",
     "  return inside ? -best : best;\n",
     "}\n",
+    // plan-116-C: the inverse transform, decoded from the float32 bits the item block
+    // carries. `as_type<float>` is a reinterpret, not a conversion -- the CPU already
+    // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
+    // have no double->single convert.
+    "static bool hasTransform(constant MfbItem &item) { return item.xform1.z != 0; }\n",
+    "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
+    "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
+    "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
+    "}\n",
     "static float geoDistance(constant MfbItem &item, constant int *edges, float2 p) {\n",
     "  float radius = fx(item.misc.y);\n",
     "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
@@ -202,18 +233,53 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "    return rectDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
     "  }\n",
     "  if (item.misc.x == 1) { return length(p - c) - fx(item.shape.z) - radius; }\n",
+    // Round is 1 and is what a Line did before plan-116-D, so it reads as the straight
+    // path; the butt arm returns the finished band distance and does not subtract
+    // `radius` again.
     "  if (item.misc.x == 2) {\n",
-    "    return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "    if (item.arc.w == 1) {\n",
+    "      return segmentDistance(p, c, float2(fx(item.shape.z), fx(item.shape.w))) - radius;\n",
+    "    }\n",
+    "    return segmentDistanceButt(p, c, float2(fx(item.shape.z), fx(item.shape.w)), radius);\n",
     "  }\n",
     "  if (item.misc.x == 3) {\n",
     "    float2 d = p - c;\n",
     "    float a0 = fx(item.arc.x), a1 = fx(item.arc.y);\n",
     "    float2 s = float2(cos(a0), sin(a0));\n",
     "    float2 e = float2(cos(a1), sin(a1));\n",
-    "    if (!arcInSweep(d, s, e, (a1 - a0) > PI)) { return 1.0e6; }\n",
-    "    return abs(length(d) - fx(item.shape.z)) - radius;\n",
+    "    float band = arcInSweep(d, s, e, (a1 - a0) > PI)\n",
+    "        ? abs(length(d) - fx(item.shape.z)) - radius : 1.0e6;\n",
+    // Butt is 0 and is what an Arc did before plan-116-D, so it returns untouched;
+    // Round unions a disc of the stroke's half-width at each sweep endpoint, and a
+    // union of SDFs is their min. The endpoints are per-shape constants the CPU wrote,
+    // so this costs two distances and no trigonometry. Twin of the block in
+    // `runtime/canvas/shaders/mfb_canvas.frag`.
+    "    if (item.arc.w == 0) { return band; }\n",
+    "    float2 cs = float2(fx(item.arcCaps.x), fx(item.arcCaps.y));\n",
+    "    float2 ce = float2(fx(item.arcCaps.z), fx(item.arcCaps.w));\n",
+    "    band = min(band, length(p - cs) - radius);\n",
+    "    return min(band, length(p - ce) - radius);\n",
     "  }\n",
     "  return edgeDistance(edges, item.arc.z, item.misc.w, p);\n",
+    "}\n",
+    // The shape-space distance and the local scale of the mapping, as (d, s).
+    //
+    // Untransformed this is the distance and 1.0 -- the single evaluation the shader
+    // always did. Transformed it is the distance at the inverse-mapped point and
+    // ||grad d|| by CENTRAL DIFFERENCES at epsilon 0.5, so the /2e divisor is exactly 1.
+    // The epsilon is part of the specified result, not a tuning knob: the oracle uses
+    // the same one and Phase 1's measurement is against this value. Central differences
+    // rather than fwidth for the reason 06_canvas.md gives -- a hardware derivative
+    // differs between platforms; this uses only + - * / and sqrt.
+    "static float2 shapeDistanceAndScale(constant MfbItem &item, constant int *edges, float2 p) {\n",
+    "  if (!hasTransform(item)) { return float2(geoDistance(item, edges, p), 1.0); }\n",
+    "  float d = geoDistance(item, edges, inverseMap(item, p));\n",
+    "  float gx = geoDistance(item, edges, inverseMap(item, p + float2(0.5, 0.0)))\n",
+    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.5, 0.0)));\n",
+    "  float gy = geoDistance(item, edges, inverseMap(item, p + float2(0.0, 0.5)))\n",
+    "           - geoDistance(item, edges, inverseMap(item, p - float2(0.0, 0.5)));\n",
+    "  float g = sqrt(gx * gx + gy * gy);\n",
+    "  return float2(d, g > 0.000001 ? g : 1.0);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -274,14 +340,30 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // the two quantize identically -- a float multiply here would disagree on the
     // boundary pixels, which are the only ones a clip can affect.
     "  int clipCov = clipCoverage(item, in.pos.xy);\n",
+    // plan-116-C section 4.5: a transformed glyph samples its bitmap at the
+    // inverse-mapped point, nearest. The index arithmetic is already whole-pixel, so
+    // mapping the query point is the whole change -- the cache stays untransformed and
+    // one entry serves every transform.
     "  if (item.misc.x == 6) {\n",
-    "    int ix = int(in.pos.x) - item.shape.x;\n",
-    "    int iy = int(in.pos.y) - item.shape.y;\n",
+    "    float2 gp = hasTransform(item) ? inverseMap(item, in.pos.xy) : in.pos.xy;\n",
+    // `floor`, not a cast: a cast truncates toward zero, and a transformed glyph maps
+    // to NEGATIVE shape-space coordinates (ink runs up from the pen), where truncation
+    // picks the texel on the wrong side. Untransformed, `gp` is a surface pixel centre
+    // and always positive, so this is the same value the cast gave.
+    "    int ix = int(floor(gp.x)) - item.shape.x;\n",
+    "    int iy = int(floor(gp.y)) - item.shape.y;\n",
     "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
     "      ? 0 : int(glyph[iy * item.misc.w + ix]);\n",
     "    return covered(item.fill, (cov * clipCov) / 255);\n",
     "  }\n",
-    "  float d = geoDistance(item, edges, in.pos.xy);\n",
+    // `dRaw` is in SHAPE space and `dScale` the local scale; the fill uses the surface
+    // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
+    // with the shape (section 4.3). Untransformed, `dScale` is 1.0 and both collapse to
+    // the expressions this shader had.
+    "  float2 ds = shapeDistanceAndScale(item, edges, in.pos.xy);\n",
+    "  float dRaw = ds.x;\n",
+    "  float dScale = ds.y;\n",
+    "  float d = dRaw / dScale;\n",
     "  float4 colour = covered(item.fill,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -291,7 +373,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
     // time such an item reaches here it is fill-only or stroke-only.
     "    float4 s = covered(item.stroke,\n",
-    "      (int(clamp(0.5 - (abs(d) - halfWidth), 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
+    "      (int(clamp(0.5 - (abs(dRaw) - halfWidth) / dScale, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -861,7 +943,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 480;
+const DRAW_FRAME: usize = 528;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -870,44 +952,44 @@ const OFF_WIDTH: usize = 144;
 const OFF_HEIGHT: usize = 152;
 const OFF_POOL: usize = 160;
 const OFF_ITEM: usize = 192;
-const OFF_TEXTURE: usize = 320;
+const OFF_TEXTURE: usize = 368;
 /// The glyph cache's two payload pointers, and the per-glyph loop's state.
 ///
 /// On the stack rather than in `LOCAL` registers because the glyph loop makes two
 /// `objc_msgSend` calls per glyph and the low `LOCAL`s are the objc temporaries.
-const OFF_GLYPH_META: usize = 328;
-const OFF_GLYPH_COV: usize = 336;
-const OFF_GLYPH_INDEX: usize = 344;
-const OFF_GLYPH_COUNT: usize = 352;
-const OFF_GLYPH_HEADER: usize = 360;
-const OFF_GLYPH_W: usize = 368;
-const OFF_GLYPH_H: usize = 376;
-const OFF_GLYPH_X: usize = 384;
-const OFF_GLYPH_Y: usize = 392;
+const OFF_GLYPH_META: usize = 376;
+const OFF_GLYPH_COV: usize = 384;
+const OFF_GLYPH_INDEX: usize = 392;
+const OFF_GLYPH_COUNT: usize = 400;
+const OFF_GLYPH_HEADER: usize = 408;
+const OFF_GLYPH_W: usize = 416;
+const OFF_GLYPH_H: usize = 424;
+const OFF_GLYPH_X: usize = 432;
+const OFF_GLYPH_Y: usize = 440;
 /// The pointer handed straight to `setFragmentBytes:` — into the coverage cache
 /// itself. Metal copies at record time, so the bitmap needs no staging buffer of its
 /// own; the cache's bytes for one glyph are already contiguous.
-const OFF_GLYPH_SRC: usize = 400;
+const OFF_GLYPH_SRC: usize = 448;
 /// `[frameBuffer contents]`, loaded once per frame from the graphics state.
 ///
 /// Parked rather than kept in a `LOCAL`: every item makes at least one
 /// `objc_msgSend`, and the low `LOCAL`s are the objc temporaries.
-const OFF_CONTENTS: usize = 408;
+const OFF_CONTENTS: usize = 456;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
 /// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
 /// to live somewhere the argument staging cannot clobber.
-const OFF_ITEM_CURSOR: usize = 416;
-const OFF_RUN_START: usize = 424;
-const OFF_RUN_COUNT: usize = 432;
+const OFF_ITEM_CURSOR: usize = 464;
+const OFF_RUN_START: usize = 472;
+const OFF_RUN_COUNT: usize = 480;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
-const OFF_EDGE_CURSOR: usize = 440;
+const OFF_EDGE_CURSOR: usize = 488;
 /// Where the glyph currently being drawn published its block, parked so the draw's
 /// `baseInstance:` is staged from memory rather than from a register the staging of an
 /// earlier argument would have overwritten.
-const OFF_GLYPH_INSTANCE: usize = 448;
+const OFF_GLYPH_INSTANCE: usize = 496;
 /// The blend mode currently bound, this item's, and the `strokeHalf` parked across the
 /// two-instance split (plan-116-B).
 ///
@@ -915,9 +997,9 @@ const OFF_GLYPH_INSTANCE: usize = 448;
 /// debugging round on the Vulkan side: `emit_item_publish` uses the low `SCRATCH`
 /// registers, so a value saved across it comes back as a mapped address — and as a
 /// stroke width that reads like an enormous band the oracle never drew.
-const OFF_BOUND_MODE: usize = 456;
-const OFF_ITEM_MODE: usize = 464;
-const OFF_SAVED_STROKE: usize = 472;
+const OFF_BOUND_MODE: usize = 504;
+const OFF_ITEM_MODE: usize = 512;
+const OFF_SAVED_STROKE: usize = 520;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -1883,18 +1965,33 @@ fn emit_glyph_draws(asm: &mut Asm) {
         abi::SCRATCH[1],
         abi::SCRATCH[3],
     ));
-    for (register, word) in [
-        (abi::SCRATCH[0], 0usize),
-        (abi::SCRATCH[1], 1),
-        (abi::SCRATCH[4], 2),
-        (abi::SCRATCH[5], 3),
-    ] {
-        asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
-        asm.push(abi::store_u32(
+    // The per-glyph quad narrows the item's quad to this one glyph's box, which is only
+    // valid UNTRANSFORMED — the box is in shape space, so under a transform the GPU
+    // would rasterise a region the glyph no longer occupies and draw nothing. See the
+    // twin of this block in `runtime/canvas/vulkan.rs` for the cost of the alternative.
+    {
+        let keep_hull = format!("{METAL_DRAW_SYMBOL}_glyph_hull");
+        asm.push(abi::load_u32(
             abi::SCRATCH[6],
             abi::stack_pointer(),
-            OFF_ITEM + ITEM_OFFSET_QUAD + word * 4,
+            OFF_ITEM + ITEM_OFFSET_TRANSFORM + 24,
         ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[6], "0"));
+        asm.push(abi::branch_ne(&keep_hull));
+        for (register, word) in [
+            (abi::SCRATCH[0], 0usize),
+            (abi::SCRATCH[1], 1),
+            (abi::SCRATCH[4], 2),
+            (abi::SCRATCH[5], 3),
+        ] {
+            asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            asm.push(abi::store_u32(
+                abi::SCRATCH[6],
+                abi::stack_pointer(),
+                OFF_ITEM + ITEM_OFFSET_QUAD + word * 4,
+            ));
+        }
+        asm.push(abi::label(&keep_hull));
     }
     // misc.w = width, arc.x = height. Metal needs no bitmap offset: its payload starts
     // at the glyph, where Vulkan's is one region shared by the whole frame.
@@ -2025,6 +2122,19 @@ fn emit_item_block(asm: &mut Asm) {
             ITEM_OFFSET_ARC,
             [HEADER_AUX0, HEADER_AUX1, HEADER_AUX1, HEADER_AUX1],
         ),
+        // plan-116-D: an arc's two sweep endpoints, four consecutive header slots
+        // narrowing to 16.16 exactly like the bounds — so the new `ivec4` rides this
+        // loop rather than adding a hand-written store per coordinate. Written for
+        // every kind; only a Round-capped arc reads them.
+        (
+            ITEM_OFFSET_ARC_CAPS,
+            [
+                HEADER_CAP_START_X,
+                HEADER_CAP_START_X + 1,
+                HEADER_CAP_END_X,
+                HEADER_CAP_END_X + 1,
+            ],
+        ),
         // plan-116-B: the clip is already RESOLVED to x0,y0,x1,y1 in the header, so it
         // rides this loop unchanged — four consecutive slots narrowing to 16.16 like
         // the bounds above, and no arithmetic repeated per item.
@@ -2120,6 +2230,34 @@ fn emit_item_block(asm: &mut Asm) {
         ));
     }
 
+    // The inverse transform (plan-116-C). The header already holds these as float32
+    // BIT PATTERNS — `__canvas_float32Bits` narrowed them once, in MFBASIC, because
+    // this assembler has no double→single convert — so the emitter's whole job is a
+    // whole-number read and a 32-bit store. Seven slots: `ia..ity` then the flag.
+    for (index, slot) in [
+        HEADER_TRANSFORM_IA,
+        HEADER_TRANSFORM_IB,
+        HEADER_TRANSFORM_IC,
+        HEADER_TRANSFORM_ID,
+        HEADER_TRANSFORM_ITX,
+        HEADER_TRANSFORM_ITY,
+        HEADER_HAS_TRANSFORM,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_TRANSFORM + index * 4,
+        ));
+    }
+
     // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
     // so an item that never set `Paint.blend` writes the value the pipeline it selects
     // has always had.
@@ -2136,6 +2274,19 @@ fn emit_item_block(asm: &mut Asm) {
         abi::SCRATCH[1],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_SURFACE + ITEM_SURFACE_BLEND,
+    ));
+
+    // The cap tag, in the per-kind block's last free word (plan-116-D) — the twin of
+    // the block in `runtime/canvas/vulkan.rs`, and unconditional for the same reason.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CAP * 8));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_CAP,
     ));
 }
 

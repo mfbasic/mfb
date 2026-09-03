@@ -20,7 +20,6 @@
 IMPORT io
 IMPORT collections
 IMPORT datetime
-IMPORT math
 IMPORT fs
 
 TYPE RecFixed
@@ -64,23 +63,11 @@ FUNC buildNeg(n AS Integer) AS List OF Integer
   RETURN xs
 END FUNC
 
-FUNC buildRand(n AS Integer) AS List OF Integer
-  MUT xs AS List OF Integer = []
-  FOR i = 0 TO n - 1
-    xs = collections::append(xs, math::rand(0, 1000000))
-  NEXT
-  RETURN xs
-END FUNC
-
 FUNC buildDupRange(n AS Integer, distinct AS Integer) AS List OF Integer
   MUT xs AS List OF Integer = []
   FOR i = 0 TO n - 1
     xs = collections::append(xs, i - (i / distinct) * distinct)
   NEXT
-  RETURN xs
-END FUNC
-
-FUNC copyInts(xs AS List OF Integer) AS List OF Integer
   RETURN xs
 END FUNC
 
@@ -178,10 +165,6 @@ FUNC buildStrDup(n AS Integer, distinct AS Integer) AS List OF String
   FOR i = 0 TO n - 1
     xs = collections::append(xs, "d" & toString(i - (i / distinct) * distinct))
   NEXT
-  RETURN xs
-END FUNC
-
-FUNC copyStrs(xs AS List OF String) AS List OF String
   RETURN xs
 END FUNC
 
@@ -322,7 +305,8 @@ FUNC test_lf_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Bench
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyInts(base))
+      LET cpy AS List OF Integer = collections::set(base, 0, k)
+      acc = acc + len(cpy) + collections::get(cpy, 0)
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -393,7 +377,7 @@ FUNC test_lf_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchR
 END FUNC
 
 FUNC test_lf_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET base = buildRand(50)
+  LET base = sortMakeScramble(50)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -1011,7 +995,8 @@ FUNC test_ld_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Bench
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyStrs(base))
+      LET cpy AS List OF String = collections::set(base, 0, "!")
+      acc = acc + len(cpy) + len2(collections::get(cpy, 0))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -1683,7 +1668,8 @@ FUNC test_lrf_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
     LET base AS List OF Integer = rec.xs
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyInts(base))
+      LET cpy AS List OF Integer = collections::set(base, 0, k)
+      acc = acc + len(cpy) + collections::get(cpy, 0)
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -1758,7 +1744,7 @@ FUNC test_lrf_set(run AS Integer, tests AS List OF BenchResult) AS List OF Bench
 END FUNC
 
 FUNC test_lrf_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET rec AS RecFixed = RecFixed[1, buildRand(50), 2]
+  LET rec AS RecFixed = RecFixed[1, sortMakeScramble(50), 2]
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -2406,7 +2392,8 @@ FUNC test_lrd_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
     LET base AS List OF String = rec.xs
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyStrs(base))
+      LET cpy AS List OF String = collections::set(base, 0, "!")
+      acc = acc + len(cpy) + len2(collections::get(cpy, 0))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -3122,7 +3109,8 @@ FUNC test_lsf_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
     LET base AS List OF Integer = f.state.xs
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyInts(base))
+      LET cpy AS List OF Integer = collections::set(base, 0, k)
+      acc = acc + len(cpy) + collections::get(cpy, 0)
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -3209,7 +3197,7 @@ FUNC test_lsf_sort(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sort.tmp"])
   RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
-  f.state.xs = buildRand(50)
+  f.state.xs = sortMakeScramble(50)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
@@ -3956,7 +3944,8 @@ FUNC test_lsd_copy(run AS Integer, tests AS List OF BenchResult) AS List OF Benc
     LET base AS List OF String = f.state.xs
     MUT acc AS Integer = 0
     FOR k = 0 TO 1000 - 1
-      acc = acc + len(copyStrs(base))
+      LET cpy AS List OF String = collections::set(base, 0, "!")
+      acc = acc + len(cpy) + len2(collections::get(cpy, 0))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()

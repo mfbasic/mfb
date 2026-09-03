@@ -182,7 +182,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
         &scene(
             "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
+             cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 14.0)]\n  \
              canvas::present([smile])\n",
         ),
     );
@@ -272,7 +272,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
+             cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
         ),
     );
 
@@ -422,7 +422,7 @@ fn rendering_is_byte_reproducible() {
         "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(canvas::rgb(255, 255, 0))]\n  \
          LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
-         endAngle := 3.14159, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
+         endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(canvas::rgb(0, 160, 0), 8.0)]\n  \
          canvas::present([disc, a])\n",
     );
     let (first, _) = render("canvas_determinism_a", &source);
@@ -799,5 +799,558 @@ fn blend_mode_normal_is_identical_to_an_unset_blend() {
     assert_eq!(
         unset, normal,
         "BlendMode.Normal must render byte-identically to an unset blend"
+    );
+}
+
+/// plan-116-C Phase 1: how wrong is the transformed-distance correction?
+///
+/// Kept and `#[ignore]`d rather than deleted. It is not a regression test — it
+/// measures a *design* question and its answer is written into
+/// `planning/completed/plan-116-C-canvas-transform.md` §4.2. Re-run it with
+/// `cargo test --release --test rt_canvas_rasteriser -- --ignored --nocapture` if that
+/// choice is ever revisited.
+///
+/// **The question.** Evaluating a shape at `T⁻¹(p)` yields a distance in *shape* space.
+/// Coverage must be computed in *surface* space, so the distance needs dividing by the
+/// local scale of `T⁻¹`. §4.2 proposed `sqrt(|det M|)`, which is exact for a similarity
+/// and an approximation otherwise, and required the error to be measured before
+/// anything was built on it.
+///
+/// **The answer, in 1/255 coverage steps, against a 32×32 supersampled ground truth:**
+///
+/// | | `sqrt(\|det M\|)` | `d / ‖∇d‖` |
+/// |---|---|---|
+/// | identity (the control) | 3.19 | 3.19 |
+/// | 2:1 non-uniform scale | **37.34** | 3.19 |
+/// | 30° shear | **18.18** | 9.71 |
+///
+/// 3.19/255 is the measurement floor — the supersampling grid quantises a straight
+/// edge's area at 1/32 per axis — so `d / ‖∇d‖` is *exact* for the non-uniform scale.
+///
+/// And the shear's residual 9.71 is not the correction's fault either: an
+/// **untransformed** 30° edge measures 9.71 too, and an untransformed 45° edge 13.69.
+/// That is the inherent error of the `clamp(0.5 - d, 0, 1)` coverage model on an edge
+/// that is not axis-aligned — the model `06_canvas.md` §"Rendering conventions"
+/// specifies, which every rotated shape in the renderer has always been drawn with. So
+/// the gradient form introduces **no error the renderer did not already have**, and
+/// `sqrt(|det M|)` introduces up to 37 steps of new error.
+///
+/// Hence §4.2's formula changed. The gradient is taken by explicit central differences
+/// at a fixed epsilon, which is deterministic — `+ - * /` and `sqrt` only — and so does
+/// not fall foul of the same section's ban on `fwidth`-style hardware derivatives,
+/// whose whole problem is that they vary between platforms.
+#[test]
+#[ignore = "a design measurement, not a regression gate; see plan-116-C §4.2"]
+fn measure_the_transformed_distance_correction() {
+    // A half-plane, so the only error source is the correction — a curved shape would
+    // mix in the coverage model's curvature error and confuse the two.
+    fn sdf(x: f64, _y: f64) -> f64 {
+        x
+    }
+    fn mapped(m: [f64; 4], px: f64, py: f64) -> f64 {
+        sdf(m[0] * px + m[2] * py, m[1] * px + m[3] * py)
+    }
+    fn cover(d: f64) -> f64 {
+        (0.5 - d).clamp(0.0, 1.0)
+    }
+    /// Fraction of the pixel at `(px, py)` whose inverse-mapped point is inside.
+    fn truth(m: [f64; 4], px: f64, py: f64) -> f64 {
+        const N: usize = 32;
+        let mut inside = 0;
+        for i in 0..N {
+            for j in 0..N {
+                let sx = px - 0.5 + (i as f64 + 0.5) / N as f64;
+                let sy = py - 0.5 + (j as f64 + 0.5) / N as f64;
+                if mapped(m, sx, sy) <= 0.0 {
+                    inside += 1;
+                }
+            }
+        }
+        inside as f64 / (N * N) as f64
+    }
+    fn by_sqrt_det(m: [f64; 4], px: f64, py: f64) -> f64 {
+        mapped(m, px, py) / (m[0] * m[3] - m[1] * m[2]).abs().sqrt()
+    }
+    fn by_gradient(m: [f64; 4], px: f64, py: f64) -> f64 {
+        const EPS: f64 = 0.5;
+        let d = mapped(m, px, py);
+        let gx = (mapped(m, px + EPS, py) - mapped(m, px - EPS, py)) / (2.0 * EPS);
+        let gy = (mapped(m, px, py + EPS) - mapped(m, px, py - EPS)) / (2.0 * EPS);
+        let g = gx.hypot(gy);
+        if g > 1e-9 {
+            d / g
+        } else {
+            d
+        }
+    }
+    fn worst(m: [f64; 4], f: fn([f64; 4], f64, f64) -> f64) -> f64 {
+        let mut e: f64 = 0.0;
+        for j in -20..=20 {
+            for i in -40..=40 {
+                let (px, py) = (i as f64 * 0.05, j as f64 * 0.5);
+                e = e.max((cover(f(m, px, py)) - truth(m, px, py)).abs());
+            }
+        }
+        e
+    }
+
+    let shear = (30.0f64).to_radians().tan();
+    let cases = [
+        ("identity", [1.0, 0.0, 0.0, 1.0]),
+        ("2:1 scale", [0.5, 0.0, 0.0, 1.0]),
+        ("30deg shear", [1.0, 0.0, -shear, 1.0]),
+    ];
+    let mut worst_det = 0.0f64;
+    let mut worst_grad = 0.0f64;
+    for (name, m) in cases {
+        let det = worst(m, by_sqrt_det);
+        let grad = worst(m, by_gradient);
+        eprintln!(
+            "{name:12} sqrt(|det|) {:6.2}/255   d/||grad|| {:6.2}/255",
+            det * 255.0,
+            grad * 255.0
+        );
+        if name != "identity" {
+            worst_det = worst_det.max(det);
+            worst_grad = worst_grad.max(grad);
+        }
+    }
+
+    // The floor: 32x32 supersampling quantises a straight edge's area, and even the
+    // identity measures this much.
+    let floor = worst([1.0, 0.0, 0.0, 1.0], by_gradient);
+    eprintln!("measurement floor {:.2}/255", floor * 255.0);
+
+    assert!(
+        worst_det * 255.0 > 30.0,
+        "sqrt(|det M|) was expected to be badly wrong for a non-similarity — if this \
+         no longer holds, §4.2's conclusion needs re-deriving, not just re-running"
+    );
+    assert!(
+        worst_grad <= worst_det,
+        "the gradient form must never be worse than sqrt(|det M|)"
+    );
+}
+
+/// A 90°-rotated rectangle lands where the matrix says, not where its bounds were.
+///
+/// A rotation is the case that proves the bounds are transformed too: the item's
+/// generator computes a shape-space box, and a renderer that clipped to *that* would
+/// keep only the overlap of the rotated shape with its own unrotated box — which for a
+/// 90° rotation of a wide, short rectangle is a small square in the middle.
+///
+/// 90° exactly, so every assertion is a whole pixel and none of them is a judgement
+/// call about an antialiased edge. `Transform` is `[a, b, c, d, tx, ty]` applied as
+/// `x' = a*x + c*y + tx`, so a 90° rotation about the origin is `a=0, b=1, c=-1, d=0`,
+/// and `tx`/`ty` put it back on screen.
+#[test]
+fn a_rotated_rectangle_lands_where_the_matrix_says() {
+    let (frame, _) = render(
+        "canvas_xform_rot",
+        &scene(
+            "  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 100.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 0, 0)) { transform := t }\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 40.0, paint := p]\n  \
+             canvas::present([bar])\n",
+        ),
+    );
+
+    // The shape-space rectangle is x 0..200, y 0..40. After the rotation and the
+    // translation it occupies surface x 360..400, y 100..300.
+    assert_eq!(
+        pixel(&frame, 380, 200),
+        (255, 0, 0, 255),
+        "the middle of the ROTATED bar"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 110),
+        (255, 0, 0, 255),
+        "near the rotated bar's top — 200 px from the pivot, so only a transformed \
+         BOUNDS reaches here"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 290),
+        (255, 0, 0, 255),
+        "near the rotated bar's bottom"
+    );
+    // Where the UNROTATED rectangle would have been.
+    assert_eq!(
+        pixel(&frame, 100, 20),
+        (0, 0, 0, 255),
+        "the untransformed position must be empty — the transform moved the item, it \
+         did not draw it twice"
+    );
+    assert_eq!(
+        pixel(&frame, 420, 200),
+        (0, 0, 0, 255),
+        "just outside the rotated bar"
+    );
+}
+
+/// A 2× uniform scale doubles the radius **and** the stroke.
+///
+/// §4.3's decision, asserted rather than assumed: the stroke scales with the shape,
+/// because the band is `|d| - half` evaluated in shape space and scaling `d` scales the
+/// band. A renderer that corrected the stroke separately would keep it 10 px wide here.
+#[test]
+fn a_uniform_scale_scales_the_shape_and_its_stroke() {
+    let (frame, _) = render(
+        "canvas_xform_scale",
+        &scene(
+            "  LET t AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 2.0, tx := 0.0, ty := 0.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::stroke(canvas::rgb(0, 255, 0), 10.0) { transform := t }\n  \
+             LET ring AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 150.0, radius := 50.0, paint := p]\n  \
+             canvas::present([ring])\n",
+        ),
+    );
+
+    // Centre (150,150) and radius 50 scale to centre (300,300) and radius 100; the
+    // 10 px stroke becomes 20 px, so the band spans radius 90..110.
+    let lit = |x: usize, y: usize| pixel(&frame, x, y).1 > 0;
+    assert!(
+        lit(400, 300),
+        "the scaled ring's rightmost band, radius 100"
+    );
+    assert!(lit(395, 300), "inside the scaled band (radius 95)");
+    assert!(lit(405, 300), "outside-ish, still in the band (radius 105)");
+    assert!(
+        !lit(300, 300),
+        "the centre must be hollow — a stroke-only paint fills nothing"
+    );
+    assert!(
+        lit(200, 300),
+        "radius 100 on the OTHER side of the scaled centre — the ring is a ring, so \
+         both sides are lit"
+    );
+    assert!(
+        !lit(440, 300),
+        "radius 140: outside the scaled band's outer edge at 110"
+    );
+    assert!(
+        !lit(250, 300),
+        "radius 50 — where the UNSCALED ring would have been"
+    );
+}
+
+/// An all-zero `Transform` is byte-identical to naming no transform at all.
+///
+/// The compatibility case, and the reason `__canvas_invertTransform` maps all-zero to
+/// the identity in one place rather than each renderer deciding: every `Paint` built
+/// before this letter carries exactly this value, so one wrong pixel here is every
+/// existing scene changing. Whole-frame equality, including the antialiased edge.
+#[test]
+fn an_all_zero_transform_is_identical_to_no_transform() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 90.0, paint := {paint}]\n  \
+             canvas::present([dot])\n"
+        ))
+    };
+    let (unset, _) = render(
+        "canvas_xform_unset",
+        &body("canvas::fill(canvas::rgb(255, 200, 0))"),
+    );
+    let (zero, _) = render(
+        "canvas_xform_zero",
+        &body(
+            "WITH canvas::fill(canvas::rgb(255, 200, 0)) { transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0] }",
+        ),
+    );
+    assert_eq!(
+        unset, zero,
+        "the all-zero Transform is the documented identity spelling; it must render \
+         byte-identically to naming no transform"
+    );
+}
+
+/// A singular transform renders untransformed rather than invisible.
+///
+/// §4.4's choice, and it is about debuggability rather than mathematics: an item that
+/// vanishes is indistinguishable from one that was never presented, whereas an
+/// obviously untransformed item is a visible bug. It also keeps an infinity out of the
+/// distance field, which would poison the whole frame rather than one item.
+///
+/// `[1, 2, 2, 4]` has determinant zero — it collapses the plane onto a line.
+#[test]
+fn a_singular_transform_renders_untransformed() {
+    let body = |paint: &str| {
+        scene(&format!(
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 120.0, h := 80.0, paint := {paint}]\n  \
+             canvas::present([box])\n"
+        ))
+    };
+    let (plain, _) = render(
+        "canvas_xform_plain",
+        &body("canvas::fill(canvas::rgb(0, 200, 255))"),
+    );
+    let (singular, _) = render(
+        "canvas_xform_singular",
+        &body(
+            "WITH canvas::fill(canvas::rgb(0, 200, 255)) { transform := canvas::Transform[a := 1.0, b := 2.0, c := 2.0, d := 4.0, tx := 0.0, ty := 0.0] }",
+        ),
+    );
+    assert_eq!(
+        singular, plain,
+        "a determinant-zero transform must fall back to the identity, not collapse the \
+         item to a line or draw nothing"
+    );
+}
+
+/// A rotated shape is not clipped to its untransformed bounds.
+///
+/// The sharpest bounds case: a 45° rotation makes a square's diagonal its widest
+/// extent, so the transformed hull is ~1.41× the original box in both axes. A renderer
+/// that kept the shape-space bounds would slice all four corners off.
+#[test]
+fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
+    // cos 45 = sin 45 = 0.7071067811865476
+    let (frame, _) = render(
+        "canvas_xform_hull",
+        &scene(
+            "  LET k AS Float = 0.7071067811865476\n  \
+             LET t AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 300.0, ty := 300.0]\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }\n  \
+             LET sq AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 100.0, y := 0.0 - 100.0, w := 200.0, h := 200.0, paint := p]\n  \
+             canvas::present([sq])\n",
+        ),
+    );
+
+    // The square is 200x200 about the origin; rotated 45° its corners reach
+    // ±141 along each axis from (300,300), while its untransformed box reached ±100.
+    assert_eq!(
+        pixel(&frame, 300, 170),
+        (255, 255, 255, 255),
+        "130 px above the centre — inside the rotated diamond, but OUTSIDE the \
+         untransformed box's half-height of 100. This is the pixel a stale bounds \
+         rectangle would have cut."
+    );
+    assert_eq!(
+        pixel(&frame, 430, 300),
+        (255, 255, 255, 255),
+        "130 px right of the centre, same argument"
+    );
+    assert_eq!(
+        pixel(&frame, 380, 380),
+        (0, 0, 0, 255),
+        "the diamond's flank: inside the untransformed box's corner, outside the \
+         rotated shape — so the bounds were widened, not the shape"
+    );
+}
+
+/// A butt-capped line stops at its endpoint; the same line round-capped does not.
+///
+/// plan-116-D Phase 2. Asserted against **the same line** a few pixels apart, because
+/// that difference is the only thing the cap changes — a weaker pair of assertions
+/// would also pass on a renderer that ignored the flag entirely.
+///
+/// Horizontal, from `x = 200` to `x = 400` at `y = 300`, stroke width 20 (half-width
+/// 10). Pixel centres sit at `x + 0.5`, so pixel 405's centre is 5.5 past the end
+/// plane: outside for `Butt`, inside the end disc for `Round`.
+#[test]
+fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
+    let line = |cap: &str| {
+        format!(
+            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, \
+             x2 := 400.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 20.0)]\n  \
+             canvas::present([l])\n"
+        )
+    };
+    let (butt, _) = render("canvas_cap_butt", &scene(&line("Butt")));
+    let (round, _) = render("canvas_cap_round", &scene(&line("Round")));
+
+    // Both must draw the body, or every assertion below is vacuous: an item that was
+    // dropped entirely would "pass" all the outside-the-cap checks.
+    for (name, frame) in [("butt", &butt), ("round", &round)] {
+        assert_eq!(
+            pixel(frame, 300, 300),
+            (255, 255, 255, 255),
+            "the {name} line did not draw its own middle"
+        );
+        assert_eq!(
+            pixel(frame, 399, 300),
+            (255, 255, 255, 255),
+            "the {name} line stops short of its own endpoint"
+        );
+    }
+
+    assert_eq!(
+        pixel(&butt, 405, 300),
+        (0, 0, 0, 255),
+        "past the endpoint is background for a butt cap — ink here is the round \
+         distance, so the flag was not read"
+    );
+    assert_eq!(
+        pixel(&round, 405, 300),
+        (255, 255, 255, 255),
+        "the same pixel is inside the round cap's disc (half-width 10), so a round \
+         cap must still paint it"
+    );
+    assert_eq!(
+        pixel(&round, 415, 300),
+        (0, 0, 0, 255),
+        "15 px past is outside even the round cap, so the disc has the stroke's \
+         half-width and not some larger reach"
+    );
+}
+
+/// A zero-length line is a dot when round-capped and nothing at all when butt-capped.
+///
+/// The degenerate case, and the one a `max` of three terms is most likely to get
+/// wrong: with `len2 = 0` there is no direction for the two end planes to be
+/// perpendicular to. Butt answers "outside everywhere" deliberately rather than
+/// dividing by zero; Round keeps the pre-existing behaviour, where clamping `t` makes
+/// the distance radial and the shape a disc.
+///
+/// Both halves are needed. Asserting only that the butt one is empty would also pass
+/// if zero-length lines had stopped drawing altogether.
+#[test]
+fn a_zero_length_line_is_a_dot_only_when_round_capped() {
+    let dot = |cap: &str| {
+        format!(
+            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 300.0, \
+             x2 := 300.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 20.0)]\n  \
+             canvas::present([l])\n"
+        )
+    };
+    let (butt, _) = render("canvas_cap_zero_butt", &scene(&dot("Butt")));
+    let (round, _) = render("canvas_cap_zero_round", &scene(&dot("Round")));
+
+    assert_eq!(
+        pixel(&round, 300, 300),
+        (255, 255, 255, 255),
+        "a zero-length ROUND line is a disc of the stroke's half-width, so its centre \
+         is painted — the behaviour that existed before plan-116-D"
+    );
+    assert_eq!(
+        pixel(&round, 305, 300),
+        (255, 255, 255, 255),
+        "5 px from the centre is inside that disc (half-width 10)"
+    );
+    assert_eq!(
+        pixel(&butt, 300, 300),
+        (0, 0, 0, 255),
+        "a zero-length BUTT line has no length for its end planes to bound, so it is \
+         empty — ink at the centre means the degenerate case fell through to the \
+         round distance"
+    );
+}
+
+/// A round-capped arc puts a disc at each sweep end; a butt-capped one does not.
+///
+/// plan-116-D Phase 3, and the pair is what makes it a test: an `Arc` was *butt* before
+/// this letter — the sweep test already cuts the band along a radius at each end — so
+/// `Butt` is the byte-identical side here and `Round` is the new geometry. That is the
+/// opposite of `Line`, and getting the two backwards is the mistake this letter is
+/// shaped to prevent.
+///
+/// The arc is centred at (300, 300), radius 100, sweeping `0.0`..`PI` — so it runs
+/// below the centre (Y grows downward) and its start endpoint is at (400, 300), exactly
+/// the +X extreme. Stroke width 24, so a cap disc there has half-width 12.
+#[test]
+fn a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not() {
+    let arc = |cap: &str| {
+        format!(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
+             cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n"
+        )
+    };
+    let (butt, _) = render("canvas_arccap_butt", &scene(&arc("Butt")));
+    let (round, _) = render("canvas_arccap_round", &scene(&arc("Round")));
+
+    // The band itself, well inside the sweep — both must draw it, or everything below
+    // is vacuous.
+    for (name, frame) in [("butt", &butt), ("round", &round)] {
+        assert_eq!(
+            pixel(frame, 300, 400),
+            (255, 255, 255, 255),
+            "the {name} arc did not draw the bottom of its own band"
+        );
+    }
+
+    // Seven pixels above the start endpoint (400, 300). The sweep is 0..PI, so anything
+    // with y < 300 is outside it and the radial cut removes it — unless a cap disc of
+    // half-width 12 is centred there.
+    assert_eq!(
+        pixel(&round, 400, 293),
+        (255, 255, 255, 255),
+        "a round cap puts a disc of the stroke's half-width at the sweep endpoint, so \
+         just outside the sweep is still painted"
+    );
+    assert_eq!(
+        pixel(&butt, 400, 293),
+        (0, 0, 0, 255),
+        "a butt arc is cut along the radius at its end, so the same pixel is \
+         background — this is the pre-plan-116-D behaviour"
+    );
+    // And the disc has the stroke's half-width, not some larger reach.
+    assert_eq!(
+        pixel(&round, 400, 285),
+        (0, 0, 0, 255),
+        "15 px past the endpoint is outside a 12 px cap disc"
+    );
+}
+
+/// A round cap at the bounds' extreme is not clipped by the item's bounds.
+///
+/// The plan says to verify this rather than assume it. The arc header pads its hull by
+/// `radius + half + 1.0`, and a cap disc of half-width `half` centred on a point at
+/// distance `radius` from the centre reaches exactly `radius + half` — so it fits, with
+/// one pixel to spare. That is an argument, not a measurement, and a hull one pixel
+/// short would cut the cap's outer edge and nothing else.
+///
+/// The arc's start endpoint is (400, 300), the hull's +X extreme; the cap disc there
+/// reaches x = 412 against a hull edge at x = 413.
+#[test]
+fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
+    let (frame, _) = render(
+        "canvas_arccap_bounds",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
+             cap := canvas::CapStyle.Round, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n",
+        ),
+    );
+    assert_eq!(
+        pixel(&frame, 411, 300),
+        (255, 255, 255, 255),
+        "the outermost column of the start cap's disc — a hull that did not grow for \
+         the cap would have cut exactly here and left the rest of the arc intact"
+    );
+}
+
+/// A full-circle arc looks the same either way, because it has no ends to cap.
+///
+/// The degenerate case for this phase. A `0..2*PI` sweep never leaves the sweep test,
+/// so the cap discs are unioned into a band that already covers them — `min` with
+/// something already inside changes nothing. Comparing the two frames byte for byte is
+/// what rules out a disc drawn in the wrong place: on a closed arc that would be a
+/// bulge, which no single-pixel check is positioned to see.
+#[test]
+fn a_full_circle_arc_is_identical_with_either_cap() {
+    let ring = |cap: &str| {
+        format!(
+            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
+             radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, \
+             cap := canvas::CapStyle.{cap}, \
+             paint := canvas::stroke(canvas::rgb(255, 255, 255), 24.0)]\n  \
+             canvas::present([a])\n"
+        )
+    };
+    let (butt, _) = render("canvas_arccap_ring_butt", &scene(&ring("Butt")));
+    let (round, _) = render("canvas_arccap_ring_round", &scene(&ring("Round")));
+    assert!(
+        butt.iter().any(|&b| b != 0),
+        "the ring drew nothing, so the comparison would be vacuous"
+    );
+    assert_eq!(
+        butt, round,
+        "a closed arc has no ends, so the cap must make no difference at all"
     );
 }

@@ -163,6 +163,26 @@ translucent source, and ideally one item drawn *after* the thing whose ordering 
 under test — with the text last, a trailing run flush is always empty and the
 ordering is never exercised at all.
 
+### A reference captured without `MFB_CANVAS_SYNC` silently loses its TEXT
+
+A canvas harness that sets `MFB_CANVAS_DUMP` must also set `MFB_CANVAS_SYNC=1`.
+Without it the process tears down while the graphics thread is still reading the
+scene: the geometry survives (the ring holds a published copy) but a `canvas::Font`'s
+outlines do not, because they live in the worker's per-thread arena
+(`.ai/canvas-threading.md` §1). The frame lands with every shape and **no text**.
+
+This is not a flake, which is what makes it dangerous as a *reference*-capture bug.
+Measured on plan-116-C's transform scene: five consecutive runs without `SYNC` gave 0
+text pixels every time, so `compare_exact` called the truncated frame a match, the
+reference was regenerated from it, and the suite was green. With `SYNC` — or without
+it but with an `os::sleep(1500)` after `present`, which is what identifies teardown
+rather than the font path as the mechanism — the same scene gives 840.
+
+`tests/rt_canvas_golden.rs` was the one canvas suite missing the flag, and nothing
+caught it for two letters because `smiley.png` and `blendmodes.png` load no font and
+are byte-identical either way. **A scene with no font is not evidence that a harness
+waits.**
+
 Two comparators, in `tests/common/canvas_image.rs`:
 
 * `compare_exact` — the gate for the software rasteriser.
@@ -401,3 +421,43 @@ Measure both directions before trusting any such fixture: run it ~10× against a
 compiler built from the unfixed base AND ~15× under `for i in $(seq 8); do (while
 :; do :; done) & done` load against the fixed one. An idle-machine 10/10 proves
 nothing about a full sweep.
+
+## An ephemeral port picked with bind-then-release hands a case the WRONG server
+
+`free_port()` — bind `127.0.0.1:0`, read the port, drop the listener, then tell an
+external server (`openssl s_server`, a python peer, …) to bind that number — is the
+usual way to give a subprocess a port. It has a window: the port is free between the
+drop and the server's bind, and concurrent cases in the same test binary can be handed
+the same number.
+
+**The failure is not "address in use".** One server wins the bind; the loser exits
+immediately. The loser's readiness probe — `TcpStream::connect(port).is_ok()` — then
+succeeds *against the winner's server*, reports ready, and the loser's client talks to
+the wrong peer. For a test that asserts on **what the peer presented**, that returns
+another case's answer rather than an error.
+
+Measured on `tests/rt_tls_connect_allow_self_signed.rs` (bug-477), whose four cases
+serve four different TLS identities: `accepts_a_self_signed_peer` reported `raised` on
+one run and `still_rejects_a_name_mismatch` reported a completed handshake on the next
+— i.e. each got a verdict belonging to a sibling case. Both under load; 10 subsequent
+idle runs (5 parallel, 5 `--test-threads=1`) were green, so **it does not reproduce on
+demand** and a green re-run is not evidence of anything.
+
+**The fix is not a bigger sleep.** Make a live child part of the readiness condition:
+
+```rust
+match child.try_wait()? {
+    Some(_) => { /* exited before accepting: it lost the bind — take a new port */ }
+    None => { if TcpStream::connect(("127.0.0.1", port)).is_ok() { return (child, port) } }
+}
+```
+
+…and hold a process-wide `Mutex` from the `free_port()` call through the successful
+bind so two cases cannot be in the window at once. The retry is the correctness part;
+the mutex only makes it rare. Note the readiness probe must stay — dropping it
+reintroduces the original race against `listen(2)`.
+
+**The general rule:** a readiness probe that only asks "is *something* listening?"
+cannot tell your server from someone else's. When the test's assertion depends on
+*which* peer answered, the probe has to establish identity — or, as here, establish
+that the process you started is the one still holding the port.

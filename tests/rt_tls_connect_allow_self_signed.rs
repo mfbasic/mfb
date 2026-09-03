@@ -50,7 +50,7 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Wall-clock bound on the whole client run. Generous on purpose: this turns a
@@ -110,11 +110,36 @@ impl Peer {
     }
 }
 
+/// Run `openssl` with `args`, and on failure report the exit code and the CLI's
+/// own stderr.
+///
+/// bug-485: these spawns used to discard both streams, so an *unsupported
+/// option* — the CLI printing a usage block and exiting 1 — was indistinguishable
+/// from a broken install, a bad subject, or an unwritable path. The whole cost of
+/// diagnosing that bug was paid here. Keep the streams captured.
+fn run_openssl(args: &[&str], what: &str) {
+    let output = Command::new("openssl")
+        .args(args)
+        .output()
+        .unwrap_or_else(|err| panic!("run openssl to {what}: {err}"));
+    assert!(
+        output.status.success(),
+        "openssl failed to {what} (exit {:?})\nargv: openssl {}\nstderr:\n{}",
+        output.status.code(),
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
 /// Generate the self-signed pair for `peer` under `root`.
 ///
 /// The expired case is pinned to a fixed 2019–2020 window rather than a negative
 /// `-days`, so the certificate is unambiguously expired no matter when the suite
-/// runs and the test never becomes time-dependent.
+/// runs and the test never becomes time-dependent. A negative `-days` is *not* a
+/// shortcut to the same place: `openssl req -x509 -days -400` is accepted by
+/// LibreSSL 3.3.6 and emits a certificate valid from now to now+30d — a live
+/// certificate, which would silently invert `still_rejects_an_expired_certificate`
+/// into asserting the opposite of what it reads as.
 ///
 /// **`-days 397` and `extendedKeyUsage=serverAuth` are load-bearing on macOS.**
 /// Apple enforces a certificate *shape* policy that OpenSSL does not: a TLS
@@ -125,48 +150,214 @@ impl Peer {
 fn write_cert(root: &Path, peer: Peer) -> (PathBuf, PathBuf) {
     let cert = root.join("cert.pem");
     let key = root.join("key.pem");
-    let mut args = vec![
-        "req".to_string(),
-        "-x509".to_string(),
-        "-newkey".to_string(),
-        "rsa:2048".to_string(),
-        "-keyout".to_string(),
-        key.to_str().unwrap().to_string(),
-        "-out".to_string(),
-        cert.to_str().unwrap().to_string(),
-        "-nodes".to_string(),
-        "-subj".to_string(),
-        peer.subject().to_string(),
-        "-addext".to_string(),
-        peer.san().to_string(),
-        "-addext".to_string(),
-        "extendedKeyUsage=serverAuth".to_string(),
-    ];
     match peer {
-        Peer::Expired => args.extend([
-            "-not_before".to_string(),
-            "20190101000000Z".to_string(),
-            "-not_after".to_string(),
-            "20200101000000Z".to_string(),
-        ]),
-        _ => args.extend(["-days".to_string(), "397".to_string()]),
+        Peer::Expired => write_expired_cert(root, peer, &cert, &key),
+        _ => run_openssl(
+            &[
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                key.to_str().unwrap(),
+                "-out",
+                cert.to_str().unwrap(),
+                "-nodes",
+                "-subj",
+                peer.subject(),
+                "-addext",
+                peer.san(),
+                "-addext",
+                "extendedKeyUsage=serverAuth",
+                "-days",
+                "397",
+            ],
+            "generate an in-date self-signed cert",
+        ),
     }
-    let status = Command::new("openssl")
-        .args(&args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .expect("run openssl req");
-    assert!(
-        status.success(),
-        "openssl failed to generate a self-signed cert"
-    );
     (cert, key)
 }
 
+/// Build the expired identity through a CSR and `openssl ca -selfsign`, rather
+/// than the one-shot `openssl req -x509` the in-date peers use.
+///
+/// **This detour is required, not stylistic (bug-485).** Setting an explicit
+/// window on `req` needs `-not_before`/`-not_after`, which exist only in OpenSSL
+/// **3.5+** — they are absent from the 3.0 `req(1)` manpage. CI runs
+/// ubuntu-24.04, whose `openssl` is 3.0.13, so there the CLI printed a usage
+/// block and exited 1 and `still_rejects_an_expired_certificate` died in
+/// `write_cert` before a byte of TLS was exchanged. The negative guard that gives
+/// `allowSelfSigned` its meaning therefore ran nowhere except a developer box
+/// with a new enough OpenSSL first on `PATH`.
+///
+/// `ca -startdate`/`-enddate` has been there since OpenSSL 1.x and is documented
+/// in the 3.0 `ca(1)` manpage; OpenSSL 3.6 reports `-not_before` as *an alias
+/// for* `-startdate`. The recipe below is measured to produce the identical
+/// certificate on LibreSSL 3.3.6, OpenSSL 3.5.6, 3.6.2 and 3.6.3 — which brackets
+/// CI's 3.0.13 from both sides. Do not "simplify" this back to the one-shot `req`
+/// form.
+///
+/// `ca` takes its extensions from the config's `x509_extensions` section and
+/// ignores `-addext`, so the SAN and `serverAuth` EKU move into the generated
+/// `.cnf`. [`Peer::san`] stays the single source of truth for both paths because
+/// an `-addext` argument and a config line have the same `key=value` spelling.
+fn write_expired_cert(root: &Path, peer: Peer, cert: &Path, key: &Path) {
+    let cnf = root.join("ca.cnf");
+    let csr = root.join("csr.pem");
+    let index = root.join("index.txt");
+    let serial = root.join("serial");
+    // `ca` refuses to run without its bookkeeping: an (empty) index database and
+    // a serial to start from. `rand_serial = no` is what makes it read the file.
+    fs::write(&index, "").expect("write the ca index");
+    fs::write(&serial, "01\n").expect("write the ca serial");
+    fs::write(
+        &cnf,
+        format!(
+            "[ ca ]\n\
+             default_ca = CA_default\n\
+             \n\
+             [ CA_default ]\n\
+             database = {index}\n\
+             serial = {serial}\n\
+             new_certs_dir = {dir}\n\
+             default_md = sha256\n\
+             policy = pol\n\
+             x509_extensions = ext\n\
+             email_in_dn = no\n\
+             rand_serial = no\n\
+             unique_subject = no\n\
+             \n\
+             [ pol ]\n\
+             commonName = supplied\n\
+             \n\
+             [ ext ]\n\
+             {san}\n\
+             extendedKeyUsage = serverAuth\n\
+             basicConstraints = critical,CA:TRUE\n\
+             \n\
+             [ req ]\n\
+             distinguished_name = dn\n\
+             \n\
+             [ dn ]\n",
+            index = index.display(),
+            serial = serial.display(),
+            dir = root.display(),
+            san = peer.san(),
+        ),
+    )
+    .expect("write the ca config");
+
+    run_openssl(
+        &[
+            "req",
+            "-new",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            key.to_str().unwrap(),
+            "-out",
+            csr.to_str().unwrap(),
+            "-subj",
+            peer.subject(),
+            "-config",
+            cnf.to_str().unwrap(),
+        ],
+        "generate the expired peer's key and CSR",
+    );
+    run_openssl(
+        &[
+            "ca",
+            "-batch",
+            "-selfsign",
+            "-notext",
+            "-config",
+            cnf.to_str().unwrap(),
+            "-keyfile",
+            key.to_str().unwrap(),
+            "-in",
+            csr.to_str().unwrap(),
+            "-out",
+            cert.to_str().unwrap(),
+            "-startdate",
+            "190101000000Z",
+            "-enddate",
+            "200101000000Z",
+        ],
+        "self-sign the expired peer certificate",
+    );
+    assert_expired_cert_shape(cert);
+}
+
+/// Read the expired certificate back and pin the three properties the case
+/// depends on.
+///
+/// This is not belt-and-braces. `still_rejects_an_expired_certificate` asserts
+/// only that the handshake *raised*, so it passes for **any** rejection — and the
+/// `ca` path above can fail quietly in exactly the way that produces a wrong
+/// pass: `openssl ca` silently drops the SAN if `x509_extensions` is missing or
+/// misspelled, and a certificate with no SAN is rejected for its **name**, not
+/// its date. That is `still_rejects_a_name_mismatch`'s job, not this one's.
+/// Without this check, a typo in the config above turns the expiry guard into a
+/// duplicate of its neighbour and nothing goes red.
+fn assert_expired_cert_shape(cert: &Path) {
+    let text = Command::new("openssl")
+        .args(["x509", "-in", cert.to_str().unwrap(), "-noout", "-text"])
+        .output()
+        .expect("read back the expired certificate");
+    assert!(
+        text.status.success(),
+        "openssl could not parse the certificate `ca -selfsign` just wrote:\n{}",
+        String::from_utf8_lossy(&text.stderr),
+    );
+    let text = String::from_utf8_lossy(&text.stdout);
+    for needle in ["DNS:localhost", "TLS Web Server Authentication"] {
+        assert!(
+            text.contains(needle),
+            "the expired certificate is missing `{needle}`, so this case would be \
+             rejected for the wrong reason (name, not date) and pass anyway:\n{text}"
+        );
+    }
+    // `-checkend 0` exits non-zero when the certificate is already expired, which
+    // is a semantic assertion rather than a match on the CLI's date formatting
+    // (LibreSSL and OpenSSL do not agree on spacing).
+    let checkend = Command::new("openssl")
+        .args([
+            "x509",
+            "-in",
+            cert.to_str().unwrap(),
+            "-noout",
+            "-checkend",
+            "0",
+        ])
+        .output()
+        .expect("check the expired certificate's validity window");
+    assert!(
+        !checkend.status.success(),
+        "the certificate meant to be expired is still valid — this case would \
+         assert the opposite of what it reads as:\n{}",
+        String::from_utf8_lossy(&checkend.stdout),
+    );
+}
+
+/// Serializes "pick a port" through "`s_server` has that port bound".
+///
+/// `free_port` has to *release* the port before `s_server` can bind it, and the four
+/// cases in this file run concurrently — so without this gate two of them can be
+/// handed the same ephemeral port inside that window. See `start_peer` for why that
+/// is not merely a flake.
+fn port_gate() -> &'static Mutex<()> {
+    static GATE: OnceLock<Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(()))
+}
+
 /// A port nothing is listening on yet. `s_server` is then told to bind it.
-/// Racy in principle, unique-in-practice, and the alternative (parsing
-/// `s_server`'s banner) is markedly less stable across OpenSSL versions.
+///
+/// Inherently a bind-then-release: the listener has to be dropped so `s_server` can
+/// take the port, so the port is free for a moment. `port_gate` narrows that window
+/// to one case at a time and `start_peer` detects a loser, which together is what
+/// makes this safe — see the note there. (Parsing `s_server`'s banner instead is
+/// markedly less stable across OpenSSL versions.)
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind an ephemeral port")
@@ -175,34 +366,98 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// Start `openssl s_server` on `port` with the given identity and wait until it
-/// is actually accepting, so the client never races the listen(2).
-fn start_peer(root: &Path, peer: Peer, port: u16) -> Child {
+/// Serve `peer` on a fresh port and return the child once it is accepting.
+///
+/// **The readiness probe cannot be the only check, and that is the whole point of the
+/// retry.** If two cases are handed the same port, one `s_server` wins the bind and
+/// the other exits immediately — and the loser's probe then connects to the *winner's*
+/// server, reports ready, and the loser's client completes a handshake against the
+/// wrong identity. That does not fail loudly: it silently returns the other case's
+/// verification outcome, so `still_rejects_a_name_mismatch` can report `connected` and
+/// `accepts_a_self_signed_peer` can report `raised`. Both were observed on this file
+/// under load, in the same session, on different runs.
+///
+/// So a live child is part of the readiness condition. A child that has already
+/// exited lost the bind; take a new port and try again rather than probing a server
+/// that is not ours.
+fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
     let (cert, key) = write_cert(root, peer);
-    let child = Command::new("openssl")
-        .args([
+    let log = root.join("s_server.err");
+    for _ in 0..10 {
+        let guard = port_gate().lock().expect("the port gate is not poisoned");
+        let port = free_port();
+        let port_arg = port.to_string();
+        let args = [
             "s_server",
             "-quiet",
             "-accept",
-            &port.to_string(),
+            &port_arg,
             "-cert",
             cert.to_str().unwrap(),
             "-key",
             key.to_str().unwrap(),
             "-naccept",
             "4",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn openssl s_server");
-    for _ in 0..200 {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return child;
+        ];
+        let mut child = Command::new("openssl")
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(
+                fs::File::create(&log).expect("create the s_server log"),
+            ))
+            .spawn()
+            .expect("spawn openssl s_server");
+        let mut lost = false;
+        for _ in 0..200 {
+            match child.try_wait().expect("poll openssl s_server") {
+                // Exited before accepting: it could not bind, so whatever is listening
+                // on that port belongs to another case.
+                Some(_) => {
+                    // ...unless it never got as far as bind(2). bug-485: an
+                    // unusable *argument* also exits immediately, and this loop
+                    // read that as a lost race, retried it ten times, and then
+                    // blamed the ports — naming a cause that had nothing to do
+                    // with the failure. Retrying cannot fix an argument, so stop
+                    // on the spot and quote what the CLI actually said.
+                    //
+                    // In practice this fires on macOS `/usr/bin/openssl`, which
+                    // is LibreSSL and has no `-naccept`. **Do not "fix" that by
+                    // dropping the option.** It was tried: LibreSSL then starts,
+                    // but its `s_server` stops serving after the bare TCP
+                    // readiness probe below, so the client never connects and
+                    // the three cases that assert `result=raised` pass without
+                    // verifying anything — measured, `3 passed; 1 failed` on a
+                    // peer that had done nothing. LibreSSL cannot be this file's
+                    // peer; failing here, loudly, is the intended outcome.
+                    let said = fs::read_to_string(&log).unwrap_or_default();
+                    assert!(
+                        !said.contains("unknown option") && !said.contains("usage:"),
+                        "openssl s_server rejected an argument, so this is not a \
+                         lost bind and retrying will not help:\nargv: openssl {}\n\
+                         stderr:\n{said}",
+                        args.join(" "),
+                    );
+                    lost = true;
+                    break;
+                }
+                None => {
+                    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                        drop(guard);
+                        return (child, port);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
-        std::thread::sleep(Duration::from_millis(25));
+        drop(guard);
+        if !lost {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("openssl s_server never began accepting on port {port}");
+        }
+        let _ = child.wait();
     }
-    panic!("openssl s_server never began accepting on port {port}");
+    panic!("openssl s_server lost the bind on ten consecutive ports");
 }
 
 /// Build a client that connects to `port` and prints exactly one line:
@@ -302,8 +557,7 @@ fn run_client(exe: &Path) -> String {
 fn outcome(peer: Peer, allow: Option<bool>) -> String {
     let root = std::env::temp_dir().join(format!("mfb_bug477_{}", nonce()));
     fs::create_dir_all(&root).expect("create temp root");
-    let port = free_port();
-    let mut server = start_peer(&root, peer, port);
+    let (mut server, port) = start_peer(&root, peer);
     let exe = build_client(&root, port, allow);
     let token = run_client(&exe);
     let _ = server.kill();

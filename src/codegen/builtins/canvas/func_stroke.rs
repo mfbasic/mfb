@@ -32,7 +32,7 @@ IMPORT canvas
 SUB main()
   app::setMode(app::Mode.Canvas)
   LET green AS canvas::Color = canvas::rgb(0, 160, 0)
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
   canvas::present([smile])
 END SUB
 ```"#;

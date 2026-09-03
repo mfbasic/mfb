@@ -340,6 +340,23 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    pkg.add_enum(RegistryEnum {
+        name: "CapStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Butt",
+                description: "Cut square at the endpoint, so the stroke stops exactly where the item says it does. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Round",
+                description: "Extend past the endpoint by a half-disc of the stroke's half-width, so a thick line ends in a dome rather than a corner.",
+                advisory: None,
+            },
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "Transform",
         export: true,
@@ -347,7 +364,13 @@ pub(crate) fn register(r: &mut Registry) {
                       `x' = a*x + c*y + tx`, `y' = b*x + d*y + ty`. **The all-zero \
                       value means the identity**, not the degenerate matrix that \
                       collapses every point to the origin — which is what lets an \
-                      unset `canvas::Paint.transform` leave an item untransformed.",
+                      unset `canvas::Paint.transform` leave an item untransformed. \
+                      A rotation by θ is `a := cos(θ), b := sin(θ), c := -sin(θ), \
+                      d := cos(θ)`; a scale is `a := sx, d := sy` with `b` and `c` \
+                      zero; an X shear is `c := tan(θ)`. Rotation and shear turn about \
+                      the item's own origin, so give the item coordinates around \
+                      `(0, 0)` and put the position in `tx` and `ty` — that is what \
+                      makes the transform readable as \"where\" plus \"how turned\".",
         props: vec![
             RecordProp {
                 name: "a",
@@ -463,7 +486,24 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "transform",
                 ty: ParameterType::named("Transform"),
                 description: "The affine transform applied to the item's geometry. \
-                              The all-zero value is the identity.",
+                              The all-zero value is the identity, so an item you \
+                              never set this on draws where its own coordinates put \
+                              it. Set it and the item's coordinates become a space of \
+                              their own: a `canvas::Circle` at `x := 0, y := 0` with \
+                              `tx := 200, ty := 380` draws centred at 200, 380. \
+                              Edges stay smooth after the transform — a rotated \
+                              square's sides are as clean as an upright one's. \
+                              A stroke is transformed with the shape it outlines \
+                              rather than held at a fixed pixel width, so scaling an \
+                              item by 2 draws its 4-pixel outline 8 pixels wide; \
+                              divide the width you ask for by the scale if you want \
+                              it to stay put. A transform that flattens the item to a \
+                              line or a point — a zero row, or one whose determinant \
+                              is smaller than 1e-12 — is treated as the identity \
+                              instead, because there is no sensible picture of a \
+                              shape with no area and silently drawing nothing is the \
+                              worse answer. `canvas::Paint.clip` is not transformed; \
+                              see its own description.",
             },
             RecordProp {
                 name: "clip",
@@ -533,6 +573,13 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "y2",
                 ty: ParameterType::Float,
                 description: "The ending point's Y coordinate in pixels.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Round` extends the \
+                              stroke past each endpoint by a half-disc; `Butt` cuts \
+                              it square there.",
             },
             paint_prop(),
         ],
@@ -611,6 +658,13 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "endAngle",
                 ty: ParameterType::Float,
                 description: "Where the arc ends, in radians clockwise from +X.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How the two ends are shaped. `Butt` cuts the stroke \
+                              along the radius at each end; `Round` caps it with a \
+                              half-disc there.",
             },
             paint_prop(),
         ],

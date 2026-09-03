@@ -1,11 +1,12 @@
 # Benchmarks
 
-A cross-language micro-benchmark suite comparing **MFBASIC** against **C** (at
-`-O0` and `-O2`) and **CPython**. Each language is a single self-contained
-program that times every micro-benchmark internally and prints a grouped
-`median / average / min / max` table in milliseconds.
+A cross-language micro-benchmark suite comparing **MFBASIC** (at `-O1` — the
+default — plus `-O2` and `-O3`) against **C** (at `-O0` and `-O2`) and
+**CPython**. Each language is a single self-contained program that times every
+micro-benchmark internally and prints a grouped `median / average / min / max`
+table in milliseconds.
 
-- `mfb/`    — the MFBASIC project (`mfb build` → `build/benchmark.out`)
+- `mfb/`    — the MFBASIC project (`mfb build -O <level>` → `mfb/benchmark-O<level>.out`; moved out of `build/`, which each build wipes)
 - `c/`      — compiled at `-O0` and `-O2`
 - `python/` — run under `python3`
 - `empty/`  — standalone process-startup benchmark (run `./empty/run.sh`)
@@ -111,9 +112,11 @@ held in a plain `MUT` local, a record field (fields before + after the set), or 
 `Set`-in-record/`STATE` mutation rebuilds and re-inlines the whole set on every
 step, so the `add`/`remove` rows show the bug-430 O(n²) against the plain baseline.
 Each row folds set sizes into an integer checksum that matches across all three
-containers (the matrix's correctness proof); unlike the former bundled `set`
-group, these rows are mfb-internal with no C/Python peer, and the set-producing
-algebra rows run at a reduced size (arena-churn caveat below).
+containers (the matrix's correctness proof); the plain `Fixed`/`Dynamic` rows are
+peered by `setmatrix.c` / `setmatrix.py`, the Record/State rows are mfb-internal
+with no C/Python peer, and the set-producing algebra rows run at a reduced size
+(arena-churn caveat below). The old bundled `set` group (`build`/`ops`) that this
+matrix replaced is gone from all three languages.
 
 Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
 transients stay in the arena quick bins and whose per-call cost is flat across the
@@ -135,17 +138,72 @@ its C column prints `--`; mfb and Python agree because the seed is fixed.
 BENCH_RUNS=50 ./benchmark/run.sh   # environment override
 ```
 
-`run.sh` builds all four targets, runs each in turn, echoes its table, and
-writes a timestamped log per target:
+`run.sh` builds all six targets (mfb at `-O1`/`-O2`/`-O3`, C at `-O0`/`-O2`,
+python), runs each in turn, echoes its table, and writes a timestamped log per
+target:
 
 ```
-mfb-<ts>.log   c-O0-<ts>.log   c-O2-<ts>.log   python-<ts>.log
+mfb-O1-<ts>.log   mfb-O2-<ts>.log   mfb-O3-<ts>.log
+c-O0-<ts>.log     c-O2-<ts>.log     python-<ts>.log
 ```
 
-Logs, built `*.out` binaries, and generated `*.mfp` packages are git-ignored.
+Each target's stderr (the per-row `test_<name> = <checksum>` lines) is captured
+to a matching `<target>-<ts>.sums` file, and run.sh ends by cross-validating
+every checksum key shared between targets: mismatches are listed (a few rows
+are documented approximations — see below), and a disagreement between one
+language's optimization levels (mfb -O1/-O2/-O3, c -O0/-O2) is fatal, because
+those are the same source and a divergence means the optimizer changed the
+observable work.
+
+Logs, `.sums` files, built `*.out` binaries, and generated `*.mfp` packages are
+git-ignored — except `baseline/`, which holds the committed reference results
+from a full `./benchmark/run.sh 10` (see `baseline/README.md` for the host,
+commit, and regeneration steps). Compare a new run against those numbers only
+on comparable hardware.
 **Prefer the median** — the average is dragged up by occasional OS-scheduling
 outliers. Use a higher `--run` (e.g. 50+) when you care about the stats
 columns; a single-sample run leaves `median == average`.
+
+## Ranking
+
+`benchmark/RANKING.md` defines a per-row grade (S/A/B/C/D/F on `mfb -O1` vs
+`c -O0`), a CPython cross-check, and a cluster score for ordering optimisation
+work. `./benchmark/rank.py` computes it from any run's logs; with no arguments
+it reports on `benchmark/baseline`.
+
+## Work equivalence
+
+Every row is required to do the same *observable* work in every language, so a
+column difference is a language/runtime property, not a benchmark artifact:
+
+- **Result-producing ops materialize their result everywhere.** A C row for
+  `chunks`/`drop`/`take`/`mid`/`replace`/`transform`/`window`/`zip`/`flatten`/
+  `toList`/`keys`/`values` allocates and fills the same structure mfb and Python
+  build — never a closed-form count. In C, `bench_opaque()` (an empty asm with a
+  memory clobber, `bench.h`) pins each materialized-then-freed result so `-O2`
+  cannot eliminate the build as dead; the run-end per-language cross-level
+  checksum equality check (c -O0 vs -O2, mfb -O1 vs -O2 vs -O3) is the
+  regression gate for that.
+- **The `copy` row copies observably.** It copies the 1000-element base, pokes
+  element 0, and folds both the count and the poked element into the checksum
+  (`lf` = 1499500, `ld` = 1001000), so a copy-on-write share or borrow elision
+  cannot masquerade as a copy. (A previous pass-through-helper shape was elided
+  to O(1) by mfb and measured nothing.) mfb and C copy element bytes; Python's
+  `list()` copies references, which is Python's copy semantics.
+- **`flatten` times `chunks` + `flatten` together in all three languages** (the
+  mfb container matrix derives the nested list from the container-held base
+  inside the timed region, so the peers do too).
+- **Setup is excluded consistently.** Read-only bases are built before the run
+  loop; per-run mutable state (the `set` row's working array) is rebuilt untimed
+  before each timed pass in all three languages; checksums are printed after
+  timing, never inside the timed region.
+- **The Python column is idiomatic CPython.** Rows use the stdlib the way a
+  Python program would be written: `hashlib`/`hmac` for `crypto`, `re` for
+  regex, timsort for `sort` — native cores, not interpreted re-implementations.
+  Those rows compare each language's standard means of doing the job (as the C
+  column uses libc `qsort`/`regcomp`), not interpreter-loop throughput; the
+  checksums still must match. Read the Python column with that in mind before
+  folding it into any cross-language aggregate.
 
 ## Coverage vs. throughput
 

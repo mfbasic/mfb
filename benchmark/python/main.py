@@ -37,7 +37,6 @@ import regexbench
 import scalarbench
 import serializebench
 import setmatrix
-import setopsbench
 import stringbench
 import strbuildbench
 import sys
@@ -804,9 +803,6 @@ def main():
 
     # mapchurn group (grow/churn/iterate)
     churnbench.run_mapchurn(RUN, now_ns, record)
-
-    # set group (Set OF T build/contains + full set-algebra surface)
-    setopsbench.run_all(RUN, now_ns, record)
 
     # set matrix — Fixed/Dynamic element (peers mfb setops.mfb plain groups)
     setmatrix.run_all(RUN, now_ns, record)

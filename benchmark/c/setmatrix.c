@@ -91,7 +91,8 @@ static void run_iset(const char *group, const char *pfx) {
   ROW("remove", { ISet *s = iset_new(); for (int i = 0; i < S.rem_n; i++) iset_add(s, i); long long c = 0; for (int i = 0; i < S.rem_n; i++) { iset_del(s, i); c++; } checksum = c; free(s); });
   { ISet *b = iset_new(); for (int i = 0; i < S.ro_n; i++) iset_add(b, i);
     ROW("contains", { long long a = 0; for (int k = 0; k < S.k_contains; k++) for (int i = 0; i < S.ro_n; i++) a += iset_has(b, i) ? 1 : 0; checksum = a; });
-    ROW("toList", { long long a = 0; for (int k = 0; k < S.k_tolist; k++) a += b->n; checksum = a; });
+    /* toList materializes the member list, like mfb's collections::toList. */
+    ROW("toList", { long long a = 0; for (int k = 0; k < S.k_tolist; k++) { long long *xs = malloc(sizeof(long long) * b->n); int n2 = 0; for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) xs[n2++] = b->k[s2]; a += n2; bench_opaque(xs); free(xs); } checksum = a; });
     free(b); }
   { ISet *b = iset_new(); for (int i = 0; i < S.alg_n; i++) iset_add(b, i);
     ISet *o = iset_new(); for (int i = 0; i < S.alg_n; i++) iset_add(o, i + S.alg_sh);
@@ -113,7 +114,8 @@ static void run_sset(const char *group, const char *pfx) {
   ROW("remove", { SSet *s = sset_new(); for (int i = 0; i < S.rem_n; i++) { snprintf(buf, sizeof buf, "s%d", i); sset_add(s, buf); } long long c = 0; for (int i = 0; i < S.rem_n; i++) { snprintf(buf, sizeof buf, "s%d", i); sset_del(s, buf); c++; } checksum = c; sset_free(s); });
   { SSet *b = sset_new(); for (int i = 0; i < S.ro_n; i++) { snprintf(buf, sizeof buf, "s%d", i); sset_add(b, buf); }
     ROW("contains", { long long a = 0; for (int k = 0; k < S.k_contains; k++) for (int i = 0; i < S.ro_n; i++) { snprintf(buf, sizeof buf, "s%d", i); a += sset_has(b, buf) ? 1 : 0; } checksum = a; });
-    ROW("toList", { long long a = 0; for (int k = 0; k < S.k_tolist; k++) a += b->n; checksum = a; });
+    /* toList materializes the member list (copying string bytes, like mfb). */
+    ROW("toList", { long long a = 0; for (int k = 0; k < S.k_tolist; k++) { char **xs = malloc(sizeof(char *) * b->n); int n2 = 0; for (int s2 = 0; s2 < SCAP; s2++) if (b->used[s2] == 1) xs[n2++] = strdup(b->k[s2]); a += n2; bench_opaque(xs); for (int j = 0; j < n2; j++) free(xs[j]); free(xs); } checksum = a; });
     sset_free(b); }
   { SSet *b = sset_new(); for (int i = 0; i < S.alg_n; i++) { snprintf(buf, sizeof buf, "s%d", i); sset_add(b, buf); }
     SSet *o = sset_new(); for (int i = 0; i < S.alg_n; i++) { snprintf(buf, sizeof buf, "s%d", i + S.alg_sh); sset_add(o, buf); }
