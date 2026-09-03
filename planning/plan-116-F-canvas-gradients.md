@@ -226,14 +226,19 @@ what the program asked for; clamping is visible and predictable. Document it.
 
 ### 4.2 Carrying the stops, and the cache key
 
-**Header** (42 slots after plan-116-E) grows to **48**:
+**Header** (**41** slots after plan-116-E, 0–40) grows to **47**. Written as offsets
+from the constant rather than as literals, which is the rule **F1** draws out of four
+letters getting this wrong in a row — take the base from `HEADER_SLOTS`, do not spell
+it:
 
 | Slot | Meaning |
 |---|---|
-| 42 | stop count (0 = no gradient) |
-| 43 | gradient kind (0 Linear, 1 Radial) |
-| 44–45 | `from.x`, `from.y` |
-| 46–47 | `to.x`, `to.y` |
+| `HEADER_SLOTS`+0 = 41 | stop count (0 = no gradient) |
+| +1 = 42 | gradient kind (0 Linear, 1 Radial) |
+| +2, +3 = 43, 44 | `from.x`, `from.y` |
+| +4, +5 = 45, 46 | `to.x`, `to.y` |
+
+(Corrected 2026-09-02 from 42–47 / 48; see **F1**.)
 
 **Tail**: five floats per stop — `offset, r, g, b, a` — appended after any existing
 tail. Header slot 1 (total length) accounts for both, as
