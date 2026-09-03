@@ -540,7 +540,10 @@ Commit: 8c4fa49a6
       tables): 198 files, +110495/−60389, and **nothing** under
       `src/codegen/{builtins,runtime}/canvas/`, `src/target/macos_aarch64/app/` or the
       canvas tests (`git diff --stat dc025452a..main -- <those paths>` is empty), so the
-      merge is expected to be textually clean and the gates below are what proves it.
+      merge is expected to be textually clean — confirmed in advance by
+      `git merge-tree --write-tree HEAD main`, which exits 0 and writes a tree with no
+      conflict entries — and the gates below are what proves it *semantically*, which a
+      clean text merge does not.
 - [ ] Test the one documented gradient claim with no test behind it: a gradient-filled
       item that **also strokes** keeps a flat outline (**F15**). Seven gradient cases
       exist in `tests/rt_canvas_rasteriser.rs` and every one is fill-only, so
