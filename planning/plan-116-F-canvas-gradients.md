@@ -544,6 +544,11 @@ Commit: 8c4fa49a6
       `git merge-tree --write-tree HEAD main`, which exits 0 and writes a tree with no
       conflict entries — and the gates below are what proves it *semantically*, which a
       clean text merge does not.
+- [ ] Un-stale the two `metal.rs` comments that still call the item stride "112 bytes"
+      (`grep -n '112-byte stride' src/target/macos_aarch64/app/metal.rs`). This letter
+      grew `ITEM_BLOCK_SIZE` to 208; the comments' *conclusion* survives — neither value
+      meets the `MTLBuffer` offset alignment, so `baseInstance:` is still the right
+      mechanism — but the number a reader checks it against is wrong.
 - [ ] Test the one documented gradient claim with no test behind it: a gradient-filled
       item that **also strokes** keeps a flat outline (**F15**). Seven gradient cases
       exist in `tests/rt_canvas_rasteriser.rs` and every one is fill-only, so
