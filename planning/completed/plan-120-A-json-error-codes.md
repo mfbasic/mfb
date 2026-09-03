@@ -497,6 +497,14 @@ else.
 | acceptance TESTING app | **758 / 758** |
 | `cargo fmt --all` + the `repository/` workspace | clean |
 
+`main` then moved again before the final merge (picking up bug-486, plan-123's
+`encoding` codepages and some `ir/shape` naming), so the whole set was re-run a
+second time on `main` itself after landing: **4477 cargo tests, 1351 acceptance
+tests, 1834 goldens / 0 diffs, 758 / 758 TESTING**. Two runs in that pass failed
+only on harness-lock contention with a concurrent peer session — the golden gate
+prints `nothing was checked` in that case, and re-running it alone gave
+`1330 tests, 1493 build(s), 1834 golden(s) checked, 0 diff(s)`.
+
 ### What the family delivered
 
 Seven letters, all seven closed:

@@ -514,3 +514,34 @@ comparison.
 * `.ai/collections.md` — why the rasteriser's pixel writes must stay inside the
   function owning the buffer local (they are 290x slower otherwise).
 * `.ai/testing-gates.md` — the canvas reference-image gate the ring must not disturb.
+
+### Growing `ITEM_BLOCK_SIZE` moves five things, and three are silent
+
+Widening the per-item block is the single most repeated change in plan-116 — A grew it
+for the item buffer, C for the transform, D for the arc caps, E for the ellipse — and
+each time it moved the same five things. Three of them are unrelated by any type, and
+none of the three fails loudly.
+
+1. **`ITEM_BLOCK_SIZE`** itself, which must stay a multiple of 16 so std430's array
+   stride equals the size.
+2. **BOTH `ItemBlock` declarations.** The struct is written twice, in
+   `mfb_canvas.vert` and `mfb_canvas.frag`, and **the vertex one is what sets the
+   stride**. Widening only the fragment copy leaves the stages disagreeing, so every
+   item after the first reads a block straddling two records — a plausible wrong
+   picture, not a failure. Verify by reflection, not by reading:
+   `glslangValidator -V -q mfb_canvas.vert | grep topLevelArrayStride` on box 2228
+   (`scripts/regen-spirv.sh` shows how it gets there; the tool is not on the mac host).
+3. **Metal's hand-assigned stack frame.** The block is built at `OFF_ITEM` in a frame
+   whose slots are hand-numbered, so widening it runs the block into `OFF_TEXTURE` and
+   every slot above must shift, with `DRAW_FRAME` growing to match. An overlap
+   corrupts a pointer the `objc_msgSend` sequence reads and produces a **black GPU
+   frame that reports success**.
+4. **`METAL_EDGE_BASE`**, an integer literal in the MSL that must equal
+   `CANVAS_ITEM_BUFFER_BYTES / 4`. Stale, every polygon reads its edges from the wrong
+   offset of a buffer that is entirely valid memory.
+5. The `.spv` blobs, via `scripts/regen-spirv.sh`.
+
+Items 3 and 4 are caught by `the_draw_frame_slots_do_not_overlap` and
+`the_metal_shader_edge_base_matches_the_buffer_layout`, which fired on **every** one of
+those letters and were the only thing that noticed. Item 2 has no guard beyond the
+reflection — plan-116-D shipped the fragment half alone and found it that way.

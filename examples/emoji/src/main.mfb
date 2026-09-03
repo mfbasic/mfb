@@ -22,19 +22,19 @@ IMPORT os
 ' So this program presents once per *change* — a mood switch or a resize — not
 ' once per frame, and spends the rest of its time waiting for one.
 '
-' Two of the reference art's features have no primitive here, so each is built
-' from the ones there are. They are worth reading as a pair, because they are the
-' same trick twice: the canvas draws flat-filled signed distance fields, so
-' anything else is spelled as a series of them.
+' One of the reference art's features has no primitive here, so it is built from
+' the ones there are: the canvas draws flat-filled signed distance fields and a
+' Paint fills with a single colour, so the face's gradient is spelled as a stack
+' of discs (faceDisc).
 '
-'   the shaded face   the fill is one flat colour, so the gradient is a stack of
-'                     discs (faceDisc)
-'   the oval eyes     Circle is the only curve primitive and Paint.transform is
-'                     not applied, so an oval is a Polygon (ovalPoints)
+' Two more once needed that same trick and no longer do. Each is now a single
+' field, antialiased by the backend like every other edge here:
 '
-' The mouth's soft ends are not in that set. They were once a third instance of
-' the trick — a disc of the stroke's half-width dropped at each end of the arc —
-' and are now one field: canvas::CapStyle.Round caps the Arc itself (mouthArc).
+'   the oval eyes     canvas::Ellipse (eyeAt). They were a 44-vertex Polygon
+'                     sampled around an oval, because Circle was the only curve
+'                     and Paint.transform is not applied to an item's geometry.
+'   the mouth's ends  canvas::CapStyle.Round on the Arc (mouthArc), in place of
+'                     a disc of the stroke's half-width dropped at each end.
 
 ' --- Proportions, as fractions of the face radius ---------------------------
 '
@@ -46,7 +46,6 @@ LET EYE_DX AS Float = 0.32           ' eye centre, out from the face's axis
 LET EYE_DY AS Float = 0.22           ' eye centre, up from the face's centre
 LET EYE_RX AS Float = 0.090          ' eye half-width  — the eyes are ovals,
 LET EYE_RY AS Float = 0.135          ' eye half-height   taller than they are wide
-LET EYE_SIDES AS Integer = 44        ' vertices in each eye's polygon
 
 LET MOUTH_HALF AS Float = 0.32       ' half the mouth's span
 LET MOUTH_TOP AS Float = 0.24        ' top of the mouth's band, below the centre
@@ -161,27 +160,13 @@ FUNC faceDisc(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::DrawItem
   RETURN collections::append(out, rim)
 END FUNC
 
-' An oval as a closed polygon.
+' The eyes are ovals, and an oval is one item: canvas::Ellipse, given a centre,
+' a radius along each of its own axes, and a rotation about that centre.
 '
-' Circle is the canvas's only curve, and Paint.transform is not applied to an
-' item's geometry, so there is no way to squash one — the eyes are sampled instead.
-' A polygon is a signed distance field like every other item, so this antialiases
-' exactly as a circle would; at 44 vertices the flats are far under a pixel at any
-' size this face is drawn.
-FUNC ovalPoints(cx AS Float, cy AS Float, rx AS Float, ry AS Float, sides AS Integer) AS List OF canvas::Point
-  MUT pts AS List OF canvas::Point = []
-  MUT i AS Integer = 0
-  DO WHILE i < sides
-    LET a AS Float = math::pi * 2.0 * toFloat(i) / toFloat(sides)
-    LET p AS canvas::Point = canvas::Point[x := cx + rx * math::cos(a), y := cy + ry * math::sin(a)]
-    pts = collections::append(pts, p)
-    i = i + 1
-  LOOP
-  RETURN pts
-END FUNC
-
+' They are unrotated, so `angle` is 0.0. `side` is -1.0 for the eye left of the
+' face's axis and 1.0 for the one right of it.
 FUNC eyeAt(cx AS Float, cy AS Float, r AS Float, side AS Float) AS canvas::DrawItem
-  RETURN canvas::Polygon[points := ovalPoints(cx + side * r * EYE_DX, cy - r * EYE_DY, r * EYE_RX, r * EYE_RY, EYE_SIDES), paint := canvas::fill(inkColor())]
+  RETURN canvas::Ellipse[x := cx + side * r * EYE_DX, y := cy - r * EYE_DY, radiusX := r * EYE_RX, radiusY := r * EYE_RY, angle := 0.0, paint := canvas::fill(inkColor())]
 END FUNC
 
 ' The mouth: a circular arc through three known points, round-capped.

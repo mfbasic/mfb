@@ -314,13 +314,13 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize = 760;
 ///
 /// What still constrains the value is **agreement between the two shading languages**,
 /// and that is gated rather than trusted: glslang's reflection for the GLSL
-/// `ItemBlock` reports `topLevelArrayStride 176` with members at
-/// 0/16/32/48/64/80/96/112/128/144/160 (`glslangValidator -V -q mfb_canvas.vert`,
-/// re-measured 2026-09-02 when plan-116-D added the arc cap `ivec4`), matching the
+/// `ItemBlock` reports `topLevelArrayStride 192` with members at
+/// 0/16/32/48/64/80/96/112/128/144/160/176 (`glslangValidator -V -q mfb_canvas.vert`,
+/// re-measured 2026-09-02 when plan-116-E added the ellipse `ivec4`), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 176;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 192;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -407,6 +407,24 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// renderers, and the deterministic series the oracle requires is far more expensive
 /// than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
+/// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
+///
+/// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
+/// std430 rounds the array stride to a multiple of 16 anyway, so a half-used `ivec4`
+/// costs exactly what a full one does and keeps every member `ivec4`-sized — which is
+/// the property `the_item_block_matches_the_std430_stride` exists to hold.
+///
+/// **16.16 is enough here and would not be for the radii.** These are a cosine and a
+/// sine, so `|v| <= 1` and the fixed-point step is 1/65536 — an angular error under
+/// 1.6e-5 rad, which at radius 900 displaces the rim by 0.014 px, a fiftieth of a
+/// coverage step. The CPU still evaluates the deterministic Taylor pair; this is only
+/// how the answer travels.
+pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
+/// An ellipse's rotation in the geometry header, as its cosine then its sine
+/// (plan-116-E). Evaluated once per ellipse by `__canvas_ellipseHeader` with the
+/// deterministic Taylor pair, so all three renderers read the same two numbers.
+pub(crate) const HEADER_ELLIPSE_COS: usize = 39;
+pub(crate) const HEADER_ELLIPSE_SIN: usize = 40;
 // The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
 // positionally by the same loop that writes the six terms — a named offset for it
 // would be a second way to say where it lives, and one of the two would eventually be
@@ -451,7 +469,7 @@ pub(crate) const GLYPH_META_START: usize = 4;
 /// a coordinate space a few thousand pixels wide.
 pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 
-/// Slots of `__canvas_headerFor`'s fixed 39-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 41-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -544,7 +562,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 39;
+pub(crate) const HEADER_SLOTS: usize = 41;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one polygon may carry on the **Metal** path.

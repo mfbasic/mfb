@@ -51,7 +51,33 @@ SUB main()
 
   canvas::present([face, eyeL, eyeR, smile])
 END SUB
-```"#;
+```
+
+The eyes as ellipses instead, half-closed and tilted — the case a `canvas::Circle`
+cannot express and a `canvas::Polygon` would only approximate. `angle` turns each about
+its own centre, clockwise from +X, so the two lean towards each other:
+
+```
+IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+
+  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
+  LET eyeL AS canvas::DrawItem = canvas::Ellipse[x := 150.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.0 - 0.35, paint := canvas::fill(green)]
+  LET eyeR AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.35, paint := canvas::fill(green)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 14.0)]
+
+  canvas::present([face, eyeL, eyeR, smile])
+END SUB
+```
+
+Give an ellipse equal radii and it is a circle — exactly, not nearly — so an animation
+that squashes a circle can hold one item type throughout rather than switching at the
+moment the radii happen to match."#;
 
 /// Publish, then render only if the publish actually changed anything.
 ///

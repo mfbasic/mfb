@@ -119,11 +119,11 @@ rather than inventing a fourth.
 
 | What | Count | Command |
 |---|---|---|
-| `Paint[` rows in the tree | 7 | `grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` |
-| …that are **code**, not prose | 1 (`func_fill_stroke.rs:43`) | read all 7 rows |
-| `Paint` fields today | 6 | `mod.rs:424-471` |
-| Paint default helpers | 3 (`__canvas_transparent`, `…noTransform`, `…noClip`) | `helper_paint_defaults.rs:37-39` |
-| `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` |
+| `Paint[` rows in the tree | 7 | `grep -rn 'Paint\[' --include='*.rs' --include='*.mfb' . \| grep -v '/target/'` — **re-verified 2026-09-02**, still 7 |
+| …that are **code**, not prose | 1 (`func_fill_stroke.rs`, now `:74`) | read all 7 rows; the other 6 are doc prose |
+| `Paint` fields today | 6 | `mod.rs` — **re-verified**; letters C–E added none, since plan-116-D's `cap` went on `Line`/`Arc` rather than on `Paint` |
+| Paint default helpers | 3 (`__canvas_transparent`, `…noTransform`, `…noClip`) | `helper_paint_defaults.rs:15,25,166` |
+| `mfb man canvas` members with compile-gated examples | 13 | `sed -n 23,37p tests/cli_canvas_man_examples_compile.rs` — **re-verified 2026-09-02**, still 13; letters C–E added examples to `fillStroke` and `present`, which were already listed |
 | Vulkan buffer regions today | 2 (edges, then glyph coverage) | `runtime/canvas/mod.rs:245` (`VULKAN_GLYPH_BASE_WORDS`) |
 
 ### Verified properties
@@ -144,6 +144,16 @@ rather than inventing a fourth.
   **A gradient's stops are the same shape of content** — header-invisible tail —
   so this letter must add a gradient arm to BOTH seams: the hash and
   `__canvas_tailMatches`. §4.2.
+- **"Every `__CANVAS_GEO_HEADER` reader updated" costs nothing** (verified 2026-09-02).
+  `grep -rn "__CANVAS_GEO_HEADER" src/codegen/builtins/canvas/*.rs` → 25 sites, and
+  **every one uses the symbol**, never a literal: `WHILE i < __CANVAS_GEO_HEADER`,
+  `offset + __CANVAS_GEO_HEADER + g * 3`, `toFloat(__CANVAS_GEO_HEADER + count * 5)`.
+  So growing the header is two edits — the MFBASIC `LET` at `helper_geometry.rs:53` and
+  the Rust `HEADER_SLOTS` — and the rest follows, with
+  `the_geo_layout_constants_match_their_rust_counterparts` pinning that the two agree.
+  That has held for plan-116-C, D and E. The Phase 1 box reads like a sweep; it is not
+  one, and looking for readers to edit is wasted effort.
+
 - **UNVERIFIED: whether stop interpolation in linear light matches what a designer
   expects.** It is the choice consistent with `06_canvas.md`'s compositing rule, but
   the two spaces differ visibly on a black→white ramp. §4.3 decides and documents;
@@ -226,14 +236,19 @@ what the program asked for; clamping is visible and predictable. Document it.
 
 ### 4.2 Carrying the stops, and the cache key
 
-**Header** (42 slots after plan-116-E) grows to **48**:
+**Header** (**41** slots after plan-116-E, 0–40) grows to **47**. Written as offsets
+from the constant rather than as literals, which is the rule **F1** draws out of four
+letters getting this wrong in a row — take the base from `HEADER_SLOTS`, do not spell
+it:
 
 | Slot | Meaning |
 |---|---|
-| 42 | stop count (0 = no gradient) |
-| 43 | gradient kind (0 Linear, 1 Radial) |
-| 44–45 | `from.x`, `from.y` |
-| 46–47 | `to.x`, `to.y` |
+| `HEADER_SLOTS`+0 = 41 | stop count (0 = no gradient) |
+| +1 = 42 | gradient kind (0 Linear, 1 Radial) |
+| +2, +3 = 43, 44 | `from.x`, `from.y` |
+| +4, +5 = 45, 46 | `to.x`, `to.y` |
+
+(Corrected 2026-09-02 from 42–47 / 48; see **F1**.)
 
 **Tail**: five floats per stop — `offset, r, g, b, a` — appended after any existing
 tail. Header slot 1 (total length) accounts for both, as
@@ -317,7 +332,9 @@ filled ellipse's edge identical to a flat-filled one's.
   — so most user code is unaffected.
 - **Three new exported types**; `mfb man canvas types` grows.
 - **No existing scene changes** — every existing `Paint` gets an empty `fillGradient`.
-- **`HEADER_SLOTS` 42 → 48**, **`ITEM_BLOCK_SIZE` 192 → 224** — internal.
+- **`HEADER_SLOTS` 41 → 47**, **`ITEM_BLOCK_SIZE` 192 → 224** — internal.
+  (Corrected 2026-09-02 from 42 → 48; see **F1** in Corrections. `ITEM_BLOCK_SIZE` was
+  assumed correctly — plan-116-E landed 192.)
 - **`.ncodesum` churn**; both `.spv` blobs regenerate.
 
 ## Phases
@@ -334,7 +351,7 @@ The whole breaking surface change, with nothing yet reading it.
 - [ ] Add `fillGradient AS Gradient` to `Paint`, **last** in the prop list.
 - [ ] Add `__canvas_noGradient()` to `helper_paint_defaults.rs`; name it in
       `__canvas_fillStroke` (`func_fill_stroke.rs:43`).
-- [ ] Header slots 42–47 written by `__canvas_paintHeader`; `HEADER_SLOTS` → 48;
+- [ ] Header slots **41–46** written by `__canvas_paintHeader`; `HEADER_SLOTS` → **47**;
       every `__CANVAS_GEO_HEADER` reader updated.
 - [ ] Tests: `tests/cli_canvas_package.rs` builds a `Gradient` and a `Paint` carrying
       one; `mfb man canvas types` lists all three new types.
@@ -452,6 +469,48 @@ Commit: —
   (§4.2).** Recommended as a starting value; raise only with a measured scene.
 
 ## Corrections
+
+- **F2 (2026-09-02, pre-execution) — plan-122-D will delete `canvas::Color`, and this
+  letter adds new surface that names it.** Main landed plan-122's six sub-plan documents
+  (`d5889c379`) while plan-116-E was finishing. No code yet — the commit is
+  `planning/plan-122-*.md` only, 2193 lines and nothing under `src/` — but **plan-122-D
+  is a canvas migration** that says outright: "Delete `canvas::Color`, `canvas::rgb` and
+  `canvas::rgba`", replacing them with `color::Color`, whose "field names, order and
+  types are identical to `canvas::Color`'s by construction".
+
+  This letter's `GradientStop` carries a `color AS Color`, and its man examples will
+  name `canvas::rgb`. So the two plans touch the same surface, in one direction:
+  whichever lands second inherits the other's rename.
+
+  **Not a blocker and not a reason to change this letter's design.** The field is
+  structurally identical by plan-122-D's own construction, so the migration is a
+  find-and-replace over a name rather than a change of shape, and plan-122-D's census
+  of "man examples naming `canvas::Color`/`rgb`" is exactly the mechanism that will
+  sweep whatever this letter adds. Recorded so that whoever runs plan-122-D re-censuses
+  rather than working from that list: **it was written before `GradientStop`,
+  `Gradient` and this letter's `canvas::fill`/`fillStroke` gradient example existed.**
+  The same warning plan-116-D's D2 earned the hard way — a census over a shared
+  checkout is measured at the merge, not at plan time.
+
+- **F1 (2026-09-02, pre-execution) — the header slot numbers are one high, for the
+  fourth letter running.** This letter puts the gradient's six slots at 42–47 and takes
+  `HEADER_SLOTS` to 48. plan-116-E landed **41**
+  (`grep -n "^pub(crate) const HEADER_SLOTS" src/codegen/runtime/canvas/mod.rs`;
+  `helper_geometry.rs:53` → `LET __CANVAS_GEO_HEADER AS Integer = 41`), so they are
+  **41–46** and `HEADER_SLOTS` → **47**. `ITEM_BLOCK_SIZE` 192 → 224 stands; E landed
+  192 as assumed.
+
+  The root is plan-116-C's Correction C2 — C measured that it needed no per-axis slot
+  and landed one lower than every later letter had predicted — and D, E and now F have
+  each inherited it (D1, E1, F1). **Do not write absolute slot numbers in a plan.**
+  Take the base from `HEADER_SLOTS` and describe new slots as offsets from it, which is
+  what this letter's own §4.2 already does correctly for the *stop* base
+  (`HEADER_SLOTS + edgeCount * EDGE_SLOTS`) and what the fixed numbers above should
+  have done too.
+
+  Letters G–J were checked at the same time and carry no absolute slot numbers, so this
+  is the last of the four. plan-116-H's census row `ITEM_BLOCK_SIZE after plan-116-F |
+  224` is consistent with the corrected figures and needs no edit.
 
 - **C1 (2026-09-01, review — pre-execution).** The "latent" polygon cache gap this
   letter planned to close in Phase 2 was reproduced as a LIVE mis-render and fixed
