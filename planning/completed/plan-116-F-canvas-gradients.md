@@ -616,7 +616,7 @@ Commit: 8c4fa49a6
       selection of `rt_canvas_rasteriser` is **9 passed, 0 failed**. The measured
       symptom of the defect is a **wrong picture**, not a hang — see the corrected
       severity under **F17**.
-- [ ] Archive this letter to `planning/completed/` and land it on `main` with
+- [x] Archive this letter to `planning/completed/` and land it on `main` with
       `git push . HEAD:main` (the repo sets `receive.denyCurrentBranch=updateInstead`,
       so this updates a checked-out `main` in place and **refuses** rather than
       discarding if that tree is dirty with a peer's work). The worktree and the
