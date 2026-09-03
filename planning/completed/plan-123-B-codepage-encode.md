@@ -241,7 +241,7 @@ The one unproven premise, and it is a script over committed files.
 
 Acceptance: §2's duplicate claim is answered with the command that answered it, and
 §4's design reflects the answer.
-Commit: `—`
+Commit: `d21dc50c8`  (all three phases land in one commit: Phase 1 is a measurement over files plan-123-A already committed, and Phases 2 and 3 move the same goldens.)
 
 ### Phase 2 — the member
 
@@ -290,7 +290,7 @@ Commit: `—`
 
 Acceptance: the whole-range round-trip fixture passes for all 28 single-byte
 variants; encoding U+FFFD raises `77050003` rather than emitting a hole byte.
-Commit: `—`
+Commit: `d21dc50c8`
 
 ### Phase 3 — docs, throughput, and full validation
 
@@ -330,7 +330,7 @@ moved golden's diff mentions `codepage`/`Codepage` — NOT "confined to `encodin
 its 3 importers", which plan-123-A measured to be the wrong shape check (its
 Corrections 2: `strings`' scalar seam `IMPORT encoding`s, so the churn reaches
 everything that reaches `strings`).
-Commit: `—`
+Commit: `d21dc50c8`
 
 ## Validation Plan
 
