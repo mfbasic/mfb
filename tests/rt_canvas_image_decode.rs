@@ -258,19 +258,7 @@ END SUB
 "#;
     let project = common::temp_project(name, SOURCE);
     std::fs::write(project.join("fixture.png"), file).expect("write the fixture");
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-    let binary = app_binary(&project, name);
+    let binary = common::build_app(&project, name);
     let run = Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
@@ -303,24 +291,6 @@ END SUB
         .map(|v| v.trim().parse::<u8>().expect("pixel byte"))
         .collect();
     Ok((w, h, pixels))
-}
-
-/// The built executable, which on macOS is inside an `.app` bundle.
-fn app_binary(project: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let bundled = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundled.exists() {
-        return bundled;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project.join("build").join(format!("{name}.exe"))
 }
 
 fn assert_decodes(name: &str, file: &[u8], w: usize, h: usize, expected: &[u8]) {

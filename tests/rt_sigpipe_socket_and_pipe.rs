@@ -68,13 +68,31 @@ fn build_project(name: &str, source: &str) -> PathBuf {
     executable_in(&root.join("build"))
 }
 
+/// The console executable this host can run.
+///
+/// macOS and Windows emit exactly one. A Linux console build emits one per libc
+/// world — `<name>-glibc.out` *and* `<name>-musl.out` (plan-56-B) — and only the
+/// one matching this host's loader will start, so narrow to it before insisting
+/// on a single answer.
 fn executable_in(dir: &Path) -> PathBuf {
     let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
         .unwrap_or_else(|err| panic!("read {}: {err}", dir.display()))
         .map(|entry| entry.expect("dir entry").path())
         .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("out"))
         .collect();
-    assert_eq!(found.len(), 1, "expected one .out in {}", dir.display());
+    if found.len() > 1 {
+        let flavor = format!("-{}", common::host_libc_flavor());
+        found.retain(|path| {
+            path.file_stem()
+                .is_some_and(|stem| stem.to_string_lossy().ends_with(&flavor))
+        });
+    }
+    assert_eq!(
+        found.len(),
+        1,
+        "expected one runnable .out in {}",
+        dir.display()
+    );
     found.pop().expect("one executable")
 }
 

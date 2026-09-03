@@ -37,7 +37,7 @@
 mod common;
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -230,7 +230,7 @@ fn a_transferred_tls_listener_accepts_on_the_receiving_thread() {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn openssl s_client");
 
@@ -238,20 +238,22 @@ fn a_transferred_tls_listener_accepts_on_the_receiving_thread() {
     let client_pid = client.id();
     let (tx, rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
-        // The worker writes without waiting to be spoken to, but s_client needs
-        // its stdin closed to exit once the session ends.
-        if let Some(mut stdin) = client.stdin.take() {
-            let _ = stdin.write_all(b"\n");
-        }
+        // Close s_client's stdin and send NOTHING through it — see the same
+        // sequence in `rt_tls_listener_local_address` for the measurement. In
+        // short: `-quiet` implies `-ign_eof`, so the close alone makes the client
+        // exit when the server does, and a byte written here would sit unread in
+        // the server's receive queue and turn its close into an RST that discards
+        // the payload.
+        drop(client.stdin.take());
         let out = client.wait_with_output().expect("wait s_client");
         let _ = server.wait();
-        let _ = tx.send(out.stdout);
+        let _ = tx.send(out);
     });
 
-    let stdout = match rx.recv_timeout(DEADLINE) {
-        Ok(stdout) => {
+    let out = match rx.recv_timeout(DEADLINE) {
+        Ok(out) => {
             let _ = worker.join();
-            stdout
+            out
         }
         Err(_) => {
             for pid in [server_pid, client_pid] {
@@ -267,11 +269,13 @@ fn a_transferred_tls_listener_accepts_on_the_receiving_thread() {
         }
     };
 
-    let text = String::from_utf8_lossy(&stdout);
+    let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains(PAYLOAD),
         "the transferred tls::Listener completed no TLS exchange on the receiving \
-         thread; s_client saw {text:?}"
+         thread; s_client exited {:?} and saw {text:?}\ns_client stderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
     );
 
     let _ = fs::remove_dir_all(&root);

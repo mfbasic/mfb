@@ -1,12 +1,12 @@
 ' net::ping's runtime argument validation (plan-110-A).
 '
-' Every case here must RAISE rather than return a PingStatus. The distinction is
-' the heart of the contract: a status answers a question about the network, while
-' a bad argument or an unresolvable name is a failure of the call itself. All of
-' these are rejected before anything is resolved or opened, so nothing leaks.
+' A rejected argument must RAISE rather than return a PingStatus. The distinction
+' is the heart of the contract: a status answers a question about the network,
+' while a bad argument or an unresolvable name is a failure of the call itself,
+' refused before anything is resolved or opened, so nothing leaks.
 '
-' None of these touch the network, so this fixture runs identically on a machine
-' where the OS forbids ICMP.
+' Those cases touch nothing, but the four boundary cases at the end DO open an
+' ICMP socket, so this fixture needs a host that permits one.
 
 IMPORT net
 IMPORT io

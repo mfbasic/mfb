@@ -43,7 +43,7 @@
 mod common;
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -238,7 +238,7 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn openssl s_client");
 
@@ -246,20 +246,28 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
     let client_pid = client.id();
     let (tx, rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
-        // The server writes without waiting to be spoken to, but s_client needs
-        // its stdin closed to exit once the session ends.
-        if let Some(mut stdin) = client.stdin.take() {
-            let _ = stdin.write_all(b"\n");
-        }
+        // Close s_client's stdin and send NOTHING through it. `-quiet` implies
+        // `-ign_eof`, so the client exits when the *server* closes rather than on
+        // its own EOF — the close alone is enough, and a byte written here is not.
+        //
+        // It is worse than unnecessary: the server never reads, so that byte sits
+        // unread in its receive queue, and closing a socket with unread data makes
+        // the kernel send RST instead of FIN. The RST then discards the payload
+        // this test is about. Measured in an `ubuntu:24.04` container (OpenSSL
+        // 3.0.13, the CI runner's version): writing "\n" gives `read:errno=104`
+        // and empty stdout every run; sending nothing gives `listener-port-ok` and
+        // exit 0. It passed locally only because OpenSSL 3.5.6 surfaces the
+        // already-received record before reporting the reset.
+        drop(client.stdin.take());
         let out = client.wait_with_output().expect("wait s_client");
         let _ = server.wait();
-        let _ = tx.send(out.stdout);
+        let _ = tx.send(out);
     });
 
-    let stdout = match rx.recv_timeout(DEADLINE) {
-        Ok(stdout) => {
+    let out = match rx.recv_timeout(DEADLINE) {
+        Ok(out) => {
             let _ = worker.join();
-            stdout
+            out
         }
         Err(_) => {
             for pid in [server_pid, client_pid] {
@@ -273,11 +281,13 @@ fn tls_local_address_reports_the_port_a_listener_bound_to() {
         }
     };
 
-    let text = String::from_utf8_lossy(&stdout);
+    let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains(PAYLOAD),
         "nothing was served on the port tls::localAddress reported ({port}); \
-         s_client saw {text:?}"
+         s_client exited {:?} and saw {text:?}\ns_client stderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
     );
 
     let _ = fs::remove_dir_all(&root);
