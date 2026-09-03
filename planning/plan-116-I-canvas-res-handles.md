@@ -435,6 +435,16 @@ Re-measured: `grep -c 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.
 → **6**, at `:626, :660, :681, :934, :942, :1009`. The line list in §2 was also from
 the pre-C/D/E/F file and has been replaced.
 
+*Re-measured again 2026-09-03 after plan-116-G:* still **6** reads, and **every line
+number moved** — now `:660, :694, :715, :987, :995, :1111`. G added the seven `Group`
+arms and `__canvas_groupHash` to this file, which shifted everything below them.
+
+That is the argument for not writing the line list down a third time. The count is the
+useful fact and it has been stable across F and G; the positions are not, and a list
+that must be re-measured to be trusted is a list that should have been a grep. Phase 2
+should run `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` and
+sweep what it prints.
+
 The lesson is narrower than I1's and worth keeping separate: when a correction changes
 a count, grep the letter for every *other* place that count is spelled. A number in a
 plan is usually written down more than once.
