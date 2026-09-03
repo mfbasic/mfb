@@ -198,8 +198,19 @@ plan-116-A §4.3):
 
 A group node ends the current run, emits the group's own runs recursively at the
 composed offset, and starts a new run after it. So a scene of `[rect, Group(A) @ (10,20),
-circle]` where A is `[c1, c2]` yields three draws: `(0,1,0,0)`, `(A,2,10,20)`,
-`(2,1,0,0)`.
+circle]` where A is `[c1, c2]` yields three draws — and **what the third one's base is
+depends on §4.3's undecided question, which is the point (H3)**:
+
+* If a shared group's blocks are written **once per reference**, inline, the flattened
+  block order is `rect=0, c1=1, c2=2, circle=3` and the draws are
+  `(0,1,0,0)`, `(1,2,10,20)`, `(3,1,0,0)`.
+* If they are written **once** and referenced, the scene's own blocks are `rect=0,
+  circle=1`, A's live at its own base `a`, and the draws are
+  `(0,1,0,0)`, `(a,2,10,20)`, `(1,1,0,0)`.
+
+The second is what makes a diamond share a buffer, which is what this letter is arranged
+around — so it is the likely answer, but Phase 1 decides it and **the Phase 1 test's
+expected sequence must be written from that decision**, not copied from here.
 
 Keeping `__canvas_sceneOffsets` alongside it, rather than replacing it, is deliberate:
 it is also what feeds the geometry-cache warm-up (`helper_render.rs:75` — *"Generating
@@ -318,6 +329,9 @@ CPU-side only; no shader change, no predicate change. Both backends still declin
       expected `(base, count, dx, dy)` sequence for: a flat scene; one group; a nested
       group; a diamond. Assert the **diamond's two draws name the same item base** —
       that is the buffer-sharing property this whole letter is arranged around.
+      Derive the expected bases from the decision above, not from §4.1's example
+      (**H3**): the example predates the decision and is arithmetically wrong under
+      either answer.
 
 Acceptance: the four draw-list cases pass, the diamond shares a base, and every
 existing golden and every plan-116-G group scene is byte-identical (the software
@@ -422,6 +436,26 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H3 (2026-09-03, pre-execution) — §4.1's worked example does not add up under either
+answer to §4.3's open question.** It gives `[rect, Group(A) @ (10,20), circle]` with A =
+`[c1, c2]` as `(0,1,0,0)`, `(A,2,10,20)`, `(2,1,0,0)`.
+
+Work the third entry both ways. Inline-per-reference: blocks are `rect=0, c1=1, c2=2,
+circle=3`, so `circle` is base **3**. Uploaded-once: A's blocks are not in the scene's
+sequence at all, the scene holds `rect=0, circle=1`, so `circle` is base **1**. The
+example says 2, which is the base `circle` would have if A contributed exactly one block
+— and A has two, which the same line says.
+
+Small, and it matters because Phase 1's acceptance is *"asserts `__canvas_sceneDraws`
+produces the expected `(base, count, dx, dy)` sequence"*. The natural way to write that
+test is to copy the numbers from the design section, and those numbers encode an
+expectation no correct implementation can satisfy — so the test fails, gets "fixed" by
+reading them off the implementation, and stops being an independent check of anything.
+
+Rewritten to give both sequences explicitly and to say which question picks between
+them. The recommendation stands where §4.3 left it: uploaded-once is what makes a
+diamond share a buffer, which is the property this letter exists for.
 
 **H2 (2026-09-03, pre-execution) — §4.2's list of "everything downstream of `p`" names
 the gradient, and the gradient is not downstream of `p`.** The sentence reads *"every
