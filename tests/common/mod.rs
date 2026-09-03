@@ -46,6 +46,95 @@ pub fn build_project(project: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// The `mfb build` flag that puts the build in app mode for the host.
+///
+/// Everywhere but Linux this is plain `--app`. Linux `--app` *seals* its output
+/// into one `build/<name>-<libc>.AppImage` per libc world (plan-56-B §4.4) and
+/// deletes the AppDir it built them from (plan-51-C §3.3), leaving an artifact
+/// that needs `/dev/fuse` and a suid `fusermount3` to launch — neither of which
+/// a CI container has. `--app-debug` implies `--app` and additionally keeps the
+/// AppDir (plan-51-C §4.7); the only difference in the emitted program is that
+/// the intermediate survives, so a test can run the same ELF the AppImage
+/// carries without FUSE.
+pub const APP_BUILD_FLAG: &str = if cfg!(target_os = "linux") {
+    "--app-debug"
+} else {
+    "-app"
+};
+
+/// Build `project` in app mode and return the executable to run.
+///
+/// Every headless canvas suite wants exactly this: `--app` (or its Linux
+/// equivalent above), then the one runnable artifact it produced.
+pub fn build_app(project: &Path, name: &str) -> PathBuf {
+    let output = Command::new(mfb_exe())
+        .arg("build")
+        .arg(APP_BUILD_FLAG)
+        .arg(project)
+        .output()
+        .unwrap_or_else(|err| panic!("run mfb build {APP_BUILD_FLAG}: {err}"));
+    assert!(
+        output.status.success(),
+        "mfb build {APP_BUILD_FLAG} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    app_binary(project, name)
+}
+
+/// The executable an app-mode build of `name` left under `project`.
+///
+/// macOS puts it inside an `.app` bundle, Linux inside the AppDir `--app-debug`
+/// kept, and Windows writes it beside `build/`.
+pub fn app_binary(project: &Path, name: &str) -> PathBuf {
+    let bundled = project
+        .join("build")
+        .join(format!("{name}.app"))
+        .join("Contents")
+        .join("MacOS")
+        .join(name);
+    if bundled.exists() {
+        return bundled;
+    }
+    if cfg!(target_os = "linux") {
+        return project
+            .join("build")
+            .join(format!("{name}-{}.AppDir", host_libc_flavor()))
+            .join("usr")
+            .join("bin")
+            .join(name);
+    }
+    let plain = project.join("build").join(name);
+    if plain.exists() {
+        return plain;
+    }
+    project
+        .join("build")
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Which of the two Linux libc worlds this host can actually load.
+///
+/// A build always emits both flavors, and only one of them runs here: a
+/// glibc-linked binary has no loader on Alpine, and the test boxes deliberately
+/// carry no `gcompat` shim that would hide that. The musl loader lives at a
+/// fixed, arch-suffixed name under `/lib`, and no glibc distribution ships one,
+/// so its presence is the whole test. Note this asks about the *host*, not
+/// about the libc this test binary was linked against — CI's musl matrix row
+/// builds for musl but runs on a glibc runner.
+pub fn host_libc_flavor() -> &'static str {
+    let musl = std::fs::read_dir("/lib").is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("ld-musl-"))
+    });
+    if musl {
+        "musl"
+    } else {
+        "glibc"
+    }
+}
+
 /// Build `project` with `-ncode -target <target>` and return the parsed
 /// `<name>.ncode` dump as JSON.
 pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Value {

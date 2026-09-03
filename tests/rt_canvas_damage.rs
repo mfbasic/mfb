@@ -23,21 +23,9 @@ const WIDTH: usize = 900;
 /// Render headless and return the frame plus every stats line.
 fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
     let project = common::temp_project(name, source);
-    let build = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
+    let binary = common::build_app(&project, name);
     let frame = project.join("frame.rgba");
     let stats = project.join("stats.txt");
-    let binary = app_binary(&project, name);
     let mut command = Command::new(&binary);
     command
         .current_dir(&project)
@@ -68,23 +56,6 @@ fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
         .collect();
     let _ = std::fs::remove_dir_all(&project);
     (pixels, lines)
-}
-
-fn app_binary(project: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let bundled = project
-        .join("build")
-        .join(format!("{name}.app"))
-        .join("Contents")
-        .join("MacOS")
-        .join(name);
-    if bundled.exists() {
-        return bundled;
-    }
-    let plain = project.join("build").join(name);
-    if plain.exists() {
-        return plain;
-    }
-    project.join("build").join(format!("{name}.exe"))
 }
 
 /// A `key=value` field of the last stats line.
@@ -288,19 +259,7 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
     // the size it already had — would make every program lay out twice at startup and
     // look correct while doing it.
     let project = common::temp_project("canvas_did_resize", RESIZE_POLL);
-    let build = std::process::Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("-app")
-        .arg(&project)
-        .output()
-        .expect("run mfb build -app");
-    assert!(
-        build.status.success(),
-        "mfb build -app failed:\n{}\n{}",
-        String::from_utf8_lossy(&build.stdout),
-        String::from_utf8_lossy(&build.stderr),
-    );
-    let binary = app_binary(&project, "canvas_did_resize");
+    let binary = common::build_app(&project, "canvas_did_resize");
     let run = std::process::Command::new(&binary)
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
