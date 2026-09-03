@@ -1,0 +1,58 @@
+' bug-486 repro — an inline TRAP does not catch toString(List OF Byte) failing.
+'
+' Build and run this as the `main` of a scratch executable project:
+'   mfb build -q /tmp/bug486 && /tmp/bug486/build/bug486.out
+'
+' Expected: three lines, each reporting its handler caught the failure.
+' Observed: shapes A and B abort the process with
+'           `Error: 7-702-0004 / Text encoding or decoding failed.` (exit 255),
+'           and the build additionally warns TYPE_INLINE_TRAP_DEAD_HANDLER —
+'           telling the author to delete the handler that is in fact needed.
+'
+' Shape C (the function-level TRAP) is the contrast case: it catches correctly
+' today, which is why `fetch::pageResult` in examples/browser survives a
+' non-UTF-8 page. It must keep working.
+
+IMPORT collections
+IMPORT io
+
+' "caf" + 0xE9 — "café" in ISO-8859-1 / windows-1252, which is NOT valid UTF-8.
+' Built at runtime so the bytes are not a compile-time constant.
+FUNC latin1() AS List OF Byte
+  MUT b AS List OF Byte = []
+  FOR EACH n IN [99, 97, 102, 233]
+    b = collections::append(b, toByte(n))
+  NEXT
+  RETURN b
+END FUNC
+
+' Shape C — a function-level TRAP. Catches today; the contrast case.
+FUNC decodeFunctionTrap(bytes AS List OF Byte) AS String
+  RETURN toString(bytes)
+
+  TRAP(e)
+    RETURN "C caught: " & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' Shape A — inline TRAP, scrutinee holds a nested call. `ir::lower` leaves the
+  ' root `toString` a plain Call (it believes it infallible), so the raise walks
+  ' straight past the handler.
+  LET a AS String = toString(latin1()) TRAP(e)
+    RECOVER "A caught"
+  END TRAP
+  io::print(a)
+
+  ' Shape B — inline TRAP, scrutinee is a bare local. The IR here is correct
+  ' (`bind $trap_res0 : Result OF String = callResult toString(...)` with a
+  ' resultIsOk test), and it STILL aborts — a second, backend-side defect.
+  LET bytes AS List OF Byte = latin1()
+  LET b AS String = toString(bytes) TRAP(e)
+    RECOVER "B caught"
+  END TRAP
+  io::print(b)
+
+  io::print(decodeFunctionTrap(latin1()))
+  RETURN 0
+END FUNC
