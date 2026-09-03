@@ -454,6 +454,55 @@ Commit: —
 
 ## Corrections
 
+**H5 (2026-09-03, pre-execution, written from plan-116-G as landed) — §4.1's
+`__canvas_sceneDraws` describes a walk that plan-116-G already performs, and §4.3's
+"undecided question" is already decided in the direction §4.1 calls unlikely.**
+
+This section was written against a world where `__canvas_sceneOffsets` returns one entry
+per *scene* item with `Group` nodes still in the list, so H would add a second walk to
+flatten them. That is not what G built. `__canvas_appendDraw` (`helper_render.rs`)
+expands every group where the draw list is assembled, so the list H inherits is:
+
+* **already flat** — leaf items only, no `Group` to end a run;
+* **already carrying the offset** — `__CANVAS_DRAW_DX` / `__CANVAS_DRAW_DY`, parallel to
+  the offsets list, one entry each;
+* **already telling a caller whether groups were involved** —
+  `__CANVAS_DRAW_HAS_GROUP`, which is what both `*Renderable` predicates read to decline
+  today (and which H removes).
+
+So Phase 1's real work is not "perform the same depth-first walk"; it is **group the
+existing flat list into runs of equal `(dx, dy)`**, which is a scan rather than a
+traversal, and emit `(itemBase, itemCount, dx, dy)` per run. Re-measure before writing
+it: `grep -n "FUNC __canvas_appendDraw" -A 30 src/codegen/builtins/canvas/helper_render.rs`.
+
+**And §4.3's question is settled by that same code, the other way.** G emits one entry
+per *reference*, so `[rect, Group(A)@(10,20), circle]` with `A = [c1, c2]` gives four
+offsets entries — `rect, c1, c2, circle` — which is §4.1's **first** bullet, the one it
+calls less likely. A diamond therefore produces two entries per child, not one shared
+run.
+
+That is not the loss it looks like, and the distinction H should keep hold of is
+*which* buffer is being shared:
+
+* The **geometry cache** already shares. Both references resolve to the same
+  `__canvas_geometryFor` offset, which is why plan-116-G's
+  `a_group_renders_at_its_offset_nested_diamond_and_absent` measures `entries=1` for one
+  shape drawn at three offsets. That is the sharing the feature's speed goal named, and
+  it is already won.
+* The **GPU item block** does not share, because a block is per draw instance and two
+  references differ in exactly the field this letter adds — the offset. Two references
+  cannot share one block *unless* the offset moves out of the block and into a per-draw
+  push constant, which is precisely what §4.2 does.
+
+So the answer to §4.3 is available without re-deciding it: once the offset is a push
+constant rather than a block field, two references to a group have byte-identical blocks
+and *may* share them — the entries in the offsets list already point at one geometry
+entry, so the emitter can key its item-block cache on that offset. Whether it is worth
+doing is a measurement Phase 1 should take rather than a design question, and the honest
+default is **no**: writing a block per reference is a memcpy into a mapped buffer, while
+sharing needs a per-frame map from geometry offset to block index, and
+`CANVAS_MAX_FRAME_ITEMS` is 4096 either way.
+
 **H5 (2026-09-03, pre-execution) — `setVertexBytes:` is not available to bind the Metal
 offset; plan-116-A deleted it.** §4.2 names `setVertexBytes:` and `setFragmentBytes:` as
 though both were on hand. `grep -n 'setVertexBytes' src/target/macos_aarch64/app/metal.rs`

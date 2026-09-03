@@ -3148,3 +3148,54 @@ fn exiting_while_a_frame_draws_a_group_is_clean() {
     );
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// A group offset far outside the surface draws nothing and does not **raise**
+/// (plan-116-G).
+///
+/// `dx`/`dy` are user-supplied `Float`s that this letter feeds into two new integer
+/// conversions: `__canvas_hashFloat` folds them into the draw hash as
+/// `toInt(value * 65536.0)`, and the glyph path takes `toInt(gdx)` to move a run's
+/// origin. A conversion whose result does not fit raises `7-705-0010` — arithmetic
+/// overflow or numeric conversion outside the destination range — and it would raise
+/// from `canvas::present`, which no caller expects to fail because a shape was placed
+/// off-screen.
+///
+/// Written after a peer found exactly that error class in the canvas font path on
+/// linux-aarch64, where it raises rather than corrupting. That is not this code and this
+/// test does not chase it; it pins that *this* letter's new conversions are not another
+/// instance, on a value a program can hand them directly.
+///
+/// `1.0e9` is chosen to be absurd rather than borderline: multiplied by 65536 it is
+/// ~6.5e13, comfortably past a 32-bit destination and comfortably inside a 64-bit one,
+/// so the test states which of those the conversion actually uses.
+#[test]
+fn a_group_offset_far_off_surface_draws_nothing_and_does_not_raise() {
+    let (frame, stats) = render(
+        "canvas_group_huge_offset",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET here AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::setGroup(\"panel\", [red])\n  \
+             LET huge AS canvas::DrawItem = canvas::Group[dx := 1.0e9, dy := 0.0 - 1.0e9, name := \"panel\"]\n  \
+             LET big AS canvas::DrawItem = canvas::Group[dx := 100000.0, dy := 100000.0, name := \"panel\"]\n  \
+             canvas::present([here, huge, big])\n",
+        ),
+    );
+
+    // Reaching here at all is most of the assertion: a raise from `present` fails the
+    // harness in `render`, which asserts the program exited successfully.
+    assert_eq!(stats.len(), 1, "expected one frame: {stats:?}");
+    assert_eq!(
+        pixel(&frame, 110, 110),
+        (0, 255, 0, 255),
+        "the in-surface item was lost, so the off-surface groups did more than draw \
+         nothing",
+    );
+    assert_eq!(
+        pixel(&frame, 10, 10),
+        (0, 0, 0, 255),
+        "something was drawn at the origin — an offset that overflowed its conversion \
+         and wrapped would land somewhere arbitrary, and the origin is the most likely \
+         somewhere",
+    );
+}

@@ -964,6 +964,46 @@ Commit: —
 
 ## Corrections
 
+**G27 (Phase 6, found by this letter's gates) — two pre-existing flakes in
+`tests/rt_tls_connect_allow_self_signed.rs`, both failing OPEN.** Not this letter's
+code, and recorded here because this letter's full-suite gate is what surfaced them —
+twice, on different tests, which is what stopped them reading as noise.
+
+* The readiness probe in `start_peer` was a bare TCP connect, which succeeds against
+  another case's `s_server` as readily as against ours. A case that lost the bind in the
+  window between `free_port` and `s_server` binding therefore reported ready and handed
+  its client the *other* case's identity: `still_rejects_a_name_mismatch` reported
+  `result=connected`, i.e. the assertion that `allowSelfSigned` is not a blanket
+  verification bypass failing open. The file's own comment predicted this exact pair of
+  symptoms. The probe now completes a handshake and reads the subject off the
+  certificate served — same one accept, and the one property that cannot be true of the
+  wrong server.
+* The scratch directory was named from the clock alone. The four cases start together
+  and `SystemTime::now()` need not advance between two reads, so two could share a root
+  and therefore `cert.pem` — `still_rejects_an_expired_certificate` then read the
+  in-date peer's 397-day certificate and reported *"the certificate meant to be expired
+  is still valid"*. An atomic counter makes the name unique by construction.
+
+Four consecutive clean runs after, against two failures in four runs before. Landed
+separately at `9ef204269`. Also worth separating from these: a third failure in the same
+gate, `rt_macos_tls_write_capacity`, was **CPU starvation** and not a defect — that test
+prints its own instruction to re-run it alone before treating it as a regression, which
+is what distinguished it, and it passes alone.
+
+**G28 (Phase 6) — this letter's new `Float`→`Integer` conversions are pinned against
+overflow.** `dx`/`dy` are user-supplied and reach `toInt(value * 65536.0)` in the draw
+hash and `toInt(gdx)` in the glyph path. A conversion that does not fit raises
+`7-705-0010` — *from `canvas::present`*, which no caller expects to fail because a shape
+was placed off-screen.
+
+Written because a peer session found exactly that error class in the canvas **font**
+path on linux-aarch64 during this letter's execution. That is not this code and the pin
+does not chase it; it establishes that this letter did not add another instance.
+`a_group_offset_far_off_surface_draws_nothing_and_does_not_raise` presents groups at
+`±1.0e9` and `1.0e5` beside an in-surface item: nothing raises, the in-surface item
+survives, and nothing lands at the origin — which is where a wrapped offset would most
+likely put it.
+
 **G24 (Phase 5) — §4.3's per-scene and per-parent-group references count something this
 design does not have.** The section specifies four reference sources. Two of them assume
 the published scene and a parent group hold *pointers* into a group's buffer, which is
