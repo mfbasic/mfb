@@ -663,7 +663,7 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 16384;
 /// polygon's `ITEM_ARC_EDGE_BASE` rather than reading a separately-offset binding,
 /// which is the same shape `VULKAN_GLYPH_BASE_WORDS` already uses — and it sidesteps
 /// `MTLBuffer` offset alignment entirely, since nothing is ever bound at a non-zero
-/// offset. `the_metal_shader_edge_base_matches_the_buffer_layout` pins the number
+/// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
 pub(crate) const METAL_EDGE_BASE_WORDS: usize = CANVAS_ITEM_BUFFER_BYTES / 4;
 /// The most gradient stops one **frame** may carry, on either backend (plan-116-F).
