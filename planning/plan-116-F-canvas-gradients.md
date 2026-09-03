@@ -559,8 +559,12 @@ Commit: 8c4fa49a6
       the build lock — the two rows differ only in profile, so a separate target
       directory is the whole isolation needed.
 - [ ] The Linux row: `cargo test --release --no-fail-fast --bin mfb` on box 2228.
-- [ ] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
-      `N ran` count is the thing to read (**F13**).
+- [x] `scripts/test-accept.sh` green — **not** redundant with the row above, and the
+      `N ran` count is the thing to read (**F13**). `bash scripts/test-accept.sh
+      target/release/mfb /tmp/p116-accept` → **"acceptance tests passed (1358 test(s)
+      ran)"**, exit 0. 1358 is the number that matters: `cargo test`'s copy of the
+      corpus ran 811 and skipped 519 `syntax/` fixtures, so this row is the only thing
+      that executed the diagnostic-pinning half.
 - [ ] `scripts/artifact-gate.sh all` 0 diffs.
 - [x] Fix **F18**: a **stroked** `Text` reaches `__canvas_paintHeader` wearing
       `POLYGON`'s kind, so the `Text` skip does not fire and it counts a stop tail
