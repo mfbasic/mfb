@@ -624,8 +624,10 @@ Commit: —
 - [ ] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
       same group drawn at `(37, 53)` are the same picture translated — the diamond form
       is the sharp one, because it proves the ramp followed the shape rather than the
-      buffer. And a **clipped** item in a translated group keeps its clip where the
-      surface rectangle is, not where the group moved to.
+      buffer. A **`Text`** item in a translated group draws its glyphs at the offset and
+      not blank — the glyph arm is on a different path from the distance one and a fix
+      written for distances misses it. And a **clipped** item in a translated group
+      keeps its clip where the surface rectangle is, not where the group moved to.
 - [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
       `setGroup(A')` then an identical `present` yields a **partial** frame whose
       damage rectangle covers the group's drawn area (assert via the stats
