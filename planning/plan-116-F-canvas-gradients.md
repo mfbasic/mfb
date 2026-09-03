@@ -144,6 +144,16 @@ rather than inventing a fourth.
   **A gradient's stops are the same shape of content** — header-invisible tail —
   so this letter must add a gradient arm to BOTH seams: the hash and
   `__canvas_tailMatches`. §4.2.
+- **"Every `__CANVAS_GEO_HEADER` reader updated" costs nothing** (verified 2026-09-02).
+  `grep -rn "__CANVAS_GEO_HEADER" src/codegen/builtins/canvas/*.rs` → 25 sites, and
+  **every one uses the symbol**, never a literal: `WHILE i < __CANVAS_GEO_HEADER`,
+  `offset + __CANVAS_GEO_HEADER + g * 3`, `toFloat(__CANVAS_GEO_HEADER + count * 5)`.
+  So growing the header is two edits — the MFBASIC `LET` at `helper_geometry.rs:53` and
+  the Rust `HEADER_SLOTS` — and the rest follows, with
+  `the_geo_layout_constants_match_their_rust_counterparts` pinning that the two agree.
+  That has held for plan-116-C, D and E. The Phase 1 box reads like a sweep; it is not
+  one, and looking for readers to edit is wasted effort.
+
 - **UNVERIFIED: whether stop interpolation in linear light matches what a designer
   expects.** It is the choice consistent with `06_canvas.md`'s compositing rule, but
   the two spaces differ visibly on a black→white ramp. §4.3 decides and documents;
