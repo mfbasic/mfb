@@ -547,7 +547,8 @@ Commit: 8c4fa49a6
       keep). Pre-merge: **3757 passed, 0 failed, 1 ignored**, 476.96s. Re-run on the
       merged tree: **3764 passed, 0 failed, 1 ignored**, 470.31s — seven more tests,
       which are plan-123's, and no failures. Re-run again after **F17**:
-      **3764 passed, 0 failed**, 478.27s. Run with
+      **3764 passed, 0 failed**, 478.27s; and after **F18**: **3764 passed, 0 failed**,
+      484.73s. Run with
       `CARGO_TARGET_DIR=/tmp/p116-debug` so it did not contend with the release row for
       the build lock — the two rows differ only in profile, so a separate target
       directory is the whole isolation needed.
