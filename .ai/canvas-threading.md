@@ -217,6 +217,17 @@ row names the rule from above that protects it.
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
 | R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
 | R12 | program exits while a frame is in flight | no use-after-free of the scene slots or the pixel buffer | shutdown must join graphics before the worker's frame unwinds |
+| R13 | present → `removeGroup` → graphics mid-frame | the in-flight frame completes and still draws the group it had already resolved | §13 retire-then-drain |
+| R14 | the same, then a completed frame, then a present **of an unchanged scene** | the buffer is freed exactly once and `groupBytes=` drops | §13 gate at the top of `present`, not on the publish path |
+| R15 | `setGroup(A, …)` replacing a live A | the displaced buffer is freed only after a frame completes; the new one is not | §13 one retired buffer per slot |
+| R16 | `removeGroup(A)` while a parent group still names A | the parent's node becomes a silent no-op, and the parent's other items still draw | §13 a parent holds a NAME, not a pointer |
+
+**R13–R16 are plan-116-G's, and R13 is the first mid-frame row that is deterministic
+rather than probabilistic** — see `MFB_CANVAS_FRAME_HOLD_MS` in §11. R14's *"of an
+unchanged scene"* is load-bearing and not incidental: a free placed where the scene
+ring's `emit_reclaim_retired` sits would never run for it, because that code is after
+the publish label, and a test that changed the scene would pass against that wrong
+placement.
 
 **Rows R1, R2, R9, R10 and R11 are not yet reachable.** They are the texture and
 dirty-upload rows, and there is no texture: `Picture` draws nothing until plan-98-G
@@ -472,6 +483,31 @@ observable on Linux:
   `MFB_CANVAS_DUMP` still sees every frame — the dump is written by
   `__canvas_presentSurface`, before and independently of the blit.
 
+### `MFB_CANVAS_FRAME_HOLD_MS` — hold the graphics thread inside a frame
+
+Milliseconds to sleep in `__canvas_renderFrame`, immediately after
+`__canvas_sceneOffsets` has built the draw list. Unset or `0` is off, and it is off the
+production path like the four above.
+
+**It exists because nothing else here produces "graphics mid-frame."** The two proven
+mid-render rows (R5, R7) reach it through `MFB_CANVAS_RESIZE_W`/`_H` firing while the
+worker sits in `os::sleep`, which is specific to resize — so a row needing any *other*
+worker action mid-frame was either untestable (R1 sat marked "not yet reachable" for
+three letters) or tested by luck, and a green run tested by luck reads exactly like one
+tested by construction.
+
+The hold point is after the draw list is built, deliberately: by then every group name
+is resolved and every group's items copied, so a `removeGroup` arriving during the hold
+lands while a frame is demonstrably still working from that block. That is the window
+the drain gate exists for.
+
+**The worker has to be made to lose the race, too.** `present` returns as soon as it has
+signalled, so a worker that calls `removeGroup` immediately usually gets there before the
+graphics thread has resolved anything — the group is then removed before it is used and
+the frame correctly draws nothing, which exercises the absent-name path instead. The
+worker needs its own short sleep so its action lands *inside* the hold. R13's test uses
+a 600 ms hold and a 120 ms worker sleep against a frame measured in single-digit ms.
+
 ## 12. Why the font rasteriser is hand-rolled
 
 Canvas rasterises glyphs with a TrueType reader and a contour rasteriser written in
@@ -507,6 +543,67 @@ The residual risk moved rather than vanished. It is no longer "is the third-part
 rasteriser deterministic" but "does the contour rasteriser use anything width- or
 order-dependent" — a thing to not do, caught by the same cross-target byte-identity
 comparison.
+
+
+## 13. The named-group table (plan-116-G)
+
+A third process-global block, `_mfb_rt_canvas_groups`: 256 fixed slots plus a one-word
+header. Process-global for the reason the scene region and the font table are — §2 —
+`canvas::setGroup` runs on the worker and the renderer that draws a group runs on the
+graphics thread. **Fixed, not growable**: the graphics thread scans it without a lock,
+and a reallocating array would move under a reader.
+
+**A slot is published name-LAST and dropped name-FIRST.** `name` is the discriminator: a
+scanning graphics thread treats a non-zero name as "this slot is real, follow its
+pointers". So a slot must never be visible under a name before its `items` and `count`
+are written, and dropping one must hide it before anything else changes. This is the same
+publish-then-flag rule §3 gives for the scene revision.
+
+### There is no refcount, and there is nothing to count
+
+`canvas::groupItems` returns a **copy**, so a published scene never holds a pointer into
+a group's buffer and a parent group never holds one into its child's — a `canvas::Group`
+node carries a *name*, and the renderer resolves it per frame. The only window in which
+anything reads the block is that copy, on the graphics thread, inside one frame.
+
+So the lifetime rule is the drain gate alone, and it is the one §3 and §7 already use:
+`removeGroup` and a replacing `setGroup` **retire** the displaced buffer and stamp the
+frame; the buffer is freed once a frame has completed since. A reference count would have
+been a second mechanism guarding a lifetime this already bounds.
+
+The cost is a copy per group per frame *that renders*, against a copy of the whole
+sub-picture per `present` — and presents outnumber rendered frames by design, because
+the frame skip is what this feature's reuse goal rests on.
+
+### The gate runs at the top of `present`, not where the scene ring reclaims
+
+`emit_reclaim_retired` is emitted *after* the publish label in `gen_present.rs`, so it
+runs only on a present that actually changes the scene. A group free placed beside it
+inherits that: `removeGroup("panel")` followed by presents of an unchanged scene would
+never free anything — the frame skip working exactly as designed, and the memory held
+anyway. **A memory bound that depends on the scene changing is not a bound.**
+
+`canvas::groupReclaim()` therefore runs first and unconditionally in `__canvas_present`.
+It is a scan of 256 slots with no allocation, which is what makes unconditional
+affordable.
+
+### A group node is expanded before any consumer sees it
+
+`__canvas_appendDraw` resolves and flattens the group tree where the draw list is built,
+so the offsets list handed to the render walk, the damage diff and both GPU predicates
+contains only leaf items, each carrying its accumulated `(dx, dy)` in parallel globals.
+No consumer knows groups exist.
+
+Two consequences worth stating because they are easy to get wrong in the other order:
+
+* **The GPU predicates cannot look for a `Group`** — by the time they see the list there
+  is none. They read `__CANVAS_DRAW_HAS_GROUP`, set by the walk. A predicate that
+  searched would find nothing, accept the frame, and draw every group's children at the
+  origin: §10's failure exactly.
+* **Both sides of the damage diff need the offset.** The remembered bounds and the
+  current bounds must both be translated, and each draw entry's recorded hash must fold
+  in its offset — otherwise a moved group changes no geometry and reports "nothing
+  changed".
 
 ## See also
 

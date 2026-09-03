@@ -578,6 +578,24 @@ FUNC __canvas_renderFrame() AS Nothing
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  ' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
+  ' worker action to land mid-render.
+  '
+  ' Here rather than anywhere else in the frame because this is the point after which
+  ' the renderer is committed: `__canvas_sceneOffsets` has resolved every group name and
+  ' copied out each group's items, so a `removeGroup` arriving during the hold is
+  ' exactly the race the drain gate exists for -- the block is retired while a frame is
+  ' demonstrably still working from it.
+  '
+  ' Off unless the variable is set, and off the production path in the same sense the
+  ' other four affordances in `.ai/canvas-threading.md` section 11 are. Before this,
+  ' every "mid-render" row was reached through `MFB_CANVAS_RESIZE_W`/`_H` firing while
+  ' the worker slept, which is resize-specific -- so the rows that needed a different
+  ' worker action were either untestable (R1) or tested by luck.
+  LET holdMs AS Integer = toInt(os::getEnvOr("MFB_CANVAS_FRAME_HOLD_MS", "0"))
+  IF holdMs > 0 THEN
+    os::sleep(holdMs)
+  END IF
   ' plan-116-G: the EXPANDED hashes, written by the walk above, not
   ' `canvas::installedHashes()`. The damage diff pairs hashes with offsets by index, and
   ' expanding one `Group` node into N children makes those two lists different lengths

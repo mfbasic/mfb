@@ -804,20 +804,33 @@ Commit: 15093211c
 
 Memory-correctness, landed last, behind every test above.
 
-- [ ] Implement the reference accounting of §4.3 exactly: table reference, per-scene
-      references, per-parent-group references, and the drop-on-scene-reclaim rule.
-- [ ] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
+- [x] ~~Implement the reference accounting of §4.3 exactly: table reference, per-scene
+      references, per-parent-group references, and the drop-on-scene-reclaim rule.~~ —
+      **moot: in the design that landed there is nothing for those three to count**
+      (**G24**). `canvas::groupItems` returns a *copy*, so a published scene holds no
+      pointer into a group's buffer and a parent group holds none into its child's. The
+      table reference survives as the `refs` word; the other two would guard a lifetime
+      the drain gate already bounds.
+- [x] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
       executed on the **worker**, at the top of `present` and **before the content
       comparison**, not beside `emit_reclaim_retired`, which only runs on the publish
       path (**G7**).
-- [ ] **Build the mid-frame affordance the race rows need, or state them as
-      probabilistic (G9).** §11 has four test affordances and none holds the graphics
+- [x] **Built the affordance**, which is the first of G9's two options and the one it
+      says is *"worth more than this letter"*: `MFB_CANVAS_FRAME_HOLD_MS` parks the
+      graphics thread in `__canvas_renderFrame` after the draw list is built. R13 is
+      therefore deterministic, and **R1 — marked "not yet reachable" since plan-98-D —
+      is now reachable by the same mechanism.** Documented in
+      `.ai/canvas-threading.md` §11 with the trap that cost a red run: the worker has to
+      be slowed too, or it wins the race to the *start* of the frame and the test
+      silently exercises the absent-name path instead (**G25**).
+      *(Original box text: "Build the mid-frame affordance the race rows need, or state
+      them as probabilistic (G9).")* §11 has four test affordances and none holds the graphics
       thread mid-frame; the only "mid-render" rows proven today (R5, R7) get there
       through `MFB_CANVAS_RESIZE_W`/`_H`, which is resize-specific, and R1 — the row
       closest to these — is marked *not yet reachable*. Decide this before writing the
       matrix below, because a row tested by luck reports the same green as one tested by
       construction.
-- [ ] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
+- [x] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
       rows to that document too:
       - `present([Group A])` → `removeGroup(A)` → graphics mid-frame: the in-flight
         frame completes normally. **This is the row that needs G9's decision** — with
@@ -837,8 +850,26 @@ Memory-correctness, landed last, behind every test above.
         starting value.
 
 Acceptance: all six race-matrix rows pass; the 200-iteration loop shows no growth in
-`groupBytes=`; `cargo test --no-fail-fast` green on mac+RELEASE **and** linux+DEBUG
-with `--no-fail-fast` (a failing earlier test silently skips every later `rt_*`).
+`groupBytes=`; `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
+2228 RELEASE** — corrected from "mac+RELEASE and linux+DEBUG" per plan-116-E's **E6**,
+which measured CI as `--release` on all five platforms, so the debug row has to be run
+somewhere and the Mac is where.
+
+**MET.** The rows are `.ai/canvas-threading.md` R13–R16 plus R12's group analogue, as
+`removing_a_group_mid_frame_lets_the_frame_finish`,
+`a_removed_groups_buffer_is_retired_not_freed`,
+`the_group_drain_does_not_depend_on_the_scene_changing`,
+`replacing_a_group_frees_only_the_displaced_buffer`,
+`removing_a_group_a_parent_names_makes_the_parents_node_a_no_op` and
+`exiting_while_a_frame_draws_a_group_is_clean`.
+
+R13 and the exit row are **deterministic**, not probabilistic, because this phase built
+G9's affordance: `MFB_CANVAS_FRAME_HOLD_MS`. The 200-iteration loop reports
+`groups=0` and under 4 KB owned — a bound of one outstanding buffer, since the gate needs
+a frame to complete after the last retirement.
+
+`rt_canvas_rasteriser` **54 passed, 0 failed, 2 ignored**; `cargo test --release --bin
+mfb --no-fail-fast` **3765 passed, 0 failed**; damage 6, golden 13, font 17, all 0 failed.
 Commit: —
 
 ### Phase 6 — Docs and gates
@@ -916,6 +947,57 @@ Commit: —
   group's items covers the rest.
 
 ## Corrections
+
+**G24 (Phase 5) — §4.3's per-scene and per-parent-group references count something this
+design does not have.** The section specifies four reference sources. Two of them assume
+the published scene and a parent group hold *pointers* into a group's buffer, which is
+true of the design §4.4 sketched — slot indices published into the scene, followed live
+at draw time.
+
+What landed resolves and **copies** instead: `canvas::groupItems` returns a copy, for the
+same reason `canvas::installedItems` does. So a published scene points at no group
+buffer, and a parent group points at no child's. The only window in which anything reads
+the block is that copy, on the graphics thread, inside a single frame — and "a frame has
+completed since the retirement" closes exactly that window.
+
+The table's own reference is kept (`refs`), and the drop-on-scene-reclaim rule has
+nothing to drop. Implementing the other two would have been a second mechanism guarding a
+lifetime the drain gate already bounds, and the failure mode of a refcount that disagrees
+with reality is a use-after-free — the thing this phase exists to prevent.
+
+The cost is honest and worth stating: one copy per group per **rendered frame**, against
+one copy of the whole sub-picture per **`present`**. Presents outnumber rendered frames
+by design — the frame skip is what the reuse goal rests on — so the trade is the right
+way round, but it is a trade rather than a free win. Recorded in
+`.ai/canvas-threading.md` §13.
+
+**G25 (Phase 5) — the mid-frame affordance is only half the ordering; the worker has to
+be slowed too.** With `MFB_CANVAS_FRAME_HOLD_MS` set and the worker calling `removeGroup`
+straight after `present`, the first run of R13 measured the group **not drawn at all**.
+That is not the race failing — it is the race not happening: `present` returns as soon as
+it has signalled, so the worker reached `removeGroup` before the graphics thread had
+resolved the name, and the frame correctly drew nothing. The test was exercising the
+absent-name path while claiming to exercise the mid-frame one.
+
+Both sleeps are therefore load-bearing and both are documented in the test: a 600 ms hold
+and a 120 ms worker delay, against a frame measured in single-digit ms. Worth recording
+because the wrong version *passes* if the assertion is "no crash" — which is what a row
+"stated as probabilistic" (G9's other option) would have asserted.
+
+**G26 (Phase 5) — a sentinel written after a stamp destroyed the stamp.** `setGroup`'s
+install path wrote `-1` to `CANVAS_GROUP_RETIRED_FRAME` as an "unretired" marker, *after*
+`emit_retire_current_items` had just stamped that word with the frame the displaced
+buffer must outlive. Against an unsigned counter, `-1` makes the gate `frame_now <=
+stamped` true forever, so a **replaced** buffer was never freed while a **removed** one
+was — `groupBytes=2112` flat across six frames, while `removeGroup`'s path drained
+normally.
+
+Found by `replacing_a_group_frees_only_the_displaced_buffer`, which was written to check
+that a replace frees the old buffer and *not* the new one; the split behaviour between
+the two paths is what pointed at the install path rather than at the gate. There is no
+sentinel now: `CANVAS_GROUP_RETIRED_ITEMS` is the discriminator the drain reads first,
+and `RETIRED_FRAME` means nothing while it is zero. After the fix the same probe reads
+440, 1680, 2112, **872** — the 1,240-byte three-item buffer released exactly once.
 
 **G20 (Phase 4) — §4.6's "give the group node a bounds hull" is moot, because the design
 that landed has no group node left to give one to.** The section assumes the published

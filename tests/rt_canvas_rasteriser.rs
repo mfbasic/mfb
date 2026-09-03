@@ -2892,7 +2892,7 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
              LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
              canvas::present([keep])\n  \
              MUT i AS Integer = 0\n  \
-             WHILE i < 40\n  \
+             WHILE i < 200\n  \
                canvas::setGroup(\"scratch\" & toString(i), [red, red, red, red, red, red, red, red])\n  \
                canvas::present([keep])\n  \
                canvas::removeGroup(\"scratch\" & toString(i))\n  \
@@ -2909,11 +2909,12 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
         .expect("groupBytes is a number");
     let groups = stat(stats.last().unwrap(), "groups=");
     assert_eq!(groups, "0", "every scratch group was removed: {stats:?}");
-    // One eight-item group is ~1 KB; forty of them would be ~40 KB. Allow one
-    // outstanding buffer — the last iteration's may legitimately still be retired.
+    // One eight-item group is ~1 KB, so 200 undrained ones would be ~200 KB. The bound
+    // allows a single outstanding buffer: the last iteration's may legitimately still
+    // be retired, since the gate needs a frame to complete after it.
     assert!(
         bytes < 4096,
-        "the table still owns {bytes} bytes after 40 install/remove cycles, so the \
+        "the table still owns {bytes} bytes after 200 install/remove cycles, so the \
          buffers were not drained. Every present in that loop showed an unchanged scene \
          and was skipped, which is exactly the case a free placed on the publish path \
          never reaches — the frame skip works and the memory is held anyway. {stats:?}",
@@ -3016,4 +3017,134 @@ fn removing_a_group_a_parent_names_makes_the_parents_node_a_no_op() {
         "the parent group's OTHER item stopped drawing, so removing the child took the \
          parent down with it",
     );
+}
+
+/// A group removed while the graphics thread is **mid-frame** over it: the in-flight
+/// frame completes normally and draws what it started with (plan-116-G Phase 5).
+///
+/// This is the row **G9** was written about, and it is deterministic rather than
+/// probabilistic because this phase built the affordance G9 asked for.
+/// `MFB_CANVAS_FRAME_HOLD_MS` parks the graphics thread inside `__canvas_renderFrame`,
+/// immediately after `__canvas_sceneOffsets` has resolved every group name and copied
+/// out its items — so the `removeGroup` below lands while a frame is demonstrably still
+/// working from that block. Before the affordance, every proven "mid-render" row got
+/// there through `MFB_CANVAS_RESIZE_W`/`_H` firing while the worker slept, which is
+/// resize-specific; a row needing a different worker action was tested by luck.
+///
+/// `MFB_CANVAS_SYNC` is deliberately **off**: the whole point is that `present` returns
+/// while the frame is still being drawn, so the worker can reach `removeGroup`.
+///
+/// What it asserts is that the frame completes and the picture is right — a
+/// use-after-free here shows up as a crash, a torn frame, or nothing drawn where the
+/// group was. It cannot assert the *timing* it arranged, so the hold is long enough
+/// (600ms against a frame measured in single-digit ms) that the ordering is not in
+/// doubt.
+///
+/// The worker's 120ms sleep before `removeGroup` is the other half of that ordering and
+/// is not padding. Without it the worker races the graphics thread to the *start* of the
+/// frame and usually wins — `present` returns as soon as it has signalled — so the group
+/// is removed before it is ever resolved and the frame correctly draws nothing. That
+/// tests the absent-name path, not this one, and it is what the first run of this test
+/// measured.
+#[test]
+fn removing_a_group_mid_frame_lets_the_frame_finish() {
+    let project = common::temp_project(
+        "canvas_group_race",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             canvas::setGroup(\"panel\", [red])\n  \
+             LET node AS canvas::DrawItem = canvas::Group[dx := 200.0, dy := 200.0, name := \"panel\"]\n  \
+             LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::present([mark, node])\n  \
+             os::sleep(120)\n  \
+             canvas::removeGroup(\"panel\")\n  \
+             os::sleep(1200)\n",
+        )
+        .replace("IMPORT collections", "IMPORT collections\nIMPORT os"),
+    );
+    let frame_path = project.join("frame.rgba");
+    let binary = common::build_app(&project, "canvas_group_race");
+    let run = Command::new(&binary)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame_path)
+        .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "the program did not exit cleanly — a use-after-free on the retired group buffer \
+         is what this row exists to catch, and it presents as a signal here. exit {:?}\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+
+    let frame =
+        std::fs::read(&frame_path).expect("the in-flight frame must still have been written");
+    assert_eq!(
+        frame.len(),
+        WIDTH * HEIGHT * 4,
+        "the frame was torn or truncated",
+    );
+    assert_eq!(
+        pixel(&frame, 240, 240),
+        (255, 0, 0, 255),
+        "the frame that was already drawing when `removeGroup` arrived did not finish \
+         drawing the group. It had already copied the items, so removing the name must \
+         not affect it — the retired block stays valid until a frame completes.",
+    );
+    assert_eq!(
+        pixel(&frame, 700, 500),
+        (0, 255, 0, 255),
+        "the rest of the frame was lost",
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// The program exits while a frame is still drawing a group: no use-after-free
+/// (plan-116-G Phase 5 — R12's group analogue).
+///
+/// R12's own hazard is that the scene slots live in the worker's arena and the worker's
+/// arena state lives on its *stack frame*, so a graphics thread still rendering after
+/// the entry returns reads freed stack. A group's buffer is in the same arena, and this
+/// phase gave the graphics thread a new reason to be inside one — `canvas::groupItems`
+/// copies out of it — so the row is re-run against a group rather than assumed to be
+/// covered.
+///
+/// `MFB_CANVAS_FRAME_HOLD_MS` is what makes it a real test rather than a hopeful one:
+/// the frame is *guaranteed* to still be in progress when `main` returns, because the
+/// graphics thread is parked in the middle of it.
+#[test]
+fn exiting_while_a_frame_draws_a_group_is_clean() {
+    let project = common::temp_project(
+        "canvas_group_exit_race",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             canvas::setGroup(\"panel\", [red])\n  \
+             canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"panel\"]])\n",
+        ),
+    );
+    let binary = common::build_app(&project, "canvas_group_exit_race");
+    let run = Command::new(&binary)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_FRAME_HOLD_MS", "400")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "the program did not exit cleanly with a frame in flight over a group. Shutdown \
+         must drain the pending frame and join the graphics thread before the worker's \
+         entry unwinds — its arena, which holds the group's buffer, is on that stack \
+         frame. exit {:?}\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&run.stdout).contains("rendered"),
+        "the program did not reach the end of `main`",
+    );
+    let _ = std::fs::remove_dir_all(&project);
 }
