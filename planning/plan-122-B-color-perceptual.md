@@ -376,16 +376,25 @@ Commit: —
 
 ### Phase 3 — Rasteriser cost check
 
-- [ ] Measure the per-pixel cost of the Phase-1 seam against the pre-move binary,
+- [x] Measure the per-pixel cost of the Phase-1 seam against the pre-move binary,
       using the existing benchmark harness and a fill-heavy canvas scene. Record
       both numbers in Corrections.
-- [ ] If the regression exceeds 10%, inline `toLinear`'s `getOr` back into the two
+      `scripts/bench-lowering.sh` measures **compile** time, not per-pixel render
+      cost, so it is the wrong instrument here; built a render-timing harness
+      instead (see Corrections).
+- [x] If the regression exceeds 10%, inline `toLinear`'s `getOr` back into the two
       canvas blend bodies **while keeping `color` the single source of the table**
       (canvas would re-index a public `color`-owned list rather than re-declare it).
       Record the decision either way — "measured, no action" is a result.
+      **Decision: measured, NO ACTION.** The regression is within run-to-run noise
+      (+0.92% on the minimum, **−1.60%** on the median over 8 interleaved pairs),
+      an order of magnitude under the 10% threshold. The mitigation is not landed,
+      and `color` remains the single source of the table.
 
-Acceptance: a recorded before/after number, and either a stated no-action decision
-or the mitigation landed with the pixel goldens still identical.
+Acceptance: **MET.** Before/after numbers recorded in Corrections, with a stated
+no-action decision. The benchmark additionally re-proves pixel identity
+independently of the golden tests: the two compilers' rendered frames for a
+60-layer translucent scene are **byte-identical** (`cmp` → `frames IDENTICAL`).
 Commit: —
 
 ### Phase 4 — HSL
@@ -498,6 +507,44 @@ proves the move is byte-neutral for every program that does not import `canvas` 
 `color`. The only acceptance drift in the whole phase is the five `color` fixtures'
 `.ir`, whose delta introduces exactly `#color_srgbTable`, `#color_toLinear` and
 `#color_fromLinear`.
+
+**Phase 3 — the rasteriser cost, measured. UNVERIFIED property from §2 resolved:
+the seam costs nothing detectable.**
+
+`scripts/bench-lowering.sh` is the wrong instrument — it times the lowering and
+register-allocation *compile* pass, not per-pixel render cost. Built a render
+harness instead: a fill-heavy scene (60 full-surface translucent rectangles over
+900×640, presented 20 times under `MFB_CANVAS_SYNC=1`, so roughly 60 × 576,000 ×
+20 blended channel groups and `__canvas_blendChannel` dominates), compiled once
+by each compiler, timing only the **run**. The "before" compiler is a `git archive`
+of `c88904866` built in a clean tree, not a sibling worktree
+(`attribution-binary-via-git-archive`).
+
+Eight interleaved pairs (alternating arms so thermal drift hits both equally):
+
+| | min | median | mean |
+|---|---|---|---|
+| before (canvas-local table) | 19.041 s | 19.590 s | 20.634 s |
+| after (`color::toLinear` seam) | 19.217 s | 19.277 s | 20.074 s |
+| **delta** | **+0.92%** | **−1.60%** | −2.71% |
+
+The sign flips between estimators, which is what "inside the noise" looks like;
+either way it is an order of magnitude under the plan's 10% action threshold.
+**Decision: measured, no action** — the mitigation is not landed and `color`
+remains the single source of the table.
+
+The benchmark also re-proves pixel identity independently of the golden tests:
+`cmp` of the two compilers' dumped frames for that 60-layer translucent scene
+reports **identical**. That is a much heavier blend workload than any golden
+fixture, and it is byte-for-byte the same through the old inline table and the new
+seam.
+
+**Binary size, as §"Compatibility / Format Impact" asks.** The same canvas app
+built by each compiler: **1,674,380 → 1,707,404 bytes, +33,024 (+1.97%)**. That is
+*exactly* the `color` companion cost plan-122-A Phase 6 measured against the
+`IMPORT io` baseline, which confirms a canvas program pays one `color` companion
+and nothing more — no duplication, and no second copy of the table left behind in
+canvas.
 
 **The runtime proof is the reference-PNG comparison, not `examples/emoji`.** The
 Validation Plan asks to "run `examples/emoji` before and after Phase 1 and compare
