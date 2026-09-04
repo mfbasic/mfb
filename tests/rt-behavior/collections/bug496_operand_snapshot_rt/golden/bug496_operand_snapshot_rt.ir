@@ -1,0 +1,105 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug496_operand_snapshot_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "GS", "line": 11, "visibility": "public", "mutable": true, "type": "String", "value": { "kind": "const", "type": "String", "value": "abcdefgh" } },
+  { "name": "G2", "line": 12, "visibility": "public", "mutable": true, "type": "String", "value": { "kind": "const", "type": "String", "value": "12345678" } },
+  { "name": "G", "line": 13, "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "other",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 15, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "assignGlobal", "line": 16, "name": "G2", "value": { "kind": "const", "type": "String", "value": "XY" } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "String", "value": "tail" } }
+    ]
+  },
+  {
+    "name": "same",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 20, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "assignGlobal", "line": 21, "name": "GS", "value": { "kind": "const", "type": "String", "value": "XY" } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "String", "value": "tail" } }
+    ]
+  },
+  {
+    "name": "evict",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 25, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "assignGlobal", "line": 26, "name": "G", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "99" }] } },
+    { "op": "return", "line": 27, "value": { "kind": "local", "name": "v" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 31, "mutable": false, "name": "a", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "global", "name": "GS" }, "right": { "kind": "call", "type": "String", "target": "other", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "other -> [" }, "right": { "kind": "local", "name": "a" } }, "right": { "kind": "const", "type": "String", "value": "] len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "a" }] }] } }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "b", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "global", "name": "GS" }, "right": { "kind": "call", "type": "String", "target": "same", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "same  -> [" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "const", "type": "String", "value": "] len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "b" }] }] } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "GS=" }, "right": { "kind": "global", "name": "GS" } }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 36,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 36, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "assignGlobal", "line": 37, "name": "G", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "global", "name": "G" }, { "kind": "call", "type": "Integer", "target": "evict", "args": [{ "kind": "local", "name": "r" }] }] } }
+      ]
+    },
+    { "op": "bind", "line": 39, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 40,
+      "name": "v",
+      "type": "Integer",
+      "iterable": { "kind": "global", "name": "G" },
+      "body": [
+      { "op": "assign", "line": 41, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "v" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "G=" }, "right": { "kind": "local", "name": "s" } }] } },
+    { "op": "return", "line": 44, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

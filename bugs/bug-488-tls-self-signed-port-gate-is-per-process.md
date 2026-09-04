@@ -53,6 +53,14 @@ chosen must therefore make the state per-connection (or per-test), not merely
 reset it before each case — resetting still races when the reader is another
 process's test.
 
+## Third occurrence — first direction again (2026-09-03, bug-496 landing)
+
+`defaults_to_rejecting_a_self_signed_peer` failed with `left: "result=connected"`
+(the first signature) during the bug-496 merged full run, while two other audit-3
+fix agents had `cargo test` live on this machine. Sole failure in the run (113
+result lines otherwise green); re-run in isolation immediately afterwards 3/3 green
+(`cargo test --test rt_tls_connect_allow_self_signed`, 4 passed each time).
+
 ## Cause
 
 `tests/rt_tls_connect_allow_self_signed.rs` picks a port by binding an ephemeral
