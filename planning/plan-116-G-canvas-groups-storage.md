@@ -1013,6 +1013,35 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G37 (Phase 6) — `eb36acf1a`'s doc comment will conflict with plan-122, and the
+resolution is to DROP it, not to resurrect its anchor.** That commit records, above
+`SRGB_TABLE` in `helper_color.rs`, that two shaders reproduce the table's *rounding* by
+hand — invisible to any rename census, since `srgbTable(i)` in `mfb_canvas.frag` and in
+`metal.rs`'s MSL string spells neither the constant nor the function.
+
+plan-122-B (worktree-P-122, not yet on `main`) moves `SRGB_TABLE` and `LINEAR_TO_SRGB`
+out of `helper_color.rs` into a new `color` package as `color::toLinear`/`fromLinear`,
+taking their four unit tests with them. **The anchor this comment sits above therefore
+stops existing.**
+
+Unlike the `rt_canvas_font.rs` case earlier in this letter — a clean merge that did not
+compile — this one *will* conflict visibly: their side deletes the region, mine adds
+lines inside it, which is a delete/modify conflict git reports. So it will be noticed.
+What it must not produce is a resurrected `SRGB_TABLE` in `helper_color.rs` to give the
+comment somewhere to live.
+
+**Take their side of the file, discard this comment.** The peer has already written the
+same dependency into `color/helper_srgb.rs`'s own doc comment, naming both shader files
+and `the_gpu_draws_the_gradient_scene_the_reference_shows` as the catching test —
+including the part that matters most, that it is a *gradient* test and not a blend test,
+because blending never enters the quantised space and would stay green through a
+quantisation change. The knowledge survives the merge; only my copy of it needs to go.
+
+Left in place rather than pre-emptively removed, because plan-122 has not landed and on
+`main` today the comment is correct and sits where a reader of `helper_color.rs` needs
+it. Deleting it now to smooth a merge that may not happen would trade a real benefit for
+a hypothetical one.
+
 **G36 (Phase 6) — what the box 2228 row actually tested, stated rather than assumed.**
 plan-116-F's lesson is that a remote row reports green whether or not the rsync that fed
 it carried the change, so the tree it ran is worth proving rather than trusting. Both
