@@ -824,6 +824,30 @@ imports yet, so it must be byte-identical everywhere. The only golden churn in t
 whole letter is the `.ir` of `color`'s own fixtures, growing as the companion grew
 — the "whole companion lands in an importer's `.ir`" property from §2.
 
+### Whole-plan gates after merging main (2026-09-03)
+
+`main` advanced **50 commits** while A/B/C were being written, so it was merged
+into `worktree-P-122` and every gate re-run, per the follow-plan procedure. The
+merge was **clean** (no conflicts).
+
+| Gate | Result |
+|---|---|
+| `./scripts/test-accept.sh` (full, post-merge) | **1386 ran, passed, 0 mismatches** — all 11 `color` fixtures counted |
+| `scripts/artifact-gate.sh <mfb> all` (post-merge) | 1364 tests, 1527 builds, **1890 goldens, 0 diffs** |
+| `cargo fmt --all` + `repository/` pass | no churn |
+
+Two things the merge turned up, both handled rather than absorbed:
+
+- The duplicate **bug-498** (see the withdrawal note above).
+- A `defaults_to_rejecting_a_self_signed_peer` failure in the *pre-merge*
+  `cargo test`, which is **already-filed `bug-488`** — a known test-isolation
+  flake where `rt_tls_connect_allow_self_signed` releases an ephemeral port for
+  `openssl s_server` to take and loses the race when another `cargo test` shares
+  the machine. Its symptom matches that bug's report exactly
+  (`left: "result=connected"`, `right: "result=raised"`), a peer worktree session
+  was indeed running its own suite at the time, and the test passes 4/4 in
+  isolation. Not filed again, and not mine: nothing in plan-122 touches TLS.
+
 ## Summary
 
 The engineering risk in A is not the arithmetic — it is the seven registration
