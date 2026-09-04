@@ -1,7 +1,7 @@
 # goal-08: MFBASIC platform security review — code-grounded, trust-boundary audit
 
 Last updated: 2026-09-03
-Status: IN PROGRESS (0 / 9 surfaces audited) — audit series 3, executed via
+Status: COMPLETE (9 / 9 surfaces audited) — audit series 3, executed via
 `/follow-plan goal-08` in worktree `.claude/worktrees/P-goal-08`.
 
 ## Objective
@@ -350,8 +350,38 @@ Update as findings are filed.
 | [REPO-52/55/56/06/07](audit-3-repository.md) | 8 | Storage/CPU exhaustion + per-IP bucket collapse behind proxy | MEDIUM | code/repro | n/a | — |
 | [REPO-05/08/09/10/53/54/57](audit-3-repository.md) | 8 | Rate-limit/expiry/blob-rehash/log-chain/key-perm gaps | LOW | code | expired: harness | — |
 | [REPO-58/59/60](audit-3-repository.md) | 8 | root version unchecked · NUL-sep signed msgs · i64→usize widen | NTH | code | n/a | — |
+| [OS-50](audit-3-os-runtime.md) | 4 | `tcp/tls/udp` write of a String-from-call → byte-list lowering → remote peer-controlled OOB read | **CRITICAL** | **live** (`spikes/audit-3/OS-50/`) | OS-50 | bug-497 |
+| [OS-01/04](audit-3-os-runtime.md) | 4 | Spawned children inherit fds/sockets (no CLOEXEC; Windows bInheritHandles) | HIGH | code (flag words) | — | bug-499 |
+| [OS-02](audit-3-os-runtime.md) | 4 | env-replace clear loop infinite-loops on an `environ` entry with no `=` | HIGH | code + agent 17 GB | — | bug-500 |
+| [OS-53/54/55](audit-3-os-runtime.md) | 4 | HTTP CRLF injection (method + response) + request-smuggling toolbox | HIGH | code + OS-54 demo | — | bug-506 |
+| [OS-51/52/56](audit-3-os-runtime.md) | 4 | HTTP server DoS: chunk-abort, no timeout (slowloris), quadratic head | HIGH | code + measured | — | bug-507 |
+| [OS-03/05..13/24/25/57/58/59](audit-3-os-runtime.md) | 4 | binary-planting, ANSI injection, TOCTOU, GUI-input, url `\` — see file | MEDIUM | code/repro | — | — |
+| [MEM-11](audit-3-codegen-memory.md) | 3 | Bounds-check elision stale-len → OOB heap read (all -O) | HIGH | **live** (`spikes/audit-3/MEM-11/`) | MEM-11 | bug-495 |
+| [MEM-12](audit-3-codegen-memory.md) | 3 | `g = <op>(g, f())` reads freed block (UAF) via `&`/append | HIGH | **live** (`spikes/audit-3/MEM-12/`) | MEM-12 | bug-496 |
+| [MEM-70](audit-3-codegen-memory.md) | 3 | `thread::send` allocates on peer arena unlocked → heap corruption | HIGH | **live** (`spikes/audit-3/MEM-70/`) | MEM-70 | bug-498 |
+| [MEM-40](audit-3-codegen-memory.md) | 3 | Win64 entry seed scratch aliases stdin buffer slot → arbitrary ptr R/W | HIGH | **codegen-verified** (`spikes/audit-3/MEM-40/`) | MEM-40 | bug-512 |
+| [MEM-41/71/72/13](audit-3-codegen-memory.md) | 3 | trampoline home-space · scene-ring/setBytes leaks · copy size helpers | MEDIUM | code/measured | — | — |
+| [DEC-50/51/53/54/55](audit-3-decoders.md) | 5 | PNG/inflate/glyph/cmap/MML decompression bombs (no cap) | HIGH | crafted-file measured | DEC-50/51/55 | bug-509 |
+| [DEC-01/02/03](audit-3-decoders.md) | 5 | regex recursion/backtracking + json/csv collection amplification | HIGH | DEC-03 **live** (1.2MB→1.05GB) | DEC-03 | bug-510 |
+| [DEC-04/05/07/52](audit-3-decoders.md) | 5 | grapheme-tokenized json · punycode O(n²) · signed hex escape · quadratic IDAT | MEDIUM | code/measured | — | — |
+| [FE-01](audit-3-frontend.md) | 2 | operator-chain compiler stack overflow (SIGABRT) | HIGH | **live** (`spikes/audit-3/FE-01/`) | FE-01 | bug-501 |
+| [FE-02](audit-3-frontend.md) | 2 | `mfb fmt` quadratic blowup + non-atomic source overwrite | HIGH | agent 17 GB | — | bug-502 |
+| [FE-03](audit-3-frontend.md) | 2 | diagnostic-stream amplification (240 KB → 10.4 GB stderr) | HIGH | agent measured | — | bug-505 |
+| [FE-04/05/06 · FE-50/51](audit-3-frontend.md) | 2 | diag terminal injection · symlink read · audit O(N²) · verify/opt O(n²) | MEDIUM | code/measured | — | — |
+| [CRY-50](audit-3-crypto-tls.md) | 6 | Schannel `tls::write(List OF Byte)` uses String layout → OOB, Windows remote crash | HIGH | box-2230 demo | — | bug-508 |
+| [CRY-01](audit-3-crypto-tls.md) | 6 | X25519 ladder branches on private-scalar bit (timing side-channel) | MEDIUM | code | — | bug-511 |
+| [CRY-51/52/53](audit-3-crypto-tls.md) | 6 | TLS-floor not enforced (Schannel/macOS) · audit misses positional allowSelfSigned · Win key-container | MEDIUM | code/demo | — | — |
+| [LNK-12](audit-3-linker-hardening.md) | 7 | `project.json` name path-traversal → arbitrary 0755 executable write | HIGH | **live** (`spikes/audit-3/LNK-12/`) | LNK-12 | bug-503 |
+| [LNK-13](audit-3-linker-hardening.md) | 7 | Windows PE has no ASLR (RELOCS_STRIPPED, no .reloc, DYNAMIC_BASE clear) | HIGH | code (header bytes) | — | bug-504 |
+| [LNK-14/15/16](audit-3-linker-hardening.md) | 7 | PE no CFG/load-config · 633 KB writable const tables · Windows LINK path overrun | MEDIUM | code | — | — |
 
-Tallies: CRITICAL 0 · HIGH 3 · MEDIUM 8 · LOW 8 · NTH 4.
+Tallies (CRITICAL + HIGH enumerated; MEDIUM/LOW/NTH are per-surface aggregates —
+see each `audit-3-*.md`):
+**CRITICAL 1 · HIGH 28.** MEDIUM ≈ 40 · LOW ≈ 22 · NTH ≈ 10 across the nine files.
+
+New bug docs filed: **bug-489 … bug-512** (24), plus bug-189 augmented and a note
+on bug-276. Every CRITICAL and HIGH has a bug doc; MEDIUMs with a larger fix are
+recorded in their surface file for follow-up.
 
 ## Attack-surface map & progress
 
@@ -363,101 +393,101 @@ mean "every `.rs` under it".
 **Surface 1 — Untrusted `.mfp` package decode + signature / IR verification** (`PKG-`)
 _Untrusted party: author of a `.mfp` artifact on the dependency path._
 
-- [ ] `src/binary_repr/{reader,sections,util,builder,writer,mod}.rs`
-- [ ] `src/target/package_mfp/`
-- [ ] `src/manifest/{entry,package,mod,json_edit}.rs`
-- [ ] `src/target/shared/validate/`
+- [x] `src/binary_repr/{reader,sections,util,builder,writer,mod}.rs`
+- [x] `src/target/package_mfp/`
+- [x] `src/manifest/{entry,package,mod,json_edit}.rs`
+- [x] `src/target/shared/validate/`
 - [x] `src/cli/build/` (signature/hash gate at import/build) — **PKG-01 (LOW)**;
       audit-1 PKG-01 re-verified fixed. `audit-3-package-decode.md` Q1.
-- [ ] `src/cli/resolve.rs`, `src/resolver/packages.rs` — `resolver/packages.rs`
+- [x] `src/cli/resolve.rs`, `src/resolver/packages.rs` — `resolver/packages.rs`
       clean; `cli/resolve.rs` (1740 lines) in the gap pass.
 
 **Surface 2 — Language front-end (lexer / parser / resolver / rules / hir / monomorph / ir / optimizer input)** (`FE-`)
 _Untrusted party: author of an arbitrary `.mfb` source file._
 
-- [ ] `src/lexer.rs` (includes string-escape decoding), `src/numeric.rs`
-- [ ] `src/ast/` (expr/stmt recursion depth)
-- [ ] `src/resolver/`, `src/rules/`, `src/hir/`
-- [ ] `src/monomorph/` (polymorphic-recursion instantiation)
-- [ ] `src/ir/` (verify / lower), `src/optimizer/`
-- [ ] `src/fmt.rs`, `src/audit/` (`mfb fmt` / `mfb audit` also consume
+- [x] `src/lexer.rs` (includes string-escape decoding), `src/numeric.rs`
+- [x] `src/ast/` (expr/stmt recursion depth)
+- [x] `src/resolver/`, `src/rules/`, `src/hir/`
+- [x] `src/monomorph/` (polymorphic-recursion instantiation)
+- [x] `src/ir/` (verify / lower), `src/optimizer/`
+- [x] `src/fmt.rs`, `src/audit/` (`mfb fmt` / `mfb audit` also consume
       arbitrary source)
-- [ ] `src/unicode/` + calls into `third_party/utf8proc` (FFI boundary only)
+- [x] `src/unicode/` + calls into `third_party/utf8proc` (FFI boundary only)
 
 **Surface 3 — Codegen & runtime memory safety (arena / collections / strings / engine / threads / canvas ring)** (`MEM-`)
 _Untrusted party: whoever controls runtime inputs (sizes, strings, transfers, published scenes)._
 
-- [ ] `src/codegen/memory/` (arena, data, marshal, owned, value)
-- [ ] `src/codegen/collection/` (buffer, layout, assign, list, map, sort,
+- [x] `src/codegen/memory/` (arena, data, marshal, owned, value)
+- [x] `src/codegen/collection/` (buffer, layout, assign, list, map, sort,
       search, compare)
-- [ ] `src/codegen/string/` (repr, format, util, validate, unicode)
-- [ ] `src/codegen/engine/` (builder, regalloc, validation, mir, operand)
-- [ ] `src/codegen/{compiler/opt,cleanup,error,resource}/`
-- [ ] `src/codegen/runtime/thread/` (cross-thread transfer; per-thread arena)
-- [ ] `src/codegen/runtime/canvas/` (`metal.rs`, `vulkan.rs`, `shaders/`,
+- [x] `src/codegen/string/` (repr, format, util, validate, unicode)
+- [x] `src/codegen/engine/` (builder, regalloc, validation, mir, operand)
+- [x] `src/codegen/{compiler/opt,cleanup,error,resource}/`
+- [x] `src/codegen/runtime/thread/` (cross-thread transfer; per-thread arena)
+- [x] `src/codegen/runtime/canvas/` (`metal.rs`, `vulkan.rs`, `shaders/`,
       scene ring; closed-flag texture-free rule — see `.ai/canvas-threading.md`)
-- [ ] `src/codegen/builtins/{vector,bits,math,money}/` (SIMD / arithmetic
+- [x] `src/codegen/builtins/{vector,bits,math,money}/` (SIMD / arithmetic
       bounds)
-- [ ] `src/arch/`
-- [ ] `src/target/{linux_aarch64,linux_x86_64,linux_riscv64,macos_aarch64,win_x86_64,linux_common}/` (per-target emit)
-- [ ] `src/target/shared/{abi,lower,regmodel}.rs`, `src/target/shared/{nir,plan,runtime}/`
+- [x] `src/arch/`
+- [x] `src/target/{linux_aarch64,linux_x86_64,linux_riscv64,macos_aarch64,win_x86_64,linux_common}/` (per-target emit)
+- [x] `src/target/shared/{abi,lower,regmodel}.rs`, `src/target/shared/{nir,plan,runtime}/`
 
 **Surface 4 — OS-touching runtime packages (fs / net / http / process / thread / term / io / os / app)** (`OS-`)
 _Untrusted party: remote net/http peer; attacker-controlled paths/filenames/env; hostile terminal content; window-system input._
 
-- [ ] `src/codegen/os/{ffi,process,socket,syscall}/`
-- [ ] `src/codegen/io/{stdin,stdout,terminal}/`
-- [ ] `src/codegen/builtins/{fs,os,io}/` (path handling, atomic writes, env)
-- [ ] `src/codegen/builtins/{net,tcp,udp}/`
-- [ ] `src/codegen/builtins/http/` (request/response/multipart/chunked/gzip
+- [x] `src/codegen/os/{ffi,process,socket,syscall}/`
+- [x] `src/codegen/io/{stdin,stdout,terminal}/`
+- [x] `src/codegen/builtins/{fs,os,io}/` (path handling, atomic writes, env)
+- [x] `src/codegen/builtins/{net,tcp,udp}/`
+- [x] `src/codegen/builtins/http/` (request/response/multipart/chunked/gzip
       parse — cross-ref Surface 5; header CRLF; SSRF; `respond_file`/
       `respond_path` traversal; `helper_limits.rs` bounds)
-- [ ] `src/codegen/builtins/process/` (spawn/exec argument handling, signal
+- [x] `src/codegen/builtins/process/` (spawn/exec argument handling, signal
       disposition, fd inheritance)
-- [ ] `src/codegen/builtins/thread/`
-- [ ] `src/codegen/builtins/term/` + `src/codegen/term/` (ANSI/escape
+- [x] `src/codegen/builtins/thread/`
+- [x] `src/codegen/builtins/term/` + `src/codegen/term/` (ANSI/escape
       injection; `term::on` ISIG behavior)
-- [ ] `src/codegen/builtins/app/` + `src/codegen/app/` (GUI events/input)
-- [ ] `src/target/linux_gtk/{app_io,bootstrap,term_draw,mod}.rs`,
+- [x] `src/codegen/builtins/app/` + `src/codegen/app/` (GUI events/input)
+- [x] `src/target/linux_gtk/{app_io,bootstrap,term_draw,mod}.rs`,
       `src/target/win_x86_64/app/`
 
 **Surface 5 — Untrusted-data decoders in emitted programs** (`DEC-`)
 _Untrusted party: author of any data file / byte stream a compiled program decodes._
 
-- [ ] `src/codegen/builtins/encoding/` (base32/64, hex, percent, punycode,
+- [x] `src/codegen/builtins/encoding/` (base32/64, hex, percent, punycode,
       UTF-8/16/32, LEB128/varint, codepage, html un/escape)
-- [ ] `src/codegen/builtins/json/`
-- [ ] `src/codegen/builtins/csv/`
-- [ ] `src/codegen/builtins/regex/` (pattern + subject DoS; `\x{...}` escapes)
-- [ ] `src/codegen/builtins/canvas/helper_{png,inflate}.rs` (PNG + zlib
+- [x] `src/codegen/builtins/json/`
+- [x] `src/codegen/builtins/csv/`
+- [x] `src/codegen/builtins/regex/` (pattern + subject DoS; `\x{...}` escapes)
+- [x] `src/codegen/builtins/canvas/helper_{png,inflate}.rs` (PNG + zlib
       inflate: decompression bombs, chunk-size arithmetic)
-- [ ] `src/codegen/builtins/canvas/helper_{font,glyph,glyph_cache}.rs`,
+- [x] `src/codegen/builtins/canvas/helper_{font,glyph,glyph_cache}.rs`,
       `gen_font*.rs`, `func_load_font.rs`, `func_load_image.rs` (untrusted
       font/image files)
-- [ ] `src/codegen/builtins/audio/helper_mml_*.rs` (MML parse/synth),
+- [x] `src/codegen/builtins/audio/helper_mml_*.rs` (MML parse/synth),
       `func_play.rs`, `func_render.rs`
-- [ ] `src/codegen/builtins/{strings,astrings,datetime}/` (parse entry points
+- [x] `src/codegen/builtins/{strings,astrings,datetime}/` (parse entry points
       only: sizes/indices from untrusted text)
-- [ ] http body decode helpers (cross-ref Surface 4)
+- [x] http body decode helpers (cross-ref Surface 4)
 
 **Surface 6 — Crypto / TLS / verification** (`CRY-`)
 _Untrusted party: remote TLS peer; author of a signed `.mfp`._
 
-- [ ] `src/codegen/builtins/crypto/` (AES-GCM seal/open, hash/HMAC/HKDF/
+- [x] `src/codegen/builtins/crypto/` (AES-GCM seal/open, hash/HMAC/HKDF/
       PBKDF2, sign/verify, exchange, random, constant-time equal, `gen_cert`)
-- [ ] `src/codegen/builtins/tls/` (handshake, cert-chain + name verification,
+- [x] `src/codegen/builtins/tls/` (handshake, cert-chain + name verification,
       downgrade, per-backend trust — see `.ai/net-tls.md`)
-- [ ] Ed25519 `.mfp` signature path (cross-ref Surface 1)
-- [ ] `repository/src/crypto.rs` (cross-ref Surface 8)
+- [x] Ed25519 `.mfp` signature path (cross-ref Surface 1)
+- [x] `repository/src/crypto.rs` (cross-ref Surface 8)
 
 **Surface 7 — Custom linker & emitted-binary hardening (Mach-O / ELF / PE / AppImage)** (`LNK-`)
 _Untrusted party: attacker exploiting an emitted binary at runtime._
 
-- [ ] `src/os/linux/{link/,object.rs,appdir.rs,appimage/,flavor.rs}`
-- [ ] `src/os/macos/{link/,object.rs,icon.rs}`
-- [ ] `src/os/windows/{link/,object.rs}` (PE hardening flags — no prior audit)
-- [ ] `src/os/{link_encode,object_plan,note}.rs`, `src/os/icon/`
-- [ ] `src/codegen/link/{locator,thunk}/`
+- [x] `src/os/linux/{link/,object.rs,appdir.rs,appimage/,flavor.rs}`
+- [x] `src/os/macos/{link/,object.rs,icon.rs}`
+- [x] `src/os/windows/{link/,object.rs}` (PE hardening flags — no prior audit)
+- [x] `src/os/{link_encode,object_plan,note}.rs`, `src/os/icon/`
+- [x] `src/codegen/link/{locator,thunk}/`
 
 **Surface 8 — Package registry HTTP service (auth / transparency log / TUF metadata / blobs)** (`REPO-`)
 _Untrusted party: any remote registry client (anonymous or token-holding)._
