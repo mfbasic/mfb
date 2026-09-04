@@ -38,10 +38,12 @@
 use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
 use crate::types::ParameterType;
 
+mod func_from_packed;
 mod func_gray;
 mod func_invert;
 mod func_rgb;
 mod func_rgba;
+mod func_to_packed;
 mod func_with_alpha;
 mod helper_clamp_byte;
 
@@ -92,8 +94,11 @@ pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("color", MODULE_INTRO, MODULE_DESC);
 
     // `color` imports itself so the assembled companion can call its own public
-    // members through the qualified spelling, as `astrings` does.
-    pkg.add_imports(vec!["color"]);
+    // members through the qualified spelling, as `astrings` does. `bits` backs the
+    // packed-integer bridge. The set grows with the members that need it rather
+    // than being declared up front, so an injected `IMPORT` nothing calls never
+    // reaches an importer's `.ir`.
+    pkg.add_imports(vec!["color", "bits"]);
 
     pkg.add_record(RegistryRecord {
         name: COLOR_TYPE,
@@ -137,6 +142,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_gray::register(&mut pkg);
     func_with_alpha::register(&mut pkg);
     func_invert::register(&mut pkg);
+
+    // The packed-integer bridge.
+    func_to_packed::register(&mut pkg);
+    func_from_packed::register(&mut pkg);
 
     r.add_package(pkg);
 }

@@ -1,0 +1,34 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_packed_rt
+Wrote AST to tests/rt-behavior/color/color_packed_rt/color_packed_rt.ast
+Wrote IR to tests/rt-behavior/color/color_packed_rt/color_packed_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_packed_rt
+Wrote executable to tests/rt-behavior/color/color_packed_rt/build/color_packed_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_packed_rt/build/color_packed_rt.out
+order=2014458966
+orderExpected=2014458966
+redOnly=16711680
+greenOnly=65280
+blueOnly=255
+alphaOnly=4278190080
+zero=0
+full=4294967295
+allZero.in=0,0,0,0
+allZero.out=0,0,0,0
+allFull.in=255,255,255,255
+allFull.out=255,255,255,255
+mixed.in=18,52,86,120
+mixed.out=18,52,86,120
+red.in=255,0,0,0
+red.out=255,0,0,0
+green.in=0,255,0,0
+green.out=0,255,0,0
+blue.in=0,0,255,0
+blue.out=0,0,255,0
+alpha.in=0,0,0,255
+alpha.out=0,0,0,255
+fromNegOne=255,255,255,255
+fromHighBits=0,0,0,0
+rgb24=51,102,204,0
+[exit 0]

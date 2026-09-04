@@ -446,15 +446,27 @@ Commit: —
 
 ### Phase 3 — Packed-integer bridge
 
-- [ ] `func_to_packed.rs`, `func_from_packed.rs` over `0xAARRGGBB`, using
+- [x] `func_to_packed.rs`, `func_from_packed.rs` over `0xAARRGGBB`, using
       `bits::sl`/`sr`/`band`/`bor` (add `"bits"` to `add_imports`).
-- [ ] Tests: round-trip `fromPacked(toPacked(c)) = c` across the corners
+- [x] Tests: round-trip `fromPacked(toPacked(c)) = c` across the corners
       (all-zero, all-255, one channel at a time) and pin the byte order explicitly —
       `toPacked(rgba(0x12, 0x34, 0x56, 0x78)) = 0x78123456`.
+      Landed as `tests/rt-behavior/color/color_packed_rt`. Beyond the plan's list it
+      also pins the two range facts the man pages promise — `toPacked` never
+      negative (`full=4294967295`), and `fromPacked` reading the **low 32 bits
+      only** (`fromPacked(-1)` is white; `fromPacked(0x7FFFFFFF00000000)` is
+      all-zero) — because without the mask on the alpha shift `bits::sr` is
+      zero-filling over 64 bits and a high bit would leak into alpha.
+      It also pins the documented `fromPacked` trap: a 24-bit `0x3366CC` unpacks
+      **fully transparent** (`rgb24=51,102,204,0`).
 
-Acceptance: the round-trip and byte-order assertions pass in the rt-behavior
-fixture, and the byte-order test names the constant literally rather than
-recomputing it (so a shift-direction inversion cannot pass).
+Acceptance: **MET.** `color_packed_rt` prints `order=2014458966` and
+`orderExpected=2014458966` — the expected value is the literal `0x78123456`
+written into the fixture, not recomputed from the channels, so a swapped
+`sl`/`sr` or a transposed channel pair cannot pass. Single-channel packs land on
+the documented powers (`redOnly=16711680`, `greenOnly=65280`, `blueOnly=255`,
+`alphaOnly=4278190080`), and all seven corner round-trips return the input
+channel-for-channel.
 Commit: —
 
 ### Phase 4 — Hex parse and render
