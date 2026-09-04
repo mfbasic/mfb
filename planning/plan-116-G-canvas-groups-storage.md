@@ -1013,6 +1013,37 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G34 (Phase 6) — this letter's new emitter will sit below the coverage floor, and that
+is a pre-existing repo-wide condition rather than something G introduces.** `gen_group.rs`
+is ~900 lines of `abi_function` lowering exercised only when the compiler compiles a
+canvas program. `scripts/coverage-check.sh` measures `cargo llvm-cov --bin mfb`, whose
+unit tests do not compile one, so the file will report near-zero.
+
+Checked rather than assumed, against the CI job on `main` (run 33821450259, `coverage`
+→ failure). Its `Files below 98% line coverage (GATE FAILURE)` list already contains the
+same class of file, from this same package:
+
+```
+0.00%  (0/229)   src/codegen/builtins/canvas/gen_present.rs
+0.00%  (0/11)    src/codegen/builtins/canvas/scene_base.rs
+0.00%  (0/10)    src/codegen/builtins/canvas/gen_image.rs
+0.00%  (0/28)    src/codegen/runtime/canvas/metal.rs
+1.25%  (50/4010) src/codegen/runtime/canvas/vulkan.rs
+8.45%  (60/710)  src/codegen/runtime/canvas/mod.rs
+```
+
+`gen_present.rs` is the closest analogue there is — the scene publisher this letter's
+`emit_set_group` was modelled on — and it is at 0/229 today. So G adds an entry to a
+list, not a failure to a green gate.
+
+**Not fixed here, deliberately.** The fix is either a coverage exception per file (the
+mechanism `scripts/coverage-exceptions.txt` exists for) or teaching the coverage run to
+drive a canvas compile, and either is a repo-wide decision about six-plus files across
+three packages — not something to settle inside a letter about named groups, and not
+something whose cost should be paid by whichever letter happens to notice. Recorded so
+the next reader of a red `coverage` job knows it predates plan-116 and knows which
+files it covers.
+
 **G33 (Phase 6) — the determinism harness does not cover this letter's codegen, so it
 was checked directly.** `scripts/ncode-determinism.sh` compiles the byte-identity and
 rt-behavior fixtures N times in fresh processes and counts distinct `.ncode` hashes —
