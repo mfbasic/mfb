@@ -212,11 +212,13 @@ Read in full: `src/binary_repr/reader.rs` (1443 lines), `src/binary_repr/util.rs
 Remaining `src/ir/binary.rs` op/value decoders were skimmed — they route through
 the same `enter`/`leave` + `need` primitives audited above.
 
-The files this pass left thin — `src/cli/resolve.rs`, `src/manifest/{entry,
-json_edit,mod}.rs`, `src/binary_repr/{sections,builder,writer}.rs`, and
-`src/target/shared/validate/` — are covered by
-[`audit-3-package-decode-gaps.md`](audit-3-package-decode-gaps.md), a second
-pass commissioned specifically to close them.
+The files the first pass left thin — `src/cli/resolve.rs`,
+`src/manifest/{entry,json_edit,mod}.rs`,
+`src/binary_repr/{sections,builder,writer}.rs`, and
+`src/target/shared/validate/` — were covered by a second pass commissioned
+specifically to close them; its findings are folded into the "Second pass"
+section below rather than a separate file, so this surface stays one document
+as the work order specifies.
 
 The Ed25519 primitives themselves live in the `repository/` crate and are
 audited on Surface 6/8, not here; this pass confirmed the *compiler calls them*,
