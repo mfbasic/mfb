@@ -42,7 +42,10 @@ SPIR-V regen box.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-G complete and archived | `ls planning/completed/plan-116-G-*` → one match | NOT MET |
+| plan-116-G complete and archived | `ls planning/completed/plan-116-G-*` → one match | **MET** (2026-09-04: exactly one match, `planning/completed/plan-116-G-canvas-groups-storage.md`, archived by `155d32238`. Every G box resolved, 43 corrections. Final gates: unit 3782/0, nine canvas suites 0 failed, box 2228 RELEASE 3773/0 with the source hash-verified, test-accept 1377 ran, artifact-gate 1876 goldens 0 diffs, Vulkan 12/12 on 2228 glibc and 2227 musl. **Note the row asks for archived, not landed** — G's push to `main` is blocked by another session's uncommitted work in the shared checkout, recorded as G43; the work is committed on `worktree-P-116` and every gate stands.) |
+| SPIR-V regen reachable (A's gate 1) | `scripts/regen-spirv.sh` | **MET** (2026-09-04: exit 0, "Glslang Version: 11:15.2.0", vert→4420 B, frag→36648 B, and `git status --short src/codegen/runtime/canvas/shaders/` **empty** — the checked-in blobs reproduce byte-identically, which this letter needs, since it edits both shaders.) |
+| The Metal box runs `rt_canvas_metal` (A's gate 2) | `cargo test --release --test rt_canvas_metal --no-fail-fast` | **MET** (2026-09-04: **4 passed, 0 failed**, 205.05s.) |
+| A Vulkan-capable Linux box (A's gate 3) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'` | **MET** (2026-09-04: 7 ICDs including `lvp_icd.json`; `scripts/test-canvas-vulkan.sh` ran 12/12 on both 2228 glibc and 2227 musl at G's close.) |
 
 If plan-116-G is not complete, this letter cannot start, full stop. G produces the
 resolved group tree; without it there is nothing for a backend to walk.
