@@ -237,7 +237,7 @@ Acceptance: **MET.** `tests/rt_native_term_runtime.rs` → **7 passed, 0 failed*
 the bridge sends the terminal exactly what it sent before. The payload assertions
 pass against literals: `fg=4294934528` = `0xFFFF8000`, `bg=4279383126` =
 `0xFF123456`, `black=4278190080` = `0xFF000000`, `positive=TRUE`.
-Commit: —
+Commit: cf2489188
 
 ### Phase 2 — The members take a `color::Color`
 
@@ -283,7 +283,7 @@ one `color` companion, no more. A program importing *both* `astrings` and `color
 measures **identical** to one importing only `astrings`, confirming the companion
 is injected once rather than duplicated. (Sizes are quantised to 16,512-byte
 blocks — plan-122-C Corrections — so read `+165,120` as 10 blocks.)
-Commit: —
+Commit: 38871614c
 
 ### Phase 3 — Alpha round-trip and goldens
 
@@ -326,7 +326,7 @@ failed` lines. `scripts/artifact-gate.sh <mfb> all` → 1367 tests, 1530 builds,
 confined to `.ir`/`.ast` of astrings importers plus this letter's own fixture —
 no `.run` and no `build.log` moved at any point, so no observable behaviour changed
 outside the payload itself.
-Commit: —
+Commit: 4efd0f03a
 
 ## Validation Plan
 
@@ -459,6 +459,25 @@ pass added the import to *both* embedded programs in
 (`native_term_draw_attr`) uses no colour at all. Removed: an unused import there
 would have pulled `color`'s entire 165,120-byte companion into that program's build
 for nothing.
+
+## Final acceptance (2026-09-04)
+
+Every phase landed, every box resolved, every `Commit:` filled.
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | **113 test binaries, 0 failures** |
+| `./scripts/test-accept.sh` (full) | **1389 ran, passed** — 0 golden mismatches, **0** `behavioral test failed` |
+| `scripts/artifact-gate.sh <mfb> all` | 1367 tests, 1530 builds, **1896 goldens, 0 diffs** |
+| `tests/rt_native_term_runtime.rs` | **8 passed** (7 pre-existing + the new alpha-ignored partner) |
+| `scripts/man-run-examples.sh astrings --run` | 17 examples, 17 built, 17 ran, **0 failed** |
+| `cargo check --all-targets` | clean |
+| `cargo fmt --all` | no churn |
+| Runtime proof | `examples/browser` builds `dom → fetch/display → app` to `browser.app` |
+
+**Size:** an `IMPORT astrings` program grows `1,156,388 → 1,321,508` bytes — exactly
+one `color` companion (`+165,120`, 10 quantisation blocks), and importing both
+`astrings` and `color` costs the same as importing `astrings` alone.
 
 ## Summary
 
