@@ -199,6 +199,40 @@ deliberate:
 **disagree**: the first preserves HSL lightness, the second preserves perceived
 brightness. For a pure blue they differ substantially.
 
+## Named colours
+
+`color::fromName` resolves a CSS Color Level 4 `<named-color>` — case-insensitively,
+with surrounding whitespace trimmed — and `color::nameOf` is the reverse. Both raise
+`ErrNotFound` (`77050004`) rather than guessing. The table is transcribed from the
+CSS Color 4 specification and is not restated here; that document is the authority
+for both its membership and its values.
+
+Two properties a caller has to know:
+
+- **CSS `green` is `#008000`**, a dark green. The vivid `#00ff00` most people
+  picture is `lime`. `color::green` follows CSS for the same reason, so the
+  constant and the lookup agree.
+- **`nameOf` matches exactly.** A colour one step off a named one has no name, and
+  a colour whose alpha is not `255` has no name at all, because every entry in the
+  table is opaque. There is no nearest-colour search: that is a different function
+  with a contestable metric.
+
+Six colours have two CSS spellings (`gray`/`grey`, `darkgray`/`darkgrey`,
+`lightgray`/`lightgrey`, `slategray`/`slategrey`, `aqua`/`cyan`,
+`fuchsia`/`magenta`). Both resolve through `fromName`; `nameOf` returns the
+alphabetically first, which is a stable rule rather than an artefact of how the
+table is stored.
+
+There is deliberately no `transparent`. CSS's `transparent` is `#00000000`, which
+`color::rgba(0, 0, 0, 0)` already spells, and a name whose alpha is not `255` would
+contradict `nameOf`'s exact-match rule.
+
+A set of record constants covers the basic colours — `black`, `white`, `red`,
+`green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`, `silver`, `maroon`, `olive`,
+`navy`, `teal`, `purple`, `orange` — all fully opaque. A record constant inlines
+its four field literals at the call site rather than being rendered into the
+package's injected source, so an unused one costs a program nothing.
+
 ## Determinism
 
 Nothing in `color` uses a transcendental — no `pow`, no `exp`, no trig — and this

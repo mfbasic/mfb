@@ -59,8 +59,9 @@ built-in injection chain.
 - `color` — the single colour value model: the straight-alpha `Color` record, the
   clamping rule every constructor obeys (and why the component parameters are
   `Integer`), the `0xAARRGGBB` packed byte order and its low-32-bits rule, the
-  four-length hex grammar, and the no-transcendentals determinism constraint
-  inherited from canvas's software rasteriser.
+  four-length hex grammar, the perceptual and HSL layers over the shared sRGB seam
+  canvas blends through, the CSS named-colour rules, and the no-transcendentals
+  determinism constraint inherited from canvas's software rasteriser.
 - `transports` — the `tcp`/`udp`/`tls` model: the shared `net::Address` endpoint,
   handle ownership and the consuming `close`, stream reads versus preserved
   datagram boundaries, `poll`'s readiness-query and producing-call overloads, and

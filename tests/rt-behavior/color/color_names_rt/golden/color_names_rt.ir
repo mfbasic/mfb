@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "color_to_string_rt",
+  "project": "color_names_rt",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -38,26 +38,129 @@
   ],
   "functions": [
   {
+    "name": "show",
+    "line": 14,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "line": 14, "type": "String", "default": null },
+    { "name": "name", "line": 14, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "local", "name": "name" }] }] } }] } }
+    ]
+  },
+  {
+    "name": "reject",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 20, "type": "String", "default": null },
+    { "name": "name", "line": 20, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "c", "type": "color.Color", "value": { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "local", "name": "name" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=WRONGLY-ACCEPTED " } }, "right": { "kind": "call", "type": "String", "target": "#color_toHex", "args": [{ "kind": "local", "name": "c" }] } }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 24,
+      "name": "err",
+      "body": [
+      { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=notFound " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050004" } }] } }] } },
+      { "op": "return", "line": 26, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "named",
+    "line": 31,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "line": 31, "type": "String", "default": null },
+    { "name": "c", "line": 31, "type": "color.Color", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "#color_nameOf", "args": [{ "kind": "local", "name": "c" }] } }] } }
+    ]
+  },
+  {
+    "name": "unnamed",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 36, "type": "String", "default": null },
+    { "name": "c", "line": 36, "type": "color.Color", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=WRONGLY-NAMED " } }, "right": { "kind": "call", "type": "String", "target": "#color_nameOf", "args": [{ "kind": "local", "name": "c" }] } }] } },
+    { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 39,
+      "name": "err",
+      "body": [
+      { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=notFound " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050004" } }] } }] } },
+      { "op": "return", "line": 41, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    }
+    ]
+  },
+  {
     "name": "main",
-    "line": 15,
+    "line": 45,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "128" }] }] }] } },
-    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
-    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
-    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "255" }] }] }] } },
-    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_rgb", "args": [{ "kind": "const", "type": "Integer", "value": "51" }, { "kind": "const", "type": "Integer", "value": "102" }, { "kind": "const", "type": "Integer", "value": "204" }] }] }] } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "c", "type": "color.Color", "value": { "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "51" }, { "kind": "const", "type": "Integer", "value": "102" }, { "kind": "const", "type": "Integer", "value": "204" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
-    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "agreesWithToHexAlpha=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "local", "name": "c" }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "local", "name": "c" }] } }] } }] } },
-    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "differsFromToHex=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "String", "target": "#color_toString", "args": [{ "kind": "local", "name": "c" }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHex", "args": [{ "kind": "local", "name": "c" }] } }] } }] } },
-    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] }] } },
-    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] }] } },
-    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "String", "value": "plain" }] }] } },
-    { "op": "return", "line": 40, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "green" }, { "kind": "const", "type": "String", "value": "green" }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "lime" }, { "kind": "const", "type": "String", "value": "lime" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "gray" }, { "kind": "const", "type": "String", "value": "gray" }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "grey" }, { "kind": "const", "type": "String", "value": "grey" }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "purple" }, { "kind": "const", "type": "String", "value": "purple" }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "rebeccapurple" }, { "kind": "const", "type": "String", "value": "rebeccapurple" }] } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "mixedCase" }, { "kind": "const", "type": "String", "value": "RebeccaPurple" }] } },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "upperCase" }, { "kind": "const", "type": "String", "value": "TEAL" }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "padded" }, { "kind": "const", "type": "String", "value": "   teal   " }] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "reject", "args": [{ "kind": "const", "type": "String", "value": "unknown" }, { "kind": "const", "type": "String", "value": "nosuchcolour" }] } },
+    { "op": "bind", "line": 63, "mutable": false, "name": "r2", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "reject", "args": [{ "kind": "const", "type": "String", "value": "empty" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "r3", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "reject", "args": [{ "kind": "const", "type": "String", "value": "hexNotName" }, { "kind": "const", "type": "String", "value": "#ff0000" }] } },
+    { "op": "bind", "line": 65, "mutable": false, "name": "r4", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "reject", "args": [{ "kind": "const", "type": "String", "value": "innerSpace" }, { "kind": "const", "type": "String", "value": "rebecca purple" }] } },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameRed" }, { "kind": "call", "type": "color.Color", "target": "#color_fromHex", "args": [{ "kind": "const", "type": "String", "value": "#ff0000" }] }] } },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameRebecca" }, { "kind": "call", "type": "color.Color", "target": "#color_fromHex", "args": [{ "kind": "const", "type": "String", "value": "#663399" }] }] } },
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameGreen" }, { "kind": "call", "type": "color.Color", "target": "#color_fromHex", "args": [{ "kind": "const", "type": "String", "value": "#008000" }] }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameGrey" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "grey" }] }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameGray" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "gray" }] }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameCyan" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "cyan" }] }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameAqua" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "aqua" }] }] } },
+    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "nameMagenta" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "magenta" }] }] } },
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "rtLime" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "lime" }] }] } },
+    { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "rtTeal" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "teal" }] }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "named", "args": [{ "kind": "const", "type": "String", "value": "rtPurple" }, { "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "purple" }] }] } },
+    { "op": "bind", "line": 86, "mutable": false, "name": "n1", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "unnamed", "args": [{ "kind": "const", "type": "String", "value": "offByOne" }, { "kind": "call", "type": "color.Color", "target": "#color_fromHex", "args": [{ "kind": "const", "type": "String", "value": "#ff0001" }] }] } },
+    { "op": "bind", "line": 89, "mutable": false, "name": "n2", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "unnamed", "args": [{ "kind": "const", "type": "String", "value": "translucent" }, { "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "128" }] }] } },
+    { "op": "bind", "line": 90, "mutable": false, "name": "n3", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "unnamed", "args": [{ "kind": "const", "type": "String", "value": "transparent" }, { "kind": "call", "type": "color.Color", "target": "#color_rgba", "args": [{ "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constBlack=" }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }] } }] } },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constWhite=" }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "255" }] }] } }] } },
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constGreen=" }, "right": { "kind": "call", "type": "String", "target": "#color_toHex", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }] } }] } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constSilver=" }, "right": { "kind": "call", "type": "String", "target": "#color_toHex", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "255" }] }] } }] } },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constOrange=" }, "right": { "kind": "call", "type": "String", "target": "#color_toHex", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "165" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }] } }] } },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "agreeGreen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "green" }] }] } }] } }] } },
+    { "op": "eval", "line": 101, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "agreeGray=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "255" }] }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "gray" }] }] } }] } }] } },
+    { "op": "eval", "line": 102, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "agreeTeal=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "255" }] }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "teal" }] }] } }] } }] } },
+    { "op": "eval", "line": 103, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "agreeMaroon=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }] }, "right": { "kind": "call", "type": "String", "target": "#color_toHexAlpha", "args": [{ "kind": "call", "type": "color.Color", "target": "#color_fromName", "args": [{ "kind": "const", "type": "String", "value": "maroon" }] }] } }] } }] } },
+    { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "constAlpha=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }, "member": "alpha" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "165" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }] }, "member": "alpha" }] } }] } },
+    { "op": "return", "line": 107, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {

@@ -1,0 +1,46 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_names_rt
+Wrote AST to tests/rt-behavior/color/color_names_rt/color_names_rt.ast
+Wrote IR to tests/rt-behavior/color/color_names_rt/color_names_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_names_rt
+Wrote executable to tests/rt-behavior/color/color_names_rt/build/color_names_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_names_rt/build/color_names_rt.out
+green=#008000ff
+lime=#00ff00ff
+gray=#808080ff
+grey=#808080ff
+purple=#800080ff
+rebeccapurple=#663399ff
+mixedCase=#663399ff
+upperCase=#008080ff
+padded=#008080ff
+unknown=notFound TRUE
+empty=notFound TRUE
+hexNotName=notFound TRUE
+innerSpace=notFound TRUE
+nameRed=red
+nameRebecca=rebeccapurple
+nameGreen=green
+nameGrey=gray
+nameGray=gray
+nameCyan=aqua
+nameAqua=aqua
+nameMagenta=fuchsia
+rtLime=lime
+rtTeal=teal
+rtPurple=purple
+offByOne=notFound TRUE
+translucent=notFound TRUE
+transparent=notFound TRUE
+constBlack=#000000ff
+constWhite=#ffffffff
+constGreen=#008000
+constSilver=#c0c0c0
+constOrange=#ffa500
+agreeGreen=TRUE
+agreeGray=TRUE
+agreeTeal=TRUE
+agreeMaroon=TRUE
+constAlpha=255,255
+[exit 0]

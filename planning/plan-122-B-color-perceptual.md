@@ -642,6 +642,13 @@ built by each compiler: **1,674,380 → 1,707,404 bytes, +33,024 (+1.97%)**. Tha
 and nothing more — no duplication, and no second copy of the table left behind in
 canvas.
 
+> **PRECISION CORRECTION (added while running plan-122-C).** Built `.out` sizes are
+> **quantised to 16,512-byte blocks**, so `+33,024` is *2 blocks* and carries up to
+> ±16,512 bytes of error. The agreement with plan-122-A's figure that I called
+> "perfect confirmation" above is real — identical content lands in identical
+> blocks — but it is agreement to block granularity, not to the byte. Evidence and
+> the sweep that established the quantum are in plan-122-C's Corrections.
+
 **The runtime proof is the reference-PNG comparison, not `examples/emoji`.** The
 Validation Plan asks to "run `examples/emoji` before and after Phase 1 and compare
 the rendered frame". `examples/emoji` calls `app::setMode(app::Mode.Canvas)` and

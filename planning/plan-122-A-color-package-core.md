@@ -765,6 +765,15 @@ C's Phase 2 go/no-go asks whether the table is "a minority of the package's cost
 so the table must be compared against **33,024**, not against a whole-binary
 figure.
 
+> **PRECISION CORRECTION (added while running plan-122-C).** `stat -f%z` on a
+> built `.out` is **quantised to 16,512-byte blocks** — proved by adding 20 extra
+> `io::print` statements to the probe and watching the size not move at all, then
+> sweeping to 4000. Every delta in the table above, and every one in plan-122-A §2,
+> is a multiple of 16,512. So `+33,024` is *2 blocks*, true to ±16,512, not to the
+> byte. The conclusion is unaffected — 2 blocks against `encoding`'s 28 is still an
+> order of magnitude — but do not quote these as exact figures. See plan-122-C's
+> Corrections for the evidence.
+
 Two notes for whoever runs C:
 
 - The baseline reproduced the plan's recorded 66,596 exactly, so the measurement

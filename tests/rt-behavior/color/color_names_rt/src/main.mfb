@@ -1,0 +1,108 @@
+' plan-122-C: CSS named colours -- fromName, nameOf, and the basic constants.
+'
+' The table is bulk data taken from the CSS Color Level 4 specification, and its
+' shape (148 entries, lower-case keys, all opaque) is pinned by Rust unit tests in
+' helper_name_table.rs. What THIS fixture pins is the behaviour around it: the
+' lookups in both directions, both rejection classes asserted by ERROR CODE, and
+' the traps a reader falls into.
+
+IMPORT color
+IMPORT errorCode
+IMPORT io
+
+' Resolve a name that must SUCCEED.
+SUB show(label AS String, name AS String)
+  io::print(label & "=" & color::toHexAlpha(color::fromName(name)))
+END SUB
+
+' Resolve a name that must be REJECTED, asserting the raised code rather than the
+' absence of a result -- a fixture that merely failed to print would pass vacuously.
+FUNC reject(label AS String, name AS String) AS Integer
+  LET c AS color::Color = color::fromName(name)
+  io::print(label & "=WRONGLY-ACCEPTED " & color::toHex(c))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=notFound " & toString(err.code = errorCode::ErrNotFound))
+    RETURN -1
+  END TRAP
+END FUNC
+
+' Name a colour that must have one.
+SUB named(label AS String, c AS color::Color)
+  io::print(label & "=" & color::nameOf(c))
+END SUB
+
+' Name a colour that must NOT have one.
+FUNC unnamed(label AS String, c AS color::Color) AS Integer
+  io::print(label & "=WRONGLY-NAMED " & color::nameOf(c))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=notFound " & toString(err.code = errorCode::ErrNotFound))
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' --- the six values most often misremembered -----------------------------
+  ' CSS `green` is DARK. The vivid colour a reader pictures is `lime`. Pinned
+  ' because getting this wrong yields a colour that merely looks wrong.
+  show("green", "green")
+  show("lime", "lime")
+  show("gray", "gray")
+  show("grey", "grey")
+  show("purple", "purple")
+  show("rebeccapurple", "rebeccapurple")
+
+  ' --- case-insensitive, and whitespace-trimmed ----------------------------
+  show("mixedCase", "RebeccaPurple")
+  show("upperCase", "TEAL")
+  show("padded", "   teal   ")
+
+  ' --- both rejection classes, by code -------------------------------------
+  LET r1 AS Integer = reject("unknown", "nosuchcolour")
+  LET r2 AS Integer = reject("empty", "")
+  LET r3 AS Integer = reject("hexNotName", "#ff0000")
+  LET r4 AS Integer = reject("innerSpace", "rebecca purple")
+
+  ' --- nameOf: the reverse lookup ------------------------------------------
+  named("nameRed", color::fromHex("#ff0000"))
+  named("nameRebecca", color::fromHex("#663399"))
+  named("nameGreen", color::fromHex("#008000"))
+  ' Where CSS spells a colour two ways, nameOf returns the alphabetically first,
+  ' so the answer does not depend on the table's iteration order.
+  named("nameGrey", color::fromName("grey"))
+  named("nameGray", color::fromName("gray"))
+  named("nameCyan", color::fromName("cyan"))
+  named("nameAqua", color::fromName("aqua"))
+  named("nameMagenta", color::fromName("magenta"))
+
+  ' Round-trip over the spot-checked names.
+  named("rtLime", color::fromName("lime"))
+  named("rtTeal", color::fromName("teal"))
+  named("rtPurple", color::fromName("purple"))
+
+  ' --- nameOf's two rejection classes --------------------------------------
+  ' Exact match only: one step off a named colour has no name.
+  LET n1 AS Integer = unnamed("offByOne", color::fromHex("#ff0001"))
+  ' Alpha must be 255: every table entry is opaque, so a translucent colour has
+  ' no name even when its RGB matches one exactly.
+  LET n2 AS Integer = unnamed("translucent", color::rgba(255, 0, 0, 128))
+  LET n3 AS Integer = unnamed("transparent", color::rgba(255, 0, 0, 0))
+
+  ' --- the basic constants --------------------------------------------------
+  io::print("constBlack=" & color::toHexAlpha(color::black))
+  io::print("constWhite=" & color::toHexAlpha(color::white))
+  io::print("constGreen=" & color::toHex(color::green))
+  io::print("constSilver=" & color::toHex(color::silver))
+  io::print("constOrange=" & color::toHex(color::orange))
+  ' A constant and the name lookup must agree -- two spellings of one colour
+  ' disagreeing would be worse than either being wrong alone.
+  io::print("agreeGreen=" & toString(color::toHexAlpha(color::green) = color::toHexAlpha(color::fromName("green"))))
+  io::print("agreeGray=" & toString(color::toHexAlpha(color::gray) = color::toHexAlpha(color::fromName("gray"))))
+  io::print("agreeTeal=" & toString(color::toHexAlpha(color::teal) = color::toHexAlpha(color::fromName("teal"))))
+  io::print("agreeMaroon=" & toString(color::toHexAlpha(color::maroon) = color::toHexAlpha(color::fromName("maroon"))))
+  ' Every constant is opaque.
+  io::print("constAlpha=" & toString(color::black.alpha) & "," & toString(color::orange.alpha))
+
+  RETURN 0
+END FUNC

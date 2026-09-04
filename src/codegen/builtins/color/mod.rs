@@ -40,12 +40,14 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+mod constants;
 mod func_brighten;
 mod func_contrast_ratio;
 mod func_darken;
 mod func_desaturate;
 mod func_from_hex;
 mod func_from_linear;
+mod func_from_name;
 mod func_from_packed;
 mod func_gray;
 mod func_grayscale;
@@ -56,6 +58,7 @@ mod func_is_dark;
 mod func_is_light;
 mod func_luminance;
 mod func_mix;
+mod func_name_of;
 mod func_rgb;
 mod func_rgba;
 mod func_rotate_hue;
@@ -71,6 +74,7 @@ mod helper_clamp_fraction;
 mod helper_hex_byte;
 mod helper_hex_value;
 mod helper_hsl;
+mod helper_name_table;
 mod helper_srgb;
 mod helper_to_string;
 
@@ -228,6 +232,7 @@ pub(crate) fn register(r: &mut Registry) {
     // After `helper_clamp_byte`/`helper_clamp_fraction` and `helper_srgb`: the HSL
     // core calls the two clamps, and `get_mfb` renders helpers in this order.
     helper_hsl::register(&mut pkg);
+    helper_name_table::register(&mut pkg);
 
     // Constructors first, then the operations over an existing colour — the order
     // a reader of `mfb man color` meets them in.
@@ -270,6 +275,14 @@ pub(crate) fn register(r: &mut Registry) {
     func_saturate::register(&mut pkg);
     func_desaturate::register(&mut pkg);
     func_rotate_hue::register(&mut pkg);
+
+    // CSS named colours (plan-122-C).
+    func_from_name::register(&mut pkg);
+    func_name_of::register(&mut pkg);
+
+    // The basic-colour record constants. Independent of the name table above: a
+    // constant inlines its four literals rather than consulting it.
+    constants::register(&mut pkg);
 
     r.add_package(pkg);
 }
