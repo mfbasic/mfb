@@ -24,6 +24,43 @@ cargo test --test rt_tls_connect_allow_self_signed -- --test-threads=1
 At the time of the failure a second worktree session (`P-116`) was running its own
 full `cargo test` on the same machine.
 
+## Second occurrence — it fails in BOTH directions (2026-09-03, bug-500 landing)
+
+A second sighting during the audit-3 fix pass, with the **opposite** signature:
+
+```
+accepts_a_self_signed_peer ... FAILED
+  left:  "result=raised"
+  right: "result=connected"
+```
+
+so the client **refused** a peer it should have accepted, where the first sighting
+had it **accept** one it should have refused. Same trigger: two other
+`cargo test` runs (audit-3 fix agents) were live on this machine at the time.
+Re-run in isolation immediately afterwards, 4/4 green:
+
+```
+cargo test --no-fail-fast --test rt_tls_connect_allow_self_signed -- --test-threads=1
+→ test result: ok. 4 passed; 0 failed
+```
+
+The rest of that suite was clean (4589 passed, 1 failed — this case only).
+
+This matters for the diagnosis: a gate that can flip a verdict in *either*
+direction is not "a stale allow that leaks in", it is two runs sharing one
+process-global piece of state and each seeing the other's value. Whichever fix is
+chosen must therefore make the state per-connection (or per-test), not merely
+reset it before each case — resetting still races when the reader is another
+process's test.
+
+## Third occurrence — first direction again (2026-09-03, bug-496 landing)
+
+`defaults_to_rejecting_a_self_signed_peer` failed with `left: "result=connected"`
+(the first signature) during the bug-496 merged full run, while two other audit-3
+fix agents had `cargo test` live on this machine. Sole failure in the run (113
+result lines otherwise green); re-run in isolation immediately afterwards 3/3 green
+(`cargo test --test rt_tls_connect_allow_self_signed`, 4 passed each time).
+
 ## Cause
 
 `tests/rt_tls_connect_allow_self_signed.rs` picks a port by binding an ephemeral

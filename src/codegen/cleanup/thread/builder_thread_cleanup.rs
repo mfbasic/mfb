@@ -3,7 +3,6 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
@@ -98,7 +97,6 @@ impl CodeBuilder<'_> {
             ));
         }
         let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
         let mut arg_values = Vec::new();
         let mut arg_slots = Vec::new();
         self.reset_temporary_registers();
@@ -116,8 +114,8 @@ impl CodeBuilder<'_> {
             arg_slots.push(slot);
             self.reset_temporary_registers();
         }
-        // The message argument is copied into the destination arena below and then
-        // moved; keep the statement-scope temp cleanup off it (plan-25).
+        // The message argument is copied below (into THIS thread's arena) and the
+        // copy handed across; keep the statement-scope temp cleanup off it (plan-25).
         self.claim_moved_thread_arg_temp(target, &arg_values);
 
         self.reset_temporary_registers();
@@ -130,7 +128,6 @@ impl CodeBuilder<'_> {
         let defer_resource_flag =
             matches!(target, "thread.transferResource" | "thread.emitResource")
                 && crate::codegen::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
-        let saved_arena_slot = self.allocate_stack_object("runtime_thread_send_saved_arena", 8);
         let copied_message_slot =
             self.allocate_stack_object("runtime_thread_send_copied_message", 8);
         // Allocated only when deferring, so data-plane sends keep their slot layout.
@@ -139,20 +136,25 @@ impl CodeBuilder<'_> {
         } else {
             None
         };
-        let arena_offset = if target == "thread.emit" {
-            THREAD_OFFSET_PARENT_ARENA_STATE
-        } else {
-            THREAD_OFFSET_ARENA_STATE
-        };
-        self.emit(abi::store_u64(
-            ARENA_STATE_REGISTER,
-            abi::stack_pointer(),
-            saved_arena_slot,
-        ));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[0]));
-        self.emit(abi::load_u64(&scratch10, &scratch9, arena_offset));
-        self.emit(abi::move_register(ARENA_STATE_REGISTER, &scratch10));
-        self.error_arena_restore_slot = Some(saved_arena_slot);
+        // bug-498: the message is deep-copied into the SENDER's own arena (the
+        // pinned `ARENA_STATE_REGISTER` is left alone) and the copy is handed across
+        // through the queue. This lowering used to repoint the arena register at the
+        // DESTINATION thread's arena state (`THREAD_OFFSET_ARENA_STATE`, or
+        // `THREAD_OFFSET_PARENT_ARENA_STATE` for `thread.emit`) and allocate there —
+        // unlocked, while that thread was allocating from the same arena. The
+        // allocator's quick-bin pop is a plain load/store of a free-list head, so the
+        // two racing pops handed one block out twice or tore a `next` link; both
+        // threads then faulted at the same PC in `_mfb_arena_alloc`
+        // (`tests/rt_thread_send_cross_arena.rs`).
+        //
+        // Allocating here is race-free because only this thread touches this arena's
+        // state. Handing the block over is sound because a free is a push into the
+        // FREEING thread's own bins (`arena_free` never consults which arena carved
+        // the block — `.ai/canvas-threading.md` §2), and the block stays mapped: no
+        // arena but the main one is ever destroyed, and that one only at
+        // `_mfb_shutdown`. The receiver therefore owns the copy exactly as before and
+        // reclaims it in its own arena; a failed send still parks the orphan on the
+        // queue's pending-free list for the reader to adopt and free (bug-147.5b).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
         // Stash the source resource pointer before arg_slots[1] is overwritten with
         // the destination copy below; the enqueue-success branch flags it moved.
@@ -162,18 +164,12 @@ impl CodeBuilder<'_> {
         self.suppress_resource_source_flag = defer_resource_flag;
         let copied = self.copy_value_to_current_arena(&arg_values[1].type_, &scratch9)?;
         self.suppress_resource_source_flag = false;
-        self.error_arena_restore_slot = None;
         self.emit(abi::store_u64(
             &copied,
             abi::stack_pointer(),
             copied_message_slot,
         ));
         self.reset_temporary_registers();
-        self.emit(abi::load_u64(
-            ARENA_STATE_REGISTER,
-            abi::stack_pointer(),
-            saved_arena_slot,
-        ));
         self.emit(abi::load_u64(
             &scratch9,
             abi::stack_pointer(),

@@ -2,7 +2,7 @@
 
 - **Severity:** HIGH — the `http` package's whole purpose is serving requests,
   and the documented server does not serve. Every client sees an empty reply.
-- **Status:** FIXED
+- **Status:** FIXED (36947920e, audit-3 bug-497 shared the root cause; witness `tests/rt_http_handle_request_serves.rs`)
 - **Found by:** plan-108-F, running every `mfb man` example on every page. Eight
   of `http`'s 38 examples fail, all of them the server-shaped ones.
 - **Platforms:** macOS AArch64 verified. Not platform-specific by inspection —
