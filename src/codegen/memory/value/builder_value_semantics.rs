@@ -1332,7 +1332,34 @@ impl CodeBuilder<'_> {
             // call; type the target with THIS resolver and reuse its field lookup.
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.overload_arg_type(target)?;
-                self.member_type_of(&target_type, member)
+                self.member_type_of(&target_type, member).or_else(|| {
+                    // `res.state` on a STATE-carrying resource (or resource
+                    // union). `member_type_of` knows only record/union-variant
+                    // fields, a thread handle's `result`, and a typed map's
+                    // key/value — so every payload reached THROUGH the STATE
+                    // block (`client.state.raw`) was unresolved, and the
+                    // fail-closed write selector this bug added then refused a
+                    // VALID program at build time:
+                    //   error: native runtime tls.write: payload static type
+                    //   <unresolved> is neither String nor List OF Byte
+                    // (`tests/rt_macos_d4_union_state_tls.rs`). The lowering
+                    // itself has always known this type — `emit_member_access`
+                    // reads it off `type_.state()` — so only the static side
+                    // was missing.
+                    //
+                    // Resolved HERE and not in `member_type_of`, because that
+                    // is shared with `static_type_name`, which also gates the
+                    // in-place append/set fast path: typing `client.state.raw`
+                    // there would retype
+                    // `client.state.raw = collections::append(client.state.raw, …)`
+                    // and shift that statement's codegen and aliasing decision,
+                    // far outside an overload choice.
+                    if member == "state" {
+                        target_type.state()
+                    } else {
+                        None
+                    }
+                })
             }
             NirValue::ResultValue { value } => match self.overload_arg_type(value)? {
                 ParameterType::ResultOf(success) => Some(*success),

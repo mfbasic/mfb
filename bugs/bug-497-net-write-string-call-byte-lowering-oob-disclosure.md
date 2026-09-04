@@ -157,3 +157,51 @@ newly closed shapes arrive verbatim over loopback, exactly 22 bytes),
 form as before; the only `.ncode` movement is inside the three byte-form runtime
 helpers (header check) and the Schannel `tls::write` body (bug-508). See the
 artifact-gate localisation in the landing commit.
+
+## Fail-closed means the typing must be COMPLETE (regression found and fixed)
+
+`net_write_payload_form` refusing an unresolved payload is the right closure —
+guessing is what leaked memory. But it converts every gap in `overload_arg_type`
+from "silently picks the wrong form" into "**refuses to build a valid
+program**", which is a language-surface change by another route. The first
+full-suite run after the fix caught exactly that:
+
+```
+tests/rt_macos_d4_union_state_tls.rs — build failed:
+error: native runtime tls.write: payload static type <unresolved> is neither
+String nor List OF Byte; refusing to select a lowering (bug-497)
+       while lowering eval call tls.write while lowering match
+```
+
+The program is valid and had always compiled:
+
+```
+RES client AS Stream STATE PendingState = tls::accept(listener)
+MATCH client
+  CASE tls::Socket(t)
+    tls::write(t, client.state.raw)
+```
+
+`member_type_of` knows record/union-variant fields, a thread handle's `result`
+and a typed map's `key`/`value` — but not `res.state`, so **every payload
+reached through a resource's STATE block was unresolved**. The lowering itself
+had always known the type (`emit_member_access` reads `type_.state()`); only the
+static side was missing.
+
+Fixed by resolving `res.state` in `overload_arg_type`'s `MemberAccess` arm.
+Deliberately **not** in `member_type_of`: that is shared with
+`static_type_name`, which also gates the in-place append/set fast path, so
+typing `client.state.raw` there would retype
+`client.state.raw = collections::append(client.state.raw, …)` and shift that
+statement's codegen and aliasing decision — far outside an overload choice, and
+into bug-496's territory.
+
+Pinned at codegen level on all five targets by two new rows in
+`codegen_net_write_payload_view` (`st.state.raw` → byte form,
+`st.state.note` → text form), so a future narrowing of the resolver fails the
+selection assertion rather than a distant macOS TLS runtime test.
+
+**Lesson for the next fail-closed selector:** the refusal set and the resolver
+are two lists, and a shape missing from the resolver is a *valid program the
+compiler now rejects*. The full suite — not the targeted tests — is what found
+it; the targeted tests were green the whole time.

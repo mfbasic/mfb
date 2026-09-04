@@ -45,6 +45,11 @@ TYPE Rec
   body AS String
 END TYPE
 
+TYPE Pend
+  raw AS List OF Byte
+  note AS String
+END TYPE
+
 FUNC head(n AS Integer) AS String
   RETURN "value=" & toString(n) & ";"
 END FUNC
@@ -61,6 +66,9 @@ FUNC main() AS Integer
   tcp::write(sock, f(8))
   tcp::write(sock, makeRec().body)
   tcp::write(sock, raw)
+  RES st AS tcp::Socket STATE Pend = tcp::connect("127.0.0.1", 2)
+  tcp::write(st, st.state.raw)
+  tcp::write(st, st.state.note)
   RES u AS udp::Socket = udp::bind("127.0.0.1", 0)
   LET at AS net::Address = udp::localAddress(u)
   udp::send(u, at, head(1))
@@ -127,6 +135,13 @@ fn write_form_is_selected_by_the_payload_type_for_every_call_shape() {
             "_mfb_rt_tcp_tcp_writeText", // f(8): a call through a FUNC-typed value
             "_mfb_rt_tcp_tcp_writeText", // makeRec().body: a String field of a call result
             "_mfb_rt_tcp_tcp_write",     // raw: List OF Byte
+            // A payload reached THROUGH a resource's STATE block. The fix's
+            // fail-closed selector refused these two outright until
+            // `overload_arg_type` learned `res.state` — a build error on a
+            // program that had always been valid
+            // (`tests/rt_macos_d4_union_state_tls.rs`).
+            "_mfb_rt_tcp_tcp_write",     // st.state.raw: List OF Byte via STATE
+            "_mfb_rt_tcp_tcp_writeText", // st.state.note: String via STATE
             "_mfb_rt_udp_udp_sendText",
             "_mfb_rt_udp_udp_send",
             "_mfb_rt_tls_tls_writeText",
