@@ -550,12 +550,21 @@ evidence gathered rules out the obvious causes and does not yet name the real on
   gradient bands, with `gpuFrames=0` in both — so a difference appears between two runs
   that never touched the GPU at all.
 
-That last point is where the next session should start: it implicates the frame/damage
-interaction or which frame reaches `MFB_CANVAS_DUMP`, not the draw list, and it means the
-harness comparison may be measuring something other than what it claims here. Note
-`rendering_is_byte_reproducible` asserts the oracle is deterministic, so two software
-renders of one scene differing is either a real defect or a difference in *which frame*
-was dumped.
+**That last point was then tested and the hypothesis it suggested is wrong.** Running the
+same program twice on box 2228 with no `MFB_CANVAS_GPU` produces **byte-identical** dumps
+(`identical: True`, 2,304,000 bytes each). The software renderer is deterministic there,
+exactly as `rendering_is_byte_reproducible` asserts, so there is no oracle defect to find.
+
+Which means the 3.7% was between a software run and a run that had `MFB_CANVAS_GPU=1` —
+and the `gpuFrames=0` read from that run's stats came from a `grep` over a *multi-line*
+stats file, one line per frame, so it may well have been an earlier frame's value rather
+than the drawing frame's. **The next step is to re-read that measurement per frame rather
+than per file**, and to establish whether the disputed run drew on the GPU at all before
+concluding anything from the comparison.
+
+The narrowing that survives: the draw list is right, the emitted code is right, the GPU's
+disputed pixel is right, and the oracle is deterministic. What has not been established is
+what the harness's `sw.rgba` actually contains for that scene.
 
 Stashed rather than committed because HEAD is green on that harness and the conversion is
 not: leaving the branch red while the cause is unknown would make every later gate
