@@ -4,8 +4,8 @@ The semantic and algorithmic *models* of the standard packages — those
 implemented as injected MFBASIC source, plus those backed by native seam helpers:
 the regex engine, the date/time model, the CSV dialect, the JSON data model, the
 HTTP client, the URL model, the `math::` PCG64 RNG, the bit-operation primitives,
-the exact base-10 `money::` model, the OS environment/introspection surface, and
-the ICMP echo contract behind `net::ping`.
+the exact base-10 `money::` model, the OS environment/introspection surface, the
+single `color::Color` value model, and the ICMP echo contract behind `net::ping`.
 These are the parts a faithful reimplementation needs that the per-function API
 reference does not capture.
 
@@ -56,6 +56,12 @@ built-in injection chain.
 - `icmp` — the `net::ping` model: which outcomes are `PingStatus` values and which
   are errors, what each field of `PingResult` means, the argument ranges, the
   Linux permission model, and the three per-platform ICMP backends.
+- `color` — the single colour value model: the straight-alpha `Color` record, the
+  clamping rule every constructor obeys (and why the component parameters are
+  `Integer`), the `0xAARRGGBB` packed byte order and its low-32-bits rule, the
+  four-length hex grammar, the perceptual and HSL layers over the shared sRGB seam
+  canvas blends through, the CSS named-colour rules, and the no-transcendentals
+  determinism constraint inherited from canvas's software rasteriser.
 - `transports` — the `tcp`/`udp`/`tls` model: the shared `net::Address` endpoint,
   handle ownership and the consuming `close`, stream reads versus preserved
   datagram boundaries, `poll`'s readiness-query and producing-call overloads, and

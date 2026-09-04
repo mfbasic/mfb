@@ -1,0 +1,31 @@
+' DEC-50 — canvas::loadImage allocates width*height*4 from the IHDR with no maximum,
+' before checking that the file carries that many pixels.
+'
+' Craft the input with:  python3 gen/mkpng.py 4000 4000 /tmp/dec50.png
+'   (69 bytes: signature + IHDR(4000,4000,8,2,0,0,0) + IDAT(zlib of 64 zero bytes) + IEND)
+'
+' Observed: 4.95 GB maximum resident set size and 4.4 s of CPU before the decode
+'           gives up with ErrBadImageFile.
+' Expected: rejected in O(1) — a 4000x4000 truecolour PNG cannot be 69 bytes.
+IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+FUNC tryImage() AS Integer
+  RES img AS canvas::Image = canvas::loadImage(os::getEnvOr("IMGPATH", "/tmp/dec50.png"))
+  LET s AS canvas::Size = canvas::getSize(img)
+  io::print("decoded " & toString(s.width) & "x" & toString(s.height))
+  RETURN 0
+  TRAP(e)
+    io::print("raised: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  io::print("before")
+  LET r AS Integer = tryImage()
+  io::print("after r=" & toString(r))
+END SUB

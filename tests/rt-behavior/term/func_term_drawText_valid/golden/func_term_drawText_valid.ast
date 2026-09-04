@@ -4,7 +4,8 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "term", "line": 4 }
+    { "module": "term", "line": 4 },
+    { "module": "color", "line": 5 }
     ],
     "items": [
     {
@@ -12,19 +13,19 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 6,
+      "line": 7,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "2" }, { "kind": "string", "value": "Hello, TUI!" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "clip-left" }] }, "line": 10 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "9731" }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 13 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "2" }, { "kind": "string", "value": "Hello, TUI!" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "clip-left" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "9731" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
       ]
     }
     ]

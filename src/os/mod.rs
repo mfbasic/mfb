@@ -16,6 +16,25 @@ mod object_plan;
 /// that lands before the `windows-x86_64` backend (plan-47-B) selects it.
 pub(crate) mod windows;
 
+/// Refuse a project name that cannot be a single path component before it is
+/// `Path::join`ed into an artifact path (bug-503, audit-3 LNK-12).
+///
+/// Every writer in this module forms its output path as `<dir>/<name><suffix>`
+/// and the executables are then made `0755`. A `../x` name escapes `build/`, a
+/// leading `/` makes the target absolute, a leading `.` hides the file. The
+/// manifest gate (`manifest::validate_name`) rejects such a name first; this is
+/// the defence in depth at the boundary that actually touches the filesystem, so
+/// no future caller can bypass the gate by constructing an `IrProject` directly.
+/// Same charset as a `.mfp` package name (`validate_package_name`).
+pub(crate) fn validate_output_name(name: &str) -> Result<(), String> {
+    crate::manifest::package::validate_package_name(name).map_err(|_| {
+        format!(
+            "refusing to write a build artifact: project name `{name}` is not a valid path \
+             component (expected [A-Za-z0-9_][A-Za-z0-9_.-]*)"
+        )
+    })
+}
+
 /// The per-project directory every build artifact is written into (plan-46-D
 /// §4.1): `<project dir>/build/<name>.out`, `<project dir>/build/<name>.app`,
 /// and the `vendor/` directory an RPATH-bearing build points at.

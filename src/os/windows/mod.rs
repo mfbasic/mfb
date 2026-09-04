@@ -17,6 +17,7 @@ pub(crate) fn write_native_object_plan(
     project_name: &str,
     plan: &NativePlan,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let object_plan = object::lower_plan(plan)?;
     object_plan.validate()?;
     let object_path = project_dir.join(format!("{project_name}.nobj"));
@@ -46,6 +47,7 @@ pub(crate) fn write_linked_executable(
     app_icon: Option<&Path>,
     app_version: Option<&str>,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let bytes = link::write_executable(image, gui, app_icon, app_version)?;
     let build_dir = project_dir.join(crate::os::BUILD_DIR);
     fs::create_dir_all(&build_dir)
@@ -149,6 +151,36 @@ mod tests {
             .expect("gui exe");
         assert_eq!(gui, dir.path().join("build").join("windowed.exe"));
         assert_eq!(&std::fs::read(&gui).unwrap()[0..2], b"MZ");
+    }
+
+    /// bug-503: the project name is `Path::join`ed into `build/<name>.exe` (and
+    /// `<name>.nobj`), so a name carrying a path separator or `..` must be
+    /// refused before any byte is written — never resolved to a path outside
+    /// `build/`.
+    #[test]
+    fn refuses_to_write_artifacts_under_a_traversing_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = write_linked_executable(dir.path(), "../evil", &ret_image(), false, None, None)
+            .expect_err("a traversing project name must be rejected");
+        assert!(error.contains("not a valid path component"), "{error}");
+        assert!(
+            !dir.path().join("evil.exe").exists(),
+            "an executable escaped build/ under a traversing name"
+        );
+        assert!(
+            !dir.path().join("build").exists(),
+            "nothing may be created on refusal"
+        );
+        let error = write_native_object_plan(dir.path(), "../evil", &plan("windows-x86_64"))
+            .expect_err("a traversing project name must be rejected");
+        assert!(error.contains("not a valid path component"), "{error}");
+        assert!(!dir.path().parent().unwrap().join("evil.nobj").exists());
+        for name in [".hidden", "/tmp/evil", "a\\b", "a/b"] {
+            assert!(
+                write_linked_executable(dir.path(), name, &ret_image(), false, None, None).is_err(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

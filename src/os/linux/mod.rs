@@ -19,6 +19,7 @@ pub(crate) fn write_native_object_plan(
     project_name: &str,
     plan: &NativePlan,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let object_plan = object::lower_plan(plan)?;
     object_plan.validate()?;
     let object_path = project_dir.join(format!("{project_name}.nobj"));

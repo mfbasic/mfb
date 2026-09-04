@@ -39,6 +39,13 @@ only its trailing whitespace stripped.
 With no `path`, `mfb fmt` formats the current directory. A directory argument is
 walked recursively for MFBASIC source files.
 
+Nesting is capped: a file that opens more than 1024 blocks without closing them
+is refused with the `MFB_PARSE_BLOCK_TOO_DEEP` diagnostic at the line that
+crosses the cap, and is left exactly as it was. (The compiler already rejects
+any program nested past 256 statement blocks, so no program that builds is ever
+refused.) Each rewrite is written in full to a temporary file beside the source
+and then renamed over it, so an interrupted run never leaves a file truncated.
+
 ## Options
 
 | Option | Description |
@@ -55,7 +62,8 @@ walked recursively for MFBASIC source files.
 ## Errors
 
 No errors. `mfb fmt` reports problems on standard error and exits non-zero; it
-does not raise MFBASIC runtime errors.
+does not raise MFBASIC runtime errors. A source nested past the 1024-block cap
+is reported with `MFB_PARSE_BLOCK_TOO_DEEP` and not rewritten.
 
 ## Examples
 

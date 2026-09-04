@@ -298,6 +298,10 @@ pub fn write_executable(
             target.name()
         ));
     }
+    // bug-503: every backend joins `ir.name` into its artifact paths; refuse a
+    // traversing / absolute / hidden name before any backend runs (the manifest
+    // gate already did, this is the shared last line before a filesystem write).
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_executable(
         project_dir,
@@ -333,6 +337,7 @@ pub fn finalize_app_bundle(
     if !build_mode.is_app() {
         return Ok(Vec::new());
     }
+    crate::os::validate_output_name(project_name)?;
     backend_for(target)?.finalize_app_bundle(project_dir, project_name, keep_intermediate)
 }
 
@@ -350,6 +355,7 @@ pub fn write_nir(
             target.name()
         ));
     }
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_nir(project_dir, ir, packages, build_mode)
 }
@@ -368,6 +374,7 @@ pub fn write_native_plan(
             target.name()
         ));
     }
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_plan(project_dir, ir, packages, build_mode)
 }
@@ -386,6 +393,7 @@ pub fn write_native_object_plan(
             target.name()
         ));
     }
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_object_plan(project_dir, ir, packages, build_mode)
 }
@@ -404,6 +412,7 @@ pub fn write_native_code_plan(
             target.name()
         ));
     }
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_code_plan(project_dir, ir, packages, build_mode)
 }
@@ -421,6 +430,7 @@ pub fn write_mir(
     if !backend.capabilities().native_code_plan {
         return Err(format!("MIR output does not support {} yet", target.name()));
     }
+    crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_mir(project_dir, ir, packages, build_mode)
 }

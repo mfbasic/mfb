@@ -8,6 +8,7 @@ pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod canvas;
 pub(crate) mod collections;
+pub(crate) mod color;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
@@ -47,38 +48,51 @@ pub(crate) mod vector;
 use crate::codegen::resource;
 use crate::types::ParameterType;
 
+/// Every package name `IMPORT` accepts, sorted.
+///
+/// This is the **single** source of truth for the import-gated package set. It was
+/// previously a `matches!` arm with a hand-maintained mirror list in this module's
+/// test section, and the two drifted: the mirror (and therefore §18 of the spec,
+/// which is pinned against it) omitted `tcp` and `udp` for the whole of plan-110's
+/// lifetime, while §18's own transport paragraph documented `IMPORT tcp` and
+/// `IMPORT udp` two dozen lines further down. A `matches!` cannot be enumerated, so
+/// no test could see the omission from this side. As a slice it can, and
+/// `spec_section_18_package_list_matches_is_builtin_import` now compares §18
+/// against this list itself rather than against a copy of it.
+pub(crate) const BUILTIN_IMPORTS: &[&str] = &[
+    "app",
+    "astrings",
+    "audio",
+    "bits",
+    "canvas",
+    "collections",
+    "color",
+    "crypto",
+    "csv",
+    "datetime",
+    "encoding",
+    "errorCode",
+    "fs",
+    "http",
+    "io",
+    "json",
+    "math",
+    "money",
+    "net",
+    "os",
+    "process",
+    "regex",
+    "strings",
+    "tcp",
+    "term",
+    "thread",
+    "tls",
+    "udp",
+    "vector",
+];
+
 pub(crate) fn is_builtin_import(name: &str) -> bool {
-    matches!(
-        name,
-        "app"
-            | "astrings"
-            | "audio"
-            | "bits"
-            | "canvas"
-            | "collections"
-            | "crypto"
-            | "csv"
-            | "datetime"
-            | "encoding"
-            | "errorCode"
-            | "fs"
-            | "http"
-            | "io"
-            | "json"
-            | "math"
-            | "money"
-            | "net"
-            | "os"
-            | "process"
-            | "regex"
-            | "strings"
-            | "tcp"
-            | "term"
-            | "thread"
-            | "tls"
-            | "udp"
-            | "vector"
-    )
+    BUILTIN_IMPORTS.contains(&name)
 }
 
 /// The internal helper a built-in package provides as an **override** of an
@@ -113,7 +127,7 @@ pub(crate) fn is_qualified_builtin_resource(qualified: &str) -> bool {
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // Every builtin value type now resolves through the clean-room registry
-    // (`csv.CsvReader`, `net.Url`, `term.TermColor`/`term.LineStyle`, …) — package-scoped
+    // (`csv.CsvReader`, `net.Url`, `term.TermSize`/`term.LineStyle`, …) — package-scoped
     // there, so a cross pairing (`io.Url`, `csv.Thread`) is correctly rejected (bug-98).
     // `term` was the last package to retain a hand-written fallback arm; with it
     // migrated, no per-package fallback remains.
@@ -511,7 +525,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 const ARGUMENT_CHECKED_PACKAGES: &[&str] = &[
     "encoding", "astrings", "crypto", "strings", "math", "bits", "fs", "os", "net", "tcp", "tls",
     "audio", "process", "io", "json", "csv", "regex", "datetime", "money", "app", "http", "udp",
-    "vector",
+    "vector", "color",
 ];
 
 /// Whether a builtin call (canonical `package.member` name) is checked by the
@@ -1069,34 +1083,14 @@ mod tests {
     /// predicate and the `mfb spec language builtin-functions` §18 list cannot drift
     /// apart (plan-33-D Phase 2 — the earlier `money` omission recurred because no
     /// such test existed).
-    const ALL_BUILTIN_PACKAGES: &[&str] = &[
-        "app",
-        "astrings",
-        "audio",
-        "bits",
-        "canvas",
-        "collections",
-        "crypto",
-        "csv",
-        "datetime",
-        "encoding",
-        "errorCode",
-        "fs",
-        "http",
-        "io",
-        "json",
-        "math",
-        "money",
-        "net",
-        "os",
-        "process",
-        "regex",
-        "strings",
-        "term",
-        "thread",
-        "tls",
-        "vector",
-    ];
+    ///
+    /// plan-122-A: this was a hand-written *copy* of the predicate's arm, and a copy
+    /// is exactly what the test was supposed to make impossible — it silently omitted
+    /// `tcp` and `udp`, so §18's package sentence omitted them too while §18's own
+    /// transport paragraph documented `IMPORT tcp`/`IMPORT udp`. It is now an alias
+    /// for the production list, so the §18 comparison below is against the predicate
+    /// itself and no third spelling exists to drift.
+    const ALL_BUILTIN_PACKAGES: &[&str] = super::BUILTIN_IMPORTS;
 
     #[test]
     fn every_package_is_a_builtin_import() {
@@ -1174,6 +1168,7 @@ mod tests {
             "thread",
             "tls",
             "vector",
+            "color",
         ] {
             assert!(is_builtin_import(pkg), "{pkg}");
         }

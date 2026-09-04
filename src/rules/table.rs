@@ -1188,6 +1188,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a project.json with `kind: \"package\"` must declare a `description`",
     },
     Rule {
+        code: "2-200-0017",
+        name: "PROJECT_JSON_NAME_INVALID",
+        severity: Severity::Error,
+        message: "project.json `name` is not a single safe path component",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

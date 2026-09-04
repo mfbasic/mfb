@@ -29,7 +29,7 @@ A map of the compiler's source modules and their responsibilities.
 | String built-ins[[src/codegen/builtins/strings/mod.rs]] | String built-in signatures. |
 | Thread built-ins[[src/codegen/builtins/thread/mod.rs]] | Thread built-in type and call signatures. |
 | Date/time built-ins[[src/codegen/builtins/datetime/mod.rs]] | Date/time built-in signatures. |
-| Terminal built-ins[[src/codegen/builtins/term/mod.rs]] | Terminal (`TermColor`/`TermSize`) built-in signatures. |
+| Terminal built-ins[[src/codegen/builtins/term/mod.rs]] | Terminal (`TermSize`) built-in signatures; the colour members speak `color::Color`. |
 | Network built-ins[[src/codegen/builtins/net/mod.rs]] | Network (`Socket`/`Listener`/UDP) built-in signatures. |
 | TLS built-ins[[src/codegen/builtins/tls/mod.rs]] | TLS (`tls::Socket`) built-in signatures. |
 | HTTP built-ins[[src/codegen/builtins/http/mod.rs]] | HTTP built-in signatures. |

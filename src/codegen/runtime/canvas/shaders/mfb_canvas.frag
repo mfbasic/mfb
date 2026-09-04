@@ -272,9 +272,17 @@ float srgbToLinear(float c) {
 // small, bounded, and the shape matches what the oracle does.
 // One entry of the oracle's 256-entry forward table, recomputed rather than uploaded.
 //
-// `__canvas_srgbTable` holds the curve ROUNDED to integers on a 0..65535 scale, and the
-// lerp below happens in that quantised space — so the shader has to quantise the same
-// way or it lands a step off wherever the true value sits near a boundary.
+// `__color_srgbTable` — the oracle's table, in the `color` package since plan-122-B
+// (it was `__canvas_srgbTable`) — holds the curve ROUNDED to integers on a 0..65535
+// scale, and the lerp below happens in that quantised space, so the shader has to
+// quantise the same way or it lands a step off wherever the true value sits near a
+// boundary.
+//
+// This reproduction is invisible to any grep for the table: it spells neither the
+// constant nor the function name, it just recomputes the same expression. If the
+// oracle's quantisation ever changes, the test that catches it is
+// `the_gpu_draws_the_gradient_scene_the_reference_shows` in `tests/rt_canvas_golden.rs`,
+// not the blend tests.
 float srgbTable(int i) {
     return floor(srgbToLinear(float(i)) * 65535.0 + 0.5);
 }

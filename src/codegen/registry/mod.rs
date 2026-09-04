@@ -306,7 +306,7 @@ pub(crate) enum HelperGate {
     /// Inject only when **both** named packages are imported by the program — a
     /// cross-package bridge whose body references the surface of both. The
     /// `term`↔`astrings` `drawText(AttributedString)` bridge needs it: its body
-    /// references `term::`/`TermColor` (so `term` must be imported) AND
+    /// references `term::` (so `term` must be imported) AND
     /// `AttributedString`/`astrings::` (so `astrings` must be imported). A plain
     /// [`WhenImported`](HelperGate::WhenImported) on either alone would over-inject the
     /// bridge into a program importing only one of the two, dragging in the other
@@ -1454,6 +1454,17 @@ impl Registry {
             if matches!(package.import_name(), "net" | "http") {
                 continue;
             }
+            // `color` is injected by its own dedicated late pass
+            // (`codegen::builtins::color::augmented_project`), for the same
+            // transitivity reason: since plan-122-B `canvas`'s injected companion
+            // carries `IMPORT color` and calls `color::toLinear`/`fromLinear` from
+            // its blend and gradient helpers, and this single pass over the
+            // pre-injection AST — where a canvas program has written only
+            // `IMPORT canvas` — cannot see that. Skipping it here also prevents a
+            // double injection when a program imports `color` directly.
+            if package.import_name() == "color" {
+                continue;
+            }
             // `collections` is injected by its own dedicated pass at PARSE time
             // (`codegen::builtins::collections::augmented_project`, run by
             // `parse_project`): its members are source GENERICS the monomorphizer
@@ -1942,6 +1953,7 @@ fn build() -> Registry {
     crate::codegen::builtins::audio::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::canvas::register(&mut r);
+    crate::codegen::builtins::color::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::math::register(&mut r);

@@ -132,6 +132,13 @@ pub(crate) const TYPE_ATTRIBUTED_STRING: u32 = 11;
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 pub(crate) const TYPE_SOCKET_HANDLE: u32 = 0xffff_feff;
 pub(crate) const TYPE_LISTENER_HANDLE: u32 = 0xffff_fefe;
+/// RETIRED by plan-122-F, and deliberately NOT recycled.
+///
+/// `term::TermColor` no longer exists — the colour members speak `color::Color` —
+/// so no encoder emits this id. It stays reserved because a `.mfp` published
+/// before that change still carries it, and `binary_repr::reader` still decodes it
+/// to a recognizable name rather than failing opaquely. Assigning `0xffff_fefd` to
+/// a new type would silently mis-decode those packages.
 pub(crate) const TYPE_TERM_COLOR: u32 = 0xffff_fefd;
 pub(crate) const TYPE_TERM_SIZE: u32 = 0xffff_fefc;
 // First wire id for per-package table (record/union/enum) types. Bumped 10 → 20

@@ -1,0 +1,39 @@
+' DEC-55 — the MML `{ ... }<count>` repeat count is bounded below (count >= 1) but
+' not above, and nesting multiplies. __audio_mmlSynth then renders every note with no
+' total-length cap.
+'
+' Run:  TUNE="{ C }200000" build/DEC-55.out
+'   or: TUNE="{ { { { C }64 }64 }64 }64" build/DEC-55.out   (30 characters, 64^4 notes)
+'
+' Observed: TUNE="{ C }200000"  (15 characters) -> 38.1 GB maximum resident set size,
+'             killed abnormally after 229 s. The TRAP does not save it: the process is
+'             killed before any raise.
+'           TUNE="{ C }20000"   (14 characters) -> still running at 14m48s, 9.35 GB
+'             resident and climbing.
+'           Baseline TUNE="T120 C D E" -> 1.81 s, 27 MB.
+' Expected: a trappable 77050002 raise, or a bounded render.
+'
+' In a real deployment the tune text comes from a file: fs::readText("tune.mml").
+IMPORT audio
+IMPORT io
+IMPORT os
+
+FUNC try(tune AS String) AS Integer
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
+  io::print("opened")
+  audio::play(out, tune)
+  io::print("played")
+  audio::close(out)
+  RETURN 0
+  TRAP(e)
+    io::print("raised: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+SUB main()
+  LET tune AS String = os::getEnvOr("TUNE", "{ C }200000")
+  io::print("tune=" & tune)
+  LET r AS Integer = try(tune)
+  io::print("after r=" & toString(r))
+END SUB

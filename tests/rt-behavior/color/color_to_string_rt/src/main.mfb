@@ -1,0 +1,41 @@
+' plan-122-A Phase 5: the `toString(color::Color)` override.
+'
+' `toString` renders the LOSSLESS `#rrggbbaa` form, not the six-digit one.
+' `toString` is what a debugging `io::print` reaches for, so it must not be the
+' spelling that silently drops a channel — a colour printed while chasing a
+' transparency bug would otherwise look identical at every alpha.
+'
+' The partner assertion (an unrelated record is still REJECTED by `toString`, so
+' the override did not widen the builtin) is a compile error and therefore lives
+' in `tests/syntax/color/color_to_string_unrelated_record_invalid`.
+
+IMPORT color
+IMPORT io
+
+FUNC main AS Integer
+  ' The value plan-122-A Phase 5 names explicitly.
+  io::print(toString(color::rgba(255, 0, 0, 128)))
+
+  ' Fixed width: every channel below 16 keeps its leading zero.
+  io::print(toString(color::rgba(1, 2, 3, 4)))
+
+  ' The corners, alpha included — a transparent colour still renders its hue.
+  io::print(toString(color::rgba(0, 0, 0, 0)))
+  io::print(toString(color::rgba(255, 255, 255, 255)))
+  io::print(toString(color::rgb(51, 102, 204)))
+
+  ' `toString` and `toHexAlpha` are the same bytes by construction (they share
+  ' `__color_hexByte`), and this asserts they have not drifted apart.
+  LET c AS color::Color = color::rgba(51, 102, 204, 64)
+  io::print("agreesWithToHexAlpha=" & toString(toString(c) = color::toHexAlpha(c)))
+
+  ' ...and that it is NOT the alpha-dropping form.
+  io::print("differsFromToHex=" & toString(toString(c) <> color::toHex(c)))
+
+  ' `toString` over the scalars it already handled is untouched by the override.
+  io::print(toString(42))
+  io::print(toString(TRUE))
+  io::print(toString("plain"))
+
+  RETURN 0
+END FUNC

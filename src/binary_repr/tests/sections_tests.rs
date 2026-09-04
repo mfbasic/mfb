@@ -105,29 +105,15 @@ fn type_id_maps_primitives_and_composites() {
     assert_eq!(
         types.type_id(
             &mut strings,
-            &crate::types::ParameterType::declared("TermColor")
-        ),
-        TYPE_TERM_COLOR
-    );
-    assert_eq!(
-        types.type_id(
-            &mut strings,
             &crate::types::ParameterType::declared("TermSize")
         ),
         TYPE_TERM_SIZE
     );
     // bug-483: a member SIGNATURE carries the package-qualified spelling since
-    // bug-480 Phase 4b, and `term`'s registry rows promise these two keep their
-    // reserved high-band ids. Missing the qualified form dropped them through to
-    // the opaque zero-field fallback, so an exported `term::TermColor` encoded a
-    // record with none of its fields.
-    assert_eq!(
-        types.type_id(
-            &mut strings,
-            &crate::types::ParameterType::declared("term.TermColor")
-        ),
-        TYPE_TERM_COLOR
-    );
+    // bug-480 Phase 4b, and `term`'s registry row promises this keeps its reserved
+    // high-band id. Missing the qualified form dropped it through to the opaque
+    // zero-field fallback, so an exported `term::TermSize` encoded a record with
+    // none of its fields.
     assert_eq!(
         types.type_id(
             &mut strings,
@@ -207,6 +193,37 @@ fn type_id_maps_primitives_and_composites() {
         ),
         opaque
     );
+}
+
+/// plan-122-F: `TYPE_TERM_COLOR` is RETIRED, and no encoder may emit it again.
+///
+/// `term::TermColor` is gone — `term::getForeground`/`getBackground` return a
+/// `color::Color` — so the id must never be produced. It is deliberately NOT
+/// recycled for a new type: a `.mfp` published before the retirement still carries
+/// it, and `binary_repr::reader` still decodes it to a name so such a package fails
+/// recognizably rather than opaquely. Reassigning the id would silently mis-decode
+/// those packages instead.
+///
+/// This asserts the encoder side of that contract. `color.Color` in particular must
+/// land in the ordinary per-package band, not inherit the retired reserved id.
+#[test]
+fn no_encoder_emits_the_retired_term_color_id() {
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    for name in [
+        "Color",
+        "color.Color",
+        "TermSize",
+        "term.TermSize",
+        "Error",
+        "net.Url",
+    ] {
+        let id = types.type_id(&mut strings, &crate::types::ParameterType::declared(name));
+        assert_ne!(
+            id, TYPE_TERM_COLOR,
+            "`{name}` must not encode as the retired TYPE_TERM_COLOR id"
+        );
+    }
 }
 
 #[test]

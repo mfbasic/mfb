@@ -3,6 +3,7 @@ IMPORT io
 IMPORT math
 IMPORT strings
 IMPORT term
+IMPORT color
 
 ' Hangman — a small terminal word-guessing game built on the term:: TUI module.
 '
@@ -30,7 +31,7 @@ END FUNC
 
 ' Draws the gallows. Each wrong guess adds one body part (1..6).
 SUB drawHangman(wrong AS Integer)
-  term::setForeground(210, 200, 120)
+  term::setForeground(color::rgb(210, 200, 120))
   term::moveTo(2, 4)
   io::write("+----+")
   term::moveTo(3, 4)
@@ -46,7 +47,7 @@ SUB drawHangman(wrong AS Integer)
   term::moveTo(8, 4)
   io::write("+--------+")
 
-  term::setForeground(240, 120, 120)
+  term::setForeground(color::rgb(240, 120, 120))
   IF wrong >= 1 THEN
     term::moveTo(4, 9)
     io::write("O")
@@ -78,29 +79,29 @@ SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Int
   term::clear()
 
   term::setBold(TRUE)
-  term::setForeground(80, 220, 255)
+  term::setForeground(color::rgb(80, 220, 255))
   term::moveTo(0, 4)
   io::write("H A N G M A N")
   term::setBold(FALSE)
 
   drawHangman(wrong)
 
-  term::setForeground(230, 230, 230)
+  term::setForeground(color::rgb(230, 230, 230))
   term::moveTo(2, 24)
   io::write("Wrong: " & toString(wrong) & " / 6")
-  term::setForeground(240, 110, 110)
+  term::setForeground(color::rgb(240, 110, 110))
   term::moveTo(4, 24)
   io::write("Missed: " & missed)
 
-  term::setForeground(120, 240, 140)
+  term::setForeground(color::rgb(120, 240, 140))
   term::moveTo(10, 4)
   io::write(buildMasked(word, guessed))
 
-  term::setForeground(230, 230, 160)
+  term::setForeground(color::rgb(230, 230, 160))
   term::moveTo(12, 4)
   io::write(message)
 
-  term::setForeground(255, 255, 255)
+  term::setForeground(color::rgb(255, 255, 255))
 
   ' Present the composed frame (plan-35): drawing mutated the in-memory cell grid;
   ' term::sync() emits only the cells that changed since the last frame. Nothing

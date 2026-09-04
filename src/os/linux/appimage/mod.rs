@@ -186,6 +186,7 @@ pub(crate) fn seal(
     sealed.extend_from_slice(runtime);
     sealed.extend_from_slice(&image);
 
+    crate::os::validate_output_name(project_name)?;
     let path = build_dir.join(format!("{project_name}-{flavor_suffix}.AppImage"));
     fs::write(&path, &sealed)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;

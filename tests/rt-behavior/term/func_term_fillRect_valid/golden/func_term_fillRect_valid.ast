@@ -4,7 +4,8 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "term", "line": 5 }
+    { "module": "term", "line": 5 },
+    { "module": "color", "line": 6 }
     ],
     "items": [
     {
@@ -12,19 +13,19 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 7,
+      "line": 8,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "200" }, { "kind": "number", "value": "255" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Filled" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "3" }] }, "line": 10 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Medium" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "2" }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Checker" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "2" }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 14 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "200" }, { "kind": "number", "value": "255" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Filled" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "3" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Medium" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "2" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Checker" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "2" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
       ]
     }
     ]

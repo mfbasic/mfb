@@ -1,0 +1,30 @@
+' DEC-51 -- __canvas_inflate has no cap on decompressed output (zlib bomb), and the
+' PNG decode then reports SUCCESS.
+'
+' Craft the input with:  python3 gen/mkbomb.py 400000000 /tmp/dec51.png
+'   (389 KB: a 1x1 IHDR whose IDAT is zlib(400 MB of zeros))
+'
+' Observed: 25.0 GB maximum resident set size, 24 s, exit 0, prints "decoded 1x1".
+' Expected: refused once the inflated output passes what a 1x1 image can need.
+IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+FUNC tryImage() AS Integer
+  RES img AS canvas::Image = canvas::loadImage(os::getEnvOr("IMGPATH", "/tmp/dec51.png"))
+  LET s AS canvas::Size = canvas::getSize(img)
+  io::print("decoded " & toString(s.width) & "x" & toString(s.height))
+  RETURN 0
+  TRAP(e)
+    io::print("raised: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  io::print("before")
+  LET r AS Integer = tryImage()
+  io::print("after r=" & toString(r))
+END SUB

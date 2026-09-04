@@ -100,6 +100,18 @@ pub(super) struct FileParser<'a> {
     /// nested block unwinds through its ~256 enclosing `consume_end_block` calls
     /// emitting exactly one `MFB_PARSE_BLOCK_TOO_DEEP` instead of a cascade.
     pub(super) depth_exceeded: bool,
+    /// Tree depth (0 for a leaf, `1 + max(children)` for a node) of the
+    /// expression the grammar most recently completed. `expr_depth` bounds the
+    /// parser's own recursion, but the left-associative loops (`a+b+c…`,
+    /// `a.b.c…`) and `|>` deepen the tree by one per iteration WITHOUT
+    /// recursing — and every pass after the parser walks the tree recursively,
+    /// so a flat 5 000-term `1+1+…` overflowed the native stack in lowering
+    /// with no diagnostic (audit-3 FE-01 / bug-501). Every node-building site
+    /// records its depth through `note_expr_tree_depth`, which rejects a tree
+    /// deeper than `MAX_EXPR_DEPTH` — the same cap, in the same convention, as
+    /// `ir::verify::check_value_depth`, so nothing that verified before is
+    /// rejected now.
+    pub(super) expr_tree_depth: usize,
     /// This file's import BINDINGS — `binding -> package` for every `IMPORT p`
     /// (binding == package) and `IMPORT p AS b` (binding `b`).
     ///
@@ -150,6 +162,7 @@ impl<'a> FileParser<'a> {
             stmt_depth: 0,
             type_depth: 0,
             depth_exceeded: false,
+            expr_tree_depth: 0,
             import_bindings,
             builtin_package,
         }

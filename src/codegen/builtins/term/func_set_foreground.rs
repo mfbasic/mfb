@@ -13,10 +13,17 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Set the foreground colour used for subsequently drawn text"#;
 
-const DESC: &str = r#"`term::setForeground` sets the 24-bit RGB colour that subsequent text drawn
-through the `term::` surface will be written in. The three channels — red, green,
-blue — are each a `Byte` from 0 to 255, so (0, 0, 0) is black, (255, 255, 255) is
-white, and (255, 0, 0) is pure red. Exactly three arguments are required.
+const DESC: &str = r#"`term::setForeground` sets the colour that subsequent text drawn through the
+`term::` surface will be written in, from a single `color::Color`.
+
+**A program calling this must `IMPORT color`** as well as `term` — imports are not
+transitive and a package cannot re-export another's types.
+
+**`alpha` is ignored.** A terminal cell has no alpha channel, so a
+half-transparent colour draws exactly the cells an opaque one draws. The alpha is
+not an error and is not clamped away; it simply has nowhere to go. Synthesizing a
+blend against whatever is already in the cell would disagree with what a canvas
+surface draws for the same colour, so the terminal does not attempt one.
 
 The colour is packed into the module's current-attribute state and **no escape
 sequence is emitted**. Like every other drawing operation on this retained
@@ -27,41 +34,41 @@ background, bold, and underline that were current when its glyph was written, so
 changing the foreground affects only text drawn *after* the call — text already in
 the surface keeps the colour it was drawn with, and is not restyled.
 
-The setting persists until the next `term::setForeground` or the next
-`term::on`, which resets the foreground to white (255, 255, 255). The background
-colour and the bold and underline attributes are independent and are left
-untouched; the current value can be read back with `term::getForeground`.
+The setting persists until the next `term::setForeground` or the next `term::on`,
+which resets the foreground to white (255, 255, 255). The background colour and the bold and underline
+attributes are independent and are left untouched; the current value can be read
+back with `term::getForeground`.
 
 The call is gated: while TUI mode is off it does nothing and reports no error."#;
 
-const EX: &str = r#"Draw red text and present the frame:
+const EX: &str = r#"Draw coloured text and present the frame:
 
 ```
 IMPORT term
+IMPORT color
 IMPORT io
 
 SUB main()
   term::on()
-  term::setForeground(255, 0, 0)
-  io::print("hello in red")
+  term::setForeground(color::rgb(255, 0, 0))
+  io::print("alert")
   term::sync()
   term::off()
 END SUB
 ```
 
-Two colours in one frame — the first line keeps its colour:
+The colour round-trips through `term::getForeground`, so saving and restoring needs no
+channel unpacking:
 
 ```
 IMPORT term
-IMPORT io
+IMPORT color
 
 SUB main()
   term::on()
-  term::setForeground(0, 255, 0)
-  io::print("green")
-  term::setForeground(0, 128, 255)
-  io::print("blue")
-  term::sync()
+  LET saved AS color::Color = term::getForeground()
+  term::setForeground(color::fromName("teal"))
+  term::setForeground(saved)
   term::off()
 END SUB
 ```"#;
@@ -97,32 +104,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: Some("Byte, Byte, Byte"),
+        expected_arguments: Some("color::Color"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![
-                Parameter {
-                    name: "r",
-                    desc: "Red channel, 0 to 255.",
-                    aliases: &[],
-                    ty: ParameterType::Byte,
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "g",
-                    desc: "Green channel, 0 to 255.",
-                    aliases: &[],
-                    ty: ParameterType::Byte,
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "b",
-                    desc: "Blue channel, 0 to 255.",
-                    aliases: &[],
-                    ty: ParameterType::Byte,
-                    default: DefaultValue::None,
-                },
-            ],
+            params: vec![Parameter {
+                name: "base",
+                desc: "The colour to draw in. Its alpha is ignored — a terminal \
+                       cell has no alpha channel.",
+                aliases: &[],
+                ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
+                default: DefaultValue::None,
+            }],
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::abi_function(lower_set_foreground),

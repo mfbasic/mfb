@@ -234,12 +234,22 @@ pub fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
 /// child is killed and the test panics — `hang_context` names the specific hang
 /// each caller guards against (e.g. a reintroduced linear `^` loop). Poll
 /// interval is 25 ms; it is immaterial against these multi-second timeouts.
+///
+/// The child runs with its own directory as cwd. Without this it inherited the
+/// test process's cwd — the crate root — so any fixture doing relative file I/O
+/// (`fs::writeBytes("payload.bin", …)`) wrote **into the repository** and left
+/// the file behind when the test failed early. Anchoring cwd to the executable's
+/// directory keeps that I/O inside the temp project the caller already deletes.
 pub fn run_bounded(
     executable: &Path,
     timeout: Duration,
     hang_context: &str,
 ) -> (ExitStatus, String) {
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

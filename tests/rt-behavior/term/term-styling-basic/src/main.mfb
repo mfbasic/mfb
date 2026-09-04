@@ -1,5 +1,6 @@
 IMPORT io
 IMPORT term
+IMPORT color
 
 REM plan-66-D: the term:: styling family across every native target. The ANSI the
 REM shadow-grid emits is platform-neutral; on Windows term::on additionally enables
@@ -10,7 +11,7 @@ FUNC main AS Integer
   io::print("isOn0=" & toString(term::isOn()))
   term::on()
   io::print("isOn1=" & toString(term::isOn()))
-  term::setForeground(255, 0, 0)
+  term::setForeground(color::rgb(255, 0, 0))
   term::setBold(TRUE)
   term::moveTo(1, 0)
   term::sync()

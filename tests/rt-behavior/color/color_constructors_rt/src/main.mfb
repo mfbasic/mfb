@@ -1,0 +1,48 @@
+' plan-122-A Phase 2: `rgb`, `gray`, `withAlpha` and `invert`.
+'
+' Every constructor is asserted at BOTH clamp ends as well as in range, and on
+' every argument position, so a clamp wired to the wrong parameter cannot pass.
+' The alpha rules are asserted positively rather than by omission: `rgb` and
+' `gray` fix alpha at 255, `withAlpha` replaces only alpha, and `invert` carries
+' alpha through untouched.
+
+IMPORT color
+IMPORT io
+
+SUB show(label AS String, c AS color::Color)
+  io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
+END SUB
+
+FUNC main AS Integer
+  ' --- rgb: three components clamped, alpha fixed opaque -------------------
+  show("rgb", color::rgb(1, 2, 3))
+  show("rgbOver", color::rgb(256, 300, 999))
+  show("rgbUnder", color::rgb(-1, -20, -999))
+  show("rgbMixed", color::rgb(300, -20, 128))
+  show("rgbEdges", color::rgb(0, 255, 0))
+
+  ' --- gray: one level on every channel, alpha fixed opaque ----------------
+  show("gray0", color::gray(0))
+  show("gray128", color::gray(128))
+  show("gray255", color::gray(255))
+  show("grayOver", color::gray(999))
+  show("grayUnder", color::gray(-999))
+
+  ' --- withAlpha: rgb preserved exactly, alpha clamped ---------------------
+  LET base AS color::Color = color::rgba(10, 200, 30, 128)
+  show("withAlpha", color::withAlpha(base, 64))
+  show("withAlphaOver", color::withAlpha(base, 999))
+  show("withAlphaUnder", color::withAlpha(base, -999))
+  ' A colour at alpha 0 still remembers its hue: the channels are untouched, so
+  ' a round trip back to opaque restores the original exactly.
+  show("withAlphaRoundTrip", color::withAlpha(color::withAlpha(base, 0), 128))
+
+  ' --- invert: 255 - channel, alpha PRESERVED (not inverted) --------------
+  show("invert", color::invert(base))
+  show("invertTwice", color::invert(color::invert(base)))
+  ' The two ends, where an off-by-one in the subtraction would show.
+  show("invertBlack", color::invert(color::rgba(0, 0, 0, 7)))
+  show("invertWhite", color::invert(color::rgba(255, 255, 255, 7)))
+
+  RETURN 0
+END FUNC

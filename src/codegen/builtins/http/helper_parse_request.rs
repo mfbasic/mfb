@@ -48,12 +48,23 @@ r#"FUNC __http_parseRequest(raw AS List OF Byte) AS Request
     RECOVER rawPathOnly
   END TRAP
   LET query AS Map OF String TO String = net::parseQuery(queryStr)
-  LET headers AS Map OF String TO String = __http_headerMapFromHead(headStr)
+  ' bug-506 / OS-53: the strict server-side header parse and framing rules —
+  ' duplicate Content-Length, Content-Length with Transfer-Encoding, whitespace
+  ' before the colon, obs-fold, a non-final `chunked`, and a non-numeric
+  ' Content-Length all FAIL here and become a 400. The body is exactly the
+  ' framed bytes: truncated to Content-Length, or de-chunked.
+  LET headers AS Map OF String TO String = __http_requestHeaderMap(headStr)
+  LET framing AS Integer = __http_requestFraming(headers)
   LET bodyStart AS Integer = he + 4
-  MUT body AS List OF Byte = __http_byteSlice(raw, bodyStart, len(raw))
-  LET te AS String = strings::lower(collections::getOr(headers, "transfer-encoding", ""))
-  IF strings::contains(te, "chunked") THEN
-    body = __http_dechunkBytes(body)
+  MUT body AS List OF Byte = []
+  IF framing = -1 THEN
+    body = __http_dechunkBytes(__http_byteSlice(raw, bodyStart, len(raw)))
+  ELSE
+    MUT bodyEnd AS Integer = bodyStart + framing
+    IF bodyEnd > len(raw) THEN
+      bodyEnd = len(raw)
+    END IF
+    body = __http_byteSlice(raw, bodyStart, bodyEnd)
   END IF
   MUT parts AS Map OF String TO RequestPart = Map OF String TO RequestPart {}
   LET ctype AS String = strings::lower(collections::getOr(headers, "content-type", ""))

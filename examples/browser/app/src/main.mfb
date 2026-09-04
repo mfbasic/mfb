@@ -1,4 +1,5 @@
 IMPORT astrings
+IMPORT color
 IMPORT collections
 IMPORT display
 IMPORT dom
@@ -306,8 +307,8 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   LET hrefPrefix AS String = "[" & ind & "] HREF: "
 
   ' Row 0: top bar.
-  term::setBackground(30, 40, 60)
-  term::setForeground(225, 233, 255)
+  term::setBackground(color::rgb(30, 40, 60))
+  term::setForeground(color::rgb(225, 233, 255))
   term::setBold(TRUE)
   term::moveTo(0, 0)
   IF addressMode THEN
@@ -318,8 +319,8 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   term::setBold(FALSE)
 
   ' Row 1 and row H-2: the header and footer rules.
-  term::setBackground(0, 0, 0)
-  term::setForeground(90, 110, 150)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(90, 110, 150))
   term::drawHLine(term::LineStyle.Light, 1, 0, cols - 1)
   term::drawHLine(term::LineStyle.Light, rows - 2, 0, cols - 1)
 
@@ -333,8 +334,8 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   ' are unavailable — say what still works instead of advertising [Q]uit.
   IF fieldMode THEN leftPart = "Type to edit  [Tab] Next  [Esc] Leave field"
   IF addressMode THEN leftPart = "[Esc] Clear/Cancel  [Enter] Go"
-  term::setBackground(30, 40, 60)
-  term::setForeground(225, 233, 255)
+  term::setBackground(color::rgb(30, 40, 60))
+  term::setForeground(color::rgb(225, 233, 255))
   term::setBold(TRUE)
   term::moveTo(rows - 1, 0)
   ' Full surface width, including the bottom-right cell: the term:: presenter
@@ -344,8 +345,8 @@ SUB drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boolea
   ' the full-width top bar and rules.
   io::write(composeFooter(leftPart, rightPart, cols))
   term::setBold(FALSE)
-  term::setBackground(0, 0, 0)
-  term::setForeground(255, 255, 255)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(255, 255, 255))
 
   ' Cursor: visible at the end of the URL while editing, hidden otherwise. The
   ' column is the on-screen width of the prefix plus URL, not their scalar count:
@@ -597,7 +598,7 @@ FUNC highlightRow(a AS AttributedString, c0 AS Integer, c1 AS Integer) AS Attrib
   LET s0 AS Integer = maxOf(0, c0)
   LET s1 AS Integer = minOf(c1, n - 1)
   IF s1 < s0 THEN RETURN a
-  RETURN astrings::addAttribute(a, s0, s1, astrings::background(60, 90, 150))
+  RETURN astrings::addAttribute(a, s0, s1, astrings::background(color::rgb(60, 90, 150)))
 END FUNC
 
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
@@ -610,8 +611,8 @@ END FUNC
 SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scroll AS Integer, hscroll AS Integer, focusRects AS List OF Rect, patches AS List OF FieldPatch)
   LET cols AS Integer = size.columns
   LET contentH AS Integer = maxOf(1, size.rows - 4)
-  term::setBackground(0, 0, 0)
-  term::setForeground(210, 214, 220)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(210, 214, 220))
   term::setBold(FALSE)
   LET blank AS String = strings::repeat(" ", maxOf(1, cols))
   FOR r = 0 TO contentH - 1
@@ -635,7 +636,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
         IF pa.rect.row = idx THEN
           MUT boxA AS AttributedString = astrings::fromString(pa.text)
           IF pa.focused AND len(pa.text) > 0 THEN
-            boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(60, 90, 150))
+            boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(color::rgb(60, 90, 150)))
           END IF
           term::drawText(pa.rect.c0 - hscroll, 2 + r, boxA)
         END IF

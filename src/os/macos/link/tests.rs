@@ -1512,3 +1512,45 @@ fn a_vendoring_binary_still_launches() {
          whose sizeofcmds/ncmds disagree with its contents"
     );
 }
+
+/// bug-503: the project name is `Path::join`ed into `build/<name>.out`, so a
+/// manifest name carrying a path separator or `..` must be refused before any
+/// byte is written — never resolved to a path outside `build/`.
+#[test]
+fn refuses_to_write_an_executable_under_a_traversing_name() {
+    let mut text = Vec::new();
+    put_u32(&mut text, 0xd280_0000); // movz w0, #0
+    let image = EncodedImage {
+        text,
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        ..none()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    // `build/../evil.out` resolves to `<dir>/evil.out`: outside the build dir.
+    let error = write_executable(dir.path(), "../evil", &image)
+        .expect_err("a traversing project name must be rejected");
+    assert!(error.contains("not a valid path component"), "{error}");
+    assert!(
+        !dir.path().join("evil.out").exists(),
+        "an executable escaped build/ under a traversing name"
+    );
+    let error = write_app_bundle(dir.path(), "../evil", &image, None, "1.0.0")
+        .expect_err("a traversing project name must be rejected by the bundle writer");
+    assert!(error.contains("not a valid path component"), "{error}");
+    assert!(!dir.path().join("evil.app").exists());
+    // A leading `.` hides the artifact; an absolute name would ignore `build/`.
+    for name in [".hidden", "/tmp/evil", "a/b"] {
+        assert!(
+            write_executable(dir.path(), name, &image).is_err(),
+            "{name}"
+        );
+    }
+    assert!(
+        !dir.path().join("build").exists(),
+        "nothing may be created on refusal"
+    );
+}

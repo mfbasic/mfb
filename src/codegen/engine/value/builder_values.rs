@@ -47,7 +47,7 @@ impl<'a> CodeBuilder<'a> {
 /// The spine stops at the first non-`&` value, so a parenthesized subchain on
 /// the right (`a & (b & c)`) keeps its own grouping and is lowered as its own
 /// fused chain — the operand order the source wrote is preserved either way.
-fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
+pub(super) fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
     if let NirValue::Binary {
         op, left, right, ..
     } = value
@@ -79,12 +79,19 @@ impl CodeBuilder<'_> {
             || crate::codegen::engine::expansion::value_key(value),
             self.instructions.len(),
         );
-        let mut result = self.lower_value_inner(value);
+        // bug-496: note which of this node's operands must be snapshotted before
+        // a later sibling's call can reassign the storage they point into.
+        let snapshot_mark = self.push_operand_snapshot_frame(value);
+        let result = self.lower_value_inner(value);
+        self.operand_snapshot_wanted.truncate(snapshot_mark);
         crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             self.register_pending_temp(value, result);
         }
+        // bug-496: if THIS value is such an operand of the enclosing node, hand
+        // its consumer a statement-scope deep copy instead of the live pointer.
+        let mut result = result.and_then(|result| self.snapshot_aliased_operand(value, result));
         // Stamp the source `NirValue` so a pre-lowered `abi_inline` body can run any
         // NIR-structural analysis (bounds-check elision, float-finiteness, folding)
         // off the `ValueResult` — the value is pre-lowered, but the details are kept.
@@ -2093,7 +2100,7 @@ impl CodeBuilder<'_> {
             1 => true,
             2 => args
                 .first()
-                .and_then(|arg| self.static_type_name(arg))
+                .and_then(|arg| self.overload_arg_type(arg))
                 .is_some_and(|type_| type_.is_builtin_named("net", "Address")),
             _ => false,
         }
@@ -2105,8 +2112,49 @@ impl CodeBuilder<'_> {
     /// helper by the receiver's static type.
     fn net_poll_is_list_form(&self, args: &[NirValue]) -> bool {
         args.first()
-            .and_then(|arg| self.static_type_name(arg))
+            .and_then(|arg| self.overload_arg_type(arg))
             .is_some_and(|ty| matches!(ty, crate::types::ParameterType::ListOf(_)))
+    }
+
+    /// bug-497: the code form of a bytes-or-text write (`tcp::write`,
+    /// `udp::send`, `tls::write`) from its payload's static type — and nothing
+    /// else. The two forms read the payload block with different layouts: a
+    /// `String` is `[u64 len][bytes]`, a `List OF Byte` is a collection block
+    /// whose count is at +8 and whose bytes start past the header. Choosing
+    /// wrong is therefore not a wrong answer but an out-of-bounds read whose
+    /// LENGTH the payload's own first bytes dictate; over a socket those bytes
+    /// are the peer's, which is how OS-50 turned an echo server into a remote
+    /// memory-disclosure oracle (a 22-byte request read back 1024 bytes of
+    /// process memory).
+    ///
+    /// The old `is_some_and(String) … else bytes` shape failed OPEN: any payload
+    /// the builder could not type took the byte form. This fails CLOSED: a
+    /// `String` is text, a `List OF _` is bytes (the front end has already
+    /// checked the element type, and the literal `[]` arrives as
+    /// `List OF Unknown`), and anything else is a codegen error naming the
+    /// member — a payload shape the resolver does not know is a build failure,
+    /// never a guess. The byte-form sink checks the block header as well
+    /// (`push_write_payload_view`), so the two guards are independent.
+    fn net_write_payload_form(
+        &self,
+        payload: Option<&NirValue>,
+        byte_form: &'static str,
+        text_form: &'static str,
+    ) -> Result<&'static str, String> {
+        let payload = payload
+            .ok_or_else(|| format!("native runtime {byte_form} is missing its payload argument"))?;
+        match self.overload_arg_type(payload) {
+            Some(ParameterType::String) => Ok(text_form),
+            Some(ParameterType::ListOf(_)) => Ok(byte_form),
+            other => Err(format!(
+                "native runtime {byte_form}: payload static type {} is neither String nor \
+                 List OF Byte; refusing to select a lowering (bug-497)",
+                other.map_or_else(
+                    || "<unresolved>".to_string(),
+                    |type_| type_.name().to_string()
+                )
+            )),
+        }
     }
 
     pub(crate) fn lower_runtime_helper_call(
@@ -2124,7 +2172,7 @@ impl CodeBuilder<'_> {
         if matches!(target, "io.print" | "io.write") {
             if let Some(arg) = helper_args.first() {
                 if self
-                    .static_type_name(arg)
+                    .overload_arg_type(arg)
                     .is_some_and(|type_| type_.is_named("AttributedString"))
                 {
                     let inner = helper_args[0].clone();
@@ -2389,7 +2437,7 @@ impl CodeBuilder<'_> {
             "net.ping" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "net.pingAddr"
@@ -2417,15 +2465,7 @@ impl CodeBuilder<'_> {
                 }
             }
             "tcp.write" => {
-                if args
-                    .get(1)
-                    .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| matches!(type_, ParameterType::String))
-                {
-                    "tcp.writeText"
-                } else {
-                    "tcp.write"
-                }
+                self.net_write_payload_form(args.get(1), "tcp.write", "tcp.writeText")?
             }
             // plan-110-C: udp's two code forms. `send`'s payload is argument 2
             // (socket, address, payload), not argument 1 as in `tcp::write`.
@@ -2436,17 +2476,7 @@ impl CodeBuilder<'_> {
                     "udp.poll"
                 }
             }
-            "udp.send" => {
-                if args
-                    .get(2)
-                    .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| matches!(type_, ParameterType::String))
-                {
-                    "udp.sendText"
-                } else {
-                    "udp.send"
-                }
-            }
+            "udp.send" => self.net_write_payload_form(args.get(2), "udp.send", "udp.sendText")?,
             // plan-110-D: the `net::Address` connect overload. Selected by the
             // first argument's static type rather than by arity, because tls's
             // optional `timeoutMs`/`serverName` are `DefaultValue::Fill` — every
@@ -2455,7 +2485,7 @@ impl CodeBuilder<'_> {
             "tls.connect" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| type_.is_builtin_named("net", "Address"))
                 {
                     "tls.connectAddr"
@@ -2467,15 +2497,7 @@ impl CodeBuilder<'_> {
             // so the byte-vs-text lowering is selected here by the payload's type
             // rather than by the member name — the same move `tcp::write` made.
             "tls.write" => {
-                if args
-                    .get(1)
-                    .and_then(|arg| self.static_type_name(arg))
-                    .is_some_and(|type_| matches!(type_, ParameterType::String))
-                {
-                    "tls.writeText"
-                } else {
-                    "tls.write"
-                }
+                self.net_write_payload_form(args.get(1), "tls.write", "tls.writeText")?
             }
             // bug-465: `tls::localAddress` spans both handle types, as
             // `tcp::localAddress` always has. The two cannot share one body —
@@ -2485,7 +2507,7 @@ impl CodeBuilder<'_> {
             "tls.localAddress" => {
                 if args
                     .first()
-                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|arg| self.overload_arg_type(arg))
                     .is_some_and(|type_| {
                         type_.is_named(crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID)
                     })

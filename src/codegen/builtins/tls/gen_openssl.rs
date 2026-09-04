@@ -13,6 +13,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::emit_data_address;
+use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
@@ -2559,32 +2560,22 @@ pub(crate) fn lower_tls_write_openssl(
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_SSL),
         abi::store_u64(&v9, abi::stack_pointer(), SSL_OFFSET),
     ]);
-    if text {
-        instructions.extend([
-            abi::load_u64(&v10, abi::c_arg(1), 0),
-            abi::store_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
-            abi::add_immediate(&v11, abi::c_arg(1), 8),
-            abi::store_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
-        ]);
-    } else {
-        instructions.extend([
-            abi::load_u64(&v10, abi::c_arg(1), COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
-            // The byte payload begins past the CAPACITY-sized entry array, not the
-            // COUNT-sized one: an append-built list carries spare capacity, so
-            // COUNT*ENTRY would mis-address it (byte payload base is
-            // HEADER + CAPACITY*ENTRY — builder_collection_layout.rs).
-        ]);
-        push_collection_data_base_from_capacity(
-            &mut instructions,
-            &v11,
-            abi::c_arg(1),
-            &v14,
-            &v12,
-            &v13,
-        );
-        instructions.extend([abi::store_u64(&v11, abi::stack_pointer(), SRC_OFFSET)]);
-    }
+    // bug-497 / bug-508: one payload view for every backend — the text form
+    // as before, the byte form after a header check (`push_write_payload_view`).
+    let bad_payload = format!("{symbol}_bad_payload");
+    push_write_payload_view(
+        &mut instructions,
+        text,
+        abi::c_arg(1),
+        &v10,
+        &v11,
+        &v14,
+        &v12,
+        &v13,
+        REMAINING_OFFSET,
+        SRC_OFFSET,
+        &bad_payload,
+    );
     emit_dlopen_libssl(
         &mut EmitCtx {
             symbol,
@@ -2728,6 +2719,18 @@ pub(crate) fn lower_tls_write_openssl(
         &mut relocations,
         &done,
     );
+    if !text {
+        // bug-497: the byte form was handed a block whose header is not a
+        // `List OF Byte`'s — refuse rather than read a length out of its bytes.
+        instructions.push(abi::label(&bad_payload));
+        emit_fail(
+            symbol,
+            "ErrInvalidArgument",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))

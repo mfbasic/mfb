@@ -1,0 +1,13 @@
+{
+  "name": "../project_name_traversal_error_evil",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main"
+}

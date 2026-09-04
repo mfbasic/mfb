@@ -283,6 +283,7 @@ program still compiles and runs. Injected builtin source is exempt.
 | `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a project.json `libraries` locator is malformed, carries an unknown os/arch/libc/type token, or names a `source` that is not a bare filename |
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two project.json `libraries` vendor locators declare the same `source` filename |
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | a project.json with `kind: "package"` must declare a `description` |
+| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | project.json `name` is not a single safe path component |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 

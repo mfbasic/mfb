@@ -5,7 +5,8 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "io", "line": 1 },
-    { "module": "term", "line": 2 }
+    { "module": "term", "line": 2 },
+    { "module": "color", "line": 3 }
     ],
     "items": [
     {
@@ -13,21 +14,21 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 9,
+      "line": 10,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 10 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 14 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }, "line": 15 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 16 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 17 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 18 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "isOn2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "term.isOn", "arguments": [] }] } }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
       ]
     }
     ]

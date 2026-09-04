@@ -38,10 +38,11 @@ fields must either be runtime-owned transfer values, values materialized into a
 receiver-valid arena, or values whose producer arena is kept live by the control
 block until the one result retrieval materializes its receiver-owned copy.
 
-`worker arena state` and `parent arena state` let either side materialize a
-boundary value into the *receiving* side's arena: a worker→parent send loads the
-parent arena state from offset 88; every other copy uses the worker arena state at
-offset 80 (see `queue-semantics`).
+`worker arena state` (offset 80) is the arena the trampoline pins for the worker
+and the one `thread::openStdIn` subscribes; `parent arena state` (offset 88) records
+the spawning thread's arena. Neither is used to allocate a boundary value into the
+*other* side's arena: a message is copied in the sender's own arena and handed
+across (see `queue-semantics`, bug-498).
 
 ## Plane queues
 

@@ -25,12 +25,18 @@
 //! Byte"`, …) is kept hand-authored on the descriptor (the registry's per-position
 //! render would say `"()"`), decoupled from the machine coercion table (bug-443).
 //!
-//! `term` owns four value types. The two records `TermColor` (`r`/`g`/`b` `Byte`) and
-//! `TermSize` (`columns`/`rows` `Integer`) are registered via [`add_record`] — they are
-//! **read-only** (the runtime allocates them; a program may neither construct nor
-//! WITH-update one — see [`is_read_only_record`], consulted by
-//! `ir::verify`/the former source checker). Their binary-repr wire ids stay the reserved high-band
-//! `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`). The two
+//! `term` owns three value types. The record `TermSize` (`columns`/`rows` `Integer`)
+//! is registered via [`add_record`] — it is **read-only** (the runtime allocates it;
+//! a program may neither construct nor WITH-update one — see [`is_read_only_record`],
+//! consulted by `ir::verify`/the former source checker). Its binary-repr wire id stays
+//! the reserved high-band `TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`).
+//!
+//! plan-122-F retired the sibling `TermColor`. The colour members take and return a
+//! `color::Color`, which is an ordinary value record owned by `color` — so it needs
+//! no read-only rule, no reserved wire id and no resolver seed here. `term` still
+//! declares **no** `add_imports`: a native member can name a foreign record through a
+//! qualified type-id constant, exactly as `tcp::localAddress` returns `net.Address`,
+//! and that is what keeps `IMPORT term` costing a program zero bytes. The two
 //! enums `LineStyle` (the box-drawing weight) and `FillStyle` (the block/shade glyph)
 //! are registry-modeled via [`RegistryPackage::add_enum`] and rendered into the
 //! injected `<builtin-term>` source by `get_mfb` (their variant docs surface on the
@@ -84,28 +90,28 @@ mod gen_shared;
 /// the `drawText(AttributedString)` overload (routed to `__term_drawTextAttr`).
 pub(crate) const DRAW_TEXT: &str = "term.drawText";
 
-/// The read-only `TermColor` record type (`r`/`g`/`b` `Byte`), returned by
-/// `term::getForeground`/`getBackground`.
-pub(crate) const TERM_COLOR_TYPE: &str = "TermColor";
 /// The read-only `TermSize` record type (`columns`/`rows` `Integer`), returned by
 /// `term::terminalSize`.
+///
+/// plan-122-F retired the sibling `TermColor`: the colour members now speak
+/// `color::Color` (`builtins::color::COLOR_TYPE_ID`), which is an ordinary value
+/// record rather than a runtime-allocated read-only one, so it needs no constant
+/// here, no read-only rule, no reserved wire id and no resolver seed.
 pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
-/// Their package-qualified identities — what a consumer must write, and what the
-/// resolver seeds, so a bare `AS TermColor`/`AS TermSize` is refused (bug-484).
-pub(crate) const TERM_COLOR_TYPE_ID: &str = "term.TermColor";
+/// Its package-qualified identity — what a consumer must write, and what the
+/// resolver seeds, so a bare `AS TermSize` is refused (bug-484).
 pub(crate) const TERM_SIZE_TYPE_ID: &str = "term.TermSize";
 
-/// Whether `type_name` is one of `term`'s compiler-owned, read-only record types
-/// (`TermColor`/`TermSize`): the runtime allocates them, so a program may neither
-/// construct nor WITH-update one. Consulted by `ir::verify::read_only_record_type` and
+/// Whether `type_name` is `term`'s compiler-owned, read-only record type
+/// (`TermSize`): the runtime allocates it, so a program may neither construct nor
+/// WITH-update one. Consulted by `ir::verify::read_only_record_type` and
 /// the former source checker's `helpers::read_only_record_type`.
 ///
 /// Asked through `is_builtin_named` so both spellings answer the same: a source
 /// `AS term::TermSize` resolves to the qualified `term.TermSize`, while the
 /// injected companion and any record field naming one stay bare (bug-483).
 pub(crate) fn is_read_only_record(type_name: &ParameterType) -> bool {
-    type_name.is_builtin_named("term", TERM_COLOR_TYPE)
-        || type_name.is_builtin_named("term", TERM_SIZE_TYPE)
+    type_name.is_builtin_named("term", TERM_SIZE_TYPE)
 }
 
 /// One-line package intro (historically empty; the man page is the doc authority).
@@ -168,9 +174,14 @@ chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Chec
 a string at an absolute position (without moving the cursor), and
 `term::drawGlyph` stamps a single scalar by code point.
 
-The package defines two built-in record types and two enums. `term::TermColor` has three
-`Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
-color, and is returned by `term::getForeground` and `term::getBackground`.
+The package defines one built-in record type and two enums; its colour surface uses
+`color::Color`. `term::getForeground` and `term::getBackground` return a
+`color::Color`, and `term::setForeground`/`term::setBackground` take one — so a
+colour read from the surface can be handed straight back to it, and the same value
+works anywhere else in the language. A program that names the type must
+`IMPORT color` as well as `term`. **A terminal cell has no alpha channel**: the
+setters ignore `alpha` and the getters always report `255`.
+
 `term::TermSize` has two `Integer` fields `columns` (the width of the surface in
 character cells) and `rows` (its height), and is returned by `term::terminalSize`;
 the surface size can change between calls (for example when the terminal window is
@@ -183,35 +194,14 @@ glyph for `term::fillRect`."#;
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("term", INTRO, DESC);
 
-    // The two read-only records (the runtime allocates them). Registered on the
-    // registry so `is_builtin_type`/`qualified_builtin_type` resolve them and the
-    // read-only checks repoint here; their wire ids stay the reserved high-band
-    // `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`).
-    pkg.add_record(RegistryRecord {
-        name: TERM_COLOR_TYPE,
-        export: true,
-        description: "An RGB colour, as returned by `term::getForeground` and \
-                      `term::getBackground`. You read one of these; you never build \
-                      one — pass the three channels directly to \
-                      `term::setForeground`/`term::setBackground`.",
-        props: vec![
-            RecordProp {
-                name: "r",
-                ty: ParameterType::Byte,
-                description: "The red channel, 0 through 255.",
-            },
-            RecordProp {
-                name: "g",
-                ty: ParameterType::Byte,
-                description: "The green channel, 0 through 255.",
-            },
-            RecordProp {
-                name: "b",
-                ty: ParameterType::Byte,
-                description: "The blue channel, 0 through 255.",
-            },
-        ],
-    });
+    // The one remaining read-only record (the runtime allocates it). Registered on
+    // the registry so `is_builtin_type`/`qualified_builtin_type` resolve it and the
+    // read-only check repoints here; its wire id stays the reserved high-band
+    // `TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`).
+    //
+    // plan-122-F retired `TermColor`: the colour members speak `color::Color`, an
+    // ordinary value record a program may build and `WITH`-update, so the type no
+    // longer needs a read-only rule, a reserved wire id, or a resolver seed.
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
