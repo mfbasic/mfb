@@ -3502,6 +3502,67 @@ mod tests {
     /// Checked as a sorted sweep rather than a list of pairwise asserts so a slot added
     /// later is covered without anyone remembering to extend this.
     #[test]
+    fn the_draw_frame_slots_do_not_overlap() {
+        // (offset, size, name) for every hand-assigned slot in the frame.
+        let mut slots = vec![
+            (OFF_REGION, 48, "region"),
+            (OFF_LR, 8, "lr"),
+            (OFF_SAVES, 8 * 8, "saves"),
+            (OFF_SURFACE, 8, "surface"),
+            (OFF_WIDTH, 8, "width"),
+            (OFF_HEIGHT, 8, "height"),
+            (OFF_POOL, 8, "pool"),
+            (OFF_ITEM, ITEM_BLOCK_SIZE, "item"),
+            (OFF_TEXTURE, 8, "texture"),
+            (OFF_GLYPH_META, 8, "glyphMeta"),
+            (OFF_GLYPH_COV, 8, "glyphCov"),
+            (OFF_GLYPH_INDEX, 8, "glyphIndex"),
+            (OFF_GLYPH_COUNT, 8, "glyphCount"),
+            (OFF_GLYPH_HEADER, 8, "glyphHeader"),
+            (OFF_GLYPH_W, 8, "glyphW"),
+            (OFF_GLYPH_H, 8, "glyphH"),
+            (OFF_GLYPH_X, 8, "glyphX"),
+            (OFF_GLYPH_Y, 8, "glyphY"),
+            (OFF_GLYPH_SRC, 8, "glyphSrc"),
+            (OFF_CONTENTS, 8, "contents"),
+            (OFF_ITEM_CURSOR, 8, "itemCursor"),
+            (OFF_RUN_START, 8, "runStart"),
+            (OFF_EDGE_CURSOR, 8, "edgeCursor"),
+            (OFF_GRAD_CURSOR, 8, "gradCursor"),
+            (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
+            (OFF_BOUND_MODE, 8, "boundMode"),
+            (OFF_ITEM_MODE, 8, "itemMode"),
+            (OFF_SAVED_STROKE, 8, "savedStroke"),
+            (OFF_DRAWS, 8, "draws"),
+            (OFF_DRAW_ENTRIES, 8, "drawEntries"),
+            (OFF_DRAW_INDEX, 8, "drawIndex"),
+            (OFF_DRAW_BASE, 8, "drawBase"),
+            (OFF_DRAW_COUNT, 8, "drawCount"),
+            (OFF_DRAW_PAIR, 8, "drawPair"),
+        ];
+        slots.sort_by_key(|&(offset, _, _)| offset);
+
+        for pair in slots.windows(2) {
+            let (offset, size, name) = pair[0];
+            let (next_offset, _, next_name) = pair[1];
+            assert!(
+                offset + size <= next_offset,
+                "`{name}` at {offset} is {size} bytes, so it runs to {} and overlaps \
+                 `{next_name}` at {next_offset} — a hand-assigned frame slot was \
+                 widened without moving the ones above it",
+                offset + size,
+            );
+        }
+
+        let (last_offset, last_size, last_name) = *slots.last().expect("slots is not empty");
+        assert!(
+            last_offset + last_size <= DRAW_FRAME,
+            "`{last_name}` runs to {} but DRAW_FRAME is only {DRAW_FRAME}",
+            last_offset + last_size,
+        );
+        assert_eq!(DRAW_FRAME % 16, 0, "AAPCS64 wants a 16-byte-aligned frame");
+    }
+
     /// The draw offset is bound where the shader declares it, in both stages.
     ///
     /// The emitter sends `setVertexBytes:...atIndex:` and `setFragmentBytes:...atIndex:`
@@ -3572,67 +3633,6 @@ mod tests {
             "only the clip and `p`'s own definition may mention `in.pos.xy` — another \
              use is a consumer that was not moved into shape space",
         );
-    }
-
-    fn the_draw_frame_slots_do_not_overlap() {
-        // (offset, size, name) for every hand-assigned slot in the frame.
-        let mut slots = vec![
-            (OFF_REGION, 48, "region"),
-            (OFF_LR, 8, "lr"),
-            (OFF_SAVES, 8 * 8, "saves"),
-            (OFF_SURFACE, 8, "surface"),
-            (OFF_WIDTH, 8, "width"),
-            (OFF_HEIGHT, 8, "height"),
-            (OFF_POOL, 8, "pool"),
-            (OFF_ITEM, ITEM_BLOCK_SIZE, "item"),
-            (OFF_TEXTURE, 8, "texture"),
-            (OFF_GLYPH_META, 8, "glyphMeta"),
-            (OFF_GLYPH_COV, 8, "glyphCov"),
-            (OFF_GLYPH_INDEX, 8, "glyphIndex"),
-            (OFF_GLYPH_COUNT, 8, "glyphCount"),
-            (OFF_GLYPH_HEADER, 8, "glyphHeader"),
-            (OFF_GLYPH_W, 8, "glyphW"),
-            (OFF_GLYPH_H, 8, "glyphH"),
-            (OFF_GLYPH_X, 8, "glyphX"),
-            (OFF_GLYPH_Y, 8, "glyphY"),
-            (OFF_GLYPH_SRC, 8, "glyphSrc"),
-            (OFF_CONTENTS, 8, "contents"),
-            (OFF_ITEM_CURSOR, 8, "itemCursor"),
-            (OFF_RUN_START, 8, "runStart"),
-            (OFF_EDGE_CURSOR, 8, "edgeCursor"),
-            (OFF_GRAD_CURSOR, 8, "gradCursor"),
-            (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
-            (OFF_BOUND_MODE, 8, "boundMode"),
-            (OFF_ITEM_MODE, 8, "itemMode"),
-            (OFF_SAVED_STROKE, 8, "savedStroke"),
-            (OFF_DRAWS, 8, "draws"),
-            (OFF_DRAW_ENTRIES, 8, "drawEntries"),
-            (OFF_DRAW_INDEX, 8, "drawIndex"),
-            (OFF_DRAW_BASE, 8, "drawBase"),
-            (OFF_DRAW_COUNT, 8, "drawCount"),
-            (OFF_DRAW_PAIR, 8, "drawPair"),
-        ];
-        slots.sort_by_key(|&(offset, _, _)| offset);
-
-        for pair in slots.windows(2) {
-            let (offset, size, name) = pair[0];
-            let (next_offset, _, next_name) = pair[1];
-            assert!(
-                offset + size <= next_offset,
-                "`{name}` at {offset} is {size} bytes, so it runs to {} and overlaps \
-                 `{next_name}` at {next_offset} — a hand-assigned frame slot was \
-                 widened without moving the ones above it",
-                offset + size,
-            );
-        }
-
-        let (last_offset, last_size, last_name) = *slots.last().expect("slots is not empty");
-        assert!(
-            last_offset + last_size <= DRAW_FRAME,
-            "`{last_name}` runs to {} but DRAW_FRAME is only {DRAW_FRAME}",
-            last_offset + last_size,
-        );
-        assert_eq!(DRAW_FRAME % 16, 0, "AAPCS64 wants a 16-byte-aligned frame");
     }
 
     /// The MSL's `METAL_EDGE_BASE` is `METAL_EDGE_BASE_WORDS`.
