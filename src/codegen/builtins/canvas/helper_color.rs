@@ -18,6 +18,21 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// `pow` on the path and make the oracle platform-dependent. A module-level `LET` so
 /// it is built once at program start rather than per pixel — the same reason
 /// `crypto` hoists its round-constant tables.
+///
+/// **Its ROUNDING is load-bearing beyond this file, and two GPU shaders reproduce it by
+/// hand.** `srgbTable(i)` in `runtime/canvas/shaders/mfb_canvas.frag` and in the MSL
+/// string in `target/macos_aarch64/app/metal.rs` both compute
+/// `floor(srgbToLinear(i) * 65535 + 0.5)` — round-to-nearest, matching how these
+/// entries were generated — specifically so a gradient evaluated on the GPU lands on the
+/// same byte as one evaluated here. plan-116-F measured the cost of getting that wrong
+/// at 2.3% of a gradient scene one step off, which is over
+/// `Tolerance::GPU_DEFAULT`'s population budget.
+///
+/// So moving this table, or changing the scale or the rounding, is not a local edit:
+/// the shaders must move with it. `the_gpu_draws_the_gradient_scene_the_reference_shows`
+/// in `tests/rt_canvas_golden.rs` is the test that catches a divergence, and it is a
+/// gradient test rather than a blend test — blending tolerates a step, a ramp does not,
+/// because a ramp puts every pixel on a boundary.
 #[rustfmt::skip]
 const SRGB_TABLE: &str =
 r#"FUNC __canvas_srgbTable() AS List OF Integer
