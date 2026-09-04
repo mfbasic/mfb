@@ -834,19 +834,29 @@ merge was **clean** (no conflicts).
 |---|---|
 | `./scripts/test-accept.sh` (full, post-merge) | **1386 ran, passed, 0 mismatches** — all 11 `color` fixtures counted |
 | `scripts/artifact-gate.sh <mfb> all` (post-merge) | 1364 tests, 1527 builds, **1890 goldens, 0 diffs** |
+| `cargo test --no-fail-fast` (post-merge) | **108 test binaries green, 1 failed** — `rt_tls_connect_allow_self_signed`, the known `bug-488` flake; 4/4 green in isolation, twice |
+| `cargo check --all-targets` (post-merge) | clean |
 | `cargo fmt --all` + `repository/` pass | no churn |
+| `mfb man color` | all **28** members render |
 
 Two things the merge turned up, both handled rather than absorbed:
 
 - The duplicate **bug-498** (see the withdrawal note above).
-- A `defaults_to_rejecting_a_self_signed_peer` failure in the *pre-merge*
-  `cargo test`, which is **already-filed `bug-488`** — a known test-isolation
-  flake where `rt_tls_connect_allow_self_signed` releases an ephemeral port for
-  `openssl s_server` to take and loses the race when another `cargo test` shares
-  the machine. Its symptom matches that bug's report exactly
-  (`left: "result=connected"`, `right: "result=raised"`), a peer worktree session
-  was indeed running its own suite at the time, and the test passes 4/4 in
-  isolation. Not filed again, and not mine: nothing in plan-122 touches TLS.
+- Two failures in `rt_tls_connect_allow_self_signed`, which is **already-filed
+  `bug-488`** — a known test-isolation flake where the file releases an ephemeral
+  port for `openssl s_server` to take and loses the race when another `cargo test`
+  shares the machine. A peer worktree session was verifiably running its own suite
+  both times, and the file passes **4/4 in isolation, twice**. Not mine: nothing in
+  plan-122 touches TLS, and `artifact-gate.sh all` reported 0 diffs on the same
+  tree.
+
+  The pre-merge one matched bug-488's report exactly. The post-merge one did
+  **not** — `still_rejects_an_expired_certificate` failed with *"the certificate
+  meant to be expired is still valid"*, which is the file's own setup guard
+  refusing to assert vacuously, not a verdict flip. That is a symptom the port
+  race does not explain: the cases also share the generated certificate identity
+  on disk. Appended to `bug-488` as a third sighting, with the consequence that
+  making `port_gate()` cross-process is necessary but **not sufficient**.
 
 ## Summary
 
