@@ -1,0 +1,32 @@
+' bug-528 -- `strings::padLeft`/`padRight` count Unicode SCALARS.
+' `strings::displayWidth` counts terminal COLUMNS, over grapheme clusters.
+' There is no `padToDisplayWidth`, and neither man page's See-also mentions the
+' other, so the obvious way to build a fixed-width table is also the wrong one.
+'
+' Three ways the two measures disagree, all in one direction or the other:
+'   emoji pad   -- 3 scalars, 5 columns  (too wide)
+'   CJK content -- 4 scalars, 6 columns  (too wide)
+'   NFD accent  -- 6 scalars, 5 columns  (too narrow)
+
+IMPORT io
+IMPORT strings
+
+SUB show(label AS String, s AS String)
+  io::print(label & " scalars=" & toString(len(s)) & " columns=" & toString(strings::displayWidth(s)) & "  [" & s & "]")
+END SUB
+
+FUNC main AS Integer
+  show("padLeft(\"x\", 3, emoji)     ", strings::padLeft("x", 3, "😀"))
+  show("padLeft(\"日本\", 4, \"-\")   ", strings::padLeft("日本", 4, "-"))
+  show("padLeft(NFD \"cafe\", 6, \".\")", strings::padLeft("cafe" & "́", 6, "."))
+  io::print("")
+
+  ' The table a caller actually wants to build.
+  io::print("A two-column table padded to 8 scalars:")
+  io::print("|" & strings::padRight("ascii", 8) & "|end|")
+  io::print("|" & strings::padRight("日本語", 8) & "|end|")
+  io::print("|" & strings::padRight("😀😀", 8) & "|end|")
+  io::print("")
+  io::print("=> every row is 8 scalars and none of them line up.")
+  RETURN 0
+END FUNC

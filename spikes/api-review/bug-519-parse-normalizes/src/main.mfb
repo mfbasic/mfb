@@ -1,0 +1,38 @@
+' bug-519 -- `datetime::parse` accepts an out-of-range calendar field and
+' silently ROLLS IT OVER into a different, valid date.
+'
+' `datetime::date(2026, 13, 45)` correctly raises ErrInvalidArgument. Parsing
+' the same fields out of text succeeds and yields 2027-02-15T02:11:39Z -- a
+' date the caller never wrote, with no error and no warning.
+'
+' The man page is also wrong about its own behavior. It says an out-of-range
+' component "is CARRIED INTO the resulting DateTime rather than rejected",
+' which would leave month = 13. It does not: it is normalized away.
+
+IMPORT io
+IMPORT datetime
+
+FUNC dateGuard(y AS Integer, m AS Integer, d AS Integer) AS String
+  LET dd AS datetime::Date = datetime::date(y, m, d)
+  RETURN "ACCEPTED month=" & toString(dd.month) & " day=" & toString(dd.day)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET text AS String = "2026-13-45 25:70:99"
+  io::print("input text: " & text)
+  io::print("")
+
+  LET bad AS datetime::DateTime = datetime::parse(text, "yyyy-MM-dd HH:mm:ss")
+  io::print("datetime::parse  -> year=" & toString(bad.date.year) & " month=" & toString(bad.date.month) & " day=" & toString(bad.date.day))
+  io::print("                    hour=" & toString(bad.time.hour) & " minute=" & toString(bad.time.minute) & " second=" & toString(bad.time.second))
+  io::print("                    toIso = " & datetime::toIso(bad))
+  io::print("")
+  io::print("datetime::date(2026, 13, 45) -> " & dateGuard(2026, 13, 45))
+  io::print("")
+  io::print("Same fields, two answers: the constructor refuses them, the parser")
+  io::print("invents a different date. Nothing downstream can tell.")
+  RETURN 0
+END FUNC
