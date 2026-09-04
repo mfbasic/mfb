@@ -46,8 +46,8 @@ See plan-116-A §Prerequisites for the three environment gates.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | NOT MET |
-| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | MET (2026-09-01) |
-| A union variant record may carry a `RES` field, and `List OF <that union>` compiles | the probe program below (§2) | MET (2026-09-01, probe-compiled) |
+| plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-measured 2026-09-04: 5 matches, A–E) |
+| A union variant record may carry a `RES` field, and `List OF <that union>` compiles | the probe program below (§2) | **MET** (re-probed 2026-09-04) |
 
 If plan-116-H is not complete, this letter cannot start, full stop — the series is
 strictly ordered and H is the last renderer letter before the type surface moves.
@@ -149,6 +149,28 @@ Re-run every row at Phase 1 start — the series letters before this one add sit
   END UNION
   ' RES f = fs::openFile(...); Holder[x := 1.0, handle := f]; append to List OF Thing — builds.
   ```
+
+  **Re-probed 2026-09-04 and it builds — but not as written.** Two things the sketch
+  leaves out, both of which are a compile error rather than a subtlety:
+
+  * `fs::openFile`'s mode is a **`String`**, not an enum: `fs::openFile(p, "write")`.
+    There is no `fs::OpenMode` (`2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER`).
+  * A variant value cannot be appended to `List OF Thing` directly — neither the
+    record variable nor a record literal. It must be **bound through the union type**
+    first:
+
+    ```
+    LET t AS Thing = h
+    things = collections::append(things, t)
+    ```
+
+    Passing `h` straight in gives `2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH`:
+    *"argument type(s) (List OF Thing, Holder), expected List OF T, T"*. The generic
+    binds `T` to the argument's own type rather than widening it to the union.
+
+  That last point matters beyond the probe: §4.3's construction sites build
+  `DrawItem` values, and `DrawItem` is a union. Any site that hands a bare `Picture`
+  or `Text` to something expecting `List OF DrawItem` has the same shape.
 
 - **`handle@8` is the backend id, and the resource record's address is stable for
   the thread's lifetime.** `gen_image.rs:1-15` (the id), and `mfb spec` §15: *"The
