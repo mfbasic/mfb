@@ -1,4 +1,4 @@
-use super::pipeline::{contains_placeholder, substitute_placeholder};
+use super::pipeline::{node_count, placeholder_shape, substitute_placeholder};
 use super::*;
 use crate::operators::{BinaryOp, UnaryOp};
 
@@ -15,6 +15,15 @@ const MAX_EXPR_DEPTH: usize = 256;
 /// or `(((…)))`) would otherwise overflow the native stack with no diagnostic
 /// (bug-191). Matches `MAX_EXPR_DEPTH`; no real annotation nests this deep.
 const MAX_TYPE_DEPTH: usize = 256;
+
+/// Maximum number of left-operand nodes one `|>` stage may COPY. A right-hand
+/// side with `k` placeholders receives `k` copies of the operand, so
+/// `x |> f(_, _) |> f(_, _) …` doubles the tree per stage: sixteen stages of a
+/// 200-byte source cost 720 MB and 100 s in the passes downstream (bug-501 B).
+/// The charge is `(k - 1) × nodes(operand)` — the ordinary single `_` copies
+/// nothing and is never charged — so no real pipeline comes near it, while the
+/// doubling attack is refused at its thirteenth stage, before the copy is made.
+const MAX_PIPELINE_COPIED_NODES: usize = 4096;
 
 impl<'a> FileParser<'a> {
     /// Normalize a package-qualified built-in name to the spelling the rest of
@@ -136,6 +145,45 @@ impl<'a> FileParser<'a> {
         self.expr_depth -= 1;
     }
 
+    /// Record the tree depth of the expression just built (0 for a leaf,
+    /// `1 + max(children)` for a node), reporting at token `at` and returning
+    /// `false` when the tree exceeds `MAX_EXPR_DEPTH`; the caller then bails
+    /// with `return None`, exactly like the `enter_expr` path.
+    ///
+    /// `enter_expr` bounds this parser's *recursion*; this bounds its *result*.
+    /// The two differ on the left-associative loops (`a+b+c…`, `a.b.c…`), which
+    /// deepen the tree by one per iteration without recursing, and on `|>`,
+    /// which splices the left operand under the right one — a flat 40 KB
+    /// `1+1+…` parsed fine and then overflowed the native stack in the passes
+    /// that re-walk the tree (audit-3 FE-01 / bug-501). The parser is the one
+    /// place the depth can be bounded before anything walks it. The convention
+    /// matches `ir::verify::check_value_depth` (root at 0, rejected past
+    /// `MAX_DEPTH`), so a tree the verifier accepted before is accepted here.
+    pub(super) fn note_expr_tree_depth(&mut self, depth: usize, at: usize) -> bool {
+        self.expr_tree_depth = depth;
+        if depth > MAX_EXPR_DEPTH {
+            let token = self.tokens[at].clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Expression nesting is too deep.",
+                &token,
+            );
+            self.latch_hostile_expression();
+            return false;
+        }
+        true
+    }
+
+    /// Recovery after a hostile-expression diagnostic: latch `depth_exceeded`
+    /// and collapse the cursor to `Eof` (the statement- and type-depth guards'
+    /// recovery, bug-183 / bug-191), so the enclosing parses unwind without
+    /// consuming the rest of the pathological expression or emitting a trailing
+    /// cascade of `Expected )` / `Expected end of statement` for it.
+    fn latch_hostile_expression(&mut self) {
+        self.depth_exceeded = true;
+        self.seek_to_end();
+    }
+
     pub(super) fn parse_expression(&mut self) -> Option<Expression> {
         if !self.enter_expr() {
             return None;
@@ -147,15 +195,43 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_pipeline(&mut self) -> Option<Expression> {
         let mut expression = self.parse_or()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_kind(TokenKind::PipeGreater) {
+            let operator_at = self.current - 1;
             let token = self.previous().clone();
             let right = self.parse_or()?;
-            if !contains_placeholder(&right) {
+            let shape = placeholder_shape(&right);
+            if shape.count == 0 {
                 self.report(
                     "MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING",
                     "Pipeline right-hand side must contain `_` as the input placeholder.",
                     &token,
                 );
+                return None;
+            }
+            // Every `_` receives its own copy of the left operand, so a right-
+            // hand side with several placeholders multiplies the tree; refuse the
+            // copy before making it (bug-501 B).
+            if shape.count > 1 {
+                let copied = (shape.count - 1) * node_count(&expression);
+                if copied > MAX_PIPELINE_COPIED_NODES {
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        &format!(
+                            "Pipeline placeholder substitution is too large: `_` occurs {} \
+                             times, which would copy {copied} nodes of the left-hand side \
+                             (limit {MAX_PIPELINE_COPIED_NODES}).",
+                            shape.count
+                        ),
+                        &token,
+                    );
+                    self.latch_hostile_expression();
+                    return None;
+                }
+            }
+            // The result is `right` with the operand spliced in at its `_` leaves.
+            depth = shape.depth.max(shape.placeholder_depth + depth);
+            if !self.note_expr_tree_depth(depth, operator_at) {
                 return None;
             }
             expression = substitute_placeholder(right, &expression);
@@ -165,6 +241,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_or(&mut self) -> Option<Expression> {
         let mut expression = self.parse_and()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_any_keywords(&[Keyword::Or, Keyword::Xor]) {
             // coverage:off — the preceding match_any_keywords guarantees the
             // previous token is OR or XOR, both of which spell an operator.
@@ -172,8 +249,13 @@ impl<'a> FileParser<'a> {
                 unreachable!()
             };
             // coverage:on
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_and()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator,
@@ -187,9 +269,15 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_and(&mut self) -> Option<Expression> {
         let mut expression = self.parse_not()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_keyword(Keyword::And) {
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_not()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: BinaryOp::And,
@@ -203,6 +291,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_not(&mut self) -> Option<Expression> {
         if self.match_keyword(Keyword::Not) {
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             if !self.enter_expr() {
                 return None;
@@ -210,6 +299,9 @@ impl<'a> FileParser<'a> {
             let operand = self.parse_not();
             self.leave_expr();
             let operand = operand?;
+            if !self.note_expr_tree_depth(self.expr_tree_depth + 1, operator_at) {
+                return None;
+            }
             return Some(Expression::Unary {
                 operator: UnaryOp::Not,
                 operand: Box::new(operand),
@@ -222,6 +314,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_comparison(&mut self) -> Option<Expression> {
         let mut expression = self.parse_concat()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_any(&[
             TokenKind::Equal,
             TokenKind::NotEqual,
@@ -236,8 +329,13 @@ impl<'a> FileParser<'a> {
                 unreachable!()
             };
             // coverage:on
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_concat()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator,
@@ -251,9 +349,15 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_concat(&mut self) -> Option<Expression> {
         let mut expression = self.parse_addition()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_kind(TokenKind::Ampersand) {
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_addition()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: BinaryOp::Concat,
@@ -267,14 +371,20 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_addition(&mut self) -> Option<Expression> {
         let mut expression = self.parse_multiplication()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_any(&[TokenKind::Plus, TokenKind::Minus]) {
             // coverage:off — the preceding match_any guarantees `+` or `-`.
             let Some(operator) = BinaryOp::from_token(&self.previous().kind) else {
                 unreachable!()
             };
             // coverage:on
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_multiplication()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator,
@@ -288,6 +398,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_multiplication(&mut self) -> Option<Expression> {
         let mut expression = self.parse_power()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_any(&[TokenKind::Star, TokenKind::Slash])
             || self.match_any_keywords(&[Keyword::Mod, Keyword::Div])
         {
@@ -297,8 +408,13 @@ impl<'a> FileParser<'a> {
                 unreachable!()
             };
             // coverage:on
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
+            depth = depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator,
@@ -312,7 +428,9 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_power(&mut self) -> Option<Expression> {
         let mut expression = self.parse_unary()?;
+        let left_depth = self.expr_tree_depth;
         if self.match_kind(TokenKind::Caret) {
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             if !self.enter_expr() {
                 return None;
@@ -320,6 +438,10 @@ impl<'a> FileParser<'a> {
             let right = self.parse_power();
             self.leave_expr();
             let right = right?;
+            let depth = left_depth.max(self.expr_tree_depth) + 1;
+            if !self.note_expr_tree_depth(depth, operator_at) {
+                return None;
+            }
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: BinaryOp::Power,
@@ -333,6 +455,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_unary(&mut self) -> Option<Expression> {
         if self.match_kind(TokenKind::Minus) {
+            let operator_at = self.current - 1;
             let (line, column) = (self.previous().line, self.previous().start);
             if !self.enter_expr() {
                 return None;
@@ -340,6 +463,9 @@ impl<'a> FileParser<'a> {
             let operand = self.parse_unary();
             self.leave_expr();
             let operand = operand?;
+            if !self.note_expr_tree_depth(self.expr_tree_depth + 1, operator_at) {
+                return None;
+            }
             return Some(Expression::Unary {
                 operator: UnaryOp::Negate,
                 operand: Box::new(operand),
@@ -354,7 +480,9 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_with_update(&mut self) -> Option<Expression> {
+        let with_at = self.current - 1;
         let target = self.parse_member_access()?;
+        let mut depth = self.expr_tree_depth;
         if !self.consume_kind(TokenKind::LBrace, "Expected `{` after WITH target.") {
             return None;
         }
@@ -375,6 +503,7 @@ impl<'a> FileParser<'a> {
                     return None;
                 }
                 let value = self.parse_expression()?;
+                depth = depth.max(self.expr_tree_depth);
                 updates.push(RecordUpdate { field, value, line });
                 if !self.match_kind(TokenKind::Comma) {
                     break;
@@ -382,6 +511,9 @@ impl<'a> FileParser<'a> {
             }
         }
         if !self.consume_kind(TokenKind::RBrace, "Expected `}` after WITH updates.") {
+            return None;
+        }
+        if !self.note_expr_tree_depth(depth + 1, with_at) {
             return None;
         }
         Some(Expression::WithUpdate {
@@ -392,8 +524,14 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_member_access(&mut self) -> Option<Expression> {
         let mut expression = self.parse_call_or_constructor()?;
+        let mut depth = self.expr_tree_depth;
         while self.match_kind(TokenKind::Dot) {
+            let dot_at = self.current - 1;
             let member = self.consume_identifier("Expected identifier after `.`.")?;
+            depth += 1;
+            if !self.note_expr_tree_depth(depth, dot_at) {
+                return None;
+            }
             expression = Expression::MemberAccess {
                 target: Box::new(expression),
                 member,
@@ -407,6 +545,7 @@ impl<'a> FileParser<'a> {
         let mut expression = self.parse_primary()?;
         loop {
             if self.match_kind(TokenKind::LParen) {
+                let paren_at = self.current - 1;
                 let callee = match expression {
                     Expression::Identifier(value) => value,
                     _ => {
@@ -420,6 +559,11 @@ impl<'a> FileParser<'a> {
                     }
                 };
                 let arguments = self.parse_argument_list(TokenKind::RParen)?;
+                // The callee is a bare identifier (a leaf), so the call is one
+                // deeper than its deepest argument.
+                if !self.note_expr_tree_depth(self.expr_tree_depth + 1, paren_at) {
+                    return None;
+                }
                 expression = Expression::Call {
                     callee,
                     arguments,
@@ -427,6 +571,7 @@ impl<'a> FileParser<'a> {
                     column: start.start,
                 };
             } else if self.match_kind(TokenKind::LBracket) {
+                let bracket_at = self.current - 1;
                 let type_name = match expression {
                     // A package-qualified built-in type used as a constructor
                     // (`http::Response[...]`) normalizes to its bare id, matching
@@ -446,6 +591,9 @@ impl<'a> FileParser<'a> {
                     }
                 };
                 let arguments = self.parse_constructor_argument_list(TokenKind::RBracket)?;
+                if !self.note_expr_tree_depth(self.expr_tree_depth + 1, bracket_at) {
+                    return None;
+                }
                 expression = Expression::Constructor {
                     type_name,
                     arguments,
@@ -457,8 +605,11 @@ impl<'a> FileParser<'a> {
         Some(expression)
     }
 
+    /// On success `expr_tree_depth` is left at the deepest argument's depth
+    /// (0 for an empty list) for the `Call` node that owns the list.
     pub(super) fn parse_argument_list(&mut self, closing: TokenKind) -> Option<Vec<CallArg>> {
         let mut arguments = Vec::new();
+        let mut depth = 0;
         if !self.check_kind(&closing) {
             loop {
                 if matches!(self.peek().kind, TokenKind::Identifier(_))
@@ -474,9 +625,11 @@ impl<'a> FileParser<'a> {
                         "Expected `:=` between call argument name and value.",
                     );
                     let value = self.parse_expression()?;
+                    depth = depth.max(self.expr_tree_depth);
                     arguments.push(CallArg::Named { name, value, line });
                 } else {
                     arguments.push(CallArg::Positional(self.parse_expression()?));
+                    depth = depth.max(self.expr_tree_depth);
                 }
                 if !self.match_kind(TokenKind::Comma) {
                     break;
@@ -491,14 +644,18 @@ impl<'a> FileParser<'a> {
         if !self.consume_kind(closing, detail) {
             return None;
         }
+        self.expr_tree_depth = depth;
         Some(arguments)
     }
 
+    /// On success `expr_tree_depth` is left at the deepest argument's depth
+    /// (0 for an empty list) for the `Constructor` node that owns the list.
     pub(super) fn parse_constructor_argument_list(
         &mut self,
         closing: TokenKind,
     ) -> Option<Vec<ConstructorArg>> {
         let mut arguments = Vec::new();
+        let mut depth = 0;
         if !self.check_kind(&closing) {
             loop {
                 if matches!(self.peek().kind, TokenKind::Identifier(_))
@@ -514,9 +671,11 @@ impl<'a> FileParser<'a> {
                         "Expected `:=` between constructor field and value.",
                     );
                     let value = self.parse_expression()?;
+                    depth = depth.max(self.expr_tree_depth);
                     arguments.push(ConstructorArg::Named { name, value, line });
                 } else {
                     arguments.push(ConstructorArg::Positional(self.parse_expression()?));
+                    depth = depth.max(self.expr_tree_depth);
                 }
                 if !self.match_kind(TokenKind::Comma) {
                     break;
@@ -530,6 +689,7 @@ impl<'a> FileParser<'a> {
         if !self.consume_kind(closing, detail) {
             return None;
         }
+        self.expr_tree_depth = depth;
         Some(arguments)
     }
 
@@ -549,6 +709,9 @@ impl<'a> FileParser<'a> {
             return None;
         }
         let token = self.advance().clone();
+        // A leaf is depth 0; the compound arms (grouping, literals, lambda)
+        // overwrite this with their own depth as they build.
+        self.expr_tree_depth = 0;
         match token.kind {
             TokenKind::String(value) => Some(Expression::String(value)),
             TokenKind::Number(value) => Some(Expression::Number(value)),
@@ -935,6 +1098,7 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_lambda(&mut self) -> Option<Expression> {
+        let lambda_at = self.current - 1;
         if !self.consume_kind(TokenKind::LParen, "Lambda must include `(` after LAMBDA.") {
             return None;
         }
@@ -969,6 +1133,9 @@ impl<'a> FileParser<'a> {
             None
         };
         let body = self.parse_expression()?;
+        if !self.note_expr_tree_depth(self.expr_tree_depth + 1, lambda_at) {
+            return None;
+        }
         Some(Expression::Lambda {
             params,
             body: Box::new(body),
@@ -997,16 +1164,22 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_list_literal(&mut self) -> Option<Expression> {
+        let bracket_at = self.current - 1;
         let mut values = Vec::new();
+        let mut depth = 0;
         if !self.check_kind(&TokenKind::RBracket) {
             loop {
                 values.push(self.parse_expression()?);
+                depth = depth.max(self.expr_tree_depth);
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
             }
         }
         self.consume_kind(TokenKind::RBracket, "Expected `]` after list literal.");
+        if !self.note_expr_tree_depth(depth + 1, bracket_at) {
+            return None;
+        }
         Some(Expression::ListLiteral(values))
     }
 
@@ -1018,10 +1191,13 @@ impl<'a> FileParser<'a> {
         if !self.consume_kind(TokenKind::LBrace, "Expected `{` after map literal type.") {
             return None;
         }
+        let brace_at = self.current - 1;
         let mut entries = Vec::new();
+        let mut depth = 0;
         if !self.check_kind(&TokenKind::RBrace) {
             loop {
                 let key = self.parse_expression()?;
+                depth = depth.max(self.expr_tree_depth);
                 if !self.consume_kind(
                     TokenKind::ColonEqual,
                     "Expected `:=` between map key and value.",
@@ -1029,6 +1205,7 @@ impl<'a> FileParser<'a> {
                     return None;
                 }
                 let value = self.parse_expression()?;
+                depth = depth.max(self.expr_tree_depth);
                 entries.push((key, value));
                 if !self.match_kind(TokenKind::Comma) {
                     break;
@@ -1036,6 +1213,9 @@ impl<'a> FileParser<'a> {
             }
         }
         self.consume_kind(TokenKind::RBrace, "Expected `}` after map literal.");
+        if !self.note_expr_tree_depth(depth + 1, brace_at) {
+            return None;
+        }
         Some(Expression::MapLiteral {
             key_type,
             value_type,
@@ -1049,16 +1229,22 @@ impl<'a> FileParser<'a> {
         if !self.consume_kind(TokenKind::LBrace, "Expected `{` after set literal type.") {
             return None;
         }
+        let brace_at = self.current - 1;
         let mut elements = Vec::new();
+        let mut depth = 0;
         if !self.check_kind(&TokenKind::RBrace) {
             loop {
                 elements.push(self.parse_expression()?);
+                depth = depth.max(self.expr_tree_depth);
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
             }
         }
         self.consume_kind(TokenKind::RBrace, "Expected `}` after set literal.");
+        if !self.note_expr_tree_depth(depth + 1, brace_at) {
+            return None;
+        }
         Some(Expression::SetLiteral {
             element_type,
             elements,
@@ -1147,6 +1333,64 @@ mod tests {
             let src = format!("SUB s(x AS {}Integer)\nEND SUB\n", "List OF ".repeat(300),);
             assert!(parse(&src).is_err());
         });
+    }
+
+    // ---- Tree-depth guard (audit-3 FE-01 / bug-501) ----
+    // The loops that build left-associative chains never recurse, so the native
+    // guard above cannot see them; the BUILT tree is bounded instead, at the node
+    // that crosses MAX_EXPR_DEPTH. No big stack is needed here — that is the point.
+
+    fn returning(expression: &str) -> String {
+        format!("FUNC f AS Integer\n  RETURN {expression}\nEND FUNC\n")
+    }
+
+    #[test]
+    fn tree_depth_guard_addition_chain() {
+        // 300 `+` build a 300-deep left spine with zero recursive re-entries.
+        assert!(parse(&returning(&format!("1{}", "+1".repeat(300)))).is_err());
+    }
+
+    #[test]
+    fn tree_depth_guard_admits_a_chain_at_the_cap() {
+        // MAX_EXPR_DEPTH operators is the deepest chain `ir::verify` accepted
+        // before this guard existed (root at 0, rejected past 256); the parser
+        // must agree exactly, or a program that compiled would stop compiling.
+        assert!(parse(&returning(&format!("1{}", "+1".repeat(256)))).is_ok());
+        assert!(parse(&returning(&format!("1{}", "+1".repeat(257)))).is_err());
+    }
+
+    #[test]
+    fn tree_depth_guard_member_chain() {
+        assert!(parse(&returning(&format!("a{}", ".b".repeat(300)))).is_err());
+    }
+
+    #[test]
+    fn tree_depth_guard_nested_groups_of_chains() {
+        // Each grouping level and each chain stays far under the cap on its own
+        // (30 groups, 20 terms each), so only the depth of the BUILT tree — a
+        // 600-deep left spine — can see this. 250 × 20 overflowed the release
+        // binary's stack in the lowering passes before the guard.
+        let mut expression = String::from("1");
+        for _ in 0..30 {
+            expression = format!("({expression}{})", "+1".repeat(20));
+        }
+        assert!(parse(&returning(&expression)).is_err());
+    }
+
+    #[test]
+    fn tree_depth_guard_pipeline_splice() {
+        // `|>` splices the left operand under the `_`, so 300 stages of `f(_)`
+        // nest 300 calls without a single recursive re-entry in the parser.
+        assert!(parse(&returning(&format!("1{}", " |> f(_)".repeat(300)))).is_err());
+    }
+
+    #[test]
+    fn pipeline_placeholder_copy_budget() {
+        // Two placeholders per stage double the tree (bug-501 B): the copy is
+        // refused at the stage where it would exceed MAX_PIPELINE_COPIED_NODES…
+        assert!(parse(&returning(&format!("1{}", " |> f(_, _)".repeat(20)))).is_err());
+        // …while an ordinary multi-placeholder pipeline is untouched.
+        assert!(parse(&returning("1 |> f(_, _) |> f(_, _)")).is_ok());
     }
 
     // ---- parse_primary ----
