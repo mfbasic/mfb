@@ -14,6 +14,16 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
 
+/// `auth_challenges.purpose` for a challenge minted by `/auth/challenge` (an
+/// auth key, completed by `/auth/login`).
+const CHALLENGE_PURPOSE_LOGIN: &str = "login";
+/// `auth_challenges.purpose` for a challenge minted by
+/// `/machines/revoke/challenge` (the ident key, completed by `/machines/revoke`).
+const CHALLENGE_PURPOSE_REVOKE: &str = "revoke";
+/// `keys.role` values, as the schema spells them.
+const KEY_ROLE_AUTH: &str = "auth";
+const KEY_ROLE_IDENT: &str = "ident";
+
 /// The human-facing metadata a publish records alongside the version row
 /// (plan-61-A §4). Grouped rather than passed as loose parameters because
 /// `publish_package_version` was already at the argument-count lint's limit,
@@ -342,11 +352,17 @@ impl Store {
                 revoked_at INTEGER NULL
             );
 
+            -- `purpose` (bug-493) binds a challenge to the operation it was
+            -- minted for: 'login' (an auth key, `/auth/challenge`) or 'revoke'
+            -- (the ident key, `/machines/revoke/challenge`). Without it the two
+            -- rows were structurally identical and `/machines/revoke` accepted
+            -- a login challenge signed by an ordinary auth key.
             CREATE TABLE IF NOT EXISTS auth_challenges (
                 id TEXT PRIMARY KEY,
                 owner_id INTEGER NOT NULL REFERENCES owners(id),
                 key_id INTEGER NOT NULL REFERENCES keys(id),
                 nonce BLOB NOT NULL,
+                purpose TEXT NOT NULL DEFAULT 'login',
                 created_at INTEGER NOT NULL,
                 expires_at INTEGER NOT NULL,
                 used_at INTEGER NULL
@@ -549,6 +565,15 @@ impl Store {
         add_column_if_missing(&conn, "package_versions", "author TEXT NULL")?;
         add_column_if_missing(&conn, "package_versions", "url TEXT NULL")?;
         add_column_if_missing(&conn, "package_versions", "description TEXT NULL")?;
+        // bug-493: a database created before the column existed. Every row
+        // already there defaults to 'login', which is what `/auth/challenge`
+        // always minted; an in-flight revocation challenge across the upgrade
+        // (a five-minute window) simply has to be re-issued.
+        add_column_if_missing(
+            &conn,
+            "auth_challenges",
+            "purpose TEXT NOT NULL DEFAULT 'login'",
+        )?;
         Ok(())
     }
 
@@ -775,7 +800,7 @@ impl Store {
         let Some((owner, key)) = self.owner_with_auth_key(owner)? else {
             return Err("unknown owner".to_string());
         };
-        self.create_challenge_for_key(owner.id, key.id)
+        self.create_challenge_for_key(owner.id, key.id, CHALLENGE_PURPOSE_LOGIN)
     }
 
     /// Challenge a specific machine's auth key (plan-23-B: an account holds
@@ -789,23 +814,27 @@ impl Store {
         let Some((owner, key)) = self.owner_auth_key_by_fingerprint(owner, fingerprint)? else {
             return Err("mismatched local key fingerprint".to_string());
         };
-        self.create_challenge_for_key(owner.id, key.id)
+        self.create_challenge_for_key(owner.id, key.id, CHALLENGE_PURPOSE_LOGIN)
     }
 
     /// Challenge the owner's ident key: proves possession of the account
-    /// identity for ident-authorized operations (auth-key revocation).
+    /// identity for ident-authorized operations (auth-key revocation). Bound
+    /// to the `revoke` purpose, so it can never complete a login (bug-493).
     pub fn create_ident_challenge(&self, owner: &str) -> Result<ChallengeRecord, String> {
         validate_owner_name(owner)?;
         let Some((owner, key)) = self.owner_with_ident_key(owner)? else {
             return Err("unknown owner".to_string());
         };
-        self.create_challenge_for_key(owner.id, key.id)
+        self.create_challenge_for_key(owner.id, key.id, CHALLENGE_PURPOSE_REVOKE)
     }
 
+    /// Mint a challenge row for `key_id`, bound to `purpose` (bug-493): the
+    /// completer for one purpose refuses a challenge minted for the other.
     fn create_challenge_for_key(
         &self,
         owner_id: i64,
         key_id: i64,
+        purpose: &str,
     ) -> Result<ChallengeRecord, String> {
         let id = Uuid::new_v4().to_string();
         let mut nonce = vec![0u8; 32];
@@ -815,9 +844,9 @@ impl Store {
         let conn = self.conn();
         conn.execute(
             "INSERT INTO auth_challenges
-             (id, owner_id, key_id, nonce, created_at, expires_at, used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![id, owner_id, key_id, nonce, created_at, expires_at],
+             (id, owner_id, key_id, nonce, purpose, created_at, expires_at, used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
+            params![id, owner_id, key_id, nonce, purpose, created_at, expires_at],
         )
         .map_err(|err| format!("failed to create auth challenge: {err}"))?;
         Ok(ChallengeRecord {
@@ -1131,6 +1160,39 @@ impl Store {
             tx.commit().ok();
             return Ok(false);
         };
+        // bug-493: never revoke the account's last current machine key. No
+        // ident-authorized route adds an auth key, so an account with none is
+        // unrecoverable short of the operator `reanchor` ceremony. Publish
+        // tokens are `auth` rows too but do not count as machines — a token
+        // cannot enrol one (bug-492) — so an account left with only a token is
+        // just as locked out. A token itself may be revoked here freely; the
+        // guard is for machine keys. Checked inside the transaction so two
+        // concurrent revocations cannot each see the other key as "remaining".
+        let is_token: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM publish_tokens WHERE key_id = ?1)",
+                params![key_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to classify auth key: {err}"))?;
+        if !is_token {
+            let remaining: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM keys k
+                     WHERE k.owner_id = ?1 AND k.role = 'auth' AND k.status = 'current'
+                       AND k.id != ?2
+                       AND NOT EXISTS (SELECT 1 FROM publish_tokens t WHERE t.key_id = k.id)",
+                    params![owner_id, key_id],
+                    |row| row.get(0),
+                )
+                .map_err(|err| format!("failed to count machine keys: {err}"))?;
+            if remaining == 0 {
+                return Err(
+                    "cannot revoke the account's last auth key; link another machine first"
+                        .to_string(),
+                );
+            }
+        }
         tx.execute(
             "UPDATE keys SET status = 'revoked', revoked_at = ?1 WHERE id = ?2",
             params![now, key_id],
@@ -1162,31 +1224,54 @@ impl Store {
         Ok(true)
     }
 
+    /// Complete a login challenge: one minted by `/auth/challenge` for an auth
+    /// key. A revocation challenge — the ident key's — is refused here even
+    /// with a valid ident signature (bug-493).
     pub fn complete_challenge(
         &self,
         challenge_id: &str,
         signature: &[u8],
     ) -> Result<(OwnerRecord, KeyRecord), String> {
-        self.complete_challenge_with(challenge_id, signature, crypto::challenge_message)
+        self.complete_challenge_with(
+            challenge_id,
+            signature,
+            CHALLENGE_PURPOSE_LOGIN,
+            KEY_ROLE_AUTH,
+            crypto::challenge_message,
+        )
     }
 
     /// Complete an ident challenge whose signature covers the revocation
-    /// message (challenge + the fingerprint being revoked).
+    /// message (challenge + the fingerprint being revoked). Revocation
+    /// authority is the ident key alone (plan-23 §3.6): a login challenge for
+    /// an auth key is refused on purpose and role, not merely on signature —
+    /// the attacker holding that auth key can sign the revocation message
+    /// perfectly well (bug-493 / audit-3 REPO-02).
     pub fn complete_revocation_challenge(
         &self,
         challenge_id: &str,
         signature: &[u8],
         fingerprint: &str,
     ) -> Result<(OwnerRecord, KeyRecord), String> {
-        self.complete_challenge_with(challenge_id, signature, |id, nonce| {
-            crypto::revocation_message(id, nonce, fingerprint)
-        })
+        self.complete_challenge_with(
+            challenge_id,
+            signature,
+            CHALLENGE_PURPOSE_REVOKE,
+            KEY_ROLE_IDENT,
+            |id, nonce| crypto::revocation_message(id, nonce, fingerprint),
+        )
     }
 
+    /// The one challenge completer. `purpose` must match what the challenge
+    /// was minted with and `role` the challenged key's role; both are checked
+    /// before the signature and before the row is burned, so a challenge
+    /// presented to the wrong completer stays usable for its own.
     fn complete_challenge_with(
         &self,
         challenge_id: &str,
         signature: &[u8],
+        purpose: &str,
+        role: &str,
         message: impl Fn(&str, &[u8]) -> Vec<u8>,
     ) -> Result<(OwnerRecord, KeyRecord), String> {
         let mut conn = self.conn();
@@ -1196,7 +1281,7 @@ impl Store {
         let loaded = tx
             .query_row(
                 "SELECT c.id, c.owner_id, c.key_id, c.nonce, c.expires_at, c.used_at,
-                        o.owner_display, k.public_key, k.fingerprint
+                        o.owner_display, k.public_key, k.fingerprint, c.purpose, k.role
                  FROM auth_challenges c
                  JOIN owners o ON o.id = c.owner_id
                  JOIN keys k ON k.id = c.key_id
@@ -1221,14 +1306,27 @@ impl Store {
                             public_key: row.get(7)?,
                             fingerprint: row.get(8)?,
                         },
+                        row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
                     ))
                 },
             )
             .optional()
             .map_err(|err| format!("failed to load auth challenge: {err}"))?;
-        let Some((challenge, owner, key)) = loaded else {
+        let Some((challenge, owner, key, minted_purpose, key_role)) = loaded else {
             return Err("unknown challenge".to_string());
         };
+        if minted_purpose != purpose {
+            let operation = if purpose == CHALLENGE_PURPOSE_REVOKE {
+                "revocation"
+            } else {
+                purpose
+            };
+            return Err(format!("challenge was not issued for {operation}"));
+        }
+        if key_role != role {
+            return Err(format!("challenge key is not the account's {role} key"));
+        }
         if challenge.used_at.is_some() {
             return Err("reused challenge".to_string());
         }
@@ -3560,6 +3658,36 @@ pub(crate) mod tests {
             .owner_auth_key_by_fingerprint("alice", &first_fingerprint)
             .unwrap()
             .is_some());
+
+        // bug-493: it is now the account's last current machine key. Revoking
+        // it would lock the account out permanently (no ident-authorized route
+        // adds an auth key), so the store refuses and the key stays current. A
+        // publish token does not count as a machine — it cannot enrol one
+        // (bug-492) — so its presence does not unlock the revocation...
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        )
+        .unwrap();
+        store
+            .issue_publish_token("alice", &token_public, &token_proof, "alice#toolbox", 3600)
+            .unwrap();
+        assert_eq!(
+            store
+                .revoke_auth_key(owner.id, &first_fingerprint)
+                .unwrap_err(),
+            "cannot revoke the account's last auth key; link another machine first",
+        );
+        assert!(store
+            .owner_auth_key_by_fingerprint("alice", &first_fingerprint)
+            .unwrap()
+            .is_some());
+        // ...while the token itself, not being a machine key, may still be
+        // revoked through this path.
+        assert!(store
+            .revoke_auth_key(owner.id, &crypto::fingerprint(&token_public))
+            .unwrap());
     }
 
     #[test]
@@ -3579,6 +3707,43 @@ pub(crate) mod tests {
         assert!(store
             .complete_revocation_challenge(&challenge.id, &bad, &fingerprint)
             .is_err());
+
+        // bug-493: a LOGIN challenge for the auth key, with the revocation
+        // message signed by that auth key, is refused on *purpose* — not merely
+        // on signature — and the refused attempt does not burn it.
+        let login_challenge = store.create_auth_challenge("alice", &fingerprint).unwrap();
+        let forged = crypto::sign(
+            &keys.auth_private,
+            &crypto::revocation_message(&login_challenge.id, &login_challenge.nonce, &fingerprint),
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .complete_revocation_challenge(&login_challenge.id, &forged, &fingerprint)
+                .unwrap_err(),
+            "challenge was not issued for revocation",
+        );
+        let login = crypto::sign(
+            &keys.auth_private,
+            &crypto::challenge_message(&login_challenge.id, &login_challenge.nonce),
+        )
+        .unwrap();
+        store
+            .complete_challenge(&login_challenge.id, &login)
+            .expect("the refused revocation did not burn the login challenge");
+        // And the reverse: a revocation (ident) challenge cannot complete a login.
+        let ident_challenge = store.create_ident_challenge("alice").unwrap();
+        let ident_login = crypto::sign(
+            &keys.ident_private,
+            &crypto::challenge_message(&ident_challenge.id, &ident_challenge.nonce),
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .complete_challenge(&ident_challenge.id, &ident_login)
+                .unwrap_err(),
+            "challenge was not issued for login",
+        );
 
         // Signed with the ident key over a DIFFERENT fingerprint: refused
         // (the fingerprint is inside the signed bytes).

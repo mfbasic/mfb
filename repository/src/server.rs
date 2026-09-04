@@ -2533,7 +2533,15 @@ async fn revoke_machine(
     let revoked = state
         .store
         .revoke_auth_key(owner.id, &request.auth_fingerprint)
-        .map_err(internal)?;
+        .map_err(|err| {
+            // Refusing to orphan the account is the caller's answer (bug-493);
+            // anything else is a store failure.
+            if err.contains("last auth key") {
+                bad_request(err)
+            } else {
+                internal(err)
+            }
+        })?;
     if !revoked {
         return Err(bad_request(
             "no current auth key with that fingerprint".to_string(),
@@ -6934,6 +6942,87 @@ mod tests {
             "a refused revocation must leave the session alone",
         );
 
+        // bug-493 (audit-3 REPO-02): the challenge loader constrained neither
+        // the key role nor the challenge's purpose, so an ordinary
+        // `/auth/challenge` for an AUTH key — which any linked machine or
+        // publish token can mint for itself — satisfied `/machines/revoke` once
+        // the revocation message was signed with that auth key. A challenge is
+        // bound to its purpose at creation now: a login challenge cannot revoke
+        // (and the refused attempt does not burn it), and a revocation
+        // challenge cannot log in.
+        let login_challenge = h
+            .store
+            .create_auth_challenge("alice", &fingerprint)
+            .unwrap();
+        let forged = crypto::sign(
+            &keys.auth_private,
+            &crypto::revocation_message(&login_challenge.id, &login_challenge.nonce, &fingerprint),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                revoke_machine(
+                    State(h.state.clone()),
+                    Json(RevokeRequest {
+                        challenge_id: login_challenge.id.clone(),
+                        auth_fingerprint: fingerprint.clone(),
+                        ident_signature: crypto::encode_bytes(&forged),
+                    }),
+                )
+                .await
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                "challenge was not issued for revocation".to_string(),
+            ),
+        );
+        assert!(
+            h.store
+                .owner_auth_key_by_fingerprint("alice", &fingerprint)
+                .unwrap()
+                .is_some(),
+            "an auth-key challenge must not revoke anything",
+        );
+        let login_signature = crypto::sign(
+            &keys.auth_private,
+            &crypto::challenge_message(&login_challenge.id, &login_challenge.nonce),
+        )
+        .unwrap();
+        let _ = login(
+            State(h.state.clone()),
+            peer("127.0.0.1"),
+            Json(LoginRequest {
+                challenge_id: login_challenge.id,
+                signature: crypto::encode_bytes(&login_signature),
+            }),
+        )
+        .await
+        .expect("the refused revocation did not burn the login challenge");
+        let ident_challenge = new_challenge(h.state.clone()).await;
+        let ident_nonce = crypto::decode_bytes(&ident_challenge.nonce, "nonce").unwrap();
+        let ident_login = crypto::sign(
+            &keys.ident_private,
+            &crypto::challenge_message(&ident_challenge.challenge_id, &ident_nonce),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                login(
+                    State(h.state.clone()),
+                    peer("127.0.0.1"),
+                    Json(LoginRequest {
+                        challenge_id: ident_challenge.challenge_id,
+                        signature: crypto::encode_bytes(&ident_login),
+                    }),
+                )
+                .await
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                "challenge was not issued for login".to_string(),
+            ),
+        );
+
         // An ident-signed revocation of a fingerprint that is not a current
         // auth key is reported rather than silently accepted.
         let issued = new_challenge(h.state.clone()).await;
@@ -6960,6 +7049,19 @@ mod tests {
             "no current auth key with that fingerprint",
         );
 
+        // A second linked machine, so the revocation below is not of the
+        // account's last machine key.
+        let (second_public, second_private) = crypto::generate_keypair();
+        let second_proof = crypto::sign(
+            &second_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &second_public),
+        )
+        .unwrap();
+        let (_owner, second_key) = h
+            .store
+            .add_auth_key("alice", &second_public, &second_proof)
+            .unwrap();
+
         // The happy path: the ident key revokes the machine, and the machine's
         // live session dies with it.
         let issued = new_challenge(h.state.clone()).await;
@@ -6970,7 +7072,7 @@ mod tests {
         )
         .unwrap();
         let response = revoke_machine(
-            State(h.state),
+            State(h.state.clone()),
             Json(RevokeRequest {
                 challenge_id: issued.challenge_id,
                 auth_fingerprint: fingerprint.clone(),
@@ -6992,6 +7094,39 @@ mod tests {
             verify_session_token(&h.store, &token).is_err(),
             "revoking the key must invalidate its outstanding session",
         );
+
+        // bug-493: revoking the last current machine key would lock the account
+        // out for good — no ident-authorized route adds an auth key — so it is
+        // refused even with a valid ident signature, and the key stays current.
+        let issued = new_challenge(h.state.clone()).await;
+        let nonce = crypto::decode_bytes(&issued.nonce, "nonce").unwrap();
+        let signature = crypto::sign(
+            &keys.ident_private,
+            &crypto::revocation_message(&issued.challenge_id, &nonce, &second_key.fingerprint),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                revoke_machine(
+                    State(h.state.clone()),
+                    Json(RevokeRequest {
+                        challenge_id: issued.challenge_id,
+                        auth_fingerprint: second_key.fingerprint.clone(),
+                        ident_signature: crypto::encode_bytes(&signature),
+                    }),
+                )
+                .await
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                "cannot revoke the account's last auth key; link another machine first".to_string(),
+            ),
+        );
+        assert!(h
+            .store
+            .owner_auth_key_by_fingerprint("alice", &second_key.fingerprint)
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
