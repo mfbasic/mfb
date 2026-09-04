@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: security (denial of service — compiler crash on hostile source)
 
-Status: FIXED (see STATUS block at the end)
+Status: FIXED (56746e04b; see STATUS block at the end)
 
 Regression Test: a `tests/syntax/` fixture with a long `+` chain asserting `MFB_EXPR_TOO_DEEP` (or equivalent), not a crash.
 
@@ -74,7 +74,12 @@ operator/member-chain axis is the remaining uncovered one (searched
 
 ## STATUS: FIXED
 
-Fixed on `worktree-B-501` (this commit) — see `git log` for the hash.
+Fixed in `56746e04b` (bug-501 (WIP): bound the BUILT expression tree depth in the
+parser; charge |> placeholder copies), landed on `main` via the `worktree-B-501`
+merge. Landing gates (after merging `main` at `90f6c1357`): the FE-01 spike exits 1
+with the located diagnostic (pre-fix `main` binary: SIGABRT, exit 134);
+`cargo test --no-fail-fast` green; `scripts/diag-set-diff.sh` 560 fixtures SAME;
+`artifact-gate all` 1898 goldens, 0 diffs.
 
 **Mechanism confirmed.** `MAX_EXPR_DEPTH` (`src/ast/expr.rs`, `enter_expr`) bounds
 the parser's *recursion*, but the left-associative loops (`parse_or` …
