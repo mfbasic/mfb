@@ -248,6 +248,160 @@ FUNC __canvas_intListEquals(a AS List OF Integer, b AS List OF Integer) AS Boole
   RETURN TRUE
 END FUNC
 
+' plan-116-H: the GPU draw list, and the block layout it indexes into.
+'
+' `__canvas_sceneDraws` is the sibling of `__canvas_sceneOffsets`. Both walk the same
+' resolved tree; they differ in what they produce and, critically, in **how often a
+' shared group is written**.
+'
+' `__CANVAS_DRAWS` is four integers per entry -- `(itemBase, itemCount, dx, dy)`, the
+' offsets in 16.16 -- and `__CANVAS_DRAW_BLOCKS` is the flat list of geometry offsets the
+' bases index into, one entry per item block the frame uploads.
+'
+' **The decision section 4.3 asks Phase 1 to make: a shared group's blocks are written
+' ONCE and referenced, not once per reference.** Three reasons, and the first is the one
+' that settles it:
+'
+'   1. It is the only shape in which a per-draw offset earns its place. The whole
+'      apparatus this letter adds -- a Vulkan push constant, Metal `setVertexBytes:` --
+'      exists so that two draws of one group differ only by a translation. If the blocks
+'      were duplicated per reference, the offset could simply be baked into each copy
+'      when it is written, and none of that machinery would be needed.
+'   2. It bounds what reuse costs. `__CANVAS_MAX_FRAME_ITEMS` is 4096; a UI drawing one
+'      200-item panel at thirty positions costs 200 blocks under sharing and 6000 under
+'      duplication -- over the cap, so the frame would decline to software and the
+'      feature would be slowest exactly where it is most used.
+'   3. It is this letter's stated goal (1), reuse, expressed in the buffer.
+'
+' The consequence for the predicates is that **two different things are capped**: the
+' number of BLOCKS (which a diamond does not double) and the number of DRAWS (which it
+' does). They are summed separately below.
+'
+' A group is memoised by slot index, so the second reference to a group finds its blocks
+' already laid out. Its own non-group items form one contiguous run; a nested group inside
+' it is not part of that run -- it becomes its own memoised run plus a draw entry at the
+' composed offset, which is what "a group ends the current run and starts a new one after
+' it" means once the group can itself contain groups.
+MUT __CANVAS_DRAWS AS List OF Integer = []
+MUT __CANVAS_DRAW_BLOCKS AS List OF Integer = []
+' Slot index -> the base of that group's own run in `__CANVAS_DRAW_BLOCKS`, and its
+' length. Parallel lists rather than a Map because a Map of Integer to Integer would
+' allocate per frame and this is walked once per group node.
+MUT __CANVAS_DRAW_MEMO_SLOT AS List OF Integer = []
+MUT __CANVAS_DRAW_MEMO_BASE AS List OF Integer = []
+MUT __CANVAS_DRAW_MEMO_COUNT AS List OF Integer = []
+
+FUNC __canvas_memoLookup(slot AS Integer) AS Integer
+  MUT i AS Integer = 0
+  WHILE i < len(__CANVAS_DRAW_MEMO_SLOT)
+    IF collections::getOr(__CANVAS_DRAW_MEMO_SLOT, i, -1) = slot THEN
+      RETURN i
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' Append one draw entry: four integers, offsets in 16.16 so the whole list stays
+' `List OF Integer` and reaches an emitter without a second parallel Float list.
+SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+  IF count <= 0 THEN
+    EXIT SUB
+  END IF
+  MUT out AS List OF Integer = __CANVAS_DRAWS
+  out = collections::append(out, base)
+  out = collections::append(out, count)
+  out = collections::append(out, toInt(dx * 65536.0))
+  out = collections::append(out, toInt(dy * 65536.0))
+  __CANVAS_DRAWS = out
+END SUB
+
+' Lay out one group's own (non-group) items once, returning its memo index.
+FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Integer) AS Integer
+  LET found AS Integer = __canvas_memoLookup(slot)
+  IF found >= 0 THEN
+    RETURN found
+  END IF
+  ' Claim the memo row BEFORE walking the children. A group that reaches itself would
+  ' otherwise recurse forever here rather than tripping the depth limit -- and this walk
+  ' runs on the graphics thread, where a raise has nowhere to go (plan-116-G G22).
+  LET base AS Integer = len(__CANVAS_DRAW_BLOCKS)
+  __CANVAS_DRAW_MEMO_SLOT = collections::append(__CANVAS_DRAW_MEMO_SLOT, slot)
+  __CANVAS_DRAW_MEMO_BASE = collections::append(__CANVAS_DRAW_MEMO_BASE, base)
+  __CANVAS_DRAW_MEMO_COUNT = collections::append(__CANVAS_DRAW_MEMO_COUNT, 0)
+  LET row AS Integer = len(__CANVAS_DRAW_MEMO_SLOT) - 1
+
+  MUT count AS Integer = 0
+  FOR EACH child IN canvas::groupItems(slot)
+    MATCH child
+      CASE Group(g)
+        ' A nested group is NOT part of this group's own run -- it gets its own memoised
+        ' run and its own draw entry, at the composed offset.
+        LET nested AS Integer = 0
+      CASE ELSE
+        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
+        blocks = collections::append(blocks, __canvas_geometryFor(child, __canvas_hashItem(child)))
+        __CANVAS_DRAW_BLOCKS = blocks
+        count = count + 1
+    END MATCH
+  NEXT
+  __CANVAS_DRAW_MEMO_COUNT = collections::set(__CANVAS_DRAW_MEMO_COUNT, row, count)
+  RETURN row
+END FUNC
+
+' Emit the draw entries for one group reference at an accumulated offset: its own run,
+' then its nested groups recursively.
+SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, depth AS Integer)
+  IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+    EXIT SUB
+  END IF
+  LET row AS Integer = __canvas_memoGroup(slot, hashes, depth)
+  __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy)
+  FOR EACH child IN canvas::groupItems(slot)
+    MATCH child
+      CASE Group(g)
+        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, gdx + g.dx, gdy + g.dy, depth + 1)
+      CASE ELSE
+        ' A non-group child contributes no draw entry of its own: its block is already
+        ' inside the run this group's memo laid out.
+        LET skipped AS Integer = 0
+    END MATCH
+  NEXT
+END SUB
+
+FUNC __canvas_sceneDraws() AS List OF Integer
+  __CANVAS_DRAWS = []
+  __CANVAS_DRAW_BLOCKS = []
+  __CANVAS_DRAW_MEMO_SLOT = []
+  __CANVAS_DRAW_MEMO_BASE = []
+  __CANVAS_DRAW_MEMO_COUNT = []
+  LET hashes AS List OF Integer = canvas::installedHashes()
+  MUT index AS Integer = 0
+  MUT runBase AS Integer = 0
+  MUT runCount AS Integer = 0
+  FOR EACH item IN canvas::installedItems()
+    MATCH item
+      CASE Group(g)
+        ' A group ends the current run.
+        __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+        runCount = 0
+        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
+        runBase = len(__CANVAS_DRAW_BLOCKS)
+      CASE ELSE
+        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
+        blocks = collections::append(blocks, __canvas_geometryFor(item, collections::getOr(hashes, index, 0)))
+        __CANVAS_DRAW_BLOCKS = blocks
+        IF runCount = 0 THEN
+          runBase = len(__CANVAS_DRAW_BLOCKS) - 1
+        END IF
+        runCount = runCount + 1
+    END MATCH
+    index = index + 1
+  NEXT
+  __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+  RETURN __CANVAS_DRAWS
+END FUNC
+
 FUNC __canvas_sceneOffsets() AS List OF Integer
   MUT offsets AS List OF Integer = []
   LET hashes AS List OF Integer = canvas::installedHashes()
@@ -578,6 +732,14 @@ FUNC __canvas_renderFrame() AS Nothing
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
+  ' plan-116-H Phase 1: build the GPU draw list beside the software one. Nothing
+  ' consumes it yet -- both backends still decline a group scene -- but it is built every
+  ' frame so `MFB_CANVAS_STATS` can report it, which is the only way a test can see a
+  ' structure that exists on the graphics thread and is handed straight to an emitter.
+  '
+  ' Cheap despite walking the tree a second time: both walks resolve geometry through
+  ' `__canvas_geometryFor`, which IS the cache, so the second one hits it.
+  LET draws AS List OF Integer = __canvas_sceneDraws()
   ' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
   ' worker action to land mid-render.
   '

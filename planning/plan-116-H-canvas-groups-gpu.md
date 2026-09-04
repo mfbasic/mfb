@@ -318,6 +318,34 @@ count:
   and make each predicate match its emitter; a predicate that counts differently
   from the emitter is the class of bug `.ai/canvas-threading.md` §10 records.
 
+  **DECIDED (Phase 1): once, referenced — not once per reference.** Three reasons, the
+  first of which settles it on its own:
+
+  1. **It is the only shape in which a per-draw offset earns its place.** The whole
+     apparatus this letter adds — a Vulkan push constant, Metal `setVertexBytes:` — exists
+     so two draws of one group differ *only* by a translation. If the blocks were
+     duplicated per reference, the offset could simply be baked into each copy as it is
+     written, and none of that machinery would be needed. Choosing duplication would be
+     choosing to build the offset plumbing and then not need it.
+  2. **It bounds what reuse costs.** `CANVAS_MAX_FRAME_ITEMS` is 4096. A UI drawing one
+     200-item panel at thirty positions costs 200 blocks under sharing and 6000 under
+     duplication — over the cap, so the frame would decline to software and the feature
+     would be slowest precisely where it is used most.
+  3. It is this letter's stated goal (1), reuse, expressed in the buffer rather than only
+     in the source.
+
+  **The consequence the predicates must encode: two different quantities are capped.**
+  The number of **blocks** (which a diamond does *not* double) against
+  `CANVAS_MAX_FRAME_ITEMS`, and the number of **draws** (which it does). The edge, glyph
+  and gradient payloads follow the blocks, so they are summed **once per distinct
+  resolved group**, not once per reference.
+
+  Those sums land in **Phase 2 and Phase 3, with the decline removals**, not here. A
+  predicate that summed the resolved tree while still declining every group scene would
+  be unreachable code, and the plan's own instruction is to make each predicate match its
+  emitter — the emitter does not exist until Phase 2. Recorded rather than deferred:
+  the decision is made, and the phase that acts on it is named.
+
 ## Compatibility / Format Impact
 
 - **No new `canvas::` surface.** Groups already exist after plan-116-G; this letter
@@ -337,11 +365,11 @@ count:
 
 CPU-side only; no shader change, no predicate change. Both backends still decline.
 
-- [ ] Add `__canvas_sceneDraws` per §4.1, beside `__canvas_sceneOffsets`.
-- [ ] **Decide and record**, in §4.3, whether a shared group's edge/glyph/gradient
+- [x] Add `__canvas_sceneDraws` per §4.1, beside `__canvas_sceneOffsets`.
+- [x] **Decide and record**, in §4.3, whether a shared group's edge/glyph/gradient
       payload is uploaded once or once per reference — and make the Vulkan predicate's
       sum match. Record the choice with the reason.
-- [ ] Tests: `tests/rt_canvas_rasteriser.rs` asserts `__canvas_sceneDraws` produces the
+- [x] Tests: `tests/rt_canvas_rasteriser.rs` asserts `__canvas_sceneDraws` produces the
       expected `(base, count, dx, dy)` sequence for: a flat scene; one group; a nested
       group; a diamond. Assert the **diamond's two draws name the same item base** —
       that is the buffer-sharing property this whole letter is arranged around.
@@ -352,6 +380,29 @@ CPU-side only; no shader change, no predicate change. Both backends still declin
 Acceptance: the four draw-list cases pass, the diamond shares a base, and every
 existing golden and every plan-116-G group scene is byte-identical (the software
 renderer is untouched).
+
+**MET.** `scene_draws_shares_one_base_between_a_diamonds_two_draws`
+(`rt_canvas_rasteriser`) covers all four cases in one test, deliberately: the failures
+are *relative*, so a walk emitting per-reference blocks passes the flat and single-group
+cases unchanged and diverges only on the diamond, while a walk dropping the composed
+offset passes everything except the nested case.
+
+Measured, from `MFB_CANVAS_STATS` — the only window onto a structure built on the
+graphics thread and handed straight to an emitter:
+
+| case | `blocks=` | `draws=` |
+|---|---|---|
+| flat scene, two items | 2 | `0:2:0:0` |
+| one group at (100,100) | 2 | `0:2:6553600:6553600` |
+| nested, (500,100)+(0,200) | 1 | run drawn at `32768000:19660800` = (500,300) |
+| **diamond, two references** | **2** | `0:2:6553600:6553600｜0:2:19660800:6553600` |
+
+The diamond is the row that matters: **two draws, both base 0**, one set of blocks.
+
+The software renderer is untouched — `__canvas_sceneOffsets` is kept alongside rather
+than replaced, since it also feeds the geometry-cache warm-up. `rt_canvas_rasteriser`
+58, `rt_canvas_golden` 13, `rt_canvas_font` 17, `rt_canvas_damage` 6, all 0 failed, so
+no golden and no plan-116-G group scene moved.
 Commit: —
 
 ### Phase 2 — Vulkan: the offset, both stages

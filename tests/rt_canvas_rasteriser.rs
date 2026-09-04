@@ -3339,3 +3339,99 @@ fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
          Suppressing the retire reports 16530 here: {stats:?}",
     );
 }
+
+/// `__canvas_sceneDraws` produces the expected `(base, count, dx, dy)` sequence, and a
+/// **diamond's two draws name the same item base** (plan-116-H Phase 1).
+///
+/// That last property is what this whole letter is arranged around, and it is the
+/// decision §4.3 asked Phase 1 to make: a shared group's blocks are written **once** and
+/// referenced, not once per reference. The alternative would duplicate the blocks, at
+/// which point a per-draw offset earns nothing — the translation could simply be baked
+/// into each copy as it is written, and the push constant this letter adds would be
+/// unnecessary machinery.
+///
+/// Read off `MFB_CANVAS_STATS`, which is the only window onto a structure built on the
+/// graphics thread and handed straight to an emitter. `blocks=` is how many item blocks
+/// the frame uploads; `draws=` is `base:count:dx:dy` per entry, `|`-separated, with the
+/// offsets in 16.16 as stored — 100.0 is `6553600`.
+///
+/// The four cases are one test rather than four because the interesting failures are
+/// relative: a walk that emitted per-reference blocks passes the flat and single-group
+/// cases unchanged and only diverges on the diamond, and a walk that dropped the
+/// composed offset passes everything except the nested case.
+#[test]
+fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
+    let d = |body: &str| -> (String, String) {
+        let (_, stats) = render("canvas_scene_draws", &scene(body));
+        let line = stats.last().expect("a frame").clone();
+        (stat(&line, "blocks="), stat(&line, "draws="))
+    };
+    const RED: &str = "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  ";
+
+    // 1. A flat scene: one run, no offset.
+    let (blocks, draws) = d(&format!(
+        "{RED}LET b AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  canvas::present([red, b])\n"
+    ));
+    assert_eq!(
+        (blocks.as_str(), draws.as_str()),
+        ("2", "0:2:0:0"),
+        "a group-free scene must be one run of every item at no offset — the shape this \
+         letter must not change for scenes that use no groups",
+    );
+
+    // 2. One group at (100, 100): its two items written once, one draw at the offset.
+    let (blocks, draws) = d(&format!(
+        "{RED}canvas::setGroup(\"g\", [red, red])\n  canvas::present([canvas::Group[dx := 100.0, dy := 100.0, name := \"g\"]])\n"
+    ));
+    assert_eq!(
+        (blocks.as_str(), draws.as_str()),
+        ("2", "0:2:6553600:6553600"),
+        "one group should be its own items once, drawn at its offset in 16.16",
+    );
+
+    // 3. A nested group: the inner run is drawn at the COMPOSED offset.
+    let (blocks, draws) = d(&format!(
+        "{RED}canvas::setGroup(\"inner\", [red])\n  \
+         canvas::setGroup(\"outer\", [canvas::Group[dx := 0.0, dy := 200.0, name := \"inner\"]])\n  \
+         canvas::present([canvas::Group[dx := 500.0, dy := 100.0, name := \"outer\"]])\n"
+    ));
+    assert_eq!(
+        blocks, "1",
+        "the outer group has no items of its own — only the inner group's one block \
+         should be laid out: {draws}",
+    );
+    assert!(
+        draws.contains(&format!("{}:{}", 500 * 65536, 300 * 65536)),
+        "the inner run must be drawn at the composed offset (500,100)+(0,200) = \
+         (500,300) = {}:{} in 16.16; got {draws}",
+        500 * 65536,
+        300 * 65536,
+    );
+
+    // 4. The diamond: one group, two references. THE case.
+    let (blocks, draws) = d(&format!(
+        "{RED}canvas::setGroup(\"g\", [red, red])\n  \
+         canvas::present([canvas::Group[dx := 100.0, dy := 100.0, name := \"g\"], canvas::Group[dx := 300.0, dy := 100.0, name := \"g\"]])\n"
+    ));
+    assert_eq!(
+        blocks, "2",
+        "a diamond must write the shared group's blocks ONCE. {blocks} blocks means they \
+         were duplicated per reference, which is the decision §4.3 asked Phase 1 to make \
+         and this test to enforce: draws={draws}",
+    );
+    let bases: Vec<&str> = draws
+        .split('|')
+        .map(|e| e.split(':').next().unwrap_or(""))
+        .collect();
+    assert_eq!(
+        bases,
+        vec!["0", "0"],
+        "the diamond's two draws must name the SAME item base — that is the \
+         buffer-sharing property the per-draw offset exists to make possible: {draws}",
+    );
+    assert_ne!(
+        draws.split('|').next(),
+        draws.split('|').nth(1),
+        "the two draws are identical, so the offsets did not differ: {draws}",
+    );
+}
