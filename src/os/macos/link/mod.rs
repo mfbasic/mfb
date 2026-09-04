@@ -31,6 +31,7 @@ pub(crate) fn write_executable(
     project_name: &str,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let bytes = encode_executable_bytes(project_name, image)?;
     // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
     // the executable and the `vendor/` its RPATH points at move as one unit, and
@@ -74,6 +75,7 @@ pub(crate) fn write_app_bundle(
     app_icon: Option<&Path>,
     app_version: &str,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let bytes = encode_executable_bytes(project_name, image)?;
     let bundle_path = project_dir
         .join(BUILD_DIR)

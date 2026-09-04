@@ -168,6 +168,9 @@ pub(crate) fn validate_project_manifest(
     if !validate_sources(manifest, project_path, &contents) {
         valid = false;
     }
+    if !validate_name(manifest, project_path, &contents) {
+        valid = false;
+    }
 
     if !validate_optional_string(manifest, project_path, &contents, "entry") {
         valid = false;
@@ -241,6 +244,51 @@ fn validate_packages(
         column + "\"packages\"".len(),
     );
     false
+}
+
+/// Validate that `name` is a single safe path component (bug-503, audit-3 LNK-12).
+///
+/// The name is interpolated into every artifact path — `build/<name>.out`,
+/// `build/<name>.app`, `build/<name>-<flavor>.AppDir`, `<name>.ast`, `<name>.nir`,
+/// `<name>.nobj`, … — with a plain `Path::join`, and the executable is then made
+/// `0755`. `..` escapes the project, a leading `/` makes the target absolute, a
+/// leading `.` hides the file. Cloning an untrusted project and running
+/// `mfb build` (which never runs the program) must not plant an executable at an
+/// attacker-chosen path, so the manifest gate refuses such a name outright. The
+/// charset is the one every `.mfp` package name already satisfies
+/// (`validate_package_name`); the tree's 1,400+ manifests all conform.
+///
+/// Presence/type/emptiness are `validate_required_string`'s job (it runs first);
+/// this only judges the shape of a non-empty string.
+fn validate_name(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let Some(name) = manifest.get("name").and_then(|value| value.get::<String>()) else {
+        return true;
+    };
+    if name.trim().is_empty() {
+        return true;
+    }
+    let (line, column) = field_position(contents, "name");
+    if package::validate_package_name(name).is_err() {
+        rules::show_diagnostic(
+            "PROJECT_JSON_NAME_INVALID",
+            &format!(
+                "Project name `{name}` is not a valid path component (expected \
+                 [A-Za-z0-9_][A-Za-z0-9_.-]*). The name forms every build artifact's path \
+                 (`build/<name>.out`, `<name>.ast`, …), so it may not contain a path \
+                 separator, start with `.`, or be `..`."
+            ),
+            project_path,
+            line,
+            column,
+            column + "\"name\"".len(),
+        );
+        return false;
+    }
+    true
 }
 
 fn validate_required_string(
@@ -2219,6 +2267,58 @@ mod tests {
         .expect("project manifest");
 
         assert!(validate_project_manifest(&project_dir.join("project.json")).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    /// bug-503: `name` is interpolated into every artifact path (`build/<name>.out`,
+    /// `<name>.ast`, `<name>.nir`, the `.app`/`.AppDir` bundles), so a name that is
+    /// not a single safe path component must be refused at the manifest gate —
+    /// `../evil` escapes the project, `/tmp/evil` is absolute, `.evil` hides the
+    /// artifact.
+    #[test]
+    fn validate_project_manifest_rejects_a_name_that_is_not_a_path_component() {
+        let root = test_temp_dir("validate_project_manifest_rejects_traversing_name");
+        let project_dir = root.join("app");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        let manifest = |name: &str| {
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"{}\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"executable\",\n",
+                    "  \"sources\": [{{ \"root\": \"src\" }}]\n",
+                    "}}\n"
+                ),
+                name
+            )
+        };
+        for bad in [
+            "../evil",
+            "../../../../tmp/lnk12-pwn/evil",
+            "/tmp/evil",
+            "sub/dir",
+            "back\\slash",
+            ".hidden",
+            "..",
+            "with space",
+        ] {
+            fs::write(project_dir.join("project.json"), manifest(bad)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&project_dir.join("project.json")).is_err(),
+                "name {bad:?} must be rejected"
+            );
+        }
+        // Every name shape the tree's 1,400+ manifests actually use stays valid.
+        for good in ["app", "my-app", "my_app", "app.v2", "3d", "A"] {
+            fs::write(project_dir.join("project.json"), manifest(good)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&project_dir.join("project.json")).is_ok(),
+                "name {good:?} must stay valid"
+            );
+        }
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }

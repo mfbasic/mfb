@@ -26,7 +26,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 
 | field | type | required | meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | project name; non-empty after trim |
+| `name` | string | yes | project name; non-empty after trim, and a single safe path component — `[A-Za-z0-9_][A-Za-z0-9_.-]*` — because every artifact path (`build/<name>.out`, `<name>.ast`, `build/<name>.app`, …) is formed by joining it (see `PROJECT_JSON_NAME_INVALID` below) |
 | `version` | string | yes | project version; non-empty after trim. A macOS app build publishes it as the bundle's `CFBundleShortVersionString`/`CFBundleVersion` (./mfb spec linker macos-aarch64) |
 | `mfb` | string | yes | toolchain/manifest schema version (`"1.0"`); non-empty after trim |
 | `sources` | array of objects | yes | source roots (see *Source Entries*); non-empty |
@@ -338,6 +338,9 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | executable entry-point resolution failed [[src/manifest/entry.rs:validate_entry_point]] |
 | `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/mod.rs:validate_libraries]] |
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
+
+| `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
+| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project (bug-503) [[src/manifest/mod.rs:validate_name]] |
 
 `PROJECT_JSON_LIBRARY_INVALID` covers a dozen distinct mistakes, so its
 **message** — not just its code — names the specific cause: which field, which

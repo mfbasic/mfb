@@ -1,0 +1,18 @@
+IMPORT io
+IMPORT collections
+FUNC main() AS Integer
+  MUT xs AS List OF Integer = [1, 2, 3, 4, 5, 6, 7, 8]
+  LET n AS Integer = len(xs)
+  MUT out AS List OF Integer = []
+  FOR r = 0 TO 2
+    FOR i = 0 TO n - 1
+      out = collections::append(out, collections::get(xs, i))
+    NEXT
+    xs = [99]
+  NEXT
+  io::print("out=" & toString(len(out)))
+  FOR EACH v IN out
+    io::print("v=" & toString(v))
+  NEXT
+  RETURN 0
+END FUNC

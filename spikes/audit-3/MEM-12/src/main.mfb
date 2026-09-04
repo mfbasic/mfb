@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT strings
+MUT GS AS String = "abcdefgh"
+MUT G2 AS String = "12345678"
+FUNC other(v AS Integer) AS String
+  G2 = "XY"
+  RETURN "tail"
+END FUNC
+FUNC same(v AS Integer) AS String
+  GS = "XY"
+  RETURN "tail"
+END FUNC
+FUNC main() AS Integer
+  LET a AS String = GS & other(1)
+  io::print("other -> [" & a & "] len=" & toString(strings::byteLen(a)))
+  LET b AS String = GS & same(1)
+  io::print("same  -> [" & b & "] len=" & toString(strings::byteLen(b)))
+  RETURN 0
+END FUNC

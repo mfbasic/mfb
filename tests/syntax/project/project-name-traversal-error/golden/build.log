@@ -1,0 +1,7 @@
+$ mfb build -ast -ir tests/syntax/project/project-name-traversal-error
+   1 | {
+   2 |   "name": "../project_name_traversal_error_evil",
+     |   ^^^^^^
+tests/syntax/project/project-name-traversal-error/project.json:2 error[2-200-0017 PROJECT_JSON_NAME_INVALID]: project.json `name` is not a single safe path component
+               Project name `../project_name_traversal_error_evil` is not a valid path component (expected [A-Za-z0-9_][A-Za-z0-9_.-]*). The name forms every build artifact's path (`build/<name>.out`, `<name>.ast`, …), so it may not contain a path separator, start with `.`, or be `..`.
+[exit 1]

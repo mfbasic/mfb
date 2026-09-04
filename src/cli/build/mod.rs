@@ -1913,6 +1913,43 @@ mod tests {
         build_project(&options).expect("build should succeed");
     }
 
+    /// bug-503 (audit-3 LNK-12): a `project.json` `name` of `../evil` used to be
+    /// `Path::join`ed into `build/../evil.out` and written 0755 — an arbitrary
+    /// executable write from merely *building* an untrusted project. The build
+    /// must refuse the name and write nothing outside the project.
+    #[test]
+    fn build_project_rejects_a_traversing_project_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let dir = root.path().join("proj");
+        std::fs::create_dir_all(&dir).expect("project dir");
+        write_executable_project(&dir);
+        let manifest = std::fs::read_to_string(dir.join("project.json")).expect("manifest");
+        std::fs::write(
+            dir.join("project.json"),
+            manifest.replace("\"name\": \"app\"", "\"name\": \"../evil\""),
+        )
+        .expect("rewrite manifest");
+        let options =
+            parse_build_options(vec![dir.to_str().unwrap().to_string()]).expect("options");
+        assert!(
+            build_project(&options).is_err(),
+            "a traversing project name must fail the build"
+        );
+        // `proj/build/../evil.out` is `<root>/evil.out`; `-ast` would land
+        // `<root>/evil.ast`. Neither — nor anything else — may appear beside the
+        // project.
+        let escaped: Vec<_> = std::fs::read_dir(root.path())
+            .expect("read root")
+            .map(|entry| entry.expect("entry").file_name())
+            .filter(|name| name != "proj")
+            .collect();
+        assert!(escaped.is_empty(), "files escaped the project: {escaped:?}");
+        assert!(
+            !dir.join(crate::os::BUILD_DIR).exists(),
+            "a refused build must not create build/"
+        );
+    }
+
     #[test]
     fn build_project_clears_stale_build_dir() {
         // plan-55-A §4.2: a real build removes `build/` at the start, so a file a
