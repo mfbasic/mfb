@@ -10,27 +10,32 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' bug-302: iterative (see __json_skipWhitespace) — a long numeric literal recursed
 ' once per character and overflowed the native stack.
-FUNC __json_collectNumber(chars AS List OF String, index AS Integer, current AS String) AS __json_StringNode
+' bug-510: measures the token over bytes, then copies it out in ONE slice rather
+' than growing an accumulator per character. The four terminators (`,` `]` `}` and
+' whitespace) are ASCII, so the token never ends inside a multi-byte scalar and
+' always decodes; a non-ASCII scalar inside the token is carried through and
+' rejected by __json_validNumber, exactly as the grapheme scan rejected it.
+FUNC __json_collectNumber(bytes AS List OF Byte, index AS Integer) AS __json_StringNode
   MUT at AS Integer = index
-  MUT acc AS String = current
-  WHILE at < len(chars)
-    LET ch AS String = collections::get(chars, at)
-    IF ch = "," THEN
-      RETURN __json_StringNode[acc, at]
+  MUT finished AS Boolean = FALSE
+  MUT code AS Integer = 0
+  LET n AS Integer = len(bytes)
+  WHILE finished = FALSE AND at < n
+    code = toInt(collections::get(bytes, at))
+    IF code = 44 THEN
+      finished = TRUE
+    ELSEIF code = 93 THEN
+      finished = TRUE
+    ELSEIF code = 125 THEN
+      finished = TRUE
+    ELSEIF __json_isWhitespace(code) THEN
+      finished = TRUE
+    ELSE
+      at = at + 1
     END IF
-    IF ch = "]" THEN
-      RETURN __json_StringNode[acc, at]
-    END IF
-    IF ch = "}" THEN
-      RETURN __json_StringNode[acc, at]
-    END IF
-    IF __json_isWhitespace(ch) THEN
-      RETURN __json_StringNode[acc, at]
-    END IF
-    acc = acc & ch
-    at = at + 1
   END WHILE
-  RETURN __json_StringNode[acc, at]
+  LET token AS String = encoding::utf8Decode(collections::mid(bytes, index, at - index))
+  RETURN __json_StringNode[token, at]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

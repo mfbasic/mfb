@@ -8,14 +8,21 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseHexQuad(chars AS List OF String, index AS Integer) AS Integer
-  IF index + 3 >= len(chars) THEN
+r#"FUNC __json_parseHexQuad(bytes AS List OF Byte, index AS Integer) AS Integer
+  IF index + 3 >= len(bytes) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  ' Strict 4-digit `\uXXXX` escape: concatenate exactly four chars and let
-  ' toInt(_, 16) validate the hex digits, keeping json's own error.
-  LET quad AS String = collections::get(chars, index) & collections::get(chars, index + 1) & collections::get(chars, index + 2) & collections::get(chars, index + 3)
-  LET value AS Integer = toInt(quad, 16) TRAP(err)
+  ' Strict 4-digit `\uXXXX` escape: take exactly four bytes and let toInt(_, 16)
+  ' validate the hex digits, keeping json's own error. A hex digit is ASCII, so a
+  ' byte >= 128 is malformed before toInt ever sees it -- and rejecting it here is
+  ' also what keeps those four bytes a whole, well-formed String.
+  LET quad AS List OF Byte = collections::mid(bytes, index, 4)
+  FOR EACH unit IN quad
+    IF toInt(unit) >= 128 THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+  NEXT
+  LET value AS Integer = toInt(toString(quad), 16) TRAP(err)
     FAIL error(77050003, "invalid JSON format")
   END TRAP
   RETURN value
