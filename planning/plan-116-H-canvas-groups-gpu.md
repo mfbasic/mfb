@@ -508,6 +508,36 @@ Commit: —
 
 ## Corrections
 
+**H9 (Phase 2) — sharing a group's blocks forces the emitter into two passes, and §4.1
+does not say so.** The current Vulkan emitter is one forward walk: for each item it
+publishes a block and, at a run boundary, issues the draw for everything published since
+the last one. That works because *publish order and draw order are the same sequence*.
+
+The Phase 1 decision breaks that identity. With a shared group written **once**, a diamond
+draws blocks `0..1` twice — so the draw sequence visits a range the publish walk has
+already passed. No single forward pass can issue both draws, and the shape of the fix is
+not a tweak to the run tracking; it is that **publishing and drawing become separate
+passes**: walk the block list to fill the item buffer, then walk `__CANVAS_DRAWS` to issue
+the calls.
+
+That is a bigger change than "convert the emitter to walk `__canvas_sceneDraws`" sounds,
+and the reason to write it down is the consequence for **text**. Today `emit_glyph_draws`
+runs *inside* the item walk, where `off_item` holds the block just staged and `off_header`
+the geometry record it came from. In a two-pass emitter the glyph draws move to the second
+pass, which has neither — it has a block index. Both are recoverable (the header is the
+geometry base plus `blocks[i] * 8`, and the block is already in the item buffer), but they
+have to be *recovered* rather than inherited, and a text run drawn from a stale `off_item`
+would render the previous item's glyphs: a plausible wrong picture again.
+
+The ordering constraint that makes this non-optional: draws must be issued in scene order,
+and text is interleaved with shapes. So the second pass must issue *both* kinds, in draw-
+list order — text cannot be left in the first pass without putting every shape that
+follows a text run on top of it.
+
+**Phase 2's box list should read: publish pass, draw pass, glyph re-staging, then the
+push-constant per entry.** The first two increments are landed (`3ded46db6`, `240fdf6ee`);
+this correction is what the third has to build.
+
 **H8 (Phase 2) — a draw entry is not "a run of non-group, non-text items"; it is a run of
 everything that must not change within one `vkCmdDraw`, and §4.1 names only two of the
 three things that force a split.** §4.1 says a run ends at a group node or a `Text` item.
