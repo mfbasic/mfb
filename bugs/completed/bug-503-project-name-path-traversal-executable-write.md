@@ -5,9 +5,9 @@ Effort: small (<1h)
 Severity: HIGH
 Class: security (arbitrary file write / build-time supply chain)
 
-Status: Open (found in audit-3, Surface 7 LNK-12; reproduced live by the lead)
+Status: FIXED (see STATUS block below)
 
-Regression Test: a build fixture with `"name": "../evil"` asserting a name-validation error, not an out-of-tree write.
+Regression Test: [x] `tests/syntax/project/project-name-traversal-error/` (golden pins `2-200-0017 PROJECT_JSON_NAME_INVALID`, `[exit 1]`); `cli::build::tests::build_project_rejects_a_traversing_project_name` (end to end: build fails, nothing appears beside the project, no `build/`); `manifest::tests::validate_project_manifest_rejects_a_name_that_is_not_a_path_component`; and one writer-level test per OS linker — `os::{linux::link,macos::link}::tests::refuses_to_write_an_executable_under_a_traversing_name`, `os::windows::tests::refuses_to_write_artifacts_under_a_traversing_name`.
 
 ## Summary
 
@@ -69,3 +69,32 @@ None for the executable path (searched `project name`, `path join`, `traversal`,
 `validate_package_name`, `write_executable`). bug-395 fixed a related traversal on
 the re-exported foreign-owner name in `binary_repr`; the os/link executable path
 was uncovered.
+
+## Fix
+
+Two layers, both using the charset a `.mfp` package name already satisfies
+(`validate_package_name`, `[A-Za-z0-9_][A-Za-z0-9_.-]*`; a census of the tree's
+1,455 `project.json` files found only the LNK-12 spike non-conforming):
+
+1. **Manifest gate** — `manifest::validate_name` runs inside
+   `validate_project_manifest` (the sole gate every command passes) and emits the
+   new hard error `2-200-0017 PROJECT_JSON_NAME_INVALID`. This covers *every*
+   artifact writer at once — the live repro showed `-ast -ir` also wrote
+   `<name>.ast`/`.ir` outside the project, not just the 0755 executable.
+2. **Defence in depth at the filesystem boundary** — `os::validate_output_name`
+   is called at the top of every writer that `Path::join`s the name
+   (`linux::link::write_executable`, `linux::appdir::write_appdir`,
+   `linux::appimage::seal`, `macos::link::{write_executable,write_app_bundle}`,
+   `windows::write_linked_executable`, all three `write_native_object_plan`s) and
+   in every shared `target::write_*` dispatcher before a backend runs, so an
+   `IrProject` constructed without the manifest cannot bypass the gate.
+
+Spec synced: `tooling/01_project-manifest.md` (`name` row + rule table) and
+`diagnostics/01_rule-codes.md` (`rules::tests::every_rule_is_documented_in_the_spec`
+gates the latter).
+
+STATUS: FIXED (e096f25d8)
+Reproduced first with the unfixed binary (`mfb build /tmp/lnk12` → 0755 Mach-O at
+`/tmp/lnk12-pwn/evil.out`); after the fix the same command exits 1 with
+`2-200-0017` and `/tmp/lnk12-pwn/` stays empty, no `build/` is created. No
+deviation from the Best fix; the `GUARD_CF`/LNK-14 and bug-504 items are separate.
