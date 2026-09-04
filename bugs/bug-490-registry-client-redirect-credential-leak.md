@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (credential confidentiality / SSRF-adjacent)
 
-Status: Open (found in audit-3, Surface 9 SUP-03; `planning/audit-3-supply-chain.md`)
+Status: Open (found in audit-3, Surface 9 SUP-03; `planning/completed/audit-3-supply-chain.md`)
 
 Regression Test: none yet — add one asserting a credential-bearing request refuses a cross-origin redirect.
 

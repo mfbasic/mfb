@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (terminal spoofing / trust-decision forgery)
 
-Status: Open (found in audit-3, Surface 9 SUP-02; `planning/audit-3-supply-chain.md`)
+Status: Open (found in audit-3, Surface 9 SUP-02; `planning/completed/audit-3-supply-chain.md`)
 
 Regression Test: none yet — add one asserting a registry error carrying ESC/CR/U+202E renders `\u{XXXX}`-escaped.
 
