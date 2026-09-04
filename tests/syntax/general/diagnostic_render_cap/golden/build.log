@@ -1,0 +1,602 @@
+$ mfb build -ast -ir tests/syntax/general/diagnostic_render_cap
+   1 | FUNC main() AS Integer
+   2 |   LET v0 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:2 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v0` has initializer type String, expected Integer.
+   1 | FUNC main() AS Integer
+   2 |   LET v0 AS Integer = "s"
+   3 |   LET v1 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:3 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v1` has initializer type String, expected Integer.
+   2 |   LET v0 AS Integer = "s"
+   3 |   LET v1 AS Integer = "s"
+   4 |   LET v2 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:4 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v2` has initializer type String, expected Integer.
+   3 |   LET v1 AS Integer = "s"
+   4 |   LET v2 AS Integer = "s"
+   5 |   LET v3 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:5 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v3` has initializer type String, expected Integer.
+   4 |   LET v2 AS Integer = "s"
+   5 |   LET v3 AS Integer = "s"
+   6 |   LET v4 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:6 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v4` has initializer type String, expected Integer.
+   5 |   LET v3 AS Integer = "s"
+   6 |   LET v4 AS Integer = "s"
+   7 |   LET v5 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:7 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v5` has initializer type String, expected Integer.
+   6 |   LET v4 AS Integer = "s"
+   7 |   LET v5 AS Integer = "s"
+   8 |   LET v6 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:8 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v6` has initializer type String, expected Integer.
+   7 |   LET v5 AS Integer = "s"
+   8 |   LET v6 AS Integer = "s"
+   9 |   LET v7 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:9 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v7` has initializer type String, expected Integer.
+   8 |   LET v6 AS Integer = "s"
+   9 |   LET v7 AS Integer = "s"
+  10 |   LET v8 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:10 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v8` has initializer type String, expected Integer.
+   9 |   LET v7 AS Integer = "s"
+  10 |   LET v8 AS Integer = "s"
+  11 |   LET v9 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:11 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v9` has initializer type String, expected Integer.
+  10 |   LET v8 AS Integer = "s"
+  11 |   LET v9 AS Integer = "s"
+  12 |   LET v10 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:12 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v10` has initializer type String, expected Integer.
+  11 |   LET v9 AS Integer = "s"
+  12 |   LET v10 AS Integer = "s"
+  13 |   LET v11 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:13 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v11` has initializer type String, expected Integer.
+  12 |   LET v10 AS Integer = "s"
+  13 |   LET v11 AS Integer = "s"
+  14 |   LET v12 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:14 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v12` has initializer type String, expected Integer.
+  13 |   LET v11 AS Integer = "s"
+  14 |   LET v12 AS Integer = "s"
+  15 |   LET v13 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:15 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v13` has initializer type String, expected Integer.
+  14 |   LET v12 AS Integer = "s"
+  15 |   LET v13 AS Integer = "s"
+  16 |   LET v14 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:16 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v14` has initializer type String, expected Integer.
+  15 |   LET v13 AS Integer = "s"
+  16 |   LET v14 AS Integer = "s"
+  17 |   LET v15 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:17 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v15` has initializer type String, expected Integer.
+  16 |   LET v14 AS Integer = "s"
+  17 |   LET v15 AS Integer = "s"
+  18 |   LET v16 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:18 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v16` has initializer type String, expected Integer.
+  17 |   LET v15 AS Integer = "s"
+  18 |   LET v16 AS Integer = "s"
+  19 |   LET v17 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:19 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v17` has initializer type String, expected Integer.
+  18 |   LET v16 AS Integer = "s"
+  19 |   LET v17 AS Integer = "s"
+  20 |   LET v18 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:20 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v18` has initializer type String, expected Integer.
+  19 |   LET v17 AS Integer = "s"
+  20 |   LET v18 AS Integer = "s"
+  21 |   LET v19 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:21 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v19` has initializer type String, expected Integer.
+  20 |   LET v18 AS Integer = "s"
+  21 |   LET v19 AS Integer = "s"
+  22 |   LET v20 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:22 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v20` has initializer type String, expected Integer.
+  21 |   LET v19 AS Integer = "s"
+  22 |   LET v20 AS Integer = "s"
+  23 |   LET v21 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:23 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v21` has initializer type String, expected Integer.
+  22 |   LET v20 AS Integer = "s"
+  23 |   LET v21 AS Integer = "s"
+  24 |   LET v22 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:24 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v22` has initializer type String, expected Integer.
+  23 |   LET v21 AS Integer = "s"
+  24 |   LET v22 AS Integer = "s"
+  25 |   LET v23 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:25 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v23` has initializer type String, expected Integer.
+  24 |   LET v22 AS Integer = "s"
+  25 |   LET v23 AS Integer = "s"
+  26 |   LET v24 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:26 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v24` has initializer type String, expected Integer.
+  25 |   LET v23 AS Integer = "s"
+  26 |   LET v24 AS Integer = "s"
+  27 |   LET v25 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:27 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v25` has initializer type String, expected Integer.
+  26 |   LET v24 AS Integer = "s"
+  27 |   LET v25 AS Integer = "s"
+  28 |   LET v26 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:28 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v26` has initializer type String, expected Integer.
+  27 |   LET v25 AS Integer = "s"
+  28 |   LET v26 AS Integer = "s"
+  29 |   LET v27 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:29 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v27` has initializer type String, expected Integer.
+  28 |   LET v26 AS Integer = "s"
+  29 |   LET v27 AS Integer = "s"
+  30 |   LET v28 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:30 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v28` has initializer type String, expected Integer.
+  29 |   LET v27 AS Integer = "s"
+  30 |   LET v28 AS Integer = "s"
+  31 |   LET v29 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:31 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v29` has initializer type String, expected Integer.
+  30 |   LET v28 AS Integer = "s"
+  31 |   LET v29 AS Integer = "s"
+  32 |   LET v30 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:32 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v30` has initializer type String, expected Integer.
+  31 |   LET v29 AS Integer = "s"
+  32 |   LET v30 AS Integer = "s"
+  33 |   LET v31 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:33 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v31` has initializer type String, expected Integer.
+  32 |   LET v30 AS Integer = "s"
+  33 |   LET v31 AS Integer = "s"
+  34 |   LET v32 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:34 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v32` has initializer type String, expected Integer.
+  33 |   LET v31 AS Integer = "s"
+  34 |   LET v32 AS Integer = "s"
+  35 |   LET v33 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:35 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v33` has initializer type String, expected Integer.
+  34 |   LET v32 AS Integer = "s"
+  35 |   LET v33 AS Integer = "s"
+  36 |   LET v34 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:36 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v34` has initializer type String, expected Integer.
+  35 |   LET v33 AS Integer = "s"
+  36 |   LET v34 AS Integer = "s"
+  37 |   LET v35 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:37 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v35` has initializer type String, expected Integer.
+  36 |   LET v34 AS Integer = "s"
+  37 |   LET v35 AS Integer = "s"
+  38 |   LET v36 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:38 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v36` has initializer type String, expected Integer.
+  37 |   LET v35 AS Integer = "s"
+  38 |   LET v36 AS Integer = "s"
+  39 |   LET v37 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:39 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v37` has initializer type String, expected Integer.
+  38 |   LET v36 AS Integer = "s"
+  39 |   LET v37 AS Integer = "s"
+  40 |   LET v38 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:40 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v38` has initializer type String, expected Integer.
+  39 |   LET v37 AS Integer = "s"
+  40 |   LET v38 AS Integer = "s"
+  41 |   LET v39 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:41 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v39` has initializer type String, expected Integer.
+  40 |   LET v38 AS Integer = "s"
+  41 |   LET v39 AS Integer = "s"
+  42 |   LET v40 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:42 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v40` has initializer type String, expected Integer.
+  41 |   LET v39 AS Integer = "s"
+  42 |   LET v40 AS Integer = "s"
+  43 |   LET v41 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:43 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v41` has initializer type String, expected Integer.
+  42 |   LET v40 AS Integer = "s"
+  43 |   LET v41 AS Integer = "s"
+  44 |   LET v42 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:44 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v42` has initializer type String, expected Integer.
+  43 |   LET v41 AS Integer = "s"
+  44 |   LET v42 AS Integer = "s"
+  45 |   LET v43 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:45 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v43` has initializer type String, expected Integer.
+  44 |   LET v42 AS Integer = "s"
+  45 |   LET v43 AS Integer = "s"
+  46 |   LET v44 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:46 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v44` has initializer type String, expected Integer.
+  45 |   LET v43 AS Integer = "s"
+  46 |   LET v44 AS Integer = "s"
+  47 |   LET v45 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:47 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v45` has initializer type String, expected Integer.
+  46 |   LET v44 AS Integer = "s"
+  47 |   LET v45 AS Integer = "s"
+  48 |   LET v46 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:48 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v46` has initializer type String, expected Integer.
+  47 |   LET v45 AS Integer = "s"
+  48 |   LET v46 AS Integer = "s"
+  49 |   LET v47 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:49 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v47` has initializer type String, expected Integer.
+  48 |   LET v46 AS Integer = "s"
+  49 |   LET v47 AS Integer = "s"
+  50 |   LET v48 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:50 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v48` has initializer type String, expected Integer.
+  49 |   LET v47 AS Integer = "s"
+  50 |   LET v48 AS Integer = "s"
+  51 |   LET v49 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:51 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v49` has initializer type String, expected Integer.
+  50 |   LET v48 AS Integer = "s"
+  51 |   LET v49 AS Integer = "s"
+  52 |   LET v50 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:52 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v50` has initializer type String, expected Integer.
+  51 |   LET v49 AS Integer = "s"
+  52 |   LET v50 AS Integer = "s"
+  53 |   LET v51 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:53 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v51` has initializer type String, expected Integer.
+  52 |   LET v50 AS Integer = "s"
+  53 |   LET v51 AS Integer = "s"
+  54 |   LET v52 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:54 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v52` has initializer type String, expected Integer.
+  53 |   LET v51 AS Integer = "s"
+  54 |   LET v52 AS Integer = "s"
+  55 |   LET v53 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:55 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v53` has initializer type String, expected Integer.
+  54 |   LET v52 AS Integer = "s"
+  55 |   LET v53 AS Integer = "s"
+  56 |   LET v54 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:56 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v54` has initializer type String, expected Integer.
+  55 |   LET v53 AS Integer = "s"
+  56 |   LET v54 AS Integer = "s"
+  57 |   LET v55 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:57 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v55` has initializer type String, expected Integer.
+  56 |   LET v54 AS Integer = "s"
+  57 |   LET v55 AS Integer = "s"
+  58 |   LET v56 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:58 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v56` has initializer type String, expected Integer.
+  57 |   LET v55 AS Integer = "s"
+  58 |   LET v56 AS Integer = "s"
+  59 |   LET v57 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:59 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v57` has initializer type String, expected Integer.
+  58 |   LET v56 AS Integer = "s"
+  59 |   LET v57 AS Integer = "s"
+  60 |   LET v58 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:60 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v58` has initializer type String, expected Integer.
+  59 |   LET v57 AS Integer = "s"
+  60 |   LET v58 AS Integer = "s"
+  61 |   LET v59 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:61 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v59` has initializer type String, expected Integer.
+  60 |   LET v58 AS Integer = "s"
+  61 |   LET v59 AS Integer = "s"
+  62 |   LET v60 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:62 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v60` has initializer type String, expected Integer.
+  61 |   LET v59 AS Integer = "s"
+  62 |   LET v60 AS Integer = "s"
+  63 |   LET v61 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:63 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v61` has initializer type String, expected Integer.
+  62 |   LET v60 AS Integer = "s"
+  63 |   LET v61 AS Integer = "s"
+  64 |   LET v62 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:64 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v62` has initializer type String, expected Integer.
+  63 |   LET v61 AS Integer = "s"
+  64 |   LET v62 AS Integer = "s"
+  65 |   LET v63 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:65 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v63` has initializer type String, expected Integer.
+  64 |   LET v62 AS Integer = "s"
+  65 |   LET v63 AS Integer = "s"
+  66 |   LET v64 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:66 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v64` has initializer type String, expected Integer.
+  65 |   LET v63 AS Integer = "s"
+  66 |   LET v64 AS Integer = "s"
+  67 |   LET v65 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:67 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v65` has initializer type String, expected Integer.
+  66 |   LET v64 AS Integer = "s"
+  67 |   LET v65 AS Integer = "s"
+  68 |   LET v66 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:68 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v66` has initializer type String, expected Integer.
+  67 |   LET v65 AS Integer = "s"
+  68 |   LET v66 AS Integer = "s"
+  69 |   LET v67 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:69 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v67` has initializer type String, expected Integer.
+  68 |   LET v66 AS Integer = "s"
+  69 |   LET v67 AS Integer = "s"
+  70 |   LET v68 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:70 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v68` has initializer type String, expected Integer.
+  69 |   LET v67 AS Integer = "s"
+  70 |   LET v68 AS Integer = "s"
+  71 |   LET v69 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:71 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v69` has initializer type String, expected Integer.
+  70 |   LET v68 AS Integer = "s"
+  71 |   LET v69 AS Integer = "s"
+  72 |   LET v70 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:72 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v70` has initializer type String, expected Integer.
+  71 |   LET v69 AS Integer = "s"
+  72 |   LET v70 AS Integer = "s"
+  73 |   LET v71 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:73 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v71` has initializer type String, expected Integer.
+  72 |   LET v70 AS Integer = "s"
+  73 |   LET v71 AS Integer = "s"
+  74 |   LET v72 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:74 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v72` has initializer type String, expected Integer.
+  73 |   LET v71 AS Integer = "s"
+  74 |   LET v72 AS Integer = "s"
+  75 |   LET v73 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:75 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v73` has initializer type String, expected Integer.
+  74 |   LET v72 AS Integer = "s"
+  75 |   LET v73 AS Integer = "s"
+  76 |   LET v74 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:76 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v74` has initializer type String, expected Integer.
+  75 |   LET v73 AS Integer = "s"
+  76 |   LET v74 AS Integer = "s"
+  77 |   LET v75 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:77 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v75` has initializer type String, expected Integer.
+  76 |   LET v74 AS Integer = "s"
+  77 |   LET v75 AS Integer = "s"
+  78 |   LET v76 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:78 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v76` has initializer type String, expected Integer.
+  77 |   LET v75 AS Integer = "s"
+  78 |   LET v76 AS Integer = "s"
+  79 |   LET v77 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:79 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v77` has initializer type String, expected Integer.
+  78 |   LET v76 AS Integer = "s"
+  79 |   LET v77 AS Integer = "s"
+  80 |   LET v78 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:80 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v78` has initializer type String, expected Integer.
+  79 |   LET v77 AS Integer = "s"
+  80 |   LET v78 AS Integer = "s"
+  81 |   LET v79 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:81 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v79` has initializer type String, expected Integer.
+  80 |   LET v78 AS Integer = "s"
+  81 |   LET v79 AS Integer = "s"
+  82 |   LET v80 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:82 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v80` has initializer type String, expected Integer.
+  81 |   LET v79 AS Integer = "s"
+  82 |   LET v80 AS Integer = "s"
+  83 |   LET v81 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:83 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v81` has initializer type String, expected Integer.
+  82 |   LET v80 AS Integer = "s"
+  83 |   LET v81 AS Integer = "s"
+  84 |   LET v82 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:84 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v82` has initializer type String, expected Integer.
+  83 |   LET v81 AS Integer = "s"
+  84 |   LET v82 AS Integer = "s"
+  85 |   LET v83 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:85 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v83` has initializer type String, expected Integer.
+  84 |   LET v82 AS Integer = "s"
+  85 |   LET v83 AS Integer = "s"
+  86 |   LET v84 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:86 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v84` has initializer type String, expected Integer.
+  85 |   LET v83 AS Integer = "s"
+  86 |   LET v84 AS Integer = "s"
+  87 |   LET v85 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:87 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v85` has initializer type String, expected Integer.
+  86 |   LET v84 AS Integer = "s"
+  87 |   LET v85 AS Integer = "s"
+  88 |   LET v86 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:88 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v86` has initializer type String, expected Integer.
+  87 |   LET v85 AS Integer = "s"
+  88 |   LET v86 AS Integer = "s"
+  89 |   LET v87 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:89 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v87` has initializer type String, expected Integer.
+  88 |   LET v86 AS Integer = "s"
+  89 |   LET v87 AS Integer = "s"
+  90 |   LET v88 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:90 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v88` has initializer type String, expected Integer.
+  89 |   LET v87 AS Integer = "s"
+  90 |   LET v88 AS Integer = "s"
+  91 |   LET v89 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:91 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v89` has initializer type String, expected Integer.
+  90 |   LET v88 AS Integer = "s"
+  91 |   LET v89 AS Integer = "s"
+  92 |   LET v90 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:92 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v90` has initializer type String, expected Integer.
+  91 |   LET v89 AS Integer = "s"
+  92 |   LET v90 AS Integer = "s"
+  93 |   LET v91 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:93 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v91` has initializer type String, expected Integer.
+  92 |   LET v90 AS Integer = "s"
+  93 |   LET v91 AS Integer = "s"
+  94 |   LET v92 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:94 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v92` has initializer type String, expected Integer.
+  93 |   LET v91 AS Integer = "s"
+  94 |   LET v92 AS Integer = "s"
+  95 |   LET v93 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:95 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v93` has initializer type String, expected Integer.
+  94 |   LET v92 AS Integer = "s"
+  95 |   LET v93 AS Integer = "s"
+  96 |   LET v94 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:96 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v94` has initializer type String, expected Integer.
+  95 |   LET v93 AS Integer = "s"
+  96 |   LET v94 AS Integer = "s"
+  97 |   LET v95 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:97 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v95` has initializer type String, expected Integer.
+  96 |   LET v94 AS Integer = "s"
+  97 |   LET v95 AS Integer = "s"
+  98 |   LET v96 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:98 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v96` has initializer type String, expected Integer.
+  97 |   LET v95 AS Integer = "s"
+  98 |   LET v96 AS Integer = "s"
+  99 |   LET v97 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:99 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v97` has initializer type String, expected Integer.
+  98 |   LET v96 AS Integer = "s"
+  99 |   LET v97 AS Integer = "s"
+ 100 |   LET v98 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:100 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v98` has initializer type String, expected Integer.
+  99 |   LET v97 AS Integer = "s"
+ 100 |   LET v98 AS Integer = "s"
+ 101 |   LET v99 AS Integer = "s"
+     | ^
+tests/syntax/general/diagnostic_render_cap/src/main.mfb:101 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `v99` has initializer type String, expected Integer.
+... and 20 more diagnostics not shown (only the first 100 are rendered)
+[exit 1]
