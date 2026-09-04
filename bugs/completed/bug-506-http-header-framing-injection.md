@@ -117,3 +117,20 @@ Regression test: `tests/rt_http_header_framing_injection.rs` (RED on main for
 every sub-issue; the well-formed exchange is pinned byte-for-byte and was green
 before and after). Docs: `handleRequest`/`read`/`write` descriptors,
 `src/docs/spec/stdlib/05_http.md`, `.ai/net-tls.md`.
+
+## STATUS: FIXED (624b2dd3f)
+
+Fixed together with bug-507 in one commit: the two bugs share the server read
+loop (`__http_readRequestNet`/`Tls` + `__http_frameAdvance`), so the strict
+framing rules (506) and the trapped, bounded, incremental scan (507) were
+restructured as one change rather than stacking an intermediate loop that
+would have been rewritten a second time. Deviation from the fix-bug skill's
+one-bug-at-a-time order, deliberate and reported.
+
+Gates on the branch (worktree-B-506, main merged in at 01d1b8716):
+`cargo test --no-fail-fast -- --skip artifact_gate_all` → 4598 passed, 0
+failed, cargo exit 0 (`/tmp/b506-full.log`); the new RED tests green before and
+after the merge; `cargo check --all-targets` clean; `test-accept.sh '*http*'`
+14/14; `regen-ncodesum.sh` under bash refreshed 141 goldens of which only the 5
+`byte-identity/http` sums moved; `artifact-gate.sh target/release/mfb all` — see
+the landing report.
