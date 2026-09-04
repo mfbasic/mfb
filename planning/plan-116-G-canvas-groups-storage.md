@@ -929,7 +929,7 @@ clean):
 |---|---|
 | mac RELEASE `--bin mfb` | **3780 passed, 0 failed** |
 | mac DEBUG `--bin mfb` | **3781 passed, 0 failed** — the only run anywhere that executes the `debug_assert!`s (**E6**) |
-| box 2228 RELEASE `--bin mfb` | see **G30**: needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` |
+| box 2228 RELEASE `--bin mfb` | see **G30** (needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'`) and **G36** for exactly which source it ran |
 | canvas suites (8) | rasteriser 57, font 17, golden 13, graphics-thread 8, deep-copy 8, damage 6, metal 4, cli_canvas_package 7 — all 0 failed |
 | `scripts/test-accept.sh` | **1376 ran**, 0 failed (up from 1359: the merge brought plan-121's and bug-503's fixtures) |
 | `scripts/artifact-gate.sh all` | **1874 goldens, 0 diffs** |
@@ -1012,6 +1012,28 @@ recorded here so the section is not read as still open.
   the two answers.
 
 ## Corrections
+
+**G36 (Phase 6) — what the box 2228 row actually tested, stated rather than assumed.**
+plan-116-F's lesson is that a remote row reports green whether or not the rsync that fed
+it carried the change, so the tree it ran is worth proving rather than trusting. Both
+sides were hashed file by file (`find src tests -name '*.rs' | sort | xargs sha256sum`,
+**1793 files each**) and diffed:
+
+```
+279c279
+< src/codegen/builtins/canvas/helper_color.rs dce4dba9…
+> src/codegen/builtins/canvas/helper_color.rs 7edeaa7c…
+```
+
+**One file of 1793**, and the difference is commit `eb36acf1a`, which adds fifteen lines
+of doc comment recording that two shaders reproduce the sRGB table's rounding by hand —
+**0 non-comment lines**, measured. It landed after the sync, and re-syncing to carry a
+comment would have cost another cold ~40-minute build on a one-core box for no change in
+what executes.
+
+So the row is evidence for every line of code in the letter, and for none of that
+comment. Recorded this way rather than as "the source matched", which would be false, or
+"close enough", which is the phrasing F's correction exists to prevent.
 
 **G35 (Phase 6) — the slot-layout guard stopped being a bound when the layout grew.**
 `the_group_slot_size_is_a_power_of_two_matching_its_shift` asserted
