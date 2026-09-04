@@ -291,6 +291,26 @@ MUT __CANVAS_DRAW_MEMO_SLOT AS List OF Integer = []
 MUT __CANVAS_DRAW_MEMO_BASE AS List OF Integer = []
 MUT __CANVAS_DRAW_MEMO_COUNT AS List OF Integer = []
 
+' The instance index each block-list entry starts at.
+'
+' `base` and `count` in a draw entry are INSTANCES -- blocks in the item buffer -- and
+' those are not one per block-list entry. A `Text` item is one entry here and N quads
+' there, one per glyph, each taking its own block (plan-98-G). Every other kind is 1.
+'
+' Kept as a parallel list rather than folded into the block list because the block list
+' is what the emitter's publish walk iterates, and that walk is unchanged: it still sees
+' one entry per item and still lets the glyph path publish N blocks from one of them.
+MUT __CANVAS_DRAW_INST AS List OF Integer = []
+MUT __CANVAS_DRAW_NEXT_INST AS Integer = 0
+
+' How many item-buffer blocks one geometry record occupies.
+FUNC __canvas_blockInstances(offset AS Integer) AS Integer
+  IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN toInt(__canvas_geoAt(offset, 20))
+  END IF
+  RETURN 1
+END FUNC
+
 FUNC __canvas_memoLookup(slot AS Integer) AS Integer
   MUT i AS Integer = 0
   WHILE i < len(__CANVAS_DRAW_MEMO_SLOT)
@@ -308,9 +328,23 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   IF count <= 0 THEN
     EXIT SUB
   END IF
+  ' `base`/`count` arrive as block-list indices and leave as INSTANCES, which is what a
+  ' `vkCmdDraw`'s `firstInstance`/`instanceCount` and Metal's `baseInstance` want. The
+  ' two differ exactly where a `Text` item sits, so the conversion cannot be a constant
+  ' factor and has to be summed.
+  LET instBase AS Integer = collections::getOr(__CANVAS_DRAW_INST, base, 0)
+  MUT instCount AS Integer = 0
+  MUT k AS Integer = base
+  WHILE k < base + count
+    instCount = instCount + __canvas_blockInstances(collections::getOr(__CANVAS_DRAW_BLOCKS, k, 0))
+    k = k + 1
+  END WHILE
+  IF instCount <= 0 THEN
+    EXIT SUB
+  END IF
   MUT out AS List OF Integer = __CANVAS_DRAWS
-  out = collections::append(out, base)
-  out = collections::append(out, count)
+  out = collections::append(out, instBase)
+  out = collections::append(out, instCount)
   out = collections::append(out, toInt(dx * 65536.0))
   out = collections::append(out, toInt(dy * 65536.0))
   __CANVAS_DRAWS = out
@@ -387,9 +421,14 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
         ' run and its own draw entry, at the composed offset.
         LET nested AS Integer = 0
       CASE ELSE
+        LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
         MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, __canvas_geometryFor(child, __canvas_hashItem(child)))
+        blocks = collections::append(blocks, childOffset)
         __CANVAS_DRAW_BLOCKS = blocks
+        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
+        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
+        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
   NEXT
@@ -420,6 +459,8 @@ END SUB
 FUNC __canvas_sceneDraws() AS List OF Integer
   __CANVAS_DRAWS = []
   __CANVAS_DRAW_BLOCKS = []
+  __CANVAS_DRAW_INST = []
+  __CANVAS_DRAW_NEXT_INST = 0
   __CANVAS_DRAW_MEMO_SLOT = []
   __CANVAS_DRAW_MEMO_BASE = []
   __CANVAS_DRAW_MEMO_COUNT = []
@@ -436,9 +477,14 @@ FUNC __canvas_sceneDraws() AS List OF Integer
         __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
         runBase = len(__CANVAS_DRAW_BLOCKS)
       CASE ELSE
+        LET itemOffset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
         MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
-        blocks = collections::append(blocks, __canvas_geometryFor(item, collections::getOr(hashes, index, 0)))
+        blocks = collections::append(blocks, itemOffset)
         __CANVAS_DRAW_BLOCKS = blocks
+        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
+        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
+        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
         IF runCount = 0 THEN
           runBase = len(__CANVAS_DRAW_BLOCKS) - 1
         END IF
