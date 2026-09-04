@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (memory safety — data race / heap corruption)
 
-Status: Open (found in audit-3, Surface 3 MEM-70; reproduced live by the lead, SIGSEGV 3/3)
+Status: FIXED (f2bf55a86) — found in audit-3, Surface 3 MEM-70; reproduced live by the lead, SIGSEGV 3/3
 
 Regression Test: an rt fixture that sends in a loop to a busy worker and asserts a clean exit (currently SIGSEGVs).
 
@@ -81,3 +81,56 @@ across `bugs/`, `bugs/completed/`, `bugs/skipped/`, `audit-1-*`, `audit-2-*`).
 The per-thread-arena invariant is documented for frees only
 (`.ai/canvas-threading.md`, memory `arena-state-is-per-thread`); this is the
 allocation-side gap.
+
+## STATUS: FIXED (f2bf55a86)
+
+Reproduced first. The committed spike (`spikes/audit-3/MEM-70`, worker never
+drains) failed 3/3 here with `7-705-0009 ErrInterrupted` in 0.04 s — the parent
+fills the small queue, blocks, and is woken when the worker completes — so it
+barely exercised the race on this host. A draining variant (worker
+`thread::receive`s every message while both threads allocate) SIGSEGVed 5/5, and
+its mirror (worker emits, parent drains) 3/3; lldb showed BOTH threads stopped at
+the same PC with `EXC_BAD_ACCESS address=0x23`, and the disassembly there is the
+quick-bin pop (`ldr x9,[x8,#0x60]` — the bin head at
+`ARENA_QUICK_BIN_BASE_OFFSET-8` — null check, `ldr x9,[x8]` on the torn `next`
+link): exactly the mechanism above.
+
+Fix (`src/codegen/cleanup/thread/builder_thread_cleanup.rs`): the send/emit/
+transfer lowering no longer repoints `ARENA_STATE_REGISTER` at the peer's arena.
+The deep copy lands in the SENDER's own arena and the block is handed across.
+Neither option in "Best fix" was taken verbatim: taking the queue mutex before
+the copy cannot serialize against the destination's *ordinary* `arena_alloc`
+(which takes no lock, by the non-goal), and a shared locked region would have
+needed a process-global mutex init plus an unlock on the copy's
+`ErrOutOfMemory` path. The sender-arena copy needs neither: a free only touches
+the FREEING thread's arena state (`arena_free` pushes onto its own quick/large
+bins and never asks which arena carved the block — no counters, no chunk
+membership), and no arena but the main one is ever destroyed (`arena_destroy` is
+called only from `_mfb_shutdown`), so the handed-over block stays mapped and the
+receiver adopts it exactly as it owned the destination-arena copy before. The
+failed-send pending-free list is unchanged (the reader adopts the orphan). The
+`error_arena_restore_slot` plumbing became dead and was removed.
+
+Tests: `tests/rt_thread_send_cross_arena.rs` (both directions, draining receiver,
+deterministic totals, 3 runs each — RED: SIGSEGV; GREEN after) and
+`tests/codegen_thread_send_no_arena_repoint.rs` (no compiled function writes
+`x19` — RED: 6 writes in `main`/`churn`; GREEN after). 40/40 additional stress
+runs of both programs clean with identical totals.
+
+Gates: `cargo test --bin mfb` green; `cargo check --all-targets` clean;
+`scripts/test-accept.sh … 'rt-behavior/threads/*'` 47/47 passed (execution
+proof incl. resource/STATE/bidirectional transfers); full artifact gate 10 diffs,
+all in `byte-identity/{thread,resource-xfer-slots}` (the only goldened fixtures
+containing a thread send) on all five targets — `.ast`/`.ir` unchanged, and the
+macos-aarch64 `.ncode` delta is confined to the two send-containing functions
+(frame 32 bytes smaller: four dropped saved-arena slots; 64 fewer instructions:
+the repoint/restore sequences). Regenerated those ten `.ncodesum`; scoped gates
+then 0 diffs.
+
+Docs: spec `threading/{02_isolation,06_thread-runtime-helpers,07_control-block,
+08_queue-semantics}.md` and `.ai/canvas-threading.md` §2 now state the
+sender-arena hand-over rule.
+
+Semantics: no MFBASIC surface or observable behavior of a correct program
+changed — `thread::send`/`emit`/`transfer` keep their move/copy semantics; only
+which arena carves the copy moved.

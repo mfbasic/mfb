@@ -218,7 +218,6 @@ pub(crate) struct CodeBuilder<'a> {
     /// escaped (§15.6) and must still be closed, and `EXIT`/`CONTINUE` spill no
     /// pending result at all, so a comparison there would read a stale slot.
     pub(crate) escaping_value_slot: Option<usize>,
-    pub(crate) error_arena_restore_slot: Option<usize>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
     /// branches to this label instead of returning, leaving the raw `Result` in
     /// the standard tag/value/message registers. Used to make inline conversions
@@ -238,7 +237,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// and `materialize_current_result` emit only a bare tag on the error path.
     pub(crate) raw_result_discard_error: bool,
     /// bug-425: set transiently by the thread-send lowering while it copies a
-    /// thread-sendable resource into the destination arena. `copy_resource_to_current_arena`
+    /// thread-sendable resource for hand-over. `copy_resource_to_current_arena`
     /// otherwise flags the *source* record `moved|closed` at copy time — before the
     /// enqueue outcome is known — which tombstones the sender's handle even when the
     /// transfer then fails with `ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`, so
@@ -409,10 +408,21 @@ pub(crate) struct CodeBuilder<'a> {
     /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
     /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
     pub(crate) for_bound_expr: HashMap<String, NirValue>,
-    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
-    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
-    /// `L` is reassigned.
-    pub(crate) len_of_local: HashMap<String, String>,
+    /// plan-86 G1: `n -> (L, depth)` for a binding `LET n = len(L)` (both locals).
+    /// Lets a loop bound written as `n - k` resolve to `len(L) - k`. Dropped when
+    /// `n` or `L` is reassigned. `depth` is `enclosing_loop_reassigned.len()` when
+    /// the fact was recorded (bug-495): a loop entered AFTER that point may run a
+    /// reassignment of `L`/`n` on its back edge and re-enter an inner `FOR` with the
+    /// fact stale, so `recognize_provable_index` declines when any enclosing set at
+    /// index `>= depth` names `L` or `n`. A loop that CONTAINS the `LET` re-runs it
+    /// every iteration and cannot stale the fact.
+    pub(crate) len_of_local: HashMap<String, (String, usize)>,
+    /// bug-495: the reassigned-locals set (`collect_reassigned_locals`) of every
+    /// loop body currently being lowered, outermost first — pushed/popped by
+    /// `lower_loop_body`. Lowering is one linear pass, so a reassignment placed
+    /// AFTER an inner loop in program order is invalidated only after that loop is
+    /// already emitted; this stack is how the inner loop's proof sees it.
+    pub(crate) enclosing_loop_reassigned: Vec<HashSet<String>>,
     /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
     /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
     /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
@@ -483,7 +493,6 @@ impl<'a> CodeBuilder<'a> {
             cleanup_scope_starts: Vec::new(),
             pending_result_slots: None,
             escaping_value_slot: None,
-            error_arena_restore_slot: None,
             raw_result_capture: None,
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,
@@ -512,6 +521,7 @@ impl<'a> CodeBuilder<'a> {
             for_bound_expr: HashMap::new(),
             len_of_local: HashMap::new(),
             provable_index_locals: HashMap::new(),
+            enclosing_loop_reassigned: Vec::new(),
         }
     }
 }

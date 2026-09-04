@@ -28,18 +28,21 @@ concurrently.
 
 ## Arena materialization
 
-A boundary value must end up in the *receiving* side's arena, since each side
-allocates from its own arena. The runtime copies the value into the receiver's
-arena at send time, then the reader just dequeues the already-materialized value:
+Each side allocates from its own arena, and no thread may allocate from another
+thread's arena — the allocator's free-list pop is unsynchronized, so a send that
+copied into the *receiver's* arena raced the receiver's own allocations and
+corrupted its free lists (bug-498). A boundary value is therefore deep-copied at
+the send site **in the sender's arena** and the copy is handed across; the reader
+dequeues the already-materialized pointer and owns it from then on, freeing it
+into its own arena when its owner goes out of scope. That adoption is sound
+because a free only touches the freeing thread's arena state, and the block stays
+mapped for the life of the process (no arena but the main one is ever destroyed,
+and that one only at `_mfb_shutdown`). Both directions (`thread.send` parent→worker
+and `thread.emit` worker→parent) follow the same rule; the control-block arena-state
+fields are not consulted by the copy.
 
-- Worker→parent (`thread.emit`) loads the parent arena state from control-block
-  offset 88 and copies the message into it.
-- Parent→worker (`thread.send`) and all reads use the worker arena state at
-  offset 80.
-
-The message copy is emitted at the send site (the builder points the arena-state
-register at the receiver's state, then copies); the queue-write helper only stores
-the already-copied pointer into the queue slot. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+The message copy is emitted at the send site; the queue-write helper only stores
+the already-copied pointer into the queue slot. [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.
@@ -77,8 +80,9 @@ For `thread::send` and `thread::transfer`, ownership transfer is atomic with
 enqueue success:
 
 - If enqueue succeeds, the destination side owns the value immediately. While the
-  value is queued, the destination queue owns it in receiver-valid storage or
-  runtime transfer storage independent of the sender arena.
+  value is queued, the destination queue owns it: the copy was carved from the
+  sender's arena, which stays mapped for the life of the process, and only the
+  receiver will ever free it (into its own arena).
 - If enqueue fails because the queue is full, closed, cancelled, timed out, or
   the timeout is invalid, ownership is not transferred and the sender still owns
   the value.

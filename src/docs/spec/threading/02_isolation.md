@@ -35,16 +35,19 @@ their type. Immutable owned values may be shared or copied only when that is
 safe for the value representation; mutable or unique resources must preserve
 ownership rules.
 
-For copyable sendable values, crossing a thread boundary copies the value into the
-receiving side's arena. Because every non-resource value is a flat, pointer-free
-block, this is a single allocation plus byte copy (see
+For copyable sendable values, crossing a thread boundary deep-copies the value and
+hands the copy to the receiving side. Because every non-resource value is a flat,
+pointer-free block, this is a single allocation plus byte copy (see
 `./mfb spec memory heap-values`); the sender keeps its own block and the receiver
 owns and reclaims the copy. The boundary copy is the builder's ordinary
-flat-block copy. At the send site the builder points the arena-state
-register at the *receiver's* state (read from the control block — worker arena
-state at offset 80, parent arena state at offset 88 for worker→parent sends) and
-copies the message into that arena; the queue-write helper then stores the
-already-copied pointer into the queue slot. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
+flat-block copy, made at the send site **in the sender's own arena** — the
+arena-state register is never repointed at another thread's state, because that
+thread may be allocating from it at the same instant and the allocator's free-list
+pop is unsynchronized (bug-498). The queue-write helper stores the copied pointer
+into the queue slot, and the receiver frees it, later, into *its* own arena: a free
+only touches the freeing thread's arena state, and no arena but the main one is
+ever torn down (that one only at process shutdown), so the block stays mapped and
+the hand-over is race-free. [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
 
 The move-consumes rule for non-copyable sendable values (including sendable
 resource handles) — a successful `thread::start`/`thread::send` consumes the
