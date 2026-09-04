@@ -140,7 +140,7 @@ fn write_form_is_selected_by_the_payload_type_for_every_call_shape() {
             // `overload_arg_type` learned `res.state` — a build error on a
             // program that had always been valid
             // (`tests/rt_macos_d4_union_state_tls.rs`).
-            "_mfb_rt_tcp_tcp_write",     // st.state.raw: List OF Byte via STATE
+            "_mfb_rt_tcp_tcp_write", // st.state.raw: List OF Byte via STATE
             "_mfb_rt_tcp_tcp_writeText", // st.state.note: String via STATE
             "_mfb_rt_udp_udp_sendText",
             "_mfb_rt_udp_udp_send",
