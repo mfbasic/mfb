@@ -921,8 +921,24 @@ Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
 `cargo test`'s copy of the corpus skips 519 `syntax/` fixtures, plan-116-F **F13**),
 `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
 `removeGroup` / `mfb man canvas types` render correct, example-backed pages.
+**MET, re-measured on the merged tree** (`main` advanced by 35 commits under this
+letter — plan-121, bug-494, bug-503, the repository audit spikes — and the merge was
+clean):
+
+| Gate | Result |
+|---|---|
+| mac RELEASE `--bin mfb` | **3780 passed, 0 failed** |
+| mac DEBUG `--bin mfb` | **3781 passed, 0 failed** — the only run anywhere that executes the `debug_assert!`s (**E6**) |
+| box 2228 RELEASE `--bin mfb` | see **G30**: needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` |
+| canvas suites (8) | rasteriser 57, font 17, golden 13, graphics-thread 8, deep-copy 8, damage 6, metal 4, cli_canvas_package 7 — all 0 failed |
+| `scripts/test-accept.sh` | **1376 ran**, 0 failed (up from 1359: the merge brought plan-121's and bug-503's fixtures) |
+| `scripts/artifact-gate.sh all` | **1874 goldens, 0 diffs** |
+| Vulkan, both libc worlds | box 2228 glibc **12/12**, box 2227 musl **12/12**, both exit 0 |
+| `cargo check --all-targets` | 0 warnings |
+| man | `setGroup`, `removeGroup` and `Group` in `types` all render; `man-run-examples.sh canvas --run` **27 built, 27 ran, 0 failed** |
+
 Commit: 38ea75f6a (docs and the two re-pinned orderings), 273d8433e (the redundant
-sleeps), 2a1135971 (the overflow pin)
+sleeps), 2a1135971 (the overflow pin), 58168ad1a (**G32**, the name leak)
 
 ## Validation Plan
 
