@@ -2,8 +2,13 @@
 # Run the acceptance suite's `.run` fixtures on a REAL Linux box and diff the
 # program output against the committed goldens.
 #
-# Why this exists: none of the Linux boxes carries a Rust toolchain (2229 is the
-# lone exception), so `scripts/test-accept.sh` cannot be run there directly. The
+# Why this exists: most of the Linux boxes carry no Rust toolchain, so
+# `scripts/test-accept.sh` cannot be run there directly. (Three do — 2227, 2228 and
+# 2229 — which is more than the "2229 is the lone exception" this header used to
+# claim; see `.ai/remote_systems.md`, and note that `command -v cargo` finds 2227's and
+# 2229's but not 2228's, which is under `~/.cargo/bin` and off the non-interactive
+# PATH. It remains true that a box with a toolchain is the exception, and that this
+# script's ship-the-executable approach is what makes every OTHER box usable.) The
 # compiler cross-compiles, so this builds every runnable fixture here, ships the
 # executable over ssh, runs it on the target hardware, and compares what it
 # printed against the `$ <exe>` ... `[exit N]` tail of that fixture's
