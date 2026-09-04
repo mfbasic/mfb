@@ -64,6 +64,7 @@ pub(crate) fn write_executable(
     flavor: LinuxFlavor,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let bytes = encode_executable_bytes(arch, flavor, image)?;
     // Every build emits into the project's `build/` directory (plan-46-D §4.1) so
     // the executable and the `vendor/` its RPATH points at move as one unit, and
