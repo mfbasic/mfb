@@ -948,20 +948,52 @@ sleeps), 2a1135971 (the overflow pin)
 
 ## Open Decisions
 
+**All four were taken as recommended, and a fifth arose during execution.** Resolutions
+recorded here so the section is not read as still open.
+
 - **`CANVAS_MAX_GROUPS = 256`, fixed (§4.1).** Recommended: a growable table would
   move under a lock-free reader on the graphics thread. Raising the number is cheap;
   making it dynamic is a different design.
+
+  **Taken.** 256 slots, and the slot grew to 64 bytes rather than the six words' 48 so
+  index↔address is a shift — 16,392 bytes total, emitted only for a canvas program and
+  pinned as such by
+  `the_group_table_is_absent_from_a_program_that_does_not_use_canvas`.
+
 - **`setGroup` takes effect at the next `present` (§4.4).** Recommended — it matches
   `present` being the install point for everything else, and the alternative
   (`setGroup` signals a redraw itself) would repaint for a group no scene draws, which
   is the mistake `.ai/canvas-threading.md` §4 trigger 5 exists to avoid.
+
+  **Taken**, and documented on the member's own page and in `06_canvas.md`, because the
+  natural expectation is the opposite. Pinned from both sides by Phase 1's pair.
+
 - **One error for both cycles and honest over-nesting (§4.4).** Recommended: they are
   indistinguishable without a full cycle search, and the fix is the same. The message
   must name both possibilities.
+
+  **Taken**, and it went further than the section proposed: `ErrDepthExceeded`
+  (`7-705-0024`) is **reused** rather than minted, since its existing definition already
+  describes this exactly. `a_group_cycle_and_an_over_deep_chain_both_raise` asserts a
+  self-reference and a 71-deep chain report the same code, which is what makes the
+  decision checkable rather than incidental.
+
 - **Whether a `Group`'s `dx`/`dy` should instead be a full `Transform`.** Recommend
   **no** — a translation is what was specified, it composes by addition (so the
   accumulated offset is two floats, not a matrix chain), and `Paint.transform` on the
   group's items covers the rest.
+
+  **Taken.** Worth noting what the addition bought beyond simplicity: because the offset
+  is a translation, it is applied by *subtracting it from the query point*, so every
+  distance function was untouched — the plan-116-C transform mechanism specialised. A
+  matrix would have needed the inverse-map path and the `sqrt(|det M|)` scale correction
+  on a second axis.
+
+- **§4.5's gradient anchoring, which the section left open rather than recommending.**
+  **Decided: the gradient follows the group** (**G23**), on this letter's own reuse goal
+  — an item whose colours depend on where its group was placed is not reusable. Written
+  into `06_canvas.md` and pinned by the diamond, which is the only scene that separates
+  the two answers.
 
 ## Corrections
 
