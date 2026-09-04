@@ -210,6 +210,9 @@ impl CodeBuilder<'_> {
     }
 
     fn type_is_resource_handle(&self, type_: &ParameterType) -> bool {
+        // `resource_names` is keyed by the bare declared type (plan-111-C), so
+        // the STATE clause is peeled first; `parse ∘ name = id` makes the peeled
+        // `ParameterType` the key itself — no spelling round-trip.
         matches!(
             type_,
             ParameterType::Res(_) | ParameterType::Stateful { .. }
@@ -217,7 +220,7 @@ impl CodeBuilder<'_> {
             || self
                 .type_model
                 .resource_names
-                .contains(&ParameterType::declared(&type_.without_state().name()))
+                .contains(&type_.without_state())
     }
 
     /// Whether `value` contains a call that can run user code — a module
