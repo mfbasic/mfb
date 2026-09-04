@@ -124,8 +124,8 @@ pub(crate) fn register(r: &mut Registry) {
         // wrong-length pixel list is a distinct, actionable mistake rather than a
         // generic bad argument — the message can say what the count should have been.
         .add_constant(constant("ErrBadPixelCount", "77050021", "Pixel list length does not match the image dimensions: an RGBA8 image needs exactly `width * height * 4` bytes.", "_mfb_str_error_bad_pixel_count"))
-        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF.", "_mfb_str_error_bad_font_file"))
-        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed.", "_mfb_str_error_bad_image_file"))
+        .add_constant(constant("ErrBadFontFile", "77050022", "File is not a font this build can read: it must be TrueType outlines (sfnt `0x00010000` or `true`), not CFF/OpenType-PostScript, a collection, or WOFF, and its `head.unitsPerEm` must be within 16..16384.", "_mfb_str_error_bad_font_file"))
+        .add_constant(constant("ErrBadImageFile", "77050023", "File is not an image this build can decode: `canvas::loadImage` reads PNG, and refuses anything else — including a PNG whose chunks, filters or compressed data are malformed, that is larger than 16384 pixels a side or 16,777,216 pixels, or whose compressed data does not fit the image it declares.", "_mfb_str_error_bad_image_file"))
         // plan-120-A: two structural-input mistakes that `json::parse` used to
         // report as the same generic `ErrInvalidFormat`. Both are deliberately
         // named for the mistake rather than for `json`, because they belong to
