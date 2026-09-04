@@ -113,25 +113,58 @@ that otherwise reasons in scalars.
 
 ## Goal
 
-- One documented rule for the empty needle, applied by `contains`, `find`,
-  `count` and `replace` alike.
+**Decided (2026-09-04): the empty needle is PRESENT at position 0 for query
+members; counting and rewriting members refuse it.**
+
+| member | empty needle | changes? |
+| --- | --- | --- |
+| `strings::contains(v, "")` | `TRUE` | no — already |
+| `strings::find(v, "")` | `0` | no — already |
+| `strings::count(v, "")` | raises `ErrInvalidArgument` | no — already |
+| `strings::replace(v, "", r)` | raises `ErrInvalidArgument` | **yes** — bug-533 |
+
+The rule, stated once:
+
+> An empty needle occurs at every position, beginning at 0. A member that
+> **answers a question about** an occurrence reports it; a member that
+> **counts or rewrites** occurrences refuses, because "every position" has no
+> useful count and rewriting at every position destroys the input.
+
+- The rule is written once, in the `strings` package intro, and referenced from
+  each member rather than restated.
+- Every needle-taking member in the package conforms, or has a recorded
+  exception with a reason.
 - `mfb man strings count` states what it returns, not how it walks the buffer.
-- A test asserts the four members agree.
+- A test asserts the whole family against the rule.
+
+**Scope consequence.** Three of the four members named in this bug's title
+already behave as the rule requires — the observed inconsistency was real, but
+the fix is mostly *writing the rule down* rather than changing behavior. The
+one behavior change (`strings::replace`) is owned by bug-533. What keeps this
+bug from being purely documentation is the census: `split`, `startsWith`,
+`endsWith` and the `trim` family have never been measured with an empty
+argument, and any that disagree are fixed here.
 
 ### Non-goals (must NOT change)
 
+- `strings::contains` and `strings::find`'s current empty-needle answers, which
+  the decision ratifies.
 - The non-overlapping rule for non-empty needles, or any result for a non-empty
   needle. This bug is scoped to the empty case.
 - The scalar-index return of `strings::find`.
-- `regex`'s zero-width rule, which is correct for a regex engine and is a
-  separate model (bug-533 covers the cross-package pairing).
+- `regex`'s zero-width rule for its **query** members, which is the same rule
+  arriving from the other direction and is correct.
 - The *performance* of the byte scan. Removing the byte cursor from the prose
   does not mean removing it from the code.
-- **Tempting wrong fix, forbidden:** aligning the four by making `contains` and
-  `find` reject an empty needle too. `find`'s `ErrNotFound`-on-absence contract
-  means rejection would raise two different errors for two flavours of "no
-  match", and `contains("x", "")` returning `TRUE` is the mathematically
-  standard answer. Rejection is the weakest of the three candidate rules.
+- **Tempting wrong fix, forbidden:** aligning the family by making `contains`
+  and `find` reject an empty needle too. `find`'s `ErrNotFound`-on-absence
+  contract means rejection would raise two different errors for two flavours of
+  "no match", and `contains("x", "")` returning `TRUE` is the mathematically
+  standard answer. It is also a gratuitous break: those two members are already
+  correct under the decided rule.
+- **Also forbidden:** changing `strings::replace` in *this* bug. bug-533 owns
+  that change and its caller sweep; doing it here splits the migration across
+  two commits.
 
 ## Blast Radius
 
@@ -155,28 +188,36 @@ that otherwise reasons in scalars.
 
 ## Fix Design
 
-Choose one rule and apply it. The three candidates:
+The rule is **present-at-every-position for queries, refuse for counters and
+rewriters**. Three of the four members already implement it, so the work is
+mostly writing it down and proving the rest of the package agrees.
 
-- **A — matches at every position.** `contains` TRUE, `find` 0, `count`
-  `len(value) + 1`, `replace` interleaves. Mathematically standard, matches
-  `regex`'s zero-width behavior, and makes the two packages agree (which
-  bug-533 would like). Cost: `replace`'s behavior changes, and
-  `replace(s, "", x)` becoming a whole-string rewrite is a sharp edge for a
-  runtime-supplied needle.
-- **B — never matches.** `contains` FALSE, `find` raises `ErrNotFound`, `count`
-  0, `replace` unchanged. Safest for a runtime-supplied empty needle — every
-  member becomes a no-op rather than a surprise. Cost: `contains("x", "")`
-  returning FALSE is unusual, and `find` raising is a behavior change.
-- **C — reject everywhere.** All four raise `ErrInvalidArgument`. Most explicit,
-  and makes the "empty needle arrived from a config file" case loud instead of
-  silent. Cost: the largest behavior change, and it forces a TRAP onto callers
-  who currently get a sensible answer.
+**Why this beats the uniform alternatives.** Three uniform rules were on the
+table — matches everywhere, never matches, reject everywhere — and each is
+wrong somewhere:
 
-**Recommend B.** The population at risk is a needle that is empty
-*unintentionally*, and B makes every member a no-op for it — the least
-destructive outcome. A also has a real argument (cross-package consistency with
-`regex`), but it converts an accidental empty needle into a whole-string
-rewrite, which is the worst outcome of the three.
+- *Matches everywhere*, applied uniformly, makes `replace(s, "", x)` a
+  whole-string rewrite. That is the single most destructive answer available
+  for a needle that was empty by accident.
+- *Never matches*, applied uniformly, forces `contains(s, "") == FALSE` and
+  makes `find` raise, both of which are gratuitous breaks of members that are
+  already right, to defend against a hazard that only exists on the rewrite
+  side.
+- *Reject everywhere* forces a TRAP onto `contains` and `find` callers who
+  currently get a correct, standard answer.
+
+Splitting by what the member *does* takes the good half of each: queries keep
+the mathematically standard answer, and the accident is stopped at exactly the
+two members where it could do damage. It also explains `strings::count`'s
+existing rejection as the rule rather than as the odd one out, and it agrees
+with `regex`'s zero-width matching for free — `regex::find(v, "")` and
+`strings::find(v, "")` both returning `0` becomes one rule instead of a
+coincidence.
+
+The classification is the part that needs care, because "query" and "rewriter"
+are not always obvious. `split` is the case to think about: it neither answers
+a question nor rewrites in place, and an empty separator yields either one
+piece or `n` pieces depending on an arbitrary choice. Phase 1 classifies it.
 
 Separately and independently: rewrite `func_count.rs`'s `DESC` to specify the
 result — non-overlapping occurrences, leftmost-first, exact byte comparison with
@@ -188,39 +229,60 @@ Rejected: keeping the divergence and documenting it on all four pages. That is
 the current state on one page, and it has produced four pages that each describe
 a different rule.
 
+Rejected: applying the rule by member *name* rather than by what it does. A
+name-keyed rule breaks the moment a member is added, and this package already
+has the sibling hazard where two adjacent members answer the same question
+oppositely (bug-527's `findIndex`/`findLastIndex`).
+
 ## Phases
 
-### Phase 1 — census + decision (no behavior change)
+### Phase 1 — census + classification (no behavior change)
 
 - [ ] Land `spikes/api-review/bug-529-empty-needle/` (done).
 - [ ] Enumerate every `strings` member taking a needle/separator/pattern and
-      record its current empty-argument behavior, measured. Extend the spike;
-      do not read it off the pages.
-- [ ] Do the same for the `astrings` overloads and for `collections::find`/`contains`.
-- [ ] Choose the rule and write it into this file with its rationale.
+      record its current empty-argument behavior, **measured**. Extend the
+      spike; do not read it off the pages. `split`, `startsWith`, `endsWith`
+      and the `trim` family are the unmeasured ones.
+- [ ] Do the same for the `astrings` overloads and for
+      `collections::find`/`contains`.
+- [ ] Pin the two unmeasured edges of the decided rule: `strings::find("", "")`
+      and `strings::contains("", "")`. The rule implies `0` and `TRUE`; confirm
+      rather than assume.
+- [ ] Classify each member as **query** or **counter/rewriter**, and write the
+      verdict into this file. `split` needs an argued answer, not a guess.
 
 Acceptance: a measured table of every member's current empty-argument answer;
-the rule is chosen.
+every member classified; the two edge cases pinned.
 Commit: —
 
-### Phase 2 — the rule
+### Phase 2 — write the rule down
 
-- [ ] Apply it to every member from Phase 1, `String` and `AttributedString`.
-- [ ] State the rule once, in the package intro, and reference it from each
-      member rather than restating it.
+- [ ] State the rule once in the `strings` package intro, and reference it from
+      each member rather than restating it.
+- [ ] Bring into line any member the Phase 1 census found disagreeing —
+      `String` and `AttributedString` alike. `contains`, `find` and `count`
+      already conform and must not be touched.
+- [ ] Do **not** change `strings::replace` here; bug-533 owns that change and
+      its caller sweep.
 
-Acceptance: all members agree; the spike prints one consistent answer.
+Acceptance: the rule is stated in one place; every member either conforms or
+carries a recorded exception with a reason.
 Commit: —
 
 ### Phase 3 — the `count` prose + validation
 
 - [ ] Rewrite `func_count.rs`'s `DESC` to specify the result, keeping the
       "never lands mid-scalar" guarantee and dropping the byte cursor.
+- [ ] Add the family-wide pin: every needle-taking member asserted against the
+      rule, by member name rather than by index (global test state).
 - [ ] Regenerate goldens; `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
 - [ ] `scripts/man-run-examples.sh strings --run` and `astrings --run`.
 - [ ] Confirm on Linux and Windows.
 
-Acceptance: full suite green; golden deltas are only empty-needle results.
+Acceptance: full suite green. **Golden deltas should be empty or near-empty** —
+this phase changes prose and adds a pin, and three of the four named members
+were already correct. A large golden diff here means something was changed that
+should not have been.
 Commit: —
 
 ## Validation Plan
@@ -260,29 +322,51 @@ This is more defensible than any of A/B/C applied uniformly: it explains
 keeps the mathematically-standard answers available on the members where an
 empty needle has one and cannot do damage.
 
+**The query half is decided: the empty needle is PRESENT.** `contains` returns
+TRUE and `find` returns `0` — which is what both already do, so the decision
+ratifies existing behavior rather than changing it. I had recommended the
+opposite (absent) on the grounds that an unintentionally-empty needle should
+never report a match; that argument is answered better by the refusal half,
+which stops the empty needle before it can *do* anything, while leaving the
+query members their mathematically standard answers.
+
+It also makes the rule agree with `regex` for free: a regex engine's zero-width
+match is present at every position, so `regex::find(v, "")` returning `0` and
+`strings::find(v, "")` returning `0` are now the same rule rather than a
+coincidence.
+
 Still open:
 
-- **The query half: A or B.** For `contains` and `find`, is the empty needle
-  present at position 0 (A) or absent (B)? **Recommend B (never matches)** as
-  before — the realistic failure is an unintentionally-empty needle, and B makes
-  the query half consistent with the refusal half by never reporting a match
-  that the caller did not ask for. Revisit if Phase 1 finds in-tree callers
-  depending on `contains(s, "") == TRUE`.
-- **Whether the rewriter half needs more members.** Phase 1's census must
-  classify every needle-taking member as query or rewriter. `split` is the
-  interesting case: it neither answers nor rewrites, and an empty separator has
-  no useful meaning, so it probably belongs with the refusers.
-- Whether `regex`'s **query** members are brought in line. **Recommend not** —
-  a regex engine's zero-width match is a different and correct model, and
-  bug-533 explicitly scoped its rejection to the rewrite side.
+- **Which members are queries and which are rewriters.** Phase 1's census must
+  classify every needle-taking member. `split` is the interesting case: it
+  neither answers a question nor rewrites in place, an empty separator has no
+  useful meaning, and it probably belongs with the refusers. `startsWith`,
+  `endsWith` and the `trim` family are queries by shape but have never been
+  measured.
+- **Two unmeasured edges of the decided rule**, both to be pinned in Phase 1:
+  `strings::find("", "")` — is position 0 valid in an empty string? — and
+  `strings::contains("", "")`. The rule implies `0` and `TRUE`; neither has
+  been run.
+- Whether `regex`'s query members need any change. **Recommend not** — they
+  already implement the decided rule via zero-width matching.
 
 **Sequencing: this bug lands before bug-533**, which quotes the rule rather
-than inventing one.
+than inventing one, and which owns the single behavior change the rule implies.
 
 ## Summary
 
-The `count` prose rewrite is free. The empty-needle rule is the real work, and
-its risk is entirely in the census: a rule applied to the four members named
-here, while `split`, `startsWith` and the `astrings` overloads keep their own
-unstated answers, would leave the package exactly as inconsistent as it is now
-with more text asserting otherwise.
+With the rule decided, this bug shrank. Three of the four members it names —
+`contains`, `find`, `count` — already do what the rule requires, and the fourth
+(`replace`) is bug-533's to change. So the deliverable here is the rule itself,
+the `count` prose rewrite, and a pin.
+
+The risk is entirely in the census, and it is a real one: a rule stated in the
+package intro while `split`, `startsWith`, `endsWith` and the `astrings`
+overloads keep their own unmeasured answers would leave the package exactly as
+inconsistent as it is today, with a paragraph asserting otherwise. Phase 1 is
+the bug. Phase 2 is bookkeeping.
+
+Two things to hold onto while doing it: the classification of `split` needs an
+argument rather than a guess, and a near-empty golden diff in Phase 3 is the
+expected result — a large one means something was changed that should not have
+been.

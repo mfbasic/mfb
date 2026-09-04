@@ -193,12 +193,27 @@ reader concludes zero-width matching was tamed, and is then surprised by the
 first optional quantifier they write.
 
 **Ordering against bug-529.** That bug settles the empty-needle rule for the
-whole `strings` family and recommended *never matches* for the query members
-(`contains` FALSE, `find` raises `ErrNotFound`). This decision is compatible
-with it and sharpens it into one rule: **query members answer, counting and
-rewriting members refuse.** bug-529 should adopt that framing, and
+whole `strings` family, and it has now been decided in a way that this
+rejection completes rather than conflicts with:
+
+> An empty needle occurs at every position, beginning at 0. A member that
+> **answers a question about** an occurrence reports it; a member that
+> **counts or rewrites** occurrences refuses.
+
+So `strings::contains(v, "")` stays TRUE and `strings::find(v, "")` stays `0` —
+both already correct — while `count` (already) and `replace` (this bug) refuse.
 `strings::count`'s existing rejection stops being an exception and becomes the
-precedent.
+precedent for the refusal half.
+
+That framing also makes the cross-package story simple instead of apologetic:
+`regex`'s zero-width matching *is* "present at every position", so
+`regex::find(v, "")` returning `0` and `strings::find(v, "")` returning `0` are
+now the same rule rather than two models that happen to agree. The only
+divergence left between the packages is on the rewrite side, and this bug
+removes it by making both refuse.
+
+**bug-529 lands first**; this bug quotes its rule and supplies the one behavior
+change the rule implies on the `strings` side.
 
 Rejected: a `regex::replaceLiteral`. That is `strings::replace`.
 
@@ -289,11 +304,11 @@ existing precedent.
 
 Still open:
 
-- Ordering against bug-529. **Land bug-529 first.** It settles the whole
-  `strings` empty-needle family, and this decision should slot into its rule
-  ("query members answer, counting and rewriting members refuse") rather than
-  arrive as a fifth independent answer. If bug-529 chooses a different framing,
-  this decision must be revisited rather than layered on top.
+- Ordering against bug-529. **Land bug-529 first** — settled, not open. Its
+  rule is now decided ("an empty needle occurs at every position; query members
+  report it, counting and rewriting members refuse"), and this bug supplies the
+  one behavior change that rule implies on the `strings` side. Nothing here
+  needs revisiting.
 - Whether `regex::find`/`findAll`/`match` need the same treatment.
   **Decide from the Phase 1 measurement**, which has not been taken. Under the
   rule above they are query members and should keep their zero-width answers,
