@@ -926,6 +926,7 @@ pub(crate) fn lower_function(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1355,6 +1356,7 @@ pub(crate) fn lower_abi_function_helper(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1499,6 +1501,7 @@ pub(crate) fn lower_thread_copy_function(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
 
     // Capture the incoming source pointer in a vreg (spilled across the copy's

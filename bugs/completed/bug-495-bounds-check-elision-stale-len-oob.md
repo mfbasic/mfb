@@ -5,7 +5,27 @@ Effort: small (<1h for fix (b); medium for fix (a))
 Severity: HIGH
 Class: security (memory safety — out-of-bounds read / heap info leak)
 
-Status: Open (found in audit-3, Surface 3 MEM-11; reproduced live by the lead at -O0 and -O3)
+Status: FIXED
+
+STATUS: FIXED (d0e850ced; goldens 447f33d31). Fix (a), not the two-line fix (b): the
+`LET n = len(L)` fact now carries the enclosing-loop depth it was recorded at, and
+`lower_loop_body` pushes every loop body's `collect_reassigned_locals` set on
+`enclosing_loop_reassigned`, so `recognize_provable_index` declines whenever a loop
+entered AFTER the fact reassigns `L` or `n` anywhere in its body (that loop's back
+edge re-enters the inner `FOR` with the fact stale). A loop that contains the `LET`
+re-runs it every iteration and is exempt, so the plan-86-G `listchurn` win and a
+nested loop that leaves `L`/`n` alone still elide — `tests/rt_bounds_elim_backedge.rs`
+pins both halves by counting `list_get_invalid` guard branches, and
+`tests/rt-error/collections/bounds_elim_backedge_rt` is the negative fixture
+(`7-705-0001`). Verified at -O0 and -O3 on the MEM-11 spike; full `cargo test
+--no-fail-fast` exit 0; `artifact-gate all` 0 diffs (no committed fixture has the
+enclosing-reassign shape, so no golden moved). No MFBASIC syntax or observable
+behavior of a correct program changed: the elision is an implementation strategy
+the program cannot observe, and declining it only restores the bounds check.
+Soundness argument: under structured control flow the only paths from the `LET`
+to a later entry of the inner `FOR` are program order (already invalidated by the
+linear pass) and the back edges of loops entered after the `LET`, whose bodies the
+new check covers in full.
 
 Regression Test: add `tests/rt-error/collections/bounds_elim_backedge_rt` asserting `7-705-0001`.
 

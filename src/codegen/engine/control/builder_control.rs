@@ -424,11 +424,14 @@ impl CodeBuilder<'_> {
                         // drops its fact; a rebind of any list drops facts naming it
                         // as `L` (its length may have changed).
                         self.len_of_local.remove(name);
-                        self.len_of_local.retain(|_, l| l != name);
+                        self.len_of_local.retain(|_, (l, _)| l != name);
                         if let Some(NirValue::Call { target, args, .. }) = value {
                             if target == "len" && args.len() == 1 {
                                 if let NirValue::Local(l) = &args[0] {
-                                    self.len_of_local.insert(name.clone(), l.clone());
+                                    self.len_of_local.insert(
+                                        name.clone(),
+                                        (l.clone(), self.enclosing_loop_reassigned.len()),
+                                    );
                                 }
                             }
                         }
@@ -853,7 +856,7 @@ impl CodeBuilder<'_> {
                         // or provable-index fact keyed on it, and any fact naming it
                         // as the list `L`.
                         self.len_of_local.remove(name);
-                        self.len_of_local.retain(|_, l| l != name);
+                        self.len_of_local.retain(|_, (l, _)| l != name);
                         self.provable_index_locals.remove(name);
                         self.provable_index_locals.retain(|_, (l, _)| l != name);
                         // A loop-promoted float local is updated in its FP
@@ -1372,7 +1375,7 @@ impl CodeBuilder<'_> {
                         if let Some(ref name) = strict_upper_name {
                             self.integer_strict_upper.insert(name.clone());
                         }
-                        self.lower_ops(body)?;
+                        self.lower_loop_body(body)?;
                         self.loop_stack.pop();
                         self.emit(abi::branch(&loop_label));
                         self.emit(abi::label(&end_label));
@@ -1409,7 +1412,7 @@ impl CodeBuilder<'_> {
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),
                         });
-                        self.lower_ops(body)?;
+                        self.lower_loop_body(body)?;
                         self.loop_stack.pop();
                         self.emit(abi::label(&condition_label));
                         let condition = self.lower_value(condition)?;
@@ -1542,18 +1545,38 @@ impl CodeBuilder<'_> {
 
     #[allow(clippy::too_many_arguments)]
     /// plan-86 G1: resolve an expression to the list `L` whose `len(L)` it is —
-    /// either a direct `len(L)` call or a local `n` bound as `LET n = len(L)`.
-    fn resolve_len_list(&self, expr: &NirValue) -> Option<String> {
+    /// either a direct `len(L)` call (depth `None`: re-evaluated at every loop
+    /// entry, so no back edge can stale it) or a local `n` bound as `LET n = len(L)`
+    /// (depth `Some(d)`: the `enclosing_loop_reassigned` length when the fact was
+    /// recorded — see that field for why it matters, bug-495).
+    fn resolve_len_list(&self, expr: &NirValue) -> Option<(String, Option<usize>)> {
         match expr {
             NirValue::Call { target, args, .. } if target == "len" && args.len() == 1 => {
                 match &args[0] {
-                    NirValue::Local(l) => Some(l.clone()),
+                    NirValue::Local(l) => Some((l.clone(), None)),
                     _ => None,
                 }
             }
-            NirValue::Local(n) => self.len_of_local.get(n).cloned(),
+            NirValue::Local(n) => self
+                .len_of_local
+                .get(n)
+                .map(|(l, depth)| (l.clone(), Some(*depth))),
             _ => None,
         }
+    }
+
+    /// Lower a loop body with its reassigned-locals set pushed on
+    /// `enclosing_loop_reassigned` (bug-495), so an inner `FOR`'s provable-index
+    /// proof can see every reassignment this loop's back edge may run before
+    /// re-entering it. Every loop kind (`WHILE`, `FOR`, `DO … UNTIL`, `FOR EACH`)
+    /// lowers its body through here and nowhere else.
+    fn lower_loop_body(&mut self, body: &[NirOp]) -> Result<(), String> {
+        self.enclosing_loop_reassigned.push(
+            crate::codegen::engine::function::collect_reassigned_locals(body),
+        );
+        let result = self.lower_ops(body);
+        self.enclosing_loop_reassigned.pop();
+        result
     }
 
     /// plan-86 G1: recognize `FOR i = 0 TO len(L) - k` (`k >= 1`, step 1) where `i`
@@ -1609,7 +1632,7 @@ impl CodeBuilder<'_> {
         if k < 1 {
             return None;
         }
-        let list = self.resolve_len_list(left)?;
+        let (list, fact_depth) = self.resolve_len_list(left)?;
         // Soundness: `i` and `L` (and the `n` in `n - k`, since `n = len(L)` must
         // still hold) must not be reassigned anywhere in the body.
         let reassigned = crate::codegen::engine::function::collect_reassigned_locals(body);
@@ -1619,6 +1642,25 @@ impl CodeBuilder<'_> {
         if let NirValue::Local(n) = left.as_ref() {
             if reassigned.contains(n) {
                 return None;
+            }
+        }
+        // bug-495: a `LET n = len(L)` fact recorded BEFORE an enclosing loop was
+        // entered is re-used on every back edge of that loop without `n` being
+        // rebound — so if that loop's body reassigns `L` (or `n`) anywhere, even
+        // AFTER this `FOR` in program order, the second entry sees a stale `n`
+        // against a shorter `L` and an unchecked `get` reads out of bounds. The
+        // body-only proof above cannot see that; the enclosing sets can. Loops
+        // entered before the fact was recorded (index `< depth`) contain the `LET`
+        // and re-run it each iteration, so they cannot stale it.
+        if let Some(depth) = fact_depth {
+            let n = match left.as_ref() {
+                NirValue::Local(n) => Some(n.as_str()),
+                _ => None,
+            };
+            for enclosing in self.enclosing_loop_reassigned.iter().skip(depth) {
+                if enclosing.contains(&list) || n.is_some_and(|n| enclosing.contains(n)) {
+                    return None;
+                }
             }
         }
         Some((list, k))
@@ -1754,7 +1796,7 @@ impl CodeBuilder<'_> {
             exit_label: end_label.clone(),
             cleanup_depth: self.active_cleanups.len(),
         });
-        self.lower_ops(body)?;
+        self.lower_loop_body(body)?;
         // plan-86 G1: the provable-index fact is scoped to this loop's body only.
         if g1_provable.is_some() {
             self.provable_index_locals.remove(name);
@@ -2234,7 +2276,7 @@ impl CodeBuilder<'_> {
             exit_label: end_label.clone(),
             cleanup_depth: self.active_cleanups.len(),
         });
-        self.lower_ops(body)?;
+        self.lower_loop_body(body)?;
         self.loop_stack.pop();
         if pushed_iterable {
             self.for_each_iterable_locals.pop();
