@@ -1248,6 +1248,53 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Static type of a runtime-call ARGUMENT, for the code-form (overload)
+    /// selection in [`Self::lower_runtime_helper_call`].
+    ///
+    /// bug-476: several native members collapse two overloads into one name and
+    /// choose the *lowering* here, from an argument's static type —
+    /// `tcp::write`/`tls::write`/`udp::send` (bytes vs text),
+    /// `tcp::connect`/`tls::connect` (host/port vs `Address`), `net::ping`,
+    /// `tcp`/`udp`/`tls` `poll` (scalar vs list), `tls::localAddress`
+    /// (`Socket` vs `Listener`) and `io::print`'s `AttributedString` rewrite.
+    /// [`Self::static_type_name`]'s `NirValue::Call` arm is a hand-written table
+    /// of a dozen builtins, so **any other call answered `None`** and every one
+    /// of those selectors silently took its fallback form. For `tcp::write` that
+    /// meant `tcp::write(sock, buildHead(x))` marshalling a `String*` through the
+    /// collection path: a garbage element count, a failed `write(2)`, and an
+    /// `ErrConnectionClosed` raised with nothing on the wire — which is how
+    /// `http::handleRequest` came to serve an empty reply to every request.
+    ///
+    /// The miss is only in the *call* arm, and only user/package functions and
+    /// untabulated builtins are added: a call is resolved against the same
+    /// return-type tables `emit_call` uses (the NIR function set, then the
+    /// package return types), falling back to
+    /// [`Self::static_type_name_for_fold`]'s registry resolver. It deliberately
+    /// does NOT widen `static_type_name` itself — that also gates the in-place
+    /// append/set fast path, numeric-result typing and the slice specialisation,
+    /// where naming more call results changes codegen (and, for
+    /// `x = collections::append(x, f())`, the aliasing decision) far outside an
+    /// overload choice.
+    pub(crate) fn overload_arg_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        if let NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. } = value
+        {
+            if let Some(type_) = self
+                .functions
+                .get(target.as_str())
+                .map(|function| function.returns.clone())
+                .or_else(|| self.package_return_types.get(target.as_str()).cloned())
+            {
+                return Some(type_);
+            }
+        }
+        self.static_type_name_for_fold(value)
+    }
+
     pub(crate) fn thread_runtime_return_type(
         &self,
         target: &str,
