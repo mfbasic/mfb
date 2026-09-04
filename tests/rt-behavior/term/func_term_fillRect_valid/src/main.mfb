@@ -3,10 +3,11 @@
 ' order; the region clamps to the grid. Runs under the non-tty harness (24x80
 ' fallback), so the escape stream is deterministic.
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 200, 255)
+  term::setForeground(color::rgb(0, 200, 255))
   term::fillRect(term::FillStyle.Filled, 2, 1, 8, 3)        ' 7x3 solid block
   term::fillRect(term::FillStyle.Medium, 20, 5, 14, 2)      ' reversed points -> cols 14..20, rows 2..5
   term::fillRect(term::FillStyle.Checker, 30, 0, 60, 2)     ' partly off-grid: clamps to cols 30..

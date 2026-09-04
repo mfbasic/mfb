@@ -1,0 +1,60 @@
+{
+  "project": "func_term_color_roundtrip_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "term", "line": 2 },
+    { "module": "color", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 21,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 21 },
+      { "name": "c", "type": "color.Color", "default": null, "line": 21 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "red" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "green" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "blue" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "alpha" }] } }] }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBackground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "7" }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "color.Color", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "color.Color", "value": { "kind": "call", "callee": "term.getBackground", "arguments": [] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "setAlpha", "type": "color.Color", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "128" }] }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "half", "type": "color.Color", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "restored", "type": "color.Color", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "fg" }, { "kind": "identifier", "value": "f" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "bg" }, { "kind": "identifier", "value": "b" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fgAlpha=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "setAlpha" }, "member": "alpha" }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "halfTransparentSet" }, { "kind": "identifier", "value": "half" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "restored" }, { "kind": "identifier", "value": "restored" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "restoredEqualsOriginal=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "restored" }, "member": "red" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "red" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "restored" }, "member": "green" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "green" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "restored" }, "member": "blue" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "blue" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "restored" }, "member": "alpha" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "alpha" } } }] } }] }, "line": 57 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 59 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -3,6 +3,7 @@ IMPORT io
 IMPORT math
 IMPORT strings
 IMPORT term
+IMPORT color
 
 ' Snake - a bounded terminal game built on the term:: TUI module.
 '
@@ -83,15 +84,15 @@ END FUNC
 SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS Integer)
   term::clear()
 
-  term::setForeground(120, 180, 220)
+  term::setForeground(color::rgb(120, 180, 220))
   term::drawBox(term::LineStyle.Light, 0, 0, gridW + 1, gridH + 1)
 
-  term::setForeground(245, 170, 70)
+  term::setForeground(color::rgb(245, 170, 70))
   IF food.x >= 0 THEN
     term::drawGlyph(food.x + 1, food.y + 1, 9883)
   END IF
 
-  term::setForeground(110, 230, 135)
+  term::setForeground(color::rgb(110, 230, 135))
   term::setBold(TRUE)
   FOR i = 1 TO len(snake) - 1
     LET a AS Point = collections::get(snake, i - 1)
@@ -113,7 +114,7 @@ SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS 
 
   IF len(snake) > 0 THEN
     LET head AS Point = collections::get(snake, 0)
-    term::setForeground(235, 255, 235)
+    term::setForeground(color::rgb(235, 255, 235))
     term::drawGlyph(head.x + 1, head.y + 1, 9786)
   END IF
   term::setBold(FALSE)
@@ -132,12 +133,12 @@ SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Inte
   END IF
 
   term::setBold(TRUE)
-  term::setForeground(20, 25, 30)
-  term::setBackground(200, 225, 160)
+  term::setForeground(color::rgb(20, 25, 30))
+  term::setBackground(color::rgb(200, 225, 160))
   term::moveTo(gridH + 2, 0)
   io::write(fit(s, cols - 1))
-  term::setBackground(0, 0, 0)
-  term::setForeground(255, 255, 255)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(255, 255, 255))
   term::setBold(FALSE)
 END SUB
 
@@ -223,7 +224,7 @@ FUNC main AS Integer
 
     IF newW < 10 OR newH < 6 THEN
       term::clear()
-      term::setForeground(255, 255, 255)
+      term::setForeground(color::rgb(255, 255, 255))
       term::moveTo(0, 0)
       io::write("Make the terminal at least 12 columns by 9 rows. Press q to quit.")
       term::sync()

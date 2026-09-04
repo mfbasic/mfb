@@ -1,5 +1,6 @@
 IMPORT io
 IMPORT term
+IMPORT color
 
 ' Exercises the term:: surface in app mode so the macOS .app native goldens
 ' capture term::on/off driving the synthesized TermView (plan-01-term.md §6.3,
@@ -7,8 +8,8 @@ IMPORT term
 SUB main()
   term::on()
   term::clear()
-  term::setForeground(0, 255, 0)
-  term::setBackground(0, 0, 0)
+  term::setForeground(color::rgb(0, 255, 0))
+  term::setBackground(color::rgb(0, 0, 0))
   term::setBold(TRUE)
   term::setUnderline(FALSE)
   term::showCursor()
@@ -16,11 +17,11 @@ SUB main()
   term::moveTo(2, 4)
   io::write("term")
   LET active AS Boolean = term::isOn()
-  LET fg AS term::TermColor = term::getForeground()
-  LET bg AS term::TermColor = term::getBackground()
+  LET fg AS color::Color = term::getForeground()
+  LET bg AS color::Color = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET underline AS Boolean = term::getUnderline()
   LET size AS term::TermSize = term::terminalSize()
-  io::print(toString(active) & toString(fg.g) & toString(bg.r) & toString(bold) & toString(underline) & toString(size.columns))
+  io::print(toString(active) & toString(fg.green) & toString(bg.red) & toString(bold) & toString(underline) & toString(size.columns))
   term::off()
 END SUB

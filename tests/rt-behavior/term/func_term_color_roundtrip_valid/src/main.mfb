@@ -1,0 +1,60 @@
+IMPORT io
+IMPORT term
+IMPORT color
+
+REM plan-122-F: term::setForeground/setBackground take a color::Color and
+REM term::getForeground/getBackground return one. This is the behavioural half of
+REM the emitter change -- it proves the values survive a real round trip through
+REM the native emitters on whatever host runs it, which the codegen-inspection test
+REM (tests/codegen_term_color_record_offsets.rs) cannot see.
+REM
+REM Neither test subsumes the other. This one cannot see a wrong field offset that
+REM happens to read a plausible byte -- with r=1 g=2 b=3 a swapped pair is visible,
+REM which is why the channels are all DIFFERENT here; but a store landing on top of
+REM another channel entirely could still print something believable. That is what
+REM the offset assertions are for.
+REM
+REM Output is deterministic and host-neutral: no terminal size, no cursor position,
+REM no ANSI. term::on/off bracket the calls because the colour members are gated on
+REM TUI mode.
+
+SUB show(label AS String, c AS color::Color)
+  io::print(label & "=" & toString(c.red) & " " & toString(c.green) & " " & toString(c.blue) & " " & toString(c.alpha))
+END SUB
+
+FUNC main AS Integer
+  term::on()
+
+  REM Distinct channels, so a transposed pair is visible in the output.
+  term::setForeground(color::rgb(1, 2, 3))
+  term::setBackground(color::rgb(9, 8, 7))
+  LET f AS color::Color = term::getForeground()
+  LET b AS color::Color = term::getBackground()
+
+  REM ALPHA IS ALWAYS 255. A terminal cell has no alpha channel, and the term state
+  REM slot is only 0xBBGGRR -- it has no alpha bits -- so a value derived from the
+  REM slot would be 0 and read as "fully transparent". 255 here is the emitter
+  REM storing a fixed immediate.
+  LET setAlpha AS color::Color = term::getForeground()
+
+  REM setForeground IGNORES alpha: a half-transparent colour sets the same channels
+  REM as an opaque one, and reads back as opaque.
+  term::setForeground(color::rgba(4, 5, 6, 128))
+  LET half AS color::Color = term::getForeground()
+
+  REM A colour read back can be handed straight to the setter with no unpacking --
+  REM the round trip that retiring TermColor was for.
+  term::setForeground(f)
+  LET restored AS color::Color = term::getForeground()
+
+  term::off()
+
+  show("fg", f)
+  show("bg", b)
+  io::print("fgAlpha=" & toString(setAlpha.alpha))
+  show("halfTransparentSet", half)
+  show("restored", restored)
+  io::print("restoredEqualsOriginal=" & toString(restored.red = f.red AND restored.green = f.green AND restored.blue = f.blue AND restored.alpha = f.alpha))
+
+  RETURN 0
+END FUNC

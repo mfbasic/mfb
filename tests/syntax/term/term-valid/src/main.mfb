@@ -2,14 +2,15 @@
 ' Value-returning ops are wrapped in typed helpers (uncalled helpers are legal);
 ' void ops are exercised directly in main. Compile-only: the fixture is never run.
 IMPORT term
+IMPORT color
 
-FUNC usegetForeground AS term::TermColor
-  LET c AS term::TermColor = term::getForeground()
+FUNC usegetForeground AS color::Color
+  LET c AS color::Color = term::getForeground()
   RETURN c
 END FUNC
 
-FUNC usegetBackground AS term::TermColor
-  LET c AS term::TermColor = term::getBackground()
+FUNC usegetBackground AS color::Color
+  LET c AS color::Color = term::getBackground()
   RETURN c
 END FUNC
 
@@ -40,8 +41,8 @@ FUNC main AS Integer
   term::moveTo(0, 0)
   term::hideCursor()
   term::showCursor()
-  term::setForeground(255, 0, 0)
-  term::setBackground(0, 0, 0)
+  term::setForeground(color::rgb(255, 0, 0))
+  term::setBackground(color::rgb(0, 0, 0))
   term::setBold(TRUE)
   term::setUnderline(FALSE)
   RETURN 0
