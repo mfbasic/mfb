@@ -1,0 +1,23 @@
+IMPORT collections
+IMPORT io
+
+' plan-86 G1 SOUNDNESS (bug-495): `n = len(xs)` is established OUTSIDE the inner
+' FOR, and the ENCLOSING loop reassigns `xs` to a shorter list AFTER the inner
+' FOR, then re-enters it through its back edge. The `n -> xs` length fact is stale
+' there (n still holds 8, xs has 1 element), so the elision must NOT fire:
+' get(xs, i) at i>=1 on the len-1 list MUST trap ErrIndexOutOfRange. A wrong
+' elision silently OOB-reads heap words into `out` instead of trapping.
+
+FUNC main AS Integer
+  MUT xs AS List OF Integer = [1, 2, 3, 4, 5, 6, 7, 8]
+  LET n AS Integer = len(xs)
+  MUT out AS List OF Integer = []
+  FOR r = 0 TO 2
+    FOR i = 0 TO n - 1
+      out = collections::append(out, collections::get(xs, i))
+    NEXT
+    xs = [99]
+  NEXT
+  io::print("out=" & toString(len(out)))
+  RETURN 0
+END FUNC
