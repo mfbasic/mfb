@@ -508,6 +508,39 @@ Commit: —
 
 ## Corrections
 
+**H8 (Phase 2) — a draw entry is not "a run of non-group, non-text items"; it is a run of
+everything that must not change within one `vkCmdDraw`, and §4.1 names only two of the
+three things that force a split.** §4.1 says a run ends at a group node or a `Text` item.
+Implementing the emitter shows a third: **`Paint.blend`**. The existing Vulkan emitter
+flushes its run on a blend-mode change and binds that mode's pipeline
+(`emit_run_flush` at `vulkan.rs:5360`, under `branch_ne(&same_mode)`), because each mode
+is a separate `VkPipeline` and a pipeline is bound per draw, not per instance.
+
+So a draw entry carries an implicit "and all of these share a pipeline" that §4.1 never
+states, and a draw list built to §4.1's rule would issue one `vkCmdDraw` spanning items
+with different blend modes — every one of them drawn with whichever pipeline happened to
+be bound. That is a *plausible wrong picture*: a `Multiply` circle rendered `Normal` looks
+like a colour mistake, not like a missing feature.
+
+**The split belongs in the draw list, not in the emitter.** The list should already encode
+everything that forces a separate draw call, which is what makes it a *draw* list rather
+than a group list — and it is the only place both backends can share the decision. The
+alternative, having each emitter sub-split entries it is handed, puts the same rule in two
+assemblers and invites them to disagree, which is the `.ai/canvas-threading.md` §10 class
+this letter is otherwise careful about.
+
+Note the split can be computed at draw-list build time *or* read back from the blocks: a
+block's kind is geometry slot 0 and its blend mode slot 26, so a walk over a memoised
+block range can find the boundaries without re-visiting the scene. That matters for a
+**group**, whose blocks are laid out once and referenced many times — the runs within it
+are a property of the group, not of the reference, so they are computed once with the memo
+and reused.
+
+§4.1's example draws are unaffected: they use one blend mode throughout, which is why the
+gap did not show in Phase 1's four cases. A fifth case — a group containing two items with
+different blend modes — is added to that test, and it is the case that fails against the
+§4.1 rule as written.
+
 **H7 (pre-execution, 2026-09-04) — two §2 census rows had drifted; re-measured.**
 
 * **`ITEM_BLOCK_SIZE` is 208, not 224.** The row cited plan-116-F §4.2 rather than the
