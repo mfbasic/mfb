@@ -341,8 +341,17 @@ Update as findings are filed.
 | [SUP-06](audit-3-supply-chain.md) | 9 | Key/session files chmod'd after create; symlink-followed; `~/.mfb` unrestricted | LOW | code | n/a | — |
 | [SUP-07](audit-3-supply-chain.md) | 9 | Redirect IP guard misses 6to4 / NAT64 / `0.0.0.0/8` | NTH | code | n/a | — |
 | [SUP-08](audit-3-supply-chain.md) | 9 | Registry-supplied `hash` interpolated into blob URL with no hex check | NTH | code | n/a | — |
+| [REPO-01](audit-3-repository.md) | 8 | Scoped publish token self-escalates to a permanent unscoped auth key | HIGH | **live** (`spikes/audit-3/repository-authz/`) | harness (not `.mfb`) | bug-492 |
+| [REPO-02](audit-3-repository.md) | 8 | `/machines/revoke` accepts an auth-key challenge → account lockout | HIGH | **live** | harness | bug-493 |
+| [REPO-03](audit-3-repository.md) | 8 | `/release-state`+`/signing` authorize on ident prefix, not owner | HIGH | **live** | harness | bug-494 |
+| [REPO-04](audit-3-repository.md) | 8 | Unauth 64 MiB body buffered before auth; no concurrency cap/timeout | MEDIUM | reproduced (RSS) | n/a | — |
+| [REPO-50](audit-3-repository.md) | 8 | Registry SQLite DB created world-readable (holds signing key) | MEDIUM | **lead-confirmed** (0644) | n/a | — |
+| [REPO-51](audit-3-repository.md) | 8 | Case-insensitive `LIKE` → inclusion-proof pointer resolves to another package | MEDIUM | SQL-level | n/a | — |
+| [REPO-52/55/56/06/07](audit-3-repository.md) | 8 | Storage/CPU exhaustion + per-IP bucket collapse behind proxy | MEDIUM | code/repro | n/a | — |
+| [REPO-05/08/09/10/53/54/57](audit-3-repository.md) | 8 | Rate-limit/expiry/blob-rehash/log-chain/key-perm gaps | LOW | code | expired: harness | — |
+| [REPO-58/59/60](audit-3-repository.md) | 8 | root version unchecked · NUL-sep signed msgs · i64→usize widen | NTH | code | n/a | — |
 
-Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 4 · LOW 3 · NTH 2.
+Tallies: CRITICAL 0 · HIGH 3 · MEDIUM 8 · LOW 8 · NTH 4.
 
 ## Attack-surface map & progress
 
@@ -453,16 +462,21 @@ _Untrusted party: attacker exploiting an emitted binary at runtime._
 **Surface 8 — Package registry HTTP service (auth / transparency log / TUF metadata / blobs)** (`REPO-`)
 _Untrusted party: any remote registry client (anonymous or token-holding)._
 
-- [ ] `repository/src/server.rs` (all routes: auth/challenge/login, signing,
-      log/*, keys/rotate, machines/*, tokens/*, packages/transfer/*,
-      root/snapshot/timestamp.json, validate, publish, blob, search, rate
-      limits)
-- [ ] `repository/src/{validation,crypto,abi}.rs`
-- [ ] `repository/src/{store,local,blobstore,package}.rs`
-- [ ] `repository/src/{log,gc,backfill}.rs`
-- [ ] `repository/src/web/`, `repository/src/{main,lib}.rs`
-- [ ] `repository/docker-entrypoint.sh`, `repository/Dockerfile` (untrusted
-      config only)
+- [x] `repository/src/server.rs` — REPO-01/02/03 (HIGH), REPO-04/06/07/52/55/56
+      (MED), REPO-05/08/09/10 (LOW), REPO-58 (NTH). Read by route.
+- [x] `repository/src/{validation,crypto,abi}.rs` — REPO-59 (NTH); crypto core
+      fail-closed.
+- [x] `repository/src/{store,local,blobstore,package}.rs` — REPO-50 (world-
+      readable DB, lead-confirmed), REPO-51 (MED), REPO-53/54/57 (LOW).
+- [x] `repository/src/{log,gc,backfill}.rs` — log inclusion/consistency
+      fail-closed; REPO-53/54.
+- [x] `repository/src/web/`, `repository/src/{main,lib}.rs` — main/lib read;
+      `web/` skimmed (flag if a web-XSS pass is wanted).
+- [x] `repository/docker-entrypoint.sh`, `repository/Dockerfile` — no default
+      secret / root-run finding beyond REPO-06 (Fly proxy collapses per-IP).
+
+Verdict: **3 HIGH (bug-492/493/494, all lead-reproduced live), 7 MEDIUM, 6 LOW,
+2 NTH.** See `audit-3-repository.md`; harness `spikes/audit-3/repository-authz/`.
 
 **Surface 9 — Supply chain: install / resolve / registry client (compiler side)** (`SUP-`)
 _Untrusted party: malicious or MITM'd registry; spoofed dependency source._
