@@ -1013,6 +1013,20 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G35 (Phase 6) — the slot-layout guard stopped being a bound when the layout grew.**
+`the_group_slot_size_is_a_power_of_two_matching_its_shift` asserted
+`CANVAS_GROUP_RETIRED_FRAME + 8 <= CANVAS_GROUP_SLOT_BYTES`, which was a real check when
+`RETIRED_FRAME` was the highest offset in the slot. **G32** then added `RETIRED_NAME`
+above it at +56, and the assertion silently became a statement about a word in the
+middle — it would have passed with a word at +120 in a 64-byte slot.
+
+Now it takes the max over all eight named words. Worth the correction rather than a
+quiet edit because of what the guard is for: a word past the slot end is written into
+the *next* slot, which reads as one group overwriting another's state — a plausible
+wrong picture, not a crash. A bound named after one particular word is only a bound
+until someone adds a word, and the person adding it is exactly the person not thinking
+about this test.
+
 **G34 (Phase 6) — this letter's new emitter will sit below the coverage floor, and that
 is a pre-existing repo-wide condition rather than something G introduces.** `gen_group.rs`
 is ~900 lines of `abi_function` lowering exercised only when the compiler compiles a

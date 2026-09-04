@@ -1056,9 +1056,29 @@ mod tests {
              conversion is a shift, so a slot size that is not a power of two \
              silently addresses the wrong slot",
         );
+        // Every named word, not just the last one this test happened to know about.
+        // The bound was written against `RETIRED_FRAME` when that was the highest
+        // offset; G32 then added `RETIRED_NAME` above it, and a fixed reference to one
+        // word stops being a bound on the layout the moment the layout grows. Taking
+        // the max is what makes this a check rather than a coincidence.
+        let highest = [
+            CANVAS_GROUP_NAME,
+            CANVAS_GROUP_ITEMS,
+            CANVAS_GROUP_COUNT,
+            CANVAS_GROUP_REVISION,
+            CANVAS_GROUP_REFS,
+            CANVAS_GROUP_RETIRED_FRAME,
+            CANVAS_GROUP_RETIRED_ITEMS,
+            CANVAS_GROUP_RETIRED_NAME,
+        ]
+        .into_iter()
+        .max()
+        .expect("a non-empty word list");
         assert!(
-            CANVAS_GROUP_RETIRED_FRAME + 8 <= CANVAS_GROUP_SLOT_BYTES,
-            "the named slot words overflow a slot",
+            highest + 8 <= CANVAS_GROUP_SLOT_BYTES,
+            "a slot word at +{highest} overflows a {CANVAS_GROUP_SLOT_BYTES}-byte slot: \
+             it would be written into the NEXT slot, which reads as one group quietly \
+             overwriting another's state",
         );
     }
 
