@@ -353,7 +353,7 @@ pub(crate) fn register(r: &mut Registry) {
         }],
     });
     // A styling attribute whose value is an Integer (e.g. a font size, or a packed
-    // `0xRRGGBB` color for `Foreground`/`Background`).
+    // `0xAARRGGBB` color for `Foreground`/`Background`).
     pkg.add_enum(RegistryEnum {
         name: "AttrTypeNumber",
         export: true,
@@ -365,12 +365,12 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "Foreground",
-                description: "The text color, packed `0xRRGGBB`.",
+                description: "The text color, packed `0xAARRGGBB` — the same order `color::toPacked` produces. Terminals have no alpha; `term::drawText` ignores it.",
                 advisory: None,
             },
             EnumVariant {
                 name: "Background",
-                description: "The background color, packed `0xRRGGBB`.",
+                description: "The background color, packed `0xAARRGGBB` — the same order `color::toPacked` produces. Terminals have no alpha; `term::drawText` ignores it.",
                 advisory: None,
             },
         ],

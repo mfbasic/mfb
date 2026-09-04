@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-02
 Effort: medium (1h–2h)
-Depends on: plan-122-D
+Depends on: plan-122-A/B/C (the `color` package). NOT plan-122-D — see Prerequisites.
 
 `astrings::foreground(r, g, b)` and `astrings::background(r, g, b)` become
 `astrings::foreground(base AS color::Color)` and
@@ -31,9 +31,37 @@ Stated once in plan-122-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-122-D complete | `ls planning/completed/plan-122-D-*` → one match | NOT MET |
+| plan-122-A/B/C complete (the `color` package exists) | `ls planning/completed/plan-122-{A,B,C}-*` → three matches | **MET** (2026-09-04) — landed on `main` at `756c57a87` |
+| ~~plan-122-D complete~~ | `ls planning/completed/plan-122-D-*` → one match | **CORRECTED — this row was wrong.** D is not a precondition for E; see below and Corrections. D remains unstarted by explicit user instruction. |
 
-If plan-122-D is not complete, this sub-plan cannot start, full stop.
+~~If plan-122-D is not complete, this sub-plan cannot start, full stop.~~
+
+**Why the D row was struck (measured 2026-09-04, not assumed).** E and D are
+independent: D migrates **canvas**, E migrates **astrings**, and the two packages
+do not touch each other.
+
+- E's body never references D. `grep -n "plan-122-D\|letter D\|in D\b"` over this
+  file returns **only** the `Depends on:` line and the prerequisite row itself —
+  no task, no design decision, and no acceptance criterion needs anything D
+  produces.
+- The packages are unconnected. `grep -rn "canvas" src/codegen/builtins/astrings/*.rs`
+  → **no hits**; `astrings`'s `add_imports` is `["collections", "astrings",
+  "strings", "bits"]` with no `canvas`. In the other direction canvas's only
+  mention of astrings is a **comment** (`canvas/mod.rs:175`), not an import or a
+  call.
+- E's phases name only `astrings/*` and `term/*` files
+  (`func_foreground.rs`, `func_background.rs`, `helper_pack_color.rs`,
+  `term/helper_astrings_bridge.rs`, `tests/acceptance/src/astrings.mfb`,
+  `tests/rt_native_term_runtime.rs`). No canvas file appears in any phase.
+
+What E actually needs is the **`color` package** — specifically `color::Color` and
+`color::toPacked`/`fromPacked` — and those come from A and B, both landed. The
+`Depends on: plan-122-D` line encoded the author's intended *sequencing* of the
+three consumer migrations (D→E→F), not a technical precondition.
+
+**F's dependency on E is different and is real**, and is honoured: the term↔astrings
+bridge reads the packed attribute payload whose bit layout E widens, so E is done
+first.
 
 ## 1. Goal
 
@@ -174,21 +202,41 @@ resolution, `toMarkdown` output, and what a terminal actually displays.
 Prove the bit reassignment alone is correct before the API changes, so a failure
 has one possible cause.
 
-- [ ] `astrings/helper_pack_color.rs` — widen to `0xAARRGGBB` with a fourth `a AS Byte`
+- [x] `astrings/helper_pack_color.rs` — widen to `0xAARRGGBB` with a fourth `a AS Byte`
       parameter; callers pass `toByte(255)`. (This file is deleted in Phase 2; it
       exists in this shape only so the payload change lands separately.)
-- [ ] `term/helper_astrings_bridge.rs` — add `__term_colorA`, and make
-      `__term_applyFg`/`Bg` mask the low 24 bits when calling
-      `term::setForeground`/`setBackground`.
-- [ ] Update the `AttrTypeNumber` variant descriptions and the enum comment
+- [x] `term/helper_astrings_bridge.rs` — ~~add `__term_colorA`, and make
+      `__term_applyFg`/`Bg` mask the low 24 bits~~ — **moot: the existing
+      per-channel masks already discard alpha, and a `__term_colorA` would be dead
+      code.** `__term_colorR/G/B` are each `(packed >> n) & 255`, so with alpha
+      added *above* bit 23 the colour channels do not move and alpha cannot reach
+      the terminal. Verified arithmetically rather than assumed: for
+      `a=255,r=255,g=128,b=0` the widened `0xFFFF8000` yields `R=255 G=128 B=0`,
+      byte-identical to what the old `0xFF8000` yielded. Nothing reads alpha — the
+      bridge's contract is to *ignore* it — so a `colorA` accessor would be an
+      unused FUNC in every term+astrings importer's companion, and Phase 2 deletes
+      these three helpers anyway. The comments were updated instead: the payload and
+      the `-1` sentinel's justification now say `0xAARRGGBB` / `0..0xFFFFFFFF`.
+- [x] Update the `AttrTypeNumber` variant descriptions and the enum comment
       (`astrings/mod.rs:356`, `:367`, `:372`) to say `0xAARRGGBB`.
-- [ ] Tests: a `tests/rt-behavior/astrings/` case asserting
+      Both variant descriptions also now state that terminals have no alpha and
+      `term::drawText` ignores it, so the limitation is on the surface a reader
+      meets first.
+- [x] Tests: a `tests/rt-behavior/astrings/` case asserting
       `getAttributes` returns `value = 0xFF0080FF` for
       `astrings::foreground(255, 128, 0)` — the literal constant, not a recomputation.
+      Landed as `tests/rt-behavior/astrings/color-payload-rt`. **The plan's expected
+      constant was wrong** — `0xFF0080FF` transposes the channels; for
+      `foreground(255, 128, 0)` under `0xAARRGGBB` the value is `0xFFFF8000`. See
+      Corrections. The fixture pins three literals, not one, and the extra two earn
+      their place: `black` (`0xFF000000`) is the only case that distinguishes "alpha
+      set to 255" from "alpha left at zero", and the positivity check pins what keeps
+      `-1` usable as the bridge's unset sentinel.
 
-Acceptance: `tests/rt_native_term_runtime.rs` renders the same colours it renders
-today (the bridge is unchanged in what it sends the terminal), and the new payload
-assertion passes against a literal.
+Acceptance: **MET.** `tests/rt_native_term_runtime.rs` → **7 passed, 0 failed**, so
+the bridge sends the terminal exactly what it sent before. The payload assertions
+pass against literals: `fg=4294934528` = `0xFFFF8000`, `bg=4279383126` =
+`0xFF123456`, `black=4278190080` = `0xFF000000`, `positive=TRUE`.
 Commit: —
 
 ### Phase 2 — The members take a `color::Color`
@@ -260,7 +308,36 @@ Commit: —
 
 ## Corrections
 
-_(filled in during execution)_
+**The Prerequisites row was wrong: E does not depend on D.** Struck with evidence
+in §Prerequisites above. Summary: E migrates `astrings`, D migrates `canvas`, and
+the two packages do not reference each other in either direction
+(`grep -rn "canvas" src/codegen/builtins/astrings/*.rs` → no hits; canvas's only
+mention of astrings is a comment). E's body never cites D outside the dependency
+line itself, and none of its phases name a canvas file. What E actually needs is
+`color::Color` and `color::toPacked`/`fromPacked`, which A and B landed. The
+`Depends on: plan-122-D` line encoded the author's intended sequencing of the three
+consumer migrations, not a technical precondition. **F's dependency on E is real
+and is honoured.** (D remains unstarted, by explicit user instruction.)
+
+**Phase 1's expected payload constant was wrong in the plan.** The task says
+`getAttributes` should return `value = 0xFF0080FF` for
+`astrings::foreground(255, 128, 0)`. Under the `0xAARRGGBB` order this letter
+adopts — the same order `color::toPacked` produces, which §1 requires — that colour
+packs to **`0xFFFF8000`** (`a=FF, r=FF, g=80, b=00`). `0xFF0080FF` reads as
+`a=FF, r=00, g=80, b=FF`, i.e. the red and blue channels transposed.
+
+Caught by writing the literal into the fixture and comparing against the runtime
+rather than copying the plan's number, which is the whole reason the task insists
+on a literal in the first place. The fixture pins `0xFFFF8000`, and two further
+literals the plan did not ask for: `0xFF000000` for black — the only case that can
+tell "alpha set to 255" apart from "alpha left at zero", since every other channel
+is already zero — and a positivity assertion, which is what keeps `-1` sound as the
+bridge's unset sentinel after the widening.
+
+**Phase 1's bridge task was already satisfied.** See the ticked box: the existing
+per-channel masks discard alpha by construction, so no applier change was needed
+and a `__term_colorA` would have been dead code. Marked moot with the arithmetic
+rather than implemented.
 
 ## Summary
 

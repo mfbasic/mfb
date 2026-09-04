@@ -46,11 +46,11 @@ IMPORT strings
 IMPORT bits
 
 ' The renderable subset of an AttributedString's per-scalar styling: the attributes
-' the terminal surface can represent — bold, underline, and packed 0xRRGGBB
+' the terminal surface can represent — bold, underline, and packed 0xAARRGGBB
 ' foreground/background colors (-1 = unset, unambiguous because a packed color is
-' always in 0..0xFFFFFF). Compared by value to find maximal same-style runs. Named
-' with the internal `__` sigil so the injected type cannot collide with a user's
-' own `TermStyle`.
+' always in 0..0xFFFFFFFF, which is positive). Compared by value to find maximal
+' same-style runs. Named with the internal `__` sigil so the injected type cannot
+' collide with a user's own `TermStyle`.
 TYPE __TermStyle
   bold AS Boolean
   underline AS Boolean
@@ -92,7 +92,9 @@ FUNC __term_styleAt(value AS AttributedString, index AS Integer) AS __TermStyle
   RETURN __TermStyle[bold, underline, fg, bg]
 END FUNC
 
-' Unpack the r / g / b channel from a packed `0xRRGGBB` color (r high, b low).
+' Unpack the r / g / b / a channel from a packed `0xAARRGGBB` color (alpha high,
+' b low). The r/g/b shifts are unchanged by the plan-122-E widening — alpha was
+' added above bit 23, so the colour channels did not move.
 FUNC __term_colorR(packed AS Integer) AS Byte
   RETURN toByte(bits::band(bits::sr(packed, 16), 255))
 END FUNC

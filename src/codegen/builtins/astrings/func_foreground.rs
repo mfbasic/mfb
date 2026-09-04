@@ -35,7 +35,7 @@ END SUB
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __astrings_foreground(r AS Byte, g AS Byte, b AS Byte) AS Attribute
-  RETURN AttrNumber[AttrTypeNumber.Foreground, __astrings_packColor(r, g, b)]
+  RETURN AttrNumber[AttrTypeNumber.Foreground, __astrings_packColor(r, g, b, toByte(255))]
 END FUNC"#;
 
 fn color_params() -> Vec<Parameter> {

@@ -1,0 +1,59 @@
+REM plan-122-E Phase 1: the Foreground/Background attribute payload is 0xAARRGGBB.
+REM
+REM The expected value is written as a LITERAL constant, not recomputed from the
+REM channels. Recomputed, the assertion would agree with whatever bit layout the
+REM packer happens to use and a transposed channel or a wrong shift would pass.
+REM
+REM This is the widening's only visible effect at Phase 1: the signature still
+REM takes three Bytes, so alpha is always 255 here and the payload therefore always
+REM has 0xFF in its top byte. That the top byte is now OCCUPIED at all is the thing
+REM under test -- before the widening it was zero.
+
+IMPORT astrings
+IMPORT io
+
+FUNC payload(attrs AS List OF astrings::Attribute) AS Integer
+  FOR EACH a IN attrs
+    MATCH a
+      CASE astrings::AttrNumber(nm)
+        MATCH nm.kind
+          CASE astrings::AttrTypeNumber.Foreground
+            RETURN nm.value
+          CASE astrings::AttrTypeNumber.Background
+            RETURN nm.value
+          CASE ELSE
+        END MATCH
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC main AS Integer
+  MUT s AS AttributedString = astrings::fromString("hi")
+  s = astrings::addAttribute(s, 0, 1, astrings::foreground(255, 128, 0))
+
+  REM r=255 g=128 b=0, alpha forced to 255 -> 0xFFFF8000 = 4294934528.
+  io::print("fg=" & toString(payload(astrings::getAttributes(s, 0))))
+  io::print("fgExpected=" & toString(0xFFFF8000))
+
+  MUT t AS AttributedString = astrings::fromString("hi")
+  t = astrings::addAttribute(t, 0, 1, astrings::background(18, 52, 86))
+
+  REM r=0x12 g=0x34 b=0x56, alpha 255 -> 0xFF123456 = 4279383126.
+  io::print("bg=" & toString(payload(astrings::getAttributes(t, 0))))
+  io::print("bgExpected=" & toString(0xFF123456))
+
+  REM Black is the case that would look correct under the OLD layout too, if the
+  REM alpha byte were left at zero -- so it is the one that proves alpha is set.
+  MUT k AS AttributedString = astrings::fromString("hi")
+  k = astrings::addAttribute(k, 0, 1, astrings::foreground(0, 0, 0))
+  io::print("black=" & toString(payload(astrings::getAttributes(k, 0))))
+  io::print("blackExpected=" & toString(0xFF000000))
+
+  REM The payload stays POSITIVE, which is what keeps -1 usable as the bridge's
+  REM "unset" sentinel after the widening.
+  io::print("positive=" & toString(payload(astrings::getAttributes(s, 0)) > 0))
+
+  RETURN 0
+END FUNC
