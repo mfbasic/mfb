@@ -172,3 +172,26 @@ bootstrap trust window and version-selection integrity. The fix is service +
 client policy work (pinning, mandatory snapshot verification, https), not new
 cryptography. SUP-01 (plaintext default) folds in as a small transport-hardening
 step.
+
+## audit-3 re-verification (2026-09-03, goal-08 SUP-01)
+
+Re-verified against current source. SUP-01 (plaintext) and SUP-02 (blind TOFU)
+remain fixed; SUP-03 (version-list downgrade) is still open, and audit-3 found a
+concrete reason the documented opt-in remedy does **not** close it:
+`snapshot.indexHash` is **dead code** on the client.
+
+`grep -rn 'index_hash\|indexHash' repository/src src/` shows the field is written
+into `DelegatedMetadata` (`repository/src/client.rs:810,898`) and cross-checked
+between snapshot and timestamp (`:867,887,891`), and the server computes
+`index_canonical_hash()` (`repository/src/server.rs:1950,1982`) — but the client
+never recomputes the digest over the idents it fetched and compares it, and
+`verify_pinned_metadata` (`client.rs:976`) consumes only `server_key` and
+`snapshot_version`. So even `mfb repo trust` does not detect a stale/partial
+index, contradicting `src/docs/spec/package-manager/01_repository-protocol.md:1024`.
+
+The SUP-03 fix must therefore also make `index_hash` load-bearing (or sign the
+per-ident version list directly). A cheap independent floor that needs no
+protocol change: thread the previous `Lock` into `resolve()` and **refuse** (not
+merely `print_lock_diff`, `src/cli/resolve.rs:96`) a selection lower than the
+locked version, absent an explicit `@version` / `--allow-downgrade`. See
+`planning/audit-3-supply-chain.md` SUP-01.
