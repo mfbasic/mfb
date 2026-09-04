@@ -5,9 +5,9 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (authorization bypass / privilege escalation)
 
-Status: Open (found in audit-3, Surface 8 REPO-01; reproduced live by the lead)
+Status: FIXED (found in audit-3, Surface 8 REPO-01; reproduced live by the lead; re-reproduced and fixed 2026-09-03)
 
-Regression Test: none yet — add a registry test asserting a token-backed session cannot `link_start`, and that `/signing` enforces scope for every auth key of the account.
+Regression Test: `repository/src/server.rs` — `a_publish_token_session_cannot_enrol_a_machine` (token session refused at `/machines/link`; a real two-machine link, and a linked machine enrolling the next one, still work; the token still attests in scope) and `a_publish_token_is_bounded_on_every_authenticated_route` (`/validate` + `/publish` refuse an out-of-scope ident; an expired token is refused at `PUT /blob` and `/auth/login` while its JWT is still live).
 
 ## Summary
 
@@ -98,3 +98,56 @@ signing attestations (→ publish), and it is *not* revoked with the token that
 created it. Searched `link_fetch`, `add_auth_key`, `publish_token_for_key`,
 `pairing`, REPO-15 across `bugs/`, `bugs/completed/`, `bugs/skipped/`,
 `planning/completed/audit-*`.
+
+## STATUS: FIXED
+
+Landed on `worktree-B-492`, merged to `main`.
+
+**Mechanism confirmed live before the fix** (`spikes/audit-3/repository-authz`,
+`tokenesc`, against the pre-fix `mfb-repo`):
+
+```
+token /signing orgpre1#ci-only  -> 200 OK
+token /signing orgpre1#flagship -> 400 Bad Request     # scope enforced at /signing only
+/machines/link -> 200 OK                               # a token session parks a pairing
+new UNSCOPED auth key fp = 3bde872b…                   # ...and fetches it with its own key
+CI token revoked = true
+escalated key /signing orgpre1#flagship -> 200 OK      # signs flagship, post-revoke
+```
+
+**What changed** (`repository/src/server.rs` only; no store schema change):
+
+- `publish_token_scope(store, key_id)` is now the ONE reader of the
+  `publish_tokens` row. It refuses a revoked or expired token and hands back the
+  scope. Every route that accepts a session calls it: `link_start`, `signing`,
+  `validate_package_request` (so `/validate` and `/publish`), `put_blob` (as a
+  401), `login`, `release_state`, and the shared `session_and_ident` preamble
+  (`/tokens`, `/tokens/revoke`, `/orgs/members`, `/packages/transfer/*`). The
+  token's scope and expiry are a property of the *session*, as Best fix §1 asked.
+- `link_start` refuses a token-backed session outright (Best fix §2):
+  `"a publish token session cannot link a machine"`. `link_fetch` is unchanged
+  (REPO-15 stays a separate item): with nothing parked, the fetch half finds no
+  pairing, so the self-pairing cannot complete.
+- `/validate` and `/publish` refuse an out-of-scope ident as a hard 400 before
+  any artifact work — the artifact may be valid; the credential is not.
+- Closed along the way: audit-3 REPO-09 (LOW, unfiled) — an expired token no
+  longer opens a session at `/auth/login` nor uploads at `PUT /blob`.
+
+**After the fix** (same harness, post-fix binary):
+
+```
+/machines/link -> 400 Bad Request {"error":"a publish token session cannot link a machine"}
+/machines/link/fetch -> {"error":"unknown, used, or expired pairing code"}   # nothing parked; harness aborts
+```
+
+and `expired`: `login refused: {"error":"publish token has expired"}`.
+
+**Wire contract:** no request or response shape changed. A normal two-machine
+link, a linked machine enrolling a further machine, and a token acting within its
+scope are each asserted by the regression tests; `/signing`'s scope check is
+unchanged (it now shares the helper).
+
+**Gates:** `cargo test --no-fail-fast` in `repository/` — 320 lib + 21 bin
+passed, 0 failed, exit 0; `cargo check --all-targets` — 0 warnings; the root
+`tests/cli_repo_*` acceptance suite (release `mfb` + `mfb-repo`) run from a
+detached worktree at this commit — see the landing report.
