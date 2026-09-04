@@ -1013,6 +1013,31 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G40 (Phase 6) — the CI question that was holding the landing is resolved; `main`'s
+only red job is the one G34 describes.** A peer session was chasing canvas tests dying by
+a *signal* on the Linux runners, and this letter agreed to hold off landing if that
+turned out to be a SIGSEGV — adding a new process-global data object and a new draw-list
+walk to a tree someone is bisecting for memory corruption would have been unhelpful at
+best.
+
+It is fixed. Run 33821450259 on `main` (`f832a6916`, "canvas: guard the rbp save with a
+codegen-inspection test") reports:
+
+```
+success  build      success  Test (linux-x86_64-glibc)   success  Test (macos-aarch64)
+success  fmt        success  Test (linux-x86_64-musl)    success  Test (windows-x86_64)
+success  acceptance success  Test (linux-aarch64-glibc)  success  artifact
+failure  coverage
+```
+
+All five test platforms green. The cause was the graphics thread not handing `rbp` back —
+the `spawned-thread-entry-must-save-callee-saved` family, now pinned by a
+codegen-inspection test rather than only by a runtime one.
+
+`coverage` remains red for the reason **G34** records, which predates plan-116 and is a
+property of how emitter files are measured rather than of anything this letter does. So
+there is no longer a reason to hold, and the landing gate is this letter's own rows.
+
 **G39 (Phase 6) — this ledger carried a stale test citation, found by auditing its own
 citations.** Phase 3's acceptance named `remove_group_clears_the_name_and_frees_nothing`.
 Phase 5 renamed that test to `remove_group_clears_the_name_first_and_retires_the_buffer`
