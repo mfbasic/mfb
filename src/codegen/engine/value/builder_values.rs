@@ -47,7 +47,7 @@ impl<'a> CodeBuilder<'a> {
 /// The spine stops at the first non-`&` value, so a parenthesized subchain on
 /// the right (`a & (b & c)`) keeps its own grouping and is lowered as its own
 /// fused chain — the operand order the source wrote is preserved either way.
-fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
+pub(super) fn flatten_concat_spine<'a>(value: &'a NirValue, out: &mut Vec<&'a NirValue>) {
     if let NirValue::Binary {
         op, left, right, ..
     } = value
@@ -79,12 +79,19 @@ impl CodeBuilder<'_> {
             || crate::codegen::engine::expansion::value_key(value),
             self.instructions.len(),
         );
-        let mut result = self.lower_value_inner(value);
+        // bug-496: note which of this node's operands must be snapshotted before
+        // a later sibling's call can reassign the storage they point into.
+        let snapshot_mark = self.push_operand_snapshot_frame(value);
+        let result = self.lower_value_inner(value);
+        self.operand_snapshot_wanted.truncate(snapshot_mark);
         crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             self.register_pending_temp(value, result);
         }
+        // bug-496: if THIS value is such an operand of the enclosing node, hand
+        // its consumer a statement-scope deep copy instead of the live pointer.
+        let mut result = result.and_then(|result| self.snapshot_aliased_operand(value, result));
         // Stamp the source `NirValue` so a pre-lowered `abi_inline` body can run any
         // NIR-structural analysis (bounds-check elision, float-finiteness, folding)
         // off the `ValueResult` — the value is pre-lowered, but the details are kept.

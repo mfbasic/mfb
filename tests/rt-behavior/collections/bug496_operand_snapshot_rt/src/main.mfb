@@ -1,0 +1,45 @@
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+' bug-496 (audit-3 MEM-12): operand 0 of `GS & same(1)` / `append(G, evict(r))`
+' is a pointer into the global's block; the later operand's call reassigns that
+' global, freeing the block. The op must consume operand 0 as it was BEFORE the
+' call (the nested write is correctly lost), never the freed block: without the
+' snapshot `&` printed `[tail] len=4` and `append` died with 7-701-0001.
+
+MUT GS AS String = "abcdefgh"
+MUT G2 AS String = "12345678"
+MUT G AS List OF Integer = [1, 2, 3]
+
+FUNC other(v AS Integer) AS String
+  G2 = "XY"
+  RETURN "tail"
+END FUNC
+
+FUNC same(v AS Integer) AS String
+  GS = "XY"
+  RETURN "tail"
+END FUNC
+
+FUNC evict(v AS Integer) AS Integer
+  G = [99]
+  RETURN v
+END FUNC
+
+FUNC main AS Integer
+  LET a AS String = GS & other(1)
+  io::print("other -> [" & a & "] len=" & toString(strings::byteLen(a)))
+  LET b AS String = GS & same(1)
+  io::print("same  -> [" & b & "] len=" & toString(strings::byteLen(b)))
+  io::print("GS=" & GS)
+  FOR r = 0 TO 2
+    G = collections::append(G, evict(r))
+  NEXT
+  MUT s AS String = ""
+  FOR EACH v IN G
+    s = s & toString(v) & ","
+  NEXT
+  io::print("G=" & s)
+  RETURN 0
+END FUNC

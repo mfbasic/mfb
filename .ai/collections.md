@@ -359,28 +359,47 @@ changes for collection-layout work:
   structurally** — it no longer `format!("List OF {element}")`s and the caller
   no longer parses the spelling back.
 
-## `global = append(global, f(...))` is a use-after-free when `f` can reassign the global
-
-Writing
+## `global = <op>(global, f(...))`: operand 0 is snapshotted before a later operand's call can reassign it (bug-496)
 
 ```
 __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))
 ```
 
 resolves the `append`'s list operand against the global *as it was before the call*, and
-`__canvas_glyphEntry` reassigns that global (its eviction pass replaces the list). The
-append then writes into the block eviction just released. The symptom is not a wrong
-value: the process **stops**, with the faulting thread simply gone — on the canvas
-graphics thread that reads as a hang at 0% CPU with the worker parked in
-`_pthread_cond_wait`, and `sample <pid>` shows three threads where there should be four
-(the same signature as any unhandled raise on that thread — see `.ai/canvas-threading.md`).
+`__canvas_glyphEntry` reassigns that global (its eviction pass replaces the list). That is
+the **defined** semantics — operand 0 is the pre-call value, so the nested write is lost
+and the outer store wins — but until bug-496 the implementation read operand 0 through a
+pointer into the global's block, which the nested reassignment's `StoreGlobal` had already
+freed: the process **stopped**, with the faulting thread simply gone (on the canvas
+graphics thread a hang at 0% CPU with the worker parked in `_pthread_cond_wait`, three
+threads in `sample <pid>` where there should be four), or `&` silently dropped operand 0's
+bytes (`arena_free` keeps the quick-bin link at offset 0, where `byteLength` lives).
 
-Bind the call's result to a local first, then append:
+`src/codegen/engine/value/operand_snapshot.rs` closes it at the one seam every operand
+goes through, `lower_value`: on entry to a multi-operand node (`Call`, `Binary` incl. the
+fused `&` chain, literals, `Constructor`, `WithUpdate`) it records each operand that lowers
+to a pointer into storage a callee can reassign — a `Global`, a by-ref or address-taken
+local, a resource's STATE, or a member/extract of one — when a LATER operand contains a
+call that can run user code (a module function, an indirect FUNC-value call, or any call
+handed a FUNC value). When that operand is lowered it is `copy_flat_block`ed into a
+statement-scope pending temp and the copy is what the op consumes. Matching is by node
+address, so a cloned/rewritten operand fails safe to the old behavior, never to a wrong
+copy. Two things keep it narrow, and `tests/rt_operand_snapshot.rs` pins both: a plain
+local is unreachable (value semantics), so `x = append(x, f())` / `s & f()` on locals
+emit no snapshot and the in-place `x = append(x, <pure>)` fast path never sees a `Call`
+node at all; and a global followed only by pure native builtins (`GS & toString(n)`)
+emits none either. Count `stackSlots` of type `operand_snapshot` in the `.ncode` to tell
+"fired" from "never ran". Fixture: `tests/rt-behavior/collections/bug496_operand_snapshot_rt`.
+
+The binding-first spelling still reads more clearly, and is what the canvas code does:
 
 ```
 LET entry AS Integer = __canvas_glyphEntry(...)
 __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
 ```
 
-The rule generalises to any `global = <op>(global, f(...))` where `f` can reach the same
-global — including indirectly, several frames down. Sequence the call, then the write.
+but it is no longer load-bearing. What remains open is bug-487's other half: the
+**in-place** `RES … STATE` arms (`try_inplace_state_*`) capture the STATE pointer before
+lowering the operand and never pass through a `Call` node's `lower_value`, so
+`f.state.xs = append(f.state.xs, sideEffect(f))` with a STATE-growing `sideEffect` is
+untouched by this seam.

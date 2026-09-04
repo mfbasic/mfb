@@ -1,0 +1,103 @@
+{
+  "project": "bug496_operand_snapshot_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "GS", "type": "String", "value": { "kind": "string", "value": "abcdefgh" }, "line": 11 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "G2", "type": "String", "value": { "kind": "string", "value": "12345678" }, "line": 12 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "G", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 13 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "other",
+      "line": 15,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 15 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "assignment", "name": "G2", "value": { "kind": "string", "value": "XY" }, "line": 16 },
+      { "kind": "return", "value": { "kind": "string", "value": "tail" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "same",
+      "line": 20,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 20 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "assignment", "name": "GS", "value": { "kind": "string", "value": "XY" }, "line": 21 },
+      { "kind": "return", "value": { "kind": "string", "value": "tail" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "evict",
+      "line": 25,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 25 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "assignment", "name": "G", "value": { "kind": "list", "values": [{ "kind": "number", "value": "99" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "v" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "GS" }, "right": { "kind": "call", "callee": "other", "arguments": [{ "kind": "number", "value": "1" }] } }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "other -> [" }, "right": { "kind": "identifier", "value": "a" } }, "right": { "kind": "string", "value": "] len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "a" }] }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "GS" }, "right": { "kind": "call", "callee": "same", "arguments": [{ "kind": "number", "value": "1" }] } }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "same  -> [" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "string", "value": "] len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "b" }] }] } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "GS=" }, "right": { "kind": "identifier", "value": "GS" } }] }, "line": 35 },
+      {
+        "kind": "for",
+        "name": "r",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "number", "value": "2" },
+        "step": null,
+        "line": 36,
+        "body": [
+        { "kind": "assignment", "name": "G", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "G" }, { "kind": "call", "callee": "evict", "arguments": [{ "kind": "identifier", "value": "r" }] }] }, "line": 37 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 39 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "G" },
+        "line": 40,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 41 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "G=" }, "right": { "kind": "identifier", "value": "s" } }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 44 }
+      ]
+    }
+    ]
+  }
+  ]
+}
