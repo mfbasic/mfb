@@ -35,8 +35,8 @@ Stated once in plan-122-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-122-E complete | `ls planning/completed/plan-122-E-*` → one match | NOT MET |
-| The Linux box 2223 and Windows box 2230 are reachable | per `.ai/remote_systems.md` | UNKNOWN — check before Phase 4 |
+| plan-122-E complete | `ls planning/completed/plan-122-E-*` → one match | **MET** (2026-09-04) — E landed across `cf2489188`..`4efd0f03a`, ledger closed at `414c6b92d`, with 0 unticked boxes and 0 unfilled `Commit:` lines. Measured on the ledger and E's gates rather than the archive path, which is only written at merge time. **This dependency is real, unlike E's on D**: the term↔astrings bridge reads the packed payload whose bit layout E widened. |
+| The Linux box 2223 and Windows box 2230 are reachable | per `.ai/remote_systems.md` | **MET** (2026-09-04) — both probed. 2223 answers `uname -m` → `aarch64`; 2230 answers. **2223 is aarch64 and has no qemu**, so it cannot run x86-64 or riscv64; Phase 4 used the boxes that run each arch natively instead — see its corrected routing table. |
 
 If plan-122-E is not complete, this sub-plan cannot start, full stop.
 
@@ -251,7 +251,7 @@ Corrections. The spike was kept rather than discarded: it *is* the Phase-2
 `getForeground` return type plus the Phase-3 `emit_get_color` change, both already
 proven to work together, so discarding and retyping them would have added risk
 rather than removed it. They land in their own phases' commits.
-Commit: —
+Commit: a56daca28 (spike kept; landed with Phase 2/3)
 
 ### Phase 2 — Descriptor and plumbing
 
@@ -295,7 +295,7 @@ unit tests pass (`read_only_records_are_refused_under_either_spelling`,
 `no_encoder_emits_the_retired_term_color_id`,
 `primitive_type_name_covers_handle_and_term_types`). Remaining failures are the
 term fixtures and `.mfb` call sites, which are Phase 5's task list.
-Commit: —
+Commit: a56daca28
 
 ### Phase 3 — The emitters
 
@@ -328,7 +328,7 @@ Commit: —
 Acceptance: **MET.** The round-trip prints `fg=1 2 3 255`, `bg=9 8 7 255`,
 `halfTransparentSet=4 5 6 255` and `restoredEqualsOriginal=TRUE` on macOS AArch64,
 and both codegen-inspection tests pass on `macos-aarch64` and `linux-x86_64`.
-Commit: —
+Commit: a56daca28 (emitters) + 741a0e94a (tests)
 
 ### Phase 4 — Cross-target proof (largest blast radius)
 
@@ -373,7 +373,7 @@ the emitter change true on the other four targets.
 Acceptance: **MET.** The round-trip prints `1 2 3 255` on all five targets across
 **seven** (arch, libc) combinations, and the six term fixtures render byte-identical
 cells on all five.
-Commit: —
+Commit: 741a0e94a (no code change; cross-target proof recorded above)
 
 ### Phase 5 — Fixtures, examples, docs, and the size gate
 
@@ -422,7 +422,7 @@ tests, 1531 builds, **1898 goldens, 0 diffs**.
 | `IMPORT io` + `IMPORT term` | **66,596** — identical, so `term` gained no companion |
 | `IMPORT io` + `IMPORT color` | 231,716 |
 | `IMPORT io` + `IMPORT term` + `IMPORT color` | 231,716 — the companion is paid once |
-Commit: —
+Commit: 741a0e94a + 1ef8a9ef1 (docs)
 
 ### Phase 6 — Close out plan-122
 
@@ -465,7 +465,7 @@ Acceptance: **MET as corrected.** The census returns no live `TermColor` or
 `__astrings_packColor` site; the `.ai` doc carries the measured numbers plus the
 quantisation and register caveats; five of the six plan files are archived, with D
 deliberately left active.
-Commit: —
+Commit: 1ef8a9ef1
 
 ## Validation Plan
 
@@ -617,6 +617,33 @@ The only consequence is Phase 6's census, whose `canvas::rgb`/`canvas::Color` ha
 cannot pass while D is outstanding — corrected in place above.
 
 _(filled in during execution — Phase 1's two recorded answers go here first)_
+
+## Final acceptance (2026-09-04)
+
+Every phase landed, every box resolved, every `Commit:` filled.
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | **114 test binaries, 0 failures** |
+| `./scripts/test-accept.sh` (full) | **1390 ran, passed** — 0 mismatches, **0** `behavioral test failed` |
+| `scripts/artifact-gate.sh <mfb> all` | 1368 tests, 1531 builds, **1898 goldens, 0 diffs** |
+| `cargo check --all-targets` | clean |
+| `scripts/man-run-examples.sh term --run` | 43/43 build; 10 pre-existing TTY run failures, a strict subset of the pre-change 11 |
+| **Size gate** | `IMPORT io` + `IMPORT term` = **66,596 bytes**, identical to `IMPORT io` alone |
+
+**Cross-target proof (Phase 4), the point of this letter:**
+
+| target | box | round trip | 6 term fixtures |
+|---|---|---|---|
+| macos-aarch64 | host | `1 2 3 255` | golden |
+| linux-x86_64 glibc | 2228 | `1 2 3 255` | 6/6 identical |
+| linux-x86_64 musl | 2227 | `1 2 3 255` | 6/6 identical |
+| linux-aarch64 glibc | 2223 | `1 2 3 255` | 6/6 identical |
+| linux-riscv64 musl | 2229 | `1 2 3 255` | 6/6 identical |
+| windows-x86_64 | 2230 | `1 2 3 255` | 6/6 identical |
+
+Five targets, seven (arch, libc) combinations, **byte-identical rendered cells
+everywhere**.
 
 ## Summary
 
