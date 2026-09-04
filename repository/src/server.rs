@@ -1681,6 +1681,46 @@ fn publish_token_scope(
     Ok(Some(scope))
 }
 
+/// Authorize a per-package operation on the package's **current** owner
+/// (bug-494 / audit-3 REPO-03).
+///
+/// `/release-state` and `/signing` used to compare the ident's `owner#` prefix
+/// to the session owner. That prefix never moves when ownership does —
+/// `accept_transfer` rewrites `packages.owner_id`, and already-published
+/// artifacts keep verifying against the ident string they were signed with —
+/// so the former owner kept yank and attestation rights over a package she
+/// handed over while the real owner was refused both. The `packages` row is
+/// authoritative whenever it exists; the prefix decides only for a package that
+/// has no row yet, which is the first-publish case `/signing` must keep
+/// serving (and which keeps the error shape for a foreign ident unchanged).
+fn require_package_owner(
+    store: &Store,
+    ident: &str,
+    ident_owner: &str,
+    session_owner: &str,
+    session_owner_id: i64,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    match store.package_owner(ident).map_err(internal)? {
+        Some(package_owner) => {
+            if package_owner.id != session_owner_id {
+                return Err(bad_request(
+                    "package is not owned by the session owner".to_string(),
+                ));
+            }
+        }
+        None => {
+            if crate::validation::fold_owner(ident_owner)
+                != crate::validation::fold_owner(session_owner)
+            {
+                return Err(bad_request(
+                    "ident owner does not match session owner".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Shared preamble for ident-authorized account mutations (plan-10-D1): verify
 /// the session names `owner` and matches a current auth key, and return the
 /// owner record plus their current ident public key (for ident-signature
@@ -2087,14 +2127,20 @@ async fn release_state(
     let Some((ident_owner, package_part)) = request.ident.split_once('#') else {
         return Err(bad_request("ident must use <owner>#<package>".to_string()));
     };
-    if package_part.is_empty()
-        || crate::validation::fold_owner(ident_owner)
-            != crate::validation::fold_owner(&request.owner)
-    {
+    if package_part.is_empty() {
         return Err(bad_request(
             "ident owner does not match session owner".to_string(),
         ));
     }
+    // bug-494: the package's current owner decides, not the ident's name
+    // prefix — a former owner must not keep yanking what she transferred.
+    require_package_owner(
+        &state.store,
+        &request.ident,
+        ident_owner,
+        &request.owner,
+        owner.id,
+    )?;
     // Authority is the ident key: verify its signature over the exact change.
     let Some((_owner, ident_key)) = state
         .store
@@ -2114,7 +2160,7 @@ async fn release_state(
 
     let log_entry = state
         .store
-        .set_release_state(&request.ident, &request.version, &request.state)
+        .set_release_state(owner.id, &request.ident, &request.version, &request.state)
         .map_err(bad_request)?;
     Ok(Json(ReleaseStateResponse {
         ident: request.ident,
@@ -2695,11 +2741,15 @@ async fn signing(
     let Some((ident_owner, package_part)) = request.ident.split_once('#') else {
         return Err(bad_request("ident must use <owner>#<package>".to_string()));
     };
-    if crate::validation::fold_owner(ident_owner) != crate::validation::fold_owner(&request.owner) {
-        return Err(bad_request(
-            "ident owner does not match session owner".to_string(),
-        ));
-    }
+    // bug-494: the package's current owner decides, not the ident's name
+    // prefix; the prefix is consulted only for a first publish (no row yet).
+    require_package_owner(
+        &state.store,
+        &request.ident,
+        ident_owner,
+        &request.owner,
+        owner.id,
+    )?;
     if package_part.is_empty() || request.ident.len() > 255 {
         return Err(bad_request("malformed ident".to_string()));
     }
@@ -5281,7 +5331,7 @@ mod tests {
                 .unwrap();
         }
         h.store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
 
         // `%23` is percent-decoded by axum before the handler sees it, so the
@@ -5409,7 +5459,7 @@ mod tests {
                 .unwrap();
         }
         h.store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
 
         let audit = package_audit(
@@ -6087,7 +6137,7 @@ mod tests {
                 .unwrap();
         }
         h.store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
 
         let (status, _headers, body) = get_page(&h.state, "/p/alice%23toolbox").await;
@@ -6137,7 +6187,7 @@ mod tests {
                 .unwrap();
         }
         h.store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
 
         let (status, _headers, body) = get_page(&h.state, "/p/alice%23toolbox/audit").await;
@@ -9120,6 +9170,17 @@ mod tests {
         let alice_token = open_session(&h.store, "alice", &alice.auth_private);
         let bob_token = open_session(&h.store, "bob", &bob.auth_private);
         publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        // Alice obtains a genuine attestation for 2.0.0 while she still owns
+        // the package. After the transfer `/signing` refuses her (bug-494), so
+        // this is the stale-attestation shape: attested before, published after.
+        let (_artifact, request) = signed_request(
+            &h.state,
+            &alice,
+            &alice_token,
+            "2.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
 
         // Hand the package to bob.
         let _ = transfer_offer(
@@ -9159,16 +9220,9 @@ mod tests {
         .expect("accept");
 
         // Alice's session still validates the package (she still holds the
-        // ident named in the header), but the store refuses the write — and the
-        // staged blob must be aborted, leaving no orphan in the datapath.
-        let (_artifact, request) = signed_request(
-            &h.state,
-            &alice,
-            &alice_token,
-            "2.0.0",
-            b"MFPCtestpayload".to_vec(),
-        )
-        .await;
+        // ident named in the header, and the attestation is genuine), but the
+        // store refuses the write — and the staged blob must be aborted, leaving
+        // no orphan in the datapath.
         let hash = request.content_hash.clone();
         let (status, message) =
             err_of(publish_package(State(h.state.clone()), Json(request)).await);
@@ -9188,6 +9242,179 @@ mod tests {
             .store
             .package_version_exists("alice#toolbox", "2.0.0")
             .unwrap());
+    }
+
+    /// bug-494 (audit-3 REPO-03): `/release-state` and `/signing` authorized
+    /// on the ident's `owner#` prefix, which never moves when ownership does.
+    /// After a correctly guarded transfer the former owner could still yank the
+    /// package (a permanent denial of something she handed over) and obtain a
+    /// registry attestation for it, while the real owner was locked out of
+    /// both. Authorization is on `packages.owner_id` now; the prefix check is
+    /// kept only for a package with no row yet — first publish, which
+    /// `/signing` must keep serving.
+    #[tokio::test]
+    async fn a_transferred_package_is_governed_by_its_current_owner() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+
+        // Hand the package to bob through the real two-sided handshake.
+        let _ = transfer_offer(
+            State(h.state.clone()),
+            Json(TransferOfferRequest {
+                ident: "alice#toolbox".to_string(),
+                from_owner: "alice".to_string(),
+                to_owner: "bob".to_string(),
+                session_token: alice_token.clone(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &alice.ident_private,
+                        &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("offer");
+        let _ = transfer_accept(
+            State(h.state.clone()),
+            Json(TransferAcceptRequest {
+                ident: "alice#toolbox".to_string(),
+                to_owner: "bob".to_string(),
+                session_token: bob_token.clone(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &bob.ident_private,
+                        &crypto::transfer_accept_message("alice#toolbox", "bob"),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("accept");
+        assert_eq!(
+            h.store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "bob"
+        );
+
+        let release = |owner: &str, keys: &TestOwnerKeys, session: &str, new_state: &str| {
+            ReleaseStateRequest {
+                owner: owner.to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                state: new_state.to_string(),
+                session_token: session.to_string(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &keys.ident_private,
+                        &crypto::release_state_message("alice#toolbox", "1.0.0", new_state),
+                    )
+                    .unwrap(),
+                ),
+            }
+        };
+        let attest = |owner: &str, session: &str, ident: &str, version: &str| SigningRequest {
+            owner: owner.to_string(),
+            ident: ident.to_string(),
+            version: version.to_string(),
+            signing_fingerprint: crypto::fingerprint(&crypto::generate_keypair().0),
+            session_token: session.to_string(),
+        };
+        let not_owner = (
+            StatusCode::BAD_REQUEST,
+            "package is not owned by the session owner".to_string(),
+        );
+
+        // The former owner, with a perfectly valid ident signature, can neither
+        // change the release state nor obtain an attestation.
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(release("alice", &alice, &alice_token, "yanked")),
+                )
+                .await
+            ),
+            not_owner,
+        );
+        assert_eq!(
+            h.store.list_package_versions("alice#toolbox").unwrap()[0].state,
+            "available",
+            "a refused yank must leave the version untouched",
+        );
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state.clone()),
+                    peer("127.0.0.1"),
+                    Json(attest("alice", &alice_token, "alice#toolbox", "2.0.0")),
+                )
+                .await
+            ),
+            not_owner,
+        );
+
+        // The current owner can do both, even though the ident still carries
+        // the former owner's name.
+        let yanked = release_state(
+            State(h.state.clone()),
+            Json(release("bob", &bob, &bob_token, "yanked")),
+        )
+        .await
+        .expect("the current owner yanks")
+        .0;
+        assert_eq!(yanked.state, "yanked");
+        assert_eq!(
+            h.store.list_package_versions("alice#toolbox").unwrap()[0].state,
+            "yanked"
+        );
+        let _ = release_state(
+            State(h.state.clone()),
+            Json(release("bob", &bob, &bob_token, "available")),
+        )
+        .await
+        .expect("the current owner un-yanks");
+        let attested = signing(
+            State(h.state.clone()),
+            peer("127.0.0.1"),
+            Json(attest("bob", &bob_token, "alice#toolbox", "2.0.0")),
+        )
+        .await
+        .expect("the current owner is attested")
+        .0;
+        assert_eq!(attested.owner, "bob");
+
+        // First publish is untouched: with no `packages` row yet, the ident's
+        // owner prefix still decides, so alice attests a brand-new package of
+        // hers and bob is refused for it exactly as before.
+        let _ = signing(
+            State(h.state.clone()),
+            peer("127.0.0.1"),
+            Json(attest("alice", &alice_token, "alice#brandnew", "1.0.0")),
+        )
+        .await
+        .expect("first-publish attestation for the prefix owner");
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state.clone()),
+                    peer("127.0.0.1"),
+                    Json(attest("bob", &bob_token, "alice#brandnew", "1.0.0")),
+                )
+                .await
+            )
+            .1,
+            "ident owner does not match session owner",
+        );
     }
 
     #[tokio::test]

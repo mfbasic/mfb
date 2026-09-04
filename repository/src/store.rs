@@ -2627,8 +2627,14 @@ impl Store {
     /// transparency-log entry — all in a single transaction. Ident-signature
     /// authorization is checked by the caller before this runs. Returns the
     /// publish/transition log entry reference.
+    ///
+    /// `owner_id` must be the package's **current** owner (`packages.owner_id`,
+    /// which a transfer rewrites): the row is resolved under that predicate, so
+    /// the store refuses a former owner even if a handler forgot to (bug-494),
+    /// exactly as `publish_package_version` does.
     pub fn set_release_state(
         &self,
+        owner_id: i64,
         ident: &str,
         version: &str,
         state: &str,
@@ -2643,15 +2649,15 @@ impl Store {
                 "SELECT pv.id
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
-                 WHERE p.ident = ?1 AND pv.version = ?2",
-                params![ident, version],
+                 WHERE p.ident = ?1 AND pv.version = ?2 AND p.owner_id = ?3",
+                params![ident, version, owner_id],
                 |row| row.get(0),
             )
             .optional()
             .map_err(|err| format!("failed to load package version: {err}"))?;
         let Some(package_version_id) = package_version_id else {
             return Err(format!(
-                "package version {ident}@{version} is not published"
+                "package version {ident}@{version} is not published by this account"
             ));
         };
         tx.execute(
@@ -4451,7 +4457,7 @@ pub(crate) mod tests {
             )
             .unwrap();
         store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
 
         let ancient = now_unix() + 3650 * 86_400;
@@ -4605,7 +4611,7 @@ pub(crate) mod tests {
 
         // Yanking does not release them (§3.2).
         store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap();
         assert!(store.blob_is_reachable("mfphash").unwrap());
         assert!(store.blob_is_reachable("vendorhash").unwrap());
@@ -4790,9 +4796,11 @@ pub(crate) mod tests {
     fn set_release_state_rejects_unpublished_and_updates_published() {
         let (_temp, store) = test_store();
         let keys = register_keys(&store, "alice");
+        register_keys(&store, "bob");
         let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let bob_id = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
         assert!(store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(owner_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap_err()
             .contains("is not published"));
         store
@@ -4808,10 +4816,23 @@ pub(crate) mod tests {
             )
             .unwrap();
         store
-            .set_release_state("alice#toolbox", "1.0.0", "deprecated")
+            .set_release_state(owner_id, "alice#toolbox", "1.0.0", "deprecated")
             .unwrap();
         let versions = store.list_package_versions("alice#toolbox").unwrap();
         assert_eq!(versions[0].state, "deprecated");
+        // bug-494: the row is resolved under the caller's owner id, so an
+        // account that does not own the package cannot move its state — the
+        // store is safe on its own, independent of the handler's check.
+        let log_before = store.log_size().unwrap();
+        assert!(store
+            .set_release_state(bob_id, "alice#toolbox", "1.0.0", "yanked")
+            .unwrap_err()
+            .contains("is not published by this account"));
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap()[0].state,
+            "deprecated"
+        );
+        assert_eq!(store.log_size().unwrap(), log_before);
         let _ = keys;
     }
 
@@ -5597,7 +5618,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to prepare index query"));
         assert!(store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(owner, "alice#toolbox", "1.0.0", "yanked")
             .unwrap_err()
             .contains("failed to load package version"));
         // The GC's reachability queries read both halves of the union, so both
@@ -5853,8 +5874,9 @@ pub(crate) mod tests {
         );
 
         drop_tables(&store, &["release_state_changes"]);
+        let alice_id = store.package_owner("alice#toolbox").unwrap().unwrap().id;
         assert!(store
-            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .set_release_state(alice_id, "alice#toolbox", "1.0.0", "yanked")
             .unwrap_err()
             .contains("failed to record release-state change"));
         // The aborted transition left the version available.
