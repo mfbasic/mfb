@@ -929,7 +929,7 @@ clean):
 |---|---|
 | mac RELEASE `--bin mfb` | **3780 passed, 0 failed** |
 | mac DEBUG `--bin mfb` | **3781 passed, 0 failed** — the only run anywhere that executes the `debug_assert!`s (**E6**) |
-| box 2228 RELEASE `--bin mfb` | see **G30** (needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'`) and **G36** for exactly which source it ran |
+| box 2228 RELEASE `--bin mfb` | **3773 passed, 0 failed, 1 ignored** (679.90s). Needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` (**G30**); ran uncontended after **G38**'s orphaned `rustc` was cleared; source verified by hash (**G36**) |
 | canvas suites (8) | rasteriser 57, font 17, golden 13, graphics-thread 8, deep-copy 8, damage 6, metal 4, cli_canvas_package 7 — all 0 failed |
 | `scripts/test-accept.sh` | **1376 ran**, 0 failed (up from 1359: the merge brought plan-121's and bug-503's fixtures) |
 | `scripts/artifact-gate.sh all` | **1874 goldens, 0 diffs** |
