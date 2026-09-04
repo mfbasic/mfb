@@ -1013,6 +1013,29 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G33 (Phase 6) — the determinism harness does not cover this letter's codegen, so it
+was checked directly.** `scripts/ncode-determinism.sh` compiles the byte-identity and
+rt-behavior fixtures N times in fresh processes and counts distinct `.ncode` hashes —
+and **no fixture in either corpus imports `canvas`** (plan-116-F **F11**), so a green
+run of it says nothing about the six new `abi_function` lowerings this letter added.
+
+Project memory records the hazard as real and expensive: a `HashMap` deciding emission
+order presents as a flaky golden rather than as anything that names itself. So the same
+measurement was made by hand on the population that matters — a program installing a
+group, referencing it twice and nesting it once, compiled **five times in five fresh
+`mfb` processes** (std `HashMap` seeds per process, so a stable order has to survive
+independent seeds):
+
+```
+for i in 1 2 3 4 5; do mfb build -app -ncode /tmp/gtest; shasum -a 256 …; done | sort -u
+→ one hash: f26216a6a14884d58763f4b8…
+```
+
+Clean. Which is expected rather than lucky — every label in `gen_group.rs` comes from
+`builder.label()`, whose suffix is a counter, and the table walks are index loops with no
+map iteration anywhere. Recorded because "expected" is what the F11 class of gap always
+looks like from the inside, and one hash is cheap to obtain and hard to argue with.
+
 **G32 (Phase 5, found after the phase was ticked) — the interned NAME leaked, and the
 instrument that should have caught it was too narrow to.** `setGroup` copies the
 caller's name into the arena, because the table outlives the caller's binding. Nothing
