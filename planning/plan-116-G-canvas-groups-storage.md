@@ -701,7 +701,7 @@ the assertion carries a note naming the phase that must change it.
 Tests: `set_group_deep_copies_and_remove_group_frees_nothing_yet`
 (`rt_canvas_rasteriser`, the table above);
 `set_group_copies_both_the_items_and_the_name`, `a_group_slot_is_published_name_last`
-and `remove_group_clears_the_name_and_frees_nothing` (`rt_canvas_present_deep_copy`,
+and `remove_group_clears_the_name_first_and_retires_the_buffer` (`rt_canvas_present_deep_copy`,
 codegen-inspection — **G17**);
 `macos_group_members_trap_wrong_mode_outside_canvas` and
 `macos_set_group_past_the_table_limit_raises` (`cli_app_canvas_mode`).
@@ -1012,6 +1012,25 @@ recorded here so the section is not read as still open.
   the two answers.
 
 ## Corrections
+
+**G39 (Phase 6) — this ledger carried a stale test citation, found by auditing its own
+citations.** Phase 3's acceptance named `remove_group_clears_the_name_and_frees_nothing`.
+Phase 5 renamed that test to `remove_group_clears_the_name_first_and_retires_the_buffer`
+— because its "frees nothing" half stopped being true in the useful sense once
+`emit_retire_current_items` began legitimately freeing a *prior* retired block — and the
+earlier phase's line was not updated.
+
+Found by extracting every backticked identifier of 15+ characters from this document and
+checking each against `fn <name>` in `src/` and `tests/`: 50 candidates, 13 non-matches,
+12 of which are file or symbol names and one of which was this. Nobody would have noticed
+by reading, because the old name is perfectly plausible and describes what the test did
+for two phases.
+
+Cheap enough to be worth doing at the end of any letter that renames a test. Project
+memory's rule is that a `file.rs:NNN` citation decays silently; a **test name** decays
+the same way and is worse, because a name looks like something a reader could grep — and
+they can, and they get nothing, and the ledger looks wrong about the work rather than
+about the name.
 
 **G38 (Phase 6) — `pkill -f 'cargo test'` orphaned a `rustc` that then raced the
 replacement build for the same artifact.** The box 2228 row was restarted twice (once for
