@@ -239,6 +239,21 @@ A set of record constants covers the basic colours — `black`, `white`, `red`,
 its four field literals at the call site rather than being rendered into the
 package's injected source, so an unused one costs a program nothing.
 
+## Terminals ignore alpha
+
+`term::setForeground`/`setBackground` take a `color::Color` and
+`term::getForeground`/`getBackground` return one, but a terminal cell has no alpha
+channel. The setters read only red, green and blue — a half-transparent colour
+draws exactly the cells an opaque one draws — and the getters always report `alpha`
+`255`.
+
+This is a rendering limitation, not a conversion: the alpha is not clamped away or
+rejected, it simply has nowhere to go. Synthesizing a blend against whatever is
+already in the cell would disagree with what a canvas surface draws for the same
+colour, so the terminal does not attempt one. An `astrings` attribute, by contrast,
+*keeps* the alpha (`./mfb spec stdlib astrings`) — it is only the terminal renderer
+that drops it.
+
 ## Determinism
 
 Nothing in `color` uses a transcendental — no `pow`, no `exp`, no trig — and this

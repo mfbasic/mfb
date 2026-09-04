@@ -25,12 +25,18 @@
 //! Byte"`, …) is kept hand-authored on the descriptor (the registry's per-position
 //! render would say `"()"`), decoupled from the machine coercion table (bug-443).
 //!
-//! `term` owns four value types. The two records `TermColor` (`r`/`g`/`b` `Byte`) and
-//! `TermSize` (`columns`/`rows` `Integer`) are registered via [`add_record`] — they are
-//! **read-only** (the runtime allocates them; a program may neither construct nor
-//! WITH-update one — see [`is_read_only_record`], consulted by
-//! `ir::verify`/the former source checker). Their binary-repr wire ids stay the reserved high-band
-//! `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`). The two
+//! `term` owns three value types. The record `TermSize` (`columns`/`rows` `Integer`)
+//! is registered via [`add_record`] — it is **read-only** (the runtime allocates it;
+//! a program may neither construct nor WITH-update one — see [`is_read_only_record`],
+//! consulted by `ir::verify`/the former source checker). Its binary-repr wire id stays
+//! the reserved high-band `TYPE_TERM_SIZE` (name-keyed in `binary_repr::sections`).
+//!
+//! plan-122-F retired the sibling `TermColor`. The colour members take and return a
+//! `color::Color`, which is an ordinary value record owned by `color` — so it needs
+//! no read-only rule, no reserved wire id and no resolver seed here. `term` still
+//! declares **no** `add_imports`: a native member can name a foreign record through a
+//! qualified type-id constant, exactly as `tcp::localAddress` returns `net.Address`,
+//! and that is what keeps `IMPORT term` costing a program zero bytes. The two
 //! enums `LineStyle` (the box-drawing weight) and `FillStyle` (the block/shade glyph)
 //! are registry-modeled via [`RegistryPackage::add_enum`] and rendered into the
 //! injected `<builtin-term>` source by `get_mfb` (their variant docs surface on the
@@ -168,9 +174,14 @@ chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Chec
 a string at an absolute position (without moving the cursor), and
 `term::drawGlyph` stamps a single scalar by code point.
 
-The package defines two built-in record types and two enums. `term::TermColor` has three
-`Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
-color, and is returned by `term::getForeground` and `term::getBackground`.
+The package defines one built-in record type and two enums; its colour surface uses
+`color::Color`. `term::getForeground` and `term::getBackground` return a
+`color::Color`, and `term::setForeground`/`term::setBackground` take one — so a
+colour read from the surface can be handed straight back to it, and the same value
+works anywhere else in the language. A program that names the type must
+`IMPORT color` as well as `term`. **A terminal cell has no alpha channel**: the
+setters ignore `alpha` and the getters always report `255`.
+
 `term::TermSize` has two `Integer` fields `columns` (the width of the surface in
 character cells) and `rows` (its height), and is returned by `term::terminalSize`;
 the surface size can change between calls (for example when the terminal window is

@@ -51,13 +51,14 @@ const EX: &str = r#"Enter TUI mode, draw one frame, present it, and restore the 
 
 ```
 IMPORT term
+IMPORT color
 IMPORT io
 
 SUB main()
   term::on()
   term::clear()
   term::moveTo(0, 0)
-  term::setForeground(255, 0, 0)
+  term::setForeground(color::rgb(255, 0, 0))
   io::print("hello in red")
   term::sync()
   term::off()
@@ -68,6 +69,7 @@ Enter TUI mode only once:
 
 ```
 IMPORT term
+IMPORT color
 
 SUB main()
   IF NOT term::isOn() THEN

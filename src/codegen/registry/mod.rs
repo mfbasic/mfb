@@ -306,7 +306,7 @@ pub(crate) enum HelperGate {
     /// Inject only when **both** named packages are imported by the program — a
     /// cross-package bridge whose body references the surface of both. The
     /// `term`↔`astrings` `drawText(AttributedString)` bridge needs it: its body
-    /// references `term::`/`TermColor` (so `term` must be imported) AND
+    /// references `term::` (so `term` must be imported) AND
     /// `AttributedString`/`astrings::` (so `astrings` must be imported). A plain
     /// [`WhenImported`](HelperGate::WhenImported) on either alone would over-inject the
     /// bridge into a program importing only one of the two, dragging in the other

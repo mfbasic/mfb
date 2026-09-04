@@ -87,11 +87,12 @@ fn native_term_console_emits_expected_escape_sequences() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 255, 0)
-  term::setBackground(0, 0, 0)
+  term::setForeground(color::rgb(0, 255, 0))
+  term::setBackground(color::rgb(0, 0, 0))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::moveTo(2, 4)
@@ -135,10 +136,11 @@ fn native_term_gate_no_ops_while_inactive() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
-  term::setForeground(1, 2, 3)
-  term::setBackground(4, 5, 6)
+  term::setForeground(color::rgb(1, 2, 3))
+  term::setBackground(color::rgb(4, 5, 6))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::moveTo(5, 5)
@@ -146,13 +148,13 @@ FUNC main AS Integer
   term::showCursor()
   term::hideCursor()
   LET on AS Boolean = term::isOn()
-  LET fg AS term::TermColor = term::getForeground()
-  LET bg AS term::TermColor = term::getBackground()
+  LET fg AS color::Color = term::getForeground()
+  LET bg AS color::Color = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   io::print("ON:" & toString(on))
-  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
-  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("FG:" & toString(fg.red) & "," & toString(fg.green) & "," & toString(fg.blue))
+  io::print("BG:" & toString(bg.red) & "," & toString(bg.green) & "," & toString(bg.blue))
   io::print("BOLD:" & toString(bold))
   io::print("UL:" & toString(ul))
   RETURN 0
@@ -252,23 +254,24 @@ fn native_term_on_resets_state_to_defaults() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(10, 20, 30)
-  term::setBackground(40, 50, 60)
+  term::setForeground(color::rgb(10, 20, 30))
+  term::setBackground(color::rgb(40, 50, 60))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::off()
   term::on()
-  LET fg AS term::TermColor = term::getForeground()
-  LET bg AS term::TermColor = term::getBackground()
+  LET fg AS color::Color = term::getForeground()
+  LET bg AS color::Color = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   LET on AS Boolean = term::isOn()
   term::off()
-  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
-  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("FG:" & toString(fg.red) & "," & toString(fg.green) & "," & toString(fg.blue))
+  io::print("BG:" & toString(bg.red) & "," & toString(bg.green) & "," & toString(bg.blue))
   io::print("BOLD:" & toString(bold))
   io::print("UL:" & toString(ul))
   io::print("ON:" & toString(on))

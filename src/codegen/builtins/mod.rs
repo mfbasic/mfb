@@ -127,7 +127,7 @@ pub(crate) fn is_qualified_builtin_resource(qualified: &str) -> bool {
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // Every builtin value type now resolves through the clean-room registry
-    // (`csv.CsvReader`, `net.Url`, `term.TermColor`/`term.LineStyle`, …) — package-scoped
+    // (`csv.CsvReader`, `net.Url`, `term.TermSize`/`term.LineStyle`, …) — package-scoped
     // there, so a cross pairing (`io.Url`, `csv.Thread`) is correctly rejected (bug-98).
     // `term` was the last package to retain a hand-written fallback arm; with it
     // migrated, no per-package fallback remains.

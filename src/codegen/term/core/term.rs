@@ -2109,7 +2109,8 @@ fn emit_get_color(
     instructions.push(abi::move_immediate("%v10", "Integer", inert_packed));
     instructions.push(abi::label(&have_src));
     instructions.push(abi::store_u64("%v10", abi::stack_pointer(), ARG0_OFFSET));
-    // Allocate the 3-field TermColor record.
+    // Allocate the 4-field `color::Color` record (plan-122-F widened it from the
+    // retired 3-field `TermColor`).
     instructions.extend([
         abi::move_immediate(
             abi::return_register(),

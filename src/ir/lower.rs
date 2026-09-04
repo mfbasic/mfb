@@ -3515,10 +3515,19 @@ pub(super) fn expression_type(
             // `term` migrated to the clean-room registry too, but its return type is a
             // function of the NAME alone (the legacy `TermResolver` ignored argument
             // types), so it is likewise excluded and keeps resolving via the name-based
-            // `call_return_type_name` fallthrough. Routing it through the arg-typed path
-            // would mis-resolve a Byte-parameter setter called with Integer literals
-            // (`term::setForeground(255, 128, 0)` — the un-coerced `Integer` argument
-            // fails to match the `Byte` parameter), regressing `Nothing` to `Unknown`.
+            // `call_return_type_name` fallthrough. That remains correct: every term
+            // member is a single overload with one fixed return, so the name decides it.
+            //
+            // The exclusion's ORIGINAL motivation is gone, and saying so matters because
+            // it read as the reason. It was that routing term through the arg-typed path
+            // would mis-resolve a `Byte`-parameter setter called with `Integer` literals
+            // — `term::setForeground(255, 128, 0)`, whose un-coerced `Integer` arguments
+            // fail to match `Byte` parameters, regressing `Nothing` to `Unknown`.
+            // plan-122-F gave those setters a single `color::Color` parameter, and
+            // `grep -rn "ParameterType::Byte" src/codegen/builtins/term/*.rs` now returns
+            // nothing, so no term member has a `Byte` parameter left to mis-resolve. The
+            // exclusion is kept because it is harmless and name-resolution is right for
+            // this package, not because that hazard still exists.
             let owner = crate::codegen::registry::registry().owning_package(&canonical_callee);
             let migrated_arg_typed = crate::codegen::registry::registry()
                 .is_member(&canonical_callee)
