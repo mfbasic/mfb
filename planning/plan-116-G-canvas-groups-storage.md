@@ -1013,6 +1013,37 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G38 (Phase 6) — `pkill -f 'cargo test'` orphaned a `rustc` that then raced the
+replacement build for the same artifact.** The box 2228 row was restarted twice (once for
+stale source, once for **G36**'s comment), each time by killing the previous run with
+`pkill -f 'cargo test'`. That kills **cargo** and leaves its `rustc` children alive,
+reparented to PID 1.
+
+Caught by looking rather than by a failure, which is the point worth recording — the
+symptom is only slowness:
+
+```
+PID 201074  PPID 1       01:20:39  55.6%  rustc --crate-name mfb … -C extra-filename=-ef731167d57edc05
+PID 201608  PPID 201597  01:00:27  44.2%  rustc --crate-name mfb … -C extra-filename=-ef731167d57edc05
+```
+
+An orphan at 1h20m against a build known to take ~40m, two compilers at half a core each
+on a one-core box, and **the same `-C metadata` / `-C extra-filename`** — so both were
+writing the same files in `target/release/deps/`. `tail` of the log sat on the same
+`Compiling mfb` line throughout, which reads exactly like a slow build.
+
+Both were killed, the shared artifacts deleted (`rm target/release/deps/*ef731167*`), and
+the row restarted under `setsid` — now one `rustc` at **85%** rather than two at 50%.
+
+The artifacts were deleted rather than reasoned about. Two compilers writing one output
+path *may* not have clobbered anything, but the product would have been a binary the
+whole row's credibility rests on, and project memory already records this family: an
+in-flight run poisoned by a concurrent write produces a phantom failure with no honest
+cause, which costs far more than the rebuild. The rule is now in memory as
+`pkill-cargo-test-orphans-its-rustc`: kill the tree, start remote builds under `setsid`,
+and before trusting a restart confirm exactly one `rustc` whose **PPID is the cargo you
+just started** — a PPID of 1 is an orphan.
+
 **G37 (Phase 6) — `eb36acf1a`'s doc comment will conflict with plan-122, and the
 resolution is to DROP it, not to resurrect its anchor.** That commit records, above
 `SRGB_TABLE` in `helper_color.rs`, that two shaders reproduce the table's *rounding* by
