@@ -142,7 +142,10 @@ Deviation from the Best fix: DEC-56 (honour every font table's `length`) is left
 as filed — a LOW enabler; the cmap12 bound uses its own subtable's `length` and
 the end of the file, which is the one place the length drove a scan.
 
-Gates, this session, after merging main `90f6c1357` and a release rebuild:
+Gates, this session. Main was merged into the branch three times as peers landed
+(`90f6c1357`, then `b1b6db6e8` bug-501, then `8ca75449e` bug-502 — all disjoint from
+these files) and every merge was followed by a release rebuild, the full artifact
+gate and the full suite; the numbers below are the final run at `98fe2ac3b`:
 
 - RED re-verified against the unfixed main-tip compiler
   (`MFB_TEST_EXE=/private/tmp/term-base/target/release/mfb`): the DEC-51 bomb
@@ -156,8 +159,11 @@ Gates, this session, after merging main `90f6c1357` and a release rebuild:
   success); DEC-55 `{ C }200000` → `ErrInvalidArgument` in 0.27 s / 13 MB (was
   killed at 229 s / 38 GB), `{ { { { C }64 }64 }64 }64` refused in 0.08 s, and
   `T255 L64 { { C }8 }8` still plays for its full length (1.03 s wall).
-- `cargo test --no-fail-fast -- --skip artifact_gate_all`: 4636 passed, 0 failed,
-  4 ignored across 115 targets, cargo exit 0 (`/tmp/b509-full.log`).
+- `cargo test --no-fail-fast -- --skip artifact_gate_all`: 4658 passed, 0 failed,
+  4 ignored across 117 targets, cargo exit 0 (`/tmp/b509-full2.log`; the run
+  before it, at `fec4ceddc`, had one red — `rt_macos_d4_union_state_tls`, a fixed
+  port + fixed sleep readiness flake unrelated to these files, green in isolation
+  and filed as bug-537).
 - `scripts/artifact-gate.sh target/release/mfb all`: 1368 tests, 1531 builds,
   1898 goldens checked, 0 diffs. The five `byte-identity/audio` `.ncodesum`
   goldens moved (regenerated under bash; all five distinct per target).
