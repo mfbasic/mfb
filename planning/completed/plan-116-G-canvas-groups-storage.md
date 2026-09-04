@@ -1013,6 +1013,40 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G43 (landing) — the land is blocked by uncommitted work in the shared `main` checkout
+that belongs to another session, and this letter must not touch it.**
+
+```
+$ git push . HEAD:main
+ ! [remote rejected]  HEAD -> main (Working directory has unstaged changes)
+```
+
+That is the `receive.denyCurrentBranch=updateInstead` guard doing its job — and note it
+supersedes **G42**: a peer set `updateInstead` repo-wide while this letter ran, so the
+`refuse` reading recorded there is no longer what applies. The diagnostic proves it:
+`refuse` declines on the branch being checked out and never inspects the working tree at
+all, so "Working directory has unstaged changes" can only come from `updateInstead`.
+
+**The changes are not this session's.** This session is worktree-isolated to
+`.claude/worktrees/P-116`, and the harness has refused every command that would have
+reached the shared checkout — including a deliberate `cd /Users/justinzaun/Development/mfb
+&& git status` run precisely to answer this question. `git status --short` in this
+worktree is clean; everything plan-116 has produced is committed.
+
+A second session (plan-122) is blocked identically and has handed it to the user; the
+reflog's `main@{0}` is a direct `commit:` made *inside* the shared checkout, which points
+at whichever session is working there.
+
+**Not a stop, and not a reason to stall the plan.** plan-116-H's Prerequisites row is
+`ls planning/completed/plan-116-G-*` → one match, and that is satisfied by the archive
+above — the row asks for *complete and archived*, not *landed*. G's work is committed on
+`worktree-P-116` and every gate is recorded, so nothing is at risk; the branch simply
+waits for the shared tree to clear. Execution continues with H.
+
+**The last gate re-run before the attempt** (`main` advanced 6 more commits during the
+gates, merged clean, no canvas file touched): build 0 warnings, `cargo test --release
+--bin mfb` **3782 passed, 0 failed**.
+
 **G42 (Phase 6) — the land mechanism works; a config read said otherwise and the history
 said it did not.** `git config --show-origin receive.denyCurrentBranch` reports **refuse**
 (from `.git/config`), not the `updateInstead` the land instruction assumes, and `main` is
