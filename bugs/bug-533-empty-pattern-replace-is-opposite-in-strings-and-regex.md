@@ -1,9 +1,9 @@
 # bug-533: `strings::replace` and `regex::replace` do exactly opposite things with an empty needle
 
 Last updated: 2026-09-04
-Effort: small (<1h)
+Effort: medium (1h–2h)
 Severity: MEDIUM
-Class: Footgun
+Class: Correctness
 
 Status: Open
 Regression Test: `tests/` — new `rt_replace_empty_needle_parity` fixture (Phase 1)
@@ -96,76 +96,125 @@ exactly what makes the substitution look free.
 
 ## Goal
 
-- Both `replace` pages state the other's empty-needle behavior, at the point a
-  reader is choosing.
-- A caller passing a runtime-supplied pattern to `regex::replace` has a
-  documented, one-line way to be safe.
-- A test pins both behaviors, so neither drifts into the other silently.
+**Decided (2026-09-04): converge — both members REJECT an empty needle/pattern.**
+
+The instruction was to make the two the same and pick whatever works best.
+"The same" turns out to point at a third answer rather than either current one,
+because both existing behaviors fail as a convergence target:
+
+- *Both no-op* (adopt `strings`' answer) requires `regex::replace` to
+  special-case the empty pattern — which is the trap named in the original
+  Non-goals below. It fires only for the empty *spelling*, while `"a*"` and
+  `"(?:)"` still match at every position. It looks fixed and is not.
+- *Both interleave* (adopt `regex`'s answer) converges on the destructive
+  behavior: `strings::replace(text, needle, "-")` with an accidentally-empty
+  `needle` would rewrite the whole string instead of doing nothing.
+
+Rejecting is the third option, and it is already the package's own precedent:
+`strings::count` raises `ErrInvalidArgument` on an empty needle today
+(bug-529). That yields one rule with a reason behind it — **a query member
+answers for an empty needle; a member that counts or rewrites refuses it.**
+
+- `strings::replace(v, "", r)` raises `ErrInvalidArgument` (77050002),
+  matching `strings::count`.
+- `regex::replace(v, "", r)` raises the same code.
+- Both pages state, explicitly, that this rejects the empty *spelling* only —
+  it does not change what `"a*"` or `"(?:)"` do.
+- A test pins both, plus `"a*"` and `"(?:)"`, so the narrow rule cannot widen
+  into the zero-width rule by accident.
 
 ### Non-goals (must NOT change)
 
-- `regex::replace`'s zero-width semantics for an explicitly empty pattern, or
-  for any pattern that *can* match empty (`"a*"`, `"(?:)"`). Changing the
-  general zero-width rule would break the documented termination guarantee and
-  every pattern with an optional element.
-- `strings::replace`'s no-op, which is correct for a literal.
+- `regex::replace`'s zero-width semantics for any pattern that *can* match
+  empty (`"a*"`, `"(?:)"`, `"x?"`). Changing the general zero-width rule would
+  break the documented termination guarantee and every pattern with an optional
+  element. **The rejection is a guard on one input spelling, not a change to
+  the matching rule**, and the page must say so or it recreates the trap.
 - The parallel naming, which is a feature.
+- `regex::find`/`findAll`/`match` with an empty pattern — unless Phase 1's
+  measurement says otherwise, they keep their zero-width answers. They are
+  query members, and the rule above only refuses on the rewrite side.
 - **Tempting wrong fix, forbidden:** making `regex::replace` treat an empty
-  pattern as a no-op "to match `strings`". An empty pattern is a legitimate
-  regex with a defined meaning; special-casing it makes the package's own
-  zero-width rule have an exception that fires only for one spelling — while
-  `"(?:)"` and `"a*"` on an empty string still match. That is a worse trap than
-  the current one, because it *looks* fixed.
+  pattern as a silent no-op "to match `strings`". An empty pattern is a
+  legitimate regex with a defined meaning; a silent special case makes the
+  package's own zero-width rule have an invisible exception. Refusing is
+  honest; pretending it matched nothing is not.
+- **Also forbidden:** making `strings::replace` interleave. That converges on
+  the destructive reading of an input the caller did not mean to supply.
 
 ## Blast Radius
 
-- `src/codegen/builtins/strings/func_replace.rs` — page cross-linked.
-- `src/codegen/builtins/regex/func_replace.rs` — page cross-linked; possibly
-  gains a rejection (see Fix Design).
+- `src/codegen/builtins/strings/func_replace.rs` — **behavior change**: the
+  documented empty-needle no-op becomes `ErrInvalidArgument`. This is the
+  larger half of the fix, because a no-op-to-raise change is silent success
+  turning into a TRAP with no compile error in between.
+- `src/codegen/builtins/regex/func_replace.rs` — **behavior change**: the
+  empty-pattern interleave becomes `ErrInvalidArgument`, guarded to the empty
+  spelling only.
+- `astrings::replace` — must agree with `strings::replace`; changed here.
 - `strings::count`, `strings::contains`, `strings::find` — the same empty-needle
   question one member over; **bug-529 owns them**, and the two bugs must land a
-  consistent story. Note the dependency.
+  consistent story. `strings::count` already rejects, which is the precedent
+  this decision follows. **Hard dependency: land bug-529 first.**
 - `regex::find`, `regex::findAll`, `regex::match` with an empty pattern —
-  Phase 1 must measure each. If `findAll("abc", "")` returns four starts, the
-  same surprise exists in a member this bug does not currently name.
-- `astrings::replace` — must agree with `strings::replace`.
-- In-tree callers passing a *runtime* pattern to `regex::replace` —
-  `grep -rn "regex::replace" src/ examples/ benchmark/ repository/`. Any call
-  whose pattern is not a literal is a live instance of this hazard and must be
-  checked, not just counted.
+  Phase 1 must measure each. Under the query-answers/rewriter-refuses rule they
+  keep their zero-width answers, but that is a prediction and not yet a result.
+- In-tree callers of **both** members —
+  `grep -rn "regex::replace\|strings::replace" src/ examples/ benchmark/ repository/`.
+  Classify each by whether its needle/pattern can be empty at run time; every
+  one that can is migrated in the same change. A literal non-empty needle is
+  unaffected.
+- Acceptance goldens containing an empty-needle `replace` result — enumerated
+  in Phase 3.
 
 ## Fix Design
 
-Two parts; the first is uncontroversial.
+Both members reject an empty needle/pattern with `ErrInvalidArgument`
+(77050002), the code `strings::count` already uses for the same input.
 
-**1. Cross-link, with the values.** Each `replace` page gains a short paragraph
-naming the other member and showing both results on the same input. The spike's
-two lines are the content. Cheap, and it is the honest minimum — the current
-pages each document their own behavior correctly and neither mentions that the
-sibling does the opposite.
+**Why rejecting rather than agreeing on a value.** The population at risk is a
+needle that is empty *unintentionally* — from a config file, a form field, a
+`--replace` flag. For that caller, every valued answer is wrong in a different
+way: a no-op hides a misconfiguration, and interleaving destroys the text. An
+error is the only outcome that reports the thing that actually went wrong,
+which is that no needle was supplied.
 
-**2. The runtime-pattern guard.** The realistic failure is a pattern that is
-empty *by accident*. Options:
+**The wart, stated plainly.** An empty pattern is a legitimate regex with
+well-defined behavior, and `regex::replace` will now refuse it. That is a real
+cost and the page must own it rather than imply the zero-width rule changed:
 
-- **Document the guard.** `IF pattern <> "" THEN …`. Zero cost, protects only
-  readers.
-- **Reject an empty pattern in `regex::replace`** with `ErrInvalidFormat`.
-  Narrow: it targets the literal empty string only, not "patterns that can match
-  empty", so it does not create the false-safety trap named in Non-goals —
-  provided the page says exactly that. It also matches `strings::count`'s
-  existing precedent of rejecting an empty needle. Cost: it makes a valid regex
-  illegal in one member, which is a real wart.
+> `regex::replace` refuses an empty `pattern`. This is a guard on the empty
+> pattern *string*, not a change to zero-width matching — `"a*"`, `"x?"` and
+> `"(?:)"` still match at every position, and `regex::replace(v, "a*", "-")`
+> still interleaves.
 
-**Recommend part 1 now, and decide part 2 from the Phase 1 caller sweep.** If
-in-tree code passes runtime patterns to `regex::replace`, the rejection earns
-its wart; if every in-tree pattern is a literal, the cross-link is enough and
-the wart is not worth it.
+Without that sentence the fix recreates the trap it was meant to avoid: a
+reader concludes zero-width matching was tamed, and is then surprised by the
+first optional quantifier they write.
+
+**Ordering against bug-529.** That bug settles the empty-needle rule for the
+whole `strings` family and recommended *never matches* for the query members
+(`contains` FALSE, `find` raises `ErrNotFound`). This decision is compatible
+with it and sharpens it into one rule: **query members answer, counting and
+rewriting members refuse.** bug-529 should adopt that framing, and
+`strings::count`'s existing rejection stops being an exception and becomes the
+precedent.
 
 Rejected: a `regex::replaceLiteral`. That is `strings::replace`.
 
 Rejected: aligning by making `strings::replace` interleave. It would change a
 correct, documented no-op into a whole-string rewrite — converging on the
 dangerous behavior rather than away from it.
+
+Rejected: making `regex::replace` a silent no-op on the empty pattern. Narrower
+than it looks and dishonest: it reports success for a call that matched
+nothing, while every other zero-width pattern still matches everywhere.
+
+Rejected: `ErrInvalidFormat` for the `regex` side. It is what `regex` raises for
+a malformed pattern, and an empty pattern is not malformed — it is a
+well-formed pattern this member declines. Matching `strings::count`'s
+`ErrInvalidArgument` also means a caller wrapping either member needs one code,
+not two.
 
 ## Phases
 
@@ -179,40 +228,46 @@ dangerous behavior rather than away from it.
 - [ ] `grep -rn "regex::replace" src/ examples/ benchmark/ repository/` and
       classify each call by whether its pattern is a literal. A non-literal is
       a live hazard.
-- [ ] Add a fixture pinning both current behaviors.
-- [ ] Decide part 2 from the sweep.
+- [ ] Add a fixture asserting the *desired* rejection from both members, plus
+      `"a*"` and `"(?:)"` asserted to still interleave. Confirm the first two
+      fail today and the last two pass.
+- [ ] `grep -rn "strings::replace" src/ examples/ benchmark/ repository/` as
+      well — `strings::replace` is changing from a no-op to a raise, which is
+      the larger behavior change of the two and needs its own caller list.
 
 Acceptance: the family-wide empty-pattern table is measured; every in-tree
-`regex::replace` call is classified; the part-2 decision is recorded.
+caller of both members is classified; the rejection fixture fails for the
+documented reason while the zero-width fixtures pass.
 Commit: —
 
-### Phase 2 — cross-link
+### Phase 2 — the convergence
 
-- [ ] Add the paragraph to both `replace` pages, with both results shown.
-- [ ] Make sure the wording is consistent with whatever bug-529 decides for
-      `strings`' internal empty-needle rule — the two must not contradict.
+- [ ] Reject an empty needle in `strings::replace` with `ErrInvalidArgument`.
+- [ ] Reject an empty pattern in `regex::replace` with the same code.
+- [ ] Apply the same to the `astrings::replace` overload.
+- [ ] Migrate every in-tree caller from Phase 1 that can pass an empty value.
+- [ ] Write the "guard on the spelling, not on zero-width matching" paragraph
+      into `regex::replace`'s page, in the exact words from Fix Design. Without
+      it the fix recreates the trap.
+- [ ] Cross-link both pages, and keep the wording consistent with bug-529's
+      query-answers/rewriter-refuses framing.
 
-Acceptance: each page names the other's behavior and shows it.
+Acceptance: both members raise on an empty needle; `"a*"` and `"(?:)"` are
+unchanged; each page states the narrowness of the guard.
 Commit: —
 
-### Phase 3 — the guard, if decided
+### Phase 3 — regenerate + validation
 
-- [ ] Reject an empty pattern in `regex::replace` with `ErrInvalidFormat`, and
-      state precisely that this covers the empty *spelling* only, not every
-      pattern that can match empty.
-- [ ] Fix any in-tree caller from Phase 1.
-
-Acceptance: the empty-pattern call raises; `"a*"` and `"(?:)"` still behave as
-documented.
-Commit: —
-
-### Phase 4 — validation
-
+- [ ] Both members gain an error they did not have; check whether any
+      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning flips.
+- [ ] Regenerate the `.ncodesum` goldens the descriptor change shifts (run the
+      regen scripts under **bash**).
 - [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh strings --run`, `regex --run`.
+- [ ] `scripts/man-run-examples.sh strings --run`, `regex --run`, `astrings --run`.
+- [ ] Update the spike to assert the converged behavior.
 
-Acceptance: full suite green; the pinned behaviors are unchanged except where
-Phase 3 deliberately changed them.
+Acceptance: full suite green; golden deltas are only the two members'; the
+zero-width behavior is provably unchanged.
 Commit: —
 
 ## Validation Plan
@@ -226,16 +281,30 @@ Commit: —
 
 ## Open Decisions
 
-- Whether `regex::replace` rejects an empty pattern. **Decide from the Phase 1
-  sweep.** Recommend rejecting only if a non-literal pattern reaches it in-tree.
-- Ordering against bug-529. **Recommend bug-529 first** — it settles the
-  `strings` side's internal rule, and this bug's cross-link should quote a
-  settled answer rather than one of four.
+**Decided (2026-09-04): both members reject, with `ErrInvalidArgument`.**
+Neither current behavior was a safe convergence target — one requires a
+dishonest special case in `regex`, the other adopts the destructive answer in
+`strings` — so the third option wins, and it matches `strings::count`'s
+existing precedent.
+
+Still open:
+
+- Ordering against bug-529. **Land bug-529 first.** It settles the whole
+  `strings` empty-needle family, and this decision should slot into its rule
+  ("query members answer, counting and rewriting members refuse") rather than
+  arrive as a fifth independent answer. If bug-529 chooses a different framing,
+  this decision must be revisited rather than layered on top.
+- Whether `regex::find`/`findAll`/`match` need the same treatment.
+  **Decide from the Phase 1 measurement**, which has not been taken. Under the
+  rule above they are query members and should keep their zero-width answers,
+  but that is a prediction, not a result.
 
 ## Summary
 
-Small, and mostly a documentation fix with one real decision behind it. The
-part worth doing carefully is the Phase 1 sweep: the two-member framing may be
-too narrow, since `regex::find` and `findAll` with an empty pattern have not
-been measured and would carry the same surprise. The zero-width rule itself is
-correct and must survive untouched.
+Now a behavior change to two members rather than a documentation fix, and the
+risk moved with it. `strings::replace` going from a documented no-op to a raise
+is the larger half — it is a silent-success-to-TRAP change with no compile
+error to catch an unmigrated caller — so Phase 1 must sweep `strings::replace`
+callers as carefully as `regex::replace` ones. The zero-width matching rule is
+untouched, and the single most important line in the whole fix is the sentence
+on `regex::replace`'s page saying so.

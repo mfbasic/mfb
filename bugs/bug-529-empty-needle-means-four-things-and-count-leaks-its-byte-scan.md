@@ -235,13 +235,49 @@ Commit: —
 
 ## Open Decisions
 
-- Rule A, B or C. **Recommend B (never matches)**, on the grounds that the
-  realistic failure is an unintentionally-empty needle and B makes that a no-op
-  everywhere. Revisit if Phase 1 finds in-tree callers depending on
-  `contains(s, "") == TRUE`.
-- Whether `regex` should be brought in line. **Recommend not** — a regex
-  engine's zero-width match is a different and correct model; bug-533 covers
-  documenting the pairing rather than merging it.
+**Updated 2026-09-04 — bug-533 was decided in a way that reshapes the rule
+here, and this bug is now its hard prerequisite.**
+
+bug-533 settled that `strings::replace` and `regex::replace` both **reject** an
+empty needle/pattern with `ErrInvalidArgument`, matching what `strings::count`
+already does. That is not a fourth independent answer — it is rule D, and it
+splits the family by what the member does rather than treating all four alike:
+
+> **A query member answers for an empty needle; a member that counts or
+> rewrites refuses it.**
+
+Under that framing:
+
+| member | empty needle |
+| --- | --- |
+| `contains` | answers — TRUE or FALSE per the rule chosen below |
+| `find` | answers — `0` or `ErrNotFound` per the rule chosen below |
+| `count` | **refuses** (already does) |
+| `replace` | **refuses** (bug-533) |
+
+This is more defensible than any of A/B/C applied uniformly: it explains
+`count`'s existing rejection as the precedent rather than the exception, and it
+keeps the mathematically-standard answers available on the members where an
+empty needle has one and cannot do damage.
+
+Still open:
+
+- **The query half: A or B.** For `contains` and `find`, is the empty needle
+  present at position 0 (A) or absent (B)? **Recommend B (never matches)** as
+  before — the realistic failure is an unintentionally-empty needle, and B makes
+  the query half consistent with the refusal half by never reporting a match
+  that the caller did not ask for. Revisit if Phase 1 finds in-tree callers
+  depending on `contains(s, "") == TRUE`.
+- **Whether the rewriter half needs more members.** Phase 1's census must
+  classify every needle-taking member as query or rewriter. `split` is the
+  interesting case: it neither answers nor rewrites, and an empty separator has
+  no useful meaning, so it probably belongs with the refusers.
+- Whether `regex`'s **query** members are brought in line. **Recommend not** —
+  a regex engine's zero-width match is a different and correct model, and
+  bug-533 explicitly scoped its rejection to the rewrite side.
+
+**Sequencing: this bug lands before bug-533**, which quotes the rule rather
+than inventing one.
 
 ## Summary
 

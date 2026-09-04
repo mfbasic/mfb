@@ -108,23 +108,39 @@ behavior is not in the signature.
 
 ## Goal
 
-- A caller cannot accidentally acquire a `-1` where they previously had a
-  raise, without something telling them.
-- Whichever way it is resolved, `strings::find`, `regex::find` and
-  `collections::find` are covered by one written rule, with any exception
-  stated and justified.
+**Decided (2026-09-04): converge on `ErrNotFound`. `regex::find` raises on
+absence, matching `strings::find`.**
+
+- `regex::find(value, pattern, [start])` raises `ErrNotFound` (77050004) when
+  no match exists, and never returns `-1`.
+- `strings::find`, `regex::find` and `collections::find`'s index-returning
+  members are covered by one written rule, with any exception stated and
+  justified.
+- The `regex` package intro's "`ErrNotFound` is never raised by this package"
+  is deleted, and the per-member absence behaviors are restated.
 
 ### Non-goals (must NOT change)
 
-- `regex::findAll` returning an empty list, or `regex::match` returning FALSE.
-  Both are correct for "no match" and neither is a sentinel-in-an-index.
+- `regex::findAll` returning an empty list, `regex::match` returning FALSE, or
+  `regex::replace` returning `value` unchanged. **None of these is a
+  sentinel-in-an-index**, and this is what makes the convergence narrow: an
+  empty list is a correct representation of "no matches", a `Boolean` is a
+  correct answer to a predicate, and an unchanged string is a correct result of
+  rewriting nothing. Only `find` returns an index, and an index has no value
+  that can mean "absent".
 - `strings::contains`/`regex::match` as the guards.
 - `ErrNotFound`'s code (77050004), which other members use.
+- The `start` parameter's meaning, or the leftmost-unanchored search rule.
 - **Tempting wrong fix, forbidden:** changing `strings::find` to return `-1`.
   It is the safer of the two contracts — an unhandled absence becomes a TRAP
   rather than an out-of-range index — and its page documents the choice at
   length. Converging *downward* to the sentinel would remove the protection
   from the package that has it.
+- **Also forbidden:** keeping `-1` and adding a second raising member as the
+  *final* state. That was this document's original recommendation and it is
+  superseded; two members differing only in their absence contract is a choice
+  every caller must now make correctly, which is the problem restated rather
+  than solved.
 
 ## Blast Radius
 
@@ -150,81 +166,107 @@ Phase 1:
 
 ## Fix Design
 
-Three candidate shapes, in increasing cost:
+`regex::find` raises `ErrNotFound` on absence. `regex::match` is the guard, as
+`strings::contains` is for `strings::find`, and both pages say so.
 
-**A — document the seam properly.** Cross-link the two `find` pages with an
-explicit "if you are porting from the other, the absence contract changes"
-paragraph, and say it in both package intros. Cheapest, changes no behavior,
-and is worth doing regardless. Weakness: it protects only readers.
+**This is a breaking change**, and it is the whole risk of the bug. Every
+existing `IF regex::find(v, p) >= 0 THEN` and `LET i = regex::find(...)` still
+compiles — the return type does not move — and now raises where it used to
+return `-1`. There is no compile error to catch it; the failure is a TRAP at
+run time in code that never had one. That makes the Phase 1 caller sweep a
+**prerequisite**, not an audit: every in-tree call site must be migrated in the
+same change, and the release note must name the break.
 
-**B — add a raising `regex` member.** `regex::findOrRaise`, or better, an
-optional `regex::find(value, pattern, [start], [onMissing])` — no. The cleaner
-form is a separate member with the `strings::find` contract, so a caller who
-wants "absence is an error" can have it without hand-writing the guard. Keeps
-both models available, adds surface. This is the shape that makes the
-substitution safe rather than merely documented.
+Migration for a caller who wants the old shape is one wrapper, and the page
+should show it:
 
-**C — a diagnostic.** Warn when a `regex::find` result flows unguarded into an
-index position. Strongest, and the only option that catches the existing
-mistake — but it needs dataflow the value checker does not obviously have, and
-a new rule code.
+```
+FUNC findOrMinusOne(v AS String, p AS String) AS Integer
+  RETURN regex::find(v, p)
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+```
 
-**Recommend A now and B next.** A is nearly free and is the honest minimum; B
-gives the porting caller a mechanical answer instead of a discipline. C should
-be recorded and not attempted from this document — if it is worth doing, it is
-a plan.
+Two things must be reconciled with the change:
 
-Rejected: changing `regex::find` to raise. The package intro's argument is
-sound — absence is the common case for a pattern search, and `ErrNotFound`
-never being raised is a documented, load-bearing property of the whole package
-("No regex function fails on the absence of a match"). Changing it would break
-every `IF regex::find(...) >= 0` in existence.
+1. **The `regex` intro's global claim.** "No regex function fails on the
+   absence of a match … `ErrNotFound` is never raised by this package" becomes
+   false and must be rewritten per member — `findAll` empty, `match` FALSE,
+   `replace` unchanged, `find` raises. The rewritten paragraph should say *why*
+   `find` differs: it is the only member returning an index.
+2. **`errors:` on the descriptor.** `regex::find` gains `ErrNotFound`, which
+   feeds the rendered Errors table and any inline-TRAP reachability analysis.
+   A member that previously could not fail now can, so check whether any
+   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning flips — in either direction.
 
-Rejected: an `Optional`/nullable return. The language has no such type in this
-position, and introducing one for this is far out of scope.
+Rejected: **keeping `-1` and documenting the seam** (this document's original
+recommendation). It protects only readers, and the failure mode is a caller who
+did not read either page because the substitution looked free.
+
+Rejected: **keeping `-1` and adding a second raising member.** It leaves two
+absence contracts in one package and pushes the choice onto every call.
+
+Rejected: **a diagnostic warning when a `regex::find` result flows unguarded
+into an index position.** It was the strongest option while `-1` stayed, and it
+is unnecessary once `find` raises — there is no sentinel left to flow.
+
+Rejected: **an `Optional`/nullable return.** The language has no such type in
+this position.
 
 ## Phases
 
-### Phase 1 — census + decision (no behavior change)
+### Phase 1 — caller sweep + census (no behavior change)
 
 - [ ] Land `spikes/api-review/bug-531-find-absence/` (done).
+- [ ] `grep -rn "regex::find" src/ examples/ benchmark/ tests/ repository/` —
+      enumerate **every** call site and classify each: guarded by a `>= 0` test,
+      guarded by a preceding `regex::match`, or unguarded. This is a
+      prerequisite for Phase 2, not an audit: each one raises after the change
+      and must be migrated in the same commit.
 - [ ] Record the absence contract of every `find`-family member across
       `strings`, `regex`, `collections` and `astrings`, measured — extend the
-      spike rather than reading the pages.
-- [ ] `grep -rn "regex::find" src/ examples/ benchmark/ tests/` — check every
-      in-tree caller for an unguarded `-1`. **Any hit is a real bug and is
-      fixed in this change**, not deferred.
-- [ ] Decide between A, A+B, and A+B+C.
+      spike rather than reading the pages. `collections::findIndex` /
+      `findLastIndex` return indices and must be given a verdict: if they use a
+      sentinel, they belong in this convergence too.
+- [ ] Add a fixture pinning the desired behavior: `regex::find("abc", "z")`
+      raises `ErrNotFound`. Confirm it fails today.
 
-Acceptance: a measured contract table; every in-tree caller checked; the
-decision recorded.
+Acceptance: every in-tree caller classified; the family-wide contract table is
+measured; the fixture fails for the documented reason.
 Commit: —
 
-### Phase 2 — the seam documentation (shape A)
+### Phase 2 — the convergence
 
-- [ ] Cross-link `strings::find` and `regex::find`, each stating the other's
-      contract and the porting hazard.
-- [ ] State the rule (and any exception) in both package intros.
+- [ ] `regex::find` raises `ErrNotFound` on absence; add `ErrNotFound` to its
+      descriptor's `errors:` list.
+- [ ] Migrate every call site from Phase 1.
+- [ ] Rewrite the `regex` intro's per-member absence paragraph, replacing the
+      "`ErrNotFound` is never raised by this package" claim.
+- [ ] Cross-link `strings::find` and `regex::find`; show the
+      `TRAP`-to-`-1` wrapper for callers who want the old shape.
+- [ ] Apply the same convergence to any `collections` member Phase 1 found
+      using a sentinel.
 
-Acceptance: both pages name the difference and the guard to use.
+Acceptance: the Phase 1 fixture passes; `regex::findAll`, `match` and `replace`
+are unchanged; no in-tree caller relies on `-1`.
 Commit: —
 
-### Phase 3 — the raising member (shape B), if decided
+### Phase 3 — regenerate + validation
 
-- [ ] Add the `regex` member with the `strings::find` contract.
-- [ ] Man page, examples, `errors:` list including `ErrNotFound`.
-
-Acceptance: a caller porting from `strings::find` has a drop-in with the same
-absence behavior.
-Commit: —
-
-### Phase 4 — validation
-
+- [ ] Check whether adding `ErrNotFound` to `regex::find`'s `errors:` flips any
+      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning — a member that could not fail
+      now can.
+- [ ] Regenerate the `.ncodesum` goldens the descriptor change shifts (run the
+      regen scripts under **bash**).
 - [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
 - [ ] `scripts/man-run-examples.sh strings --run`, `regex --run`.
-- [ ] Re-run the spike.
+- [ ] Update the spike so it asserts the converged behavior.
+- [ ] Write the release note naming the break.
 
-Acceptance: full suite green.
+Acceptance: full suite green; golden deltas are only regex's; the break is
+documented.
 Commit: —
 
 ## Validation Plan
@@ -239,15 +281,26 @@ Commit: —
 
 ## Open Decisions
 
-- A, A+B, or A+B+C. **Recommend A+B.** A alone leaves the porting caller
-  writing the guard by hand every time; C is a plan, not a bug fix.
-- What the raising member is called. `findOrRaise` is explicit but ugly;
-  reusing `find` with a flag reintroduces the ambiguity. Decide in Phase 3.
+**Decided (2026-09-04): converge on `ErrNotFound`.** `strings::find`'s contract
+wins because an unhandled absence becomes a TRAP rather than a `-1` flowing
+into an index expression, and because `find` is the only `regex` member whose
+return type has no room for "absent".
+
+Still open:
+
+- Whether `collections::findIndex`/`findLastIndex` are in scope. **Decide from
+  the Phase 1 census.** If they already raise, this is a two-package
+  convergence; if they return a sentinel, the rule should cover them or state
+  why lists differ from text.
+- Whether to ship a `TRAP`-to-`-1` wrapper as a documented snippet or as a
+  member. **Recommend the snippet** — a member exists only to undo the fix.
 
 ## Summary
 
-Neither package is wrong, which is why this has survived: there is no line of
-code to point at. The value is in Phase 1 — an actual sweep of in-tree
-`regex::find` callers for an unguarded `-1`. If that sweep is clean, this is a
-documentation-and-surface item; if it is not, the severity is higher than
-recorded here and the fix is urgent.
+Neither package was wrong in isolation, which is why this survived: there was no
+line of code to point at, only a seam. The decision resolves it in favour of the
+contract that fails loudly. The entire risk is now the breaking change — the
+return type does not move, so nothing catches an unmigrated caller at compile
+time, and the failure is a TRAP at run time in code that never had one. Phase 1's
+call-site sweep is therefore a prerequisite, and the release note is part of the
+fix.

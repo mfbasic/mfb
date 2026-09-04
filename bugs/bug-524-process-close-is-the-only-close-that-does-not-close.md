@@ -226,11 +226,33 @@ Commit: —
 
 ## Open Decisions
 
-- Does `process::close` survive as a deprecated alias? **Recommend deciding
-  from the Phase 1 call-site count.** If it is small and all in-tree, remove
-  the name outright — the whole point is that `close` should mean close. If
-  there is external exposure, keep it as an alias with a deprecation note and a
-  removal target, and accept that the footgun persists until then.
+**Decided (2026-09-04): rename only. `process::close` is NOT changed to close
+the handle, and no `close` that closes the handle is added.**
+
+The question asked was whether the fix renames the member, changes `close` to
+actually close, or both. It renames, for two reasons:
+
+- Making `close` close the handle would break the pattern the page's own
+  example is built on — send the input, close stdin, *then* read the child's
+  output. A `close` that ends the handle makes that sequence impossible, and it
+  is the single most common reason to call the member.
+- There is nothing for it to become. A `Process` has no public close by
+  design: its `close_function` is the internal `__drop` op and the resource is
+  released by lexical scope (`process/mod.rs:215-218`). Adding a public
+  handle-closing `close` would be new surface duplicating the scope drop, not a
+  correction.
+
+Note there is **no `closeOutput` to pair with `closeInput`.** The child's
+stdout is drained by `process::receive` and no member closes it; the naming
+should not imply a symmetry the package does not have.
+
+Still open:
+
+- Does `process::close` survive as a deprecated alias? **Decide from the
+  Phase 1 call-site count.** If it is small and all in-tree, remove the name
+  outright — the whole point is that `close` should mean close. If there is
+  external exposure, keep it as an alias with a deprecation note and a removal
+  target, and accept that the footgun persists until then.
 
 ## Summary
 

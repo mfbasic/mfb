@@ -164,10 +164,31 @@ Commit: —
 
 ## Open Decisions
 
-- Whether to follow this with real `crypto::exportPkcs8`/`crypto::importPkcs8`
-  members. **Recommend deferring**: the note is worth having regardless, and a
-  DER codec is a much larger piece of work that should be justified by a
-  concrete demand rather than by symmetry.
+**Decided (2026-09-04): the encoding does not change, and no converter is
+added. This bug is the note.**
+
+The three options were considered and settled:
+
+- *Change the encoding* — to raw `d`, or to SEC1/PKCS#8 DER. **Rejected.** It
+  breaks every stored key and every golden that covers `generate`, and the
+  current form earns its keep: because `privateKey` carries the public point,
+  `crypto::sign` never needs the public half passed alongside it. That is a
+  real property, not an accident.
+- *Add a converter* (`crypto::exportPkcs8`/`importPkcs8`, or a `KeyConvert`-style
+  member). **Deferred, not rejected.** The tempting reading is that this is byte
+  surgery; it is not. Reaching a form OpenSSL reads means an ASN.1 `ECPrivateKey`
+  DER encoder plus PEM framing — a general DER codec the package does not have.
+  That is a feature, and it should be justified by a concrete demand rather than
+  by symmetry with other ecosystems.
+- *Add the note.* **Chosen.** It is sufficient for the case that actually
+  arises: the SEC1 scalar `d` is the last `field` bytes, `publicKey ‖ d`
+  rebuilds a package `privateKey`, and `openssl` performs the DER framing on the
+  other side. The note plus the two verified `openssl` commands closes the gap
+  without new surface.
+
+If the converter is revisited, build it as a **general** `crypto` DER codec
+rather than as one-off per-format members — the same question will arrive next
+for SPKI public keys and for JWK.
 
 ## Summary
 
