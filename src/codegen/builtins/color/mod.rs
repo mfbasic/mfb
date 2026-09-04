@@ -38,14 +38,19 @@
 use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
 use crate::types::ParameterType;
 
+mod func_from_hex;
 mod func_from_packed;
 mod func_gray;
 mod func_invert;
 mod func_rgb;
 mod func_rgba;
+mod func_to_hex;
+mod func_to_hex_alpha;
 mod func_to_packed;
 mod func_with_alpha;
 mod helper_clamp_byte;
+mod helper_hex_byte;
+mod helper_hex_value;
 
 /// The `Color` record type (`red`/`green`/`blue`/`alpha` `Byte`) — the leaf
 /// spelling, as it appears inside the package's own injected companion.
@@ -95,10 +100,11 @@ pub(crate) fn register(r: &mut Registry) {
 
     // `color` imports itself so the assembled companion can call its own public
     // members through the qualified spelling, as `astrings` does. `bits` backs the
-    // packed-integer bridge. The set grows with the members that need it rather
-    // than being declared up front, so an injected `IMPORT` nothing calls never
-    // reaches an importer's `.ir`.
-    pkg.add_imports(vec!["color", "bits"]);
+    // packed-integer bridge; `strings` and `collections` back the hex text forms.
+    // The set grows with the members that need it rather than being declared up
+    // front, so an injected `IMPORT` nothing calls never reaches an importer's
+    // `.ir`.
+    pkg.add_imports(vec!["color", "bits", "strings", "collections"]);
 
     pkg.add_record(RegistryRecord {
         name: COLOR_TYPE,
@@ -134,6 +140,8 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     helper_clamp_byte::register(&mut pkg);
+    helper_hex_value::register(&mut pkg);
+    helper_hex_byte::register(&mut pkg);
 
     // Constructors first, then the operations over an existing colour — the order
     // a reader of `mfb man color` meets them in.
@@ -146,6 +154,11 @@ pub(crate) fn register(r: &mut Registry) {
     // The packed-integer bridge.
     func_to_packed::register(&mut pkg);
     func_from_packed::register(&mut pkg);
+
+    // Text forms.
+    func_from_hex::register(&mut pkg);
+    func_to_hex::register(&mut pkg);
+    func_to_hex_alpha::register(&mut pkg);
 
     r.add_package(pkg);
 }

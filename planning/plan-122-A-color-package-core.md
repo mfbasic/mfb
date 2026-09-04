@@ -473,21 +473,37 @@ Commit: —
 
 The one member with an error path.
 
-- [ ] `helper_hex_value.rs` (`__color_hexValue(byte) AS Integer`, `-1` on a
+- [x] `helper_hex_value.rs` (`__color_hexValue(byte) AS Integer`, `-1` on a
       non-digit) and `helper_hex_pair.rs` if the digit-doubling is worth its own FUNC.
-- [ ] `func_from_hex.rs` implementing §6, raising
+      Landed as `helper_hex_value.rs` (parse side) and `helper_hex_byte.rs`
+      (`__color_hexByte` + `__color_hexDigit`, render side). The digit-doubling did
+      **not** earn its own FUNC — it is `d * 17`, written inline at the two
+      `fromHex` arms that need it.
+- [x] `func_from_hex.rs` implementing §6, raising
       `FAIL error(77050003, "…")` on every rejected input.
-- [ ] `func_to_hex.rs`, `func_to_hex_alpha.rs` — lowercase output.
-- [ ] Tests: a `tests/rt-behavior/color/` fixture covering **all four accepted
+- [x] `func_to_hex.rs`, `func_to_hex_alpha.rs` — lowercase output.
+- [x] Tests: a `tests/rt-behavior/color/` fixture covering **all four accepted
       lengths, both with and without `#`, in mixed case** (8 accepting cases), plus
       a TRAP-ing fixture for each rejection class: bad length (5), non-hex char,
       empty string, doubled `#`. Round-trip `fromHex(toHexAlpha(c)) = c` over the
       corner colours.
+      Landed as `tests/rt-behavior/color/color_hex_rt` — one fixture, since the
+      rejection cases TRAP and return rather than ending the program, so they
+      compose with the accepting ones. **10** rejection cases, not the plan's 4:
+      four bad lengths (2, 5, 7, 9 — bracketing every accepted length on both
+      sides, not just one), empty, bare `#`, doubled `#`, and three non-hex
+      characters including an embedded space.
 
-Acceptance: every accepted form yields the documented channels and every rejected
-form raises `ErrInvalidFormat` — asserted positively, not by "did not crash". The
-negative cases must assert the raised code, since a fixture that merely fails to
-produce output passes vacuously.
+Acceptance: **MET.** All 8 accepted forms yield the documented channels
+(`h3`/`b3` = `255,0,170,255` — digit doubling; `h4` alpha `136` = `0x88`;
+mixed case agrees with lower). A missing alpha is **opaque**
+(`shortOpaque`/`longOpaque` = `...,255`), the documented contrast with
+`fromPacked`. All 10 rejections print `invalidFormat TRUE` — the raised code
+compared against `errorCode::ErrInvalidFormat`, not the absence of output, so a
+crash could not pass as a rejection. Round trips exact over all four corners
+including transparent (`rtBlack=#00000000`) and low channels
+(`rtLowChannels=#01020304`, proving the zero-padding). Render is lowercase and
+fixed-width (`case=#abcdef`, `pad=#01020304`).
 Commit: —
 
 ### Phase 5 — `toString` override
@@ -660,6 +676,30 @@ load, and a filtered re-run can never show it. Written up with the evidence and
 the cheapest lines of enquiry in
 `bugs/bug-498-thread-transfer-bidirectional-flaky-under-load.md` rather than left
 as an unexplained red in a log.
+
+**Phase 4 — §6's `strings::upper` pass is unnecessary.** §6 specifies "strip the
+optional `#` with `strings::stripPrefix`, **upper-case with `strings::upper`**,
+walk `strings::toBytes`". `__color_hexValue` already accepts both cases (it is
+`encoding`'s three-range shape: `0-9`, `a-f`, `A-F`), so the `upper` pass would be
+a Unicode full-case mapping over the input for no effect. Dropped. Case
+insensitivity is proved by the fixture's `b3`/`b4`/`b6`/`b8` mixed-case rows
+agreeing with their lowercase equivalents.
+
+**Phase 4 — `__color_hexDigit` renders from a table, not from arithmetic.** The
+first draft was `strings::fromScalars([48 + value])`, which does not compile:
+`fromScalars` takes a `List OF Scalar` and the addition yields `Integer`
+(`2-203-0051 TYPE_LIST_ELEMENT_MISMATCH: List element has type Integer, expected
+Scalar`). Rewritten as `strings::mid("0123456789abcdef", value, 1)` — same answer,
+no per-digit conversion, and the table itself states that the digits are
+lowercase.
+
+**Phase 4 — a `Body`/`EX` containing `"#` needs `r##"…"##`.** `color` is the first
+package whose MFBASIC bodies contain the literal `"#"` (every hex render starts
+with it) and whose examples contain `"#f0a"`. In a `r#"…"#` raw string that
+two-character sequence closes the literal mid-expression, and the resulting
+rustc error points at the *following* prose rather than at the `"#`. Affected
+constants now use `r##"…"##`. Worth knowing for plan-122-C, whose named-colour
+examples will hit the same thing.
 
 **Phase 6 — measured byte cost of the `color` companion** (this is plan-122-C's
 go/no-go input): recorded below when Phase 6 runs.

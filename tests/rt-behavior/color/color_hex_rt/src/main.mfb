@@ -1,0 +1,88 @@
+' plan-122-A Phase 4: `fromHex` / `toHex` / `toHexAlpha`.
+'
+' `fromHex` is the only member in the package with a parse, and therefore the only
+' one with an error path. Both sides are asserted positively:
+'
+'   - every ACCEPTED form yields the documented channels, across all four lengths,
+'     with and without the leading `#`, in mixed digit case;
+'   - every REJECTED form raises `ErrInvalidFormat` asserted by CODE. A fixture
+'     that merely failed to produce output would pass vacuously — the program
+'     crashing and the program correctly rejecting look identical in a `.run`
+'     golden unless the code is compared.
+
+IMPORT color
+IMPORT errorCode
+IMPORT io
+
+SUB show(label AS String, c AS color::Color)
+  io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
+END SUB
+
+' Parse a form that must be REJECTED, and assert the raised code rather than the
+' mere absence of a result.
+FUNC reject(label AS String, text AS String) AS Integer
+  LET c AS color::Color = color::fromHex(text)
+  io::print(label & "=WRONGLY-ACCEPTED " & toString(c.red))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=invalidFormat " & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN -1
+  END TRAP
+END FUNC
+
+' Round-trip a colour through the lossless text form. `toHexAlpha` encodes every
+' channel, so this must be exact for EVERY colour, transparent ones included.
+SUB roundTrip(label AS String, c AS color::Color)
+  io::print(label & "=" & color::toHexAlpha(color::fromHex(color::toHexAlpha(c))) & " expected " & color::toHexAlpha(c))
+END SUB
+
+FUNC main AS Integer
+  ' --- the four accepted lengths, WITH the leading `#` ---------------------
+  ' 3 and 4 digits double each digit: f -> ff, 0 -> 00, a -> aa, 8 -> 88.
+  show("h3", color::fromHex("#f0a"))
+  show("h4", color::fromHex("#f0a8"))
+  show("h6", color::fromHex("#3366cc"))
+  show("h8", color::fromHex("#3366cc80"))
+
+  ' --- the same four WITHOUT the `#`, in MIXED case ------------------------
+  show("b3", color::fromHex("F0a"))
+  show("b4", color::fromHex("f0A8"))
+  show("b6", color::fromHex("3366Cc"))
+  show("b8", color::fromHex("3366cC80"))
+
+  ' A missing alpha means OPAQUE, not transparent -- the opposite of what
+  ' `fromPacked` does with the same 24 bits.
+  show("shortOpaque", color::fromHex("#000"))
+  show("longOpaque", color::fromHex("#000000"))
+
+  ' --- every rejection class ----------------------------------------------
+  LET r1 AS Integer = reject("badLen5", "#12345")
+  LET r2 AS Integer = reject("badLen2", "#12")
+  LET r3 AS Integer = reject("badLen7", "#1234567")
+  LET r4 AS Integer = reject("badLen9", "#123456789")
+  LET r5 AS Integer = reject("empty", "")
+  LET r6 AS Integer = reject("justHash", "#")
+  LET r7 AS Integer = reject("doubleHash", "##fff")
+  LET r8 AS Integer = reject("nonHex3", "#ggg")
+  LET r9 AS Integer = reject("nonHex6", "#12345g")
+  LET r10 AS Integer = reject("space", "#12 456")
+
+  ' --- render ---------------------------------------------------------------
+  ' Fixed width: a channel below 16 keeps its leading zero, so a collapsed digit
+  ' cannot silently shift every later channel left.
+  io::print("toHex=" & color::toHex(color::rgba(51, 102, 204, 128)))
+  io::print("toHexAlpha=" & color::toHexAlpha(color::rgba(51, 102, 204, 128)))
+  io::print("pad=" & color::toHexAlpha(color::rgba(1, 2, 3, 4)))
+  io::print("black=" & color::toHexAlpha(color::rgba(0, 0, 0, 0)))
+  io::print("white=" & color::toHexAlpha(color::rgba(255, 255, 255, 255)))
+  ' Lowercase, matching `encoding::hexEncode`, so two programs' output compares equal.
+  io::print("case=" & color::toHex(color::rgba(171, 205, 239, 255)))
+
+  ' --- round trips over the corners ---------------------------------------
+  roundTrip("rtBlack", color::rgba(0, 0, 0, 0))
+  roundTrip("rtWhite", color::rgba(255, 255, 255, 255))
+  roundTrip("rtMixed", color::rgba(51, 102, 204, 64))
+  roundTrip("rtLowChannels", color::rgba(1, 2, 3, 4))
+
+  RETURN 0
+END FUNC
