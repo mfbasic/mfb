@@ -102,11 +102,11 @@ grouping, not a flat offset list.
 
 | What | Count | Command |
 |---|---|---|
-| `ITEM_BLOCK_SIZE` after plan-116-F | 224 | plan-116-F §4.2 |
+| `ITEM_BLOCK_SIZE` after plan-116-F | **208** | `grep -n 'ITEM_BLOCK_SIZE: usize' src/codegen/runtime/canvas/mod.rs` → `= 208` (2026-09-04). The plan's 224 was read from F's §4.2 *design* text, not from the landed constant; F ended at 208 — see **H7**. |
 | Backends to convert | 2 | Metal (`src/target/macos_aarch64/app/metal.rs`), Vulkan (`src/codegen/runtime/canvas/vulkan.rs`) |
 | Shader files to edit | 3 | `metal.rs:METAL_SHADER_SOURCE`, `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag` |
 | `*Renderable` predicates | 2 | `__canvas_metalRenderable` and `__canvas_vulkanRenderable` in `helper_render.rs` (`grep -n 'FUNC __canvas_.*Renderable' src/codegen/builtins/canvas/helper_render.rs`) |
-| Shared scene walk | 1 | `helper_render.rs:122` (`__canvas_sceneOffsets`) |
+| Shared scene walk | 1 | `__canvas_sceneOffsets`, now `helper_render.rs:251` (`grep -n 'FUNC __canvas_sceneOffsets' src/codegen/builtins/canvas/helper_render.rs`, 2026-09-04) — plan-116-G inserted `__canvas_appendDraw` and the group globals above it. Cite the symbol, not the line. |
 
 > **Census re-verified 2026-09-02 (pre-execution).** Still 2 backends, 3 shader
 > sources, 2 `*Renderable` predicates and 1 shared scene walk. The
@@ -453,6 +453,29 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H7 (pre-execution, 2026-09-04) — two §2 census rows had drifted; re-measured.**
+
+* **`ITEM_BLOCK_SIZE` is 208, not 224.** The row cited plan-116-F §4.2 rather than the
+  constant, and §4.2 is F's *design* text — F landed at 208.
+  `grep -n 'ITEM_BLOCK_SIZE: usize' src/codegen/runtime/canvas/mod.rs` → `= 208`. This
+  matters to H specifically: the letter adds a per-draw offset, and if it grows the block
+  again then the Metal frame-slot constants shift by the same amount, which is the
+  `METAL_EDGE_BASE` class of breakage F hit three times.
+* **The shared scene walk is at `helper_render.rs:251`, not 122.** plan-116-G inserted
+  `__canvas_appendDraw`, the `__CANVAS_DRAW_*` globals and `__canvas_groupSignature`
+  above `__canvas_sceneOffsets`. Now cited by symbol with its grep, per the project's own
+  rule that a `file.rs:NNN` into a file the plan series edits is stale before it is read.
+
+The other four rows re-measured correct: 2 backends, 3 shader files, 2 `*Renderable`
+predicates (`grep -c 'FUNC __canvas_.*Renderable'` → 2).
+
+**One thing H should know that its §4.1 predates:** plan-116-G already flattens the group
+tree where the draw list is built, and publishes each entry's accumulated offset in
+`__CANVAS_DRAW_DX`/`__CANVAS_DRAW_DY` beside the offsets list. So `__canvas_sceneDraws`
+does not need to re-walk the scene — a *run* is a maximal span of consecutive entries
+sharing a `(dx, dy)` and not ending on a `Text`, which is a grouping pass over data that
+already exists rather than a second traversal that could disagree with the first.
 
 **H7 (2026-09-03, pre-execution) — the `rbp` invariant this letter must hold, stated the
 way that is checkable.** MFBASIC stages parameter 8 in `rbp`, which is callee-saved under
