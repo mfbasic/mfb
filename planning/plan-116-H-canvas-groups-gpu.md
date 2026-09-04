@@ -522,7 +522,7 @@ Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` wit
 budget, on six scenes rather than five. `cargo test --test rt_canvas_metal` is green
 including the pre-existing primitive and fallback tests, so the conversion costs nothing
 on the scenes that have no groups at all.
-Commit: —
+Commit: `072cf8f58`
 
 ### Phase 4 — The reference image, docs, and the gates
 
@@ -575,8 +575,16 @@ Commit: —
       memory-vocabulary hits: 0` (the two carve-outs, 15 and 25, are the pre-existing
       datetime-borrow and derived-Errors-row ones), and
       `examples: 27   built: 27   ran: 27   failed: 0`.
-- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
-      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
+- [x] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**). —
+      `141 golden(s) refreshed, 0 missing`, and `git status` reports **no `.ncodesum`
+      file changed**.
+      That is the predicted result and the plan is right that it is not evidence: this
+      letter rewrote both GPU emitters, and if any of that were hashed here the number
+      could not be zero. It is zero because no `canvas` fixture is hashed at all, so
+      what the gate actually proves is the narrow thing — that nothing *outside* canvas
+      moved. The canvas evidence is the three renderers against `groups.png` and the two
+      harnesses, not this.
 
 Acceptance: `groups.png` matches on all three renderers; `cargo test --no-fail-fast`
 green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here); `scripts/test-accept.sh` green;
