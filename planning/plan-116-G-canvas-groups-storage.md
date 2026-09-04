@@ -1013,6 +1013,25 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G42 (Phase 6) — the land mechanism works; a config read said otherwise and the history
+said it did not.** `git config --show-origin receive.denyCurrentBranch` reports **refuse**
+(from `.git/config`), not the `updateInstead` the land instruction assumes, and `main` is
+checked out in the shared worktree — which reads as "`git push . HEAD:main` cannot work".
+
+It does. `git reflog show main` has `41ca7f09e main@{2026-09-03}: push` — that is
+**plan-116-F's own landing**, under this same config. Every other recent entry is
+`merge worktree-B-NNN` run from the main checkout, which is a different convention some
+sessions use, not evidence against the push.
+
+The dry run's rejection is `non-fast-forward`, and nothing else: `main` gained 33 commits
+while this letter ran. Merging it makes the push a fast-forward.
+
+Recorded because the wrong conclusion was one step away and would have cost real time —
+either a hand-off to whichever session owns the main checkout, or a change to repository
+config, neither of which is warranted. **The reflog is the authority on whether a landing
+mechanism works, not the config**: config states a policy, the reflog states what
+actually happened.
+
 **G41 (Phase 6) — checked this letter against bug-498's arena corollary, which landed on
 `main` after the design was written.** Of the 33 commits `main` gained while this letter
 ran, exactly one touches anything under `canvas` — and it is not code, it is a new rule
