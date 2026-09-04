@@ -205,7 +205,7 @@ spot-checked names — `green` → `#008000ff` (**not** `#00ff00`), `lime` →
 `#008080ff` after trimming, `grey` and `gray` → the same `#808080ff` — and raises
 **by code** (`err.code = errorCode::ErrNotFound` → `TRUE`) for both an unknown name
 and the empty string. Byte numbers below, with the quantisation caveat.
-Commit: —
+Commit: ec44a0f73
 
 ### Phase 2 — Go/no-go on the table
 
@@ -236,7 +236,7 @@ companion**, and about **4.8%** of the 1,707,404-byte canvas app measured in
 plan-122-B Phase 3. The 16 record constants contribute **0** to this figure (see
 Corrections). Escalated at 50% rather than deciding it, because 50% is not the
 "minority" this phase requires to proceed on its own authority.
-Commit: —
+Commit: ec44a0f73
 
 ### Phase 3 — Reverse lookup and constants
 
@@ -284,7 +284,7 @@ Constants agree with the table rather than merely existing:
 7/7 types**; `--memory-scope color` **0**; `--scope color` **0**;
 `man-run-examples.sh color --run` → **57 examples, 57 built, 57 ran, 0 failed**.
 Runtime proof: `color::toHex(color::fromName("RebeccaPurple"))` → `#663399`.
-Commit: —
+Commit: ec44a0f73
 
 ## Validation Plan
 
