@@ -1123,3 +1123,88 @@ pub fn run_mfb_in(
         .output()
         .expect("run mfb")
 }
+
+/// `run_bounded`, plus the child's **peak resident set size** in bytes.
+///
+/// bug-510: the decoder-bound tests assert that a program's memory stays a small
+/// multiple of its input, and `Command::output` cannot say what a child's peak
+/// was. `wait4(2)` can — `ru_maxrss` is filled for the *specific* child reaped —
+/// which is also why `getrusage(RUSAGE_CHILDREN)` is the wrong tool here: it
+/// folds every terminated child in, and the `mfb build` that produced the
+/// executable is a child of this process too. The child is reaped with
+/// `WNOHANG` polls under the same deadline discipline as `run_bounded`, because a
+/// bomb's failure mode is "still running" and a blocking wait would sit there for
+/// as long as the bomb lasts. `ru_maxrss` is bytes on macOS and kibibytes on
+/// Linux; the result is normalised to bytes. Non-Unix hosts get `None` for the
+/// size and the caller skips the memory assertion.
+pub fn run_bounded_with_rss(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String, Option<u64>) {
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn executable");
+    // Drain stdout on its own thread: a child that fills the pipe while we only
+    // poll for exit would block forever, which reads as a hang.
+    let mut pipe = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut out = String::new();
+        pipe.read_to_string(&mut out).ok();
+        out
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        let pid = child.id() as libc::pid_t;
+        let start = Instant::now();
+        loop {
+            let mut status: libc::c_int = 0;
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            let reaped = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, &mut usage) };
+            if reaped == pid {
+                let stdout = reader.join().expect("stdout reader");
+                let raw = usage.ru_maxrss as u64;
+                let bytes = if cfg!(target_os = "macos") { raw } else { raw * 1024 };
+                return (ExitStatus::from_raw(status), stdout, Some(bytes));
+            }
+            if reaped < 0 {
+                panic!("wait4({pid}) failed: {}", std::io::Error::last_os_error());
+            }
+            if start.elapsed() > timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "executable {} did not finish within {timeout:?} — {hang_context}",
+                    executable.display(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().expect("try_wait") {
+                let stdout = reader.join().expect("stdout reader");
+                return (status, stdout, None);
+            }
+            if start.elapsed() > timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "executable {} did not finish within {timeout:?} — {hang_context}",
+                    executable.display(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}

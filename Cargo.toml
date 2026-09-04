@@ -54,3 +54,9 @@ curve25519-dalek = "4"
 # `mfb-repo gc`'s 24h grace period (plan-49 §3.1) without waiting a day. Same
 # version/features as the repository crate's, so it reuses the compiled SQLite.
 rusqlite = { version = "0.31", features = ["bundled"] }
+# bug-510: the decoder-bound tests (`tests/rt_json_bounds.rs`,
+# `tests/rt_regex_bounds.rs`) assert a child's PEAK RSS, which only `wait4`'s
+# `ru_maxrss` reports for one specific child (`RUSAGE_CHILDREN` would fold in the
+# `mfb build` child). Already in the lockfile through ring/rustls, so it resolves
+# offline and adds no new compiled code.
+libc = "0.2"
