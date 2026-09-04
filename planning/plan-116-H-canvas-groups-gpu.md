@@ -621,6 +621,34 @@ Commit: `435cdeb89`, `0d3d35c9d`, `d8df01bc9`, `9580fdead`, `19be6a116`, `a81b02
   denominator with `cargo llvm-cov --bin mfb`. The predicates and the scene walk are
   MFBASIC source, covered by the rt cases; confirm the group-present and group-absent
   arms of each predicate are both exercised.
+
+  **Done, and the answer needs stating carefully because the raw number invites the
+  wrong conclusion.** `cargo llvm-cov --bin mfb --summary-only`:
+
+  | file | regions | covered |
+  |---|---|---|
+  | `codegen/runtime/canvas/vulkan.rs` | 6391 | 1.02% |
+  | `codegen/runtime/canvas/metal.rs` | 59 | 0.00% |
+  | `codegen/builtins/canvas/helper_render.rs` | 134 | 97.76% |
+
+  The question the plan asked was *"are the new lines in the denominator"*, and they
+  are — `emit_draw_list_pass` and its Metal twin are counted. The near-zero percentage
+  is not a gap this letter opened: `--bin mfb` runs the crate's **unit** tests, which
+  do not emit a Vulkan or Metal frame for any target, so the emitters have been at
+  roughly this figure since they were written. What exercises them is
+  `scripts/test-canvas-vulkan.sh` and `tests/rt_canvas_metal.rs`, neither of which
+  `--bin mfb` runs. Reading 1.02% as "the draw pass is untested" would be exactly
+  backwards — it is tested by comparison against the software oracle on two backends.
+
+  **Both predicate arms are exercised**, by construction rather than by inspection:
+  the group-**absent** arm by every group-free scene in both harnesses (the primitive
+  scene, the rectangles, the fallback cases), and the group-**present** arm by the
+  seven-case group scene, `groups.png` and the diamond. Since Phase 3 both arms now
+  return TRUE, so the pairing that matters is
+  `a_scene_containing_a_group_reaches_the_gpu` (present → accepted) against
+  `an_unsupported_scene_falls_back_to_the_software_renderer` and the two cap tests
+  (absent → still able to decline for other reasons), which together show the
+  predicates did not simply become "return TRUE".
 - **Runtime proof:** render `groups.png`'s scene three ways and diff. Separately,
   render the diamond scene and the equivalent flat scene (the same shapes written out
   twice at the two positions) and assert the two frames are identical — the strongest
