@@ -14,6 +14,16 @@
 # `<target>.app` infix (`mfb build --app`) the gate already splits the same way.
 #
 # Usage: scripts/regen-ncodesum.sh <mfb-exe> [<host-target>]
+#
+# bug-513: this script relies on word-splitting `$targ` into `-target <t>`. zsh
+# does not word-split, so under `zsh scripts/regen-ncodesum.sh` every
+# cross-target build is handed `-target windows-x86_64` as ONE argument and
+# fails. The file is not always executable in a fresh worktree, which is exactly
+# what tempts `zsh scripts/...` — so re-exec under bash rather than trusting the
+# shebang to have been honoured.
+if [ -n "${ZSH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -u
 MFB=${1:?usage: regen-ncodesum.sh <mfb-exe> [host-target]}
 HOST=${2:-macos-aarch64}
@@ -35,9 +45,20 @@ while IFS= read -r gsum; do
   fi
   targ=""
   [ "$target" = "$HOST" ] || targ="-target $target"
-  # shellcheck disable=SC2086
-  "$MFB" build -q -ncode $mode $targ "$fixturedir" >/dev/null 2>&1
   af="$fixturedir/$name.ncode"
+  # The dump path carries no target infix, so every target of a fixture writes
+  # the SAME file. Removing it first, and refusing to hash unless THIS target's
+  # build succeeded, is what keeps a failed build from re-hashing the previously
+  # built target's dump into this target's golden — which silently ratifies a
+  # wrong sum (observed: the macos-aarch64 sum written into 26 windows-x86_64
+  # goldens, all of which had been correct).
+  rm -f "$af"
+  # shellcheck disable=SC2086
+  if ! "$MFB" build -q -ncode $mode $targ "$fixturedir" >/dev/null 2>&1; then
+    echo "BUILD FAILED for $gsum ($target${mode:+ }$mode) — golden left unchanged"
+    missing=$((missing + 1))
+    continue
+  fi
   if [ -f "$af" ]; then
     shasum -a 256 "$af" | cut -d' ' -f1 > "$gsum"
     updated=$((updated + 1))

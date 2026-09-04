@@ -116,3 +116,42 @@ In `repository/src/client.rs`, `ensure_transport_security(repo_url)` validates O
 The one shared `reqwest::blocking::Client` is built once in `http_client()` (a `OnceLock`) — that is the ONLY place `connect_timeout` AND the redirect policy can be set. Per-hop transport enforcement therefore lives in `redirect_policy()` / `ensure_redirect_target()`, not in `ensure_transport_security`. The redirect guard is https-only and blocks private/loopback/link-local/CGNAT/unspecified IP literals (incl. IPv4-mapped IPv6) — otherwise a hostile registry 302 drives blind SSRF (169.254.169.254, 127.0.0.1, RFC-1918) or an https→http downgrade leak. Blob bytes stay SHA-256 checked and control-plane bodies signature-checked regardless; the redirect guard only closes the transport-level leak.
 
 Takeaway: if you add a new registry route or loosen networking, remember the initial-URL check and the redirect check are SEPARATE — enforce both. `reqwest::redirect::Policy::custom` closures track depth via `attempt.previous().len()` and reject a hop with `attempt.error(String)`.
+
+## The `http` server parses strictly, the client leniently — and rejects early with a lingering close
+
+`http` has TWO header parsers on purpose (bug-506/507). `__http_requestHeaderMap`
++ `__http_requestFraming` are the SERVER side: they FAIL on every
+request-smuggling primitive (second `Content-Length`, `Content-Length` with
+`Transfer-Encoding`, whitespace before the colon, obs-fold, a non-final or
+doubled `chunked`, a non-digit `Content-Length`) and cap the field count and line
+length (`ErrMessageTooLarge` → 431). `__http_headerMapFromHead` +
+`__http_framingLength` + `__http_frameComplete` are the CLIENT side and stay
+lenient (last-wins, substring `chunked`): the client always reads to EOF with
+`Connection: close`, so a sloppy upstream cannot desync it, and tightening it
+would fail `http::read` against real servers. Do not "unify" them.
+
+The server read loop (`__http_readRequestNet`/`Tls`) is bounded three ways —
+`tcp::setReadTimeout` per read, a `datetime::monotonicNanos` whole-request
+deadline, and `__http_frameAdvance`'s caps — and REPORTS its outcome in a
+`__http_ReadResult.status`; nothing in it raises. `handleRequest` still TRAPs
+the whole read/parse/serialize, because before bug-507 one bad chunk-size line
+raised straight out of the loop and exited the process (OS-51).
+
+`__http_frameAdvance` is incremental: `scanFrom` resumes the `\r\n\r\n` search
+three bytes back (a terminator can straddle two reads), and `cursor` resumes the
+chunk walk at the last complete chunk boundary. The old predicate re-scanned
+from offset 0 after every read (2 MiB → 0.7 s, 64 MiB ≈ 12 min).
+
+An early rejection (408/413/431 before the client finished sending) must
+`__http_linger*` before returning: closing with unread input queued makes the
+kernel send RST, and a client that is still in `send` sees EPIPE/ECONNRESET
+instead of the 4xx just written (measured: python `recv` raised
+`ConnectionResetError` and never saw the 431). The drain is bounded (4 MiB, 500 ms
+per read) and is NOT run after a complete request — waiting for the client's EOF
+there would add latency to every exchange.
+
+Response side: `__http_checkResponse` turns a handler response with a control
+byte in its reason or a header name/value into a built-in 500 BEFORE
+`__http_serializeHead`, whose own FAIL is only the fail-closed backstop. HTAB is
+allowed in a value/reason (RFC 9110 field whitespace); everything else below
+0x20, and DEL, is not.

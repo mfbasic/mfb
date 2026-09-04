@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: security (memory safety — out-of-bounds read / remote DoS)
 
-Status: Open (found in audit-3, Surface 6 CRY-50; agent-demonstrated on Windows box 2230, mechanism code-verified by the lead). Sibling of bug-497 (OS-50) on the Schannel backend.
+Status: FIXED (<HASH>). Found in audit-3, Surface 6 CRY-50; agent-demonstrated on Windows box 2230, mechanism code-verified by the lead. Sibling of bug-497 (OS-50) on the Schannel backend; fixed in the same change.
 
 Regression Test: an execution test on box 2230 asserting `tls::write(sock, byteList)` writes exactly `len(byteList)` bytes.
 
@@ -68,3 +68,36 @@ bug-497 (OS-50, CRITICAL) is the same String↔byte-list layout-confusion family
 the macOS/SysV `tcp/tls/udp` write path; bug-157 fixed a related `tls::write` byte
 base arithmetic. This Schannel instance is distinct (different backend, opposite
 payload type). Searched `lower_tls_write`, `schannel`, `writeText`, `text`.
+
+## STATUS: FIXED (<HASH>)
+
+Landed with bug-497 on `worktree-B-497`, merged into `main`.
+
+`lower_tls_write` (Schannel) no longer discards `text`: it emits the payload view
+through the shared `codegen::memory::marshal::push_write_payload_view`, the same
+helper the tcp/udp/OpenSSL/macOS write emitters use, so the five backends cannot
+diverge again. Byte form: header check (`kind`/`keyType`/`valueType`, →
+`ErrInvalidArgument` at `<sym>_bad_payload`), length from the collection `count`
+(+8), data at `HEADER + capacity * stride`. Text form: `length @ +0`, `data @ +8`
+as before (the UTF-8 bytes are copied into the Schannel send buffer unchanged; no
+UTF-16 marshal is involved in `write`). `ORIGLEN` is stored from the shared
+length register in both forms.
+
+**Verification.** Windows execution (box 2230) was NOT run in this change. The
+fix is verified by emitted-code inspection on `-target windows-x86_64`
+(execution-free): `tests/codegen_net_write_payload_view.rs` asserts
+`_mfb_rt_tls_tls_write` reads the payload's three header bytes off `rdx`,
+branches to `_mfb_rt_tls_tls_write_bad_payload`, loads its length from `+8` and
+never from `+0` — RED on main (main's body reads `ldr_u64 [rdx,#0]`) — and
+`_mfb_rt_tls_tls_writeText` still reads `+0`. The Schannel unit tests
+`write_payload_tests` pin the same two facts on the emitter directly. The
+documented regression test (an execution test on box 2230 asserting
+`tls::write(sock, byteList)` writes exactly `len(byteList)` bytes) remains to be
+run there; the emitted layout now matches the SysV/macOS byte path that
+`rt_native_write_overload_call_argument.rs` proves by execution.
+
+**Deviation from the non-goal "the String path's bytes must not move":** the
+text form's five instructions were reordered to the shared canonical order
+(length first, then source) so one helper serves every backend; the instructions
+and their effect are identical. The `windows-x86_64` `tls` `.ncodesum` moves for
+the byte-form change anyway.

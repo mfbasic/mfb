@@ -40,6 +40,18 @@ always will be. `canvas::installedItems()` on the graphics thread cannot see wha
 `canvas::present` published on the worker. Any design that "just moves the render to
 another thread" is wrong for this reason and would render blank frames forever.
 
+**Corollary for anything that crosses threads (bug-498): never allocate from another
+thread's arena.** `_mfb_arena_alloc` pops a quick-bin free list with a plain
+load/store; a sender that repointed `x19` at the *receiver's* arena to deep-copy a
+message there raced the receiver's own allocations and both threads faulted in the
+pop. A boundary copy is made in the SENDER's arena and the block handed across. The
+hand-over is sound because a *free* touches only the freeing thread's arena state
+(`arena_free` pushes onto its own bins; it never asks which arena carved the block)
+and every arena's chunks stay mapped for the life of the process (only the main arena
+is destroyed, at `_mfb_shutdown`). So "a block allocated by one thread is freed by
+another" is fine **as adoption** — the allocating thread must simply hold no further
+reference — while "one thread allocates *into* another's arena" never is.
+
 There is one process-global escape hatch, `MAIN_ARENA_GLOBAL_SYMBOL`, which each
 entry stores its own `x19` into — but in an `--app` build the worker's entry is the
 last writer, so it names the worker. Reaching the scene through it would work and is

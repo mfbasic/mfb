@@ -228,6 +228,17 @@ pub(crate) fn emit_copy_to_cstring(
 /// on macOS and Linux, unlike `clearenv`). Then `setenv(name, value, 1)` for each
 /// USED map entry. All C strings are arena-allocated and never freed (the child
 /// execs immediately).
+///
+/// The clear walks `environ` by INDEX (bug-500). The kernel does not validate
+/// `envp`, so a launcher can hand the process an entry `unsetenv` cannot remove:
+/// one with no `=` at all (the "name" is the whole string and matches nothing)
+/// or one with a leading `=` (`unsetenv("")` fails `EINVAL`). Restarting from
+/// `environ[0]` after every call would spin forever on such an entry — and, since
+/// the fork child never frees, arena-allocate a name buffer per spin. Instead an
+/// entry with nothing to unset is stepped over, and after `unsetenv` the index
+/// only stays put when `environ[idx]` actually changed; every iteration therefore
+/// either removes an entry or advances, so the loop (and the total name-buffer
+/// allocation) is bounded by the length of `environ`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_child_apply_env(
     symbol: &str,
@@ -259,6 +270,9 @@ pub(crate) fn emit_child_apply_env(
     let keyc = v.next();
     let valc = v.next();
     let flags = v.next();
+    let idx = v.next();
+    let epi = v.next();
+    let cur = v.next();
 
     // Preserve the map pointer across the environ/unsetenv/setenv libc calls.
     instructions.push(abi::move_register(&map0, map));
@@ -267,6 +281,7 @@ pub(crate) fn emit_child_apply_env(
     let no_clear = format!("{symbol}_env_noclear");
     let clear_loop = format!("{symbol}_env_clear");
     let clear_done = format!("{symbol}_env_clear_done");
+    let clear_skip = format!("{symbol}_env_clear_skip");
     let scan_loop = format!("{symbol}_env_scan");
     let scan_done = format!("{symbol}_env_scan_done");
     let name_copy = format!("{symbol}_env_name_copy");
@@ -276,10 +291,15 @@ pub(crate) fn emit_child_apply_env(
         abi::branch_eq(&no_clear),
     ]);
     platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
-    instructions.push(abi::move_register(&ep, abi::return_register()));
     instructions.extend([
+        abi::move_register(&ep, abi::return_register()),
+        abi::move_immediate(&idx, "Integer", "0"),
         abi::label(&clear_loop),
-        abi::load_u64(&estr, &ep, 0),
+        // estr = environ[idx]
+        abi::move_immediate(&off, "Integer", "8"),
+        abi::multiply_registers(&epi, &idx, &off),
+        abi::add_registers(&epi, &ep, &epi),
+        abi::load_u64(&estr, &epi, 0),
         abi::compare_immediate(&estr, "0"),
         abi::branch_eq(&clear_done),
         // nlen = index of '=' (or NUL) in estr
@@ -295,6 +315,12 @@ pub(crate) fn emit_child_apply_env(
         abi::add_immediate(&nlen, &nlen, 1),
         abi::branch(&scan_loop),
         abi::label(&scan_done),
+        // No '=' (scan ended at NUL): not a variable, nothing to unset — step over.
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_eq(&clear_skip),
+        // Leading '=' (empty name): unsetenv("") is EINVAL and removes nothing.
+        abi::compare_immediate(&nlen, "0"),
+        abi::branch_eq(&clear_skip),
     ]);
     emit_copy_to_cstring(
         symbol,
@@ -319,11 +345,22 @@ pub(crate) fn emit_child_apply_env(
         instructions,
         relocations,
     )?;
-    // environ shifted down in place; environ[0] is the next entry. Reload ep in
-    // case the accessor is not stable, then loop.
+    // unsetenv shifts the array down in place, so on success environ[idx] is now
+    // the NEXT entry and idx stays put. Reload ep (the accessor may hand back a
+    // fresh array — Darwin copies environ on first modification) and re-read
+    // environ[idx]: if it is still the same string, unsetenv removed nothing and
+    // the entry must be stepped over, or the loop would never terminate.
     platform.emit_environ_pointer(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::move_register(&ep, abi::return_register()),
+        abi::move_immediate(&off, "Integer", "8"),
+        abi::multiply_registers(&epi, &idx, &off),
+        abi::add_registers(&epi, &ep, &epi),
+        abi::load_u64(&cur, &epi, 0),
+        abi::compare_registers(&cur, &estr),
+        abi::branch_ne(&clear_loop),
+        abi::label(&clear_skip),
+        abi::add_immediate(&idx, &idx, 1),
         abi::branch(&clear_loop),
         abi::label(&clear_done),
         abi::label(&no_clear),

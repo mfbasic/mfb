@@ -892,7 +892,6 @@ pub(crate) fn lower_function(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
-        error_arena_restore_slot: None,
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
@@ -927,6 +926,7 @@ pub(crate) fn lower_function(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1329,7 +1329,6 @@ pub(crate) fn lower_abi_function_helper(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
-        error_arena_restore_slot: None,
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
@@ -1357,6 +1356,7 @@ pub(crate) fn lower_abi_function_helper(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
 
     // Hand the body its incoming ABI argument registers directly as `ValueResult`s
@@ -1474,7 +1474,6 @@ pub(crate) fn lower_thread_copy_function(
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         escaping_value_slot: None,
-        error_arena_restore_slot: None,
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
@@ -1502,6 +1501,7 @@ pub(crate) fn lower_thread_copy_function(
         for_bound_expr: HashMap::new(),
         len_of_local: HashMap::new(),
         provable_index_locals: HashMap::new(),
+        enclosing_loop_reassigned: Vec::new(),
     };
 
     // Capture the incoming source pointer in a vreg (spilled across the copy's

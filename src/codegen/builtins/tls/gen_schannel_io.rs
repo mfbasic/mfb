@@ -377,14 +377,29 @@ pub(crate) fn lower_tls_write(
         abi::store_u64(&v9, abi::stack_pointer(), STATE),
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64(&v9, abi::stack_pointer(), FD),
-        // data pointer + length: String/List OF Byte both carry [u64 len][bytes].
-        abi::add_immediate(&v10, abi::c_arg(1), 8),
-        abi::store_u64(&v10, abi::stack_pointer(), SRC),
-        abi::load_u64(&v10, abi::c_arg(1), 0),
-        abi::store_u64(&v10, abi::stack_pointer(), REMAIN),
-        abi::store_u64(&v10, abi::stack_pointer(), ORIGLEN), // result = original length
     ]);
-    let _ = text;
+    // bug-508: honour the payload form. The old comment here claimed "String/List
+    // OF Byte both carry [u64 len][bytes]" and read every payload as a String;
+    // a `List OF Byte` block's word at +0 is its header, so its length came out
+    // as ~16 MiB and the data pointer landed inside the header (OOB read, remote
+    // crash of every Windows HTTPS server that wrote a byte-list body). The view
+    // is now the one every other backend uses (bug-497), header check included.
+    let bad_payload = format!("{symbol}_bad_payload");
+    push_write_payload_view(
+        &mut ins,
+        text,
+        abi::c_arg(1),
+        &v10,
+        &v11,
+        &v12,
+        &v13,
+        &v14,
+        REMAIN,
+        SRC,
+        &bad_payload,
+    );
+    // result = original length (`v10` is the length in both forms).
+    ins.push(abi::store_u64(&v10, abi::stack_pointer(), ORIGLEN));
     // Allocate a send buffer sized header + maxmsg + trailer.
     ins.extend([
         abi::load_u64(&v10, abi::stack_pointer(), STATE),
@@ -489,8 +504,88 @@ pub(crate) fn lower_tls_write(
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
+    if !text {
+        // bug-497/bug-508: a byte-form payload whose header is not a `List OF Byte`'s.
+        ins.push(abi::label(&bad_payload));
+        emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
+    }
     ins.extend([abi::label(&done), abi::return_()]);
     Ok((ins, rel, FRAME_SIZE))
+}
+
+#[cfg(test)]
+mod write_payload_tests {
+    use super::*;
+    use crate::codegen::engine::tests::TestPlatform;
+    use std::collections::HashMap;
+
+    /// Every load off the payload register (`c_arg(1)`), as `(mnemonic, offset)`.
+    fn payload_loads(text: bool) -> Vec<(String, String)> {
+        let (ins, _rel, _frame) = lower_tls_write("t_w", &HashMap::new(), &TestPlatform, text)
+            .expect("lower schannel tls write");
+        let payload = abi::c_arg(1).render();
+        ins.iter()
+            .filter(|i| i.get("base").as_deref() == Some(payload.as_str()))
+            .map(|i| {
+                (
+                    i.op.mnemonic().to_string(),
+                    i.get("offset").as_deref().unwrap_or("").to_string(),
+                )
+            })
+            .collect()
+    }
+
+    // bug-508: the byte form read the payload with the String layout (`length @
+    // +0`, `data @ +8`). A `List OF Byte` block's word at +0 is its header, so the
+    // write length was ~16 MiB and the data pointer landed inside the header —
+    // an out-of-bounds read a remote peer triggers on every Windows HTTPS server
+    // that writes a byte-list body. The length must come from the collection
+    // COUNT, and the header must be checked first (bug-497).
+    #[test]
+    fn byte_list_payload_length_is_the_collection_count_not_the_first_word() {
+        let loads = payload_loads(false);
+        let u64_offsets: Vec<&str> = loads
+            .iter()
+            .filter(|(op, _)| op == "ldr_u64")
+            .map(|(_, off)| off.as_str())
+            .collect();
+        assert!(
+            !u64_offsets.contains(&"0"),
+            "bug-508: the byte form reads the word at +0 of a List OF Byte — that is the \
+             String layout, and on a collection block it is the header: {loads:?}"
+        );
+        assert!(
+            u64_offsets.contains(&COLLECTION_OFFSET_COUNT.to_string().as_str()),
+            "bug-508: the byte form never reads the collection count: {loads:?}"
+        );
+        let mut u8_offsets: Vec<&str> = loads
+            .iter()
+            .filter(|(op, _)| op == "ldr_u8")
+            .map(|(_, off)| off.as_str())
+            .collect();
+        u8_offsets.sort_unstable();
+        assert_eq!(
+            u8_offsets,
+            vec!["0", "1", "2"],
+            "bug-497: the byte form must verify kind/keyType/valueType before trusting the \
+             count: {loads:?}"
+        );
+    }
+
+    // The String form keeps its layout — `length @ +0` — and never reads header
+    // bytes (there are none; a String's first bytes are its length).
+    #[test]
+    fn string_payload_length_is_the_first_word() {
+        let loads = payload_loads(true);
+        assert!(
+            loads.iter().any(|(op, off)| op == "ldr_u64" && off == "0"),
+            "the text form must read the String length at +0: {loads:?}"
+        );
+        assert!(
+            !loads.iter().any(|(op, _)| op == "ldr_u8"),
+            "the text form must not read collection header bytes: {loads:?}"
+        );
+    }
 }
 
 include!("gen_schannel_read_close.rs");

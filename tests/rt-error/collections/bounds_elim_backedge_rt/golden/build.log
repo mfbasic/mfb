@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-error/collections/bounds_elim_backedge_rt
+Wrote AST to tests/rt-error/collections/bounds_elim_backedge_rt/func_collections_bounds_elim_backedge_rt.ast
+Wrote IR to tests/rt-error/collections/bounds_elim_backedge_rt/func_collections_bounds_elim_backedge_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/collections/bounds_elim_backedge_rt
+Wrote executable to tests/rt-error/collections/bounds_elim_backedge_rt/build/func_collections_bounds_elim_backedge_rt.out
+[exit 0]
+$ tests/rt-error/collections/bounds_elim_backedge_rt/build/func_collections_bounds_elim_backedge_rt.out
+Error: 7-705-0001
+List or string index/range is outside valid bounds.
+[exit 255]

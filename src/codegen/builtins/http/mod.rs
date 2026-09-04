@@ -47,7 +47,9 @@ mod helper_build_response;
 mod helper_byte_slice;
 mod helper_bytes_match_at;
 mod helper_bytes_to_text;
+mod helper_check_response;
 mod helper_chunked_complete;
+mod helper_chunked_scan;
 mod helper_dec_to_int;
 mod helper_dechunk_bytes;
 mod helper_decode_body;
@@ -56,9 +58,12 @@ mod helper_dispatch;
 mod helper_disposition_param;
 mod helper_empty_request;
 mod helper_ext_content_type;
+mod helper_frame_advance;
 mod helper_frame_complete;
+mod helper_frame_start;
 mod helper_framing_length;
 mod helper_has_control_bytes;
+mod helper_has_field_control_bytes;
 mod helper_header_map_from_head;
 mod helper_header_value;
 mod helper_hex_to_int;
@@ -69,6 +74,8 @@ mod helper_invoke_handler;
 mod helper_is_extra_header;
 mod helper_last_index_of;
 mod helper_limits;
+mod helper_linger_net;
+mod helper_linger_tls;
 mod helper_match_path;
 mod helper_multipart_boundary;
 mod helper_normalize_method;
@@ -79,8 +86,12 @@ mod helper_parse_response;
 mod helper_parse_status_line;
 mod helper_part_header;
 mod helper_read_net;
+mod helper_read_request_net;
+mod helper_read_request_tls;
 mod helper_read_tls;
 mod helper_reason_phrase;
+mod helper_request_framing;
+mod helper_request_header_map;
 mod helper_request_target;
 mod helper_response_with;
 mod helper_segments;
@@ -199,6 +210,8 @@ pub(crate) fn register(r: &mut Registry) {
         "strings",
         "collections",
         "errorCode",
+        // bug-507: the server's whole-request deadline reads the monotonic clock.
+        "datetime",
     ]);
 
     // The value types, registry-modeled (`get_mfb` renders them into the injected
@@ -409,6 +422,66 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
+    // bug-507: the server read loop's incremental framing state, threaded through
+    // `__http_frameAdvance` after every read so the head scan and the chunk walk
+    // resume where they stopped (OS-56). `status` is the 4xx to answer (0 = none).
+    pkg.add_record(RegistryRecord {
+        name: "__http_FrameState",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "status",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "complete",
+                ty: ParameterType::Boolean,
+                description: "",
+            },
+            RecordProp {
+                name: "scanFrom",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "headEnd",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "framing",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "cursor",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
+    // bug-507: one connection's read outcome — the bytes and the 4xx to answer
+    // (0 = a complete request to parse) — marshalled out of the per-transport
+    // read loop so `handleRequest` can TRAP the whole read (OS-51).
+    pkg.add_record(RegistryRecord {
+        name: "__http_ReadResult",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "raw",
+                ty: ParameterType::list_of(ParameterType::Byte),
+                description: "",
+            },
+            RecordProp {
+                name: "status",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
     // plan-76-D: the non-blocking client's transport. `Stream` is a RESOURCE union
     // over the two transports; plan-97/bug-441 made built-in resources
     // package-qualified end to end, so the variants carry their qualified
@@ -449,6 +522,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_header_value::register(&mut pkg);
     helper_is_extra_header::register(&mut pkg);
     helper_has_control_bytes::register(&mut pkg);
+    helper_has_field_control_bytes::register(&mut pkg);
     helper_build_request::register(&mut pkg);
     helper_hex_to_int::register(&mut pkg);
     helper_dec_to_int::register(&mut pkg);
@@ -466,9 +540,18 @@ pub(crate) fn register(r: &mut Registry) {
     helper_last_index_of::register(&mut pkg);
     helper_bytes_to_text::register(&mut pkg);
     helper_header_map_from_head::register(&mut pkg);
+    helper_request_header_map::register(&mut pkg);
     helper_framing_length::register(&mut pkg);
+    helper_request_framing::register(&mut pkg);
     helper_frame_complete::register(&mut pkg);
+    helper_chunked_scan::register(&mut pkg);
     helper_chunked_complete::register(&mut pkg);
+    helper_frame_start::register(&mut pkg);
+    helper_frame_advance::register(&mut pkg);
+    helper_read_request_net::register(&mut pkg);
+    helper_read_request_tls::register(&mut pkg);
+    helper_linger_net::register(&mut pkg);
+    helper_linger_tls::register(&mut pkg);
     helper_dechunk_bytes::register(&mut pkg);
     helper_multipart_boundary::register(&mut pkg);
     helper_disposition_param::register(&mut pkg);
@@ -483,6 +566,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_match_path::register(&mut pkg);
     helper_invoke_handler::register(&mut pkg);
     helper_dispatch::register(&mut pkg);
+    helper_check_response::register(&mut pkg);
     helper_build_response::register(&mut pkg);
     helper_response_with::register(&mut pkg);
     helper_reason_phrase::register(&mut pkg);

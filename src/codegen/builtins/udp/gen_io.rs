@@ -12,6 +12,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
+use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::codegen::os::socket::shared::*;
 use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
@@ -646,33 +647,22 @@ pub(crate) fn lower_net_send_to_helper(
         abi::load_u64(&v9, abi::c_arg(1), 8),
         abi::store_u64(&v9, abi::stack_pointer(), PORT_OFFSET),
     ]);
-    if text {
-        // x2 = String*: data at +8, length at +0.
-        instructions.extend([
-            abi::load_u64(&v10, abi::c_arg(2), 0),
-            abi::store_u64(&v10, abi::stack_pointer(), DLEN_OFFSET),
-            abi::add_immediate(&v11, abi::c_arg(2), 8),
-            abi::store_u64(&v11, abi::stack_pointer(), DATA_OFFSET),
-        ]);
-    } else {
-        // x2 = List OF Byte: bytes live inline in the data region, which begins
-        // past the CAPACITY-sized entry array at
-        // collection + HEADER + capacity * ENTRY_SIZE. Using count instead
-        // mis-addresses an append-built list that carries spare capacity.
-        instructions.extend([
-            abi::load_u64(&v10, abi::c_arg(2), COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, abi::stack_pointer(), DLEN_OFFSET),
-        ]);
-        push_collection_data_base_from_capacity(
-            &mut instructions,
-            &v11,
-            abi::c_arg(2),
-            &v14,
-            &v12,
-            &v13,
-        );
-        instructions.extend([abi::store_u64(&v11, abi::stack_pointer(), DATA_OFFSET)]);
-    }
+    // bug-497 / bug-508: one payload view for every backend — the text form
+    // as before, the byte form after a header check (`push_write_payload_view`).
+    let bad_payload = format!("{symbol}_bad_payload");
+    push_write_payload_view(
+        &mut instructions,
+        text,
+        abi::c_arg(2),
+        &v10,
+        &v11,
+        &v14,
+        &v12,
+        &v13,
+        DLEN_OFFSET,
+        DATA_OFFSET,
+        &bad_payload,
+    );
     emit_hints(
         HINTS_OFFSET,
         false,
@@ -849,6 +839,18 @@ pub(crate) fn lower_net_send_to_helper(
         &mut relocations,
         &done,
     );
+    if !text {
+        // bug-497: the byte form was handed a block whose header is not a
+        // `List OF Byte`'s — refuse rather than read a length out of its bytes.
+        instructions.push(abi::label(&bad_payload));
+        emit_fail(
+            symbol,
+            "ErrInvalidArgument",
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
     instructions.extend([abi::label(&done), abi::return_()]);
     {
         Ok((instructions, relocations, FRAME_SIZE))

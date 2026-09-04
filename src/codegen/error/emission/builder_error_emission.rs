@@ -566,13 +566,6 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        if let Some(slot) = self.error_arena_restore_slot {
-            self.emit(abi::load_u64(
-                ARENA_STATE_REGISTER,
-                abi::stack_pointer(),
-                slot,
-            ));
-        }
         // Design "b" origin (plan-error-block-in-slot stage 4): `make_error_result`
         // has landed the loose error in the registers. Build the single owned Error
         // block once and park it so whoever catches this domain error ADOPTS it

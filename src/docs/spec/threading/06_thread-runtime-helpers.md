@@ -70,7 +70,8 @@ storing:
   reserves — because the writable globals region is addressed off the arena-state
   register and is therefore **per-arena**. Sizing it to `ARENA_STATE_SIZE` alone
   put every global access in a worker past the end of the block (bug-369).
-- The parent's arena state (so worker→parent transfers can materialize into it).
+- The parent's arena state (recorded for the control-block layout; since bug-498
+  no transfer allocates into another thread's arena).
 - Four bounded queues: data inbound/outbound and resource inbound/outbound. The
   inbound queues take the `inboundLimit`; the outbound queues take the
   `outboundLimit`.

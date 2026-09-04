@@ -1168,48 +1168,57 @@ impl CodeBuilder<'_> {
             }
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.static_type_name(target)?;
-                if member == "result" {
-                    if let ParameterType::ThreadHandle {
-                        worker: false, out, ..
-                    } = &target_type
-                    {
-                        return Some(ParameterType::result_of((**out).clone()));
-                    }
-                }
-                // A record or union-variant field, read from the same tables the
-                // field-access lowering itself uses. Without this arm the builder
-                // could not name the type of `rec.field`, so `typeName(rec.field)`
-                // failed to lower at all with "cannot determine typeName argument
-                // type" (bug-366).
-                // The two field tables are keyed by nominal type NAME, so the
-                // lookup renders the (scalar-cheap) name — a name-keyed table
-                // probe, not a type-string derivation.
-                let owner = target_type.name();
-                let field_type = self
-                    .type_model
-                    .record_fields
-                    .get(&ParameterType::declared(owner.as_ref()))
-                    .or_else(|| {
-                        self.type_model
-                            .union_variant_fields
-                            .get(&ParameterType::declared(owner.as_ref()))
-                    })
-                    .and_then(|fields| {
-                        fields
-                            .iter()
-                            .find(|(name, _)| name == member)
-                            .map(|(_, type_)| type_.clone())
-                    });
-                if field_type.is_some() {
-                    return field_type;
-                }
-                let (key_type, value_type) = typed_map_entry_type_parts(&target_type)?;
-                match member.as_str() {
-                    "key" => Some(key_type.clone()),
-                    "value" => Some(value_type.clone()),
-                    _ => None,
-                }
+                self.member_type_of(&target_type, member)
             }
+        }
+    }
+
+    /// The type of `member` read off a value of `target_type`: the thread
+    /// handle's `result`, a record or union-variant field, or a typed map
+    /// entry's `key`/`value`. Split out of [`Self::static_type_name`] so
+    /// [`Self::overload_arg_type`] can apply the same lookup to a target that
+    /// only IT can type (bug-497: `makeRec().body`).
+    fn member_type_of(&self, target_type: &ParameterType, member: &str) -> Option<ParameterType> {
+        if member == "result" {
+            if let ParameterType::ThreadHandle {
+                worker: false, out, ..
+            } = target_type
+            {
+                return Some(ParameterType::result_of((**out).clone()));
+            }
+        }
+        // A record or union-variant field, read from the same tables the
+        // field-access lowering itself uses. Without this arm the builder
+        // could not name the type of `rec.field`, so `typeName(rec.field)`
+        // failed to lower at all with "cannot determine typeName argument
+        // type" (bug-366).
+        // The two field tables are keyed by nominal type NAME, so the
+        // lookup renders the (scalar-cheap) name — a name-keyed table
+        // probe, not a type-string derivation.
+        let owner = target_type.name();
+        let field_type = self
+            .type_model
+            .record_fields
+            .get(&ParameterType::declared(owner.as_ref()))
+            .or_else(|| {
+                self.type_model
+                    .union_variant_fields
+                    .get(&ParameterType::declared(owner.as_ref()))
+            })
+            .and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == member)
+                    .map(|(_, type_)| type_.clone())
+            });
+        if field_type.is_some() {
+            return field_type;
+        }
+        let (key_type, value_type) = typed_map_entry_type_parts(target_type)?;
+        match member {
+            "key" => Some(key_type.clone()),
+            "value" => Some(value_type.clone()),
+            _ => None,
         }
     }
 
@@ -1244,6 +1253,118 @@ impl CodeBuilder<'_> {
                     .collect::<Option<Vec<_>>>()?;
                 builtins::resolve_call_return_type_typed(target, &arg_types, false)
             }
+            _ => None,
+        }
+    }
+
+    /// Static type of a runtime-call ARGUMENT, for the code-form (overload)
+    /// selection in [`Self::lower_runtime_helper_call`].
+    ///
+    /// bug-476: several native members collapse two overloads into one name and
+    /// choose the *lowering* here, from an argument's static type —
+    /// `tcp::write`/`tls::write`/`udp::send` (bytes vs text),
+    /// `tcp::connect`/`tls::connect` (host/port vs `Address`), `net::ping`,
+    /// `tcp`/`udp`/`tls` `poll` (scalar vs list), `tls::localAddress`
+    /// (`Socket` vs `Listener`) and `io::print`'s `AttributedString` rewrite.
+    /// [`Self::static_type_name`]'s `NirValue::Call` arm is a hand-written table
+    /// of a dozen builtins, so **any other call answered `None`** and every one
+    /// of those selectors silently took its fallback form. For `tcp::write` that
+    /// meant `tcp::write(sock, buildHead(x))` marshalling a `String*` through the
+    /// collection path: a garbage element count, a failed `write(2)`, and an
+    /// `ErrConnectionClosed` raised with nothing on the wire — which is how
+    /// `http::handleRequest` came to serve an empty reply to every request.
+    ///
+    /// The miss is only in the *call* arm, and only user/package functions and
+    /// untabulated builtins are added: a call is resolved against the same
+    /// return-type tables `emit_call` uses (the NIR function set, then the
+    /// package return types), falling back to
+    /// [`Self::static_type_name_for_fold`]'s registry resolver. It deliberately
+    /// does NOT widen `static_type_name` itself — that also gates the in-place
+    /// append/set fast path, numeric-result typing and the slice specialisation,
+    /// where naming more call results changes codegen (and, for
+    /// `x = collections::append(x, f())`, the aliasing decision) far outside an
+    /// overload choice.
+    ///
+    /// bug-497 widened the call arm past named functions to a call through a
+    /// FUNC-typed value, and added the `MemberAccess`/`ResultValue` arms, after
+    /// `tcp::write(sock, f(x))` and `tcp::write(sock, makeRec().body)` were
+    /// measured still taking the byte-list form — the same peer-controlled
+    /// out-of-bounds read the named-function case was (OS-50). The write
+    /// selectors now refuse an unresolved payload outright
+    /// (`net_write_payload_form`), so a shape this cannot type is a build error.
+    pub(crate) fn overload_arg_type(&self, value: &NirValue) -> Option<ParameterType> {
+        if let Some(type_) = self.static_type_name(value) {
+            return Some(type_);
+        }
+        match value {
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => {
+                if let Some(type_) = self
+                    .functions
+                    .get(target.as_str())
+                    .map(|function| function.returns.clone())
+                    .or_else(|| self.package_return_types.get(target.as_str()).cloned())
+                {
+                    return Some(type_);
+                }
+                // bug-497: a call THROUGH a FUNC-typed value — `LET f AS
+                // FUNC(String) AS String = reply` then `f(x)` — is a `Call` whose
+                // target is the VALUE's name, so neither function table above
+                // knows it. Its declared type carries the return type, exactly
+                // as a named function's `returns` does.
+                if let Some(ParameterType::Func(_, returns, _)) = self
+                    .locals
+                    .get(target.as_str())
+                    .map(|local| local.type_.clone())
+                    .or_else(|| {
+                        self.globals
+                            .get(target.as_str())
+                            .map(|global| global.type_.clone())
+                    })
+                {
+                    return Some(*returns);
+                }
+                self.static_type_name_for_fold(value)
+            }
+            // bug-497: `makeRec().body` — a field read off a call result.
+            // `static_type_name`'s own arm gives up because it cannot type the
+            // call; type the target with THIS resolver and reuse its field lookup.
+            NirValue::MemberAccess { target, member } => {
+                let target_type = self.overload_arg_type(target)?;
+                self.member_type_of(&target_type, member).or_else(|| {
+                    // `res.state` on a STATE-carrying resource (or resource
+                    // union). `member_type_of` knows only record/union-variant
+                    // fields, a thread handle's `result`, and a typed map's
+                    // key/value — so every payload reached THROUGH the STATE
+                    // block (`client.state.raw`) was unresolved, and the
+                    // fail-closed write selector this bug added then refused a
+                    // VALID program at build time:
+                    //   error: native runtime tls.write: payload static type
+                    //   <unresolved> is neither String nor List OF Byte
+                    // (`tests/rt_macos_d4_union_state_tls.rs`). The lowering
+                    // itself has always known this type — `emit_member_access`
+                    // reads it off `type_.state()` — so only the static side
+                    // was missing.
+                    //
+                    // Resolved HERE and not in `member_type_of`, because that
+                    // is shared with `static_type_name`, which also gates the
+                    // in-place append/set fast path: typing `client.state.raw`
+                    // there would retype
+                    // `client.state.raw = collections::append(client.state.raw, …)`
+                    // and shift that statement's codegen and aliasing decision,
+                    // far outside an overload choice.
+                    if member == "state" {
+                        target_type.state()
+                    } else {
+                        None
+                    }
+                })
+            }
+            NirValue::ResultValue { value } => match self.overload_arg_type(value)? {
+                ParameterType::ResultOf(success) => Some(*success),
+                other => Some(other),
+            },
             _ => None,
         }
     }
