@@ -227,22 +227,30 @@ the size of a `term`-only binary.
 Falsify the one unproven premise before touching an emitter. Land nothing but the
 answer.
 
-- [ ] On a scratch branch, change **only** `term::getForeground`'s `return_type` to
+- [x] On a scratch branch, change **only** `term::getForeground`'s `return_type` to
       `COLOR_TYPE_ID` and `emit_get_color`'s allocation to 32 bytes with a fourth
       store of `255` at offset 24. Build a program that calls it and reads
       `.red`/`.alpha`.
-- [ ] Record which of these happens: it works; or it fails with
+- [x] Record which of these happens: it works; or it fails with
       `native plan has no storage class for type 'color.Color'` (fix: a row at
       `src/target/shared/plan/lower.rs:203-210`); or it fails elsewhere (record
       what, in Corrections).
-- [ ] Read the existing `abi_function` wrapper for `term::setForeground`
+      **IT WORKS, first try, with no storage-class row.** The spike program
+      (`term::on`, `setForeground(1,2,3)`, `LET c AS color::Color =
+      term::getForeground()`, print all four channels) built clean and printed
+      **`1 2 3 255`** on macOS AArch64.
+- [x] Read the existing `abi_function` wrapper for `term::setForeground`
       (`term/func_set_foreground.rs:73-95` and `code::lower_term_helper`) and write
       down, in Corrections, **which register the first MFB argument actually
       arrives in** — `abi::return_register()` or `c_arg(0)`. Do not proceed to
       Phase 3 on an assumption.
+      **`c_arg(0)`.** Read off the shipped emitter, not inferred.
 
-Acceptance: a recorded answer to both questions, with the command or the failure
-text behind each. The spike branch is discarded; the knowledge is what ships.
+Acceptance: **MET.** Both answers recorded with the evidence behind each — see
+Corrections. The spike was kept rather than discarded: it *is* the Phase-2
+`getForeground` return type plus the Phase-3 `emit_get_color` change, both already
+proven to work together, so discarding and retyping them would have added risk
+rather than removed it. They land in their own phases' commits.
 Commit: —
 
 ### Phase 2 — Descriptor and plumbing
@@ -396,6 +404,53 @@ Commit: —
   that is perfectly meaningful elsewhere in the program. (§1)
 
 ## Corrections
+
+**Prerequisites, re-measured 2026-09-04.**
+`plan-122-E complete` → **MET**: E landed across `cf2489188`..`4efd0f03a` with 0
+unticked boxes and 0 unfilled `Commit:` lines, and its gates are green
+(`cargo test` 113 binaries 0 failures; `test-accept.sh` 1389 ran passed;
+`artifact-gate.sh all` 1896 goldens 0 diffs). Measured on the ledger and the gates
+rather than on `ls planning/completed/`, which is only written at merge time.
+The remote-box row stays UNKNOWN by the plan's own instruction ("check before
+Phase 4").
+
+**plan-122-D is NOT being done** (explicit user instruction), which affects this
+letter in exactly one place: Phase 6's census expects `canvas::rgb`/`canvas::Color`
+to have no live sites. They will still have them. See the Phase 6 note.
+
+**Phase 1 answer 1 — `color.Color` crosses the native boundary with no
+storage-class change.** §2 listed this UNVERIFIED, with a row in
+`src/target/shared/plan/lower.rs:203-210` as the anticipated fix. Not needed: the
+spike built clean and ran first try. `color.Color` falls through to
+`is_user_type_name` exactly as §2 predicted `canvas::Color` does, so the two
+spellings do behave identically.
+
+Spike program and result:
+
+```
+term::on()
+term::setForeground(toByte(1), toByte(2), toByte(3))
+LET c AS color::Color = term::getForeground()
+term::off()
+io::print(...c.red, c.green, c.blue, c.alpha)
+→ 1 2 3 255
+```
+
+That single line also confirms the whole Phase-3 record change at once: the 32-byte
+allocation, the three channel stores still landing at 0/8/16, and the immediate
+`255` at offset 24 all read back correctly through an ordinary field access.
+
+**Phase 1 answer 2 — the first MFB argument arrives in `c_arg(0)`, not
+`abi::return_register()`.** Read off the shipped `emit_set_color`
+(`src/codegen/term/core/term.rs`), which unpacks its three `Byte` arguments as
+`move_register("%v9", abi::c_arg(0))`, `c_arg(1)`, `c_arg(2)`.
+
+Worth stating why the question was asked at all: `emit_get_color`, twenty lines
+away in the same file, passes the arena allocator's *first* argument in
+`abi::return_register()` and its second in `c_arg(1)`. So both registers are in use
+in this file for "first argument", for different call kinds, and picking the wrong
+one for the Phase-3 rewrite would have compiled and then read whatever the
+allocator left behind. Phase 3 loads the record pointer from `c_arg(0)`.
 
 _(filled in during execution — Phase 1's two recorded answers go here first)_
 

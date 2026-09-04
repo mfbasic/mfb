@@ -40,7 +40,6 @@ const BUILTIN_TYPES: &[&str] = &[
     // from this list — was correctly refused.
     crate::codegen::builtins::color::COLOR_TYPE_ID,
     crate::codegen::builtins::color::HSL_TYPE_ID,
-    crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
     crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE_ID,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone

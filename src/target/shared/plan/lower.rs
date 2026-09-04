@@ -206,7 +206,7 @@ pub(super) fn is_reference_type(type_: &crate::types::ParameterType) -> bool {
         ParameterType::Named(n)
             if matches!(
                 n.resolve(),
-                "TermColor" | "TermSize" | "Error" | "fs.File" | "FileHandle" | "DirHandle"
+                "TermSize" | "Error" | "fs.File" | "FileHandle" | "DirHandle"
             )
     )
 }
