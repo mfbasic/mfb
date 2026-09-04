@@ -5,9 +5,9 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (authorization bypass — stale ownership)
 
-Status: Open (found in audit-3, Surface 8 REPO-03; reproduced live by the lead)
+Status: FIXED (found in audit-3, Surface 8 REPO-03; reproduced live by the lead; re-reproduced and fixed 2026-09-03)
 
-Regression Test: none yet — add a registry test that transfers a package and asserts the former owner is refused `/release-state` and `/signing` while the new owner succeeds.
+Regression Test: `repository/src/server.rs` — `a_transferred_package_is_governed_by_its_current_owner` (after a real two-sided transfer the former owner is refused at `/release-state` and `/signing`, the current owner succeeds at both, and first-publish `/signing` for a package with no row still follows the ident prefix). `repository/src/store.rs` — `set_release_state_rejects_unpublished_and_updates_published` (the `owner_id` predicate refuses a foreign account at the store, logging nothing).
 
 ## Summary
 
@@ -82,3 +82,58 @@ offers; it did not touch what a former owner may still do afterwards. Searched
 `set_release_state`, `package_owner`, `accept_transfer`, "transfer", "yank"
 across `bugs/`, `bugs/completed/`, `bugs/skipped/`, `audit-1-repository.md`,
 `audit-2-repository.md`.
+
+## STATUS: FIXED
+
+Landed on `worktree-B-492` (shared with bug-492/493), merged to `main`.
+
+**Mechanism confirmed live before the fix** (`spikes/audit-3/repository-authz`,
+`transfer`, against the pre-fix `mfb-repo`):
+
+```
+package owner after transfer = Some("bobpre1")
+former-owner yank status = 200 OK
+former-owner /signing status = 200 OK
+current-owner unyank status = 400 Bad Request   {"error":"ident owner does not match session owner"}
+```
+
+**What changed:**
+
+- `require_package_owner` (`server.rs`) authorizes on `packages.owner_id`: when a
+  row exists its owner must be the session owner (`"package is not owned by the
+  session owner"`); only when no row exists yet does the ident's `owner#` prefix
+  decide, which keeps first publish working and the error shape for a foreign or
+  malformed ident unchanged. `release_state` and `signing` both call it.
+- `set_release_state(owner_id, ident, version, state)` resolves the version
+  under `AND p.owner_id = ?3`, mirroring `publish_package_version`, so the store
+  refuses a former owner even if a handler forgot to; the message is
+  `"... is not published by this account"` and nothing is logged.
+- `publish_aborts_the_staged_blob_when_the_ident_moved_owner` (bug-347 coverage
+  of the blob-abort path) obtained its `/signing` attestation *after* the
+  transfer — exactly this bug. Only that setup line moved (attest before the
+  transfer; the stale-attestation shape); the protected behavior — a store-refused
+  publish aborts the staged blob — is asserted unchanged. Evidence: written in
+  d0e3962b8 for coverage, no other dependents, disproved by the live repro above.
+
+**Not changed, deliberately:** the read surface (`/index/<ident>`,
+`package_detail`) still derives `owner`/`identKey` from the ident prefix. An
+already-published version verifies against the ident key it was signed with, so
+re-pointing `identKey` at the new owner would break verification of every
+pre-transfer version; following the transfer on the read side needs per-version
+identity binding, which is a separate change, not an authorization fix.
+
+**After the fix** (same harness, post-fix binary):
+
+```
+former-owner yank status = 400 Bad Request      {"error":"package is not owned by the session owner"}
+former-owner /signing status = 400 Bad Request  {"error":"package is not owned by the session owner"}
+current-owner unyank status = 200 OK            {"ident":"alicepost4#widget","version":"1.0.0","state":"available",...}
+```
+
+**Wire contract:** no request or response shape changed; a legitimate transfer
+(`ownership_transfer_is_two_sided_and_rebinds_the_package`) and first-publish
+`/signing` are asserted.
+
+**Gates:** `cargo test --no-fail-fast` in `repository/` green (321 lib + 21 bin);
+`cargo check --all-targets` 0 warnings; root `tests/cli_repo_*` acceptance suite
+from a detached worktree at the landed commit — see the landing report.
