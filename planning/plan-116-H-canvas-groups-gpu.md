@@ -508,6 +508,60 @@ Commit: —
 
 ## Corrections
 
+**H10 (Phase 2) — the emitter's two-pass conversion is written and preserved in a stash,
+not on the branch, because it makes the Vulkan harness worse than HEAD and the remaining
+failure is not yet understood.** What is on the branch (`3ded46db6`, `240fdf6ee`,
+`c29046626`) is everything that stands on its own: the push-constant range with both
+stages consuming it, both shader declarations, the pipeline split, and instance counting.
+The emitter conversion is `git stash` entry `2c21706ae` on `worktree-P-116`.
+
+**What the conversion contains, all of it verified as far as it goes:**
+
+* `emit_draw_list_pass` — walks `__CANVAS_DRAWS`, binds each entry's pipeline, pushes its
+  offset, issues one instanced `vkCmdDraw`. The emitted `.ncode` was read instruction by
+  instruction and is correct: stride `lsl 6` (8 elements × 8 bytes), fields at 0/8/16/24/32
+  loaded with `ldr_u64`, pipeline via the same shift-and-add the publish walk uses.
+* `emit_run_flush` deleted (74 lines, one function, guarded by an assertion on the cut).
+* `emit_glyph_draws` → `emit_glyph_publish`: its `vkCmdDraw` moved to the draw pass.
+
+**Three real bugs were found and fixed inside it**, each worth keeping:
+
+1. **The entry count was the element count.** Each entry is 8 elements, so the walk ran
+   8× too long over garbage; a nonsense `instanceCount` *hung the GPU* rather than
+   failing — box 2228 timed out with no output.
+2. **Fields were read as 32-bit.** An MFBASIC `Integer` is 64-bit, so `base` and `count`
+   were the low halves of the wrong words. 35.1% of the frame wrong, worst=255, with a
+   draw list every assertion called correct.
+3. **The glyph draw stayed in the publish walk**, so glyphs were drawn twice — the second
+   time with the push constant undefined for that command.
+
+**Where it stands: 10/12 on box 2228 against HEAD's 12/12**, `differing=4.27%`. The
+evidence gathered rules out the obvious causes and does not yet name the real one:
+
+* The draw list is **provably right**. Every entry maps to the scene by hand:
+  `0:10` the ten leading shapes, `10:4` the four-glyph label, `19:2` the `blendStroke`
+  blend split, `24:2` the two-glyph rotated text, `26:7` the tail. 33 instances from 28
+  blocks, which is 28 + 4 text + 1 split.
+* The GPU's disputed pixel is **correct**. At (430,100) it produces `ff4321`, and both the
+  macOS *and* Linux software renders produce `ff4321` there — measured by shipping the
+  scene to the box and dumping. It is the value the harness reports as the *oracle* that
+  is `000000`.
+* Two **software** runs of that scene on the box differ by 3.7% in rows 100–341, the
+  gradient bands, with `gpuFrames=0` in both — so a difference appears between two runs
+  that never touched the GPU at all.
+
+That last point is where the next session should start: it implicates the frame/damage
+interaction or which frame reaches `MFB_CANVAS_DUMP`, not the draw list, and it means the
+harness comparison may be measuring something other than what it claims here. Note
+`rendering_is_byte_reproducible` asserts the oracle is deterministic, so two software
+renders of one scene differing is either a real defect or a difference in *which frame*
+was dumped.
+
+Stashed rather than committed because HEAD is green on that harness and the conversion is
+not: leaving the branch red while the cause is unknown would make every later gate
+ambiguous. The stash is not a deferral — Phase 2's boxes stay unticked, which is what
+"not done" looks like in this ledger.
+
 **H9 (Phase 2) — sharing a group's blocks forces the emitter into two passes, and §4.1
 does not say so.** The current Vulkan emitter is one forward walk: for each item it
 publishes a block and, at a run boundary, issues the draw for everything published since
