@@ -10,6 +10,7 @@ REM has 0xFF in its top byte. That the top byte is now OCCUPIED at all is the th
 REM under test -- before the widening it was zero.
 
 IMPORT astrings
+IMPORT color
 IMPORT io
 
 FUNC payload(attrs AS List OF astrings::Attribute) AS Integer
@@ -31,14 +32,14 @@ END FUNC
 
 FUNC main AS Integer
   MUT s AS AttributedString = astrings::fromString("hi")
-  s = astrings::addAttribute(s, 0, 1, astrings::foreground(255, 128, 0))
+  s = astrings::addAttribute(s, 0, 1, astrings::foreground(color::rgb(255, 128, 0)))
 
   REM r=255 g=128 b=0, alpha forced to 255 -> 0xFFFF8000 = 4294934528.
   io::print("fg=" & toString(payload(astrings::getAttributes(s, 0))))
   io::print("fgExpected=" & toString(0xFFFF8000))
 
   MUT t AS AttributedString = astrings::fromString("hi")
-  t = astrings::addAttribute(t, 0, 1, astrings::background(18, 52, 86))
+  t = astrings::addAttribute(t, 0, 1, astrings::background(color::rgb(18, 52, 86)))
 
   REM r=0x12 g=0x34 b=0x56, alpha 255 -> 0xFF123456 = 4279383126.
   io::print("bg=" & toString(payload(astrings::getAttributes(t, 0))))
@@ -47,7 +48,7 @@ FUNC main AS Integer
   REM Black is the case that would look correct under the OLD layout too, if the
   REM alpha byte were left at zero -- so it is the one that proves alpha is set.
   MUT k AS AttributedString = astrings::fromString("hi")
-  k = astrings::addAttribute(k, 0, 1, astrings::foreground(0, 0, 0))
+  k = astrings::addAttribute(k, 0, 1, astrings::foreground(color::rgb(0, 0, 0)))
   io::print("black=" & toString(payload(astrings::getAttributes(k, 0))))
   io::print("blackExpected=" & toString(0xFF000000))
 

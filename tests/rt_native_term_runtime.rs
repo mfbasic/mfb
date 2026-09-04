@@ -363,12 +363,13 @@ fn native_term_draw_text_attributed_applies_colors() {
         r#"
 IMPORT term
 IMPORT astrings
+IMPORT color
 
 FUNC main AS Integer
   term::on()
   MUT a AS AttributedString = astrings::fromString("RedBlue")
-  a = astrings::addAttribute(a, 0, 2, astrings::foreground(255, 0, 0))
-  a = astrings::addAttribute(a, 3, 6, astrings::background(0, 0, 255))
+  a = astrings::addAttribute(a, 0, 2, astrings::foreground(color::rgb(255, 0, 0)))
+  a = astrings::addAttribute(a, 3, 6, astrings::background(color::rgb(0, 0, 255)))
   term::drawText(0, 0, a)
   term::sync()
   term::off()

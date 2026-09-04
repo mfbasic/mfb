@@ -83,7 +83,6 @@ mod helper_next_seq;
 mod helper_normalize_nfc;
 mod helper_number_from_member;
 mod helper_number_member;
-mod helper_pack_color;
 mod helper_pad_left;
 mod helper_pad_right;
 mod helper_remap_segment;
@@ -132,7 +131,9 @@ pub(crate) fn register(r: &mut Registry) {
     // The injected source's IMPORT lines (verbatim order from the old companion).
     // `astrings` imports itself so the assembled file can call the internal
     // overlay-bridge members (`astrings::readSpans`/`writeSpans`/`scalarLen`).
-    pkg.add_imports(vec!["collections", "astrings", "strings", "bits"]);
+    // `color` (plan-122-E): `foreground`/`background` take a `color::Color` and pack
+    // it with `color::toPacked`, which replaced the package-local `__astrings_packColor`.
+    pkg.add_imports(vec!["collections", "astrings", "strings", "bits", "color"]);
 
     // The open `Attribute` model: a styling attribute is a flag (`AttrFlag`), a
     // String-valued attribute (`AttrText`), or an Integer-valued one (`AttrNumber`),
@@ -381,8 +382,6 @@ pub(crate) fn register(r: &mut Registry) {
     // section of the assembled source. Order is preserved from the old single
     // `package.mfb` blob.
     //
-    // Convenience constructors.
-    helper_pack_color::register(&mut pkg);
     // Attribute <-> AttrSpan encoding.
     helper_flag_member::register(&mut pkg);
     helper_flag_from_member::register(&mut pkg);

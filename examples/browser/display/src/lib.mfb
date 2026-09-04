@@ -9,6 +9,7 @@
 ' union carries a CASE ELSE, as the language requires.
 
 IMPORT astrings
+IMPORT color
 IMPORT collections
 IMPORT dom
 IMPORT regex
@@ -453,7 +454,7 @@ FUNC buildRow(rowText AS String, spans AS List OF RowSpan) AS AttributedString
     IF s1 >= s0 THEN
       IF sp.bold THEN a = astrings::addAttribute(a, s0, s1, astrings::bold())
       IF sp.underline THEN a = astrings::addAttribute(a, s0, s1, astrings::underline())
-      IF sp.color >= 0 THEN a = astrings::addAttribute(a, s0, s1, astrings::foreground(redOf(sp.color), greenOf(sp.color), blueOf(sp.color)))
+      IF sp.color >= 0 THEN a = astrings::addAttribute(a, s0, s1, astrings::foreground(color::rgb(toInt(redOf(sp.color)), toInt(greenOf(sp.color)), toInt(blueOf(sp.color)))))
     END IF
   NEXT
   RETURN a

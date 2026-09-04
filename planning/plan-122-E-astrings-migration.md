@@ -241,23 +241,48 @@ Commit: —
 
 ### Phase 2 — The members take a `color::Color`
 
-- [ ] `astrings/mod.rs:135` — add `"color"` to `add_imports`.
-- [ ] `astrings/func_foreground.rs`, `func_background.rs` — single `base AS color::Color`
+- [x] `astrings/mod.rs:135` — add `"color"` to `add_imports`.
+- [x] `astrings/func_foreground.rs`, `func_background.rs` — single `base AS color::Color`
       parameter typed `COLOR_TYPE_ID`; bodies become
       `AttrNumber[AttrTypeNumber.Foreground, color::toPacked(base)]`. Rewrite
       `INTRO`/`DESC`/`EX` (the current prose describes the three-channel form and
       the `0xRRGGBB` packing in detail — every sentence of it is now wrong).
-- [ ] Delete `astrings/helper_pack_color.rs` and its `register` call; **check the
+      **The descriptor and the body spell the type differently** and must:
+      `ParameterType::named(COLOR_TYPE_ID)` → `color.Color` in the descriptor, but
+      the injected MFBASIC body needs the source spelling `color::Color`. Writing
+      `color.Color` in the body fails at companion parse with
+      `Function declarations must close the parameter list`.
+- [x] Delete `astrings/helper_pack_color.rs` and its `register` call; **check the
       neighbouring helper's doc comment did not absorb the deleted one's**.
-- [ ] `term/helper_astrings_bridge.rs` — add `IMPORT color` to the chunk's own
+      It would have: the `// Convenience constructors.` comment belonged solely to
+      the packer and sat directly above `// Attribute <-> AttrSpan encoding.`, so
+      deleting only the register line would have orphaned it onto the next section.
+      Both lines removed.
+- [x] `term/helper_astrings_bridge.rs` — add `IMPORT color` to the chunk's own
       import block (`:44-47`); delete `__term_colorR`/`G`/`B`; rewrite
       `__term_applyFg`/`Bg` to use `color::fromPacked`.
-- [ ] Update the 3 `.mfb` files and `tests/rt_native_term_runtime.rs`'s embedded
+- [x] Update the 3 `.mfb` files and `tests/rt_native_term_runtime.rs`'s embedded
       programs: add `IMPORT color`, wrap the channels in `color::rgb(...)`.
+      Also `tests/acceptance/src/astrings.mfb`, which the plan's file list omitted —
+      see Corrections; it is where the payload's expected values live.
 
-Acceptance: `mfb man astrings foreground` shows the one-parameter signature and its
-example compiles and runs (`scripts/man-run-examples.sh astrings --run`); the 3
-`.mfb` files build; `tests/rt_native_term_runtime.rs` passes.
+Acceptance: **MET.** `mfb man astrings foreground` renders
+`astrings::foreground(base AS color::Color) AS astrings::Attribute`;
+`scripts/man-run-examples.sh astrings --run` → **17 examples, 17 built, 17 ran, 0
+failed**; `tests/rt_native_term_runtime.rs` → **7 passed, 0 failed**, so the bridge
+still sends the terminal what it sent before, now through `color::fromPacked`.
+
+All four `.mfb` consumers build: the acceptance app (green inside `test-accept.sh`,
+which reported **0** `behavioral test failed` lines), and the browser example built
+the way `build-examples.sh` does — `dom → fetch/display → app` — to
+`examples/browser/app/build/browser.app`.
+
+**Measured size consequence** (the plan's §Compatibility asks for it): an
+`IMPORT astrings` program grows **1,156,388 → 1,321,508 bytes, +165,120** — exactly
+one `color` companion, no more. A program importing *both* `astrings` and `color`
+measures **identical** to one importing only `astrings`, confirming the companion
+is injected once rather than duplicated. (Sizes are quantised to 16,512-byte
+blocks — plan-122-C Corrections — so read `+165,120` as 10 blocks.)
 Commit: —
 
 ### Phase 3 — Alpha round-trip and goldens
@@ -333,6 +358,34 @@ literals the plan did not ask for: `0xFF000000` for black — the only case that
 tell "alpha set to 255" apart from "alpha left at zero", since every other channel
 is already zero — and a positivity assertion, which is what keeps `-1` sound as the
 bridge's unset sentinel after the widening.
+
+**I mis-triaged a red acceptance app at the end of Phase 1, and committed it.**
+Worth recording because the signal was there and I read past it.
+
+Phase 1's `test-accept.sh` run reported `12 mismatch(es)` while `grep -c "^mismatch:"`
+found **11**. I chased the discrepancy by looking for a twelfth `mismatch:` line,
+found none, and moved on. The twelfth was not a golden at all — it was line **2**
+of the log: `behavioral test failed (exit 1): acceptance`. The `tests/acceptance`
+TESTING app asserts the packed payload as decimal literals
+(`"Fg:16744512 "`), and widening to `0xAARRGGBB` had legitimately invalidated three
+of them.
+
+Two lessons, both cheap to apply next time: a count that does not reconcile is a
+finding, not a rounding error — the right move was `head` on the log, not another
+`grep` for the same pattern. And `tests/acceptance` fails as a *behavioral* test,
+not as a golden mismatch, so grepping only for `mismatch:` cannot see it.
+
+Fixed in Phase 2, where those call sites had to be rewritten for the new signature
+anyway. The plan's Phase 2 file list omits `tests/acceptance/src/astrings.mfb`
+(§2's measured populations do list it), so it would have needed adding regardless.
+The expected values are corrected lines, not a re-baseline: the payload changed by
+design, and each new constant was verified against the packing arithmetic
+independently — which caught one of my own transcriptions
+(`0xFFFF8000|alpha 128` is `2164228160`, not the `2160267328` I first wrote).
+
+A `TCASE "alpha survives in the attribute payload"` was added there too. Every
+pre-existing case has alpha 255, so none of them can see a mask mistake — which is
+this letter's whole risk.
 
 **Phase 1's bridge task was already satisfied.** See the ticked box: the existing
 per-channel masks discard alpha by construction, so no applier change was needed

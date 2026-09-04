@@ -1,4 +1,5 @@
 IMPORT astrings
+IMPORT color
 IMPORT collections
 IMPORT display
 IMPORT dom
@@ -597,7 +598,7 @@ FUNC highlightRow(a AS AttributedString, c0 AS Integer, c1 AS Integer) AS Attrib
   LET s0 AS Integer = maxOf(0, c0)
   LET s1 AS Integer = minOf(c1, n - 1)
   IF s1 < s0 THEN RETURN a
-  RETURN astrings::addAttribute(a, s0, s1, astrings::background(60, 90, 150))
+  RETURN astrings::addAttribute(a, s0, s1, astrings::background(color::rgb(60, 90, 150)))
 END FUNC
 
 ' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
@@ -635,7 +636,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
         IF pa.rect.row = idx THEN
           MUT boxA AS AttributedString = astrings::fromString(pa.text)
           IF pa.focused AND len(pa.text) > 0 THEN
-            boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(60, 90, 150))
+            boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(color::rgb(60, 90, 150)))
           END IF
           term::drawText(pa.rect.c0 - hscroll, 2 + r, boxA)
         END IF

@@ -44,6 +44,7 @@ IMPORT term
 IMPORT astrings
 IMPORT strings
 IMPORT bits
+IMPORT color
 
 ' The renderable subset of an AttributedString's per-scalar styling: the attributes
 ' the terminal surface can represent — bold, underline, and packed 0xAARRGGBB
@@ -92,29 +93,26 @@ FUNC __term_styleAt(value AS AttributedString, index AS Integer) AS __TermStyle
   RETURN __TermStyle[bold, underline, fg, bg]
 END FUNC
 
-' Unpack the r / g / b / a channel from a packed `0xAARRGGBB` color (alpha high,
-' b low). The r/g/b shifts are unchanged by the plan-122-E widening — alpha was
-' added above bit 23, so the colour channels did not move.
-FUNC __term_colorR(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(bits::sr(packed, 16), 255))
-END FUNC
-
-FUNC __term_colorG(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(bits::sr(packed, 8), 255))
-END FUNC
-
-FUNC __term_colorB(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(packed, 255))
-END FUNC
-
 ' Apply the run's foreground: a packed color when set, else fall back to the pen
 ' the drawText call inherited (`saved`), so an unset run draws in the ambient
 ' foreground rather than whatever the previous run left. Background is symmetric.
+'
+' plan-122-E: the payload is `0xAARRGGBB` and `color::fromPacked` unpacks it, which
+' replaced three hand-rolled __term_colorR/G/B shift-and-mask helpers. One unpacker
+' for the whole language is the point — the hand-rolled trio was the drift this
+' change removes.
+'
+' THE TERMINAL HAS NO ALPHA AND THIS IGNORES IT, deliberately. Only .red/.green/.blue
+' are read, so a half-transparent foreground draws exactly the cells an opaque one
+' draws. Synthesizing a blend against the cell's current background would disagree
+' with what a canvas surface draws for the same colour, so the attribute keeps the
+' alpha and the terminal simply does not use it.
 SUB __term_applyFg(packed AS Integer, saved AS term::TermColor)
   IF packed = -1 THEN
     term::setForeground(saved.r, saved.g, saved.b)
   ELSE
-    term::setForeground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+    LET c AS color::Color = color::fromPacked(packed)
+    term::setForeground(c.red, c.green, c.blue)
   END IF
 END SUB
 
@@ -122,7 +120,8 @@ SUB __term_applyBg(packed AS Integer, saved AS term::TermColor)
   IF packed = -1 THEN
     term::setBackground(saved.r, saved.g, saved.b)
   ELSE
-    term::setBackground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+    LET c AS color::Color = color::fromPacked(packed)
+    term::setBackground(c.red, c.green, c.blue)
   END IF
 END SUB
 
