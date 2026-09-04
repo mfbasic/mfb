@@ -43,7 +43,9 @@ error and nothing is written. The `output` stream stays open — you still
 close it. A track is a string of space-separated
 tokens (notes `A`..`G` with accidentals/length/dots, `R`/`P` rests, `O`/`<`/`>`
 octave, `L` length, `T` tempo, `V` volume, `I <name>` instrument, `( )` legato,
-`[ ]` staccato, `{ }<count>` repeat). `play` is deterministic."#;
+`[ ]` staccato, `{ }<count>` repeat). A track is refused with `ErrInvalidArgument`
+when its repeats expand past 65,536 tokens or it would play for longer than ten
+minutes. `play` is deterministic."#;
 const EX: &str = r#"Play a bass line and a lead together on the same stream:
 
 ```

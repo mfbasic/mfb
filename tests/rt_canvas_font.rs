@@ -183,6 +183,13 @@ END SUB
 /// 50.0. `descent` comes back **positive** (20.0) because `TextMetrics` documents it
 /// that way, and `height` is `80 + 20 + 10 = 110.0`.
 fn minimal_truetype() -> Vec<u8> {
+    truetype_fixture(1000, 2, [100, 0, 400, 300])
+}
+
+/// `minimal_truetype`, parameterised for the bug-509 bombs: `head.unitsPerEm`, the
+/// `numGroups` the cmap subtable *claims* (it always holds exactly two), and the square
+/// glyph's `[xMin, yMin, xMax, yMax]` in font units.
+fn truetype_fixture(upem: u16, groups: u32, square: [i16; 4]) -> Vec<u8> {
     fn be16(v: u16) -> [u8; 2] {
         v.to_be_bytes()
     }
@@ -201,7 +208,7 @@ fn minimal_truetype() -> Vec<u8> {
     cmap.extend(be16(0)); // reserved
     cmap.extend(be32(40)); // subtable length
     cmap.extend(be32(0)); // language
-    cmap.extend(be32(2)); // groups
+    cmap.extend(be32(groups)); // numGroups — the subtable itself always holds two
     for (ch, gid) in [(b'A' as u32, 1u32), (b'B' as u32, 2)] {
         cmap.extend(be32(ch)); // startCharCode
         cmap.extend(be32(ch)); // endCharCode
@@ -210,7 +217,7 @@ fn minimal_truetype() -> Vec<u8> {
 
     // `head`: 54 bytes, and only `unitsPerEm` at +18 is read.
     let mut head = vec![0u8; 54];
-    head[18..20].copy_from_slice(&be16(1000));
+    head[18..20].copy_from_slice(&be16(upem));
 
     // `hhea`: 36 bytes — ascender/descender/lineGap at +4/+6/+8, numberOfHMetrics at +34.
     let mut hhea = vec![0u8; 36];
@@ -229,9 +236,10 @@ fn minimal_truetype() -> Vec<u8> {
     // `glyf`: glyph 1 is a square, `(100,0)` to `(400,300)` in font units. Four
     // on-curve points and no instructions, so the reader's every branch is the simple
     // one and the expected pixels are a rectangle anyone can compute.
+    let [x0, y0, x1, y1] = square;
     let mut glyf = Vec::new();
     glyf.extend(be16(1)); // numberOfContours
-    for v in [100i16, 0, 400, 300] {
+    for v in square {
         glyf.extend(be16(v as u16)); // xMin, yMin, xMax, yMax
     }
     glyf.extend(be16(3)); // endPtsOfContours[0] — four points, so the last index is 3
@@ -239,10 +247,11 @@ fn minimal_truetype() -> Vec<u8> {
     for _ in 0..4 {
         glyf.push(0x01); // ON_CURVE, and neither axis short or repeated
     }
-    for dx in [100i16, 300, 0, -300] {
+    // (x0,y0) → (x1,y0) → (x1,y1) → (x0,y1), as deltas from the previous point.
+    for dx in [x0, x1 - x0, 0, x0 - x1] {
         glyf.extend(be16(dx as u16));
     }
-    for dy in [0i16, 0, 300, 0] {
+    for dy in [y0, 0, y1 - y0, 0] {
         glyf.extend(be16(dy as u16));
     }
 
@@ -981,4 +990,265 @@ fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
              or mirrored is a transposed matrix."
         );
     }
+}
+
+// --- font-derived size bombs (bug-509, DEC-53/54) --------------------------------------
+//
+// A TrueType file names sizes the renderer used to trust: `cmap` format 12's
+// `numGroups` drove an unbounded scan, and `head.unitsPerEm` is the divisor of every
+// scale, so a two-byte edit made one letter a gigapixel bitmap. Each is now bounded
+// by what the file can actually hold or the format actually allows. A bomb's failure
+// mode is "still running", so these runs carry a deadline and the deadline is the
+// failure — `Command::output` would wait as long as the bomb lasts.
+
+use std::io::Read;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+struct FontRun {
+    lines: Vec<String>,
+    /// The dumped frame, when `dump` was asked for; empty otherwise.
+    frame: Vec<u8>,
+}
+
+/// Build `source` with the given font files beside it, run it headless under a
+/// deadline, and return what it printed (and drew). Stdout is read after exit; these
+/// programs print a handful of lines.
+fn run_fonts_bounded(
+    name: &str,
+    source: &str,
+    fonts: &[(&str, Vec<u8>)],
+    dump: bool,
+    timeout: Duration,
+) -> FontRun {
+    let project = common::temp_project(name, source);
+    for (file, bytes) in fonts {
+        std::fs::write(project.join(file), bytes).expect("write a font fixture");
+    }
+    let frame = project.join("frame.rgba");
+    let binary = common::build_app(&project, name);
+    let mut command = Command::new(&binary);
+    command
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if dump {
+        command.env("MFB_CANVAS_DUMP", &frame);
+    }
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            break status;
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(&project);
+            panic!(
+                "{name}: still running after {timeout:?} — a font-derived size the \
+                 renderer did not bound"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout).ok();
+    }
+    assert!(
+        status.success(),
+        "{name}: program {}:\n{stdout}",
+        common::exit_description(&status),
+    );
+    let frame = if dump {
+        std::fs::read(&frame).expect("canvas dump written")
+    } else {
+        Vec::new()
+    };
+    let _ = std::fs::remove_dir_all(&project);
+    FontRun {
+        lines: stdout.lines().map(str::to_string).collect(),
+        frame,
+    }
+}
+
+/// Draw one `A` from `fixture.ttf` with the pen at (100, 600) and the given size.
+fn draw_a(size: &str) -> String {
+    format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load failed " & toString(e.code))
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := canvas::fontRef(face), size := {size}, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::present([label])
+  io::print("presented")
+END SUB
+"#
+    )
+}
+
+fn lit_pixels(frame: &[u8]) -> usize {
+    (0..frame.len() / 4)
+        .filter(|i| frame[i * 4] != 0 || frame[i * 4 + 1] != 0 || frame[i * 4 + 2] != 0)
+        .count()
+}
+
+#[test]
+fn a_cmap_group_count_is_bounded_by_the_table_that_holds_it() {
+    // DEC-54. Format 12's `numGroups` is a u32 the file controls; this one claims
+    // 4,294,967,295 groups in a 40-byte subtable that holds two. The lookup scanned
+    // every claimed group — 583 s of CPU to map one unmapped character — where the
+    // subtable's own `length` and the end of the file both said to stop at two. The
+    // metrics are the ones `measure_text_scales_the_fonts_own_metrics` pins: bounding
+    // the scan changes nothing about a lookup the table can answer.
+    let run = run_fonts_bounded(
+        "canvas_cmap_bomb",
+        MEASURE,
+        &[(
+            "fixture.ttf",
+            truetype_fixture(1000, u32::MAX, [100, 0, 400, 300]),
+        )],
+        false,
+        Duration::from_secs(30),
+    );
+    let at = |i: usize| run.lines.get(i).cloned().unwrap_or_default();
+    assert_eq!(at(0), "[A] w=25.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(3), "[X] w=50.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(4), "[AXB] w=105.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(6), "[half] w=27.50");
+}
+
+#[test]
+fn a_units_per_em_outside_the_formats_range_is_refused_at_load() {
+    // DEC-53, the file half. `head.unitsPerEm` divides into every scale: at 1, the
+    // 300-unit square at size 100 is 30,000 px a side and its bitmap is 900 megapixels
+    // (measured 62 s and 7.6 GB for one letter). The format allows 16..16384 and
+    // nothing else, FreeType refuses the file outside that range, and so does
+    // `loadFont` — as `ErrBadFontFile`, the code for "a file this build cannot read".
+    // A file with no `head` at all stays accepted: it has no scale to poison.
+    const SOURCE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  FOR EACH name IN ["upem1", "upem0", "upem15", "upem16385", "upem16", "upem16384", "upem1000"]
+    RES f AS canvas::Font = canvas::loadFont(name & ".ttf") TRAP(e)
+      io::print(name & ": refused " & toString(e.code))
+      CONTINUE FOR
+    END TRAP
+    canvas::destroyFont(f)
+    io::print(name & ": accepted")
+  NEXT
+END SUB
+"#;
+    let square = [100, 0, 400, 300];
+    let fonts: Vec<(&str, Vec<u8>)> = [
+        ("upem1.ttf", 1u16),
+        ("upem0.ttf", 0),
+        ("upem15.ttf", 15),
+        ("upem16385.ttf", 16385),
+        ("upem16.ttf", 16),
+        ("upem16384.ttf", 16384),
+        ("upem1000.ttf", 1000),
+    ]
+    .into_iter()
+    .map(|(file, upem)| (file, truetype_fixture(upem, 2, square)))
+    .collect();
+    let run = run_fonts_bounded(
+        "canvas_upem_range",
+        SOURCE,
+        &fonts,
+        false,
+        Duration::from_secs(30),
+    );
+    let find = |label: &str| -> String {
+        run.lines
+            .iter()
+            .find(|l| l.starts_with(&format!("{label}:")))
+            .unwrap_or_else(|| panic!("no `{label}` line in {:?}", run.lines))
+            .clone()
+    };
+    for label in ["upem1", "upem0", "upem15", "upem16385"] {
+        assert_eq!(
+            find(label),
+            format!("{label}: refused {ERR_BAD_FONT_FILE}"),
+            "a unitsPerEm outside 16..16384 must be refused as a bad font file",
+        );
+    }
+    for label in ["upem16", "upem16384", "upem1000"] {
+        assert_eq!(find(label), format!("{label}: accepted"));
+    }
+}
+
+#[test]
+fn a_glyph_whose_bitmap_would_exceed_the_raster_cap_is_skipped() {
+    // DEC-53, the outline half. A legal `unitsPerEm` of 16 with a glyph spanning
+    // 30,000 units — coordinates are int16, so a file may say so — is 375,000 px a
+    // side at size 200: 1.4e11 coverage bytes for one glyph. Past the cap the glyph is
+    // recorded empty and draws nothing. It cannot raise: the rasteriser runs on the
+    // graphics thread, where a raise is a hang (`helper_glyph_cache.rs`, Correction 13).
+    let run = run_fonts_bounded(
+        "canvas_glyph_bomb",
+        &draw_a("200.0"),
+        &[("fixture.ttf", truetype_fixture(16, 2, [0, 0, 30000, 30000]))],
+        true,
+        Duration::from_secs(30),
+    );
+    assert_eq!(run.lines.last().map(String::as_str), Some("presented"));
+    assert_eq!(
+        lit_pixels(&run.frame),
+        0,
+        "a glyph past the raster cap must draw nothing, not a partial bitmap",
+    );
+}
+
+#[test]
+fn a_display_sized_glyph_is_well_inside_the_raster_cap() {
+    // The cap must not touch real text. At `unitsPerEm` 1000 a 1000-unit square at
+    // size 1500 is a 1500x1500 bitmap — larger than any glyph a 4K display can show
+    // whole — and it still rasterises: the ink runs from the pen at x=100 to the right
+    // edge of the 900-wide surface, and from the top edge down to the baseline at 600.
+    let run = run_fonts_bounded(
+        "canvas_glyph_display_size",
+        &draw_a("1500.0"),
+        &[("fixture.ttf", truetype_fixture(1000, 2, [0, 0, 1000, 1000]))],
+        true,
+        Duration::from_secs(120),
+    );
+    assert_eq!(run.lines.last().map(String::as_str), Some("presented"));
+    assert_eq!(pixel(&run.frame, 500, 300), (255, 255, 255, 255), "inside");
+    assert_eq!(
+        pixel(&run.frame, 101, 599),
+        (255, 255, 255, 255),
+        "pen corner"
+    );
+    assert_eq!(
+        pixel(&run.frame, 50, 300),
+        (0, 0, 0, 255),
+        "left of the pen"
+    );
+    assert_eq!(
+        pixel(&run.frame, 500, 620),
+        (0, 0, 0, 255),
+        "below the baseline"
+    );
+    assert_eq!(
+        lit_pixels(&run.frame),
+        800 * 600,
+        "the visible part of the square is solid"
+    );
 }

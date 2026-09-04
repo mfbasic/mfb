@@ -200,7 +200,23 @@ FUNC __canvas_glyphIndex(b AS List OF Byte, cp AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_cmap12(b AS List OF Byte, subtable AS Integer, cp AS Integer) AS Integer
-  LET groups AS Integer = __canvas_beU32(b, subtable + 12)
+  ' `numGroups` is a u32 the file controls, and a group is twelve bytes, so the
+  ' subtable's own `length` and the end of the file each bound how many the scan can
+  ' be asked for (bug-509, DEC-54). Past the file every "group" reads as zeros through
+  ' `getOr` and can match nothing but U+0000 -- to glyph 0, the not-found answer -- so
+  ' stopping there changes no lookup. Past `length` the bytes are some other table's,
+  ' which is not a cmap at all; FreeType refuses the whole subtable for that, this
+  ' keeps the groups the table does declare. Unbounded, one unmapped character was a
+  ' scan of 4,294,967,295 groups: 583 s of CPU.
+  MUT groups AS Integer = __canvas_beU32(b, subtable + 12)
+  LET byLength AS Integer = (__canvas_beU32(b, subtable + 4) - 16) / 12
+  LET byFile AS Integer = (len(b) - subtable - 16) / 12
+  IF groups > byLength THEN
+    groups = byLength
+  END IF
+  IF groups > byFile THEN
+    groups = byFile
+  END IF
   MUT i AS Integer = 0
   WHILE i < groups
     LET g AS Integer = subtable + 16 + i * 12

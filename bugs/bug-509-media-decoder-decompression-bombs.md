@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (denial of service — memory/CPU exhaustion on untrusted media)
 
-Status: Open (found in audit-3, Surface 5 DEC-50/51/52/53/54/55; agent-demonstrated with crafted files and measured RSS/wall time)
+Status: Fixed (found in audit-3, Surface 5 DEC-50/51/52/53/54/55; agent-demonstrated with crafted files and measured RSS/wall time)
 
 Regression Test: fixtures asserting an oversized IHDR / inflate output / glyph raster / cmap12 numGroups / MML repeat is rejected in bounded time and memory.
 
@@ -62,3 +62,67 @@ fix — do not attempt to make the decoders faster.
 
 None — the canvas GPU/decoder path postdates audit-2 and had no prior security
 coverage (searched `png`, `inflate`, `glyph`, `cmap`, `mml`, `bomb`, `cap`).
+
+## Fix
+
+Every file-derived size is now bounded before it is allocated or scanned. The caps
+are chosen from what the format or the renderer already implies, so no legitimate
+asset can reach them, and every rejection is the error the caller already handles
+(`ErrBadImageFile` / `ErrBadFontFile` / `ErrInvalidArgument`):
+
+| ID | Bound | Where |
+|---|---|---|
+| DEC-50 | IHDR: ≤ 16384 a side (the GPU texture limit) and ≤ 2^24 pixels; sides checked before the product so two raw u32s cannot overflow. Then `__canvas_pngRawBytes` (the filtered size a PNG fixes exactly, interlaced or not) must be ≤ `len(idat) * 1032` — DEFLATE's maximum expansion — so an 80-byte file claiming 4000x4000 is refused in O(1). The pixel buffer is allocated only after the rows are known to be there. | `canvas/helper_png.rs` `__canvas_pngHeader`, `__canvas_pngDecode` |
+| DEC-51 | `__canvas_inflate(data, start, limit)`: every output growth (stored block, literal, back-reference) refuses to cross `limit`; `__canvas_pngDecode` passes the exact raw size. A stream that inflates past what the image needs is malformed and refused, not truncated. | `canvas/helper_inflate.rs` |
+| DEC-52 | The three chunk accumulators (`idat`, `palette`, `alphas`) are appended to in `__canvas_pngDecode` itself, where `collections::append` is in place, instead of through `__canvas_pngSlice`, which took the list by value and copied it per chunk. `__canvas_pngSlice` stays for fresh slices (pass block, row). | `canvas/helper_png.rs` |
+| DEC-53 | Two halves. `loadFont` refuses a file whose `head.unitsPerEm` is outside 16..16384 (the format's range; FreeType refuses the same) — a file with no `head` stays accepted, as the existing version test requires. In `__canvas_glyphEntry` a bitmap over 8192 a side or 2^24 bytes is recorded as an empty entry and draws nothing: the rasteriser runs on the graphics thread, where a raise is a hang (Correction 13), so it cannot raise. | `canvas/func_load_font.rs`, `canvas/helper_glyph_cache.rs` |
+| DEC-54 | `__canvas_cmap12` clamps `numGroups` to what the subtable's own `length` and the end of the file can hold. Past the file every group reads as zeros and matches only U+0000 → glyph 0, the not-found answer, so the clamp changes no lookup the table can answer. | `canvas/helper_font.rs` |
+| DEC-55 | `__audio_mmlExpand` refuses a repeat whose expansion would pass 65,536 tokens, checking the count alone first so the product cannot overflow; `__audio_mmlSynth` sums `totalFrames` and refuses a track past ten minutes (28.8 M samples) before rendering a frame — the token cap alone leaves 5,000 whole notes at T32 as ten hours of audio. | `audio/helper_mml_expand.rs`, `audio/helper_mml_synth.rs` |
+
+Docs synced: `loadImage`/`loadFont`/`play` man `desc`, the two `errorCode`
+descriptions, `spec/diagnostics/02_error-codes.md`, `spec/stdlib/11_audio.md`.
+
+### Semantics preservation
+
+The caps are checks in front of unchanged code paths — no arithmetic in the decode,
+the glyph raster or the expansion changed. Evidence that ordinary inputs decode to
+exactly what they did:
+
+- PNG: the whole pre-existing matrix (five filters, five bit depths, palette+tRNS,
+  greyscale-alpha, Adam7, fixed and dynamic Huffman) unchanged and green; plus the
+  dynamic-Huffman fixture re-chunked into one-byte IDATs (same pixels through the new
+  accumulator) and a 1024x256 stored-block image (ratio < 1, a quarter-megapixel,
+  nowhere near the caps). All three positives were green on the unfixed build too, so
+  their expectations are today's semantics, not the fix's.
+- Font: `measure_text_scales_the_fonts_own_metrics` and the pixel-exact
+  `a_glyph_outline_renders_where_its_own_coordinates_put_it` unchanged; the
+  `numGroups` bomb font returns the same seven metric lines; a 1500x1500 glyph (larger
+  than any a 4K display shows whole) still rasterises to a solid 800x600 visible ink.
+- MML: `T255 L64 { { C }8 }8` still plays for ≥ 0.94 s of real time (64 notes — an
+  expander that dropped or mis-nested a repeat would finish early); `{ C }0` still
+  refused.
+
+### Not done here (recorded, not forgotten)
+
+DEC-56 (font table `length` fields honoured for every table) is an enabler the doc
+lists as LOW and outside the brief; the cmap12 bound uses its own subtable's `length`
+and the file end, which is the one place the length mattered for a scan. DEC-57..60
+likewise remain as filed.
+
+### Tests
+
+- `tests/rt_canvas_image_decode.rs`: `an_ihdr_declaring_more_pixels_than_any_image_may_have_is_refused_before_allocating`,
+  `a_header_the_file_is_too_small_to_fill_is_refused_without_reading_the_pixels`,
+  `an_idat_that_inflates_past_what_the_image_needs_is_refused`,
+  `idat_accumulation_is_linear_in_the_chunk_count`, and the two positives above.
+- `tests/rt_canvas_font.rs`: `a_cmap_group_count_is_bounded_by_the_table_that_holds_it`,
+  `a_units_per_em_outside_the_formats_range_is_refused_at_load`,
+  `a_glyph_whose_bitmap_would_exceed_the_raster_cap_is_skipped`,
+  `a_display_sized_glyph_is_well_inside_the_raster_cap`.
+- `tests/rt_audio_mml_bounds.rs` (new): three bombs and the ordinary-repeat positive;
+  skips on a host with no output device.
+
+RED evidence (unfixed build): six canvas bombs timed out or "decoded" (the zlib bomb
+reported a 1x1 image; `upem=1` was accepted), all three MML bombs timed out at 20 s
+(the nested one at 20 GB RSS). Spike numbers reproduced first: DEC-50 69 B → 4.98 GB,
+DEC-52 → 2.47 GB, DEC-55 nested → 20 GB in 12 s.
