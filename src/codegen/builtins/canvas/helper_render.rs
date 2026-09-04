@@ -1136,8 +1136,22 @@ mod tests {
     /// |---|---|---|
     /// | the glyph-run walk (`__canvas_runLargestGlyph` / `__canvas_runSamples`) | 1 | 1 |
     /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
-    /// | the frame edge sum | 1 (new) | 1 |
-    /// | the frame quad count, a glyph run's glyphs | 1 (new) | 1 (new) |
+    /// | the frame edge sum | 1 | 1 |
+    /// | ~~the frame quad count, a glyph run's glyphs~~ | — | — |
+    ///
+    /// It went 7 → 5 in plan-116-H, and the two that left did **not** stop reading the
+    /// slot — they moved. Both predicates' quad counts became one call to
+    /// `__canvas_blockInstances`, which is now the single answer to "how many instances
+    /// does this block become" and is what the draw list asks too; it reads the glyph
+    /// count as `__canvas_geoAt(offset, 20)`, which this census's `offset + 20` pattern
+    /// does not match by construction.
+    ///
+    /// So the invariant is intact and is asserted in two places rather than one:
+    /// `block_instances_keeps_the_blend_split_case` pins that
+    /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
+    /// and this census covers what is left in the predicates themselves. Lowering the
+    /// number without checking where the reads went would have been the failure this
+    /// enumeration exists to prevent.
     #[test]
     fn the_predicates_read_the_edge_count_slot() {
         assert_eq!(HEADER_AUX0, 20);
@@ -1145,9 +1159,13 @@ mod tests {
             RENDER_METAL
                 .matches(&format!("offset + {HEADER_AUX0}"))
                 .count(),
-            7,
-            "every glyph-run walk, edge sum, edge decline and quad count in both \
-             predicates should read HEADER_AUX0"
+            5,
+            "every glyph-run walk, edge sum and edge decline in both predicates should \
+             read HEADER_AUX0. If this went DOWN, check where the read went before \
+             changing the number: the quad counts left in plan-116-H by moving into \
+             `__canvas_blockInstances`, which still reads slot 20 — a read that simply \
+             vanished would be a predicate summing an arc's start angle instead, which \
+             is a plausible number rather than an error"
         );
     }
 
