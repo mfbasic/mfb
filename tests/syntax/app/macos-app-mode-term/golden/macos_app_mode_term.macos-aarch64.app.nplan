@@ -91,6 +91,22 @@
   ],
   "functions": [
   {
+    "name": "__mfb_init_globals_macos_5Fapp_5Fmode_5Fterm",
+    "symbol": "_mfb_fn__5F_5Fmfb_5Finit_5Fglobals_5Fmacos_5F5Fapp_5F5Fmode_5F5Fterm",
+    "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["storeGlobal #COLOR_SRGB AS List OF Integer = call #color_srgbTable()", "storeGlobal #COLOR_NAMES AS Map OF String TO Integer = call #color_nameTable()"],
+    "calls": [
+    { "target": "#color_srgbTable", "symbol": "_mfb_ifn_color_5FsrgbTable", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_nameTable", "symbol": "_mfb_ifn_color_5FnameTable", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
     "name": "main",
     "symbol": "_mfb_fn_main",
     "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
@@ -98,18 +114,19 @@
     ],
     "localSlots": [
     { "name": "active", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -8, "mutable": false },
-    { "name": "fg", "storage": { "name": "term.TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
-    { "name": "bg", "storage": { "name": "term.TermColor", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "fg", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "bg", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
     { "name": "bold", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -32, "mutable": false },
     { "name": "underline", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -40, "mutable": false },
     { "name": "size", "storage": { "name": "term.TermSize", "class": "reference", "size": 8, "align": 8 }, "offset": -48, "mutable": false }
     ],
     "labels": [
     ],
-    "operations": ["eval runtimeCall term term.on()", "eval runtimeCall term term.clear()", "eval runtimeCall term term.setForeground(Byte(0), Byte(255), Byte(0))", "eval runtimeCall term term.setBackground(Byte(0), Byte(0), Byte(0))", "eval runtimeCall term term.setBold(Boolean(true))", "eval runtimeCall term term.setUnderline(Boolean(false))", "eval runtimeCall term term.showCursor()", "eval runtimeCall term term.hideCursor()", "eval runtimeCall term term.moveTo(Integer(2), Integer(4))", "eval runtimeCall io io.write(String(term))", "bind immutable active AS Boolean = runtimeCall term term.isOn()", "bind immutable fg AS term.TermColor = runtimeCall term term.getForeground()", "bind immutable bg AS term.TermColor = runtimeCall term term.getBackground()", "bind immutable bold AS Boolean = runtimeCall term term.getBold()", "bind immutable underline AS Boolean = runtimeCall term term.getUnderline()", "bind immutable size AS term.TermSize = runtimeCall term term.terminalSize()", "eval runtimeCall io io.print((((((call toString(local active) & call toString(fg.g)) & call toString(bg.r)) & call toString(local bold)) & call toString(local underline)) & call toString(size.columns)))", "eval runtimeCall term term.off()"],
+    "operations": ["eval runtimeCall term term.on()", "eval runtimeCall term term.clear()", "eval runtimeCall term term.setForeground(call #color_rgb(Integer(0), Integer(255), Integer(0)))", "eval runtimeCall term term.setBackground(call #color_rgb(Integer(0), Integer(0), Integer(0)))", "eval runtimeCall term term.setBold(Boolean(true))", "eval runtimeCall term term.setUnderline(Boolean(false))", "eval runtimeCall term term.showCursor()", "eval runtimeCall term term.hideCursor()", "eval runtimeCall term term.moveTo(Integer(2), Integer(4))", "eval runtimeCall io io.write(String(term))", "bind immutable active AS Boolean = runtimeCall term term.isOn()", "bind immutable fg AS color.Color = runtimeCall term term.getForeground()", "bind immutable bg AS color.Color = runtimeCall term term.getBackground()", "bind immutable bold AS Boolean = runtimeCall term term.getBold()", "bind immutable underline AS Boolean = runtimeCall term term.getUnderline()", "bind immutable size AS term.TermSize = runtimeCall term term.terminalSize()", "eval runtimeCall io io.print((((((call toString(local active) & call toString(fg.green)) & call toString(bg.red)) & call toString(local bold)) & call toString(local underline)) & call toString(size.columns)))", "eval runtimeCall term term.off()"],
     "calls": [
     { "target": "term.on", "symbol": "_mfb_rt_term_term_on", "kind": "runtime", "stringLiterals": [] },
     { "target": "term.clear", "symbol": "_mfb_rt_term_term_clear", "kind": "runtime", "stringLiterals": [] },
+    { "target": "#color_rgb", "symbol": "_mfb_ifn_color_5Frgb", "kind": "local", "stringLiterals": [] },
     { "target": "term.setForeground", "symbol": "_mfb_rt_term_term_setForeground", "kind": "runtime", "stringLiterals": [] },
     { "target": "term.setBackground", "symbol": "_mfb_rt_term_term_setBackground", "kind": "runtime", "stringLiterals": [] },
     { "target": "term.setBold", "symbol": "_mfb_rt_term_term_setBold", "kind": "runtime", "stringLiterals": [] },
@@ -126,6 +143,918 @@
     { "target": "term.terminalSize", "symbol": "_mfb_rt_term_term_terminalSize", "kind": "runtime", "stringLiterals": [] },
     { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": [] },
     { "target": "term.off", "symbol": "_mfb_rt_term_term_off", "kind": "runtime", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_clampByte",
+    "symbol": "_mfb_ifn_color_5FclampByte",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse (local value < Integer(0)) -> if_else_0", "return call toByte(Integer(0))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "branchIfFalse (local value > Integer(255)) -> if_else_2", "return call toByte(Integer(255))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return call toByte(local value)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_clampFraction",
+    "symbol": "_mfb_ifn_color_5FclampFraction",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse (local amount < Float(0.0)) -> if_else_0", "return Float(0.0)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "branchIfFalse (local amount > Float(1.0)) -> if_else_2", "return Float(1.0)", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return local amount"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_hexValue",
+    "symbol": "_mfb_ifn_color_5FhexValue",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "c", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse ((local c >= Integer(48)) AND (local c <= Integer(57))) -> if_else_0", "return (local c - Integer(48))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "branchIfFalse ((local c >= Integer(97)) AND (local c <= Integer(102))) -> if_else_2", "return (local c - Integer(87))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "branchIfFalse ((local c >= Integer(65)) AND (local c <= Integer(70))) -> if_else_4", "return (local c - Integer(55))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "return Integer(-1)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_hexByte",
+    "symbol": "_mfb_ifn_color_5FhexByte",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "value", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } }
+    ],
+    "localSlots": [
+    { "name": "v", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable v AS Integer = call toInt(local value)", "return (call #color_hexDigit((local v / Integer(16))) & call #color_hexDigit((local v - ((local v / Integer(16)) * Integer(16)))))"],
+    "calls": [
+    { "target": "#color_hexDigit", "symbol": "_mfb_ifn_color_5FhexDigit", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_hexDigit",
+    "symbol": "_mfb_ifn_color_5FhexDigit",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call strings.mid(String(0123456789abcdef), local value, Integer(1))"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_toString",
+    "symbol": "_mfb_ifn_color_5FtoString",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return ((((String(#) & call #color_hexByte(base.red)) & call #color_hexByte(base.green)) & call #color_hexByte(base.blue)) & call #color_hexByte(base.alpha))"],
+    "calls": [
+    { "target": "#color_hexByte", "symbol": "_mfb_ifn_color_5FhexByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_srgbTable",
+    "symbol": "_mfb_ifn_color_5FsrgbTable",
+    "returns": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return list [Integer(0), Integer(20), Integer(40), Integer(60), Integer(80), Integer(99), Integer(119), Integer(139), Integer(159), Integer(179), Integer(199), Integer(219), Integer(241), Integer(264), Integer(288), Integer(313), Integer(340), Integer(367), Integer(396), Integer(427), Integer(458), Integer(491), Integer(526), Integer(562), Integer(599), Integer(637), Integer(677), Integer(718), Integer(761), Integer(805), Integer(851), Integer(898), Integer(947), Integer(997), Integer(1048), Integer(1101), Integer(1156), Integer(1212), Integer(1270), Integer(1330), Integer(1391), Integer(1453), Integer(1517), Integer(1583), Integer(1651), Integer(1720), Integer(1790), Integer(1863), Integer(1937), Integer(2013), Integer(2090), Integer(2170), Integer(2250), Integer(2333), Integer(2418), Integer(2504), Integer(2592), Integer(2681), Integer(2773), Integer(2866), Integer(2961), Integer(3058), Integer(3157), Integer(3258), Integer(3360), Integer(3464), Integer(3570), Integer(3678), Integer(3788), Integer(3900), Integer(4014), Integer(4129), Integer(4247), Integer(4366), Integer(4488), Integer(4611), Integer(4736), Integer(4864), Integer(4993), Integer(5124), Integer(5257), Integer(5392), Integer(5530), Integer(5669), Integer(5810), Integer(5953), Integer(6099), Integer(6246), Integer(6395), Integer(6547), Integer(6700), Integer(6856), Integer(7014), Integer(7174), Integer(7335), Integer(7500), Integer(7666), Integer(7834), Integer(8004), Integer(8177), Integer(8352), Integer(8528), Integer(8708), Integer(8889), Integer(9072), Integer(9258), Integer(9445), Integer(9635), Integer(9828), Integer(10022), Integer(10219), Integer(10417), Integer(10619), Integer(10822), Integer(11028), Integer(11235), Integer(11446), Integer(11658), Integer(11873), Integer(12090), Integer(12309), Integer(12530), Integer(12754), Integer(12980), Integer(13209), Integer(13440), Integer(13673), Integer(13909), Integer(14146), Integer(14387), Integer(14629), Integer(14874), Integer(15122), Integer(15371), Integer(15623), Integer(15878), Integer(16135), Integer(16394), Integer(16656), Integer(16920), Integer(17187), Integer(17456), Integer(17727), Integer(18001), Integer(18277), Integer(18556), Integer(18837), Integer(19121), Integer(19407), Integer(19696), Integer(19987), Integer(20281), Integer(20577), Integer(20876), Integer(21177), Integer(21481), Integer(21787), Integer(22096), Integer(22407), Integer(22721), Integer(23038), Integer(23357), Integer(23678), Integer(24002), Integer(24329), Integer(24658), Integer(24990), Integer(25325), Integer(25662), Integer(26001), Integer(26344), Integer(26688), Integer(27036), Integer(27386), Integer(27739), Integer(28094), Integer(28452), Integer(28813), Integer(29176), Integer(29542), Integer(29911), Integer(30282), Integer(30656), Integer(31033), Integer(31412), Integer(31794), Integer(32179), Integer(32567), Integer(32957), Integer(33350), Integer(33745), Integer(34143), Integer(34544), Integer(34948), Integer(35355), Integer(35764), Integer(36176), Integer(36591), Integer(37008), Integer(37429), Integer(37852), Integer(38278), Integer(38706), Integer(39138), Integer(39572), Integer(40009), Integer(40449), Integer(40891), Integer(41337), Integer(41785), Integer(42236), Integer(42690), Integer(43147), Integer(43606), Integer(44069), Integer(44534), Integer(45002), Integer(45473), Integer(45947), Integer(46423), Integer(46903), Integer(47385), Integer(47871), Integer(48359), Integer(48850), Integer(49344), Integer(49841), Integer(50341), Integer(50844), Integer(51349), Integer(51858), Integer(52369), Integer(52884), Integer(53401), Integer(53921), Integer(54445), Integer(54971), Integer(55500), Integer(56032), Integer(56567), Integer(57105), Integer(57646), Integer(58190), Integer(58737), Integer(59287), Integer(59840), Integer(60396), Integer(60955), Integer(61517), Integer(62082), Integer(62650), Integer(63221), Integer(63795), Integer(64372), Integer(64952), Integer(65535)]"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_channelFraction",
+    "symbol": "_mfb_ifn_color_5FchannelFraction",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "channel", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (call toFloat(call toInt(local channel)) / Float(255.0))"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_fractionChannel",
+    "symbol": "_mfb_ifn_color_5FfractionChannel",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call #color_clampByte(call toInt(((local value * Float(255.0)) + Float(0.5))))"],
+    "calls": [
+    { "target": "#color_clampByte", "symbol": "_mfb_ifn_color_5FclampByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_wrapHue",
+    "symbol": "_mfb_ifn_color_5FwrapHue",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "hue", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "turns", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "wrapped", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -16, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable turns AS Float = (local hue / Float(360.0))", "bind immutable wrapped AS Float = (local hue - (call toFloat(call math.floor(local turns)) * Float(360.0)))", "branchIfFalse (local wrapped < Float(0.0)) -> if_else_0", "return (local wrapped + Float(360.0))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "branchIfFalse (local wrapped >= Float(360.0)) -> if_else_2", "return Float(0.0)", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return local wrapped"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_hueSector",
+    "symbol": "_mfb_ifn_color_5FhueSector",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "sector", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "c", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "x", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "channel", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" },
+    { "name": "if_else_8", "kind": "ifElse" },
+    { "name": "if_end_9", "kind": "ifEnd" },
+    { "name": "if_else_10", "kind": "ifElse" },
+    { "name": "if_end_11", "kind": "ifEnd" },
+    { "name": "if_else_12", "kind": "ifElse" },
+    { "name": "if_end_13", "kind": "ifEnd" },
+    { "name": "if_else_14", "kind": "ifElse" },
+    { "name": "if_end_15", "kind": "ifEnd" },
+    { "name": "if_else_16", "kind": "ifElse" },
+    { "name": "if_end_17", "kind": "ifEnd" },
+    { "name": "if_else_18", "kind": "ifElse" },
+    { "name": "if_end_19", "kind": "ifEnd" },
+    { "name": "if_else_20", "kind": "ifElse" },
+    { "name": "if_end_21", "kind": "ifEnd" },
+    { "name": "if_else_22", "kind": "ifElse" },
+    { "name": "if_end_23", "kind": "ifEnd" },
+    { "name": "if_else_24", "kind": "ifElse" },
+    { "name": "if_end_25", "kind": "ifEnd" },
+    { "name": "if_else_26", "kind": "ifElse" },
+    { "name": "if_end_27", "kind": "ifEnd" },
+    { "name": "if_else_28", "kind": "ifElse" },
+    { "name": "if_end_29", "kind": "ifEnd" },
+    { "name": "if_else_30", "kind": "ifElse" },
+    { "name": "if_end_31", "kind": "ifEnd" },
+    { "name": "if_else_32", "kind": "ifElse" },
+    { "name": "if_end_33", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse (local sector = Integer(0)) -> if_else_0", "branchIfFalse (local channel = Integer(0)) -> if_else_2", "return local c", "branch -> if_end_3", "label if_else_2", "label if_end_3", "branchIfFalse (local channel = Integer(1)) -> if_else_4", "return local x", "branch -> if_end_5", "label if_else_4", "label if_end_5", "return Float(0.0)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "branchIfFalse (local sector = Integer(1)) -> if_else_6", "branchIfFalse (local channel = Integer(0)) -> if_else_8", "return local x", "branch -> if_end_9", "label if_else_8", "label if_end_9", "branchIfFalse (local channel = Integer(1)) -> if_else_10", "return local c", "branch -> if_end_11", "label if_else_10", "label if_end_11", "return Float(0.0)", "branch -> if_end_7", "label if_else_6", "label if_end_7", "branchIfFalse (local sector = Integer(2)) -> if_else_12", "branchIfFalse (local channel = Integer(0)) -> if_else_14", "return Float(0.0)", "branch -> if_end_15", "label if_else_14", "label if_end_15", "branchIfFalse (local channel = Integer(1)) -> if_else_16", "return local c", "branch -> if_end_17", "label if_else_16", "label if_end_17", "return local x", "branch -> if_end_13", "label if_else_12", "label if_end_13", "branchIfFalse (local sector = Integer(3)) -> if_else_18", "branchIfFalse (local channel = Integer(0)) -> if_else_20", "return Float(0.0)", "branch -> if_end_21", "label if_else_20", "label if_end_21", "branchIfFalse (local channel = Integer(1)) -> if_else_22", "return local x", "branch -> if_end_23", "label if_else_22", "label if_end_23", "return local c", "branch -> if_end_19", "label if_else_18", "label if_end_19", "branchIfFalse (local sector = Integer(4)) -> if_else_24", "branchIfFalse (local channel = Integer(0)) -> if_else_26", "return local x", "branch -> if_end_27", "label if_else_26", "label if_end_27", "branchIfFalse (local channel = Integer(1)) -> if_else_28", "return Float(0.0)", "branch -> if_end_29", "label if_else_28", "label if_end_29", "return local c", "branch -> if_end_25", "label if_else_24", "label if_end_25", "branchIfFalse (local channel = Integer(0)) -> if_else_30", "return local c", "branch -> if_end_31", "label if_else_30", "label if_end_31", "branchIfFalse (local channel = Integer(1)) -> if_else_32", "return Float(0.0)", "branch -> if_end_33", "label if_else_32", "label if_end_33", "return local x"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_hslToColor",
+    "symbol": "_mfb_ifn_color_5FhslToColor",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "hue", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "saturation", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "lightness", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "alpha", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "h", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "s", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "l", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "c", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "sixth", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -40, "mutable": false },
+    { "name": "sector", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -48, "mutable": false },
+    { "name": "within", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -56, "mutable": false },
+    { "name": "x", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -64, "mutable": false },
+    { "name": "m", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -72, "mutable": false },
+    { "name": "red", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -80, "mutable": false },
+    { "name": "green", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -88, "mutable": false },
+    { "name": "blue", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -96, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable h AS Float = call #color_wrapHue(local hue)", "bind immutable s AS Float = call #color_clampFraction(local saturation)", "bind immutable l AS Float = call #color_clampFraction(local lightness)", "bind immutable c AS Float = ((Float(1.0) - call math.abs(((Float(2.0) * local l) - Float(1.0)))) * local s)", "bind immutable sixth AS Float = (local h / Float(60.0))", "bind immutable sector AS Integer = call math.floor(local sixth)", "bind immutable within AS Float = (local sixth - (call toFloat(call math.floor((local sixth / Float(2.0)))) * Float(2.0)))", "bind immutable x AS Float = (local c * (Float(1.0) - call math.abs((local within - Float(1.0)))))", "bind immutable m AS Float = (local l - (local c / Float(2.0)))", "bind immutable red AS Byte = call #color_fractionChannel((call #color_hueSector(local sector, local c, local x, Integer(0)) + local m))", "bind immutable green AS Byte = call #color_fractionChannel((call #color_hueSector(local sector, local c, local x, Integer(1)) + local m))", "bind immutable blue AS Byte = call #color_fractionChannel((call #color_hueSector(local sector, local c, local x, Integer(2)) + local m))", "return construct color.Color(local red, local green, local blue, call #color_clampByte(local alpha))"],
+    "calls": [
+    { "target": "#color_wrapHue", "symbol": "_mfb_ifn_color_5FwrapHue", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_hueSector", "symbol": "_mfb_ifn_color_5FhueSector", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_fractionChannel", "symbol": "_mfb_ifn_color_5FfractionChannel", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_clampByte", "symbol": "_mfb_ifn_color_5FclampByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_colorToHsl",
+    "symbol": "_mfb_ifn_color_5FcolorToHsl",
+    "returns": { "name": "color.Hsl", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "r", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "g", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "b", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "high", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "low", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -40, "mutable": false },
+    { "name": "delta", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -48, "mutable": false },
+    { "name": "lightness", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -56, "mutable": false },
+    { "name": "saturation", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -64, "mutable": false },
+    { "name": "hue", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -72, "mutable": true }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable r AS Float = call #color_channelFraction(base.red)", "bind immutable g AS Float = call #color_channelFraction(base.green)", "bind immutable b AS Float = call #color_channelFraction(base.blue)", "bind immutable high AS Float = call math.max(local r, call math.max(local g, local b))", "bind immutable low AS Float = call math.min(local r, call math.min(local g, local b))", "bind immutable delta AS Float = (local high - local low)", "bind immutable lightness AS Float = ((local high + local low) / Float(2.0))", "branchIfFalse (local delta <= Float(0.0)) -> if_else_0", "return construct color.Hsl(Float(0.0), Float(0.0), local lightness)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable saturation AS Float = (local delta / (Float(1.0) - call math.abs(((Float(2.0) * local lightness) - Float(1.0)))))", "bind mutable hue AS Float = Float(0.0)", "branchIfFalse (local high = local r) -> if_else_2", "assign hue = (Float(60.0) * ((local g - local b) / local delta))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "branchIfFalse ((local high <> local r) AND (local high = local g)) -> if_else_4", "assign hue = (Float(60.0) * (((local b - local r) / local delta) + Float(2.0)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branchIfFalse ((local high <> local r) AND (local high <> local g)) -> if_else_6", "assign hue = (Float(60.0) * (((local r - local g) / local delta) + Float(4.0)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "return construct color.Hsl(call #color_wrapHue(local hue), call #color_clampFraction(local saturation), local lightness)"],
+    "calls": [
+    { "target": "#color_channelFraction", "symbol": "_mfb_ifn_color_5FchannelFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_wrapHue", "symbol": "_mfb_ifn_color_5FwrapHue", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_nameTable",
+    "symbol": "_mfb_ifn_color_5FnameTable",
+    "returns": { "name": "Map OF String TO Integer", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return map {String(aliceblue): Integer(4293982463), String(antiquewhite): Integer(4294634455), String(aqua): Integer(4278255615), String(aquamarine): Integer(4286578644), String(azure): Integer(4293984255), String(beige): Integer(4294309340), String(bisque): Integer(4294960324), String(black): Integer(4278190080), String(blanchedalmond): Integer(4294962125), String(blue): Integer(4278190335), String(blueviolet): Integer(4287245282), String(brown): Integer(4289014314), String(burlywood): Integer(4292786311), String(cadetblue): Integer(4284456608), String(chartreuse): Integer(4286578432), String(chocolate): Integer(4291979550), String(coral): Integer(4294934352), String(cornflowerblue): Integer(4284782061), String(cornsilk): Integer(4294965468), String(crimson): Integer(4292613180), String(cyan): Integer(4278255615), String(darkblue): Integer(4278190219), String(darkcyan): Integer(4278225803), String(darkgoldenrod): Integer(4290283019), String(darkgray): Integer(4289309097), String(darkgreen): Integer(4278215680), String(darkgrey): Integer(4289309097), String(darkkhaki): Integer(4290623339), String(darkmagenta): Integer(4287299723), String(darkolivegreen): Integer(4283788079), String(darkorange): Integer(4294937600), String(darkorchid): Integer(4288230092), String(darkred): Integer(4287299584), String(darksalmon): Integer(4293498490), String(darkseagreen): Integer(4287609999), String(darkslateblue): Integer(4282924427), String(darkslategray): Integer(4281290575), String(darkslategrey): Integer(4281290575), String(darkturquoise): Integer(4278243025), String(darkviolet): Integer(4287889619), String(deeppink): Integer(4294907027), String(deepskyblue): Integer(4278239231), String(dimgray): Integer(4285098345), String(dimgrey): Integer(4285098345), String(dodgerblue): Integer(4280193279), String(firebrick): Integer(4289864226), String(floralwhite): Integer(4294966000), String(forestgreen): Integer(4280453922), String(fuchsia): Integer(4294902015), String(gainsboro): Integer(4292664540), String(ghostwhite): Integer(4294506751), String(gold): Integer(4294956800), String(goldenrod): Integer(4292519200), String(gray): Integer(4286611584), String(green): Integer(4278222848), String(greenyellow): Integer(4289593135), String(grey): Integer(4286611584), String(honeydew): Integer(4293984240), String(hotpink): Integer(4294928820), String(indianred): Integer(4291648604), String(indigo): Integer(4283105410), String(ivory): Integer(4294967280), String(khaki): Integer(4293977740), String(lavender): Integer(4293322490), String(lavenderblush): Integer(4294963445), String(lawngreen): Integer(4286381056), String(lemonchiffon): Integer(4294965965), String(lightblue): Integer(4289583334), String(lightcoral): Integer(4293951616), String(lightcyan): Integer(4292935679), String(lightgoldenrodyellow): Integer(4294638290), String(lightgray): Integer(4292072403), String(lightgreen): Integer(4287688336), String(lightgrey): Integer(4292072403), String(lightpink): Integer(4294948545), String(lightsalmon): Integer(4294942842), String(lightseagreen): Integer(4280332970), String(lightskyblue): Integer(4287090426), String(lightslategray): Integer(4286023833), String(lightslategrey): Integer(4286023833), String(lightsteelblue): Integer(4289774814), String(lightyellow): Integer(4294967264), String(lime): Integer(4278255360), String(limegreen): Integer(4281519410), String(linen): Integer(4294635750), String(magenta): Integer(4294902015), String(maroon): Integer(4286578688), String(mediumaquamarine): Integer(4284927402), String(mediumblue): Integer(4278190285), String(mediumorchid): Integer(4290401747), String(mediumpurple): Integer(4287852763), String(mediumseagreen): Integer(4282168177), String(mediumslateblue): Integer(4286277870), String(mediumspringgreen): Integer(4278254234), String(mediumturquoise): Integer(4282962380), String(mediumvioletred): Integer(4291237253), String(midnightblue): Integer(4279834992), String(mintcream): Integer(4294311930), String(mistyrose): Integer(4294960353), String(moccasin): Integer(4294960309), String(navajowhite): Integer(4294958765), String(navy): Integer(4278190208), String(oldlace): Integer(4294833638), String(olive): Integer(4286611456), String(olivedrab): Integer(4285238819), String(orange): Integer(4294944000), String(orangered): Integer(4294919424), String(orchid): Integer(4292505814), String(palegoldenrod): Integer(4293847210), String(palegreen): Integer(4288215960), String(paleturquoise): Integer(4289720046), String(palevioletred): Integer(4292571283), String(papayawhip): Integer(4294963157), String(peachpuff): Integer(4294957753), String(peru): Integer(4291659071), String(pink): Integer(4294951115), String(plum): Integer(4292714717), String(powderblue): Integer(4289781990), String(purple): Integer(4286578816), String(rebeccapurple): Integer(4284887961), String(red): Integer(4294901760), String(rosybrown): Integer(4290547599), String(royalblue): Integer(4282477025), String(saddlebrown): Integer(4287317267), String(salmon): Integer(4294606962), String(sandybrown): Integer(4294222944), String(seagreen): Integer(4281240407), String(seashell): Integer(4294964718), String(sienna): Integer(4288696877), String(silver): Integer(4290822336), String(skyblue): Integer(4287090411), String(slateblue): Integer(4285160141), String(slategray): Integer(4285563024), String(slategrey): Integer(4285563024), String(snow): Integer(4294966010), String(springgreen): Integer(4278255487), String(steelblue): Integer(4282811060), String(tan): Integer(4291998860), String(teal): Integer(4278222976), String(thistle): Integer(4292394968), String(tomato): Integer(4294927175), String(turquoise): Integer(4282441936), String(violet): Integer(4293821166), String(wheat): Integer(4294303411), String(white): Integer(4294967295), String(whitesmoke): Integer(4294309365), String(yellow): Integer(4294967040), String(yellowgreen): Integer(4288335154)}"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_rgb",
+    "symbol": "_mfb_ifn_color_5Frgb",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "red", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "green", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "blue", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return construct color.Color(call #color_clampByte(local red), call #color_clampByte(local green), call #color_clampByte(local blue), call toByte(Integer(255)))"],
+    "calls": [
+    { "target": "#color_clampByte", "symbol": "_mfb_ifn_color_5FclampByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_rgba",
+    "symbol": "_mfb_ifn_color_5Frgba",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "red", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "green", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "blue", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "alpha", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return construct color.Color(call #color_clampByte(local red), call #color_clampByte(local green), call #color_clampByte(local blue), call #color_clampByte(local alpha))"],
+    "calls": [
+    { "target": "#color_clampByte", "symbol": "_mfb_ifn_color_5FclampByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_gray",
+    "symbol": "_mfb_ifn_color_5Fgray",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "level", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call #color_rgb(local level, local level, local level)"],
+    "calls": [
+    { "target": "#color_rgb", "symbol": "_mfb_ifn_color_5Frgb", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_withAlpha",
+    "symbol": "_mfb_ifn_color_5FwithAlpha",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "alpha", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return construct color.Color(base.red, base.green, base.blue, call #color_clampByte(local alpha))"],
+    "calls": [
+    { "target": "#color_clampByte", "symbol": "_mfb_ifn_color_5FclampByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_invert",
+    "symbol": "_mfb_ifn_color_5Finvert",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return construct color.Color(call toByte((Integer(255) - call toInt(base.red))), call toByte((Integer(255) - call toInt(base.green))), call toByte((Integer(255) - call toInt(base.blue))), base.alpha)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_toPacked",
+    "symbol": "_mfb_ifn_color_5FtoPacked",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "high", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "low", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable high AS Integer = call bits.bor(call bits.sl(call toInt(base.alpha), Integer(24)), call bits.sl(call toInt(base.red), Integer(16)))", "bind immutable low AS Integer = call bits.bor(call bits.sl(call toInt(base.green), Integer(8)), call toInt(base.blue))", "return call bits.bor(local high, local low)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_fromPacked",
+    "symbol": "_mfb_ifn_color_5FfromPacked",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "red", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -8, "mutable": false },
+    { "name": "green", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -16, "mutable": false },
+    { "name": "blue", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -24, "mutable": false },
+    { "name": "alpha", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -32, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable red AS Byte = call toByte(call bits.band(call bits.sr(local value, Integer(16)), Integer(255)))", "bind immutable green AS Byte = call toByte(call bits.band(call bits.sr(local value, Integer(8)), Integer(255)))", "bind immutable blue AS Byte = call toByte(call bits.band(local value, Integer(255)))", "bind immutable alpha AS Byte = call toByte(call bits.band(call bits.sr(local value, Integer(24)), Integer(255)))", "return construct color.Color(local red, local green, local blue, local alpha)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_fromHex",
+    "symbol": "_mfb_ifn_color_5FfromHex",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "text", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "body", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "data", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "n", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "digits", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 }, "offset": -32, "mutable": true },
+    { "name": "i", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -40, "mutable": true },
+    { "name": "d", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -48, "mutable": true }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "while_loop_2", "kind": "whileLoop" },
+    { "name": "while_end_3", "kind": "whileEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" },
+    { "name": "if_else_8", "kind": "ifElse" },
+    { "name": "if_end_9", "kind": "ifEnd" },
+    { "name": "if_else_10", "kind": "ifElse" },
+    { "name": "if_end_11", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable body AS String = call strings.stripPrefix(local text, String(#))", "bind immutable data AS List OF Byte = call strings.toBytes(local body)", "bind immutable n AS Integer = call len(local data)", "branchIfFalse ((((local n <> Integer(3)) AND (local n <> Integer(4))) AND (local n <> Integer(6))) AND (local n <> Integer(8))) -> if_else_0", "fail construct Error(Integer(77050003), (String(invalid hex colour length: ) & local text), construct ErrorLoc(String(builtins/color.mfb), Integer(248), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind mutable digits AS List OF Integer = list []", "bind mutable i AS Integer = Integer(0)", "bind mutable d AS Integer = Integer(0)", "label while_loop_2", "branchIfFalse (local i < local n) -> while_end_3", "assign d = call #color_hexValue(call toInt(call collections.get(local data, local i)))", "branchIfFalse (local d < Integer(0)) -> if_else_4", "fail construct Error(Integer(77050003), (String(invalid hex colour digit: ) & local text), construct ErrorLoc(String(builtins/color.mfb), Integer(256), Integer(12)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "assign digits = call collections.append(local digits, local d)", "assign i = (local i + Integer(1))", "branch -> while_loop_2", "label while_end_3", "branchIfFalse (local n = Integer(3)) -> if_else_6", "return construct color.Color(call toByte((call collections.get(local digits, Integer(0)) * Integer(17))), call toByte((call collections.get(local digits, Integer(1)) * Integer(17))), call toByte((call collections.get(local digits, Integer(2)) * Integer(17))), call toByte(Integer(255)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "branchIfFalse (local n = Integer(4)) -> if_else_8", "return construct color.Color(call toByte((call collections.get(local digits, Integer(0)) * Integer(17))), call toByte((call collections.get(local digits, Integer(1)) * Integer(17))), call toByte((call collections.get(local digits, Integer(2)) * Integer(17))), call toByte((call collections.get(local digits, Integer(3)) * Integer(17))))", "branch -> if_end_9", "label if_else_8", "label if_end_9", "branchIfFalse (local n = Integer(6)) -> if_else_10", "return construct color.Color(call toByte(((call collections.get(local digits, Integer(0)) * Integer(16)) + call collections.get(local digits, Integer(1)))), call toByte(((call collections.get(local digits, Integer(2)) * Integer(16)) + call collections.get(local digits, Integer(3)))), call toByte(((call collections.get(local digits, Integer(4)) * Integer(16)) + call collections.get(local digits, Integer(5)))), call toByte(Integer(255)))", "branch -> if_end_11", "label if_else_10", "label if_end_11", "return construct color.Color(call toByte(((call collections.get(local digits, Integer(0)) * Integer(16)) + call collections.get(local digits, Integer(1)))), call toByte(((call collections.get(local digits, Integer(2)) * Integer(16)) + call collections.get(local digits, Integer(3)))), call toByte(((call collections.get(local digits, Integer(4)) * Integer(16)) + call collections.get(local digits, Integer(5)))), call toByte(((call collections.get(local digits, Integer(6)) * Integer(16)) + call collections.get(local digits, Integer(7)))))"],
+    "calls": [
+    { "target": "#color_hexValue", "symbol": "_mfb_ifn_color_5FhexValue", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_toHex",
+    "symbol": "_mfb_ifn_color_5FtoHex",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (((String(#) & call #color_hexByte(base.red)) & call #color_hexByte(base.green)) & call #color_hexByte(base.blue))"],
+    "calls": [
+    { "target": "#color_hexByte", "symbol": "_mfb_ifn_color_5FhexByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_toHexAlpha",
+    "symbol": "_mfb_ifn_color_5FtoHexAlpha",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return ((((String(#) & call #color_hexByte(base.red)) & call #color_hexByte(base.green)) & call #color_hexByte(base.blue)) & call #color_hexByte(base.alpha))"],
+    "calls": [
+    { "target": "#color_hexByte", "symbol": "_mfb_ifn_color_5FhexByte", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_toLinear",
+    "symbol": "_mfb_ifn_color_5FtoLinear",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "channel", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call collections.getOr(global #COLOR_SRGB, call toInt(local channel), Integer(0))"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_fromLinear",
+    "symbol": "_mfb_ifn_color_5FfromLinear",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "lo", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": true },
+    { "name": "hi", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": true },
+    { "name": "mid", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "midLow", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "midHigh", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -40, "mutable": false }
+    ],
+    "labels": [
+    { "name": "while_loop_0", "kind": "whileLoop" },
+    { "name": "while_end_1", "kind": "whileEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" }
+    ],
+    "operations": ["bind mutable lo AS Integer = Integer(0)", "bind mutable hi AS Integer = Integer(255)", "label while_loop_0", "branchIfFalse (local lo < local hi) -> while_end_1", "bind immutable mid AS Integer = ((local lo + local hi) / Integer(2))", "bind immutable midLow AS Integer = call collections.getOr(global #COLOR_SRGB, local mid, Integer(0))", "bind immutable midHigh AS Integer = call collections.getOr(global #COLOR_SRGB, (local mid + Integer(1)), Integer(65535))", "branchIfFalse (local value > ((local midLow + local midHigh) / Integer(2))) -> if_else_2", "assign lo = (local mid + Integer(1))", "branch -> if_end_3", "label if_else_2", "assign hi = local mid", "label if_end_3", "branch -> while_loop_0", "label while_end_1", "return call toByte(local lo)"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#color_brightenChannel",
+    "symbol": "_mfb_ifn_color_5FbrightenChannel",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "channel", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "lin", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable lin AS Integer = call #color_toLinear(local channel)", "return call #color_fromLinear((local lin + call toInt((call toFloat((Integer(65535) - local lin)) * local amount))))"],
+    "calls": [
+    { "target": "#color_toLinear", "symbol": "_mfb_ifn_color_5FtoLinear", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_fromLinear", "symbol": "_mfb_ifn_color_5FfromLinear", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_brighten",
+    "symbol": "_mfb_ifn_color_5Fbrighten",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable a AS Float = call #color_clampFraction(local amount)", "return construct color.Color(call #color_brightenChannel(base.red, local a), call #color_brightenChannel(base.green, local a), call #color_brightenChannel(base.blue, local a), base.alpha)"],
+    "calls": [
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_brightenChannel", "symbol": "_mfb_ifn_color_5FbrightenChannel", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_darkenChannel",
+    "symbol": "_mfb_ifn_color_5FdarkenChannel",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "channel", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "lin", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable lin AS Integer = call #color_toLinear(local channel)", "return call #color_fromLinear((local lin - call toInt((call toFloat(local lin) * local amount))))"],
+    "calls": [
+    { "target": "#color_toLinear", "symbol": "_mfb_ifn_color_5FtoLinear", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_fromLinear", "symbol": "_mfb_ifn_color_5FfromLinear", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_darken",
+    "symbol": "_mfb_ifn_color_5Fdarken",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable a AS Float = call #color_clampFraction(local amount)", "return construct color.Color(call #color_darkenChannel(base.red, local a), call #color_darkenChannel(base.green, local a), call #color_darkenChannel(base.blue, local a), base.alpha)"],
+    "calls": [
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_darkenChannel", "symbol": "_mfb_ifn_color_5FdarkenChannel", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_mixChannel",
+    "symbol": "_mfb_ifn_color_5FmixChannel",
+    "returns": { "name": "Byte", "class": "byte", "size": 1, "align": 1 },
+    "params": [
+    { "name": "first", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } },
+    { "name": "second", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "b", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable a AS Integer = call #color_toLinear(local first)", "bind immutable b AS Integer = call #color_toLinear(local second)", "return call #color_fromLinear((local a + call toInt((call toFloat((local b - local a)) * local amount))))"],
+    "calls": [
+    { "target": "#color_toLinear", "symbol": "_mfb_ifn_color_5FtoLinear", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_fromLinear", "symbol": "_mfb_ifn_color_5FfromLinear", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_mix",
+    "symbol": "_mfb_ifn_color_5Fmix",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "first", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "second", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "t", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "aa", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "ba", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable t AS Float = call #color_clampFraction(local amount)", "bind immutable aa AS Integer = call toInt(first.alpha)", "bind immutable ba AS Integer = call toInt(second.alpha)", "return construct color.Color(call #color_mixChannel(first.red, second.red, local t), call #color_mixChannel(first.green, second.green, local t), call #color_mixChannel(first.blue, second.blue, local t), call toByte((local aa + call toInt((call toFloat((local ba - local aa)) * local t)))))"],
+    "calls": [
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_mixChannel", "symbol": "_mfb_ifn_color_5FmixChannel", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_grayscale",
+    "symbol": "_mfb_ifn_color_5Fgrayscale",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "r", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "g", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "b", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "lum", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -32, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable r AS Integer = call #color_toLinear(base.red)", "bind immutable g AS Integer = call #color_toLinear(base.green)", "bind immutable b AS Integer = call #color_toLinear(base.blue)", "bind immutable lum AS Byte = call #color_fromLinear(((((Integer(2126) * local r) + (Integer(7152) * local g)) + (Integer(722) * local b)) / Integer(10000)))", "return construct color.Color(local lum, local lum, local lum, base.alpha)"],
+    "calls": [
+    { "target": "#color_toLinear", "symbol": "_mfb_ifn_color_5FtoLinear", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_fromLinear", "symbol": "_mfb_ifn_color_5FfromLinear", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_luminance",
+    "symbol": "_mfb_ifn_color_5Fluminance",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "r", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "g", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "b", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable r AS Integer = call #color_toLinear(base.red)", "bind immutable g AS Integer = call #color_toLinear(base.green)", "bind immutable b AS Integer = call #color_toLinear(base.blue)", "return ((call toFloat((((Integer(2126) * local r) + (Integer(7152) * local g)) + (Integer(722) * local b))) / Float(10000.0)) / Float(65535.0))"],
+    "calls": [
+    { "target": "#color_toLinear", "symbol": "_mfb_ifn_color_5FtoLinear", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_contrastRatio",
+    "symbol": "_mfb_ifn_color_5FcontrastRatio",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "first", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "second", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "b", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "hi", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -24, "mutable": true },
+    { "name": "lo", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -32, "mutable": true }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable a AS Float = call #color_luminance(local first)", "bind immutable b AS Float = call #color_luminance(local second)", "bind mutable hi AS Float = local a", "bind mutable lo AS Float = local b", "branchIfFalse (local b > local a) -> if_else_0", "assign hi = local b", "assign lo = local a", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return ((local hi + Float(0.05)) / (local lo + Float(0.05)))"],
+    "calls": [
+    { "target": "#color_luminance", "symbol": "_mfb_ifn_color_5Fluminance", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_isDark",
+    "symbol": "_mfb_ifn_color_5FisDark",
+    "returns": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (call #color_luminance(local base) < Float(0.5))"],
+    "calls": [
+    { "target": "#color_luminance", "symbol": "_mfb_ifn_color_5Fluminance", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_isLight",
+    "symbol": "_mfb_ifn_color_5FisLight",
+    "returns": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (NOT call #color_isDark(local base))"],
+    "calls": [
+    { "target": "#color_isDark", "symbol": "_mfb_ifn_color_5FisDark", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_hsl",
+    "symbol": "_mfb_ifn_color_5Fhsl",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "hue", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "saturation", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "lightness", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call #color_hslToColor(local hue, local saturation, local lightness, Integer(255))"],
+    "calls": [
+    { "target": "#color_hslToColor", "symbol": "_mfb_ifn_color_5FhslToColor", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_hsla",
+    "symbol": "_mfb_ifn_color_5Fhsla",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "hue", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "saturation", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "lightness", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "alpha", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call #color_hslToColor(local hue, local saturation, local lightness, local alpha)"],
+    "calls": [
+    { "target": "#color_hslToColor", "symbol": "_mfb_ifn_color_5FhslToColor", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_toHsl",
+    "symbol": "_mfb_ifn_color_5FtoHsl",
+    "returns": { "name": "color.Hsl", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return call #color_colorToHsl(local base)"],
+    "calls": [
+    { "target": "#color_colorToHsl", "symbol": "_mfb_ifn_color_5FcolorToHsl", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_saturate",
+    "symbol": "_mfb_ifn_color_5Fsaturate",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "parts", "storage": { "name": "color.Hsl", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "s", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -24, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable a AS Float = call #color_clampFraction(local amount)", "bind immutable parts AS color.Hsl = call #color_colorToHsl(local base)", "bind immutable s AS Float = (parts.saturation + ((Float(1.0) - parts.saturation) * local a))", "return call #color_hslToColor(parts.hue, local s, parts.lightness, call toInt(base.alpha))"],
+    "calls": [
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_colorToHsl", "symbol": "_mfb_ifn_color_5FcolorToHsl", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_hslToColor", "symbol": "_mfb_ifn_color_5FhslToColor", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_desaturate",
+    "symbol": "_mfb_ifn_color_5Fdesaturate",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "amount", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "parts", "storage": { "name": "color.Hsl", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "s", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -24, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable a AS Float = call #color_clampFraction(local amount)", "bind immutable parts AS color.Hsl = call #color_colorToHsl(local base)", "bind immutable s AS Float = (parts.saturation - (parts.saturation * local a))", "return call #color_hslToColor(parts.hue, local s, parts.lightness, call toInt(base.alpha))"],
+    "calls": [
+    { "target": "#color_clampFraction", "symbol": "_mfb_ifn_color_5FclampFraction", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_colorToHsl", "symbol": "_mfb_ifn_color_5FcolorToHsl", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_hslToColor", "symbol": "_mfb_ifn_color_5FhslToColor", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_rotateHue",
+    "symbol": "_mfb_ifn_color_5FrotateHue",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "degrees", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "parts", "storage": { "name": "color.Hsl", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable parts AS color.Hsl = call #color_colorToHsl(local base)", "return call #color_hslToColor((parts.hue + local degrees), parts.saturation, parts.lightness, call toInt(base.alpha))"],
+    "calls": [
+    { "target": "#color_colorToHsl", "symbol": "_mfb_ifn_color_5FcolorToHsl", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_hslToColor", "symbol": "_mfb_ifn_color_5FhslToColor", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_fromName",
+    "symbol": "_mfb_ifn_color_5FfromName",
+    "returns": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "name", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "key", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable key AS String = call strings.lower(call strings.trim(local name))", "branchIfFalse (NOT call collections.hasKey(global #COLOR_NAMES, local key)) -> if_else_0", "fail construct Error(Integer(77050004), (String(unknown colour name: ) & local name), construct ErrorLoc(String(builtins/color.mfb), Integer(403), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return call #color_fromPacked(call collections.get(global #COLOR_NAMES, local key))"],
+    "calls": [
+    { "target": "#color_fromPacked", "symbol": "_mfb_ifn_color_5FfromPacked", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#color_nameOf",
+    "symbol": "_mfb_ifn_color_5FnameOf",
+    "returns": { "name": "String", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "base", "storage": { "name": "color.Color", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "packed", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
+    { "name": "best", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": true },
+    { "name": "name", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse (call toInt(base.alpha) <> Integer(255)) -> if_else_0", "fail construct Error(Integer(77050004), ((String(a colour with alpha ) & call toString(base.alpha)) & String( has no CSS name)), construct ErrorLoc(String(builtins/color.mfb), Integer(410), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable packed AS Integer = call #color_toPacked(local base)", "bind mutable best AS String = String()", "forEach name AS String IN call collections.keys(global #COLOR_NAMES)", "branchIfFalse (call collections.get(global #COLOR_NAMES, local name) = local packed) -> if_else_2", "branchIfFalse ((local best = String()) OR (local name < local best)) -> if_else_4", "assign best = local name", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branch -> if_end_3", "label if_else_2", "label if_end_3", "next", "branchIfFalse (local best = String()) -> if_else_6", "fail construct Error(Integer(77050004), (String(no CSS name for ) & call #color_toHex(local base)), construct ErrorLoc(String(builtins/color.mfb), Integer(422), Integer(10)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "return local best"],
+    "calls": [
+    { "target": "#color_toPacked", "symbol": "_mfb_ifn_color_5FtoPacked", "kind": "local", "stringLiterals": [] },
+    { "target": "#color_toHex", "symbol": "_mfb_ifn_color_5FtoHex", "kind": "local", "stringLiterals": [] }
     ]
   }
   ]

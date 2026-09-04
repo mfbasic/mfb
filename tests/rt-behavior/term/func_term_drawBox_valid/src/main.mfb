@@ -3,10 +3,11 @@
 ' in either order, and each edge/corner clamps to the grid independently. Runs
 ' under the non-tty harness (24x80 fallback), so the escape stream is deterministic.
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 255, 0)
+  term::setForeground(color::rgb(0, 255, 0))
   term::drawBox(term::LineStyle.Light, 2, 1, 12, 5)         ' cols 2..12, rows 1..5
   term::drawBox(term::LineStyle.HeavyDash, 30, 8, 20, 2)    ' reversed points; dashed edges, heavy corners
   term::drawBox(term::LineStyle.Double, 40, 0, 46, 4)

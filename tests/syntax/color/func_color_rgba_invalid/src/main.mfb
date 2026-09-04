@@ -1,0 +1,23 @@
+' plan-122-A Phase 1: the `color` package reaches the argument checker.
+'
+' This fixture exists to pin the `ARGUMENT_CHECKED_PACKAGES` registration seam,
+' which is the one seam that fails SILENTLY: without its row a `color::` call with
+' the wrong arity or argument types produces no diagnostic of its own and degrades
+' to a bare TYPE_UNKNOWN_VALUE at the binding. So the assertion here is not merely
+' "this is rejected" — it is that TYPE_CALL_ARITY_MISMATCH and
+' TYPE_CALL_ARGUMENT_MISMATCH are the codes reported.
+'
+' The sibling bug-484 pin (a bare `AS Color` must not resolve) is a SEPARATE
+' fixture — `color_type_bare_leaf_invalid` — because a resolver error
+' short-circuits the type checker: with an unresolvable type in this file, none of
+' the call diagnostics below would be reached and this fixture would pass
+' vacuously while proving nothing about the argument checker.
+
+IMPORT color
+
+FUNC main AS Integer
+  LET tooFew AS color::Color = color::rgba(1, 2)
+  LET tooMany AS color::Color = color::rgba(1, 2, 3, 4, 5)
+  LET wrongType AS color::Color = color::rgba("r", "g", "b", "a")
+  RETURN 0
+END FUNC

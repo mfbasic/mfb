@@ -87,11 +87,12 @@ fn native_term_console_emits_expected_escape_sequences() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 255, 0)
-  term::setBackground(0, 0, 0)
+  term::setForeground(color::rgb(0, 255, 0))
+  term::setBackground(color::rgb(0, 0, 0))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::moveTo(2, 4)
@@ -135,10 +136,11 @@ fn native_term_gate_no_ops_while_inactive() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
-  term::setForeground(1, 2, 3)
-  term::setBackground(4, 5, 6)
+  term::setForeground(color::rgb(1, 2, 3))
+  term::setBackground(color::rgb(4, 5, 6))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::moveTo(5, 5)
@@ -146,13 +148,13 @@ FUNC main AS Integer
   term::showCursor()
   term::hideCursor()
   LET on AS Boolean = term::isOn()
-  LET fg AS term::TermColor = term::getForeground()
-  LET bg AS term::TermColor = term::getBackground()
+  LET fg AS color::Color = term::getForeground()
+  LET bg AS color::Color = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   io::print("ON:" & toString(on))
-  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
-  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("FG:" & toString(fg.red) & "," & toString(fg.green) & "," & toString(fg.blue))
+  io::print("BG:" & toString(bg.red) & "," & toString(bg.green) & "," & toString(bg.blue))
   io::print("BOLD:" & toString(bold))
   io::print("UL:" & toString(ul))
   RETURN 0
@@ -252,23 +254,24 @@ fn native_term_on_resets_state_to_defaults() {
         r#"
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(10, 20, 30)
-  term::setBackground(40, 50, 60)
+  term::setForeground(color::rgb(10, 20, 30))
+  term::setBackground(color::rgb(40, 50, 60))
   term::setBold(TRUE)
   term::setUnderline(TRUE)
   term::off()
   term::on()
-  LET fg AS term::TermColor = term::getForeground()
-  LET bg AS term::TermColor = term::getBackground()
+  LET fg AS color::Color = term::getForeground()
+  LET bg AS color::Color = term::getBackground()
   LET bold AS Boolean = term::getBold()
   LET ul AS Boolean = term::getUnderline()
   LET on AS Boolean = term::isOn()
   term::off()
-  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
-  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("FG:" & toString(fg.red) & "," & toString(fg.green) & "," & toString(fg.blue))
+  io::print("BG:" & toString(bg.red) & "," & toString(bg.green) & "," & toString(bg.blue))
   io::print("BOLD:" & toString(bold))
   io::print("UL:" & toString(ul))
   io::print("ON:" & toString(on))
@@ -363,12 +366,13 @@ fn native_term_draw_text_attributed_applies_colors() {
         r#"
 IMPORT term
 IMPORT astrings
+IMPORT color
 
 FUNC main AS Integer
   term::on()
   MUT a AS AttributedString = astrings::fromString("RedBlue")
-  a = astrings::addAttribute(a, 0, 2, astrings::foreground(255, 0, 0))
-  a = astrings::addAttribute(a, 3, 6, astrings::background(0, 0, 255))
+  a = astrings::addAttribute(a, 0, 2, astrings::foreground(color::rgb(255, 0, 0)))
+  a = astrings::addAttribute(a, 3, 6, astrings::background(color::rgb(0, 0, 255)))
   term::drawText(0, 0, a)
   term::sync()
   term::off()
@@ -389,5 +393,78 @@ END FUNC
         out.contains("\x1b[38;2;255;255;255m\x1b[48;2;0;0;255mBlue"),
         "blue run should carry a blue background, got {:?}",
         hex(out.as_bytes())
+    );
+}
+
+/// A half-transparent foreground draws exactly the cells an opaque one draws.
+///
+/// The partner to `color-payload-rt`'s alpha round-trip, and the reason both are
+/// needed: plan-122-E widened the attribute payload so a colour keeps its alpha
+/// through storage, and that round-trip is asserted there. What must NOT change is
+/// what reaches the terminal — it has no alpha, so `__term_applyFg` reads only
+/// `.red`/`.green`/`.blue` from `color::fromPacked` and the emitted SGR escape is
+/// byte-identical whatever the alpha was.
+///
+/// Without this, "the bridge ignores alpha" would be a claim on a man page with
+/// nothing holding it: a future change that blended against the cell background,
+/// or that leaked the alpha byte into the escape, would break no test.
+#[test]
+fn native_term_draw_text_attributed_ignores_alpha() {
+    let program = |alpha: u16| {
+        format!(
+            r#"
+IMPORT term
+IMPORT astrings
+IMPORT color
+
+FUNC main AS Integer
+  term::on()
+  MUT a AS AttributedString = astrings::fromString("RedBlue")
+  a = astrings::addAttribute(a, 0, 2, astrings::foreground(color::rgba(255, 0, 0, {alpha})))
+  a = astrings::addAttribute(a, 3, 6, astrings::background(color::rgba(0, 0, 255, {alpha})))
+  term::drawText(0, 0, a)
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC
+"#
+        )
+    };
+
+    // Opaque, half-transparent, and fully transparent must all emit the same bytes.
+    let opaque = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_255", &program(255))),
+        b"",
+    );
+    let half = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_128", &program(128))),
+        b"",
+    );
+    let clear = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_0", &program(0))),
+        b"",
+    );
+
+    // The colours reach the terminal at full strength regardless of alpha — the
+    // same escapes `native_term_draw_text_attributed_applies_colors` pins.
+    assert!(
+        half.contains("\x1b[38;2;255;0;0m\x1b[48;2;0;0;0mRed"),
+        "a half-transparent red must still emit a full-strength red, got {:?}",
+        hex(half.as_bytes())
+    );
+    assert!(
+        half.contains("\x1b[38;2;255;255;255m\x1b[48;2;0;0;255mBlue"),
+        "a half-transparent blue background must still emit full-strength blue, got {:?}",
+        hex(half.as_bytes())
+    );
+
+    // And alpha changes nothing at all about the output.
+    assert_eq!(
+        opaque, half,
+        "alpha 128 changed the terminal output; the bridge must ignore alpha"
+    );
+    assert_eq!(
+        opaque, clear,
+        "alpha 0 changed the terminal output; the bridge must ignore alpha"
     );
 }

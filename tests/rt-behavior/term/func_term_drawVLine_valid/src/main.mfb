@@ -3,10 +3,11 @@
 ' grid, and an off-grid column draws nothing. Present renders it on term::sync.
 ' Runs under the non-tty harness (24x80 fallback), so the stream is deterministic.
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 128, 255)
+  term::setForeground(color::rgb(0, 128, 255))
   term::drawVLine(term::LineStyle.Heavy, 2, 1, 6)       ' heavy, rows 1..6
   term::drawVLine(term::LineStyle.Double, 4, 6, 1)      ' reversed endpoints -> rows 1..6
   term::drawVLine(term::LineStyle.HeavyDot, 6, -2, 3)   ' clamp low -> rows 0..3

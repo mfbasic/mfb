@@ -1,0 +1,94 @@
+REM plan-122-E: the Foreground/Background attribute payload is 0xAARRGGBB, and a
+REM whole colour -- alpha included -- round-trips through it.
+REM
+REM Expected values are written as LITERAL constants, not recomputed from the
+REM channels. Recomputed, an assertion would agree with whatever bit layout the
+REM packer happens to use, and a transposed channel or a wrong shift would pass.
+REM
+REM The ALPHA cases are the ones that matter. Every colour that existed before the
+REM widening has alpha 255, so a mask mistake would pass every pre-existing test in
+REM the tree; only a non-255 alpha can see it.
+
+IMPORT astrings
+IMPORT color
+IMPORT io
+
+FUNC payload(attrs AS List OF astrings::Attribute) AS Integer
+  FOR EACH a IN attrs
+    MATCH a
+      CASE astrings::AttrNumber(nm)
+        MATCH nm.kind
+          CASE astrings::AttrTypeNumber.Foreground
+            RETURN nm.value
+          CASE astrings::AttrTypeNumber.Background
+            RETURN nm.value
+          CASE ELSE
+        END MATCH
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN -1
+END FUNC
+
+REM Store a colour as a foreground attribute and read its packed payload back.
+FUNC fgOf(c AS color::Color) AS Integer
+  MUT s AS AttributedString = astrings::fromString("hi")
+  s = astrings::addAttribute(s, 0, 1, astrings::foreground(c))
+  RETURN payload(astrings::getAttributes(s, 0))
+END FUNC
+
+FUNC main AS Integer
+  REM --- the packed layout, pinned against literals --------------------------
+  REM r=255 g=128 b=0, opaque -> 0xFFFF8000 = 4294934528.
+  io::print("fg=" & toString(fgOf(color::rgb(255, 128, 0))))
+  io::print("fgExpected=" & toString(0xFFFF8000))
+
+  MUT t AS AttributedString = astrings::fromString("hi")
+  t = astrings::addAttribute(t, 0, 1, astrings::background(color::rgb(18, 52, 86)))
+  REM r=0x12 g=0x34 b=0x56, opaque -> 0xFF123456 = 4279383126.
+  io::print("bg=" & toString(payload(astrings::getAttributes(t, 0))))
+  io::print("bgExpected=" & toString(0xFF123456))
+
+  REM Black is the case that would look correct under the OLD 0xRRGGBB layout too,
+  REM if the alpha byte were left at zero -- so it is the one that proves alpha is
+  REM actually written.
+  io::print("black=" & toString(fgOf(color::rgb(0, 0, 0))))
+  io::print("blackExpected=" & toString(0xFF000000))
+
+  REM The payload stays POSITIVE, which is what keeps -1 usable as the bridge's
+  REM "unset" sentinel after the widening.
+  io::print("positive=" & toString(fgOf(color::rgb(255, 128, 0)) > 0))
+
+  REM --- ALPHA ROUND-TRIP: the widening's whole point ------------------------
+  LET half AS color::Color = color::rgba(255, 128, 0, 128)
+  io::print("halfPacked=" & toString(fgOf(half)))
+  io::print("halfExpected=" & toString(0x80FF8000))
+  io::print("halfRoundTrip=" & color::toHexAlpha(color::fromPacked(fgOf(half))))
+  io::print("halfSource=" & color::toHexAlpha(half))
+  io::print("halfEqual=" & toString(color::toHexAlpha(color::fromPacked(fgOf(half))) = color::toHexAlpha(half)))
+
+  REM Fully transparent black packs to 0 -- distinct from the -1 sentinel, which is
+  REM why "unset" and "transparent" stay tellable apart.
+  LET clear AS color::Color = color::rgba(0, 0, 0, 0)
+  io::print("clearPacked=" & toString(fgOf(clear)))
+  io::print("clearIsNotUnset=" & toString(fgOf(clear) <> -1))
+
+  REM A transparent colour that still carries a hue round-trips the hue as well.
+  LET ghost AS color::Color = color::rgba(51, 102, 204, 0)
+  io::print("ghostRoundTrip=" & color::toHexAlpha(color::fromPacked(fgOf(ghost))))
+  io::print("ghostEqual=" & toString(color::toHexAlpha(color::fromPacked(fgOf(ghost))) = color::toHexAlpha(ghost)))
+
+  REM Every alpha value survives, not just the two ends.
+  MUT a AS Integer = 0
+  MUT allEqual AS Boolean = TRUE
+  WHILE a <= 255
+    LET c AS color::Color = color::rgba(51, 102, 204, a)
+    IF color::toHexAlpha(color::fromPacked(fgOf(c))) <> color::toHexAlpha(c) THEN
+      allEqual = FALSE
+    END IF
+    a = a + 1
+  END WHILE
+  io::print("everyAlphaRoundTrips=" & toString(allEqual))
+
+  RETURN 0
+END FUNC

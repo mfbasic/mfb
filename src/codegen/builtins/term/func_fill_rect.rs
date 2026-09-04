@@ -38,10 +38,11 @@ const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
 
 ```
 IMPORT term
+IMPORT color
 
 SUB main()
   term::on()
-  term::setBackground(0, 0, 40)
+  term::setBackground(color::rgb(0, 0, 40))
   term::fillRect(term::FillStyle.Filled, 2, 1, 30, 12)
   term::fillRect(term::FillStyle.Light, 4, 3, 28, 5)
   term::sync()
@@ -53,6 +54,7 @@ Fill the whole surface as a background wash:
 
 ```
 IMPORT term
+IMPORT color
 
 SUB main()
   term::on()

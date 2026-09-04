@@ -4,6 +4,7 @@
 ' executes this — it exists only to give the term backend a .ncode golden.
 IMPORT io
 IMPORT term
+IMPORT color
 
 FUNC main() AS Integer
   ' Gate: enter and query TUI mode.
@@ -17,22 +18,22 @@ FUNC main() AS Integer
   term::showCursor()
 
   ' Colour setters (three Byte channels each).
-  term::setForeground(255, 128, 0)
-  term::setBackground(0, 64, 200)
+  term::setForeground(color::rgb(255, 128, 0))
+  term::setBackground(color::rgb(0, 64, 200))
 
   ' Attribute setters (Boolean).
   term::setBold(TRUE)
   term::setUnderline(FALSE)
 
   ' Colour getters (TermColor: three Byte fields r, g, b).
-  LET fg AS term::TermColor = term::getForeground()
-  io::print(toString(fg.r))
-  io::print(toString(fg.g))
-  io::print(toString(fg.b))
-  LET bg AS term::TermColor = term::getBackground()
-  io::print(toString(bg.r))
-  io::print(toString(bg.g))
-  io::print(toString(bg.b))
+  LET fg AS color::Color = term::getForeground()
+  io::print(toString(fg.red))
+  io::print(toString(fg.green))
+  io::print(toString(fg.blue))
+  LET bg AS color::Color = term::getBackground()
+  io::print(toString(bg.red))
+  io::print(toString(bg.green))
+  io::print(toString(bg.blue))
 
   ' Attribute getters (Boolean).
   LET bold AS Boolean = term::getBold()

@@ -114,6 +114,13 @@ transfer function is the standard one — `c / 12.92` below `0.04045`, else
 cannot depend on a platform's `pow`. Blending is `dst + (src - dst) * alpha / 255`
 on the linear values, rounded to nearest.
 
+That transfer is not canvas's own: it is the shared `color::toLinear` /
+`color::fromLinear` pair, and canvas blends through it (plan-122-B). A program can
+therefore reach the exact seam the rasteriser uses — `color::mix` and
+`color::brighten` operate in the same linear space and on the same table, so a
+colour computed in a program and a pixel composited by the surface cannot disagree.
+`./mfb spec stdlib color` specifies the pair; the linear range is `0`..`65535`.
+
 Half-opaque white over red is therefore `(255, 188, 188)`, not `(255, 128, 128)`.
 The second is what blending the encoded bytes directly would give, and it is the
 single most common way a compositor is wrong while still looking plausible.

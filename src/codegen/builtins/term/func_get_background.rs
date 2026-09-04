@@ -9,57 +9,58 @@ use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Read the current background colour as a `term::TermColor`"#;
+const INTRO: &str = r#"Read the current background colour as a `color::Color`"#;
 
-const DESC: &str = r#"`term::getBackground` returns the colour drawn behind subsequently written text,
-as a `term::TermColor` record with three `Byte` fields `r`, `g`, and
-`b` holding the red, green, and blue channels. It takes no arguments.
+const DESC: &str = r#"`term::getBackground` returns the colour that subsequently drawn text will be
+written in, as a `color::Color`. It takes no arguments.
+
+**A program that names the result must `IMPORT color`** as well as `term` —
+imports are not transitive and a package cannot re-export another's types. Reading
+the channels off the result without naming the type needs no extra import.
+
+**`alpha` is always `255`.** A terminal cell has no alpha channel, so there is
+nothing here to report; the field exists because a `color::Color` has four
+channels, and it is fixed fully opaque rather than left meaningless.
 
 The value is the module's current background attribute, unpacked from the 24-bit
-value that `term::setBackground` stored. Immediately after `term::on` — which
-resets the background to black — it is (0, 0, 0); after a `term::setBackground`
-call it is exactly the triple that was set, until the next `term::setBackground`
-or the next `term::on`.
+value that `term::setBackground` stored. Immediately after `term::on` — which resets
+the background to black — it is (0, 0, 0); after a `term::setBackground` call it
+is exactly the colour that was set, until the next `term::setBackground` or the next
+`term::on`.
 
 This is the *current attribute*, not the colour of anything on screen. Each cell
 of the grid carries the attributes that were current when its glyph was written,
-so this call says what the next drawing will use. Note in particular that
-`term::clear` blanks the surface to black rather than painting it with this colour, so a
-cleared surface is black whatever `term::getBackground` reports.
+so this call says what the next drawing will use, not what the cell under the
+cursor looks like."#;
 
-Unlike most of the module, `term::getBackground` does not simply do nothing while
-TUI mode is off: it returns the **inert default**, black (0, 0, 0). A program
-cannot distinguish "off" from "on and set to black" by this call alone — use
-`term::isOn` for that.
-
-The call reads state only: it changes no `term::` state, moves no cursor, and
-draws nothing. It can still fail, because building the returned record can
-fail when memory is exhausted."#;
-
-const EX: &str = r#"Set a background colour and read it back:
-
-```
+const EX: &str = r#"```
 IMPORT term
+IMPORT color
 
 SUB main()
   term::on()
-  term::setBackground(0, 128, 255)
-  LET c AS term::TermColor = term::getBackground()
+  term::setBackground(color::rgb(0, 128, 255))
+  LET c AS color::Color = term::getBackground()
   term::off()
 END SUB
 ```
 
-Inspect the individual channels:
+Save the current colour, draw a highlight, then restore it. The saved value goes
+straight back in, with no channel unpacking:
 
 ```
 IMPORT term
+IMPORT color
 IMPORT io
 
 SUB main()
   term::on()
-  LET c AS term::TermColor = term::getBackground()
+  LET saved AS color::Color = term::getBackground()
+  term::setBackground(color::rgb(255, 0, 0))
+  io::print("warning")
+  term::setBackground(saved)
+  term::sync()
   term::off()
-  io::print(toString(c.r) & "," & toString(c.g) & "," & toString(c.b))
 END SUB
 ```"#;
 /// `abi_function` body for `term::get_background` — delegates to the shared family-generic
@@ -97,7 +98,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::named("TermColor"),
+            return_type: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_get_background),
         }],

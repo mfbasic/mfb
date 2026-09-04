@@ -32,7 +32,7 @@
 //! survive getting them wrong:
 //!
 //! * the render target is `BGRA8Unorm_sRGB`, so the GPU does the linear→sRGB encode
-//!   on write, exactly where the software path's `__CANVAS_SRGB` table does it;
+//!   on write, exactly where the software path's `__COLOR_SRGB` table does it;
 //! * the fragment shader emits **linear** premultiplied colour, matching the space
 //!   the software blend runs in;
 //! * the blend state is `One` / `OneMinusSourceAlpha` — the premultiplied-alpha
@@ -324,7 +324,10 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // into `covered`, which is what decodes.
     // One entry of the oracle's forward table, recomputed rather than uploaded: the
     // curve ROUNDED to integers on a 0..65535 scale, which is the space its lerp
-    // happens in.
+    // happens in. The oracle's table is `__color_srgbTable`, in the `color` package
+    // since plan-122-B. This reproduction spells neither its name nor its constant,
+    // so a grep for the table will not find it; if the quantisation ever changes,
+    // `the_gpu_draws_the_gradient_scene_the_reference_shows` is what catches it.
     "static float srgbTable(int i) {\n",
     "  return floor(srgbToLinear(float(i)) * 65535.0 + 0.5);\n",
     "}\n",
@@ -629,7 +632,7 @@ pub(crate) const CLASS_MTL_RENDER_PIPELINE_DESCRIPTOR: &str =
     "_OBJC_CLASS_$_MTLRenderPipelineDescriptor";
 
 /// `MTLPixelFormatBGRA8Unorm_sRGB`. The GPU applies the sRGB encode on write, which
-/// is the same transform the software path's `__CANVAS_SRGB` table applies on the
+/// is the same transform the software path's `__COLOR_SRGB` table applies on the
 /// way out — so the two agree by construction rather than by a matching pair of
 /// hand-written conversions. It is also a `CAMetalLayer`-supported format, so the
 /// offscreen target this pipeline is proved against and the on-screen drawable it
@@ -3370,7 +3373,7 @@ mod tests {
         assert_eq!(
             MTL_PIXEL_FORMAT_BGRA8UNORM_SRGB, "81",
             "MTLPixelFormatBGRA8Unorm_sRGB is 81; 80 is the non-sRGB BGRA8Unorm and \
-             would skip the encode the software oracle applies through __CANVAS_SRGB"
+             would skip the encode the software oracle applies through __COLOR_SRGB"
         );
     }
 

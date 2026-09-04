@@ -1,0 +1,27 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_constructors_rt
+Wrote AST to tests/rt-behavior/color/color_constructors_rt/color_constructors_rt.ast
+Wrote IR to tests/rt-behavior/color/color_constructors_rt/color_constructors_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_constructors_rt
+Wrote executable to tests/rt-behavior/color/color_constructors_rt/build/color_constructors_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_constructors_rt/build/color_constructors_rt.out
+rgb=1,2,3,255
+rgbOver=255,255,255,255
+rgbUnder=0,0,0,255
+rgbMixed=255,0,128,255
+rgbEdges=0,255,0,255
+gray0=0,0,0,255
+gray128=128,128,128,255
+gray255=255,255,255,255
+grayOver=255,255,255,255
+grayUnder=0,0,0,255
+withAlpha=10,200,30,64
+withAlphaOver=10,200,30,255
+withAlphaUnder=10,200,30,0
+withAlphaRoundTrip=10,200,30,128
+invert=245,55,225,128
+invertTwice=10,200,30,128
+invertBlack=255,255,255,7
+invertWhite=0,0,0,7
+[exit 0]

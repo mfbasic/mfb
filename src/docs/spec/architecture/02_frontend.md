@@ -137,7 +137,7 @@ The resolver has two jobs:
 The resolver knows the built-in type names:
 `Boolean`, `Byte`, `Error`, `ErrorLoc`, `Fixed`, `Float`, `Integer`, `Json`,
 `Nothing`, `Result`, `String`, plus the resource and record types contributed by
-built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
+built-in packages — `File` (fs), `TermSize` (term), `Socket`,
 `Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
 `tls::Socket`/`tls::Listener` (tls). The package-contributed names are referenced by a
 shared constant so the resolver list and the packages stay in

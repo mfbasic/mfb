@@ -15,6 +15,15 @@ global and the packed-RGB colour convention, but their per-view grid storage
 differs (heap `TermCell[]` vs. parallel static arrays). Both are described below;
 divergences are flagged.
 
+`term::setForeground`/`setBackground` take a `color::Color` and
+`term::getForeground`/`getBackground` return one. **The term-state slot itself is
+unchanged**: it stays the packed `0xBBGGRR` the emitters have always written, which
+is deliberately the *opposite* byte order from `color::toPacked`'s `0xAARRGGBB`.
+The slot is private to these emitters and never observed by a program, so unifying
+the two orders would churn the ANSI path for no visible gain. **A terminal cell has
+no alpha channel**: the setters read only the colour channels and ignore
+`alpha`, and the getters always report `alpha` `255`.
+
 ## Shared term-state global (console-uniform)
 
 The GUI setters write the same per-program TUI slots the console backend reads.

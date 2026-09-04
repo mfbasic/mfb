@@ -10,28 +10,17 @@
   "types": [
   {
     "kind": "type",
-    "line": 8,
-    "visibility": "export",
-    "name": "term.TermColor",
-    "fields": [
-    { "visibility": null, "line": 9, "name": "r", "type": "Byte" },
-    { "visibility": null, "line": 10, "name": "g", "type": "Byte" },
-    { "visibility": null, "line": 11, "name": "b", "type": "Byte" }
-    ]
-  },
-  {
-    "kind": "type",
-    "line": 20,
+    "line": 7,
     "visibility": "export",
     "name": "term.TermSize",
     "fields": [
-    { "visibility": null, "line": 21, "name": "columns", "type": "Integer" },
-    { "visibility": null, "line": 22, "name": "rows", "type": "Integer" }
+    { "visibility": null, "line": 8, "name": "columns", "type": "Integer" },
+    { "visibility": null, "line": 9, "name": "rows", "type": "Integer" }
     ]
   },
   {
     "kind": "enum",
-    "line": 25,
+    "line": 12,
     "visibility": "export",
     "name": "term.LineStyle",
     "members": [
@@ -46,7 +35,7 @@
   },
   {
     "kind": "enum",
-    "line": 35,
+    "line": 22,
     "visibility": "export",
     "name": "term.FillStyle",
     "members": [
