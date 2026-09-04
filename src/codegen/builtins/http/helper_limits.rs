@@ -24,6 +24,23 @@ LET __HTTP_READ_TIMEOUT_MS AS Integer = 30000"#;
 const MAX_REQUEST: &str =
 r#"LET __HTTP_MAX_REQUEST AS Integer = 67108864"#;
 
+#[rustfmt::skip]
+const SERVER_LIMITS: &str =
+r#"' bug-507 / OS-52, OS-56: the server-side caps and deadlines. A request head
+' (request line + header block, up to and including the blank line) may not
+' exceed __HTTP_MAX_HEAD bytes, carry more than __HTTP_MAX_HEADERS fields, or
+' hold a line longer than __HTTP_MAX_HEADER_LINE bytes (each answered 431); a
+' chunk-size line is capped at __HTTP_MAX_HEADER_LINE too (400). A connection
+' that stays silent for __HTTP_SERVER_IDLE_TIMEOUT_MS between reads, or whose
+' request has not completed __HTTP_SERVER_REQUEST_TIMEOUT_MS after the first
+' byte, is answered 408 and closed, so one slow client (slowloris) cannot wedge
+' the single-threaded accept loop.
+LET __HTTP_MAX_HEAD AS Integer = 65536
+LET __HTTP_MAX_HEADERS AS Integer = 100
+LET __HTTP_MAX_HEADER_LINE AS Integer = 8192
+LET __HTTP_SERVER_IDLE_TIMEOUT_MS AS Integer = 10000
+LET __HTTP_SERVER_REQUEST_TIMEOUT_MS AS Integer = 60000"#;
+
 /// The response-side limits render before the client helpers; the request-side
 /// limit before the server helpers (matching the old `package.mfb` positions).
 pub(crate) fn register_response_limits(pkg: &mut RegistryPackage) {
@@ -33,4 +50,5 @@ pub(crate) fn register_response_limits(pkg: &mut RegistryPackage) {
 
 pub(crate) fn register_request_limit(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("http_maxRequest", MAX_REQUEST));
+    pkg.add_helper(RegistryHelper::always("http_serverLimits", SERVER_LIMITS));
 }

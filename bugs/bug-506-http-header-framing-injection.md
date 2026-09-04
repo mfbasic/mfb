@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (injection — request splitting / response splitting / request smuggling)
 
-Status: Open (found in audit-3, Surface 4 OS-53/54/55; OS-54 agent-demonstrated, OS-54/55 mechanisms lead-verified)
+Status: FIXED — see the STATUS block at the end (found in audit-3, Surface 4 OS-53/54/55; OS-54 agent-demonstrated, OS-54/55 mechanisms lead-verified)
 
 Regression Test: fixtures asserting a `\r`/`\n`/NUL in a method / header value / reason is rejected or escaped, and that duplicate `Content-Length` / whitespace-before-`:` is rejected server-side.
 
@@ -72,3 +72,48 @@ byte-identical.
 audit-2 OS-09 (client request-header CRLF) → this extends the class to the method
 and the *server response* side, both uncovered by bug-262. Searched `CRLF`,
 `crlf`, `header injection`, `Content-Length`, `Transfer-Encoding`, `smuggling`.
+
+## Reproduction (2026-09-03, fix session)
+
+All three reproduced as claimed, against a scratch `http::handleRequest` echo
+server (`/tmp/b506-repro`, release `mfb` at main `4efc93966`) driven by a python
+raw-socket peer:
+
+- OS-54: `http::read(u, {}, "GET\r\nX-Injected:1\r\nGET")` reached a python
+  listener as `GET\r\nX-INJECTED:1\r\nGET / HTTP/1.1\r\nHost: ...` — the method
+  framed an injected header. (A method with a space was already rejected; one
+  with only CRLF was not.)
+- OS-55: `GET /?to=/x%0d%0aSet-Cookie:%20evil=1%0d%0a%0d%0a<html>injected` through
+  a handler doing `http::withHeader(r, "Location", dest)` produced
+  `HTTP/1.1 200 OK\r\n...\r\nLocation: /x\r\nSet-Cookie: evil=1\r\n\r\n<html>injected\r\nContent-Length: 35...`
+  — a split response.
+- OS-53: duplicate `Content-Length: 5` / `10` → 200 with `bodyLen=10`;
+  `Content-Length` + `Transfer-Encoding: chunked` → 200; `Host : x` → 200;
+  obs-fold ` X-Fold: y` → 200; `Transfer-Encoding: chunked, gzip` → treated as
+  chunked; `Content-Length: abc` → 200 with `bodyLen=0`; `Content-Length: 3` with
+  10 body bytes → `bodyLen=10`.
+
+## Fix
+
+- OS-54: `__http_normalizeMethod` rejects a method with any control byte
+  (`__http_hasControlBytes`, bug-262's sweep) with `ErrInvalidArgument`.
+- OS-55: `__http_checkResponse` (called from `__http_buildResponse` on the
+  dispatched response) substitutes a built-in `500 Internal Server Error` for a
+  response whose reason, or any header name/value, carries a control byte (HTAB
+  allowed in a value/reason per RFC 9110; CR/LF/NUL/other C0 and DEL are not —
+  `__http_hasFieldControlBytes`). `__http_serializeHead` additionally FAILs on
+  the same bytes as a fail-closed backstop.
+- OS-53: the server parses its head with a NEW strict parser
+  (`__http_requestHeaderMap` + `__http_requestFraming`; the lenient
+  `__http_headerMapFromHead`/`__http_framingLength` remain for the client, which
+  reads to EOF and is not a trust boundary): a second `Content-Length`,
+  `Content-Length` with `Transfer-Encoding`, whitespace before the colon,
+  obs-fold, a line with no colon, a non-final or doubled `chunked`, any other
+  transfer coding, and a non-digit/signed `Content-Length` all FAIL
+  `ErrInvalidFormat` → 400. `__http_parseRequest` slices the body to exactly
+  `Content-Length` bytes.
+
+Regression test: `tests/rt_http_header_framing_injection.rs` (RED on main for
+every sub-issue; the well-formed exchange is pinned byte-for-byte and was green
+before and after). Docs: `handleRequest`/`read`/`write` descriptors,
+`src/docs/spec/stdlib/05_http.md`, `.ai/net-tls.md`.

@@ -104,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named(crate::codegen::builtins::net::URL_TYPE_ID)),
                 super::req("body", "The request payload, sent verbatim as UTF-8 bytes. Its byte length becomes the generated `Content-Length` header.", &[], ParameterType::String),
                 super::fill("headers", "Optional request headers. Names matching `Host`/`User-Agent`/`Accept` override the defaults case-insensitively; others are appended. `Content-Length` and `Connection` entries are dropped (both are forced). No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
-                super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `POST`.", ParameterType::String, "POST"),
+                super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space or control byte. Defaults to `POST`.", ParameterType::String, "POST"),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],

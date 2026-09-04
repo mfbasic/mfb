@@ -8,11 +8,14 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __http_normalizeMethod(method AS String) AS String
+r#"' bug-506 / OS-54: the method is the first token on the wire, so a control byte
+' in it (CR, LF, NUL, ...) frames extra header lines or a whole second request
+' line — bug-262's sweep covered the headers and the target but not the method.
+FUNC __http_normalizeMethod(method AS String) AS String
   IF method = "" THEN
     FAIL error(77050002, "empty HTTP method")
   END IF
-  IF strings::contains(method, " ") THEN
+  IF strings::contains(method, " ") OR __http_hasControlBytes(method) THEN
     FAIL error(77050002, "invalid HTTP method")
   END IF
   RETURN strings::upper(method)

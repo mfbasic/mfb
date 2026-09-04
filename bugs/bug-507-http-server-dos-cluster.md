@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (denial of service)
 
-Status: Open (found in audit-3, Surface 4 OS-51/52/56; mechanisms code-verified, OS-56 measured by the agent)
+Status: FIXED — see the STATUS block at the end (found in audit-3, Surface 4 OS-51/52/56; mechanisms code-verified, OS-56 measured by the agent)
 
 Regression Test: fixtures asserting a malformed chunk-size returns an error to the client (not a process abort), an idle connection is dropped on a read timeout, and an oversized head is rejected.
 
@@ -60,3 +60,55 @@ caps; do not change the default response bytes.
 audit-2 REPO-13 capped the *registry's* publish/validate (bug-188); the `http`
 server package caps were uncovered. Searched `helper_limits`, `timeout`,
 `chunk`, `slowloris`, `handleRequest`.
+
+## Reproduction (2026-09-03, fix session)
+
+All three reproduced against a scratch `http::handleRequest` server
+(`/tmp/b506-repro`, release `mfb` at main `4efc93966`) driven by python sockets:
+
+- OS-51: `POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nZZ\r\n`
+  → the server process printed `Error: 7-705-0003 / invalid chunk size` and
+  exited 255; the client got an empty reply.
+- OS-52: one connection sending `GET / HTTP/1.1\r\nHost: x\r\n` and going silent
+  → a second client's well-formed request was not answered within 3 s (nor
+  40 s in the RED test).
+- OS-56: an unterminated head of 1 MiB → 0.24 s, 2 MiB → 1.16 s (≈4.8× for 2×:
+  quadratic), and nothing capped the head, the header count, or a line.
+
+## Fix
+
+- OS-51: the per-connection read loop moved into `__http_readRequestNet`/`Tls`,
+  which reports its outcome in `__http_ReadResult.status` (0 / 400 / 408 / 413
+  / 431) and raises nothing; `__http_handleRequest`/`SSL` TRAP the read, the
+  parse/dispatch (→ 500) and the head serialization, so a raise anywhere costs
+  the one connection. `__http_frameComplete` (client `done`) traps a bad chunk
+  size and reports the frame complete so `finish` raises the ordinary
+  `ErrInvalidFormat` instead of `done` raising.
+- OS-52: `tcp::setReadTimeout`/`tls::setReadTimeout` per read
+  (`__HTTP_SERVER_IDLE_TIMEOUT_MS` = 10 s) plus a `datetime::monotonicNanos`
+  whole-request deadline (`__HTTP_SERVER_REQUEST_TIMEOUT_MS` = 60 s); expiry is
+  answered `408 Request Timeout` (silently closed if not a byte arrived).
+- OS-56: `__http_frameAdvance` carries `scanFrom` (head search resumes three
+  bytes back) and `cursor` (chunk walk resumes at the last complete boundary,
+  `__http_chunkedScan`) across reads — one pass per byte. Caps in
+  `helper_limits.rs`: `__HTTP_MAX_HEAD` 64 KiB, `__HTTP_MAX_HEADERS` 100,
+  `__HTTP_MAX_HEADER_LINE` 8 KiB (also bounds a chunk-size line); each answered
+  `431 Request Header Fields Too Large` as soon as it is seen; a `Content-Length`
+  past the 64 MiB request cap is `413` before the body is read.
+- An early rejection is followed by a bounded lingering close
+  (`__http_lingerNet`/`Tls`: ≤ 4 MiB, 500 ms per read) so the 4xx reaches a client
+  that is still sending instead of an RST (measured: without it the python peer
+  saw `ConnectionResetError`, never the 431).
+
+Not done, deliberately: a *concurrent-connection* cap — `handleRequest` is
+single-threaded and serves one connection per call, so there is nothing to cap;
+and a `tls::accept` handshake deadline — `tls::accept(listener, timeoutMs)`
+bounds the wait for a client AND its handshake with one number, so bounding the
+handshake would also turn "no client yet" into an error and change the
+documented blocking-accept contract. A client that connects and never completes
+the TLS handshake can still hold `__http_handleRequestSSL` in `tls::accept`; that
+is a separate, TLS-layer hazard.
+
+Regression test: `tests/rt_http_server_dos.rs` (RED on main for OS-51, OS-52 and
+each 431 cap; the under-cap and tiny-chunk exchanges are pins). Docs:
+`handleRequest` descriptor, `src/docs/spec/stdlib/05_http.md`, `.ai/net-tls.md`.
