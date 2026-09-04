@@ -1071,18 +1071,40 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
 /// the time a predicate sees the offsets list the walk has already expanded every group
 /// away, so a search would find nothing and accept the frame.
 #[test]
-fn a_scene_containing_a_group_declines_to_software() {
+fn a_group_reaches_only_the_backend_that_knows_the_per_draw_offset() {
     let (_, stats) = render_gpu("canvas_group_declines", GROUP_SCENE);
     if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
         eprintln!("skip: this host built no GPU pipeline\n{stats}");
         return;
     }
-    assert!(
-        stats.contains("gpuFrames=0"),
-        "a scene containing a `canvas::Group` was rendered on the GPU. No backend knows \
-         the per-draw offset until plan-116-H, so accepting the frame means every \
-         group's children were drawn at the origin: {stats}"
-    );
+    // plan-116-G declined a group scene on BOTH backends, because neither knew the
+    // per-draw offset and accepting the frame would have drawn every group's children
+    // at the origin — a complete, plausible, wrong picture.
+    //
+    // plan-116-H Phase 2 taught Vulkan the offset: a push constant both shader stages
+    // consume, and one instanced draw per entry of `__canvas_sceneDraws`. So the
+    // decline is now per-backend, and this test is the pin for which backends have been
+    // taught. Phase 3 flips the Metal arm.
+    //
+    // Vulkan's half is proven by `scripts/test-canvas-vulkan.sh`, which renders seven
+    // group cases — including a nested group, a diamond, and the gradient and `Text`
+    // cases that a vertex-stage-only offset cannot get right — and compares them
+    // against the software oracle on the box.
+    if stats.contains("vulkanReady=TRUE") {
+        assert!(
+            !stats.contains("gpuFrames=0"),
+            "Vulkan declined a scene containing a `canvas::Group`. It has known the \
+             per-draw offset since plan-116-H Phase 2, so declining means the predicate \
+             is still refusing work the backend can do: {stats}"
+        );
+    } else {
+        assert!(
+            stats.contains("gpuFrames=0"),
+            "Metal rendered a scene containing a `canvas::Group`, but it does not know \
+             the per-draw offset until plan-116-H Phase 3 — so accepting the frame means \
+             every group's children were drawn at the origin: {stats}"
+        );
+    }
     // And the control: the same scene with the group replaced by the item itself IS
     // rendered on the GPU, so the assertion above is about groups and not about the
     // scene being undrawable for some other reason.

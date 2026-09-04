@@ -426,19 +426,48 @@ Vulkan first, as in plan-116-A, because glslang gives measured reflection.
       numbers exactly. Four corrections came out of this one box: **H12** (the ad-hoc
       loop was not the harness), **H13** (draw-entry width), **H14** (the blend-split
       instance rule), **H15** (the unsigned `strokeHalf` read).
-- [ ] Remove the `Group` decline from `__canvas_vulkanRenderable`; update its frame
-      caps to sum over the resolved tree per §4.3.
-- [ ] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
+- [x] Remove the `Group` decline from `__canvas_vulkanRenderable`; update its frame
+      caps to sum over the resolved tree per §4.3. — `__CANVAS_DRAW_HAS_GROUP` is kept,
+      because `__canvas_metalRenderable` still reads it until Phase 3.
+      **§4.3 resolved by measurement, not by the plan's guess**: a group's blocks are
+      recorded **once** and referenced by base, in *both* walks. A diamond referencing
+      one leaf twice reports `entries=1 blocks=1` with two draw entries sharing base 0,
+      so the caps already sum over the resolved tree and need no per-reference
+      multiplier — the plan's second bullet was right.
+      The item cap was wrong for a different reason and is fixed here: it counted `1`
+      per non-text item, but a blended item that both strokes and fills publishes
+      **two** records (**H15**), so it now asks `__canvas_blockInstances` — the same
+      function the draw list asks.
+- [x] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
       `(37, 53)` matches the oracle; a nested group matches; a diamond matches; a
       **clipped** item inside a translated group matches (the §4.2 clip case); and a **gradient-filled** item and a **`Text`** item
       inside a translated group match (the §4.2 gradient and glyph cases, **H2** —
-      both fail today).
+      both fail today). — All seven, added to `scripts/test-canvas-vulkan.sh` as a
+      second program rather than run by hand, so they are a gate and not an anecdote.
+      **`worst=0 differing=0.0000%`** on box 2228 with `gpuFrames=1`.
+      The emitted draw list reads the cases back: `2:1` at `(395,65)` is the nested
+      group composing `(380,40)+(15,25)`; the two `3:1` entries at `(600,40)` and
+      `(700,140)` are the diamond sharing one base; `6:2` is the two glyphs of the text
+      run inside its group.
+      The frame count is asserted **before** the pixels: a declined group scene compares
+      the software renderer against itself and passes on pixels alone, which is exactly
+      what plan-116-G's decline used to do.
+      `tests/rt_canvas_golden.rs`'s decline test is now per-backend and renamed
+      `a_group_reaches_only_the_backend_that_knows_the_per_draw_offset` — it asserts
+      Vulkan **accepts** and Metal still declines, and Phase 3 flips the Metal arm.
 
 Acceptance: all five scenes match the software oracle within
 `Tolerance::GPU_DEFAULT` with `MFB_CANVAS_STATS` reporting `vulkanReady=TRUE`. The
 non-zero-offset case is the one that proves the fragment-stage offset landed; a pass
 there with a vertex-only implementation is not possible.
-Commit: —
+
+**MET, and above the bar: seven scenes rather than five, at `worst=0
+differing=0.0000%` rather than merely inside `Tolerance::GPU_DEFAULT`,** with
+`vulkanReady=TRUE gpuFrames=1`. `scripts/test-canvas-vulkan.sh` reports 14/14.
+The whole-suite number is unchanged from before the conversion — `worst=2
+differing=0.8116%` on the primitive scene — so the two-pass emitter costs nothing in
+agreement with the oracle.
+Commit: `3ded46db6`, `240fdf6ee`, `c29046626`, `c6dbc0524`, `2c6809dcd`, `e33b9e8f5`
 
 ### Phase 3 — Metal: the same
 

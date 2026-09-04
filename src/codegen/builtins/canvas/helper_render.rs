@@ -722,10 +722,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
-      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-    ELSE
-      quads = quads + 1
     END IF
+    ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
+    ' list asks. A blended item that both strokes and fills publishes two
+    ' (`emit_split_or_publish`), and counting it as one let a scene near the cap write
+    ' past the mapping -- the direction this predicate exists to prevent.
+    quads = quads + __canvas_blockInstances(offset)
     ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
     ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
     ' edge cap has. A count below two is not a gradient and contributes nothing.
@@ -749,15 +751,19 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
-  ' plan-116-G: decline any scene that contained a group, until plan-116-H teaches the
-  ' backends the per-draw offset. Read from the walk's own flag rather than by looking
-  ' for a `Group` item, because by the time a predicate sees this list the walk has
-  ' already expanded every group away -- searching for one would find nothing and the
-  ' GPU would draw every group's children at the ORIGIN, which is a plausible wrong
-  ' picture reported as success (`.ai/canvas-threading.md` section 10).
-  IF __CANVAS_DRAW_HAS_GROUP THEN
-    RETURN FALSE
-  END IF
+  ' plan-116-H Phase 2: Vulkan no longer declines a scene containing a group. The
+  ' emitter walks `__canvas_sceneDraws` and pushes each entry's offset as a push
+  ' constant that BOTH shader stages consume, so a group's children land where the
+  ' group puts them rather than at the origin.
+  '
+  ' `__CANVAS_DRAW_HAS_GROUP` stays -- `__canvas_metalRenderable` still reads it until
+  ' Phase 3 teaches Metal the same offset. Do not "simplify" it away.
+  '
+  ' No cap needs a per-reference multiplier here. A group's blocks are recorded ONCE
+  ' and referenced by base, in both walks: a diamond referencing one leaf twice reports
+  ' `entries=1 blocks=1` and two draw entries that share base 0 with different offsets.
+  ' The caps above sum over recorded blocks, which is exactly what the item buffer
+  ' holds.
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
 END FUNC
 
