@@ -173,9 +173,14 @@ pub(crate) fn register(r: &mut Registry) {
     // use), `os`/`fs` (the headless frame dump), and `canvas` itself — a package
     // reaches its own internal-only members through the qualified spelling, exactly
     // as `astrings` reaches `astrings::readSpans`.
+    // `color` (plan-122-B): the blend and gradient helpers convert through
+    // `color::toLinear`/`color::fromLinear` rather than a canvas-local sRGB table.
+    // canvas already has a non-empty companion and already pays a companion cost, so
+    // this adds `color`'s 33,024 bytes but does not change canvas's cost *class*.
     pkg.add_imports(vec![
         "canvas",
         "collections",
+        "color",
         "math",
         "os",
         "fs",

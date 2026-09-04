@@ -41,6 +41,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_from_hex;
+mod func_from_linear;
 mod func_from_packed;
 mod func_gray;
 mod func_invert;
@@ -48,11 +49,13 @@ mod func_rgb;
 mod func_rgba;
 mod func_to_hex;
 mod func_to_hex_alpha;
+mod func_to_linear;
 mod func_to_packed;
 mod func_with_alpha;
 mod helper_clamp_byte;
 mod helper_hex_byte;
 mod helper_hex_value;
+mod helper_srgb;
 mod helper_to_string;
 
 /// The `Color` record type (`red`/`green`/`blue`/`alpha` `Byte`) — the leaf
@@ -161,6 +164,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_hex_value::register(&mut pkg);
     helper_hex_byte::register(&mut pkg);
     helper_to_string::register(&mut pkg);
+    helper_srgb::register(&mut pkg);
 
     // Constructors first, then the operations over an existing colour — the order
     // a reader of `mfb man color` meets them in.
@@ -179,5 +183,48 @@ pub(crate) fn register(r: &mut Registry) {
     func_to_hex::register(&mut pkg);
     func_to_hex_alpha::register(&mut pkg);
 
+    // The sRGB <-> linear-light seam (plan-122-B). Public because canvas blends
+    // through it: a package cannot reach another's private `__` helpers, and a
+    // canvas-private duplicate of the table is exactly the drift plan-122 removes.
+    func_to_linear::register(&mut pkg);
+    func_from_linear::register(&mut pkg);
+
     r.add_package(pkg);
+}
+
+/// Synthetic path/doc labels for the injected `color` source.
+/// `parse_source_internal` records the path; `AstProject::to_json` filters this
+/// sentinel out of `-ast` output.
+const SOURCE_LABEL: &str = "<builtin-color>";
+const SOURCE_DOC: &str = "builtins/color.mfb";
+
+/// Inject the `color` package source when a program — **or another injected
+/// built-in** — imports it.
+///
+/// `color` is injected by this dedicated late pass rather than by the generic
+/// `registry::augment_project`, for the same transitivity reason as `encoding` and
+/// `net`: since plan-122-B, `canvas`'s injected companion carries `IMPORT color`
+/// and calls `color::toLinear`/`color::fromLinear` from its blend and gradient
+/// helpers. The generic pass examines the **pre-injection** AST, where a canvas
+/// program has only written `IMPORT canvas`, so it cannot see that transitive
+/// import and never injected `color` — the program then failed at native lowering
+/// with `NIR call target '#color_toLinear' does not resolve`, since the canvas
+/// companion's call had nothing to bind to.
+///
+/// The generic pass therefore skips `color` (see `Registry::synthetic_files`),
+/// which also prevents a double injection when a program imports `color` directly.
+/// The injected *source* is the identical generic `RegistryPackage::get_mfb`
+/// assembly the generic pass would produce; only the injection *position* differs.
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    crate::codegen::registry::inject_late_pass(ast, "color", SOURCE_LABEL, SOURCE_DOC)
+}
+
+/// The same injection onto the elaborated project the former source checker consumes.
+#[cfg(test)] // the HIR-domain chain serves the in-process tests only (plan-107-D)
+pub(crate) fn augmented_hir_project(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
+    crate::codegen::registry::inject_late_pass_hir(hir, "color", SOURCE_LABEL, SOURCE_DOC)
 }

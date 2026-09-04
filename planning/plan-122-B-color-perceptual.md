@@ -38,7 +38,7 @@ Stated once in plan-122-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-122-A complete | `ls planning/completed/plan-122-A-*` → one match | NOT MET |
+| plan-122-A complete | `ls planning/completed/plan-122-A-*` → one match | **MET** (2026-09-03) — A landed in this same `worktree-P-122` run across `b771d7f33`..`b1526d005`, ledger closed at `c88904866`. Measured directly rather than by the archive path, which is a *proxy* for completeness and is only written at merge time (§5 of the follow-plan procedure archives each letter as it completes, and A/B/C are landing in one integration branch): `grep -c '^- \[ \]' planning/plan-122-A-color-package-core.md` → **0** unticked boxes, `grep -c '^Commit: —$'` → **0** unfilled commit lines, and A's whole-plan gates are green (`cargo test --no-fail-fast` exit 0; `test-accept.sh` 1382 ran, passed; `artifact-gate.sh all` 1884 goldens, 0 diffs). |
 
 If plan-122-A is not complete, this sub-plan cannot start, full stop.
 
@@ -273,31 +273,59 @@ describe the sRGB colour; `brighten` and `darken` work in linear light.*
 The one edit that can change a pixel. Landed alone so a pixel diff has exactly one
 possible cause.
 
-- [ ] New `src/codegen/builtins/color/helper_srgb.rs`: `__color_srgbTable` with the
+- [x] New `src/codegen/builtins/color/helper_srgb.rs`: `__color_srgbTable` with the
       256 literals copied **verbatim** from `canvas/helper_color.rs:24`, and
       `LET __COLOR_SRGB`.
-- [ ] New `func_to_linear.rs` / `func_from_linear.rs` — `fromLinear`'s body is the
+      Copied **by machine**, not retyped (`/tmp/p122b/build_helper_srgb.py` reads the
+      `RETURN [...]` line out of canvas's source, asserts 256 entries and the
+      `0`/`65535` endpoints, and splices it). Retyping is exactly the paste error
+      `srgb_table_matches_the_transfer_function` exists to catch.
+- [x] New `func_to_linear.rs` / `func_from_linear.rs` — `fromLinear`'s body is the
       binary search moved verbatim from `__canvas_linearToSrgb`.
-- [ ] Move the four Rust unit tests (`srgb_table_covers_every_byte`,
+- [x] Move the four Rust unit tests (`srgb_table_covers_every_byte`,
       `srgb_table_endpoints_are_exact`, `srgb_table_is_strictly_increasing`,
       `srgb_table_matches_the_transfer_function`) into `helper_srgb.rs`, repointed
       at the new const. Do not weaken any of them — in particular
       `srgb_table_matches_the_transfer_function` is the only test that catches
       entries that are present but wrong.
-- [ ] Rewrite `canvas/helper_color.rs`: delete `SRGB_TABLE` and `LINEAR_TO_SRGB`,
+      All four pass unmodified as `codegen::builtins::color::helper_srgb::tests::*`
+      (`cargo test --release --bin mfb srgb_table` → 4 passed).
+- [x] Rewrite `canvas/helper_color.rs`: delete `SRGB_TABLE` and `LINEAR_TO_SRGB`,
       rewrite `BLEND_CHANNEL` and `BLEND_CHANNEL_MODE` to call
       `color::toLinear`/`color::fromLinear`, keeping every constant
       (`+ 127`, `/ 255`, `+ 32767`, `/ 65535`) and the `Normal`-arm expression
       identity exactly.
-- [ ] `canvas/mod.rs:171` — add `"color"` to `add_imports`.
-- [ ] Regenerate the canvas `.ncode`/`.ncodesum` goldens and **attribute the
+- [x] **Added task — `GRADIENT_COLOR` is a third consumer the plan omitted.**
+      `__canvas_gradientChannel` also read `__CANVAS_SRGB` and called
+      `__canvas_linearToSrgb`; deleting the table without rewriting it does not
+      compile. Repointed at the same pair. See Corrections for the count.
+- [x] `canvas/mod.rs:171` — add `"color"` to `add_imports`.
+- [x] **Added task — `color` needs its own late injection pass.** Without it the
+      move builds but every canvas program dies at native lowering with
+      `NIR call target '#color_toLinear' does not resolve`. See Corrections.
+- [x] Regenerate the canvas `.ncode`/`.ncodesum` goldens and **attribute the
       delta**: it must be confined to canvas fixtures and canvas importers. Use a
       `git archive` attribution binary rather than a sibling worktree.
+      **Nothing to regenerate** — `artifact-gate.sh <mfb> all` reports 1884 goldens,
+      **0 diffs**, because there are no canvas byte-identity fixtures at all
+      (`find tests/byte-identity -iname '*canvas*'` → no hits). See Corrections: the
+      plan's predicted canvas `.ncodesum` churn had nothing to churn, and the 0 also
+      proves the move is byte-neutral for every non-canvas program.
 
-Acceptance: `tests/rt_canvas_rasteriser.rs` and `tests/rt_canvas_golden.rs` pass
-with **pixel-identical** output, and `tests/rt_canvas_metal.rs` still agrees with
-the software oracle. A pixel diff is root-caused by dumping the two tables index by
-index — it is never grounds to abandon the move.
+Acceptance: **MET.**
+`tests/rt_canvas_rasteriser.rs` — **41 passed, 0 failed** (incl.
+`translucent_fill_blends_in_linear_space`,
+`blend_mode_normal_is_identical_to_an_unset_blend`,
+`each_blend_mode_composites_to_its_own_values`, `gradients_draw_their_own_ramps`,
+`rendering_is_byte_reproducible`).
+`tests/rt_canvas_golden.rs` — **16 passed, 0 failed**: these `compare_exact`
+against the six committed reference PNGs, and `git status --porcelain | grep -i png`
+is **empty**, so no reference was regenerated to make them pass. That is the
+pixel-identity proof.
+`tests/rt_canvas_metal.rs` — **4 passed**, so the GPU still agrees with the
+software oracle.
+Also green: `rt_canvas_damage` (4), `rt_canvas_font` (12), `rt_canvas_image_decode`
+(9), `rt_canvas_present_deep_copy` (4), `rt_canvas_graphics_thread` (8).
 Commit: —
 
 ### Phase 2 — Perceptual operations
@@ -375,7 +403,83 @@ Commit: —
 
 ## Corrections
 
-_(filled in during execution)_
+**BUG FOUND AND FIXED — `color` needed its own late injection pass.** This is the
+letter's one real finding, and it is exactly the kind the plan's "a pixel diff is a
+bug hunt, not grounds to abandon the move" rule exists to catch.
+
+After the move, **all 41** `rt_canvas_rasteriser` tests failed. That looked like
+the catastrophic pixel-divergence outcome. It was not a pixel diff at all —
+root-causing one fixture (`rectangle_fills_its_exact_span`) gave:
+
+```
+error: NIR call target '#color_toLinear' does not resolve
+```
+
+Cause: `Registry::synthetic_files` gates injection on
+`package.is_imported_by(view)`, and `view` is built from the **pre-injection** AST.
+A canvas program writes only `IMPORT canvas`; the `IMPORT color` that now reaches
+`color` lives in canvas's *injected* companion, which that view cannot see. So
+`color`'s companion was never injected, and the canvas companion's
+`color::toLinear` call had nothing to bind to.
+
+This is the identical transitivity problem `encoding`, `net` and `http` already
+solve, and the fix is the established pattern rather than a new mechanism:
+
+- `builtins::color::augmented_project` / `augmented_hir_project`, over the shared
+  `registry::inject_late_pass` helper.
+- `color` added to the skip list in `Registry::synthetic_files`, so a program that
+  imports `color` directly is not injected twice.
+- The pass wired into both chains — `resolver::augment_project` (+ the `#[cfg(test)]`
+  HIR chain) and `ir::lower`'s test chain — after the generic pass, for the same
+  reason `net` follows `http`.
+
+Worth knowing for D/E/F: **any package whose companion is reached only through
+another package's `add_imports` needs a late pass**, not just a registry entry.
+
+**§2's `__CANVAS_SRGB` count was low, and it hid a consumer.** The table says
+4 reference sites (`grep -rn '__CANVAS_SRGB' src/codegen/builtins/canvas/ | wc -l`).
+Measured at execution: **9** for `__CANVAS_SRGB` and **8** for
+`__canvas_linearToSrgb`. The gap matters because it concealed a third consumer the
+Phase 1 task list never mentions — `GRADIENT_COLOR`'s `__canvas_gradientChannel`
+reads the table twice and calls the inverse twice. Deleting the table and rewriting
+only `BLEND_CHANNEL`/`BLEND_CHANNEL_MODE`, as the plan says, does not compile.
+Repointed at the same public pair; `gradients_draw_their_own_ramps` and
+`gradients_match_their_reference_exactly` both pass.
+
+**A `toByte` now sits on the gradient path.** `__canvas_gradientChannel`'s
+parameters are `Integer` while `color::toLinear` takes a `Byte`, so the call reads
+`color::toLinear(toByte(loSrgb))`. Where the old `collections::getOr(__CANVAS_SRGB,
+loSrgb, 0)` returned `0` for an out-of-range index, `toByte` would raise
+`ErrOverflow`. Judged safe rather than assumed: the sibling
+`__canvas_gradientStopColor`, four lines below, **already** calls `toByte` on these
+same geo-data channel values, so no new failure mode is introduced on data that
+path does not already have. The gradient pixel goldens confirm it.
+
+**Predicted canvas `.ncode`/`.ncodesum` drift did not happen, because there is
+none to drift.** §"Compatibility / Format Impact" expects churn in "canvas
+`.ncode`/`.ncodesum` for every canvas fixture". There are **no canvas
+byte-identity fixtures** (`find tests/byte-identity -iname '*canvas*'` → no hits;
+canvas is `--app`-gated and its coverage is the Rust `rt_canvas_*.rs` binaries),
+and no canvas fixtures in the acceptance harness either (`grep -c canvas` over a
+full `test-accept.sh` log → **0**). `artifact-gate.sh <mfb> all` reports
+**1884 goldens, 0 diffs**.
+
+That 0 is a stronger result than the plan expected, and it is load-bearing: it
+proves the move is byte-neutral for every program that does not import `canvas` or
+`color`. The only acceptance drift in the whole phase is the five `color` fixtures'
+`.ir`, whose delta introduces exactly `#color_srgbTable`, `#color_toLinear` and
+`#color_fromLinear`.
+
+**The runtime proof is the reference-PNG comparison, not `examples/emoji`.** The
+Validation Plan asks to "run `examples/emoji` before and after Phase 1 and compare
+the rendered frame". `examples/emoji` calls `app::setMode(app::Mode.Canvas)` and
+opens a GUI window, so it cannot be diffed in a headless session.
+`tests/rt_canvas_golden.rs` is the stronger form of the same proof and was used
+instead: it renders through the real software rasteriser and `compare_exact`s the
+result against six committed reference PNGs, byte for byte — its own doc comment
+says a mismatch means "one of the four equations, the clip's coverage, or **the
+sRGB chain** moved". All 16 pass, and `git status --porcelain | grep -i png` is
+empty, so no reference was regenerated to make them pass.
 
 ## Summary
 

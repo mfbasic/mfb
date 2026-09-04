@@ -1454,6 +1454,17 @@ impl Registry {
             if matches!(package.import_name(), "net" | "http") {
                 continue;
             }
+            // `color` is injected by its own dedicated late pass
+            // (`codegen::builtins::color::augmented_project`), for the same
+            // transitivity reason: since plan-122-B `canvas`'s injected companion
+            // carries `IMPORT color` and calls `color::toLinear`/`fromLinear` from
+            // its blend and gradient helpers, and this single pass over the
+            // pre-injection AST — where a canvas program has written only
+            // `IMPORT canvas` — cannot see that. Skipping it here also prevents a
+            // double injection when a program imports `color` directly.
+            if package.import_name() == "color" {
+                continue;
+            }
             // `collections` is injected by its own dedicated pass at PARSE time
             // (`codegen::builtins::collections::augmented_project`, run by
             // `parse_project`): its members are source GENERICS the monomorphizer

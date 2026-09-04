@@ -159,6 +159,12 @@ pub fn lower_project_with_external_functions(
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
+    // `color` after the generic pass: canvas's injected companion carries
+    // `IMPORT color` and calls `color::toLinear`/`fromLinear` from its blend and
+    // gradient helpers, which the generic pass over the pre-injection AST cannot
+    // see (plan-122-B).
+    let augmented = crate::codegen::builtins::color::augmented_project(&augmented)
+        .expect("built-in color package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
