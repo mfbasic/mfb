@@ -391,10 +391,21 @@ pub(crate) struct CodeBuilder<'a> {
     /// `lower_numeric_for` as `Local($for_endN)`) can be resolved back to their
     /// `n - k` / `1` exprs. These synthetics are write-once and unique per loop.
     pub(crate) for_bound_expr: HashMap<String, NirValue>,
-    /// plan-86 G1: `n -> L` for a binding `LET n = len(L)` (both locals). Lets a
-    /// loop bound written as `n - k` resolve to `len(L) - k`. Dropped when `n` or
-    /// `L` is reassigned.
-    pub(crate) len_of_local: HashMap<String, String>,
+    /// plan-86 G1: `n -> (L, depth)` for a binding `LET n = len(L)` (both locals).
+    /// Lets a loop bound written as `n - k` resolve to `len(L) - k`. Dropped when
+    /// `n` or `L` is reassigned. `depth` is `enclosing_loop_reassigned.len()` when
+    /// the fact was recorded (bug-495): a loop entered AFTER that point may run a
+    /// reassignment of `L`/`n` on its back edge and re-enter an inner `FOR` with the
+    /// fact stale, so `recognize_provable_index` declines when any enclosing set at
+    /// index `>= depth` names `L` or `n`. A loop that CONTAINS the `LET` re-runs it
+    /// every iteration and cannot stale the fact.
+    pub(crate) len_of_local: HashMap<String, (String, usize)>,
+    /// bug-495: the reassigned-locals set (`collect_reassigned_locals`) of every
+    /// loop body currently being lowered, outermost first — pushed/popped by
+    /// `lower_loop_body`. Lowering is one linear pass, so a reassignment placed
+    /// AFTER an inner loop in program order is invalidated only after that loop is
+    /// already emitted; this stack is how the inner loop's proof sees it.
+    pub(crate) enclosing_loop_reassigned: Vec<HashSet<String>>,
     /// plan-86 G1: induction var `i -> (L, headroom k)` for a `FOR i = 0 TO
     /// len(L) - k` loop (`k >= 1`, step 1) where BOTH `i` and `L` are provably NOT
     /// reassigned anywhere in the loop body. Then `get/set(L, i)` is in-range
@@ -492,6 +503,7 @@ impl<'a> CodeBuilder<'a> {
             for_bound_expr: HashMap::new(),
             len_of_local: HashMap::new(),
             provable_index_locals: HashMap::new(),
+            enclosing_loop_reassigned: Vec::new(),
         }
     }
 }
