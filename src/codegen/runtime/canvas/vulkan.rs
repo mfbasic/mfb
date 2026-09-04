@@ -42,8 +42,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
     push_symbol_address, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
-    CANVAS_DRAW_ENTRY_SHIFT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS,
-    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    CANVAS_DRAW_ENTRY_SHIFT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS, EDGE_SLOTS,
+    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
     GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
     GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
@@ -4225,7 +4225,11 @@ fn emit_draw_list_pass(
     let index = builder.temporary_vreg();
     let total = builder.temporary_vreg();
     builder.emit(abi::load_u64(&index, abi::stack_pointer(), off_index));
-    builder.emit(abi::load_u64(&total, abi::stack_pointer(), off_draw_entries));
+    builder.emit(abi::load_u64(
+        &total,
+        abi::stack_pointer(),
+        off_draw_entries,
+    ));
     builder.emit(abi::compare_registers(&index, &total));
     builder.emit(abi::branch_ge(&done));
 
@@ -4364,7 +4368,11 @@ fn emit_draw_list_pass(
         off_cmd_handle,
     ));
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4"));
-    builder.emit(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), off_count));
+    builder.emit(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        off_count,
+    ));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
     emit_int_arg_slot(builder, platform, 4, off_base);
     emit_call_fn(builder, off_draw_fn);

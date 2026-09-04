@@ -47,6 +47,9 @@
 //! and live for the process, so nothing releases them either.
 
 use super::*;
+use crate::codegen::error::constants::error_constants::{
+    COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
+};
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, CANVAS_MAX_FRAME_ITEMS, GRAPHICS_OFFSET_MTL_DEVICE,
@@ -56,12 +59,9 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
     METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
 };
-use crate::codegen::error::constants::error_constants::{
-    COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
-};
 use crate::codegen::runtime::canvas::{
-    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
+    FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
     GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
     HEADER_CAP_END_X, HEADER_CAP_START_X, HEADER_CLIP_X0, HEADER_CLIP_X1, HEADER_CLIP_Y0,
@@ -1249,14 +1249,14 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_HEIGHT,
     ));
     asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(3))); // geometry payload
-    // plan-116-H: slots 4 and 7 arrive as **collection pointers**, not payloads — the
-    // seam bought back one argument register that way so the draw list could have the
-    // eighth (`func_metal_draw.rs`). Both are unpacked here, and both are read out of
-    // the argument bank BEFORE anything else is staged into it.
-    //
-    // The count still comes off the collection header, so a caller cannot pass a length
-    // that disagrees with the list it passed; it is simply read one level further in
-    // than it used to be.
+                                                                  // plan-116-H: slots 4 and 7 arrive as **collection pointers**, not payloads — the
+                                                                  // seam bought back one argument register that way so the draw list could have the
+                                                                  // eighth (`func_metal_draw.rs`). Both are unpacked here, and both are read out of
+                                                                  // the argument bank BEFORE anything else is staged into it.
+                                                                  //
+                                                                  // The count still comes off the collection header, so a caller cannot pass a length
+                                                                  // that disagrees with the list it passed; it is simply read one level further in
+                                                                  // than it used to be.
     asm.push(abi::load_u64(
         abi::LOCAL[5],
         abi::mfb_arg(4),
@@ -1267,11 +1267,11 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::mfb_arg(4),
         COLLECTION_HEADER_SIZE,
     )); // offsets payload
-    // The draw list: payload, then entries. An entry is `CANVAS_DRAW_ENTRY_WORDS`
-    // words, so the entry count is the element count shifted — the same arithmetic the
-    // Vulkan emitter does, from the same constant, because a disagreement between the
-    // two would be a backend that walks a different number of draws than the list has
-    // (plan-116-H **H13**).
+        // The draw list: payload, then entries. An entry is `CANVAS_DRAW_ENTRY_WORDS`
+        // words, so the entry count is the element count shifted — the same arithmetic the
+        // Vulkan emitter does, from the same constant, because a disagreement between the
+        // two would be a backend that walks a different number of draws than the list has
+        // (plan-116-H **H13**).
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::mfb_arg(7),
@@ -3553,7 +3553,10 @@ mod tests {
              drags the clip window along with the group",
         );
         for (call, what) in [
-            ("shapeDistanceAndScale(item, edges, p)", "the shape distance"),
+            (
+                "shapeDistanceAndScale(item, edges, p)",
+                "the shape distance",
+            ),
             ("gradientColour(p, edges, item)", "the gradient ramp"),
             ("inverseMap(item, p) : p", "the glyph sample"),
         ] {

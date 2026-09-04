@@ -972,9 +972,8 @@ mod tests {
     use crate::codegen::runtime::canvas::{
         CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
         CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT,
-        HEADER_AUX0, MAX_EDGES,
-        MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES,
-        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+        HEADER_AUX0, MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
+        METAL_MAX_GLYPH_SAMPLES, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
 
     /// The body of a `FUNC`/`SUB` in the injected MFBASIC source, by name.
@@ -1002,7 +1001,9 @@ mod tests {
     /// is not part of `cargo test`. This assertion is the only cheap way to catch it.
     #[test]
     fn the_draw_entry_width_agrees_with_the_emitter() {
-        let appends = body("pushOneDraw").matches("collections::append(out,").count();
+        let appends = body("pushOneDraw")
+            .matches("collections::append(out,")
+            .count();
         assert_eq!(
             appends, CANVAS_DRAW_ENTRY_WORDS,
             "__canvas_pushOneDraw appends {appends} words but the emitter strides \
@@ -1043,7 +1044,11 @@ mod tests {
              non-Normal blend mode publishes TWO records in emit_split_or_publish, and \
              this function must predict 2 for it",
         );
-        for (slot, what) in [("26", "blend mode"), ("7", "strokeHalf"), ("11", "fill alpha")] {
+        for (slot, what) in [
+            ("26", "blend mode"),
+            ("7", "strokeHalf"),
+            ("11", "fill alpha"),
+        ] {
             assert!(
                 rule.contains(&format!(", {slot})")),
                 "the split rule no longer reads slot {slot} ({what}); \
