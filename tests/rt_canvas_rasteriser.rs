@@ -3434,4 +3434,32 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
         draws.split('|').nth(1),
         "the two draws are identical, so the offsets did not differ: {draws}",
     );
+
+    // 5. A group whose items have DIFFERENT blend modes must split into two draws
+    //    (H8). §4.1's rule -- a run ends at a group node or a Text item -- misses this,
+    //    and the four cases above all use one blend mode, which is why they do not
+    //    catch it. Each BlendMode is a separate pipeline and a pipeline is bound per
+    //    draw, so one draw spanning both would render whichever was bound: a wrong
+    //    colour, not a missing shape.
+    let (blocks, draws) = d(&format!(
+        "{RED}LET mul AS canvas::DrawItem = canvas::Circle[x := 20.0, y := 20.0, radius := 10.0, paint := WITH canvas::fill(canvas::rgb(0, 255, 0)) {{ blend := canvas::BlendMode.Multiply }}]
+           canvas::setGroup(\"g\", [red, mul])
+           canvas::present([canvas::Group[dx := 100.0, dy := 100.0, name := \"g\"]])
+"
+    ));
+    assert_eq!(
+        blocks, "2",
+        "the group still lays out both blocks once: draws={draws}",
+    );
+    assert_eq!(
+        draws.split('|').count(),
+        2,
+        "a group whose two items have different blend modes must become TWO draws, one \
+         per pipeline. One draw spanning both renders the Multiply item with whichever \
+         pipeline was bound -- a plausible wrong colour: {draws}",
+    );
+    assert!(
+        draws.starts_with("0:1:") && draws.contains("|1:1:"),
+        "the split must fall between the two blocks, at bases 0 and 1: {draws}",
+    );
 }

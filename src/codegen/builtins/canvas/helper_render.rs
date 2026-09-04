@@ -304,7 +304,7 @@ END FUNC
 
 ' Append one draw entry: four integers, offsets in 16.16 so the whole list stays
 ' `List OF Integer` and reaches an emitter without a second parallel Float list.
-SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
   IF count <= 0 THEN
     EXIT SUB
   END IF
@@ -314,6 +314,54 @@ SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Floa
   out = collections::append(out, toInt(dx * 65536.0))
   out = collections::append(out, toInt(dy * 65536.0))
   __CANVAS_DRAWS = out
+END SUB
+
+' Whether two blocks can share one draw call.
+'
+' A draw binds ONE pipeline and issues ONE instanced call, so everything that must
+' differ between pipelines forces a split (**H8**). Two conditions, both read straight
+' out of the geometry the blocks already point at rather than re-visiting the scene:
+'
+'   * the BlendMode (slot 26) selects the pipeline, so a change ends the run;
+'   * a `Text` block is its own draw entirely -- its quads are N draws rather than N
+'     instances -- so it neither joins the previous run nor starts one.
+'
+' Section 4.1 named only the group boundary and Text. Blend mode is the third, and
+' omitting it draws a Multiply item with whichever pipeline happened to be bound, which
+' is a wrong colour rather than a missing shape.
+FUNC __canvas_drawsJoin(a AS Integer, b AS Integer) AS Boolean
+  IF toInt(__canvas_geoAt(a, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN FALSE
+  END IF
+  IF toInt(__canvas_geoAt(b, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN FALSE
+  END IF
+  RETURN toInt(__canvas_geoAt(a, 26)) = toInt(__canvas_geoAt(b, 26))
+END FUNC
+
+' Emit draw entries for one contiguous block range, split wherever a pipeline change or
+' a `Text` block forces one.
+'
+' Splitting HERE rather than in each emitter is deliberate: the list is what tells a
+' backend where its draw calls are, so a rule applied afterwards would live in two
+' assemblers and could differ between them -- the failure family
+' `.ai/canvas-threading.md` section 10 records.
+SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+  IF count <= 0 THEN
+    EXIT SUB
+  END IF
+  MUT runStart AS Integer = base
+  MUT i AS Integer = base + 1
+  WHILE i < base + count
+    LET prev AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i - 1, 0)
+    LET here AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i, 0)
+    IF NOT __canvas_drawsJoin(prev, here) THEN
+      __canvas_pushOneDraw(runStart, i - runStart, dx, dy)
+      runStart = i
+    END IF
+    i = i + 1
+  END WHILE
+  __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy)
 END SUB
 
 ' Lay out one group's own (non-group) items once, returning its memo index.
