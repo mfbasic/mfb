@@ -53,7 +53,15 @@ chosen must therefore make the state per-connection (or per-test), not merely
 reset it before each case — resetting still races when the reader is another
 process's test.
 
-## Third occurrence — a DIFFERENT symptom, so the shared state is wider than the port (2026-09-03, plan-122 landing)
+## Third occurrence — first direction again (2026-09-03, bug-496 landing)
+
+`defaults_to_rejecting_a_self_signed_peer` failed with `left: "result=connected"`
+(the first signature) during the bug-496 merged full run, while two other audit-3
+fix agents had `cargo test` live on this machine. Sole failure in the run (113
+result lines otherwise green); re-run in isolation immediately afterwards 3/3 green
+(`cargo test --test rt_tls_connect_allow_self_signed`, 4 passed each time).
+
+## Fourth occurrence — a DIFFERENT symptom, so the shared state is wider than the port (2026-09-03, plan-122 landing)
 
 Two sightings in one plan-122 session, both with a peer worktree session
 (`P-116`) running its own `cargo test` on the same machine.
@@ -90,6 +98,13 @@ outright and is probably cheaper than locking it.
 Not attributable to plan-122, which touches no TLS code: `artifact-gate.sh all`
 reported 1890 goldens 0 diffs on the same tree, and the whole
 `rt_tls_connect_allow_self_signed` file is green when nothing else is running.
+
+**Four sightings in one day, by three unrelated sessions.** The third and fourth
+were reported independently and collided as a merge conflict in this file, which is
+itself a measure of how often this fires: it is no longer an occasional flake but a
+near-certainty whenever two `cargo test` runs overlap, which is now the normal
+working pattern. Both were kept rather than one being resolved away — the third
+adds frequency evidence, the fourth adds a symptom the port race does not explain.
 
 ## Cause
 

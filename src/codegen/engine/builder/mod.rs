@@ -306,6 +306,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
+    /// bug-496: addresses (`&NirValue as usize`) of the operand nodes of every
+    /// multi-operand value currently being lowered that must be **snapshotted**
+    /// before a later sibling operand runs. Pushed by `lower_value` on entry to a
+    /// `Call`/`Binary`/literal/constructor node for each operand that lowers to a
+    /// pointer INTO storage a later operand's call can reassign (a global, a
+    /// by-ref / address-taken local, a resource's STATE — see
+    /// `operand_reachable_by_later_call`), truncated back on exit. When one of
+    /// these operands is lowered, `snapshot_aliased_operand` deep-copies it into a
+    /// statement-scope temporary so the reassignment's old-block free cannot
+    /// dangle it: `g = append(g, f())` / `GS & f()` where `f` reassigns `g`/`GS`
+    /// read the FREED block otherwise (audit-3 MEM-12). Node identity (address)
+    /// rather than structural equality: the operands are lowered from the same
+    /// borrowed tree the frame was computed over, so it matches exactly the
+    /// occurrence that precedes the call and never a later re-read of the same
+    /// name. A rewritten/cloned operand simply does not match — fail-safe to the
+    /// pre-fix behavior, never to a wrong copy.
+    pub(crate) operand_snapshot_wanted: Vec<usize>,
     /// Names of locals whose live buffer is currently being walked by an
     /// enclosing `FOR EACH` (the iterable was a plain `Local`). In-place `set`/
     /// `prepend`/map-`set` that overwrites an *existing* entry's payload would be
@@ -489,6 +506,7 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
+            operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
             for_each_iterable_state_fields: Vec::new(),
             for_each_iterable_record_fields: Vec::new(),
