@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/color/func_color_rgba_invalid
+  17 | 
+  18 | FUNC main AS Integer
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:19 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `color.rgba` has 2 argument(s), expected 4.
+  17 | 
+  18 | FUNC main AS Integer
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:19 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooFew` does not have a known type.
+  18 | FUNC main AS Integer
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+  20 |   LET tooMany AS color::Color = color::rgba(1, 2, 3, 4, 5)
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `color.rgba` has 5 argument(s), expected 4.
+  18 | FUNC main AS Integer
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+  20 |   LET tooMany AS color::Color = color::rgba(1, 2, 3, 4, 5)
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+  20 |   LET tooMany AS color::Color = color::rgba(1, 2, 3, 4, 5)
+  21 |   LET wrongType AS color::Color = color::rgba("r", "g", "b", "a")
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:21 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `color.rgba` has argument type(s) (String, String, String, String), expected Integer, Integer, Integer, Integer.
+  19 |   LET tooFew AS color::Color = color::rgba(1, 2)
+  20 |   LET tooMany AS color::Color = color::rgba(1, 2, 3, 4, 5)
+  21 |   LET wrongType AS color::Color = color::rgba("r", "g", "b", "a")
+     | ^
+tests/syntax/color/func_color_rgba_invalid/src/main.mfb:21 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+[exit 1]

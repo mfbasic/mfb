@@ -44,9 +44,10 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
 in scope without its `IMPORT`. The package set the resolver recognizes is fixed:
-`app`, `astrings`, `audio`, `bits`, `canvas`, `collections`, `crypto`, `csv`,
-`datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`, `money`,
-`net`, `os`, `process`, `regex`, `strings`, `term`, `thread`, `tls`, `vector`. [[src/codegen/builtins/mod.rs:is_builtin_import]] A bare unqualified `find`, `get`, `append`, `print`,
+`app`, `astrings`, `audio`, `bits`, `canvas`, `collections`, `color`, `crypto`,
+`csv`, `datetime`, `encoding`, `errorCode`, `fs`, `http`, `io`, `json`, `math`,
+`money`, `net`, `os`, `process`, `regex`, `strings`, `tcp`, `term`, `thread`,
+`tls`, `udp`, `vector`. [[src/codegen/builtins/mod.rs:is_builtin_import]] A bare unqualified `find`, `get`, `append`, `print`,
 … is a `SYMBOL_UNKNOWN_IDENTIFIER` error; a qualified `io::print` without
 `IMPORT io` is a `SYMBOL_UNKNOWN_IMPORT` error. The `app` and `canvas` packages
 are additionally gated to `--app` builds: importing either in a plain console

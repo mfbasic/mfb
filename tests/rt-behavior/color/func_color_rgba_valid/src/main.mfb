@@ -1,0 +1,35 @@
+' plan-122-A Phase 1: `color::rgba` builds a `Color` and clamps every component.
+'
+' This fixture is also the proof that the package's registration seams took: it
+' imports `color` from an ordinary program, names the cross-package type as
+' `color::Color`, and reads the four channels back off the value.
+
+IMPORT color
+IMPORT io
+
+SUB show(label AS String, c AS color::Color)
+  io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
+END SUB
+
+FUNC main AS Integer
+  ' In range: every component survives untouched.
+  show("plain", color::rgba(1, 2, 3, 4))
+
+  ' Both clamp ends, on every channel position, so a clamp wired to the wrong
+  ' argument cannot pass.
+  show("over", color::rgba(300, 256, 999, 1000))
+  show("under", color::rgba(-1, -20, -999, -1000))
+  show("mixed", color::rgba(300, -20, 128, 255))
+
+  ' The boundaries themselves are in range, not clamped off by one.
+  show("edges", color::rgba(0, 255, 0, 255))
+
+  ' A `Color` is an ordinary value record: a program may build one directly and
+  ' produce an updated copy with WITH. (`term::TermColor` refuses both.)
+  LET built AS color::Color = color::Color[toByte(9), toByte(8), toByte(7), toByte(6)]
+  show("literal", built)
+  LET opaque AS color::Color = WITH built { alpha := toByte(255) }
+  show("with", opaque)
+
+  RETURN 0
+END FUNC

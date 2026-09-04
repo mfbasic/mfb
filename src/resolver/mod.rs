@@ -38,6 +38,7 @@ const BUILTIN_TYPES: &[&str] = &[
     // `TermSize`, `AudioDevice`, `Json`), which is why `AS Address` compiled from
     // a consumer while the sibling `AS Url` — same package, same kind, but absent
     // from this list — was correctly refused.
+    crate::codegen::builtins::color::COLOR_TYPE_ID,
     crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
     crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE_ID,

@@ -49,10 +49,10 @@ negotiate. Sub-plans B–F point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| A release binary matching `main` exists (tests run the RELEASE `mfb`) | `cargo build --release && ls -l target/release/mfb` | MET (built 2026-09-02, 32551936 bytes) |
-| Working tree is clean enough to attribute golden churn | `git status --porcelain` → only the 5 known `examples/browser` edits | NOT MET — 5 modified `examples/browser/**/*.mfb` files predate this plan; commit or stash them first, or golden attribution in D/E/F is unreadable |
-| The registry qualifies cross-package value-type leaves automatically | `grep -n "fn qualify_value_type_references" src/codegen/registry/mod.rs` → 1665 | MET |
-| Rule code / error code for a malformed hex string already exists | `grep -rn "ErrInvalidFormat" src/codegen/builtins/errorcode/mod.rs` → `77050003` | MET — **no new `data_objects.rs` row is needed** (see `new-error-in-a-package-needs-a-data-object-row`) |
+| A release binary matching `main` exists (tests run the RELEASE `mfb`) | `cargo build --release && ls -l target/release/mfb` | MET — re-measured 2026-09-03 in the `P-122` worktree at `0a1f0f6b3`: 32,997,248 bytes |
+| Working tree is clean enough to attribute golden churn | `git status --porcelain` → only the 5 known `examples/browser` edits | MET — re-measured 2026-09-03: `git status --porcelain` on `main` is **empty**. The 5 `examples/browser` edits were landed between authoring and execution, so golden attribution in D/E/F is clean |
+| The registry qualifies cross-package value-type leaves automatically | `grep -n "fn qualify_value_type_references" src/codegen/registry/mod.rs` → 1665 | MET — re-measured 2026-09-03: still `src/codegen/registry/mod.rs:1665` |
+| Rule code / error code for a malformed hex string already exists | `grep -rn "ErrInvalidFormat" src/codegen/builtins/errorcode/mod.rs` → `77050003` | MET — re-measured 2026-09-03: `errorcode/mod.rs:78`. **No new `data_objects.rs` row is needed** (see `new-error-in-a-package-needs-a-data-object-row`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -366,42 +366,62 @@ Land a `color` package with exactly one member, and prove every registration sea
 works before writing any real content. Nothing here is throwaway — the member
 survives; only its siblings are missing.
 
-- [ ] Create `src/codegen/builtins/color/mod.rs`: `RegistryPackage::new("color", MODULE_INTRO, MODULE_DESC)`,
+- [x] Create `src/codegen/builtins/color/mod.rs`: `RegistryPackage::new("color", MODULE_INTRO, MODULE_DESC)`,
       the `Color` record via `add_record` (§4), `add_imports(vec!["color", "strings"])`
       (a package reaches its own internal members through the qualified spelling,
       as `astrings` does — `src/codegen/builtins/astrings/mod.rs:135`).
-- [ ] Add `pub(crate) const COLOR_TYPE: &str = "Color";` and
+      **Correction:** `add_imports(vec!["color"])` only — Phase 1 has no `strings`
+      caller, and the import set grows per phase as members need it (`bits` in
+      Phase 3; `strings`/`collections` in Phase 4).
+- [x] Add `pub(crate) const COLOR_TYPE: &str = "Color";` and
       `pub(crate) const COLOR_TYPE_ID: &str = "color.Color";` to that `mod.rs`,
       mirroring `term::TERM_COLOR_TYPE`/`TERM_COLOR_TYPE_ID`
       (`src/codegen/builtins/term/mod.rs:89-95`). D/E/F reference these, never a
       string literal.
-- [ ] Add `src/codegen/builtins/color/func_rgba.rs` and `helper_clamp_byte.rs`
+- [x] Add `src/codegen/builtins/color/func_rgba.rs` and `helper_clamp_byte.rs`
       (`__color_clampByte`, the body of `canvas/helper_clamp_byte.rs:13` renamed).
-- [ ] Wire the seams, in this order: `pub(crate) mod color;`
+- [x] Wire the seams, in this order: `pub(crate) mod color;`
       (`src/codegen/builtins/mod.rs:5-35`); `"color"` in `is_builtin_import`
       (`:50`); `"color"` in `ARGUMENT_CHECKED_PACKAGES` (`:451`); `"color"` in
       `ALL_BUILTIN_PACKAGES` (`:935`) and in the `is_builtin_import_cases` list;
       `color::register(&mut r)` in `registry::build()`
       (`src/codegen/registry/mod.rs:1937`); `builtins::color::COLOR_TYPE_ID` in
       `resolver::BUILTIN_TYPES` (`src/resolver/mod.rs:20-58`).
-- [ ] Add `` `color` `` to the §18 package sentence
+- [x] Add `` `color` `` to the §18 package sentence
       (`src/docs/spec/language/18_builtin-functions.md:46`) — the
       `spec_section_18_package_list_matches_is_builtin_import` test fails until it
       matches `is_builtin_import` exactly.
-- [ ] Tests: new `tests/rt-behavior/color/func_color_rgba_valid/` fixture with all
+- [x] **Found and fixed while wiring the seam above:** `ALL_BUILTIN_PACKAGES` was a
+      hand-written *copy* of the `is_builtin_import` arm and had silently omitted
+      `tcp` and `udp`, so the §18 package sentence omitted them too while §18's own
+      transport paragraph (`:69`) documented `IMPORT tcp`/`IMPORT udp`. A `matches!`
+      cannot be enumerated, so no test could see it. Hoisted the arm to
+      `builtins::BUILTIN_IMPORTS`, made `is_builtin_import` a `.contains()` over it,
+      and pointed `ALL_BUILTIN_PACKAGES` at the same slice — one list, no third
+      spelling to drift. See Corrections.
+- [x] Tests: new `tests/rt-behavior/color/func_color_rgba_valid/` fixture with all
       **four** goldens (`build.log`, `.ast`, `.ir`, `.run` — a missing one prints
       `unexpected actual` with no `mismatch:` line and only a FULL `test-accept.sh`
       run sees it).
-- [ ] Prove the argument checker is live: a `tests/syntax/color/` fixture calling
+- [x] Prove the argument checker is live: a `tests/syntax/color/` fixture calling
       `color::rgba(1, 2)` must produce `TYPE_CALL_ARITY_MISMATCH`, **not** a bare
       `TYPE_UNKNOWN_VALUE`. If it produces the latter, the
       `ARGUMENT_CHECKED_PACKAGES` row did not take.
+      Landed as TWO fixtures — see Corrections: the bug-484 bare-leaf assertion had
+      to move to its own fixture (`color_type_bare_leaf_invalid`) because a resolver
+      error short-circuits the type checker and would have made the arity assertions
+      vacuous.
 
-Acceptance: `cargo test --no-fail-fast` green; `mfb man color` renders the package
-page and `mfb man color rgba` the member page; the syntax fixture reports
-`TYPE_CALL_ARITY_MISMATCH`; `./scripts/test-accept.sh` green with the new fixtures
-counted in its `N ran` line (watch the count — a silently skipped fixture is the
-`test-accept-acceptance-eof-subtests-preexisting` trap).
+Acceptance: **MET.** `cargo test --no-fail-fast` green (exit 0, 100 test binaries,
+0 failures — `/tmp/p122-ct.log`); `mfb man color` and `mfb man color rgba` both
+render; `tests/syntax/color/func_color_rgba_invalid` reports
+`TYPE_CALL_ARITY_MISMATCH` (x2) and `TYPE_CALL_ARGUMENT_MISMATCH`, not a bare
+`TYPE_UNKNOWN_VALUE`; `./scripts/test-accept.sh` full run green at **1377 ran**
+with all three new fixtures counted (`[105] rt-behavior/color/func_color_rgba_valid`,
+`[791] syntax/color/color_type_bare_leaf_invalid`,
+`[792] syntax/color/func_color_rgba_invalid`);
+`artifact-gate.sh all` 1876 goldens, **0 diffs** — the byte-identity outcome A
+predicts, since nothing imports `color` yet.
 Commit: —
 
 ### Phase 2 — Constructors
@@ -538,7 +558,67 @@ Commit: —
 
 ## Corrections
 
-_(filled in during execution)_
+**Prerequisites row 2 was stale in the passing direction.** The plan recorded
+"NOT MET — 5 modified `examples/browser/**/*.mfb` files". At execution time
+`git status --porcelain` on `main` is empty; those edits landed between authoring
+and execution. All four rows re-measured MET (2026-09-03) before Phase 1 started.
+
+**Phase 1 — `add_imports` narrowed to `["color"]`.** The plan specified
+`vec!["color", "strings"]`. Phase 1 has no `strings` caller, so the import would
+have been dead until Phase 4. The set now grows per phase with the members that
+need it: `bits` in Phase 3, `strings` + `collections` in Phase 4. No behavioral
+difference — `strings` has an empty companion and costs an importer 0 bytes
+(plan §2 measurement table) — but an injected `IMPORT` nothing calls is noise in
+every importer's `.ir`.
+
+**Phase 1 — the argument-checker fixture had to be split in two.** The plan asks
+for one `tests/syntax/color/` fixture proving `TYPE_CALL_ARITY_MISMATCH` fires.
+Written as one file that *also* carried the bug-484 bare-leaf `AS Color` line, the
+generated golden contained **only** `SYMBOL_UNKNOWN_TYPE`: a resolver error
+short-circuits the type checker, so none of the call diagnostics were ever
+reached. That fixture would have passed while proving nothing about
+`ARGUMENT_CHECKED_PACKAGES` — precisely the silent-seam failure Phase 1 exists to
+catch. Split into:
+
+- `tests/syntax/color/func_color_rgba_invalid` — arity and argument-type
+  diagnostics (`TYPE_CALL_ARITY_MISMATCH` x2, `TYPE_CALL_ARGUMENT_MISMATCH`).
+- `tests/syntax/color/color_type_bare_leaf_invalid` — the bug-484 pin, alone.
+
+Its partner assertion (the qualified `AS color::Color` *does* resolve) is
+`rt-behavior/color/func_color_rgba_valid`, so the pair pins that exactly one of
+the two spellings works.
+
+**Bug found and fixed: the §18 package sentence omitted `tcp` and `udp`.**
+Not colour work; found while wiring the §18 seam, and fixed here rather than
+deferred. `ALL_BUILTIN_PACKAGES` (the test-side list `spec_section_18_package_
+list_matches_is_builtin_import` compares §18 against) was a hand-written **copy**
+of the `is_builtin_import` `matches!` arm, and had drifted: it omitted `tcp` and
+`udp` for the whole of plan-110's lifetime. Because a `matches!` cannot be
+enumerated, the guard could only compare the spec against the copy — so the
+omission propagated into the spec and no test could see it. Meanwhile §18:69
+documented `IMPORT tcp` and `IMPORT udp` two dozen lines further down, so the
+document contradicted itself.
+
+Measured: `is_builtin_import` accepted 28 names; `ALL_BUILTIN_PACKAGES` listed 26;
+the §18 sentence listed the same 26.
+
+Fix: hoisted the arm to `pub(crate) const BUILTIN_IMPORTS` in
+`src/codegen/builtins/mod.rs`, made `is_builtin_import` a `.contains()` over it,
+and redefined `ALL_BUILTIN_PACKAGES` as that same slice. There is now one list, so
+the copy that drifted cannot exist. §18's sentence now carries all 29 names
+(the 28 plus `color`). This is a corrected line backed by §18's own `:69`
+paragraph and by `is_builtin_import`, not a re-baseline.
+
+**§2's seam table line numbers moved.** The table cites
+`ARGUMENT_CHECKED_PACKAGES` at `src/codegen/builtins/mod.rs:451` and
+`ALL_BUILTIN_PACKAGES` at `:935`; measured at execution they were `:511` and
+`:1072`, and after the `BUILTIN_IMPORTS` hoist above they are `:530` and `:1086`
+(`grep -n "ARGUMENT_CHECKED_PACKAGES\|ALL_BUILTIN_PACKAGES" src/codegen/builtins/mod.rs`).
+Cite the symbol and its grep, not the line — see
+`plan-line-citations-decay-silently`.
+
+**Phase 6 — measured byte cost of the `color` companion** (this is plan-122-C's
+go/no-go input): recorded below when Phase 6 runs.
 
 ## Summary
 
