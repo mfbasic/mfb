@@ -660,12 +660,44 @@ says a mismatch means "one of the four equations, the clip's coverage, or **the
 sRGB chain** moved". All 16 pass, and `git status --porcelain | grep -i png` is
 empty, so no reference was regenerated to make them pass.
 
+## Final acceptance (2026-09-03)
+
+Every phase landed, every box resolved. Whole-letter gates on `worktree-P-122`:
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | **exit 0** — 100 test binaries, 0 failures |
+| `./scripts/test-accept.sh` (full) | **1384 ran, passed** |
+| `rt_canvas_rasteriser` | 41 passed — pixel-identical |
+| `rt_canvas_golden` | 16 passed, `compare_exact` against six committed reference PNGs, **none regenerated** |
+| `rt_canvas_metal` | 4 passed — GPU still agrees with the software oracle |
+| `rt_canvas_damage` / `font` / `image_decode` / `present_deep_copy` / `graphics_thread` | 4 / 12 / 9 / 4 / 8, all green |
+| `artifact-gate.sh <mfb> all` (after Phase 1) | 1884 goldens, **0 diffs** |
+| `scripts/man-run-examples.sh color --run` | 26 examples, 26 built, 26 ran, **0 failed** |
+| `man-census.sh --fill color` | 12 pages, 100% every column, 18/18 param-desc |
+| `--memory-scope color` / `--scope color` | **0** / **0** |
+| `cargo check --all-targets` | clean |
+
+The gate that mattered is the third and fourth rows: the move is value-preserving,
+and the six reference images are untouched. The benchmark in Phase 3 adds an
+independent confirmation on a far heavier workload — the two compilers' rendered
+frames for a 60-layer translucent scene are byte-identical.
+
 ## Summary
 
 The risk is entirely in Phase 1, and it is a *silent* risk: a wrong table entry
 blends toward black rather than failing, which is why the four transfer-function
 unit tests move with the table and why the acceptance criterion is rendered pixels
 rather than a green suite.
+
+That framing was right about *where* the risk was and wrong about its *shape*. The
+move itself was value-preserving by construction and never threatened a pixel. What
+actually broke was the seam around it — `color`'s companion was never injected into
+a canvas program, so all 41 rasteriser tests failed at once with what looked like
+catastrophic divergence and was in fact an unresolved NIR call target. Rendered
+pixels were still the right acceptance criterion; the lesson is that a total
+failure is more often a wiring fault than an arithmetic one, and root-causing a
+single fixture separated the two in one step.
 
 Untouched: every public consumer API. `canvas::Color` is still canvas's type when
 this letter lands.

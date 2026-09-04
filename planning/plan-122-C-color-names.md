@@ -377,11 +377,42 @@ smallest** match, which is order-independent and picks the expected spelling in 
 six cases (`gray` < `grey`, `aqua` < `cyan`, `fuchsia` < `magenta`, …). Verified
 `String` `<` works in MFBASIC before relying on it.
 
+## Final acceptance (2026-09-03)
+
+Every phase landed, every box resolved.
+
+| Gate | Result |
+|---|---|
+| `color` Rust unit tests | **12 passed** — 4 name-table, 4 constants, 4 sRGB |
+| `scripts/man-run-examples.sh color --run` | 57 examples, 57 built, 57 ran, **0 failed** |
+| `man-census.sh --fill color` | **28 pages**, 100% every column, 47/47 param-desc, 7/7 types |
+| `--memory-scope color` / `--scope color` | **0** / **0** |
+| Runtime proof | `color::toHex(color::fromName("RebeccaPurple"))` → `#663399` |
+| `cargo check --all-targets` | clean |
+
+Whole-plan `cargo test`, `test-accept.sh` and `artifact-gate.sh` results are
+recorded once at the end of plan-122-A, since A/B/C landed on one branch.
+
 ## Summary
 
 The engineering question in C is not "is the table right" — a unit test settles
 that. It is "should the table ship at all", and the honest answer needs the
 measurement Phase 1 produces. Phase 2 exists so that decision is made with numbers
 and escalated to the user rather than quietly made by whoever is implementing.
+
+Both halves of that played out, and a third thing the plan did not anticipate.
+The table is right, and it is right because it was **extracted from the
+specification rather than transcribed** — the extractor's first attempt misaligned
+3 names against 181 hexes and refused to emit, which is precisely the corruption a
+hand transcription commits in silence. The size question came out at exactly 50%,
+neither the "minority" that permits proceeding nor an obvious dominance, so it went
+to the user with all three options and their numbers.
+
+The unanticipated one: the *instrument* was wrong. Built `.out` sizes are quantised
+to 16,512-byte blocks, so every byte figure in this plan series — including the two
+that plans A and B had already drawn conclusions from — carried up to ±16,512 bytes
+of error that nobody had noticed. Two deltas coming out exactly equal to the byte
+is what gave it away. The conclusions survived; the claimed precision did not, and
+all three plans now say so.
 
 Untouched: canvas, term, astrings, and every colour-space path.
