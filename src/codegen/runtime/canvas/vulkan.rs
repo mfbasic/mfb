@@ -230,7 +230,7 @@ const ST_PIPELINE_LAYOUT_CREATE_INFO: &str = "30";
 const ST_RENDER_PASS_CREATE_INFO: &str = "38";
 
 /// `VK_FORMAT_B8G8R8A8_SRGB` — the sRGB-encoding format, so the GPU does the encode
-/// exactly where the software oracle's `__CANVAS_SRGB` table does, and the same
+/// exactly where the software oracle's `__COLOR_SRGB` table does, and the same
 /// format the Metal pipeline targets.
 const FORMAT_B8G8R8A8_SRGB: &str = "50";
 /// `VK_SAMPLE_COUNT_1_BIT`.

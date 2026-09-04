@@ -12,8 +12,10 @@
 //!
 //! The rasteriser is MFBASIC source (plan-98-C), which means the graphics thread
 //! needs a real MFB execution context: an arena-state block for its allocations and
-//! its module globals — including `__CANVAS_SRGB`, whose absence would silently
-//! render every antialiased pixel black. It gets both the same way a `thread::start`
+//! its module globals — including the sRGB transfer table `__COLOR_SRGB` (which
+//! plan-122-B moved out of canvas into the `color` package, where it backs
+//! `color::toLinear`), whose absence would silently render every antialiased pixel
+//! black. It gets both the same way a `thread::start`
 //! worker does: the spawner allocates and zeroes a child arena-state block, and the
 //! trampoline runs the module's `LINK` and global initializers on the new thread
 //! before entering the loop.
@@ -780,8 +782,9 @@ pub(crate) fn render_loop_symbol() -> String {
 /// The thread argument (`c_arg(0)`) is the child arena-state block the spawner
 /// allocated and zeroed. This pins it into the arena-state register, runs the
 /// module's `LINK` and global initializers **on this thread** — which is what gives
-/// the loop its own geometry cache and, critically, a populated `__CANVAS_SRGB` —
-/// and then enters `__canvas_renderLoop`, which never returns.
+/// the loop its own geometry cache and, critically, a populated `__COLOR_SRGB` (the
+/// sRGB transfer table, in the `color` package since plan-122-B) — and then enters
+/// `__canvas_renderLoop`, which never returns.
 ///
 /// The loop returns when shutdown asks it to (`canvas::waitForRedraw` reports
 /// `FALSE`), and this returns straight after — which is how a pthread entry exits,

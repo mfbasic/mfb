@@ -26,6 +26,29 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// `pow` on the path and make the oracle platform-dependent. A module-level `LET`
 /// so it is built once at program start rather than per pixel — the same reason
 /// `crypto` hoists its round-constant tables.
+///
+/// **Two GPU shaders reproduce this table's ROUNDING by hand, and neither mentions
+/// it by name.** `srgbTable(i)` in `runtime/canvas/shaders/mfb_canvas.frag` and in
+/// the MSL string in `target/macos_aarch64/app/metal.rs` both recompute
+/// `floor(srgbToLinear(i) * 65535 + 0.5)` — specifically to match the *quantisation*
+/// here, because a gradient lerp happens in this table's integer space and a
+/// midpoint that rounds differently from the oracle lands a step off. A grep for
+/// this constant or for `__color_srgbTable` finds neither copy.
+///
+/// So changing the values or the rounding here silently desynchronises both GPU
+/// backends. The test that catches it is
+/// `the_gpu_draws_the_gradient_scene_the_reference_shows` in
+/// `tests/rt_canvas_golden.rs` — the *gradient* path, not the blend tests, because
+/// blending never enters that quantised space.
+///
+/// The plan-122-B move preserved both: the 256 literals were copied by machine and
+/// the binary search verbatim, so the shaders needed no change and that test passed
+/// untouched.
+///
+/// The graphics thread depends on this global being initialised on *its own*
+/// thread — the trampoline runs the module's `LINK` and global initialisers there
+/// for exactly this reason, and an unpopulated table renders every antialiased
+/// pixel black rather than failing (`codegen::runtime::canvas`).
 #[rustfmt::skip]
 const SRGB_TABLE: &str =
 r#"FUNC __color_srgbTable() AS List OF Integer

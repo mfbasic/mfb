@@ -117,6 +117,88 @@ the lossless one, because `toString` is what a debugging `io::print` reaches for
 and must not silently drop a channel.
 [[src/codegen/builtins/color/helper_to_string.rs:register]]
 
+## The sRGB seam, and why it is public
+
+`color::toLinear` maps an sRGB channel byte to the light it represents, on
+`0`..`65535`; `color::fromLinear` is the inverse. The mapping is a fixed 256-entry
+table and a binary search over it, never a computed power function — see
+§Determinism.
+
+The table is the **single** source for the whole language. canvas's software
+rasteriser blends through this same pair (`./mfb spec app canvas`
+§"Rendering conventions"), which is why the seam is public rather than a private
+helper: a package cannot reach another package's private members, and a
+canvas-private duplicate would be two tables that must agree forever, with
+`color::luminance` silently disagreeing with rendered pixels as the failure nobody
+could see.
+
+`fromLinear(toLinear(c))` is exact for all 256 channels. The reverse is not and
+cannot be: there are 65536 linear values and 256 channels. `fromLinear` saturates
+rather than raising — at or below `0` yields `0`, at or past `65535` yields `255`.
+
+**Why the conversion is not a multiplication.** An sRGB channel is *encoded*, not
+proportional to light: `128` carries about 22% of the light of `255`
+(`toLinear(128)` is `14146`), not half. Blending, brightening or averaging the
+encoded bytes directly produces the familiar too-dark midpoint — the linear
+midpoint of black and white is `#bcbcbc`, not `#808080`.
+
+## Perceptual operations
+
+`brighten`, `darken`, `mix` and `grayscale` all work on the linear values, so
+equal steps look like equal steps. `brighten` and `darken` move a fraction towards
+white and black; `mix` interpolates two colours; `grayscale` projects onto relative
+luminance.
+
+Two alpha rules, deliberately different:
+
+- `brighten` and `darken` leave `alpha` untouched — lightening a colour must not
+  also change how much of it shows.
+- `mix` interpolates `alpha`, because it is a blend of two whole colours. It does
+  so on the raw value rather than through the transfer, since alpha is a coverage
+  fraction, not a light intensity, and is not gamma-encoded.
+
+Endpoint exactness is a contract, not an approximation: `brighten(c, 0.0)` is `c`,
+`brighten(c, 1.0)` is white with `c`'s alpha, `darken(c, 1.0)` is black with `c`'s
+alpha, `mix(a, b, 0.0)` is `a` and `mix(a, b, 1.0)` is `b`. Every `amount` is
+clamped to `0.0`..`1.0`, so these operations interpolate and never extrapolate.
+
+`luminance` is the WCAG relative luminance — `0.2126 R + 0.7152 G + 0.0722 B` over
+the **linear** channels, `0.0`..`1.0`. `contrastRatio` is the WCAG
+`(hi + 0.05) / (lo + 0.05)`, `1.0`..`21.0`, and sorts its own arguments so order
+does not matter. `isDark` is `luminance < 0.5` and `isLight` its exact negation.
+All of these ignore `alpha`: luminance is a property of the colour, and what a
+translucent colour looks like depends on what is behind it.
+
+## HSL
+
+`color::Hsl` carries `hue` (degrees, `0.0`..`360.0`), `saturation` and `lightness`
+(`0.0`..`1.0`). `toHsl` decomposes, `hsl`/`hsla` rebuild, and `saturate`,
+`desaturate` and `rotateHue` manipulate.
+
+**HSL describes the sRGB colour, not linear light.** This is a deliberate
+asymmetry with the perceptual operations above, and it is the right one: CSS
+`hsl()` and every design tool mean the encoded channels, so a round trip agrees
+with the hex a designer wrote. The six primary hues land exactly on `#ff0000`,
+`#ffff00`, `#00ff00`, `#00ffff`, `#0000ff` and `#ff00ff`, which they would not if
+the model were computed in linear light.
+
+`hue` **wraps**; `saturation` and `lightness` **clamp**. An angle is periodic and
+a fraction is not, so `rotateHue(c, 400.0)` is `rotateHue(c, 40.0)` while a
+saturation of `9.0` is simply `1.0`.
+
+Two consequences of a grey having no meaningful hue, which differ and are both
+deliberate:
+
+- `toHsl` reports `hue` as `0.0` for any grey, and the round trip is still exact,
+  because `hsl` ignores hue entirely when saturation is `0.0`.
+- `saturate` on a grey therefore produces **red**, not the grey — `0.0` degrees is
+  red, and that is the HSL model's own answer. It is not special-cased, because
+  doing so would make the function discontinuous at saturation `0`.
+
+`desaturate(c, 1.0)` and `grayscale(c)` are both "remove the colour" and they
+**disagree**: the first preserves HSL lightness, the second preserves perceived
+brightness. For a pure blue they differ substantially.
+
 ## Determinism
 
 Nothing in `color` uses a transcendental — no `pow`, no `exp`, no trig — and this
@@ -125,6 +207,12 @@ software rasteriser is the oracle its GPU backends are compared against and must
 produce identical bytes on every target; canvas calls into `color`, so the whole
 package inherits that rule. Only IEEE `+ - * /` and `sqrt` appear on any `color`
 path.
+
+The sRGB table is 256 pasted literals for exactly this reason: evaluating
+`((c + 0.055) / 1.055) ^ 2.4` at run time would put a libm `pow` on the
+rasteriser's path and make the oracle platform-dependent. The HSL conversions are
+likewise pure arithmetic — `+ - * /`, comparisons and `math::abs`/`floor`/`min`/
+`max` — despite hue being an angle; no trigonometric function appears.
 [[src/codegen/builtins/canvas/helper_color.rs:register]]
 
 ## Cross-package use

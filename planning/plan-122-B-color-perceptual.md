@@ -326,7 +326,7 @@ pixel-identity proof.
 software oracle.
 Also green: `rt_canvas_damage` (4), `rt_canvas_font` (12), `rt_canvas_image_decode`
 (9), `rt_canvas_present_deep_copy` (4), `rt_canvas_graphics_thread` (8).
-Commit: —
+Commit: bf4324544
 
 ### Phase 2 — Perceptual operations
 
@@ -372,7 +372,7 @@ byte-averaging would have collapsed to the same grey.
 
 `scripts/man-run-examples.sh color --run` → **40 examples, 40 built, 40 ran, 0
 failed**.
-Commit: —
+Commit: 6ff402bb6
 
 ### Phase 3 — Rasteriser cost check
 
@@ -395,7 +395,7 @@ Acceptance: **MET.** Before/after numbers recorded in Corrections, with a stated
 no-action decision. The benchmark additionally re-proves pixel identity
 independently of the golden tests: the two compilers' rendered frames for a
 60-layer translucent scene are **byte-identical** (`cmp` → `frames IDENTICAL`).
-Commit: —
+Commit: 852d12f7a
 
 ### Phase 4 — HSL
 
@@ -435,7 +435,7 @@ manipulators (`satAlpha`/`desatAlpha`/`rotateAlpha` = `128`), and
 `man-census.sh --fill color` → **26 pages, 100% every column, 45/45 param-desc,
 7/7 types**; `--memory-scope color` **0**; `--scope color` **0**;
 `man-run-examples.sh color --run` → **52 examples, 52 built, 52 ran, 0 failed**.
-Commit: —
+Commit: 61b998b0b
 
 ## Validation Plan
 
@@ -532,6 +532,45 @@ proves the move is byte-neutral for every program that does not import `canvas` 
 `color`. The only acceptance drift in the whole phase is the five `color` fixtures'
 `.ir`, whose delta introduces exactly `#color_srgbTable`, `#color_toLinear` and
 `#color_fromLinear`.
+
+**The move left seven DANGLING CITATIONS in production source, and one of them
+names a real runtime invariant.** Not in the plan's task list; found by censusing
+the old symbol names after the move rather than assuming the rename was local
+(`rename-census-by-grep-underreports`). `grep -rn "__canvas_srgbTable\|__CANVAS_SRGB\|__canvas_linearToSrgb" src/`
+found comments citing symbols that no longer exist in:
+
+- `codegen/runtime/canvas/mod.rs` ×2 — the graphics-thread contract. It states that
+  the trampoline runs the module's `LINK` and global initialisers **on that thread**
+  so the loop gets "a populated `__CANVAS_SRGB`", *"whose absence would silently
+  render every antialiased pixel black"*. The global still initialises (it simply
+  moved packages, and the 8 `rt_canvas_graphics_thread` tests plus all 41 rasteriser
+  tests pass), but a future reader grepping the named symbol would have found
+  nothing — on the one comment that documents a silent-black-pixel failure mode.
+- `target/macos_aarch64/app/metal.rs` ×3 and `codegen/runtime/canvas/vulkan.rs` ×1 —
+  the sRGB-format rationale, i.e. why the GPU's encode-on-write agrees with the
+  software oracle.
+- `codegen/runtime/canvas/shaders/mfb_canvas.frag` ×1 — see below.
+
+All repointed at `__COLOR_SRGB` / `__color_srgbTable`. The two remaining hits are
+in `color/helper_srgb.rs` and `canvas/helper_color.rs` and are correct *historical*
+references ("it used to be `__CANVAS_SRGB`").
+
+**A dependency no grep for the table could have found.** Both GPU shaders —
+`srgbTable(i)` in `mfb_canvas.frag` and in the MSL string in `metal.rs` —
+reproduce this table's **rounding** by hand as
+`floor(srgbToLinear(i) * 65535 + 0.5)`, deliberately, because a gradient lerp
+happens in the table's integer space and a midpoint that rounds differently from
+the oracle lands a step off. Neither copy spells the constant or the function name,
+so they are invisible to a rename census. (Raised by the peer session running
+plan-116 in `worktree-P-116`; independently confirmed by reading both files.)
+
+The move preserved the quantisation by construction — literals copied by machine,
+binary search verbatim — so neither shader needed a change, and
+`the_gpu_draws_the_gradient_scene_the_reference_shows` passes untouched. The
+dependency is now written into `color/helper_srgb.rs`'s own doc comment, naming
+both shader files and that test, so it lives with the table rather than only in
+the file the table left. **The catching test is the gradient one, not the blend
+ones** — blending never enters the quantised space.
 
 **Phase 4 — a documentation claim I wrote was false, and the runtime caught it.**
 The `saturate` page first said: *"A colour with no saturation — any grey — has no
