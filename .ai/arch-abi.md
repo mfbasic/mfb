@@ -72,6 +72,45 @@ bytes are unchanged wherever the target's registers cover the call.
 
 Symptom when it happens: every API call reports success and the frame comes back blank.
 
+### An INTERNAL 8-argument call stages `rbp` legitimately — every foreign boundary must save it
+
+The section above is about a C call, where `rbp` at index 7 is a mistake. For an **MFB-to-MFB**
+call it is the convention: SysV has six argument registers and the internal convention needs
+eight, so `CALL_ARGS` extends with `rax` and `rbp` (bug-296). Caller and callee agree, so
+nothing is wrong *inside* MFB code — and the arity that triggers it is not exotic.
+`__canvas_geoDistance` takes 22 parameters, and `__canvas_drawGeometry` stages `rbp` for it
+six times in one function:
+
+```
+mov r8,r10 / mov r9,r10 / mov rax,r10 / mov rbp,r10
+bl _mfb_ifn_canvas_5FgeoDistance
+```
+
+`rbp` is **callee-saved under SysV**, so the moment MFB code is entered from foreign code,
+that staging destroys the caller's frame pointer. **Every boundary a non-MFB caller enters
+through must save and restore `rbp`**: the thread trampolines, and each `_mfb_gtkapp_*`
+callback GTK invokes. The GTK callbacks always did (one manual `str_u64 rbp` and its load
+apiece); `_mfb_rt_canvas_graphics_entry` did not, and returned to glibc's `start_thread` with
+`rbp = 0x404e000000000000` — the double `60.0`, the `radius` of a circle in the scene —
+whereupon `start_thread` ran `mov -0x98(%rbp),%rax` and took SIGBUS.
+
+Two things that make this expensive to find:
+
+* **The frame's callee-saved set cannot see it.** `calleeSaved` is computed from the
+  registers the ALLOCATOR assigned; an ABI-staged `rbp` was never allocated, so
+  `__canvas_drawGeometry` records `["r12","r14","lr"]` and saves `rbp` nowhere. The
+  mechanism that should catch this structurally is blind to it by construction.
+* **It is invisible off x86-64 and host-dependent on it.** AArch64 passes eight in registers
+  (`x7`, caller-saved) so macOS and the aarch64 rows are clean, and on x86-64 whether the
+  clobbered `rbp` is ever *dereferenced* depends on the libc's own path after the start
+  routine returns — it faults on ubuntu-24.04 runners and not on Debian 13, Alpine, or a
+  container with the same GTK. It cost 68 of ~90 canvas tests, 55 SIGBUS and 13 SIGSEGV,
+  the two alternating as one wild address lands in different places.
+
+The safety condition is **not** "keep functions under 8 parameters" — canvas passed that long
+ago. It is "a new foreign-boundary entry point saves `rbp`". Count entry points, not
+parameters.
+
 ### `RESULT_VALUE_REGISTER` is `rsi` on SysV, and so is `SCRATCH[1]`
 
 The aliasing above is not only about *arguments*. `RESULT_VALUE_REGISTER` is
