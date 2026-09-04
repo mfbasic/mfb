@@ -1050,13 +1050,28 @@ same class of file, from this same package:
 `emit_set_group` was modelled on — and it is at 0/229 today. So G adds an entry to a
 list, not a failure to a green gate.
 
+**The distinguishing property is narrower than "emitter code", which matters if anyone
+writes the exception set.** A peer session executing plan-122 (the new `color` package,
+~26 new files under `src/codegen/builtins/color/`) points out that its `func_*.rs` files
+will *not* join this list: they are ~95% `const INTRO/DESC/EX/BODY: &str` plus a single
+`register()` that pushes a descriptor, and `registry()` construction does run in
+`--bin mfb` unit tests, so `register()` executes and the file comes out near 100%.
+(Reasoned from file shape rather than measured — they had not run an instrumented pass.)
+
+So the property is: **the file's executable body only runs during a compile of a program
+that uses the feature.** `gen_present.rs` at 0/229 is 229 lines of branching lowering
+reached only that way; a registry file is not. That is a smaller and far more defensible
+exception set than "canvas emitters", and it predicts `gen_group.rs` correctly.
+
 **Not fixed here, deliberately.** The fix is either a coverage exception per file (the
 mechanism `scripts/coverage-exceptions.txt` exists for) or teaching the coverage run to
 drive a canvas compile, and either is a repo-wide decision about six-plus files across
 three packages — not something to settle inside a letter about named groups, and not
-something whose cost should be paid by whichever letter happens to notice. Recorded so
-the next reader of a red `coverage` job knows it predates plan-116 and knows which
-files it covers.
+something whose cost should be paid by whichever letter happens to notice. The second
+option looks actively bad from here: it would make the coverage job build and run canvas
+apps, and that job's runners are already the ones failing on GTK and memory. Recorded so
+the next reader of a red `coverage` job knows it predates plan-116, knows which files it
+covers, and knows what the exception set should be keyed on.
 
 **G33 (Phase 6) — the determinism harness does not cover this letter's codegen, so it
 was checked directly.** `scripts/ncode-determinism.sh` compiles the byte-identity and
