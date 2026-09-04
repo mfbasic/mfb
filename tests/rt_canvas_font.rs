@@ -1108,12 +1108,15 @@ fn lit_pixels(frame: &[u8]) -> usize {
 
 #[test]
 fn a_cmap_group_count_is_bounded_by_the_table_that_holds_it() {
-    // DEC-54. Format 12's `numGroups` is a u32 the file controls; this one claims
-    // 4,294,967,295 groups in a 40-byte subtable that holds two. The lookup scanned
-    // every claimed group — 583 s of CPU to map one unmapped character — where the
-    // subtable's own `length` and the end of the file both said to stop at two. The
-    // metrics are the ones `measure_text_scales_the_fonts_own_metrics` pins: bounding
-    // the scan changes nothing about a lookup the table can answer.
+    // DEC-54, the wrong-answer half. Format 12's `numGroups` is a u32 the file
+    // controls; this one claims 4,294,967,295 groups in a 40-byte subtable that holds
+    // two, and `cmap` is the first table in the file. Unbounded, the scan ran on past
+    // the subtable into `glyf` and `head`, and one of those twelve-byte windows
+    // happened to contain `X`: it mapped to glyph 2 and measured 30.00 instead of the
+    // `.notdef` 50.00 (measured on the unfixed build). The subtable's own `length`
+    // says to stop at two, and with the scan bounded by it the metrics are the ones
+    // `measure_text_scales_the_fonts_own_metrics` pins — bounding the scan changes
+    // nothing about a lookup the table can answer. The hang half is the test below.
     let run = run_fonts_bounded(
         "canvas_cmap_bomb",
         MEASURE,
@@ -1126,6 +1129,59 @@ fn a_cmap_group_count_is_bounded_by_the_table_that_holds_it() {
     );
     let at = |i: usize| run.lines.get(i).cloned().unwrap_or_default();
     assert_eq!(at(0), "[A] w=25.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(3), "[X] w=50.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(4), "[AXB] w=105.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(6), "[half] w=27.50");
+}
+
+/// `font`, with its format-12 subtable copied to the end of the file and both the
+/// copy's `length` and `numGroups` set to `u32::MAX`. This is the audit's own DEC-54
+/// shape — `spikes/audit-3/gen/cmap12.py` appends the subtable at EOF — with the
+/// length made hostile too, so the subtable's own length bounds nothing and the end
+/// of the file is the only bound left.
+fn cmap_subtable_at_eof_claiming_everything(font: &[u8]) -> Vec<u8> {
+    let be32 = |at: usize| u32::from_be_bytes(font[at..at + 4].try_into().unwrap()) as usize;
+    let tables = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let cmap = (0..tables)
+        .map(|i| 12 + i * 16)
+        .find(|rec| &font[*rec..rec + 4] == b"cmap")
+        .map(|rec| be32(rec + 8))
+        .expect("the fixture has a cmap table");
+    // Encoding record 0's subtable offset is at cmap+8, relative to the table start.
+    let subtable = cmap + be32(cmap + 8);
+    let mut moved = font[subtable..subtable + 40].to_vec();
+    moved[4..8].copy_from_slice(&u32::MAX.to_be_bytes()); // length
+    moved[12..16].copy_from_slice(&u32::MAX.to_be_bytes()); // numGroups
+    let mut out = font.to_vec();
+    let at = out.len();
+    out[cmap + 8..cmap + 12].copy_from_slice(&((at - cmap) as u32).to_be_bytes());
+    out.extend_from_slice(&moved);
+    out
+}
+
+#[test]
+fn a_cmap_group_count_past_the_end_of_the_file_is_bounded_by_the_file() {
+    // DEC-54, the hang half. The subtable sits at the end of the file, so past its two
+    // real groups every twelve-byte window reads as zeros through `getOr` and matches
+    // nothing but U+0000. Unbounded, mapping one unmapped character was a scan of
+    // 4,294,967,295 such groups — 583 s of CPU in the audit, and this run hits its
+    // deadline. The subtable's `length` lies here as well, so the bound that has to
+    // hold is the file's end: two groups fit before it, and the metrics are exactly
+    // the fixture's — including `X`, which stays `.notdef` because nothing past the
+    // file can match it.
+    let run = run_fonts_bounded(
+        "canvas_cmap_eof_bomb",
+        MEASURE,
+        &[(
+            "fixture.ttf",
+            cmap_subtable_at_eof_claiming_everything(&minimal_truetype()),
+        )],
+        false,
+        Duration::from_secs(30),
+    );
+    let at = |i: usize| run.lines.get(i).cloned().unwrap_or_default();
+    assert_eq!(at(0), "[A] w=25.00 h=110.00 a=80.00 d=20.00 g=10.00");
+    assert_eq!(at(1), "[B] w=30.00 h=110.00 a=80.00 d=20.00 g=10.00");
     assert_eq!(at(3), "[X] w=50.00 h=110.00 a=80.00 d=20.00 g=10.00");
     assert_eq!(at(4), "[AXB] w=105.00 h=110.00 a=80.00 d=20.00 g=10.00");
     assert_eq!(at(6), "[half] w=27.50");
