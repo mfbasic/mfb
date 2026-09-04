@@ -1,0 +1,36 @@
+' plan-122-A Phase 5, partner assertion: registering a `toString` override for
+' `color::Color` must NOT widen `toString` to records in general.
+'
+' Every RED test needs a partner pinning what must not change
+' (`shortest-fix-disables-an-adjacent-guarantee`). The RED half is
+' `tests/rt-behavior/color/color_to_string_rt`, which proves `toString` over a
+' `color::Color` now renders `#rrggbbaa`. This is the half that proves the
+' override is keyed to that ONE type: an unrelated record — declared in this very
+' file, with the same shape a colour has — is still refused with
+' `TYPE_CALL_ARGUMENT_MISMATCH`, and the rendered "expected" list still names only
+' the scalar types plus `List OF Byte`.
+
+IMPORT color
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+' Same field types and count as `color::Color`, so this cannot pass by the
+' override happening to match on shape rather than on the type's identity.
+TYPE Shade
+  red AS Byte
+  green AS Byte
+  blue AS Byte
+  alpha AS Byte
+END TYPE
+
+FUNC main AS Integer
+  LET p AS Point = Point[1, 2]
+  io::print(toString(p))
+  LET s AS Shade = Shade[toByte(1), toByte(2), toByte(3), toByte(4)]
+  io::print(toString(s))
+  RETURN 0
+END FUNC

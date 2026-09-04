@@ -508,15 +508,30 @@ Commit: —
 
 ### Phase 5 — `toString` override
 
-- [ ] Register a `toString` override for `color.Color` via `add_override`
+- [x] Register a `toString` override for `color.Color` via `add_override`
       (`src/codegen/registry/mod.rs:1285`), rendering `#rrggbbaa`, modelled on the
       `net::Url` renderer reached through `registry::general_override_target`.
-- [ ] Tests: `io::print(toString(color::rgba(255, 0, 0, 128)))` prints `#ff000080`.
+      Target is the private `__color_toString` helper (`helper_to_string.rs`),
+      named by `COLOR_TO_STRING` — the same private-helper-plus-`add_override`
+      shape `net` uses for `__net_urlToString`. It delegates to
+      `__color_hexByte` rather than restating the digit rendering, so `toString`
+      and `toHexAlpha` are the same bytes by construction.
+- [x] Tests: `io::print(toString(color::rgba(255, 0, 0, 128)))` prints `#ff000080`.
 
-Acceptance: the rt-behavior `.run` golden shows `#ff000080`; `toString` on an
-unrelated record is unaffected (pin one, per
-`shortest-fix-disables-an-adjacent-guarantee` — every RED test needs a partner
-pinning what must not change).
+Acceptance: **MET.** `tests/rt-behavior/color/color_to_string_rt`'s golden shows
+`#ff000080` as its first line, plus the corners
+(`#00000000`/`#ffffffff`/`#01020304`), `agreesWithToHexAlpha=TRUE` and
+`differsFromToHex=TRUE` — so the override is pinned to the lossless form, not
+merely to "some string".
+
+Partner assertion landed as `tests/syntax/color/color_to_string_unrelated_record_invalid`
+(a compile error, so it cannot live in the rt fixture): `toString` still refuses
+an unrelated record with `TYPE_CALL_ARGUMENT_MISMATCH`, and the rendered
+"expected" list still names only the scalars plus `List OF Byte` — the override
+did not widen the builtin. It declares **two** records, one of them (`Shade`)
+field-for-field identical in shape to `color::Color`, so the override cannot be
+passing by matching on record shape rather than on the type's identity. The
+rt fixture also re-pins `toString` over `Integer`/`Boolean`/`String`.
 Commit: —
 
 ### Phase 6 — Documentation, census and the cost measurement

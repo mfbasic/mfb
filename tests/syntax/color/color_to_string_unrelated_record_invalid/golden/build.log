@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/color/color_to_string_unrelated_record_invalid
+  30 | FUNC main AS Integer
+  31 |   LET p AS Point = Point[1, 2]
+  32 |   io::print(toString(p))
+     | ^
+tests/syntax/color/color_to_string_unrelated_record_invalid/src/main.mfb:32 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Point), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte.
+  32 |   io::print(toString(p))
+  33 |   LET s AS Shade = Shade[toByte(1), toByte(2), toByte(3), toByte(4)]
+  34 |   io::print(toString(s))
+     | ^
+tests/syntax/color/color_to_string_unrelated_record_invalid/src/main.mfb:34 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Shade), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte.
+[exit 1]

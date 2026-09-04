@@ -35,7 +35,9 @@
 //! not allocate it, so it is absent from any `is_read_only_record` predicate and a
 //! program may build one with a record literal and `WITH`-update it.
 
-use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
+use crate::codegen::registry::{
+    RecordProp, Registry, RegistryOverride, RegistryPackage, RegistryRecord,
+};
 use crate::types::ParameterType;
 
 mod func_from_hex;
@@ -51,6 +53,7 @@ mod func_with_alpha;
 mod helper_clamp_byte;
 mod helper_hex_byte;
 mod helper_hex_value;
+mod helper_to_string;
 
 /// The `Color` record type (`red`/`green`/`blue`/`alpha` `Byte`) — the leaf
 /// spelling, as it appears inside the package's own injected companion.
@@ -59,6 +62,12 @@ pub(crate) const COLOR_TYPE: &str = "Color";
 /// resolver seeds, so a bare `AS Color` from another file is refused (bug-484).
 /// Every cross-package descriptor reference uses this constant, never a literal.
 pub(crate) const COLOR_TYPE_ID: &str = "color.Color";
+
+/// The internal source-companion render target for the `toString(color::Color)`
+/// override — routed here by [`RegistryPackage::add_override`], as
+/// `toString(net::Url)` is. It is a private helper, not a member: a program
+/// reaches it only by calling the general `toString`.
+pub(crate) const COLOR_TO_STRING: &str = "__color_toString";
 
 const MODULE_INTRO: &str = r#"One colour type for the whole language: an 8-bit-per-channel RGBA value with constructors, a packed-integer bridge, and hex text forms."#;
 
@@ -139,9 +148,19 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // `toString(color::Color)` renders the lossless `#rrggbbaa` form — the registry
+    // home of what would otherwise be a hand row in
+    // `builtins::general_override_target`, exactly as `toString(net::Url)` is.
+    pkg.add_override(RegistryOverride {
+        builtin: "toString",
+        arg_type: COLOR_TYPE,
+        helper: COLOR_TO_STRING,
+    });
+
     helper_clamp_byte::register(&mut pkg);
     helper_hex_value::register(&mut pkg);
     helper_hex_byte::register(&mut pkg);
+    helper_to_string::register(&mut pkg);
 
     // Constructors first, then the operations over an existing colour — the order
     // a reader of `mfb man color` meets them in.
