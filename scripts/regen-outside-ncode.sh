@@ -9,6 +9,13 @@
 # in its filename, and an `.app`-suffixed target builds with `--app`.
 #
 # Usage: scripts/regen-outside-ncode.sh <mfb-exe> [<host-target>]
+#
+# bug-513: like regen-ncodesum.sh, this relies on word-splitting `$targ` into
+# `-target <t>`, which zsh does not do. Re-exec under bash rather than trusting
+# the shebang to have been honoured (the file is not always executable).
+if [ -n "${ZSH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -u
 MFB=${1:?usage: regen-outside-ncode.sh <mfb-exe> [host-target]}
 HOST=${2:-macos-aarch64}
@@ -31,9 +38,19 @@ for golden in tests/*/*/*/golden/*.ncode tests/*/*/*/golden/*.ncodesum; do
   fi
   targ=""
   [ "$target" = "$HOST" ] || targ="-target $target"
-  # shellcheck disable=SC2086
-  "$MFB" build -q -ncode $targ $app "$fixturedir" >/dev/null 2>&1
   actual="$fixturedir/$name.ncode"
+  # bug-513: `$actual` has no target infix, so every target of a fixture writes
+  # the same path. Without removing it first and checking THIS target's build,
+  # a failed build re-hashes (or, for a raw `.ncode` golden, re-copies) the
+  # previously built target's dump into this target's golden — a wrong but
+  # self-consistent value that the gate then reports as green forever.
+  rm -f "$actual"
+  # shellcheck disable=SC2086
+  if ! "$MFB" build -q -ncode $targ $app "$fixturedir" >/dev/null 2>&1; then
+    echo "BUILD FAILED for $golden ($target${app:+ }$app) — golden left unchanged"
+    missing=$((missing + 1))
+    continue
+  fi
   if [ -f "$actual" ]; then
     if [ "$ext" = "ncodesum" ]; then
       shasum -a 256 "$actual" | cut -d' ' -f1 > "$golden"

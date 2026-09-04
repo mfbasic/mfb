@@ -6,6 +6,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
+use crate::codegen::memory::marshal::push_write_payload_view;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
 pub(crate) fn emit_port_itoa(
