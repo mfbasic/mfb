@@ -1686,8 +1686,23 @@ the scene list, so without a revision folded into the content comparison a progr
 would call `setGroup` and see nothing happen — which is why Phase 1 writes that test
 before anything else exists. The second is that a group is the subsystem's first piece
 of shared state that can be referenced from more than one place, so the texture model's
-"there is no refcount" does not carry over; it needs a count *and* the existing
-frame-drain gate, and the free must stay on the worker because an arena is per-thread.
+"there is no refcount" looked like it would not carry over.
+
+**It did carry over, and that is the letter's most useful finding** (**G24**). The
+refcount is not implemented, because in the design that landed there is nothing for it
+to count: `canvas::groupItems` returns a *copy*, so a published scene holds no pointer
+into a group's buffer and a parent group holds none into its child's. The only window in
+which anything reads the block is that copy, on the graphics thread, inside one frame —
+and "a frame has completed since the retirement" closes exactly that window. So the
+lifetime rule is the existing drain gate alone, the same one §3 gives for scene blocks
+and §7 for textures, and the subsystem still has one rule rather than three. A count
+would have been a second mechanism guarding a lifetime already bounded, and the failure
+mode of a refcount that disagrees with reality is the memory corruption this phase
+ordering exists to avoid.
+
+The free must still stay on the worker, because an arena is per-thread — and the gate
+must run at the *top of every `present`* rather than beside the scene ring's reclaim,
+which only runs on a publish (**G7**).
 That lifetime work is scheduled last, behind every behavioural test, because it is the
 only part of plan-116 whose failure mode is memory corruption rather than a wrong
 pixel. Untouched by this letter: the GPU backends (plan-116-H), the `RES` migration
