@@ -116,7 +116,7 @@ tested against the finished renderer.)
 |---|---|---|
 | Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | ~~22~~ **29** | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
 | `Picture[` construction sites (code + doc examples) | 7 | `grep -rn 'Picture\[' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
-| `Text[` construction sites | ~~12~~ **20** | same grep, `Text\[` |
+| `Text[` construction sites | ~~12~~ ~~20~~ **22** | same grep, `Text\[` (2026-09-04) |
 | Renderer reads of `t.font.id` | ~~5~~ **6** | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
 | Renderer reads of `pic.image` | 0 | `grep -rn 'pic\.image' src/codegen/builtins/canvas/` (bug-484) |
 | Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | ~~3~~ **5** | `tests/cli_canvas_package.rs` ×3, `tests/rt_canvas_font.rs`, `tests/rt_canvas_present_deep_copy.rs` |
@@ -404,6 +404,23 @@ Commit: —
   the lowering reuses `func_image_ref.rs`'s emitted shape verbatim.
 
 ## Corrections
+
+**I4 (pre-execution, 2026-09-04) — re-measured all six rows; one had drifted again.**
+`Text[` is **22**, up from the 20 recorded by **I1** on 2026-09-02. The two new ones are
+plan-116-G's: `text_inside_a_translated_group_draws_at_the_offset` in
+`tests/rt_canvas_font.rs`, and the fixture it builds.
+
+The other five are unchanged from I1: 29 files naming the ref types, 7 `Picture[` sites,
+6 reads of `t.font.id`, 0 reads of `pic.image`, 5 fabricated zero-handle uses.
+
+This is the third measurement of this table and the third time `Text[` has moved — 12 →
+20 → 22 — which is the row to distrust rather than the count to memorise. I1 already
+says to re-run every row at Phase 1; the reason is now empirical rather than cautionary,
+and the mechanism is worth naming: **every canvas letter that adds a rendering feature
+adds a text fixture to prove the feature works on the glyph path**, because the glyph
+path is on a different branch from the distance path and is exactly what a fix written
+for distances misses (plan-116-G **G5**). So this row grows once per letter, by
+construction, and will have grown again by the time I runs.
 
 **I4 (2026-09-03, pre-execution, measured while plan-116-G was gating) — the letter's
 "unverified premise" is confirmed unverified, and the reason is sharper than "nothing
