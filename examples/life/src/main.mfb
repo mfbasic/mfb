@@ -4,6 +4,7 @@ IMPORT io
 IMPORT math
 IMPORT strings
 IMPORT term
+IMPORT color
 
 ' Conway's Game of Life — a full-screen terminal cellular automaton built on the
 ' term:: TUI module.
@@ -206,7 +207,7 @@ END FUNC
 ' Repaint the whole board. Each row is built as one string and drawn in a single
 ' write, overwriting the previous frame in place.
 SUB drawGrid(grid AS List OF Boolean, gridW AS Integer, gridH AS Integer)
-  term::setForeground(120, 230, 140)
+  term::setForeground(color::rgb(120, 230, 140))
   FOR y = 0 TO gridH - 1
     MUT row AS String = ""
     FOR x = 0 TO gridW - 1
@@ -237,12 +238,12 @@ SUB drawStatus(gridW AS Integer, gridH AS Integer, cols AS Integer, live AS Inte
   ' Fill the whole line except its last cell (writing the last cell of the last
   ' terminal row can scroll the screen).
   term::setBold(TRUE)
-  term::setForeground(15, 20, 30)
-  term::setBackground(170, 200, 225)
+  term::setForeground(color::rgb(15, 20, 30))
+  term::setBackground(color::rgb(170, 200, 225))
   term::moveTo(gridH, 0)
   io::write(fit(s, cols - 1))
-  term::setBackground(0, 0, 0)
-  term::setForeground(255, 255, 255)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(255, 255, 255))
   term::setBold(FALSE)
 END SUB
 

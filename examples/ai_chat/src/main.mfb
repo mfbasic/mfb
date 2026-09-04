@@ -1,4 +1,5 @@
 IMPORT term
+IMPORT color
 IMPORT io
 IMPORT process
 IMPORT json
@@ -555,29 +556,29 @@ END FUNC
 SUB setColorFor(kind AS Integer)
   IF kind = 0 THEN
     term::setBold(TRUE)
-    term::setForeground(0, 200, 255)        ' You header (cyan)
+    term::setForeground(color::rgb(0, 200, 255))        ' You header (cyan)
   ELSEIF kind = 1 THEN
     term::setBold(FALSE)
-    term::setForeground(210, 210, 220)      ' You body
+    term::setForeground(color::rgb(210, 210, 220))      ' You body
   ELSEIF kind = 2 THEN
     term::setBold(TRUE)
-    term::setForeground(80, 220, 100)       ' Claude header (green)
+    term::setForeground(color::rgb(80, 220, 100))       ' Claude header (green)
   ELSEIF kind = 3 THEN
     term::setBold(FALSE)
-    term::setForeground(200, 220, 200)      ' Claude body
+    term::setForeground(color::rgb(200, 220, 200))      ' Claude body
   ELSEIF kind = 4 THEN
     term::setBold(TRUE)
-    term::setForeground(240, 120, 120)      ' system/error (red)
+    term::setForeground(color::rgb(240, 120, 120))      ' system/error (red)
   ELSE
     term::setBold(FALSE)
-    term::setForeground(255, 255, 255)
+    term::setForeground(color::rgb(255, 255, 255))
   END IF
 END SUB
 
 SUB resetPen()
   term::setBold(FALSE)
-  term::setForeground(235, 235, 235)
-  term::setBackground(0, 0, 0)
+  term::setForeground(color::rgb(235, 235, 235))
+  term::setBackground(color::rgb(0, 0, 0))
 END SUB
 
 FUNC spinnerChar(frame AS Integer) AS String
@@ -603,14 +604,14 @@ END FUNC
 SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS Boolean, panelBottom AS Integer, frame AS Integer)
   LET w AS Integer = sidebarW()
   IF focused THEN
-    term::setForeground(120, 180, 220)
+    term::setForeground(color::rgb(120, 180, 220))
   ELSE
-    term::setForeground(90, 90, 110)
+    term::setForeground(color::rgb(90, 90, 110))
   END IF
   term::drawBox(term::LineStyle.Light, 0, 0, w, panelBottom)
   resetPen()
   term::setBold(TRUE)
-  term::setForeground(150, 200, 255)
+  term::setForeground(color::rgb(150, 200, 255))
   term::drawText(2, 0, " SESSIONS ")
   resetPen()
 
@@ -625,12 +626,12 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
       LET shown AS String = strings::padRight(clip(label, inner - 1), inner - 1)
       IF i = activeIdx THEN
         term::setBold(TRUE)
-        term::setForeground(255, 255, 255)
-        term::setBackground(40, 45, 80)
+        term::setForeground(color::rgb(255, 255, 255))
+        term::setBackground(color::rgb(40, 45, 80))
         term::drawText(1, row, " " & shown)
         resetPen()
       ELSE
-        term::setForeground(200, 200, 210)
+        term::setForeground(color::rgb(200, 200, 210))
         term::drawText(1, row, " " & shown)
         resetPen()
       END IF
@@ -639,7 +640,7 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
   NEXT
 
   ' Hint pinned to the last interior row.
-  term::setForeground(110, 110, 130)
+  term::setForeground(color::rgb(110, 110, 130))
   term::drawText(1, panelBottom - 1, clip(" ^N new  ^X close", inner))
   resetPen()
 END SUB
@@ -648,15 +649,15 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   LET x0 AS Integer = sidebarW() + 1
   LET x1 AS Integer = cols - 1
   IF focused THEN
-    term::setForeground(120, 180, 220)
+    term::setForeground(color::rgb(120, 180, 220))
   ELSE
-    term::setForeground(90, 90, 110)
+    term::setForeground(color::rgb(90, 90, 110))
   END IF
   term::drawBox(term::LineStyle.Light, sidebarW(), 0, x1, panelBottom)
   resetPen()
 
   term::setBold(TRUE)
-  term::setForeground(150, 200, 255)
+  term::setForeground(color::rgb(150, 200, 255))
   term::drawText(x0 + 1, 0, clip(" " & session.title & " ", max2(1, x1 - x0 - 1)))
   resetPen()
 
@@ -684,7 +685,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
 
   ' A small "more above" marker when the view is scrolled up.
   IF scroll > 0 THEN
-    term::setForeground(150, 150, 90)
+    term::setForeground(color::rgb(150, 150, 90))
     term::drawText(x1 - 4, 0, " ^ ")
     resetPen()
   END IF
@@ -702,7 +703,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   IF dispMax > 0 THEN
     tokStr = " " & toString(session.tokCur) & "/" & toString(dispMax) & " tok "
   END IF
-  term::setForeground(120, 140, 170)
+  term::setForeground(color::rgb(120, 140, 170))
   IF len(dispModel) > 0 THEN
     LET modelMax AS Integer = max2(1, innerW - len(tokStr) - 1)
     term::drawText(x0 + 1, panelBottom, clip(" " & dispModel & " ", modelMax))
@@ -716,25 +717,25 @@ END SUB
 
 SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTop AS Integer, cols AS Integer)
   IF focused THEN
-    term::setForeground(120, 180, 220)
+    term::setForeground(color::rgb(120, 180, 220))
   ELSE
-    term::setForeground(90, 90, 110)
+    term::setForeground(color::rgb(90, 90, 110))
   END IF
   term::drawBox(term::LineStyle.Light, 0, inputTop, cols - 1, inputTop + 2)
   resetPen()
 
   MUT hint AS String = " Enter send   /help for commands   Tab focus   ^C quit "
   IF streaming THEN hint = " Claude is replying...   Tab focus   ^C quit "
-  term::setForeground(110, 110, 130)
+  term::setForeground(color::rgb(110, 110, 130))
   term::drawText(2, inputTop, clip(hint, max2(1, cols - 4)))
   resetPen()
 
   LET innerW AS Integer = cols - 4
   LET shown AS String = fitRight(buf, innerW - 2)
-  term::setForeground(235, 235, 235)
+  term::setForeground(color::rgb(235, 235, 235))
   term::drawText(2, inputTop + 1, "> " & shown)
   IF focused THEN
-    term::setForeground(255, 255, 0)
+    term::setForeground(color::rgb(255, 255, 0))
     term::drawText(2 + 2 + len(shown), inputTop + 1, "\u{2588}")
   END IF
   resetPen()
@@ -791,29 +792,29 @@ SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS 
   ' Opaque backdrop: drawText paints the background of every cell it writes
   ' (spaces included), so a row of spaces on a dark background blanks whatever
   ' the panels drew underneath.
-  term::setBackground(28, 30, 44)
-  term::setForeground(210, 215, 235)
+  term::setBackground(color::rgb(28, 30, 44))
+  term::setForeground(color::rgb(210, 215, 235))
   FOR ry = by TO bottom
     term::drawText(bx, ry, strings::repeat(" ", w + 1))
   NEXT
 
-  term::setForeground(150, 170, 220)
+  term::setForeground(color::rgb(150, 170, 220))
   term::drawBox(term::LineStyle.Double, bx, by, bx + w, bottom)
   term::setBold(TRUE)
-  term::setForeground(220, 228, 255)
+  term::setForeground(color::rgb(220, 228, 255))
   term::drawText(bx + 2, by, " " & title & " ")
   term::setBold(FALSE)
 
   FOR i = 0 TO nlines - 1
     IF modal = 2 AND i = modelSel THEN
       term::setBold(TRUE)
-      term::setForeground(255, 255, 255)
-      term::setBackground(60, 70, 110)
+      term::setForeground(color::rgb(255, 255, 255))
+      term::setBackground(color::rgb(60, 70, 110))
       term::drawText(bx + 1, by + 1 + i, strings::padRight(clip(collections::get(body, i), w - 1), w - 1))
       term::setBold(FALSE)
-      term::setBackground(28, 30, 44)
+      term::setBackground(color::rgb(28, 30, 44))
     ELSE
-      term::setForeground(210, 215, 235)
+      term::setForeground(color::rgb(210, 215, 235))
       term::drawText(bx + 2, by + 1 + i, clip(collections::get(body, i), w - 2))
     END IF
   NEXT
@@ -1016,7 +1017,7 @@ FUNC main() AS Integer
     ' -- too small to draw: show a hint and poll for quit ------------------
     IF size.columns < minCols() OR size.rows < minRows() THEN
       term::clear()
-      term::setForeground(255, 255, 255)
+      term::setForeground(color::rgb(255, 255, 255))
       term::drawText(0, 0, "Enlarge the terminal to at least " & toString(minCols()) & "x" & toString(minRows()) & ".")
       term::drawText(0, 1, "Press ^C to quit.")
       term::sync()

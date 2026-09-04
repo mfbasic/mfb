@@ -1,4 +1,5 @@
 IMPORT astrings
+IMPORT color
 IMPORT strings
 IMPORT collections
 IMPORT errorCode
@@ -171,11 +172,19 @@ TESTING
         expectString(astrDescribe([astrings::fontSize(14)]), "Size:14 ")
         expectString(astrDescribe([astrings::fontSize(0)]), "Size:0 ")
       END TCASE
-      TCASE "foreground/background pack 0xRRGGBB losslessly"
-        expectString(astrDescribe([astrings::foreground(255, 128, 64)]), "Fg:16744512 ")
-        expectString(astrDescribe([astrings::foreground(0, 0, 0)]), "Fg:0 ")
-        expectString(astrDescribe([astrings::background(255, 255, 255)]), "Bg:16777215 ")
-        expectString(astrDescribe([astrings::background(1, 2, 3)]), "Bg:66051 ")
+      TCASE "foreground/background pack 0xAARRGGBB losslessly"
+        REM plan-122-E: the payload widened from 0xRRGGBB to 0xAARRGGBB, so every
+        REM opaque colour gains 0xFF000000 = 4278190080 over its old value.
+        expectString(astrDescribe([astrings::foreground(color::rgb(255, 128, 64))]), "Fg:4294934592 ")
+        expectString(astrDescribe([astrings::foreground(color::rgb(0, 0, 0))]), "Fg:4278190080 ")
+        expectString(astrDescribe([astrings::background(color::rgb(255, 255, 255))]), "Bg:4294967295 ")
+        expectString(astrDescribe([astrings::background(color::rgb(1, 2, 3))]), "Bg:4278256131 ")
+      END TCASE
+      TCASE "alpha survives in the attribute payload"
+        REM The widening's whole point: a non-opaque colour round-trips. Every case
+        REM above has alpha 255, so none of them can see a mask mistake.
+        expectString(astrDescribe([astrings::foreground(color::rgba(255, 128, 64, 128))]), "Fg:2164228160 ")
+        expectString(astrDescribe([astrings::foreground(color::rgba(0, 0, 0, 0))]), "Fg:0 ")
       END TCASE
       TCASE "the Attribute model is open — user-built values are equivalent"
         LET f AS astrings::Attribute = astrings::AttrFlag[astrings::AttrTypeFlag.Strike]
@@ -191,9 +200,9 @@ TESTING
         a = astrings::addAttribute(a, 0, 0, astrings::overline())
         a = astrings::addAttribute(a, 0, 0, astrings::font("Sans"))
         a = astrings::addAttribute(a, 0, 0, astrings::fontSize(9))
-        a = astrings::addAttribute(a, 0, 0, astrings::foreground(16, 32, 48))
-        a = astrings::addAttribute(a, 0, 0, astrings::background(48, 32, 16))
-        expectString(astrAt(a, 0), "Overline Font:Sans Size:9 Fg:1056816 Bg:3153936 ")
+        a = astrings::addAttribute(a, 0, 0, astrings::foreground(color::rgb(16, 32, 48)))
+        a = astrings::addAttribute(a, 0, 0, astrings::background(color::rgb(48, 32, 16)))
+        expectString(astrAt(a, 0), "Overline Font:Sans Size:9 Fg:4279246896 Bg:4281344016 ")
       END TCASE
     END TGROUP
 
@@ -258,9 +267,9 @@ TESTING
       TCASE "numeric members are independent planes"
         MUT a AS AttributedString = astrings::fromString("hello")
         a = astrings::addAttribute(a, 0, 4, astrings::fontSize(12))
-        a = astrings::addAttribute(a, 0, 4, astrings::foreground(0, 0, 255))
-        a = astrings::addAttribute(a, 0, 4, astrings::background(0, 255, 0))
-        expectString(astrAt(a, 2), "Size:12 Fg:255 Bg:65280 ")
+        a = astrings::addAttribute(a, 0, 4, astrings::foreground(color::rgb(0, 0, 255)))
+        a = astrings::addAttribute(a, 0, 4, astrings::background(color::rgb(0, 255, 0)))
+        expectString(astrAt(a, 2), "Size:12 Fg:4278190335 Bg:4278255360 ")
       END TCASE
       TCASE "spans index Unicode scalars"
         MUT u AS AttributedString = astrings::fromString("aé😀b")
@@ -339,7 +348,7 @@ TESTING
         MUT a AS AttributedString = astrings::fromString("hello")
         a = astrings::addAttribute(a, 0, 4, astrings::bold())
         a = astrings::addAttribute(a, 1, 3, astrings::font("Serif"))
-        a = astrings::addAttribute(a, 2, 2, astrings::foreground(9, 9, 9))
+        a = astrings::addAttribute(a, 2, 2, astrings::foreground(color::rgb(9, 9, 9)))
         LET c AS AttributedString = astrings::clearAttributes(a)
         expectString(toString(c), "hello")
         expectString(astrAt(c, 2), "")
@@ -703,8 +712,8 @@ TESTING
       END TCASE
       TCASE "colors do not render in markdown"
         MUT col AS AttributedString = astrings::fromString("x")
-        col = astrings::addAttribute(col, 0, 0, astrings::foreground(255, 128, 64))
-        col = astrings::addAttribute(col, 0, 0, astrings::background(1, 2, 3))
+        col = astrings::addAttribute(col, 0, 0, astrings::foreground(color::rgb(255, 128, 64)))
+        col = astrings::addAttribute(col, 0, 0, astrings::background(color::rgb(1, 2, 3)))
         expectString(astrings::toMarkdown(col), "x")
       END TCASE
     END TGROUP

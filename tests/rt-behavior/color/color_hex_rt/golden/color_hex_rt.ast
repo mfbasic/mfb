@@ -1,0 +1,113 @@
+{
+  "project": "color_hex_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "color", "line": 13 },
+    { "module": "errorCode", "line": 14 },
+    { "module": "io", "line": 15 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 17,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 17 },
+      { "name": "c", "type": "color.Color", "default": null, "line": 17 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "red" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "green" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "blue" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "alpha" }] } }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "reject",
+      "line": 23,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 23 },
+      { "name": "text", "type": "String", "default": null, "line": 23 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "color.Color", "value": { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=WRONGLY-ACCEPTED " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "red" }] } }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 27,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=invalidFormat " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 29 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 35,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 35 },
+      { "name": "c", "type": "color.Color", "default": null, "line": 35 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] } }, "right": { "kind": "string", "value": " expected " } }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "c" }] } }] }, "line": 36 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "h3" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#f0a" }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "h4" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#f0a8" }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "h6" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#3366cc" }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "h8" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#3366cc80" }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "b3" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "F0a" }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "b4" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "f0A8" }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "b6" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "3366Cc" }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "b8" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "3366cC80" }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "shortOpaque" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#000" }] }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "longOpaque" }, { "kind": "call", "callee": "color.fromHex", "arguments": [{ "kind": "string", "value": "#000000" }] }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "badLen5" }, { "kind": "string", "value": "#12345" }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "badLen2" }, { "kind": "string", "value": "#12" }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "r3", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "badLen7" }, { "kind": "string", "value": "#1234567" }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "r4", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "badLen9" }, { "kind": "string", "value": "#123456789" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "r5", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "empty" }, { "kind": "string", "value": "" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "name": "r6", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "justHash" }, { "kind": "string", "value": "#" }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "r7", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "doubleHash" }, { "kind": "string", "value": "##fff" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "r8", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "nonHex3" }, { "kind": "string", "value": "#ggg" }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "r9", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "nonHex6" }, { "kind": "string", "value": "#12345g" }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "r10", "type": "Integer", "value": { "kind": "call", "callee": "reject", "arguments": [{ "kind": "string", "value": "space" }, { "kind": "string", "value": "#12 456" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "toHex=" }, "right": { "kind": "call", "callee": "color.toHex", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "51" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "204" }, { "kind": "number", "value": "128" }] }] } }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "toHexAlpha=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "51" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "204" }, { "kind": "number", "value": "128" }] }] } }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pad=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "black=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "white=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }] }] } }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "case=" }, "right": { "kind": "call", "callee": "color.toHex", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "171" }, { "kind": "number", "value": "205" }, { "kind": "number", "value": "239" }, { "kind": "number", "value": "255" }] }] } }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "rtBlack" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "rtWhite" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }] }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "rtMixed" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "51" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "204" }, { "kind": "number", "value": "64" }] }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "rtLowChannels" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] }, "line": 85 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 87 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -159,6 +159,12 @@ pub fn lower_project_with_external_functions(
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
+    // `color` after the generic pass: canvas's injected companion carries
+    // `IMPORT color` and calls `color::toLinear`/`fromLinear` from its blend and
+    // gradient helpers, which the generic pass over the pre-injection AST cannot
+    // see (plan-122-B).
+    let augmented = crate::codegen::builtins::color::augmented_project(&augmented)
+        .expect("built-in color package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
@@ -3509,10 +3515,19 @@ pub(super) fn expression_type(
             // `term` migrated to the clean-room registry too, but its return type is a
             // function of the NAME alone (the legacy `TermResolver` ignored argument
             // types), so it is likewise excluded and keeps resolving via the name-based
-            // `call_return_type_name` fallthrough. Routing it through the arg-typed path
-            // would mis-resolve a Byte-parameter setter called with Integer literals
-            // (`term::setForeground(255, 128, 0)` — the un-coerced `Integer` argument
-            // fails to match the `Byte` parameter), regressing `Nothing` to `Unknown`.
+            // `call_return_type_name` fallthrough. That remains correct: every term
+            // member is a single overload with one fixed return, so the name decides it.
+            //
+            // The exclusion's ORIGINAL motivation is gone, and saying so matters because
+            // it read as the reason. It was that routing term through the arg-typed path
+            // would mis-resolve a `Byte`-parameter setter called with `Integer` literals
+            // — `term::setForeground(255, 128, 0)`, whose un-coerced `Integer` arguments
+            // fail to match `Byte` parameters, regressing `Nothing` to `Unknown`.
+            // plan-122-F gave those setters a single `color::Color` parameter, and
+            // `grep -rn "ParameterType::Byte" src/codegen/builtins/term/*.rs` now returns
+            // nothing, so no term member has a `Byte` parameter left to mis-resolve. The
+            // exclusion is kept because it is harmless and name-resolution is right for
+            // this package, not because that hazard still exists.
             let owner = crate::codegen::registry::registry().owning_package(&canonical_callee);
             let migrated_arg_typed = crate::codegen::registry::registry()
                 .is_member(&canonical_callee)

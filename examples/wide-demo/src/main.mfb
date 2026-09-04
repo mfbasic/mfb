@@ -1,4 +1,5 @@
 IMPORT term
+IMPORT color
 IMPORT io
 IMPORT strings
 IMPORT collections
@@ -54,10 +55,10 @@ FUNC main() AS Integer
   FOR i = 0 TO count - 1
     LET line AS String = collections::get(display, i)
     IF i = 0 THEN
-      term::setForeground(255, 255, 0)
+      term::setForeground(color::rgb(255, 255, 0))
       term::drawText((right - strings::displayWidth(line)) / 2, 1, line)
     ELSE
-      term::setForeground(200, 200, 255)
+      term::setForeground(color::rgb(200, 200, 255))
       term::drawText(2, i + 2, line)
     END IF
   NEXT

@@ -51,7 +51,10 @@ const ESC_OFF: &[u8] = b"\x1b[?25h\x1b[?1049l\x1b[0m";
 const ESC_ON_SYMBOL: &str = "_mfb_term_esc_on";
 const ESC_OFF_SYMBOL: &str = "_mfb_term_esc_off";
 
-const TERM_COLOR_RECORD_SIZE: usize = 24;
+/// Bytes allocated for the `color::Color` record `term::getForeground`/`getBackground`
+/// return: four `Byte` fields, one 8-byte slot each (plan-122-F widened it from the
+/// retired 3-field `TermColor`).
+const COLOR_RECORD_SIZE: usize = 32;
 const TERM_SIZE_RECORD_SIZE: usize = 16;
 /// Default foreground while inactive (white, packed `r | g<<8 | b<<16`).
 const DEFAULT_FOREGROUND_PACKED: &str = "16777215";
@@ -573,10 +576,28 @@ fn emit_set_color(
 ) {
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // plan-122-F: the single MFB argument is a `color::Color` RECORD POINTER, in
+    // `c_arg(0)` (established by reading this file's own pre-change unpacking, which
+    // took its three `Byte` channels from `c_arg(0..2)` — NOT `return_register()`,
+    // which `emit_get_color` twenty lines below uses for the arena allocator's first
+    // argument).
+    //
+    // The pointer is moved into a callee-usable temporary FIRST and every field is
+    // then loaded off that temporary. Loading straight out of `c_arg(0)` while also
+    // writing `%v9`/`%v10` would be safe here today, but staging is the rule for
+    // this file: an emitter that writes an argument slot before every incoming
+    // argument is read destroys one, and the symptom is a SIGSEGV at a tiny address
+    // rather than a wrong colour.
+    //
+    // Field offsets are the record's declaration order — red 0, green 8, blue 16,
+    // alpha 24 — matching what `emit_get_color` stores. ALPHA IS DELIBERATELY NOT
+    // READ: a terminal cell has no alpha channel, and the state slot it packs into
+    // is only 0xBBGGRR.
     instructions.extend([
-        abi::move_register("%v9", abi::c_arg(0)),
-        abi::move_register("%v10", abi::c_arg(1)),
-        abi::move_register("%v11", abi::c_arg(2)),
+        abi::move_register("%v12", abi::c_arg(0)),
+        abi::load_u64("%v9", "%v12", 0),
+        abi::load_u64("%v10", "%v12", 8),
+        abi::load_u64("%v11", "%v12", 16),
         abi::shift_left_immediate("%v10", "%v10", 8),
         abi::shift_left_immediate("%v11", "%v11", 16),
         abi::or_registers("%v9", "%v9", "%v10"),
@@ -2088,12 +2109,13 @@ fn emit_get_color(
     instructions.push(abi::move_immediate("%v10", "Integer", inert_packed));
     instructions.push(abi::label(&have_src));
     instructions.push(abi::store_u64("%v10", abi::stack_pointer(), ARG0_OFFSET));
-    // Allocate the 3-field TermColor record.
+    // Allocate the 4-field `color::Color` record (plan-122-F widened it from the
+    // retired 3-field `TermColor`).
     instructions.extend([
         abi::move_immediate(
             abi::return_register(),
             "Integer",
-            &TERM_COLOR_RECORD_SIZE.to_string(),
+            &COLOR_RECORD_SIZE.to_string(),
         ),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -2115,6 +2137,11 @@ fn emit_get_color(
         abi::shift_right_immediate("%v14", "%v10", 16),
         abi::and_registers("%v13", "%v14", "%v12"),
         abi::store_u64("%v13", "%v9", 16),
+        // alpha: a terminal cell has no alpha channel, so the fourth field is
+        // always fully opaque. Stored as an immediate rather than unpacked from the
+        // state slot, which only carries 0xBBGGRR (plan-122-F).
+        abi::move_immediate("%v13", "Integer", "255"),
+        abi::store_u64("%v13", "%v9", 24),
         abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),

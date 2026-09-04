@@ -4,7 +4,8 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "term", "line": 3 }
+    { "module": "term", "line": 3 },
+    { "module": "color", "line": 4 }
     ],
     "items": [
     {
@@ -12,21 +13,21 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 5,
+      "line": 6,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 6 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "128" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "65" }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "9731" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "128512" }] }, "line": 10 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "66" }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "10" }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 14 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "128" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "65" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "9731" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "128512" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "200" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "66" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "10" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
       ]
     }
     ]

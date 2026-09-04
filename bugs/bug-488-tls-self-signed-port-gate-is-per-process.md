@@ -61,6 +61,51 @@ fix agents had `cargo test` live on this machine. Sole failure in the run (113
 result lines otherwise green); re-run in isolation immediately afterwards 3/3 green
 (`cargo test --test rt_tls_connect_allow_self_signed`, 4 passed each time).
 
+## Fourth occurrence — a DIFFERENT symptom, so the shared state is wider than the port (2026-09-03, plan-122 landing)
+
+Two sightings in one plan-122 session, both with a peer worktree session
+(`P-116`) running its own `cargo test` on the same machine.
+
+The first matched §Symptom exactly (`defaults_to_rejecting_a_self_signed_peer`,
+`left: "result=connected"`, `right: "result=raised"`). The second, in the
+post-merge run, is **new**:
+
+```
+still_rejects_an_expired_certificate ... FAILED
+  the certificate meant to be expired is still valid — this case would assert the
+  opposite of what it reads as:
+  Certificate will not expire
+
+still_rejects_a_name_mismatch ... FAILED
+```
+
+That first one is not a verdict flip at all — it is the file's own **setup
+guard** firing, refusing to run a case that would have asserted vacuously. So the
+test is failing closed here too, which is good, but it means the contention
+damages more than the port: the cases also share the **generated certificate
+identity** on disk, and a concurrent run regenerating it can leave this run
+looking at an identity that is not the one its case needs.
+
+Isolation re-runs: **4/4 green, twice**, immediately after each failure
+(`cargo test --release --test rt_tls_connect_allow_self_signed`).
+
+Consequence for the fix: making `port_gate()` cross-process is **necessary but not
+sufficient**. Whatever lock is chosen has to cover the identity generation as
+well, or this case will keep failing under a shared machine after the port race is
+closed. A per-run temporary identity directory would remove the second half
+outright and is probably cheaper than locking it.
+
+Not attributable to plan-122, which touches no TLS code: `artifact-gate.sh all`
+reported 1890 goldens 0 diffs on the same tree, and the whole
+`rt_tls_connect_allow_self_signed` file is green when nothing else is running.
+
+**Four sightings in one day, by three unrelated sessions.** The third and fourth
+were reported independently and collided as a merge conflict in this file, which is
+itself a measure of how often this fires: it is no longer an occasional flake but a
+near-certainty whenever two `cargo test` runs overlap, which is now the normal
+working pattern. Both were kept rather than one being resolved away — the third
+adds frequency evidence, the fourth adds a symptom the port race does not explain.
+
 ## Cause
 
 `tests/rt_tls_connect_allow_self_signed.rs` picks a port by binding an ephemeral

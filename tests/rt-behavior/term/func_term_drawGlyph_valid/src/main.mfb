@@ -1,10 +1,11 @@
 ' drawGlyph stamps a single scalar by code point at an absolute cell; off-grid draws
 ' nothing and control code points are skipped. Non-tty harness (24x80).
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 255, 128)
+  term::setForeground(color::rgb(0, 255, 128))
   term::drawGlyph(1, 1, 65)          ' 'A'
   term::drawGlyph(3, 1, 9731)        ' snowman U+2603 (3-byte)
   term::drawGlyph(5, 1, 128512)      ' emoji U+1F600 (4-byte, astral)
