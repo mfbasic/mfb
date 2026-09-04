@@ -454,6 +454,22 @@ Commit: —
 
 ## Corrections
 
+**H7 (2026-09-03, pre-execution) — the `rbp` invariant this letter must hold, stated the
+way that is checkable.** MFBASIC stages parameter 8 in `rbp`, which is callee-saved under
+SysV, and the callee-saved set is computed from *allocated* registers so the staging is
+invisible to it (bug-296). The consequence is **not** an arity limit —
+`__canvas_geoDistance` takes 22 parameters and `__canvas_drawGeometry` calls it six times
+per item — it is that **every point where foreign code calls into MFB code must save
+`rbp`**: the thread trampolines and the `_mfb_gtkapp_*` callbacks.
+
+For H the check is: does this letter add an **entry point reached from GTK or pthread**?
+Adding a per-draw offset, widening a helper, or introducing a new MFB→MFB function is
+safe at any arity. A new callback or trampoline is not, at any arity.
+
+Worth carrying because H is the letter most likely to widen `__canvas_drawGeometry` again
+and to conclude something from the parameter count. plan-116-G's **G31** did exactly
+that, was wrong, and is corrected in place with the wrong reading left visible.
+
 **H6 (2026-09-03, pre-execution) — `GEO_KIND_GROUP` is `#[cfg(test)]` and this is the
 letter that takes it off.** plan-116-G added the Rust-side kind constant so the
 MFBASIC/Rust pair could be pinned by

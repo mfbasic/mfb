@@ -965,33 +965,41 @@ sleeps), 2a1135971 (the overflow pin)
 
 ## Corrections
 
-**G31 (Phase 6) — none of this letter's functions reaches the 8-parameter ABI boundary,
-checked rather than assumed.** A peer session found the x86_64 canvas crash the same day:
-MFBASIC's internal convention extends the SysV six argument registers with `rax` and
+**G31 (Phase 6, corrected) — the hazard is a new FOREIGN-BOUNDARY entry point, not a
+function with many parameters.** A peer session found the x86_64 canvas crash the same
+day: MFBASIC's internal convention extends SysV's six argument registers with `rax` and
 `rbp` for parameters 7 and 8 (bug-296), `rbp` is callee-saved under SysV, and the
 callee-saved set is computed from *allocated* registers — so an ABI-staged `rbp` is
 invisible to it. The graphics trampoline returned to glibc's `start_thread` with `rbp`
-holding a `Float` from the scene, and `start_thread`'s `mov -0x98(%rbp),%rax` took
-SIGBUS.
+holding a `Float` from the scene, and `start_thread`'s `mov -0x98(%rbp),%rax` took SIGBUS.
 
-This letter widened `__canvas_drawGeometry` from four parameters to six, which is the
-kind of change that could walk into that. It does not, and neither does anything else
-here:
+**A first version of this correction read the rule as an arity ceiling and drew the wrong
+conclusion.** It counted this letter's functions, found six parameters at the widest, and
+recorded "two of headroom" — which is false comfort, because there is no ceiling.
+Arguments past the eighth go on the stack; the eighth still lands in `rbp`. Measured:
 
-| function | params |
-|---|---|
-| `__canvas_drawGeometry` | 6 (was 4) |
-| `__canvas_appendDraw` | 6 |
-| `__canvas_boundsMeetOffset` | 4 |
-| `__canvas_groupSignature` | 2 |
-| `__canvas_intListEquals` | 2 |
-| `__canvas_groupHash` | 1 |
+```
+FUNC __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius,
+  sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ca, sa) AS Float
+```
 
-Two parameters of headroom on the widest, and every one of them is called MFB→MFB rather
-than across a foreign boundary, which is the condition that actually matters. Recorded so
-a later letter widening `__canvas_drawGeometry` again — H adds a per-draw offset and is
-the obvious candidate — knows the ceiling is 8 and why, rather than finding out from a
-SIGBUS in `start_thread`.
+**22 parameters**, and `__canvas_drawGeometry` calls it **six times**. Canvas is not
+approaching the boundary — it has been staging `rbp` on every pixel of every shape since
+long before this letter.
+
+So widening a function is safe, and always was. The condition that matters is that
+**every point where foreign code calls into MFB code saves `rbp`**: the thread
+trampolines and the `_mfb_gtkapp_*` callbacks. The callbacks were already correct; the
+graphics trampoline was the single gap, now fixed.
+
+**The invariant for plan-116-H, and it is the easy one to check:** count *entry points
+reached from GTK or pthread*, not parameters. This letter adds none — every function it
+introduces is called MFB→MFB — so it is safe for a reason that has nothing to do with its
+parameter counts, and a letter that added a new callback would be unsafe at any arity.
+
+Recorded with the wrong version visible rather than silently replaced, because the wrong
+version is the one a reader is likely to arrive at independently: "up to 8 parameters" is
+what the convention says, and reading it as a limit is the natural mistake.
 
 **G30 (Phase 6) — the Linux row needs `-fuse-ld=bfd` on box 2228; `rust-lld` segfaults
 linking the test binary.** Not a defect in this letter and not a flake: two consecutive
