@@ -1013,6 +1013,36 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G41 (Phase 6) — checked this letter against bug-498's arena corollary, which landed on
+`main` after the design was written.** Of the 33 commits `main` gained while this letter
+ran, exactly one touches anything under `canvas` — and it is not code, it is a new rule
+in `.ai/canvas-threading.md` §2: *"never allocate from another thread's arena"*.
+`_mfb_arena_alloc` pops a quick-bin free list with a plain load/store, so a thread that
+repointed `x19` at another's arena raced its owner and both faulted. A free is fine
+across threads (it pushes onto the *freeing* thread's bins and never asks which arena
+carved the block); allocating *into* another's never is.
+
+This letter is the first place a **graphics thread copies out of worker-owned storage**,
+so the rule is worth checking against rather than assuming. Traced:
+
+* `canvas::groupItems` has two callers, on **different threads** —
+  `__canvas_appendDraw` (`helper_render.rs:184`, graphics thread) and
+  `__canvas_groupSignature` (`:227`, worker, inside `present`). Both reach
+  `emit_group_items` → `copy_flat_block` → `emit_arena_alloc_call`, which uses the
+  ambient arena-state register. So each allocates its copy in **its own** arena and
+  neither allocates into the other's. What crosses the boundary is a *read* of the
+  source block, which the rule does not restrict.
+* The frees (`emit_free_items_block`, `emit_free_name_block`) are reached only from
+  `emit_group_reclaim` and `emit_retire_current_items`, both worker-side, releasing
+  blocks `setGroup` allocated on the worker. Same arena, so the "free as adoption"
+  allowance is not even needed.
+
+No change required. Recorded because "no change required" is a conclusion that has to be
+reached rather than assumed — the design predates the rule, and the shape it forbids
+(one thread allocating into another's arena to hand a value across) is exactly the shape
+a reasonable person would have reached for to avoid the per-frame copy G24 documents as
+this design's cost.
+
 **G40 (Phase 6) — the CI question that was holding the landing is resolved; `main`'s
 only red job is the one G34 describes.** A peer session was chasing canvas tests dying by
 a *signal* on the Linux runners, and this letter agreed to hold off landing if that
