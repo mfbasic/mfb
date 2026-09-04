@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use crate::ast;
@@ -107,7 +108,31 @@ fn format_path(path: &Path, indent: usize, check: bool) -> Result<bool, String> 
     for file in &files {
         let original = fs::read_to_string(file)
             .map_err(|err| format!("failed to read '{}': {err}", file.display()))?;
-        let formatted = fmt::format_source(&original, indent);
+        let formatted = match fmt::format_source(&original, indent) {
+            Ok(formatted) => formatted,
+            // bug-502: past the nesting cap the output would grow quadratically
+            // in the input; report where the source crossed it and leave the
+            // file exactly as it was. The parser's block-depth rule names the
+            // same condition, so no new rule code is minted.
+            Err(fmt::FormatError::NestingTooDeep { line }) => {
+                rules::show_diagnostic(
+                    "MFB_PARSE_BLOCK_TOO_DEEP",
+                    &format!(
+                        "Statement block nesting is too deep; `mfb fmt` re-indents at most {} \
+                         nested blocks and left the file unchanged.",
+                        fmt::MAX_NESTING_DEPTH
+                    ),
+                    file,
+                    line,
+                    1,
+                    1,
+                );
+                return Err(format!(
+                    "'{}' is nested too deeply to format",
+                    file.display()
+                ));
+            }
+        };
         if formatted == original {
             continue;
         }
@@ -115,7 +140,7 @@ fn format_path(path: &Path, indent: usize, check: bool) -> Result<bool, String> 
         if check {
             println!("Not formatted: {}", file.display());
         } else {
-            fs::write(file, &formatted)
+            replace_contents(file, &formatted)
                 .map_err(|err| format!("failed to write '{}': {err}", file.display()))?;
             println!("Formatted {}", file.display());
         }
@@ -136,12 +161,143 @@ fn format_path(path: &Path, indent: usize, check: bool) -> Result<bool, String> 
     Ok(true)
 }
 
+/// Replace `path`'s contents with `contents` without ever exposing a partial
+/// file: the text is written in full (and synced) to a sibling temporary file,
+/// which is then renamed over the original. A failure at any step leaves the
+/// original byte-for-byte intact and removes the temporary, so an interrupted
+/// or out-of-memory format can never truncate the user's source (bug-502). The
+/// original's permission bits carry over to the replacement.
+///
+/// The path is canonicalized first so a symlinked source keeps its write-through
+/// semantics (the target is replaced, as `fs::write` replaced it) rather than
+/// the link itself becoming a regular file. The original is opened for writing
+/// (without truncation) before anything is created, so a read-only file still
+/// fails with the same permission error it always did instead of being swapped
+/// out from under its mode.
+fn replace_contents(path: &Path, contents: &str) -> io::Result<()> {
+    let target = fs::canonicalize(path)?;
+    let permissions = fs::OpenOptions::new()
+        .write(true)
+        .open(&target)?
+        .metadata()?
+        .permissions();
+    let directory = target.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source file has no parent directory",
+        )
+    })?;
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("source.mfb");
+    let temp = directory.join(format!(".{name}.mfb-fmt-{}.tmp", std::process::id()));
+    let written = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        file.set_permissions(permissions)?;
+        drop(file);
+        fs::rename(&temp, &target)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    written
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn s(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    // ---- bug-502: nesting cap and atomic write-back ----
+
+    fn tower(opens: usize) -> String {
+        let mut source = String::from("SUB main()\n");
+        for _ in 0..opens {
+            source.push_str("IF TRUE THEN\n");
+        }
+        source.push_str("io::print(\"x\")\n");
+        for _ in 0..opens {
+            source.push_str("END IF\n");
+        }
+        source.push_str("END SUB\n");
+        source
+    }
+
+    #[test]
+    fn format_path_refuses_a_too_deep_file_and_leaves_it_intact() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("main.mfb");
+        let hostile = tower(2000);
+        std::fs::write(&file, &hostile).expect("write");
+        let err = format_path(&file, 2, false).unwrap_err();
+        assert!(err.contains("nested too deeply"), "{err}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), hostile);
+        // Check mode reports the same refusal without writing.
+        let err = format_path(&file, 2, true).unwrap_err();
+        assert!(err.contains("nested too deeply"), "{err}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), hostile);
+        // No temporary was left beside the source.
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("main.mfb")]);
+    }
+
+    #[test]
+    fn replace_contents_leaves_no_temporary_and_keeps_permissions() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("main.mfb");
+        std::fs::write(&file, "SUB main()\nio::print(\"hi\")\nEND SUB\n").expect("write");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        assert_eq!(format_path(&file, 2, false), Ok(true));
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "SUB main()\n  io::print(\"hi\")\nEND SUB\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o640, "the replacement must keep the original's mode");
+        }
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("main.mfb")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replace_contents_refuses_a_read_only_file_untouched() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("main.mfb");
+        let original = "SUB main()\nio::print(\"hi\")\nEND SUB\n";
+        std::fs::write(&file, original).expect("write");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let err = format_path(&file, 2, false).unwrap_err();
+        assert!(err.contains("failed to write"), "{err}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("main.mfb")]);
     }
 
     #[test]
