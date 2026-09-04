@@ -526,23 +526,55 @@ Commit: —
 
 ### Phase 4 — The reference image, docs, and the gates
 
-- [ ] New reference image `tests/golden/canvas/groups.png`: a group at the origin, the
+- [x] New reference image `tests/golden/canvas/groups.png`: a group at the origin, the
       same group at an offset, a nested group, and a diamond — enough that a
       vertex-only offset, a missing clamp reorder, or a flattened diamond each change
       it visibly. **The group's item list must include a gradient-filled item, a
       `Text` item and a clipped item** (**H2**): those are the three positional reads
       that do not follow `p` for free, and a scene of plain shapes cannot see any of
-      them go wrong.
-- [ ] Assert `groups.png` on all three renderers: software exactly, both GPUs within
-      `Tolerance::GPU_DEFAULT`.
-- [ ] `.ai/canvas-threading.md` §10 — record that a group is one instanced draw per
+      them go wrong. — All of it, and the reference was **looked at** before being
+      trusted rather than accepted because a comparator agreed with it.
+      The picture demonstrates the clip rule rather than merely satisfying it: the white
+      band is visible in the panel at the origin and **absent** from both translated
+      copies, because the clip stays at surface x 40.25–130.75 while the shape moves
+      through it. A renderer that moved the clip with its group would show the band
+      three times — a difference a reader can see, not just a comparator.
+- [x] Assert `groups.png` on all three renderers: software exactly, both GPUs within
+      `Tolerance::GPU_DEFAULT`. — `groups_match_their_reference_exactly` (software,
+      `compare_exact`) and `the_gpu_draws_the_group_scene_the_reference_shows` (Metal
+      here, Vulkan on a Linux box) in `tests/rt_canvas_golden.rs`; and the group stage
+      of `scripts/test-canvas-vulkan.sh` for Vulkan on box 2228.
+      **The harness extracts the scene from `tests/rt_canvas_golden.rs` rather than
+      copying it**, and fails loudly if the extraction comes back empty — a copy would
+      be a second source of truth for a reference image that has exactly one, and the
+      two would drift while both claimed to check `groups.png`.
+      It also asserts the **software** render against the reference on the box, exactly.
+      That is what makes the Vulkan comparison mean something there: it establishes that
+      Linux's oracle is the oracle the reference was made from on macOS, rather than
+      assuming it.
+- [x] `.ai/canvas-threading.md` §10 — record that a group is one instanced draw per
       node with a per-draw offset bound to both stages, and **why the fragment stage
       needs it** (SDFs are absolute). This is the fact a future reader is most likely
-      to get wrong.
-- [ ] `src/docs/spec/app/06_canvas.md` — note that a group's translation moves the
-      geometry but not `Paint.clip`, which stays in surface pixels.
-- [ ] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
-      `scripts/man-run-examples.sh canvas --run` passes.
+      to get wrong. — Landed in `072cf8f58` as "A group is one instanced draw per node,
+      with an offset bound to BOTH stages", stating the failure in terms of what it
+      looks like: the shape lands in the right place with the *wrong contents*.
+      It also carries the three things this letter learned that a reader would otherwise
+      re-derive: the clip is the exception and stays in surface space; a predicate
+      cannot decline by searching for a `Group` item; and the frame caps must count
+      published records rather than items, which is why the split test reads
+      `strokeHalf` signed.
+- [x] ~~`src/docs/spec/app/06_canvas.md` — note that a group's translation moves the
+      geometry but not `Paint.clip`, which stays in surface pixels.~~ — moot: plan-116-G
+      already wrote it. `src/docs/spec/app/06_canvas.md` under "A group is translated,
+      not transformed" says *"**`Paint.clip` does not move** — it is a surface rectangle
+      by definition, so a group translates the shape through the clip"*, and the
+      neighbouring bullet gives the deliberate exception for `Paint.fillGradient`.
+      Verified by reading the rendered section, not by grepping for the word `clip`.
+- [x] `scripts/man-census.sh --memory-scope` → 0 unclassified hits;
+      `scripts/man-run-examples.sh canvas --run` passes. — `unclassified
+      memory-vocabulary hits: 0` (the two carve-outs, 15 and 25, are the pre-existing
+      datetime-borrow and derived-Errors-row ones), and
+      `examples: 27   built: 27   ran: 27   failed: 0`.
 - [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
       evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 

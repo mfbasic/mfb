@@ -500,96 +500,95 @@ fi
 
 
 # ---------------------------------------------------------------------------------
-# plan-116-H Phase 2: groups on the GPU.
+# plan-116-H: groups on the GPU, against the checked-in reference.
 #
-# A second program rather than more items in the first, because what it asserts is a
-# different thing: the first scene proves the primitives agree, this one proves the
-# per-draw OFFSET agrees. Every item here lives inside a group, so a backend that
-# ignored the offset entirely would draw a picture that is complete, plausible, and
-# wrong -- every shape stacked at the origin. That is the failure mode
-# `.ai/canvas-threading.md` section 10 is about, and the only thing that catches it is
-# comparing against the software oracle at a NON-ZERO offset.
+# A second program rather than more items in the first, because it asserts a different
+# thing. The first scene proves the primitives agree; this one proves the per-draw
+# OFFSET agrees. Every item here lives inside a group, so a backend that ignored the
+# offset would draw a picture that is complete, plausible and wrong — every shape
+# stacked at the origin. That is the failure `.ai/canvas-threading.md` §10 is about, and
+# only a comparison at a NON-ZERO offset can see it.
 #
-# The seven cases are chosen so that each one can only pass for the right reason:
+# **The scene is extracted from `tests/rt_canvas_golden.rs`, not copied.** It is the same
+# `GROUPS` const that `groups_match_their_reference_exactly` renders, so this script and
+# that test cannot drift into rendering different scenes and both claiming to check
+# `groups.png`. A copy here would be a second source of truth for a reference image that
+# has exactly one.
 #
-#   atOrigin   a group at (0,0)      -- the offset is present and zero
-#   moved      a group at (37,53)    -- a non-zero offset
-#   outer      a NESTED group        -- (380,40) + (15,25) must compose to (395,65)
-#   leaf x2    a DIAMOND             -- one leaf, two references, two offsets, ONE base
-#   clipped    a clip inside a group -- the clip is surface-space while the shape is
-#                                       shape-space (section 4.2); getting this wrong
-#                                       moves the clip window with the group
-#   grad       a gradient in a group -- the ramp is sampled from the SHAPE-space point,
-#                                       so a vertex-only offset shifts the ramp
-#   label      Text in a group       -- glyph coverage is sampled the same way, and a
-#                                       glyph run is N draws rather than N instances
+# What the scene covers, and why each case can only pass for the right reason:
 #
-# The last two are the ones that a vertex-stage-only implementation cannot pass: the
-# vertex stage can move a quad, but the ramp and the coverage are computed per fragment
-# from `gl_FragCoord`, so they need the fragment stage to subtract the same offset.
+#   the panel at (0,0) and again at (340,210)   the offset itself, side by side
+#   `outer`                                     a NESTED group: (600,40)+(20,30)
+#   `leaf` twice                                a DIAMOND: one group, two references
+#   the panel's gradient bar                    sampled per fragment from an absolute
+#                                               point, so a vertex-only offset shifts
+#                                               the ramp inside a correctly placed quad
+#   the panel's `Text` run                      glyph coverage, sampled the same way
+#   the panel's clipped band                    the one thing that must NOT move: a clip
+#                                               is a surface rectangle, so the band is
+#                                               visible in the panel at the origin and
+#                                               clipped away in both translated copies
 echo "--- groups: building for linux-x86_64 ---"
 projg="$work/groups"
 mkdir -p "$projg/src"
 cp "$proj/fixture.ttf" "$projg/fixture.ttf"
 sed 's/"name": "vkcanvas"/"name": "vkgroups"/' "$proj/project.json" > "$projg/project.json"
-cat > "$projg/src/main.mfb" <<'MFBG'
-IMPORT app
-IMPORT canvas
-IMPORT io
-IMPORT os
-SUB main()
-  app::setMode(app::Mode.Canvas)
-  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
-    EXIT SUB
-  END TRAP
-
-  ' 1. a group drawn at (0,0) -- the offset is present but zero
-  LET atOrigin AS List OF canvas::DrawItem = [canvas::Rectangle[x := 20.0, y := 20.0, w := 80.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]]
-  canvas::setGroup("atOrigin", atOrigin)
-
-  ' 2. a group drawn at (37, 53) -- a non-zero offset, which a vertex-only
-  '    implementation cannot get right for anything position-dependent
-  LET moved AS List OF canvas::DrawItem = [canvas::Circle[x := 200.0, y := 60.0, radius := 30.0, paint := canvas::fillStroke(canvas::rgb(0, 160, 220), canvas::rgb(255, 255, 255), 5.0)]]
-  canvas::setGroup("moved", moved)
-
-  ' 3. a NESTED group: outer holds inner, so the offsets compose
-  LET inner AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 200, 0))]]
-  canvas::setGroup("inner", inner)
-  LET outer AS List OF canvas::DrawItem = [canvas::Group[name := "inner", dx := 15.0, dy := 25.0]]
-  canvas::setGroup("outer", outer)
-
-  ' 4. a DIAMOND: one leaf referenced twice, at two offsets
-  LET leaf AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 60.0, h := 40.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]]
-  canvas::setGroup("leaf", leaf)
-
-  ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
-  '    space while the shape is evaluated in shape space (section 4.2)
-  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 200.5, h := 60.0] }]]
-  canvas::setGroup("clipped", clipped)
-
-  ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
-  '    the shape-space point, so a missing fragment offset shows as a shifted ramp
-  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops]
-  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := ramp }]]
-  canvas::setGroup("grad", grad)
-
-  ' 7. a TEXT item inside a translated group -- glyph coverage is sampled from the
-  '    shape-space point too, and a glyph run is N draws rather than N instances
-  LET label AS List OF canvas::DrawItem = [canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 60.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]]
-  canvas::setGroup("label", label)
-
-  LET scene AS List OF canvas::DrawItem = [canvas::Group[name := "atOrigin", dx := 0.0, dy := 0.0], canvas::Group[name := "moved", dx := 37.0, dy := 53.0], canvas::Group[name := "outer", dx := 380.0, dy := 40.0], canvas::Group[name := "leaf", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 700.0, dy := 140.0], canvas::Group[name := "clipped", dx := 60.0, dy := 200.0], canvas::Group[name := "grad", dx := 420.0, dy := 200.0], canvas::Group[name := "label", dx := 120.0, dy := 420.0]]
-  canvas::present(scene)
-  MUT polls AS Integer = 0
-  WHILE polls < 20
-    os::sleep(50)
-    polls = polls + 1
-  END WHILE
-END SUB
-MFBG
+# The Rust const's body, between the raw-string delimiters.
+sed -n '/^const GROUPS: &str = r#"/,/^"#;$/p' tests/rt_canvas_golden.rs \
+  | sed -e '1s/^const GROUPS: &str = r#"//' -e '$d' > "$projg/src/main.mfb"
+if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
+  fail "could not extract the GROUPS scene from tests/rt_canvas_golden.rs — the const's shape changed"
+  exit 1
+fi
 
 "$MFB_EXE" build --app --target linux-x86_64 "$projg" >/dev/null
+
+# The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
+# `Frame::load_png` would hand the Rust comparators.
+python3 - "tests/golden/canvas/groups.png" "$work/groups.rgba" <<'PY'
+import struct, sys, zlib
+
+raw = open(sys.argv[1], "rb").read()
+assert raw[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+pos, idat = 8, bytearray()
+width = height = None
+while pos < len(raw):
+    length, kind = struct.unpack(">I4s", raw[pos:pos + 8])
+    body = raw[pos + 8:pos + 8 + length]
+    if kind == b"IHDR":
+        width, height, depth, colour, _, _, interlace = struct.unpack(">IIBBBBB", body)
+        assert (depth, colour, interlace) == (8, 6, 0), "expected 8-bit RGBA, not interlaced"
+    elif kind == b"IDAT":
+        idat += body
+    elif kind == b"IEND":
+        break
+    pos += 12 + length
+
+data = zlib.decompress(bytes(idat))
+stride = width * 4
+out = bytearray()
+prev = bytearray(stride)
+at = 0
+for _ in range(height):
+    filt = data[at]; at += 1
+    line = bytearray(data[at:at + stride]); at += stride
+    for i in range(stride):
+        a = line[i - 4] if i >= 4 else 0
+        b = prev[i]
+        c = prev[i - 4] if i >= 4 else 0
+        if filt == 1:   line[i] = (line[i] + a) & 0xFF
+        elif filt == 2: line[i] = (line[i] + b) & 0xFF
+        elif filt == 3: line[i] = (line[i] + (a + b) // 2) & 0xFF
+        elif filt == 4:
+            pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+            pred = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+            line[i] = (line[i] + pred) & 0xFF
+        elif filt != 0:
+            raise SystemExit(f"unknown PNG filter {filt}")
+    out += line
+    prev = line
+open(sys.argv[2], "wb").write(bytes(out))
+PY
 
 remoteg="$remote/groups"
 ssh -p "$PORT" "$host" "mkdir -p $remoteg"
@@ -602,7 +601,7 @@ ssh -p "$PORT" "$host" "
   cd $remoteg
   ./app.AppImage --appimage-extract >/dev/null 2>&1
   # `loadFont` resolves against the working directory, so the fixture has to sit beside
-  # the extracted tree and the run has to happen from here.
+  # the extracted tree and the run has to happen from there.
   cp fixture.ttf squashfs-root/fixture.ttf
   cd squashfs-root
   bin=./usr/bin/vkgroups
@@ -618,23 +617,40 @@ scp -P "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
 gstats="$(tail -1 "$work/ggpu.txt")"
 echo "    $gstats"
 
-# A group scene that DECLINED reads as a pass on the pixels -- both sides would be the
+# A group scene that DECLINED reads as a pass on the pixels — both sides would be the
 # software renderer agreeing with itself. plan-116-G's decline did exactly that, so the
-# frame count is asserted before the pixels are believed.
+# frame count is asserted before any pixel is believed.
 case "$gstats" in
-  *gpuFrames=0*) fail "the group scene produced no GPU frame — the predicate declined it, so the pixel comparison below would be software against itself" ;;
+  *gpuFrames=0*) fail "the group scene produced no GPU frame — the predicate declined it, so every pixel comparison below would be software against itself" ;;
   *) pass "the group scene reached the GPU (gpuFrames non-zero)" ;;
 esac
 
-verdict="$(compare "$work/gsw.rgba" "$work/ggpu.rgba" 900)"
+# The software render against the reference, EXACTLY. This is the assertion that makes
+# the GPU one below mean something on this box: it establishes that Linux's oracle is
+# the same oracle the reference was made from on macOS.
+verdict="$(compare "$work/groups.rgba" "$work/gsw.rgba" 900)"
 case "$verdict" in
-  ok*) pass "groups: every group case matches the software oracle ($verdict)" ;;
-  *)   fail "groups: the Vulkan render disagrees with the software oracle: $verdict
-    Each group case sits in its own region, so the coordinate localizes it:
-    (20,20) at-origin; (237,113) moved; (395,65) nested; (600,40) and (700,140)
-    the diamond; (60,200) clipped; (420,200) gradient; (120,420) text. A shape
-    drawn at the ORIGIN instead of its group offset means the offset never
-    reached the stage that shape depends on." ;;
+  ok*)
+    if [ "$verdict" = "ok worst=0 differing=0.0000%" ]; then
+      pass "groups: the software render reproduces tests/golden/canvas/groups.png exactly"
+    else
+      fail "groups: the software render is only NEAR the reference ($verdict) — the oracle must match it exactly, or the reference has drifted from the renderer that made it"
+    fi
+    ;;
+  *) fail "groups: the software render disagrees with tests/golden/canvas/groups.png: $verdict" ;;
+esac
+
+verdict="$(compare "$work/groups.rgba" "$work/ggpu.rgba" 900)"
+case "$verdict" in
+  ok*) pass "groups: the Vulkan render matches tests/golden/canvas/groups.png ($verdict)" ;;
+  *)   fail "groups: the Vulkan render disagrees with the reference: $verdict
+    Localize by what moved and what did not. Everything at the ORIGIN means the
+    per-draw offset never reached the backend. A shape in the right place whose
+    gradient ramp or glyph ink is shifted means the offset reached the VERTEX stage
+    only — distance, ramp and coverage are evaluated per fragment at an absolute
+    point and need it too. A white band visible in a TRANSLATED panel means the
+    opposite mistake: the clip is a surface rectangle and must not move with its
+    group." ;;
 esac
 
 if [ "$fails" -eq 0 ]; then
