@@ -86,17 +86,17 @@ END FUNC
 ' other way to see it, which is the same reason `groups=` and `groupBytes=` exist
 ' (`.ai/canvas-threading.md` section 11).
 FUNC __canvas_drawsText() AS String
-  IF len(__CANVAS_DRAWS) < 4 THEN
+  IF len(__CANVAS_DRAWS) < 8 THEN
     RETURN "none"
   END IF
   MUT out AS String = ""
   MUT i AS Integer = 0
-  WHILE i + 3 < len(__CANVAS_DRAWS)
+  WHILE i + 7 < len(__CANVAS_DRAWS)
     IF i > 0 THEN
       out = out & "|"
     END IF
     out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0))
-    i = i + 4
+    i = i + 8
   END WHILE
   RETURN out
 END FUNC

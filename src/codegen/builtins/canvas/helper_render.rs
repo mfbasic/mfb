@@ -304,9 +304,33 @@ MUT __CANVAS_DRAW_INST AS List OF Integer = []
 MUT __CANVAS_DRAW_NEXT_INST AS Integer = 0
 
 ' How many item-buffer blocks one geometry record occupies.
+' How many INSTANCES one geometry block publishes. This has to agree, case for case,
+' with what the emitters actually write into the item buffer -- `emit_split_or_publish`
+' and `emit_glyph_publish` in src/codegen/runtime/canvas/vulkan.rs -- because the draw
+' list's bases are running sums of this function while the item buffer's contents are
+' the emitter's. A single case that disagrees shifts every base after it, and the last
+' entry then draws instances that were never published: uninitialised buffer, which
+' reaches the screen as opaque black. The failure therefore appears at the END of a
+' scene, nowhere near the item that actually disagreed.
 FUNC __canvas_blockInstances(offset AS Integer) AS Integer
+  ' A text run is N quads, one instance each -- slot 20 is HEADER_AUX0, the same field
+  ' `emit_glyph_publish` loops over.
   IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_TEXT THEN
     RETURN toInt(__canvas_geoAt(offset, 20))
+  END IF
+  ' A blended item that BOTH strokes and fills is published as two records -- fill with
+  ' the stroke switched off, then stroke with the fill made transparent -- because one
+  ' blended draw cannot composite the two against each other correctly. The three
+  ' conditions are `emit_split_or_publish`'s, in its order: a non-Normal blend mode,
+  ' a positive strokeHalf, and a non-zero fill alpha. A Line or an Arc arrives here
+  ' fill-only with a negative strokeHalf (`__canvas_strokeAsFill`) and takes the
+  ' single-record path.
+  IF toInt(__canvas_geoAt(offset, 26)) <> 0 THEN
+    IF __canvas_geoAt(offset, 7) > 0.0 THEN
+      IF toInt(__canvas_geoAt(offset, 11)) > 0 THEN
+        RETURN 2
+      END IF
+    END IF
   END IF
   RETURN 1
 END FUNC
@@ -342,11 +366,31 @@ SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS F
   IF instCount <= 0 THEN
     EXIT SUB
   END IF
+  ' EIGHT words per entry, not four. The emitter addresses an entry with a shift, so the
+  ' stride has to be a power of two; the three trailing words are reserved rather than
+  ' packed into the others, because a mode smuggled into the high bits of `count` is the
+  ' kind of encoding that survives exactly until someone draws 65536 instances.
+  '
+  ' This width is agreed in THREE places and there is no gate that checks they agree:
+  ' here, `__canvas_drawsText` in helper_surface.rs, and `emit_draw_list_pass` in
+  ' src/codegen/runtime/canvas/vulkan.rs (`shift_left_immediate(.., 6)` = 8 x 8 bytes).
+  ' When they disagreed -- this SUB writing four words while the emitter strode by eight --
+  ' the emitter read every other entry and took the following entry's `base` as a blend
+  ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
+  ' VkPipeline. That does not fail cleanly: it SIGSEGVs inside the driver's JIT-compiled
+  ' code, with a backtrace containing no MFBASIC frame at all.
   MUT out AS List OF Integer = __CANVAS_DRAWS
   out = collections::append(out, instBase)
   out = collections::append(out, instCount)
   out = collections::append(out, toInt(dx * 65536.0))
   out = collections::append(out, toInt(dy * 65536.0))
+  ' The BlendMode every block in this run shares. It travels with the entry because the
+  ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
+  ' left in the publish walk would apply the LAST item's mode to the whole frame.
+  out = collections::append(out, toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26)))
+  out = collections::append(out, 0)
+  out = collections::append(out, 0)
+  out = collections::append(out, 0)
   __CANVAS_DRAWS = out
 END SUB
 
@@ -911,10 +955,92 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES,
+        CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
+        CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT,
+        HEADER_AUX0, MAX_EDGES,
         MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES,
         VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
+
+    /// The body of a `FUNC`/`SUB` in the injected MFBASIC source, by name.
+    fn body(name: &str) -> &'static str {
+        let start = RENDER_METAL
+            .find(&format!("__canvas_{name}("))
+            .unwrap_or_else(|| panic!("__canvas_{name} is not in RENDER_METAL"));
+        let rest = &RENDER_METAL[start..];
+        let end = rest
+            .find("\nEND ")
+            .unwrap_or_else(|| panic!("__canvas_{name} has no END"));
+        &rest[..end]
+    }
+
+    /// The draw list is BUILT here in MFBASIC and WALKED by the native emitters, so its
+    /// entry width lives on both sides of a boundary the Rust compiler cannot see across
+    /// -- this side is a `&str`.
+    ///
+    /// plan-116-H13: these two disagreed (the emitter at eight words, this source still
+    /// appending four) and the result was not a wrong picture. The emitter strode 64
+    /// bytes through a 32-byte array, so it read every other entry and took the following
+    /// entry's `base` as a blend mode -- indexing the pipeline table out of range and
+    /// handing Vulkan a junk `VkPipeline`. It SIGSEGVs inside the driver's JIT-compiled
+    /// code with no MFBASIC frame in the backtrace, on one remote box, in a harness that
+    /// is not part of `cargo test`. This assertion is the only cheap way to catch it.
+    #[test]
+    fn the_draw_entry_width_agrees_with_the_emitter() {
+        let appends = body("pushOneDraw").matches("collections::append(out,").count();
+        assert_eq!(
+            appends, CANVAS_DRAW_ENTRY_WORDS,
+            "__canvas_pushOneDraw appends {appends} words but the emitter strides \
+             CANVAS_DRAW_ENTRY_WORDS = {CANVAS_DRAW_ENTRY_WORDS}",
+        );
+        assert_eq!(
+            1usize << CANVAS_DRAW_ENTRY_SHIFT,
+            CANVAS_DRAW_ENTRY_WORDS * 8,
+            "the byte stride shift and the word count disagree",
+        );
+        assert_eq!(
+            1usize << CANVAS_DRAW_ENTRY_COUNT_SHIFT,
+            CANVAS_DRAW_ENTRY_WORDS,
+            "the element-count shift and the word count disagree",
+        );
+        assert!(
+            CANVAS_DRAW_ENTRY_MODE < CANVAS_DRAW_ENTRY_WORDS * 8,
+            "the blend mode is read from outside the entry",
+        );
+    }
+
+    /// `__canvas_blockInstances` predicts how many instances each block publishes, and
+    /// the draw list's bases are its running sum -- but what is actually WRITTEN into the
+    /// item buffer is `emit_split_or_publish`'s decision. One case that disagrees shifts
+    /// every base after it, and the final entry then draws instances that were never
+    /// published: uninitialised buffer, which reaches the screen as opaque black.
+    ///
+    /// That is why the symptom appears at the END of a scene rather than at the item that
+    /// disagreed -- plan-116-H13 chased it through the shaders, the draw list and the ABI
+    /// before finding it here. The blend split is the case that went missing, so it is
+    /// the case pinned by name.
+    #[test]
+    fn block_instances_keeps_the_blend_split_case() {
+        let rule = body("blockInstances");
+        assert!(
+            rule.contains("RETURN 2"),
+            "the blend split case is gone: an item that both strokes and fills under a \
+             non-Normal blend mode publishes TWO records in emit_split_or_publish, and \
+             this function must predict 2 for it",
+        );
+        for (slot, what) in [("26", "blend mode"), ("7", "strokeHalf"), ("11", "fill alpha")] {
+            assert!(
+                rule.contains(&format!(", {slot})")),
+                "the split rule no longer reads slot {slot} ({what}); \
+                 emit_split_or_publish tests all three",
+            );
+        }
+        assert!(
+            rule.contains(", 20)"),
+            "a text run's instance count is HEADER_AUX0 = slot 20, the field \
+             emit_glyph_publish loops over",
+        );
+    }
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
     fn declared(name: &str) -> usize {

@@ -655,6 +655,30 @@ pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 /// already has and for the same reason: a truncated scene is a *different scene*, and
 /// software is the oracle, so declining is never worse than drawing.
 pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+
+/// How many 64-bit words one entry of the GPU draw list occupies.
+///
+/// The draw list is built in MFBASIC (`__canvas_pushOneDraw`) and walked by the native
+/// emitters, so this width exists on both sides of a boundary the Rust compiler cannot
+/// see across -- the MFBASIC side is a `&str`. It is a power of two because the emitter
+/// addresses an entry with a shift rather than a multiply.
+///
+/// When the two sides disagreed (plan-116-H13: the emitter at eight words, the builtin
+/// still appending four) the emitter strode 64 bytes through a 32-byte array. It then
+/// read every *other* entry, and took the following entry's `base` as a blend mode --
+/// which indexes the pipeline table out of range and hands Vulkan a junk `VkPipeline`.
+/// That does not fail as a wrong picture: it SIGSEGVs inside the driver's JIT-compiled
+/// code, with no MFBASIC frame anywhere in the backtrace.
+pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 8;
+
+/// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
+pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;
+
+/// `log2(CANVAS_DRAW_ENTRY_WORDS)` -- element count to entry count.
+pub(crate) const CANVAS_DRAW_ENTRY_COUNT_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros();
+
+/// Byte offset of the blend mode within an entry (word 4).
+pub(crate) const CANVAS_DRAW_ENTRY_MODE: usize = 32;
 /// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
 pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 

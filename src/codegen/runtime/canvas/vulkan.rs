@@ -41,7 +41,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    push_symbol_address, BLEND_MODE_COUNT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS,
+    push_symbol_address, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
+    CANVAS_DRAW_ENTRY_SHIFT, CANVAS_ITEM_BUFFER_BYTES, CANVAS_MAX_FRAME_ITEMS,
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
     GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
@@ -4151,78 +4152,218 @@ fn emit_split_or_publish(
 /// Draw every quad published since the last flush as **one instanced draw**, and start
 /// a new run.
 ///
-/// `vkCmdDraw(cmd, 4, count, 0, firstInstance)` — four synthesised corners, `count`
-/// instances, and the run's base as `firstInstance`. Vulkan's `gl_InstanceIndex`
-/// *includes* `firstInstance`, so each instance reads exactly the block it was
-/// published into with no index arithmetic in the shader.
+/// Walk `__CANVAS_DRAWS` and issue one instanced `vkCmdDraw` per entry, pushing that
+/// entry's group offset first (plan-116-H).
 ///
-/// A run ends at a glyph run or at the end of the scene, and nowhere else. Nothing
-/// per-item is bound between instances any more — the edges were already a buffer
-/// region and the item block just became one — so consecutive shapes have nothing left
-/// to separate them.
+/// **This is the second of the emitter's two passes** (**H9**). The first fills the item
+/// buffer, walking the block list once so a shared group's blocks are written once; this
+/// one walks the draw list, which may visit the same block range several times — a
+/// diamond is two entries with the same base. No single forward pass can do both, which
+/// is what the Phase 1 sharing decision costs and buys.
 ///
-/// Emits nothing if the run is empty, which is the case at the very start of a frame
-/// and after two glyph runs in a row; `vkCmdDraw` with `instanceCount = 0` is legal but
-/// this keeps the command stream honest.
-fn emit_run_flush(
+/// Every entry is one instanced call, text included. A glyph run is N contiguous blocks
+/// in the item buffer, one per quad, so `instanceCount = N` draws them all — the
+/// "a glyph run is N draws by design" shape predates plan-116-A putting the block in a
+/// buffer indexed by instance, and the draw list's counts are already in instances.
+///
+/// Each entry is four `i32`s: `base`, `count`, `dx`, `dy` — the offsets in 16.16, which
+/// is the form the push constant wants, so they travel from MFBASIC to the shader
+/// without a conversion on either side.
+#[allow(clippy::too_many_arguments)]
+fn emit_draw_list_pass(
     builder: &mut CodeBuilder,
     platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_state: usize,
+    off_handle: usize,
     off_cmd_handle: usize,
     off_draw_fn: usize,
-    off_item_cursor: usize,
-    off_run_start: usize,
-    off_run_count: usize,
-) {
-    let empty = builder.label("vk_run_empty");
+    off_draws: usize,
+    off_draw_entries: usize,
+    unavailable: &str,
+) -> Result<(), String> {
+    let head = builder.label("vk_drawlist_head");
+    let done = builder.label("vk_drawlist_done");
 
-    // The count is computed into a **stack slot**, and every one of the five arguments
-    // below is then staged from memory. That is not ceremony: on x86-64 the scratch
-    // pool aliases the C argument bank (`map_scratch_register` — `SCRATCH[3]` is `r8`,
-    // which is `c_arg(4)`), so a count or a base held in a scratch register across the
-    // staging is one an earlier argument's `move` destroys. Sourcing every argument
-    // from the stack makes the staging order irrelevant, which is the only version of
-    // this that stays correct when a later letter adds a sixth argument.
-    let cursor = builder.temporary_vreg();
-    let start = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &cursor,
-        abi::stack_pointer(),
-        off_item_cursor,
+    let off_push_fn = builder.allocate_stack_object("vk_push_fn", 8);
+    let off_index = builder.allocate_stack_object("vk_drawlist_index", 8);
+    // The two 16.16 words, contiguous, so `pValues` can point straight at them.
+    let off_offset_pair = builder.allocate_stack_object("vk_push_offset", 8);
+
+    let off_bind_fn = builder.allocate_stack_object("vk_drawlist_bind_fn", 8);
+    for (name, slot) in [
+        ("vkCmdPushConstants", off_push_fn),
+        ("vkCmdBindPipeline", off_bind_fn),
+    ] {
+        emit_dlsym(
+            builder,
+            platform,
+            platform_imports,
+            name,
+            off_handle,
+            slot,
+            unavailable,
+        )?;
+    }
+
+    builder.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), off_index));
+    builder.emit(abi::label(&head));
+    let index = builder.temporary_vreg();
+    let total = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&index, abi::stack_pointer(), off_index));
+    builder.emit(abi::load_u64(&total, abi::stack_pointer(), off_draw_entries));
+    builder.emit(abi::compare_registers(&index, &total));
+    builder.emit(abi::branch_ge(&done));
+
+    // entry = draws + index * 64
+    let entry = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&entry, abi::stack_pointer(), off_draws));
+    // 8 elements per entry x 8 bytes per element = 64. An MFBASIC `Integer` is 64-bit,
+    // which is the whole reason the fields below are at 0/8/16/24/32 and are loaded with
+    // `load_u64`: reading them as 32-bit words takes the low half of `base` and the low
+    // half of `count` as if they were `base` and `dx`, which draws real geometry at
+    // nonsense instance indices -- 35% of the frame wrong, worst=255, with a draw list
+    // that every assertion says is correct.
+    let scaled = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(
+        &scaled,
+        &index,
+        CANVAS_DRAW_ENTRY_SHIFT as u8,
     ));
-    builder.emit(abi::load_u64(&start, abi::stack_pointer(), off_run_start));
-    builder.emit(abi::compare_registers(&cursor, &start));
-    builder.emit(abi::branch_le(&empty));
-    builder.emit(abi::subtract_registers(&cursor, &cursor, &start));
-    builder.emit(abi::store_u64(&cursor, abi::stack_pointer(), off_run_count));
+    builder.emit(abi::add_registers(&entry, &entry, &scaled));
 
+    // The offset pair, copied into its own slot so `pValues` has a stable address that
+    // is not part of a collection another thread may be writing.
+    let word = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&word, &entry, 16));
+    builder.emit(abi::store_u32(&word, abi::stack_pointer(), off_offset_pair));
+    builder.emit(abi::load_u64(&word, &entry, 24));
+    builder.emit(abi::store_u32(
+        &word,
+        abi::stack_pointer(),
+        off_offset_pair + 4,
+    ));
+
+    // The base and count are staged through the stack for the reason `emit_run_flush`
+    // records: on x86-64 the scratch pool aliases the C argument bank, so a value held
+    // in a scratch register across the staging is one an earlier argument destroys.
+    let off_base = builder.allocate_stack_object("vk_drawlist_base", 8);
+    let off_count = builder.allocate_stack_object("vk_drawlist_count", 8);
+    builder.emit(abi::load_u64(&word, &entry, 0));
+    builder.emit(abi::store_u64(&word, abi::stack_pointer(), off_base));
+    builder.emit(abi::load_u64(&word, &entry, 8));
+    builder.emit(abi::store_u64(&word, abi::stack_pointer(), off_count));
+
+    // Bind THIS entry's pipeline. The publish walk binds as it goes, but every draw now
+    // happens after that walk has finished, so a binding left there would apply the last
+    // item's mode to the whole frame — measured at 35.1% of pixels wrong before the mode
+    // travelled with the entry.
+    // handle = *(state + …_PIPELINE_MODES + mode * 8) — the same shift-and-add the
+    // publish walk uses, so the two cannot pick different pipelines for one mode.
+    let off_pipeline = builder.allocate_stack_object("vk_drawlist_pipeline", 8);
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        &entry,
+        CANVAS_DRAW_ENTRY_MODE,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        3,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pipeline,
+    ));
     builder.emit(abi::load_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
         off_cmd_handle,
     ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4")); // vertexCount
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     builder.emit(abi::load_u64(
         abi::c_arg(2),
         abi::stack_pointer(),
-        off_run_count,
-    )); // instanceCount
-    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // firstVertex
-    emit_int_arg_slot(builder, platform, 4, off_run_start); // firstInstance
+        off_pipeline,
+    ));
+    emit_call_fn(builder, off_bind_fn);
+
+    // Now the offset pair, into the slot the bind above borrowed.
+    builder.emit(abi::load_u64(&word, &entry, 16));
+    builder.emit(abi::store_u32(&word, abi::stack_pointer(), off_offset_pair));
+    builder.emit(abi::load_u64(&word, &entry, 24));
+    builder.emit(abi::store_u32(
+        &word,
+        abi::stack_pointer(),
+        off_offset_pair + 4,
+    ));
+
+    // vkCmdPushConstants(cmd, layout, stageFlags, offset, size, pValues)
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+        abi::c_arg(1),
+    );
+    builder.emit(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        SHADER_STAGE_VERTEX_AND_FRAGMENT,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(4),
+        "Integer",
+        &PUSH_OFFSET_BYTES.to_string(),
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(5),
+        abi::stack_pointer(),
+        off_offset_pair,
+    ));
+    emit_call_fn(builder, off_push_fn);
+
+    // vkCmdDraw(cmd, 4, count, 0, base)
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_cmd_handle,
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4"));
+    builder.emit(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), off_count));
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    emit_int_arg_slot(builder, platform, 4, off_base);
     emit_call_fn(builder, off_draw_fn);
 
-    builder.emit(abi::label(&empty));
-    // The next run starts wherever this frame has published to, whether or not
-    // anything was drawn just now.
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_item_cursor,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_run_start,
-    ));
+    let bumped = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&bumped, abi::stack_pointer(), off_index));
+    builder.emit(abi::add_immediate(&bumped, &bumped, 1));
+    builder.emit(abi::store_u64(&bumped, abi::stack_pointer(), off_index));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&done));
+    Ok(())
 }
 
 /// `canvas::vulkanDrawScene(surface, width, height, geometry, offsets)` — render one
@@ -4244,14 +4385,12 @@ fn emit_run_flush(
 ///
 /// A struct rather than seventeen parameters, because every one of them is a `usize`
 /// stack offset and a transposed pair would compile, run, and draw the wrong thing.
-struct GlyphDrawSlots {
+struct GlyphPublishSlots {
     state: usize,
     item: usize,
     header: usize,
     width: usize,
     height: usize,
-    cmd_handle: usize,
-    draw_fn: usize,
     /// The frame's item-buffer cursor — shared with the shape loop, because a glyph is
     /// a quad and takes a block exactly as a shape does.
     item_cursor: usize,
@@ -4286,7 +4425,7 @@ struct GlyphDrawSlots {
 /// Everything the loop carries lives on the stack, not in registers. Two calls happen
 /// per glyph, and on x86-64 the scratch pool aliases the C argument bank — so a loop
 /// counter in a register is a loop counter the next call overwrites (`.ai/arch-abi.md`).
-fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, at: GlyphDrawSlots) {
+fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
     let head = builder.label("vk_glyph_head");
     let done = builder.label("vk_glyph_done");
     let next = builder.label("vk_glyph_next");
@@ -4733,20 +4872,21 @@ fn emit_glyph_draws(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform, a
     ));
     emit_item_publish(builder, at.state, at.item, at.item_cursor, &next);
 
-    // One instance, not a run: a glyph run is N draws by design (`GEO_KIND_TEXT`), and
-    // folding it into the instancing scheme is a change of shape rather than of
-    // transport. The block still rides the buffer, so nothing here is per-draw state
-    // any more except the index itself.
-    builder.emit(abi::load_u64(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        at.cmd_handle,
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "4"));
-    builder.emit(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
-    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    emit_int_arg_slot(builder, platform, 4, at.instance);
-    emit_call_fn(builder, at.draw_fn);
+    // plan-116-H: this function now PUBLISHES and does not draw. Its `vkCmdDraw` moved
+    // to `emit_draw_list_pass`, with every other draw, because the draw list is in scene
+    // order and a group's blocks are shared — neither of which a draw issued from the
+    // publish walk can honour (H9).
+    //
+    // Leaving the draw here was measured, not theorised: the glyphs were then drawn
+    // twice, once from here with the push constant still undefined for that command, so
+    // the vertex stage offset them by whatever the range held. The Vulkan harness
+    // reported the render disagreeing with the oracle on 35.1% of pixels, worst=255,
+    // while every draw-list assertion passed — the list was right and the command
+    // stream had extra draws in it.
+    //
+    // The block is still published one per glyph quad at the shared cursor, which is
+    // what lets the draw list count a text run as N contiguous instances and issue it
+    // as a single instanced call.
 
     builder.emit(abi::label(&next));
     builder.emit(abi::load_u64(
@@ -4869,6 +5009,52 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_geometry,
     ));
+    // plan-116-H: `draws` is read FIRST, before any other argument is staged.
+    //
+    // It is the EIGHTH parameter, which MFBASIC's convention places in `rbp`
+    // (bug-296), and the staging below writes `SCRATCH` registers that alias the C
+    // argument bank on x86-64. Reading it after that staging returns whatever the bank
+    // now holds — a short entry count, so the walk stops early and the LAST items of the
+    // scene are never drawn. Measured: the three gradient items, which are last in the
+    // harness scene, rendered as their black `fill` while everything before them was
+    // pixel-correct, in every variant of the draw list tried.
+    //
+    // This is `.ai/arch-abi.md`'s "stage ABI args via temporaries" rule, and the reason
+    // it bites here rather than earlier is that no previous argument was the eighth.
+    // plan-116-H: the draw list's data pointer, parked the same way and for the same
+    // reason — an argument register does not survive the calls below.
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        draws.clone(),
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_draws,
+    ));
+    // The ENTRY count, which is the element count divided by four — each entry is
+    // `(base, count, dx, dy)`. Storing the element count instead makes the walk below
+    // run four times too long, reading `base`/`count` out of whatever follows the list:
+    // a garbage `instanceCount` that hangs the GPU rather than failing, which is what
+    // the first version of this did (timeout on box 2228, no output).
+    let off_draw_entries = builder.allocate_stack_object("vk_draw_entries", 8);
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        draws.clone(),
+        COLLECTION_OFFSET_COUNT as usize,
+    ));
+    builder.emit(abi::shift_right_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        CANVAS_DRAW_ENTRY_COUNT_SHIFT as u8,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_draw_entries,
+    ));
+
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         offsets.clone(),
@@ -4899,31 +5085,6 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_offsets,
-    ));
-    // plan-116-H: the draw list's data pointer, parked the same way and for the same
-    // reason — an argument register does not survive the calls below.
-    builder.emit(abi::add_immediate(
-        abi::SCRATCH[0],
-        draws.clone(),
-        COLLECTION_HEADER_SIZE,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_draws,
-    ));
-    // The entry COUNT too: the draw walk needs it, and the collection header is not
-    // reachable once only the data pointer is kept.
-    let off_draw_entries = builder.allocate_stack_object("vk_draw_entries", 8);
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        draws.clone(),
-        COLLECTION_OFFSET_COUNT as usize,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_draw_entries,
     ));
     builder.emit(abi::store_u64(
         width.clone(),
@@ -5357,15 +5518,11 @@ pub(crate) fn emit_vulkan_draw_scene(
         builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[2]));
         builder.emit(abi::branch_eq(&same_mode));
 
-        emit_run_flush(
-            builder,
-            platform,
-            off_cmd_handle,
-            off_draw_fn,
-            off_item_cursor,
-            off_run_start,
-            off_run_count,
-        );
+        // plan-116-H: no flush here any more. The draw list already ends a run wherever
+        // the blend mode changes (H8), so this site's only remaining job is to bind the
+        // pipeline the following blocks will be drawn with; the draws themselves are
+        // issued by `emit_draw_list_pass` once every block is published (H9).
+        //
         // handle = *(state + …_PIPELINE_MODES + mode * 8). Contiguous and 0-based, so
         // this is a shift and an add rather than a four-way branch.
         builder.emit(abi::load_u64(
@@ -5468,31 +5625,19 @@ pub(crate) fn emit_vulkan_draw_scene(
     );
     builder.emit(abi::branch(&item_next));
 
-    // A glyph run ends the instanced run: its quads are N draws rather than N
-    // instances (they are still one block each, at the same cursor), so the shapes
-    // accumulated so far have to reach the command stream before them or they would
-    // be drawn out of order — on top of the text instead of under it.
+    // plan-116-H: no flush here either. Ordering used to be maintained by issuing the
+    // accumulated run before the glyphs; it is now maintained by the draw list being in
+    // scene order and the second pass walking it in that order. A `Text` item is its own
+    // entry (H8), so nothing can merge across it.
     builder.emit(abi::label(&text_item));
-    emit_run_flush(
+    emit_glyph_publish(
         builder,
-        platform,
-        off_cmd_handle,
-        off_draw_fn,
-        off_item_cursor,
-        off_run_start,
-        off_run_count,
-    );
-    emit_glyph_draws(
-        builder,
-        platform,
-        GlyphDrawSlots {
+        GlyphPublishSlots {
             state: off_state,
             item: off_item,
             header: off_header,
             width: off_width,
             height: off_height,
-            cmd_handle: off_cmd_handle,
-            draw_fn: off_draw_fn,
             item_cursor: off_item_cursor,
             instance: off_glyph_instance,
             glyph_meta: off_glyph_meta,
@@ -5538,18 +5683,22 @@ pub(crate) fn emit_vulkan_draw_scene(
     builder.emit(abi::branch(&item_head));
     builder.emit(abi::label(&item_done));
 
-    // The scene's last run — everything published since the final glyph run, or the
-    // whole frame when it contains no text. Without this the trailing shapes are
-    // written into the buffer and never drawn.
-    emit_run_flush(
+    // plan-116-H: every block is now published, so the second pass issues every draw.
+    // This replaces the trailing flush *and* the two removed above — one walk over the
+    // draw list, in scene order, one instanced call per entry with that entry's group
+    // offset pushed first.
+    emit_draw_list_pass(
         builder,
         platform,
+        platform_imports,
+        off_state,
+        off_handle,
         off_cmd_handle,
         off_draw_fn,
-        off_item_cursor,
-        off_run_start,
-        off_run_count,
-    );
+        off_draws,
+        off_draw_entries,
+        &unavailable,
+    )?;
 
     emit_dlsym(
         builder,

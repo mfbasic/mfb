@@ -508,6 +508,115 @@ Commit: —
 
 ## Corrections
 
+**H14 (Phase 2) — the SECOND lost half, and a misread tuple that pointed H10 at the
+harness instead of at the renderer.**
+
+H13 found `helper_render.rs` short of its eight-word draw entry. The same file was also
+missing the blend-split case of `__canvas_blockInstances`, which had decayed to:
+
+```basic
+FUNC __canvas_blockInstances(offset AS Integer) AS Integer
+  IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN toInt(__canvas_geoAt(offset, 20))
+  END IF
+  RETURN 1
+END FUNC
+```
+
+`emit_split_or_publish` writes **two** records for an item that both strokes and fills
+under a non-Normal blend mode (fill with the stroke off, then stroke with the fill made
+transparent). Predicting 1 there shifts every draw-list base after the scene's
+`blendStroke` item by one, so the final entry draws instances that were never published —
+uninitialised item buffer, which reaches the screen as opaque black. **The symptom lands
+at the end of the scene, nowhere near the item that actually disagreed**, which is what
+made it read as "the gradients are broken".
+
+Restoring the case moved the draw list from
+
+    0:10|10:4|14:2|16:1|17:1|18:1|19:1|20:3|23:2|25:7      (32 instances, shifted)
+
+to
+
+    0:10|10:4|14:2|16:1|17:1|18:1|19:2|21:3|24:2|26:7      (33 instances)
+
+which is exactly the list H10 recorded and mapped to the scene by hand, and the harness
+from 6.93% differing back to H10's 4.27%.
+
+**Both gates now exist**, in `helper_render.rs`'s test module, because neither half was
+catchable by anything in `cargo test` before: `the_draw_entry_width_agrees_with_the_emitter`
+counts the appends in `__canvas_pushOneDraw` against `CANVAS_DRAW_ENTRY_WORDS`, and
+`block_instances_keeps_the_blend_split_case` pins the split by the three slots
+`emit_split_or_publish` tests (26 blend mode, 7 strokeHalf, 11 fill alpha). The width is
+now one constant in `src/codegen/runtime/canvas/mod.rs` that the emitter's byte stride,
+element-count shift and mode offset all derive from, rather than three literals.
+
+**H10's pixel claim is withdrawn.** It reported that "the GPU's disputed pixel is correct
+— at (430,100) it produces `ff4321` — and it is the *oracle* the harness reports as
+`000000`". That is the tuple read backwards. The harness builds it as
+
+```python
+first = (pixel % width, pixel // width, a.hex(), b.hex())   # a = software, b = gpu
+```
+
+so `first-beyond-tolerance=(430, 100, 'ff4321ff', '000000ff')` means **software `ff4321`,
+GPU `000000`**: the GPU is the black one. H10 spent its closing paragraphs asking whether
+the harness measured the right thing; it does, and the remaining 4.27% is a real defect in
+the GPU render.
+
+**H13 (Phase 2) — the Phase 2 failure was a draw-entry WIDTH disagreement, not an ABI
+problem. H11 is withdrawn.**
+
+The draw entry's width is agreed in three places and **no gate checks that they agree**:
+
+| site | file |
+|---|---|
+| `__canvas_pushOneDraw` — how many words it appends | `src/codegen/builtins/canvas/helper_render.rs` |
+| `__canvas_drawsText` — the stride it prints with | `src/codegen/builtins/canvas/helper_surface.rs` |
+| `emit_draw_list_pass` — `shift_left_immediate(.., 6)`, mode at `+32` | `src/codegen/runtime/canvas/vulkan.rs` |
+
+The working tree had the last two at eight words and **the first still at four**, so the
+emitter strode 64 bytes through a 32-byte-per-entry array. Two consequences, and between
+them they account for every symptom Phase 2 was chasing:
+
+1. It visited **every other entry** and its loop bound (`len / 8`) was half the real count.
+   So the draw list *looked* short — `blocks=28` against `draws=0:10|14:2|17:1|19:1|23:2` —
+   which is the "the tail is missing / the last items render as their fill" reading.
+2. It took the **following entry's `base` as the blend mode**, which indexes the pipeline
+   table out of range and hands Vulkan a junk `VkPipeline`.
+
+(2) is why it SIGSEGVs rather than drawing wrongly, and why the fault looks like it has
+nothing to do with this code: `Thread 4 received SIGSEGV`, `rip` in JIT-compiled lavapipe
+code at `mov 0x208(%rax),%eax`, **no MFBASIC frame in the backtrace at all**, `info symbol`
+matching nothing and `info sharedlibrary` listing only `ld-linux`. A bad pipeline handle
+surfaces exclusively as a crash inside the driver's generated code.
+
+**How it got there:** the conversion was carried across contexts as stash entries, and the
+apply restored the `vulkan.rs` and `helper_surface.rs` halves while the `helper_render.rs`
+half was never in the entry. A `--stat` showed two files where three were required, and I
+did not check that count against what the change needed.
+
+**H11 is withdrawn in full.** Its claim — that `draws`, as the eighth argument, is clobbered
+by staging that writes the C argument bank — is disproved by the emitted prologue, which
+this correction finally read instead of reasoning about:
+
+```
+add_imm rbx, rbp, 40      ; draws data pointer, parked at rsp+120
+ldr_u64 rbx, [rbp+8]      ; the collection count
+lsr_imm rbx, rbx, 3       ; -> entries, parked at rsp+816
+```
+
+`draws` **is** in `rbp`, it **is** read correctly, and nothing between entry and that read
+writes `rbp`. G31's "widening past eight arguments is safe" needed no second half. The
+hoist H11 proposed is unnecessary; what made it look like it "moved the failure" was H12's
+missing-display artifact.
+
+**The reusable lesson: a constant shared between MFBASIC builtin source and the native
+emitter that lowers it is a silent coupling** — the MFBASIC side is a string the Rust
+compiler never type-checks, so a width change applied to one side and not the other builds
+clean, passes every Rust test, and fails only as a driver-internal segfault on one remote
+box. Phase 3 should express the entry width as one named constant with an assertion rather
+than three independent literals.
+
 **H12 (Phase 2) — the ad-hoc repro loop was not the harness, and three findings recorded
 from it are measurement artifacts rather than defects.**
 
