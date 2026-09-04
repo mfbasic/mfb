@@ -61,6 +61,7 @@ pub(crate) fn write_appdir(
     app_icon: Option<&Path>,
     app_version: &str,
 ) -> Result<PathBuf, String> {
+    crate::os::validate_output_name(project_name)?;
     let appdir = project_dir
         .join(BUILD_DIR)
         .join(appdir_name(project_name, flavor_suffix));

@@ -1672,3 +1672,29 @@ fn a_non_vendoring_appdir_elf_is_byte_identical_to_the_console_build() {
         "no runpath either side"
     );
 }
+
+/// bug-503: the project name is `Path::join`ed into `build/<name>-<flavor>.out`,
+/// so a name carrying a path separator or `..` must be refused before any byte
+/// is written — never resolved to a path outside `build/`.
+#[test]
+fn refuses_to_write_an_executable_under_a_traversing_name() {
+    let image = x86_static_image();
+    let dir = tempfile::tempdir().unwrap();
+    let error = write_executable(dir.path(), "../evil", "x86_64", LinuxFlavor::Glibc, &image)
+        .expect_err("a traversing project name must be rejected");
+    assert!(error.contains("not a valid path component"), "{error}");
+    assert!(
+        !dir.path().join("evil-glibc.out").exists(),
+        "an executable escaped build/ under a traversing name"
+    );
+    for name in [".hidden", "/tmp/evil", "a/b"] {
+        assert!(
+            write_executable(dir.path(), name, "x86_64", LinuxFlavor::Glibc, &image).is_err(),
+            "{name}"
+        );
+    }
+    assert!(
+        !dir.path().join("build").exists(),
+        "nothing may be created on refusal"
+    );
+}

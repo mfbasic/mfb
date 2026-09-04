@@ -1384,25 +1384,22 @@ pub(crate) fn lower_tls_write_macos(
         abi::load_u64(&v9, abi::return_register(), REC_CTX),
         abi::store_u64(&v9, abi::stack_pointer(), CTX),
     ]);
-    if text {
-        ins.extend([
-            abi::load_u64(&v10, abi::c_arg(1), 0),
-            abi::store_u64(&v10, abi::stack_pointer(), DLEN),
-            abi::add_immediate(&v11, abi::c_arg(1), 8),
-            abi::store_u64(&v11, abi::stack_pointer(), DATA),
-        ]);
-    } else {
-        ins.extend([
-            abi::load_u64(&v10, abi::c_arg(1), COLLECTION_OFFSET_COUNT),
-            abi::store_u64(&v10, abi::stack_pointer(), DLEN),
-            // The byte payload begins past the CAPACITY-sized entry array, not the
-            // COUNT-sized one: an append-built list carries spare capacity, so
-            // COUNT*ENTRY would mis-address it (byte payload base is
-            // HEADER + CAPACITY*ENTRY). Mirrors the OpenSSL path (bug-157).
-        ]);
-        push_collection_data_base_from_capacity(&mut ins, &v11, abi::c_arg(1), &v14, &v12, &v13);
-        ins.extend([abi::store_u64(&v11, abi::stack_pointer(), DATA)]);
-    }
+    // bug-497 / bug-508: one payload view for every backend — the text form
+    // as before, the byte form after a header check (`push_write_payload_view`).
+    let bad_payload = format!("{symbol}_bad_payload");
+    push_write_payload_view(
+        &mut ins,
+        text,
+        abi::c_arg(1),
+        &v10,
+        &v11,
+        &v14,
+        &v12,
+        &v13,
+        DLEN,
+        DATA,
+        &bad_payload,
+    );
     // Empty payload: nothing to send.
     ins.extend([
         abi::load_u64(&v10, abi::stack_pointer(), DLEN),
@@ -1630,6 +1627,12 @@ pub(crate) fn lower_tls_write_macos(
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
+    if !text {
+        // bug-497: the byte form was handed a block whose header is not a
+        // `List OF Byte`'s — refuse rather than read a length out of its bytes.
+        ins.push(abi::label(&bad_payload));
+        emit_fail(symbol, "ErrInvalidArgument", &mut ins, &mut rel, &done);
+    }
     ins.extend([abi::label(&done), abi::return_()]);
     {
         Ok((ins, rel, FRAME_SIZE))
