@@ -218,7 +218,6 @@ pub(crate) struct CodeBuilder<'a> {
     /// escaped (§15.6) and must still be closed, and `EXIT`/`CONTINUE` spill no
     /// pending result at all, so a comparison there would read a stale slot.
     pub(crate) escaping_value_slot: Option<usize>,
-    pub(crate) error_arena_restore_slot: Option<usize>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
     /// branches to this label instead of returning, leaving the raw `Result` in
     /// the standard tag/value/message registers. Used to make inline conversions
@@ -238,7 +237,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// and `materialize_current_result` emit only a bare tag on the error path.
     pub(crate) raw_result_discard_error: bool,
     /// bug-425: set transiently by the thread-send lowering while it copies a
-    /// thread-sendable resource into the destination arena. `copy_resource_to_current_arena`
+    /// thread-sendable resource for hand-over. `copy_resource_to_current_arena`
     /// otherwise flags the *source* record `moved|closed` at copy time — before the
     /// enqueue outcome is known — which tombstones the sender's handle even when the
     /// transfer then fails with `ErrTimeout`/`ErrInterrupted`/`ErrResourceClosed`, so
@@ -466,7 +465,6 @@ impl<'a> CodeBuilder<'a> {
             cleanup_scope_starts: Vec::new(),
             pending_result_slots: None,
             escaping_value_slot: None,
-            error_arena_restore_slot: None,
             raw_result_capture: None,
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,

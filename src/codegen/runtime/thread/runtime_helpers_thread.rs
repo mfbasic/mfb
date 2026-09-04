@@ -1273,8 +1273,8 @@ pub(crate) fn thread_queue_write_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&unlock),
-        // bug-147.5b: a failed send (tag != Ok) leaves the message copy orphaned in
-        // the DESTINATION arena. Still holding the queue mutex, push it onto the
+        // bug-147.5b: a failed send (tag != Ok) leaves the message copy orphaned (in
+        // the SENDER's arena since bug-498). Still holding the queue mutex, push it onto the
         // queue's pending-free list — reusing the dead block's own first two words as
         // `{next, size}` — so the destination reclaims it (in its own arena) on its
         // next read. `DATA_OFFSET` still holds the copy pointer here (it is reused as
@@ -1440,9 +1440,10 @@ pub(crate) fn thread_queue_read_helper(
         "pthread_mutex_lock",
     )?;
     // bug-147.5b: drain the queue's pending-free list — the message copies a failed
-    // send orphaned in THIS thread's arena. We hold the queue mutex and run in the
-    // owning thread's arena (x19), so `arena_free` here reclaims each copy on the
-    // owning thread with no cross-thread race. Each node stores `{next, size}` in its
+    // send orphaned. We hold the queue mutex, and `arena_free` only ever touches the
+    // freeing thread's own arena state (x19), so reclaiming a block the sender's arena
+    // carved (bug-498: the copy is made in the sender's arena and handed across) is
+    // race-free adoption, not a cross-thread free. Each node stores `{next, size}` in its
     // own first two words; the queue pointer is reloaded from its frame slot every
     // iteration because `arena_free` clobbers caller-saved registers.
     let drain_loop = format!("{symbol}_pending_free_drain");
