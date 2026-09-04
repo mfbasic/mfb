@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: CRITICAL
 Class: security (memory safety — out-of-bounds read / remote information disclosure)
 
-Status: Open (found in audit-3, Surface 4 OS-50; reproduced live end-to-end by the lead). Root cause of open bug-476.
+Status: FIXED (<HASH>). Found in audit-3, Surface 4 OS-50; reproduced live end-to-end by the lead. Root cause of bug-476.
 
 Regression Test: an rt fixture asserting `tcp::write(sock, f(str))` writes exactly `f(str)`'s bytes; and a codegen-inspection test asserting the text helper is selected for a String-returning call.
 
@@ -100,3 +100,60 @@ bug-476 (`bugs/bug-476-handlerequest-writes-no-response.md`, OPEN) records the
 this is its root cause. Related: bug-157 (`tls::write` byte payload used count not
 capacity for the base — same collection-base arithmetic, fixed there). Searched
 `writeText`, `static_type_name`, `overload`, `handleRequest`.
+
+## STATUS: FIXED (<HASH>)
+
+Landed on `worktree-B-497`, merged into `main`.
+
+**Reproduced first** (`spikes/audit-3/OS-50`, main compiler `2ec9835d9`): the
+peer sent 22 bytes and received **1024 bytes** of process memory (`leak.bin`
+began `"22"`, `"echoing 22 chars"`, arena pointers) — the documented mechanism,
+`_mfb_rt_tcp_tcp_write` reading a `String` block as a collection (`ldr x22,[x1,#8]`
+length, base `x1+40`).
+
+**Fix, three parts:**
+
+1. *Type-correct selection.* bug-476's `overload_arg_type` (merged from
+   `worktree-B-476`) resolves a call to a NAMED function or package member. A
+   30-shape audit (`/tmp`-built probes, one `tcp::write` per payload shape) found
+   two `String` shapes still taking the byte form after it: a call **through a
+   FUNC-typed value** (`LET f AS FUNC(String) AS String = reply` … `f(x)`) and a
+   **field of a call result** (`makeRec().body`). `overload_arg_type` now resolves
+   both (the callee's declared `Func(_, returns, _)`; `member_type_of`, split out
+   of `static_type_name`, applied to a target only this resolver can type) and
+   `ResultValue`. All 30 shapes (17 `String`, 13 `List OF Byte`) select correctly.
+2. *Fail closed.* `builder_values::net_write_payload_form` replaces the three
+   `is_some_and(String) … else bytes` selectors (`tcp.write`, `udp.send`,
+   `tls.write`): `String` → text, `List OF _` → bytes, anything else is a codegen
+   error naming the member. A payload shape the resolver cannot type is a build
+   failure, never a guess. The sibling selectors (`tls.connect`, `net.ping`,
+   `tcp/udp/tls.poll`, `tls.localAddress`, `io.print`) were moved onto
+   `overload_arg_type` by bug-476; their fallbacks pick a *different* correct
+   overload, not a different memory layout, so they are not fail-open in the
+   memory-safety sense.
+3. *Hardened sink.* One shared `codegen::memory::marshal::push_write_payload_view`
+   emits the payload view for all five backends (tcp, udp, OpenSSL, macOS
+   Network.framework, Schannel). Its byte form verifies the block header —
+   `kind == list_block_kind(Byte)`, `keyType == NONE`, `valueType == BYTE`, which
+   every byte-list producer in the tree writes — and branches to
+   `<sym>_bad_payload` → `ErrInvalidArgument` before reading `count`. The text
+   form is instruction-identical to the old per-backend code. Residual: a
+   `String` whose length is exactly `0x0007_0002` (+16 MiB multiples) would still
+   pass the header check; the selector is the closure, the sink is depth.
+
+**After:** OS-50 peer receives exactly 22 bytes. Fixes bug-476's symptom
+(`http::handleRequest` head write) at its root; bug-508 is the Schannel member of
+the same family and lands in the same change.
+
+**Tests:** `tests/codegen_net_write_payload_view.rs` (selection for all three
+call shapes; header check + count-at-+8 in every byte-form helper on all five
+targets — RED on main for both), `tests/rt_net_write_payload_shapes.rs` (the two
+newly closed shapes arrive verbatim over loopback, exactly 22 bytes),
+`tests/rt_native_write_overload_call_argument.rs` (bug-476), Schannel unit tests
+`write_payload_tests`.
+
+**Semantics:** no MFBASIC surface change. A correctly-typed program's
+`tcp::write(sock, "literal")` / `tcp::write(sock, byteList)` selects the same
+form as before; the only `.ncode` movement is inside the three byte-form runtime
+helpers (header check) and the Schannel `tls::write` body (bug-508). See the
+artifact-gate localisation in the landing commit.
