@@ -965,6 +965,34 @@ sleeps), 2a1135971 (the overflow pin)
 
 ## Corrections
 
+**G31 (Phase 6) — none of this letter's functions reaches the 8-parameter ABI boundary,
+checked rather than assumed.** A peer session found the x86_64 canvas crash the same day:
+MFBASIC's internal convention extends the SysV six argument registers with `rax` and
+`rbp` for parameters 7 and 8 (bug-296), `rbp` is callee-saved under SysV, and the
+callee-saved set is computed from *allocated* registers — so an ABI-staged `rbp` is
+invisible to it. The graphics trampoline returned to glibc's `start_thread` with `rbp`
+holding a `Float` from the scene, and `start_thread`'s `mov -0x98(%rbp),%rax` took
+SIGBUS.
+
+This letter widened `__canvas_drawGeometry` from four parameters to six, which is the
+kind of change that could walk into that. It does not, and neither does anything else
+here:
+
+| function | params |
+|---|---|
+| `__canvas_drawGeometry` | 6 (was 4) |
+| `__canvas_appendDraw` | 6 |
+| `__canvas_boundsMeetOffset` | 4 |
+| `__canvas_groupSignature` | 2 |
+| `__canvas_intListEquals` | 2 |
+| `__canvas_groupHash` | 1 |
+
+Two parameters of headroom on the widest, and every one of them is called MFB→MFB rather
+than across a foreign boundary, which is the condition that actually matters. Recorded so
+a later letter widening `__canvas_drawGeometry` again — H adds a per-draw offset and is
+the obvious candidate — knows the ceiling is 8 and why, rather than finding out from a
+SIGBUS in `start_thread`.
+
 **G30 (Phase 6) — the Linux row needs `-fuse-ld=bfd` on box 2228; `rust-lld` segfaults
 linking the test binary.** Not a defect in this letter and not a flake: two consecutive
 runs died identically with
