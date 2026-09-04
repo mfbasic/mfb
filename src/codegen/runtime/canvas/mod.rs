@@ -866,6 +866,46 @@ pub(crate) fn emit_graphics_trampoline(
         abi::stack_pointer(),
         shadow + 8,
     ));
+    // **Save the 8th internal argument register too.**
+    //
+    // MFBASIC functions take up to 8 parameters and AArch64 has 8 argument
+    // registers, but SysV x86-64 has only six — so the internal convention extends
+    // the list with `rax` and `rbp` for arguments 7 and 8 (bug-296,
+    // `CALL_ARGS` in `x86_64/select.rs`). That is self-consistent between MFB
+    // caller and MFB callee, and wrong at a boundary: `rbp` is CALLEE-saved under
+    // SysV, and the caller here is glibc's `start_thread`, which keeps its own frame
+    // pointer in it across the call to this routine.
+    //
+    // So any MFB function that stages an 8th argument destroys it. `__canvas_
+    // drawGeometry` does exactly that, six times, calling `__canvas_geoDistance`:
+    //
+    //     mov r8, r10 / mov r9, r10 / mov rax, r10 / mov rbp, r10
+    //     bl _mfb_ifn_canvas_5FgeoDistance
+    //
+    // and its own frame saves only `["r12", "r14", "lr"]`, because the frame's
+    // callee-saved set is computed from ALLOCATED registers and this `rbp` is an
+    // ABI-staged one the allocator never assigned.
+    //
+    // On AArch64 the 8th argument is `x7`, which is caller-saved, so saving it here
+    // costs one store and changes nothing.
+    //
+    // Measured on an x86_64 ubuntu-24.04 runner under gdb: the graphics thread
+    // returns with `rbp = 0x404e000000000000`, which is not a pointer at all — it is
+    // the double `60.0`, the `radius` of the circle in the scene being drawn.
+    // `start_thread` then executes `mov -0x98(%rbp),%rax` and dies with SIGBUS. That
+    // is the whole of the canvas failure on the x86_64 Linux rows: 68 of ~90 canvas
+    // tests, 55 SIGBUS and 13 SIGSEGV, the two alternating exactly as one wild
+    // address does depending on where it lands.
+    //
+    // It reproduces on no machine I can reach — boxes 2228/2227/2223 and an
+    // ubuntu:24.04 container with the same GTK run the same binaries clean, dozens
+    // of times — because whether a clobbered `rbp` is ever *dereferenced* depends on
+    // the libc's own code path after the start routine returns.
+    instructions.push(abi::store_u64(
+        abi::mfb_arg(7),
+        abi::stack_pointer(),
+        shadow + 16,
+    ));
     // Pin the child arena state. Every MFB global access on this thread — including
     // the geometry cache and the sRGB table — is addressed off it.
     instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
@@ -889,6 +929,13 @@ pub(crate) fn emit_graphics_trampoline(
     // return, and parking made the shutdown join wait forever on a thread that
     // was spinning two instructions away from finishing.
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    // The 8th argument register, then the arena register: on x86-64 these are `rbp`
+    // and `r15`, and both must reach `start_thread` intact.
+    instructions.push(abi::load_u64(
+        abi::mfb_arg(7),
+        abi::stack_pointer(),
+        shadow + 16,
+    ));
     instructions.push(abi::load_u64(
         ARENA_STATE_REGISTER,
         abi::stack_pointer(),

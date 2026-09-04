@@ -388,6 +388,15 @@ pub(crate) fn lower_program_entry(
     // The seed scratch lives in the as-yet-unused args slot; pre-fill it with
     // the arena address so a `getentropy` failure still yields a varying seed.
     //
+    // bug-512: the scratch is `ENTRY_SEED_SCRATCH_OFFSET` past the ARENA, and the
+    // arena sits at `sp + shadow` — so the sp-relative slot is `shadow` further up
+    // too. Addressing it as a bare `sp + ENTRY_SEED_SCRATCH_OFFSET` put it at
+    // `arena + ARENA_STATE_SIZE - 32` on Win64, which is `ARENA_STDIN_LOCAL_BUF_OFFSET`:
+    // the eight CSPRNG bytes became the "already allocated" stdin buffer pointer
+    // that `_mfb_rt_stdin_next_byte` copies stdin bytes through. `shadow == 0` on
+    // Linux/macOS, so those entries are byte-identical either way; the invariant
+    // is pinned by `tests/codegen_win64_entry_seed_scratch.rs`.
+    let seed_scratch_sp_offset = ENTRY_SEED_SCRATCH_OFFSET + shadow;
     // argc/argv were parked in SCRATCH[17]/SCRATCH[18] at the top of the entry:
     // everything here — the seed_rng `getentropy`/`RNG_SEED` calls, the always-on
     // fill block's `clock_gettime`/`getentropy`/`ARENA_FILL_SEED`, and the later
@@ -398,13 +407,9 @@ pub(crate) fn lower_program_entry(
             abi::store_u64(
                 ARENA_STATE_REGISTER,
                 abi::stack_pointer(),
-                ENTRY_SEED_SCRATCH_OFFSET,
+                seed_scratch_sp_offset,
             ),
-            abi::add_immediate(
-                abi::c_arg(0),
-                abi::stack_pointer(),
-                ENTRY_SEED_SCRATCH_OFFSET,
-            ),
+            abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), seed_scratch_sp_offset),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         platform.emit_random_bytes(
@@ -414,11 +419,7 @@ pub(crate) fn lower_program_entry(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::load_u64(
-                abi::c_arg(1),
-                abi::stack_pointer(),
-                ENTRY_SEED_SCRATCH_OFFSET,
-            ),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), seed_scratch_sp_offset),
             abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
             abi::branch_link(RNG_SEED_SYMBOL),
         ]);

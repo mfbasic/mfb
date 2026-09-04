@@ -1,0 +1,21 @@
+IMPORT io
+IMPORT thread
+
+ISOLATED FUNC churn(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  MUT n AS Integer = 0
+  FOR i = 1 TO 200000
+    LET s AS String = seed & toString(i) & "-padding-padding-padding"
+    n = n + len(s)
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(churn, "abc")
+  FOR i = 1 TO 200000
+    thread::send(t, "message-" & toString(i) & "-padding-padding-padding")
+  NEXT
+  LET n AS Integer = thread::waitFor(t)
+  io::print("worker returned " & toString(n))
+  RETURN 0
+END FUNC

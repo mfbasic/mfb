@@ -1,0 +1,40 @@
+REM MEM-40 trigger (audit-3, surface 3b).
+REM
+REM On `--target windows-x86_64` the program entry writes 8 bytes of
+REM BCryptGenRandom output to `sp + ENTRY_SEED_SCRATCH_OFFSET`, which on Win64
+REM aliases `arena + ARENA_STDIN_LOCAL_BUF_OFFSET` because the arena is pinned
+REM at `sp + shadow_space_bytes()` (32) and the seed offset is not shifted by
+REM `shadow`. The stdin broadcast path then reads that word as an
+REM already-allocated 4 KiB buffer ("NULL => not yet allocated") and copies
+REM stdin bytes through it.
+REM
+REM Two preconditions, both present below:
+REM   * `math::rand` anywhere in the module  => seed_rng   (the writer)
+REM   * any stdin read                       => uses_stdin (the reader)
+REM
+REM Codegen check (works on any host, no Windows box needed):
+REM   mfb build -ncode -target windows-x86_64 spikes/audit-3/MEM-40
+REM   -> program.entry:  add_imm r15, rsp, 32          (arena = sp + 32)
+REM                      add_imm rsi, r15, 3768        (ARENA_STATE_SIZE)
+REM                      str_u64 r15, [rsp + 3768]     (== r15 + 3736)
+REM                      bl BCryptGenRandom            (8 bytes at r15 + 3736)
+REM      _mfb_rt_stdin_next_byte:
+REM                      mov_imm r10, 3736 ; add r10, r15, r10
+REM                      ldr_u64 r11, [r10] ; cmp_imm r10, 0 ; b.ne have_lbuf
+REM   3736 == ARENA_STATE_SIZE - 32 == ARENA_STDIN_LOCAL_BUF_OFFSET.
+REM
+REM Negative control: the same build at `-target linux-x86_64` emits
+REM `add_imm r15, rsp, 0`, so `[rsp + 3768]` is `arena + 3768` — one word PAST
+REM the arena state, as intended.
+REM
+REM Expected on box 2230: `echo hello | MEM-40.exe` reads back "hello".
+REM Observed (predicted, not run): the first read walks a CSPRNG-random pointer.
+
+IMPORT io
+IMPORT math
+
+SUB main()
+  LET n AS Integer = math::rand(1, 6)
+  LET line AS String = io::input("? ")
+  io::print(toString(n) & ":" & line)
+END SUB

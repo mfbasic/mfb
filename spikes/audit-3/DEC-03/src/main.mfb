@@ -1,0 +1,22 @@
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+SUB main()
+  LET args AS List OF String = os::args()
+  LET path AS String = collections::get(args, 0)
+  LET text AS String = fs::readText(path)
+  io::print("bytes=" & toString(strings::byteLen(text)))
+  io::print(tryParse(text))
+END SUB
+
+FUNC tryParse(text AS String) AS String
+  LET v AS json::Json = json::parse(text)
+  RETURN "parsed ok: " & json::stringify(v)
+  TRAP(err)
+    RETURN "FAILED " & toString(err.code) & " " & err.message
+  END TRAP
+END FUNC

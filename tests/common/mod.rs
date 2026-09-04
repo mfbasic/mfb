@@ -115,24 +115,39 @@ pub fn app_binary(project: &Path, name: &str) -> PathBuf {
 
 /// Which of the two Linux libc worlds this host can actually load.
 ///
-/// A build always emits both flavors, and only one of them runs here: a
-/// glibc-linked binary has no loader on Alpine, and the test boxes deliberately
-/// carry no `gcompat` shim that would hide that. The musl loader lives at a
-/// fixed, arch-suffixed name under `/lib`, and no glibc distribution ships one,
-/// so its presence is the whole test. Note this asks about the *host*, not
-/// about the libc this test binary was linked against — CI's musl matrix row
-/// builds for musl but runs on a glibc runner.
+/// A build always emits both flavors and only one of them runs here, so the
+/// question is which loader — and which system libraries — this box has.
+///
+/// **glibc wins whenever it is present, and a musl loader alone does not settle
+/// it.** Installing `musl-tools` to cross-compile puts `/lib/ld-musl-x86_64.so.1`
+/// on an otherwise ordinary glibc box, which is exactly what CI's musl matrix row
+/// does — it builds the compiler for musl and runs it on a glibc Ubuntu runner.
+/// Reading that loader as "this host is musl" picks the musl AppDir, whose
+/// `libgtk-4.so.1` and `libgio-2.0.so.0` are the distribution's glibc builds and
+/// do not resolve:
+///
+///   Error loading shared library libgtk-4.so.1: No such file or directory
+///
+/// So ask for glibc first and fall back to musl, which is the honest reading of
+/// an Alpine box: it has the musl loader and no `ld-linux*` at all, and the test
+/// boxes deliberately carry no `gcompat` shim that would blur the two.
 pub fn host_libc_flavor() -> &'static str {
-    let musl = std::fs::read_dir("/lib").is_ok_and(|entries| {
-        entries
-            .flatten()
-            .any(|entry| entry.file_name().to_string_lossy().starts_with("ld-musl-"))
-    });
-    if musl {
-        "musl"
-    } else {
-        "glibc"
+    let has = |dir: &str, prefix: &str| {
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().starts_with(prefix))
+        })
+    };
+    // The glibc loader is `ld-linux-<arch>.so.N`, in /lib or /lib64 depending on
+    // the distribution's multiarch layout.
+    if has("/lib", "ld-linux") || has("/lib64", "ld-linux") {
+        return "glibc";
     }
+    if has("/lib", "ld-musl-") {
+        return "musl";
+    }
+    "glibc"
 }
 
 /// How a child process ended, phrased for a failure message.
@@ -219,12 +234,22 @@ pub fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
 /// child is killed and the test panics — `hang_context` names the specific hang
 /// each caller guards against (e.g. a reintroduced linear `^` loop). Poll
 /// interval is 25 ms; it is immaterial against these multi-second timeouts.
+///
+/// The child runs with its own directory as cwd. Without this it inherited the
+/// test process's cwd — the crate root — so any fixture doing relative file I/O
+/// (`fs::writeBytes("payload.bin", …)`) wrote **into the repository** and left
+/// the file behind when the test failed early. Anchoring cwd to the executable's
+/// directory keeps that I/O inside the temp project the caller already deletes.
 pub fn run_bounded(
     executable: &Path,
     timeout: Duration,
     hang_context: &str,
 ) -> (ExitStatus, String) {
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

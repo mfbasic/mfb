@@ -1,0 +1,28 @@
+IMPORT tcp
+IMPORT strings
+IMPORT io
+
+FUNC reply(m AS String) AS String
+  RETURN m
+END FUNC
+
+SUB handle(RES l AS tcp::Listener)
+  RES sock AS tcp::Socket = tcp::accept(l)
+  MUT raw AS List OF Byte = []
+  raw = tcp::read(sock, 65536) TRAP(e)
+    RECOVER []
+  END TRAP
+  LET txt AS String = toString(raw)
+  io::print("echoing " & toString(strings::byteLen(txt)) & " chars")
+  tcp::write(sock, reply(txt)) TRAP(e)
+    io::print("write failed")
+    EXIT SUB
+  END TRAP
+  io::print("wrote")
+END SUB
+
+FUNC main() AS Integer
+  RES s AS tcp::Listener = tcp::listen("127.0.0.1", 18082, 16)
+  handle(s)
+  RETURN 0
+END FUNC

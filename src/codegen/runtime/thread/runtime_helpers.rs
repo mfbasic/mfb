@@ -45,14 +45,17 @@ pub(crate) const THREAD_QUEUE_TAIL_OFFSET: usize = 216;
 pub(crate) const THREAD_QUEUE_CLOSED_OFFSET: usize = 224;
 pub(crate) const THREAD_QUEUE_VALUES_OFFSET: usize = 232;
 /// Head of a singly-linked list of orphaned message copies to reclaim (bug-147.5b).
-/// A `thread.send` deep-copies the message into the DESTINATION arena before the
-/// enqueue commits; a failed send (queue full / closed / cancelled) leaves that
-/// copy orphaned there, and a sender-side free would be a cross-thread arena race.
-/// Instead the send-failure path pushes the copy onto this list (under the queue
-/// mutex, using the dead block's own first two words as `{next, size}`), and the
-/// DESTINATION thread drains + frees it in its OWN arena on its next queue read
-/// (also under the mutex) — every free on the owning thread, every list op
-/// serialized by the mutex both paths already hold.
+/// A `thread.send` deep-copies the message before the enqueue commits — since
+/// bug-498 into the SENDER's own arena, never the destination's (allocating from a
+/// peer thread's live arena raced its allocator) — and hands the block across. A
+/// failed send (queue full / closed / cancelled) leaves that copy orphaned, so the
+/// send-failure path pushes it onto this list (under the queue mutex, using the dead
+/// block's own first two words as `{next, size}`), and the reading thread drains +
+/// frees it on its next queue read (also under the mutex). A free only ever touches
+/// the FREEING thread's arena state (`arena_free` pushes onto its own bins and never
+/// asks which arena carved the block), and no arena but the main one is ever
+/// destroyed — so adopting a block another thread allocated is sound, and every
+/// list op is serialized by the mutex both paths already hold.
 pub(crate) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
 pub(crate) const THREAD_QUEUE_BLOCK_SIZE: usize = 248;
 
