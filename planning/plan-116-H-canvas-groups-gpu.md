@@ -860,7 +860,7 @@ counts the appends in `__canvas_pushOneDraw` against `CANVAS_DRAW_ENTRY_WORDS`, 
 now one constant in `src/codegen/runtime/canvas/mod.rs` that the emitter's byte stride,
 element-count shift and mode offset all derive from, rather than three literals.
 
-**H10's pixel claim is withdrawn.** It reported that "the GPU's disputed pixel is correct
+**The pixel claim in H10 is withdrawn.** It reported that "the GPU's disputed pixel is correct
 — at (430,100) it produces `ff4321` — and it is the *oracle* the harness reports as
 `000000`". That is the tuple read backwards. The harness builds it as
 
@@ -905,7 +905,7 @@ apply restored the `vulkan.rs` and `helper_surface.rs` halves while the `helper_
 half was never in the entry. A `--stat` showed two files where three were required, and I
 did not check that count against what the change needed.
 
-**H11 is withdrawn in full.** Its claim — that `draws`, as the eighth argument, is clobbered
+**The H11 correction is withdrawn in full.** Its claim — that `draws`, as the eighth argument, is clobbered
 by staging that writes the C argument bank — is disproved by the emitted prologue, which
 this correction finally read instead of reasoning about:
 
@@ -1155,8 +1155,14 @@ does not need to re-walk the scene — a *run* is a maximal span of consecutive 
 sharing a `(dx, dy)` and not ending on a `Text`, which is a grouping pass over data that
 already exists rather than a second traversal that could disagree with the first.
 
-**H7 (2026-09-03, pre-execution) — the `rbp` invariant this letter must hold, stated the
-way that is checkable.** MFBASIC stages parameter 8 in `rbp`, which is callee-saved under
+**H20 (2026-09-03, pre-execution) — the `rbp` invariant this letter must hold, stated the
+way that is checkable.**
+
+*(Numbered **H7** when written, which collided with the census correction above. The one
+`**H7**` citation in this plan — the `ITEM_BLOCK_SIZE` census row — means that one, so
+this is the entry that moved. Its substance was superseded anyway: **H11** claimed this
+invariant had a missing half and **H13** withdrew that claim after reading the emitted
+prologue.)* MFBASIC stages parameter 8 in `rbp`, which is callee-saved under
 SysV, and the callee-saved set is computed from *allocated* registers so the staging is
 invisible to it (bug-296). The consequence is **not** an arity limit —
 `__canvas_geoDistance` takes 22 parameters and `__canvas_drawGeometry` calls it six times
@@ -1190,9 +1196,13 @@ arrives as a push constant keyed off the draw entry rather than off the item, th
 emitters never test the kind and the constant stays test-only. Which of those is true is
 decided by Phase 1's draw-list shape, not by this correction.
 
-**H5 (2026-09-03, pre-execution, written from plan-116-G as landed) — §4.1's
+**H19 (2026-09-03, pre-execution, written from plan-116-G as landed) — §4.1's
 `__canvas_sceneDraws` describes a walk that plan-116-G already performs, and §4.3's
 "undecided question" is already decided in the direction §4.1 calls unlikely.**
+
+*(Numbered **H5** when written, which collided with the `setVertexBytes:` correction
+below. Renumbered during the Phase 4 close-out: every `**H5**` citation in the plan and
+in `metal.rs` means that one, so this is the entry that moved.)*
 
 This section was written against a world where `__canvas_sceneOffsets` returns one entry
 per *scene* item with `Group` nodes still in the list, so H would add a second walk to
