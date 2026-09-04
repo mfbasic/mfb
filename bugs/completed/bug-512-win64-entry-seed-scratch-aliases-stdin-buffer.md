@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: security (memory safety — arbitrary pointer read/write, Windows)
 
-Status: Open (found in audit-3, Surface 3 MEM-40; codegen-verified by the lead from the emitted windows-x86_64 ncode)
+Status: FIXED (ae60d431e) — found in audit-3, Surface 3 MEM-40; codegen-verified by the lead from the emitted windows-x86_64 ncode
 
 Regression Test: a codegen-inspection test asserting the entry seed write offset does not equal any live arena-slot offset on Win64 (or that arena base and scratch both include the shadow).
 
@@ -72,3 +72,36 @@ byte-identical; keep the seed a real `BCryptGenRandom` read.
 None (searched `ENTRY_SEED_SCRATCH`, `shadow`, `ARENA_STDIN_LOCAL_BUF`, `seed`
 across `bugs/`, `bugs/completed/`, `audit-1-*`, `audit-2-*`). The Win64 target had
 no prior security audit.
+
+## STATUS: FIXED (ae60d431e)
+
+Reproduced first: `mfb build -ncode -target windows-x86_64 spikes/audit-3/MEM-40`
+emitted `add_imm r15, rsp, 32` (arena) and `str_u64 r15, [rsp + 3768]` (seed
+scratch) — arena-relative 3736 == `ARENA_STDIN_LOCAL_BUF_OFFSET`, exactly as
+documented; `linux-x86_64` emitted `add_imm r15, rsp, 0` (control).
+
+Fix (`src/codegen/engine/function/entry.rs`): the three sp-relative seed-scratch
+accesses use `ENTRY_SEED_SCRATCH_OFFSET + shadow`, so the slot is `arena +
+ARENA_STATE_SIZE` on every target. The frame already reserved that word above the
+arena including the shadow (`subtract_stack(entry_stack_size + shadow)`), so no
+frame growth was needed. `shadow == 0` on Linux/macOS: those entries are
+byte-identical (verified by `.ncode` diff on all five targets of the spike —
+only `windows-x86_64` moved, by exactly the three offsets 3768 → 3800).
+
+Guard (`tests/codegen_win64_entry_seed_scratch.rs`): inspects the
+`windows-x86_64` and `linux-x86_64` `-ncode` dumps of the MEM-40 shape, recovers
+the arena pin, the arena-state size (zero-loop bound) and the seed slot, and
+asserts the seed's arena-relative offset is `>= ARENA_STATE_SIZE` and collides
+with none of the arena offsets `runtime.stdin.next_byte` dereferences. RED on the
+unfixed compiler (`arena+3736 lies INSIDE the arena state (3768, shadow=32)`),
+GREEN after.
+
+Gates: `cargo test --bin mfb` 3774 passed / 0 failed; `cargo check
+--all-targets` clean; `scripts/artifact-gate.sh target/release/mfb all` 1874
+goldens, 0 diffs after regenerating the single intended golden
+`tests/byte-identity/math/golden/math_codegen_cover_rt.windows-x86_64.ncodesum`
+(the only Windows-goldened fixture that seeds the RNG; the scoped `math` run
+showed exactly that one diff before the regen).
+
+Semantics: no MFBASIC surface or observable behavior of a correct program
+changed — the fix moves one entry-frame scratch word on Win64 only.
