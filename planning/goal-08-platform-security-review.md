@@ -332,9 +332,17 @@ Update as findings are filed.
 
 | ID | Surface | Title | Severity | Repro | Spike | Bug doc |
 |----|---------|-------|----------|-------|-------|---------|
-| [PKG-01](audit-3-package-decode.md#pkg-01--the-signature-gate-and-the-codegen-feeding-decode-are-separate-unsynchronised-reads-of-the-same-path) | 1 | Signature gate and codegen-feeding decode are separate, unsynchronised reads of the same path (TOCTOU) | LOW | structural (5 `fs::read` sites; no signature call on the decode path) | n/a — not MFB-expressible (a second local process, not file content) | — |
+| [PKG-01](audit-3-package-decode.md) | 1 | Signature gate and codegen-feeding decode are separate, unsynchronised reads of the same path (TOCTOU) | LOW | structural (5 `fs::read` sites; no signature call on the decode path) | n/a — not MFB-expressible | — |
+| [SUP-01](audit-3-supply-chain.md) | 9 | `/index` version list unsigned; `snapshot.indexHash` decoded then discarded (downgrade) | MEDIUM | code (index_hash dead code) | n/a — registry protocol | bug-189 (augmented) |
+| [SUP-02](audit-3-supply-chain.md) | 9 | Registry error string renders unsanitized → forged `[Verified]` line | MEDIUM | **live** (`spikes/audit-3/SUP-02/`) | SUP-02 (harness, not `.mfb`) | bug-489 |
+| [SUP-03](audit-3-supply-chain.md) | 9 | Cross-origin 307/308 redirect re-posts the body-borne session token | MEDIUM | code (guard + 307 body + token-in-body) | n/a — network boundary | bug-490 |
+| [SUP-04](audit-3-supply-chain.md) | 9 | `pkg install` never binds the fetched blob to the lock's ident/version | MEDIUM | code (3 lossy callers) | n/a — registry protocol | bug-491 |
+| [SUP-05](audit-3-supply-chain.md) | 9 | `put_blob` error path reads the body uncapped (incomplete bug-276 R3) | LOW | code | n/a | bug-276 (note) |
+| [SUP-06](audit-3-supply-chain.md) | 9 | Key/session files chmod'd after create; symlink-followed; `~/.mfb` unrestricted | LOW | code | n/a | — |
+| [SUP-07](audit-3-supply-chain.md) | 9 | Redirect IP guard misses 6to4 / NAT64 / `0.0.0.0/8` | NTH | code | n/a | — |
+| [SUP-08](audit-3-supply-chain.md) | 9 | Registry-supplied `hash` interpolated into blob URL with no hex check | NTH | code | n/a | — |
 
-Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 1 · NTH 0.
+Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 4 · LOW 3 · NTH 2.
 
 ## Attack-surface map & progress
 
@@ -459,8 +467,13 @@ _Untrusted party: any remote registry client (anonymous or token-holding)._
 **Surface 9 — Supply chain: install / resolve / registry client (compiler side)** (`SUP-`)
 _Untrusted party: malicious or MITM'd registry; spoofed dependency source._
 
-- [ ] `src/cli/{pkg,repo,resolve,init}.rs`
-- [ ] `src/manifest/{url,libraries}.rs`
-- [ ] `repository/src/client.rs`
-- [ ] cross-ref Surface 1 (`.mfp` verification) and Surface 6 (signature
-      crypto)
+- [x] `src/cli/{pkg,repo,resolve}.rs` — SUP-01..08. `init.rs` grepped (no
+      network path). `pkg.rs` publish/remove/doc halves skimmed, not read.
+- [x] `src/manifest/{url,libraries}.rs` — url.rs full; libraries.rs bare-name +
+      vendor-hash path (locator body not read).
+- [x] `repository/src/client.rs` — read 1-1520 (all production code).
+- [x] cross-ref Surface 1 (`.mfp` verification, PKG-01) and Surface 6/8
+      (signature crypto) — done.
+
+Verdict: **SUP-01..04 MEDIUM, SUP-05/06 LOW, SUP-07/08 NTH.** See
+`audit-3-supply-chain.md`. bug-489/490/491 filed; bug-189 augmented.
