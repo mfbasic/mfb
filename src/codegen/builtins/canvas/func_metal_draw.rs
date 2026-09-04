@@ -60,6 +60,11 @@ pub(crate) fn lower_metal_draw_scene(
         "the offsets argument",
         "the glyph metadata argument",
         "the glyph coverage argument",
+        // plan-116-H Phase 3: the draw list, the same eighth parameter the Vulkan twin
+        // takes. Metal reached this letter still locating seven while `scene_params()`
+        // -- shared by both functions -- already declared eight, so the list was
+        // accepted at the call and then dropped on the floor.
+        "the draw list argument",
     ]
     .into_iter()
     .enumerate()
@@ -82,18 +87,30 @@ pub(crate) fn lower_metal_draw_scene(
     // dereferencing 0x29. Two passes cost a few moves the allocator mostly coalesces
     // away, and cannot be wrong.
     //
-    // The offset count comes off the collection header rather than from a seventh
-    // MFBASIC argument: `len(offsets)` at the call site and `count` in the block are
-    // the same number, and reading it here means the caller cannot pass a count that
-    // disagrees with the list it also passed.
-    let count = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&count, &located[4], COLLECTION_OFFSET_COUNT));
+    // The bank is eight wide and this seam fills it exactly. plan-116-H needed a ninth
+    // value — the draw list — so one slot was bought back rather than spending a stack
+    // argument: `offsets` now travels as its **collection pointer** instead of as a
+    // (payload, count) pair, and `emit_metal_draw` derives both from it, which is what
+    // the Vulkan emitter already does with every list it is handed.
+    //
+    // That keeps the property the old comment was defending. The count still comes off
+    // the collection header rather than from a caller-supplied argument, so a caller
+    // cannot pass a count that disagrees with the list it also passed — it is now
+    // simply read one level further in.
+    //
+    // Slots and what they carry, after the change:
+    //
+    //   0 surface payload   1 width            2 height          3 geometry payload
+    //   4 offsets POINTER   5 glyph metadata   6 glyph coverage  7 draws POINTER
+    //
+    // Slots 4 and 7 are the odd ones out. Passing a payload where the emitter expects a
+    // pointer reads the collection header as data -- a plausible wrong picture rather
+    // than a fault -- and the only thing that catches it is a render compared against
+    // the software oracle: `every_group_case_matches_the_software_oracle` in
+    // `tests/rt_canvas_metal.rs`, which needs the draw list to be read correctly before
+    // any of its seven cases can land in the right place.
     let mut staged = Vec::new();
-    // Slots 6 and 7 are the glyph cache — its metadata and its coverage bytes — which a
-    // `Text` item's run indexes into. They are the last two MFB argument registers: the
-    // bank is eight wide, so this seam is now full and a ninth argument would have to
-    // travel on the stack.
-    for (slot, source) in [(0usize, 0usize), (3, 3), (4, 4), (6, 5), (7, 6)] {
+    for (slot, source) in [(0usize, 0usize), (3, 3), (5, 5), (6, 6)] {
         let payload = builder.temporary_vreg();
         builder.emit(abi::add_immediate(
             &payload,
@@ -101,6 +118,13 @@ pub(crate) fn lower_metal_draw_scene(
             COLLECTION_HEADER_SIZE,
         ));
         staged.push((slot, payload));
+    }
+    // The two that travel whole. Still staged through temporaries for the reason above:
+    // `located[4]` and `located[7]` arrive in argument registers this loop overwrites.
+    for (slot, source) in [(4usize, 4usize), (7, 7)] {
+        let whole = builder.temporary_vreg();
+        builder.emit(abi::move_register(&whole, &located[source]));
+        staged.push((slot, whole));
     }
     let width = builder.temporary_vreg();
     let height = builder.temporary_vreg();
@@ -112,7 +136,6 @@ pub(crate) fn lower_metal_draw_scene(
     }
     builder.emit(abi::move_register(abi::mfb_arg(1), &width));
     builder.emit(abi::move_register(abi::mfb_arg(2), &height));
-    builder.emit(abi::move_register(abi::mfb_arg(5), &count));
 
     if let Some(result) =
         ctx.platform

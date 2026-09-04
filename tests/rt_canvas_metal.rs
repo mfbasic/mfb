@@ -152,6 +152,48 @@ END SUB
 /// still declines, and the rectangle beside it is there so the frame is not blank —
 /// a fallback that rendered nothing would compare equal to a fallback that rendered
 /// nothing, and prove nothing.
+const GROUPS: &str = r#"IMPORT app
+IMPORT canvas
+SUB main()
+  app::setMode(app::Mode.Canvas)
+
+  ' 1. a group drawn at (0,0) -- the offset is present but zero
+  LET atOrigin AS List OF canvas::DrawItem = [canvas::Rectangle[x := 20.0, y := 20.0, w := 80.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]]
+  canvas::setGroup("atOrigin", atOrigin)
+
+  ' 2. a group drawn at (37, 53) -- a non-zero offset, which a vertex-only
+  '    implementation cannot get right for anything position-dependent
+  LET moved AS List OF canvas::DrawItem = [canvas::Circle[x := 200.0, y := 60.0, radius := 30.0, paint := canvas::fillStroke(canvas::rgb(0, 160, 220), canvas::rgb(255, 255, 255), 5.0)]]
+  canvas::setGroup("moved", moved)
+
+  ' 3. a NESTED group: outer holds inner, so the offsets compose
+  LET inner AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(200, 200, 0))]]
+  canvas::setGroup("inner", inner)
+  LET outer AS List OF canvas::DrawItem = [canvas::Group[name := "inner", dx := 15.0, dy := 25.0]]
+  canvas::setGroup("outer", outer)
+
+  ' 4. a DIAMOND: one leaf referenced twice, at two offsets
+  LET leaf AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 60.0, h := 40.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]]
+  canvas::setGroup("leaf", leaf)
+
+  ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
+  '    space while the shape is evaluated in shape space (section 4.2)
+  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 200.5, h := 60.0] }]]
+  canvas::setGroup("clipped", clipped)
+
+  ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
+  '    the shape-space point, so a missing fragment offset shows as a shifted ramp
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops]
+  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := ramp }]]
+  canvas::setGroup("grad", grad)
+
+
+  LET scene AS List OF canvas::DrawItem = [canvas::Group[name := "atOrigin", dx := 0.0, dy := 0.0], canvas::Group[name := "moved", dx := 37.0, dy := 53.0], canvas::Group[name := "outer", dx := 380.0, dy := 40.0], canvas::Group[name := "leaf", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 700.0, dy := 140.0], canvas::Group[name := "clipped", dx := 60.0, dy := 200.0], canvas::Group[name := "grad", dx := 420.0, dy := 200.0]]
+  canvas::present(scene)
+END SUB
+"#;
+
 const TOO_MANY_EDGES: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT collections
@@ -410,6 +452,67 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
             "200 rings of 200 edges is 40,000 edges, past METAL_MAX_FRAME_EDGES — the \
              renderer must decline the whole frame and let the software oracle draw it, \
              so the two frames must be byte-identical, but {diff}"
+        );
+    }
+}
+
+/// Every group case matches the software oracle — plan-116-H Phase 3's acceptance.
+///
+/// What this asserts is not "groups draw" but "the per-draw OFFSET reaches both shader
+/// stages". Every item in the scene lives inside a group, so a backend that ignored the
+/// offset would produce a complete, plausible picture with every shape stacked at the
+/// origin — the failure `.ai/canvas-threading.md` §10 is about, and one that only a
+/// comparison against the software oracle at a NON-ZERO offset can see.
+///
+/// The cases are chosen so each can only pass for the right reason:
+///
+/// * a group at `(0,0)` — the offset is present and zero;
+/// * a group at `(37,53)` — non-zero;
+/// * a **nested** group — `(380,40)` and `(15,25)` must compose to `(395,65)`;
+/// * a **diamond** — one leaf, two references, two offsets, sharing one base;
+/// * a **clipped** item inside a translated group — the clip is evaluated in surface
+///   space while the shape is evaluated in shape space, so a backend that moved both
+///   together would drag the clip window along with the group;
+/// * a **gradient-filled** item inside a translated group — the ramp is sampled per
+///   fragment, so a vertex-stage-only offset draws the shape correctly with the ramp
+///   shifted inside it.
+///
+/// That last case is why `setVertexBytes:` alone is not enough and the fragment stage
+/// gets the offset too. The `Text`-in-a-group case needs a font file beside the binary
+/// and is covered by `scripts/test-canvas-vulkan.sh`, which ships one.
+///
+/// Measured when it landed: **worst channel delta 1, 0.0028% of pixels differing** —
+/// inside `Tolerance::GPU_DEFAULT`'s per-pixel bound, not merely its population budget.
+#[test]
+fn every_group_case_matches_the_software_oracle() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_groups", GROUPS);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    // Asserted BEFORE the pixels. A declined group scene falls back to software, and
+    // then this test would be comparing the software renderer against itself and
+    // passing for no reason — which is exactly what it did while plan-116-G's decline
+    // was in place.
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the group scene never reached Metal, so the comparison below would be the \
+         software renderer against itself: {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the Metal backend disagrees with the software oracle on a group scene: \
+             {diff}\n\
+             Each case sits in its own region, so the coordinate localizes it: (20,20) \
+             at-origin; (237,113) moved; (395,65) nested; (600,40) and (700,140) the \
+             diamond; (60,200) clipped; (420,200) gradient. A shape at the ORIGIN \
+             instead of its group offset means the offset never reached the stage that \
+             shape depends on — the vertex stage moves the quad, the fragment stage \
+             moves the query point, and a gradient needs both."
         );
     }
 }

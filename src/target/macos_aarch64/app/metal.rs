@@ -56,7 +56,11 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
     METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES,
 };
+use crate::codegen::error::constants::error_constants::{
+    COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
+};
 use crate::codegen::runtime::canvas::{
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_POLYGON, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
     GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
     GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
@@ -160,13 +164,27 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
     // sidesteps `MTLBuffer` offset alignment, which the item stride does not satisfy
     // (`ITEM_BLOCK_SIZE`, 208 since plan-116-F; 112 when this was written).
+    // plan-116-H: the group offset moves the QUAD, and the fragment stage moves the
+    // query point the other way. Same split the software renderer makes (plan-116-G
+    // section 4.5) and the same one `mfb_canvas.vert` makes -- bounds by +offset,
+    // distance evaluated at p - offset -- so one rule covers all three renderers.
+    //
+    // No clamp to the surface. The quad may extend past it and the rasteriser discards
+    // what falls outside clip space; clamping would shrink a quad the fragment stage
+    // still expects to span the item's full extent.
+    //
+    // `buffer(1)` and not a bigger `MfbItem`: the offset varies per DRAW while the item
+    // varies per instance, so putting it in the item block would mean rewriting every
+    // block whenever a group moved.
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
     "                      uint iid [[instance_id]],\n",
-    "                      constant MfbItem *items [[buffer(0)]]) {\n",
+    "                      constant MfbItem *items [[buffer(0)]],\n",
+    "                      constant int2 &drawOffset [[buffer(1)]]) {\n",
     "  uint index = iid;\n",
     "  constant MfbItem &item = items[index];\n",
     "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
-    "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w));\n",
+    "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w))\n",
+    "                + float2(fx(drawOffset.x), fx(drawOffset.y));\n",
     "  VOut o;\n",
     "  o.item = index;\n",
     "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
@@ -428,8 +446,16 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant uchar *glyph [[buffer(2)]]) {\n",
+    "                            constant uchar *glyph [[buffer(2)]],\n",
+    "                            constant int2 &drawOffset [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
+    // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
+    // offset taken back off -- and every distance, gradient and glyph lookup below uses
+    // it. `in.pos.xy` stays the SURFACE point and only the clip uses it, because a clip
+    // is expressed in surface coordinates and does not travel with the group
+    // (section 4.2). Getting that backwards moves the clip window with the group, which
+    // is a plausible wrong picture rather than a fault.
+    "  float2 p = in.pos.xy - float2(fx(drawOffset.x), fx(drawOffset.y));\n",
     // A glyph has coverage, not a distance: the CPU rasterised its outline once and
     // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
     // returns before `geoDistance` for that reason, and it is fill-only — a stroked
@@ -447,7 +473,7 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // mapping the query point is the whole change -- the cache stays untransformed and
     // one entry serves every transform.
     "  if (item.misc.x == 6) {\n",
-    "    float2 gp = hasTransform(item) ? inverseMap(item, in.pos.xy) : in.pos.xy;\n",
+    "    float2 gp = hasTransform(item) ? inverseMap(item, p) : p;\n",
     // `floor`, not a cast: a cast truncates toward zero, and a transformed glyph maps
     // to NEGATIVE shape-space coordinates (ink runs up from the pen), where truncation
     // picks the texel on the wrong side. Untransformed, `gp` is a surface pixel centre
@@ -462,12 +488,12 @@ pub(super) const METAL_SHADER_SOURCE: &str = concat!(
     // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
     // with the shape (section 4.3). Untransformed, `dScale` is 1.0 and both collapse to
     // the expressions this shader had.
-    "  float2 ds = shapeDistanceAndScale(item, edges, in.pos.xy);\n",
+    "  float2 ds = shapeDistanceAndScale(item, edges, p);\n",
     "  float dRaw = ds.x;\n",
     "  float dScale = ds.y;\n",
     "  float d = dRaw / dScale;\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
-    "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(in.pos.xy, edges, item) : item.fill;\n",
+    "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
     "  float4 colour = covered(fillRgba,\n",
     "    (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);\n",
     "  float halfWidth = fx(item.misc.z);\n",
@@ -572,10 +598,14 @@ pub(super) const SEL_SET_RENDER_PIPELINE_STATE: (&str, &str) = (
 /// consecutive non-text items, and one per glyph.
 ///
 /// It replaced `drawPrimitives:vertexStart:vertexCount:` and
-/// `setVertexBytes:length:atIndex:` outright, and both are *deleted* rather than kept
+/// `setVertexBytes:length:atIndex:` outright, and both were *deleted* rather than kept
 /// for a caller that might want them: every selector in `metal_data_objects` is a C
 /// string emitted into every canvas binary and registered with the ObjC runtime at
 /// startup, so an unsent one is not free.
+///
+/// plan-116-H re-added `setVertexBytes:` — see `SEL_SET_VERTEX_BYTES` — because the
+/// group offset is now sent to the vertex stage once per draw entry. The uninstanced
+/// draw stays deleted.
 ///
 /// `baseInstance:` is the load-bearing part, not `instanceCount:`: it is what lets a run
 /// that begins partway through the item buffer name its own blocks. MSL's
@@ -620,6 +650,23 @@ pub(super) const SEL_GET_BYTES: (&str, &str) = (
 pub(super) const SEL_SET_FRAGMENT_BYTES: (&str, &str) = (
     "_mfb_macapp_sel_setFragmentBytes",
     "setFragmentBytes:length:atIndex:",
+);
+
+/// The group offset, sent inline to the vertex stage once per draw entry (plan-116-H).
+///
+/// **Re-added here**: plan-116-A deleted this selector along with the uninstanced draw,
+/// on the stated grounds that an unsent selector still costs a C string and a runtime
+/// registration in every canvas binary. That reasoning stands — it is sent again now.
+///
+/// Missing it is not a compile error, which is the hazard **H5** names: the emitter
+/// would `objc_msgSend` a selector the runtime never registered. It has to be in
+/// `metal_data_objects` below as well as declared here.
+///
+/// Inline bytes rather than an `MTLBuffer` because the payload is eight bytes that
+/// change per draw; `setVertexBytes:` is the API for exactly that size.
+pub(super) const SEL_SET_VERTEX_BYTES: (&str, &str) = (
+    "_mfb_macapp_sel_setVertexBytes",
+    "setVertexBytes:length:atIndex:",
 );
 
 pub(crate) const CLASS_MTL_TEXTURE_DESCRIPTOR: &str = "_OBJC_CLASS_$_MTLTextureDescriptor";
@@ -1049,7 +1096,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = 576;
+const DRAW_FRAME: usize = 640;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1083,11 +1130,13 @@ const OFF_GLYPH_SRC: usize = 480;
 const OFF_CONTENTS: usize = 488;
 /// The frame's item-buffer cursor — one block per drawn QUAD, so a shape takes one and
 /// a glyph run takes one per glyph — and the base of the instanced run currently being
-/// accumulated. `OFF_RUN_COUNT` is where the flush computes `cursor - base`, which has
-/// to live somewhere the argument staging cannot clobber.
+/// accumulated.
+///
+/// `OFF_RUN_COUNT` used to sit beside these, holding the `cursor - base` the flush
+/// computed. plan-116-H deleted it with `emit_run_flush`: the instance count now comes
+/// from the draw list, not from the cursor. 512 is free.
 const OFF_ITEM_CURSOR: usize = 496;
 const OFF_RUN_START: usize = 504;
-const OFF_RUN_COUNT: usize = 512;
 /// The frame's running edge cursor, in edges. Each polygon appends here and records
 /// where it started in its own item block — exactly what the Vulkan emitter has always
 /// done, and what Metal could not do while its edges rode a per-item payload.
@@ -1109,6 +1158,34 @@ const OFF_SAVED_STROKE: usize = 552;
 /// The frame's gradient-stop cursor, in STOPS — the third region's twin of
 /// `OFF_EDGE_CURSOR` (plan-116-F).
 const OFF_GRAD_CURSOR: usize = 560;
+
+/// plan-116-H Phase 3: the draw list, and the walk over it.
+///
+/// `OFF_DRAWS` holds the **payload** pointer and `OFF_DRAW_ENTRIES` the entry count —
+/// both derived here from the collection pointer the seam now passes, rather than from
+/// two arguments, because the argument bank is eight wide and the eighth is the draw
+/// list itself (`func_metal_draw.rs`).
+///
+/// `OFF_DRAW_PAIR` is the two 16.16 offsets laid out contiguously, so `setVertexBytes:`
+/// and `setFragmentBytes:` can point at eight bytes of frame rather than at a
+/// collection another thread may be writing.
+/// Where the group offset is bound in each stage, matching the `[[buffer(N)]]`
+/// attributes in `METAL_SHADER_SOURCE`.
+///
+/// The vertex stage has only `items` at 0, so the offset takes 1. The fragment stage
+/// already has items, edges and the glyph bitmap at 0..2, so it takes 3. They differ,
+/// and `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it` is what
+/// keeps each equal to its shader — sending to the wrong index binds nothing and the
+/// stage reads whatever was there, which is a wrong picture rather than a fault.
+const METAL_DRAW_OFFSET_VERTEX_INDEX: &str = "1";
+const METAL_DRAW_OFFSET_FRAGMENT_INDEX: &str = "3";
+
+const OFF_DRAWS: usize = 568;
+const OFF_DRAW_ENTRIES: usize = 576;
+const OFF_DRAW_INDEX: usize = 584;
+const OFF_DRAW_BASE: usize = 592;
+const OFF_DRAW_COUNT: usize = 600;
+const OFF_DRAW_PAIR: usize = 608;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -1172,9 +1249,55 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_HEIGHT,
     ));
     asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(3))); // geometry payload
-    asm.push(abi::move_register(abi::LOCAL[4], abi::mfb_arg(4))); // offsets payload
-    asm.push(abi::move_register(abi::LOCAL[5], abi::mfb_arg(5))); // offset count
-    for (argument, slot) in [(6usize, OFF_GLYPH_META), (7, OFF_GLYPH_COV)] {
+    // plan-116-H: slots 4 and 7 arrive as **collection pointers**, not payloads — the
+    // seam bought back one argument register that way so the draw list could have the
+    // eighth (`func_metal_draw.rs`). Both are unpacked here, and both are read out of
+    // the argument bank BEFORE anything else is staged into it.
+    //
+    // The count still comes off the collection header, so a caller cannot pass a length
+    // that disagrees with the list it passed; it is simply read one level further in
+    // than it used to be.
+    asm.push(abi::load_u64(
+        abi::LOCAL[5],
+        abi::mfb_arg(4),
+        COLLECTION_OFFSET_COUNT,
+    )); // offset count
+    asm.push(abi::add_immediate(
+        abi::LOCAL[4],
+        abi::mfb_arg(4),
+        COLLECTION_HEADER_SIZE,
+    )); // offsets payload
+    // The draw list: payload, then entries. An entry is `CANVAS_DRAW_ENTRY_WORDS`
+    // words, so the entry count is the element count shifted — the same arithmetic the
+    // Vulkan emitter does, from the same constant, because a disagreement between the
+    // two would be a backend that walks a different number of draws than the list has
+    // (plan-116-H **H13**).
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::mfb_arg(7),
+        COLLECTION_OFFSET_COUNT,
+    ));
+    asm.push(abi::shift_right_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        CANVAS_DRAW_ENTRY_COUNT_SHIFT as u8,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAW_ENTRIES,
+    ));
+    asm.push(abi::add_immediate(
+        abi::SCRATCH[0],
+        abi::mfb_arg(7),
+        COLLECTION_HEADER_SIZE,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWS,
+    ));
+    for (argument, slot) in [(5usize, OFF_GLYPH_META), (6, OFF_GLYPH_COV)] {
         asm.push(abi::store_u64(
             abi::mfb_arg(argument),
             abi::stack_pointer(),
@@ -1513,7 +1636,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         asm.push(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[2]));
         asm.push(abi::branch_eq(&same_mode));
 
-        emit_run_flush(&mut asm, "mode");
+        // plan-116-H: no flush here. The draw list already ends a run wherever the
+        // blend mode changes, so this site only binds the pipeline the following blocks
+        // will be published under; the draws are issued by `emit_draw_list_pass` once
+        // every block is in the buffer.
         // handle = *(state + …_MTL_PIPELINE_MODES + mode * 8) — contiguous and 0-based,
         // so a shift and an add rather than a four-way branch.
         asm.push(abi::load_u64(
@@ -1603,8 +1729,11 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // to reach the command stream before them or they would be drawn on top of the text
     // instead of under it.
     asm.push(abi::label(&text_item));
-    emit_run_flush(&mut asm, "text");
-    emit_glyph_draws(&mut asm);
+    // plan-116-H: no flush here either. Ordering used to be kept by issuing the
+    // accumulated run before the glyphs; it is now kept by the draw list being in scene
+    // order and the pass walking it in that order. A `Text` item is its own entry, so
+    // nothing merges across it.
+    emit_glyph_publish(&mut asm);
     // The glyphs consumed item-buffer slots of their own, so the next run of shapes
     // begins after them — not where the flush above left the base. Without this the
     // trailing shapes are drawn as one run *starting at the first glyph*, so every
@@ -1628,7 +1757,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // The scene's last run — everything published since the final glyph run, or the
     // whole frame when it contains no text. Without this the trailing shapes are
     // written into the buffer and never drawn.
-    emit_run_flush(&mut asm, "tail");
+    // plan-116-H: every block is published by the walk above, so the pass issues every
+    // draw — one instanced call per entry, each with its own pipeline and its own group
+    // offset. This replaces the trailing flush and the two removed above.
+    emit_draw_list_pass(&mut asm);
 
     // --- submit and wait ---------------------------------------------------------
     for (selector, receiver) in [
@@ -1796,7 +1928,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 ///
 /// The item block is built once for the run — fill, stroke and surface are the same for
 /// every glyph in it — and then edited per glyph.
-fn emit_glyph_draws(asm: &mut Asm) {
+fn emit_glyph_publish(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_glyph_head");
     let done = format!("{METAL_DRAW_SYMBOL}_glyph_done");
     let next = format!("{METAL_DRAW_SYMBOL}_glyph_next");
@@ -2166,26 +2298,11 @@ fn emit_glyph_draws(asm: &mut Asm) {
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // One instance, not a run: a glyph run is N draws by design, and folding it into
-    // the instancing scheme is a change of shape rather than of transport. The block
-    // still rides the buffer, so `baseInstance:` is all that identifies it.
-    asm.load_selector(SEL_DRAW_PRIMITIVES_INSTANCED.0);
-    asm.push(abi::move_immediate(
-        abi::c_arg(2),
-        "Integer",
-        MTL_PRIMITIVE_TRIANGLE_STRIP,
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // vertexStart
-    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "4")); // vertexCount
-    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "1")); // instanceCount
-    asm.push(abi::load_u64(
-        abi::c_arg(6),
-        abi::stack_pointer(),
-        OFF_GLYPH_INSTANCE,
-    ));
-    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-
+    // plan-116-H: no draw here any more. A glyph run is still N quads, one block each,
+    // but the draw that issues them is now the draw list's — a `Text` item is its own
+    // entry with `count` = its glyph count, so the pass below issues them as one
+    // instanced call at the group's offset. Leaving the draw here as well drew every
+    // glyph twice, the second time with the offset undefined for that command.
     asm.push(abi::label(&next));
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
@@ -2539,12 +2656,25 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(&single));
-    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16)...
+    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16).
+    //
+    // SIGNED, for the reason the Vulkan twin records (plan-116-H **H15**):
+    // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, which is
+    // `0xFFFF0000` in 16.16, and `load_u32` zero-extends -- so without the `sxtw` the
+    // 64-bit compare sees 4294901760 and every blended fill-only item is published as
+    // TWO records. The comment below already claims such an item takes the single path.
+    //
+    // It was latent while the draw came from `emit_run_flush`, whose instance count was
+    // `cursor - run_start` -- whatever had actually been published, so the spurious
+    // record was drawn and painted nothing. Phase 3 took this backend's counts from
+    // `__canvas_sceneDraws`, so it is latent no longer: one extra record here shifts
+    // every later draw base and the scene loses its tail.
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC + 8,
     ));
+    asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_le(&single));
     // ...and actually fills. A `Line` or an `Arc` arrives with its stroke colour
@@ -2604,47 +2734,159 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     asm.push(abi::label(&done));
 }
 
-/// Draw every quad published since the last flush as **one instanced draw**, and start
-/// a new run.
+/// One instanced draw per entry of `__canvas_sceneDraws`, after every block is
+/// published (plan-116-H Phase 3 — the Metal twin of `emit_draw_list_pass` in
+/// `runtime/canvas/vulkan.rs`).
 ///
-/// `[encoder drawPrimitives:TriangleStrip vertexStart:0 vertexCount:4
-/// instanceCount:count baseInstance:base]`. MSL's `[[instance_id]]` includes
-/// `baseInstance`, so each instance reads exactly the block this run published into it,
-/// with no index arithmetic in the shader — see `SEL_DRAW_PRIMITIVES_INSTANCED`.
+/// This replaces `emit_run_flush`, which ended a run at a blend-mode change, at a glyph
+/// run and at the end of the scene, and took its instance count from the emitter's own
+/// cursor (`cursor - run_start`). The list now says where every run starts, how long it
+/// is, which pipeline it wants and — the reason this letter exists — what offset to
+/// draw it at.
 ///
-/// A run ends at a glyph run or at the end of the scene, and nowhere else. Nothing
-/// per-item is bound between instances any more: the edges became a buffer region in
-/// this same letter and the item block became one beside them, so consecutive shapes
-/// have nothing left to separate them.
+/// Taking the count from the list rather than from the cursor is what makes a
+/// disagreement between the two visible: while the count was `cursor - run_start` it
+/// was true by construction, so a publish that wrote one record too many painted
+/// nothing and went unnoticed. plan-116-H **H15** is exactly that bug, found on the
+/// Vulkan side after this same conversion; the signed `strokeHalf` read in
+/// `emit_split_or_publish` above is its fix, and it is a fix this backend needed too.
 ///
-/// The encoder is read from `LOCAL[6]`, and the count and base from the stack —
-/// `load_selector` calls through `sel_registerName` and clobbers the whole scratch
-/// bank, so a count computed into a register before it would not survive.
-fn emit_run_flush(asm: &mut Asm, label: &str) {
-    let empty = format!("{METAL_DRAW_SYMBOL}_run_empty_{label}");
+/// The offset is sent to BOTH stages. The vertex stage moves the quad and the fragment
+/// stage moves the query point back, so a gradient or a glyph — both sampled per
+/// fragment from `in.pos.xy` — lands where the group put it. Sending it to the vertex
+/// stage alone draws the shape in the right place with the wrong ramp inside it.
+fn emit_draw_list_pass(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_drawlist_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_drawlist_done");
 
-    asm.push(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        OFF_ITEM_CURSOR,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        OFF_RUN_START,
-    ));
-    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
-    asm.push(abi::branch_le(&empty));
-    asm.push(abi::subtract_registers(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        abi::SCRATCH[1],
-    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        OFF_RUN_COUNT,
+        OFF_DRAW_INDEX,
     ));
+
+    asm.push(abi::label(&head));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAW_INDEX,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_ENTRIES,
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_ge(&done));
+
+    // entry = draws + index * (CANVAS_DRAW_ENTRY_WORDS * 8). A shift, so the width has
+    // to stay a power of two; `the_draw_entry_width_agrees_with_the_emitter` is what
+    // keeps this equal to what `__canvas_pushOneDraw` appends.
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        CANVAS_DRAW_ENTRY_SHIFT as u8,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAWS,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+    ));
+
+    // Every field is parked on the STACK before the first `load_selector`, which calls
+    // through `sel_registerName` and clobbers the whole scratch bank — the same reason
+    // `emit_run_flush` sourced its arguments from memory. An `Integer` here is 64 bits,
+    // so these are `load_u64` and not `load_u32`: reading them 32 bits wide takes the
+    // low half of `base` for `base` and the low half of `count` for `dx`.
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_BASE,
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 8));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_COUNT,
+    ));
+    // The two 16.16 offsets, written as 32-bit words side by side so the eight bytes at
+    // `OFF_DRAW_PAIR` are exactly the `int2` both shader stages declare.
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 16));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_PAIR,
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 24));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_PAIR + 4,
+    ));
+
+    // This entry's pipeline, from the blend mode the run shares. The publish walk binds
+    // as it goes, but every draw now happens after that walk has finished, so a binding
+    // left there would apply the LAST item's mode to the whole frame.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        CANVAS_DRAW_ENTRY_MODE,
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        3,
+    ));
+    asm.local_address(abi::SCRATCH[2], GRAPHICS_STATE_SYMBOL);
+    asm.push(abi::add_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        GRAPHICS_OFFSET_MTL_PIPELINE_MODES,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_SAVED_STROKE,
+    ));
+    asm.load_selector(SEL_SET_RENDER_PIPELINE_STATE.0);
+    asm.push(abi::load_u64(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_SAVED_STROKE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // The offset, to both stages. `setVertexBytes:` is the selector plan-116-A deleted
+    // and plan-116-H re-added (**H5**); missing it from `metal_data_objects` is not a
+    // compile error, it is a message to an unregistered selector.
+    for (selector, index) in [
+        (SEL_SET_VERTEX_BYTES.0, METAL_DRAW_OFFSET_VERTEX_INDEX),
+        (SEL_SET_FRAGMENT_BYTES.0, METAL_DRAW_OFFSET_FRAGMENT_INDEX),
+    ] {
+        asm.load_selector(selector);
+        asm.push(abi::add_immediate(
+            abi::c_arg(2),
+            abi::stack_pointer(),
+            OFF_DRAW_PAIR,
+        ));
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "8"));
+        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", index));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
 
     asm.load_selector(SEL_DRAW_PRIMITIVES_INSTANCED.0);
     asm.push(abi::move_immediate(
@@ -2657,29 +2899,29 @@ fn emit_run_flush(asm: &mut Asm, label: &str) {
     asm.push(abi::load_u64(
         abi::c_arg(5),
         abi::stack_pointer(),
-        OFF_RUN_COUNT,
+        OFF_DRAW_COUNT,
     ));
     asm.push(abi::load_u64(
         abi::c_arg(6),
         abi::stack_pointer(),
-        OFF_RUN_START,
+        OFF_DRAW_BASE,
     ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    asm.push(abi::label(&empty));
-    // The next run starts wherever this frame has published to, whether or not anything
-    // was drawn just now.
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        OFF_ITEM_CURSOR,
+        OFF_DRAW_INDEX,
     ));
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
-        OFF_RUN_START,
+        OFF_DRAW_INDEX,
     ));
+    asm.push(abi::branch(&head));
+    asm.push(abi::label(&done));
 }
 
 /// Append a polygon's cached edge tail to the **frame buffer's edge region**, and
@@ -3066,6 +3308,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_WAIT_UNTIL_COMPLETED,
         SEL_GET_BYTES,
         SEL_SET_FRAGMENT_BYTES,
+        SEL_SET_VERTEX_BYTES,
         SEL_DRAW_PRIMITIVES_INSTANCED,
         SEL_NEW_BUFFER,
         SEL_CONTENTS,
@@ -3259,6 +3502,75 @@ mod tests {
     /// Checked as a sorted sweep rather than a list of pairwise asserts so a slot added
     /// later is covered without anyone remembering to extend this.
     #[test]
+    /// The draw offset is bound where the shader declares it, in both stages.
+    ///
+    /// The emitter sends `setVertexBytes:...atIndex:` and `setFragmentBytes:...atIndex:`
+    /// with two *different* indices, because the fragment stage already has items,
+    /// edges and the glyph bitmap at 0..2 while the vertex stage has only items at 0.
+    /// The shader is a string the Rust compiler never parses, so nothing else checks
+    /// that the two agree — and a mismatch does not fault: the stage reads whatever was
+    /// bound at that index, which is a wrong picture reported as success.
+    #[test]
+    fn the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it() {
+        for (index, stage) in [
+            (METAL_DRAW_OFFSET_VERTEX_INDEX, "vertex"),
+            (METAL_DRAW_OFFSET_FRAGMENT_INDEX, "fragment"),
+        ] {
+            let declaration = format!("constant int2 &drawOffset [[buffer({index})]]");
+            assert!(
+                METAL_SHADER_SOURCE.contains(&declaration),
+                "the emitter sends the draw offset to buffer index {index} for the \
+                 {stage} stage, but METAL_SHADER_SOURCE has no `{declaration}`",
+            );
+        }
+        // And exactly one declaration per stage: a second one at another index would
+        // satisfy the loop above while the emitter still fed only one of them.
+        assert_eq!(
+            METAL_SHADER_SOURCE.matches("&drawOffset [[buffer(").count(),
+            2,
+            "expected exactly one draw-offset binding in each of the two stages",
+        );
+    }
+
+    /// The fragment stage evaluates the CLIP in surface space and everything else in
+    /// shape space.
+    ///
+    /// `p` is the surface point with the group offset removed; `in.pos.xy` is the
+    /// surface point itself. A clip does not travel with its group (plan-116-H §4.2),
+    /// so it is the one consumer that must keep `in.pos.xy` — and the distance,
+    /// gradient and glyph lookups must all use `p`, because each is evaluated per
+    /// fragment and would otherwise be sampled at the wrong point inside a correctly
+    /// positioned quad.
+    #[test]
+    fn the_metal_fragment_clips_in_surface_space_and_samples_in_shape_space() {
+        let body = METAL_SHADER_SOURCE
+            .split("fragment float4 mfbFragment")
+            .nth(1)
+            .expect("the fragment entry point is in the shader");
+        assert!(
+            body.contains("clipCoverage(item, in.pos.xy)"),
+            "the clip must be evaluated at the SURFACE point — evaluating it at `p` \
+             drags the clip window along with the group",
+        );
+        for (call, what) in [
+            ("shapeDistanceAndScale(item, edges, p)", "the shape distance"),
+            ("gradientColour(p, edges, item)", "the gradient ramp"),
+            ("inverseMap(item, p) : p", "the glyph sample"),
+        ] {
+            assert!(
+                body.contains(call),
+                "{what} must be evaluated at the SHAPE-space point `p`; sampling it at \
+                 `in.pos.xy` draws a correctly placed shape with the wrong contents",
+            );
+        }
+        assert_eq!(
+            body.matches("in.pos.xy").count(),
+            2,
+            "only the clip and `p`'s own definition may mention `in.pos.xy` — another \
+             use is a consumer that was not moved into shape space",
+        );
+    }
+
     fn the_draw_frame_slots_do_not_overlap() {
         // (offset, size, name) for every hand-assigned slot in the frame.
         let mut slots = vec![
@@ -3284,13 +3596,18 @@ mod tests {
             (OFF_CONTENTS, 8, "contents"),
             (OFF_ITEM_CURSOR, 8, "itemCursor"),
             (OFF_RUN_START, 8, "runStart"),
-            (OFF_RUN_COUNT, 8, "runCount"),
             (OFF_EDGE_CURSOR, 8, "edgeCursor"),
             (OFF_GRAD_CURSOR, 8, "gradCursor"),
             (OFF_GLYPH_INSTANCE, 8, "glyphInstance"),
             (OFF_BOUND_MODE, 8, "boundMode"),
             (OFF_ITEM_MODE, 8, "itemMode"),
             (OFF_SAVED_STROKE, 8, "savedStroke"),
+            (OFF_DRAWS, 8, "draws"),
+            (OFF_DRAW_ENTRIES, 8, "drawEntries"),
+            (OFF_DRAW_INDEX, 8, "drawIndex"),
+            (OFF_DRAW_BASE, 8, "drawBase"),
+            (OFF_DRAW_COUNT, 8, "drawCount"),
+            (OFF_DRAW_PAIR, 8, "drawPair"),
         ];
         slots.sort_by_key(|&(offset, _, _)| offset);
 

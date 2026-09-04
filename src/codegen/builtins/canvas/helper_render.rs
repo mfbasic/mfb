@@ -140,7 +140,6 @@ r#"' plan-116-G: the accumulated group translation of each draw entry, parallel 
 ' every one of them to express something three of them never read.
 MUT __CANVAS_DRAW_DX AS List OF Float = []
 MUT __CANVAS_DRAW_DY AS List OF Float = []
-MUT __CANVAS_DRAW_HAS_GROUP AS Boolean = FALSE
 
 ' The hash of each DRAW entry, which is not the same list as the scene's hashes once a
 ' group is expanded: one `Group` node becomes N children.
@@ -164,7 +163,6 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
   MUT out AS List OF Integer = offsets
   MATCH item
     CASE Group(g)
-      __CANVAS_DRAW_HAS_GROUP = TRUE
       ' Depth is counted per PATH, so a diamond -- two parents naming one child -- is
       ' legal and costs one level rather than two.
       '
@@ -547,7 +545,6 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   __CANVAS_DRAW_DX = []
   __CANVAS_DRAW_DY = []
   __CANVAS_DRAW_HASHES = []
-  __CANVAS_DRAW_HAS_GROUP = FALSE
   ' Published as it goes, not at the end. The geometry cache is smaller than a large
   ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
   ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
@@ -626,10 +623,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
       IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
         RETURN FALSE
       END IF
-      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-    ELSE
-      quads = quads + 1
     END IF
+    ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
+    ' asks. A blended item that both strokes and fills publishes two
+    ' (`emit_split_or_publish`); counting it as one let a scene near the cap write past
+    ' the mapping, which is the direction this predicate exists to prevent.
+    quads = quads + __canvas_blockInstances(offset)
     ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
     ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
     ' edge cap has. A count below two is not a gradient and contributes nothing.
@@ -662,15 +661,16 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
-  ' plan-116-G: decline any scene that contained a group, until plan-116-H teaches the
-  ' backends the per-draw offset. Read from the walk's own flag rather than by looking
-  ' for a `Group` item, because by the time a predicate sees this list the walk has
-  ' already expanded every group away -- searching for one would find nothing and the
-  ' GPU would draw every group's children at the ORIGIN, which is a plausible wrong
-  ' picture reported as success (`.ai/canvas-threading.md` section 10).
-  IF __CANVAS_DRAW_HAS_GROUP THEN
-    RETURN FALSE
-  END IF
+  ' plan-116-H Phase 3: Metal no longer declines a scene containing a group either. The
+  ' emitter walks `__canvas_sceneDraws` and sends each entry's offset to BOTH shader
+  ' stages -- `setVertexBytes:` at index 1 and `setFragmentBytes:` at index 3 -- so a
+  ' group's children land where the group puts them rather than at the origin.
+  '
+  ' With both backends taught, `__CANVAS_DRAW_HAS_GROUP` has no reader and is deleted
+  ' rather than left set for a caller that might want it. The rule it encoded is the
+  ' part worth keeping, and it lives in `__canvas_vulkanRenderable` and in
+  ' `.ai/canvas-threading.md` section 10: a predicate cannot decline by looking for a
+  ' `Group` item, because the walk has already expanded every group away by then.
   RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
@@ -679,7 +679,11 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
     RETURN FALSE
   END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
-  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
+  ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset. Same
+  ' arguments as the Vulkan twin, and deliberately so -- the two backends walking
+  ' different lists is how a group ends up correct on one and at the origin on the other.
+  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
@@ -756,8 +760,13 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   ' constant that BOTH shader stages consume, so a group's children land where the
   ' group puts them rather than at the origin.
   '
-  ' `__CANVAS_DRAW_HAS_GROUP` stays -- `__canvas_metalRenderable` still reads it until
-  ' Phase 3 teaches Metal the same offset. Do not "simplify" it away.
+  ' Phase 3 taught Metal the same offset, so `__CANVAS_DRAW_HAS_GROUP` -- the flag both
+  ' predicates used to decline on -- has no reader left and is gone. If a future backend
+  ' needs to decline a group scene it has to set a flag on the WALK again rather than
+  ' look for a `Group` item here: by the time a predicate sees this list the walk has
+  ' expanded every group away, so searching for one finds nothing and the backend draws
+  ' every group's children at the ORIGIN -- a plausible wrong picture reported as
+  ' success (`.ai/canvas-threading.md` section 10).
   '
   ' No cap needs a per-reference multiplier here. A group's blocks are recorded ONCE
   ' and referenced by base, in both walks: a diamond referencing one leaf twice reports

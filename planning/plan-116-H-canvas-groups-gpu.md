@@ -471,17 +471,57 @@ Commit: `3ded46db6`, `240fdf6ee`, `c29046626`, `c6dbc0524`, `2c6809dcd`, `e33b9e
 
 ### Phase 3 — Metal: the same
 
-- [ ] Add the offset to `METAL_SHADER_SOURCE`, bound via `setVertexBytes:` and
+- [x] Add the offset to `METAL_SHADER_SOURCE`, bound via `setVertexBytes:` and
       `setFragmentBytes:` at a dedicated index; same offset-then-clamp and
-      subtract-before-`geoDistance` arithmetic; clip at `in.pos.xy`.
-- [ ] Convert the Metal emitter to walk `__canvas_sceneDraws`, issuing one
-      `drawPrimitives:vertexStart:vertexCount:instanceCount:` per draw entry.
-- [ ] Remove the `Group` decline from `__canvas_metalRenderable`; update its caps.
-- [ ] Tests: the same seven scenes in `tests/rt_canvas_metal.rs` — five, plus the
-      gradient-in-a-translated-group and `Text`-in-a-translated-group cases (**H2**).
+      subtract-before-`geoDistance` arithmetic; clip at `in.pos.xy`. — Two *different*
+      indices, not one: vertex `buffer(1)`, fragment `buffer(3)`, because the fragment
+      stage already has items, edges and the glyph bitmap at 0..2 (**H16**).
+      `setVertexBytes:` re-added as `SEL_SET_VERTEX_BYTES` and registered in
+      `metal_data_objects` (**H5**) — missing that is not a compile error, it is a
+      message to an unregistered selector.
+      There is no clamp, matching `mfb_canvas.vert`: the quad may extend past the
+      surface and the rasteriser discards the rest; clamping would shrink a quad the
+      fragment stage still expects to span the item's full extent.
+      Pinned by `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it` and
+      `the_metal_fragment_clips_in_surface_space_and_samples_in_shape_space`.
+- [x] Convert the Metal emitter to walk `__canvas_sceneDraws`, issuing one
+      `drawPrimitives:vertexStart:vertexCount:instanceCount:` per draw entry. —
+      `emit_run_flush` is gone and `emit_draw_list_pass` replaces all three of its call
+      sites; `emit_glyph_draws` became `emit_glyph_publish`. `OFF_RUN_COUNT` had no
+      reader afterwards and was deleted rather than left set.
+      The argument bank was full, and the ninth value did **not** need the stack:
+      `offsets` now travels as a collection *pointer* instead of a (payload, count)
+      pair, which bought back the slot `draws` needed (**H16**).
+      Two bugs fixed before the conversion rather than after it, so it was never
+      measured against a known-broken publish: the Metal lowering was locating only
+      seven arguments and silently dropping the eighth, and `emit_split_or_publish`
+      carried **H15**'s unsigned `strokeHalf` read.
+- [x] Remove the `Group` decline from `__canvas_metalRenderable`; update its caps. —
+      The item cap now counts published records via `__canvas_blockInstances` rather
+      than `1` per item, for the same reason Vulkan's does: a blended item that both
+      strokes and fills publishes two, and under-counting is the direction that lets a
+      scene write past the mapping.
+      With both backends taught, `__CANVAS_DRAW_HAS_GROUP` has no reader and is deleted
+      (**H17**).
+- [x] Tests: the same seven scenes in `tests/rt_canvas_metal.rs` — five, plus the
+      gradient-in-a-translated-group and `Text`-in-a-translated-group cases (**H2**). —
+      `every_group_case_matches_the_software_oracle`, asserting `gpuFrames` **before**
+      the pixels: a declined scene is drawn by the oracle itself and would match by
+      construction.
+      Six of the seven are here. The `Text` case needs a font file beside the binary,
+      which this harness does not ship and `scripts/test-canvas-vulkan.sh` does — so it
+      is covered there, on the backend where the glyph path is also the one that had to
+      move its draw into the pass. Noted rather than dropped: it is asserted, just not
+      twice.
 
 Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`.
+
+**MET: `worst=1 differing=0.0028%` with `metalReady=TRUE gpuFrames=1`** — inside
+`Tolerance::GPU_DEFAULT`'s per-pixel bound (≤2 steps) rather than merely its population
+budget, on six scenes rather than five. `cargo test --test rt_canvas_metal` is green
+including the pre-existing primitive and fallback tests, so the conversion costs nothing
+on the scenes that have no groups at all.
 Commit: —
 
 ### Phase 4 — The reference image, docs, and the gates
@@ -547,6 +587,86 @@ Commit: —
   the draw list.
 
 ## Corrections
+
+**H17 (Phase 3) — `__CANVAS_DRAW_HAS_GROUP` is deleted, and plan-116-G's decline test is
+inverted rather than removed.**
+
+The flag existed for one purpose: to let both predicates decline a scene containing a
+group. With Phase 2 and Phase 3 landed it has **no reader** — only a declaration, a write
+in the group walk, and a per-frame reset. A global that is only ever written is dead, and
+AGENTS.md's rule is to delete rather than keep it for a caller that might want it, so it
+is gone.
+
+What is kept is the *reason* it was a flag, because that is the part someone would get
+wrong twice: **a predicate cannot decline by searching the offsets list for a `Group`
+item.** By the time a predicate sees that list the walk has expanded every group away, so
+the search finds nothing, the frame is accepted, and every group's children are drawn at
+the origin. That is recorded in `__canvas_vulkanRenderable`, in the golden test's doc
+comment, and in `.ai/canvas-threading.md` §10.
+
+`tests/rt_canvas_golden.rs`'s test has now been **inverted twice in one letter** and both
+times deliberately:
+
+| when | assertion |
+|---|---|
+| plan-116-G | a group scene declines on **both** backends |
+| Phase 2 here | Vulkan **accepts**, Metal still declines |
+| Phase 3 here | **both accept** — `a_scene_containing_a_group_reaches_the_gpu` |
+
+It was never re-baselined to make a failure go away: each inversion followed a measured
+change of contract, and the AGENTS.md four-question gate is answered in the test's own doc
+comment, which keeps the whole history rather than only the current claim.
+
+It still asserts the **frame count**, not the pixels, and the comment now says why in
+terms that survive the inversion: a declined frame is drawn by the software renderer,
+which is the oracle, so it matches any reference *by construction* — a pixel comparison
+there passes whether the group reached the GPU or not. The pixels are asserted where a
+real GPU frame exists to compare against:
+`every_group_case_matches_the_software_oracle` (Metal) and the group stage of
+`scripts/test-canvas-vulkan.sh` (Vulkan).
+
+**H16 (Phase 3) — three things the Metal half needed that §4.2 did not name.**
+
+**1. The argument bank was full, and the ninth value did not have to go on the stack.**
+`func_metal_draw.rs` staged eight values into an eight-wide bank — and one of them was
+not a parameter at all: `offsets` travelled as a *(payload, count)* pair, the count read
+off its collection header. So the seam spent two registers on one list. Passing the
+**collection pointer** instead and unpacking both halves inside `emit_metal_draw` bought
+the slot back for `draws`, with no stack argument and no change to the property the old
+comment defended — the count still comes off the header, so a caller cannot pass a length
+that disagrees with the list it passed.
+
+Slots now: `0` surface payload, `1` width, `2` height, `3` geometry payload,
+`4` offsets **pointer**, `5` glyph metadata, `6` glyph coverage, `7` draws **pointer**.
+
+**2. `metalDrawScene` was already declared to take the draw list and was silently
+dropping it.** `scene_params()` is shared by both backends, so **`3ded46db6` gave Metal
+the eighth parameter when it gave Vulkan one**. But the Metal lowering's `located` loop
+still named seven arguments, so the list was accepted at the call site and never
+forwarded. Nothing failed: the emitted thunk simply did not read `x7`. Adding an argument
+to a shared parameter list is therefore a change to *every* function that shares it, and
+the compiler will not say so.
+
+**3. Metal carried H15's `strokeHalf` bug too, and would have hit it the moment this
+phase landed.** `emit_split_or_publish` in `metal.rs` had the same `load_u32` +
+`branch_le` against a value that is `-1.0` in 16.16 for a paint that does not stroke.
+Latent for the same reason Vulkan's was — the count came from `cursor - run_start` — and
+live the instant the counts came from `__canvas_sceneDraws`. Fixed with the same
+`sign_extend_word` before the conversion, not after, so the conversion was never measured
+against a known-broken publish.
+
+**Also corrected: H5's "one selector" is exact but its framing was optimistic.**
+`setVertexBytes:` was re-added as `SEL_SET_VERTEX_BYTES` and registered in
+`metal_data_objects`. What H5 did not say is that the offset needs **both** stages —
+`setFragmentBytes:` at a *different* buffer index (3, where the vertex stage uses 1),
+because the fragment stage already has items, edges and the glyph bitmap at 0..2. A
+gradient or a glyph inside a translated group is sampled per fragment, so sending the
+offset only to the vertex stage draws the shape in the right place with the ramp shifted
+inside it — which is why the acceptance scene carries both cases.
+
+Measured on this host: **`worst=1 differing=0.0028%`** with `metalReady=TRUE
+gpuFrames=1`, inside `Tolerance::GPU_DEFAULT`'s per-pixel bound rather than merely its
+population budget.
 
 **H15 (Phase 2) — the residual 4.27% was a pre-existing emitter bug that only the draw
 list could expose: the blend-split test read `strokeHalf` UNSIGNED.**

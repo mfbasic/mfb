@@ -308,6 +308,63 @@ shape: it renders into an image and reads it back so the frame leaves through
 is what lets it be tested on a box with no display server — and no reachable Linux box has
 one.
 
+### A group is one instanced draw per node, with an offset bound to BOTH stages
+
+Since plan-116-H a `canvas::Group` is not flattened away before the GPU sees it. The
+worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one entry
+per contiguous run of blocks at a given offset:
+
+```
+(itemBase, itemCount, dx, dy, blendMode, 0, 0, 0)     eight 64-bit words
+```
+
+Each backend walks it once, after every block is published, and issues one instanced
+draw per entry: `vkCmdDraw` with `firstInstance = itemBase`, or
+`drawPrimitives:…instanceCount:baseInstance:`. A group's blocks are recorded **once** and
+referenced by base, so a diamond — two parents naming one child — reports
+`entries=1 blocks=1` and two draw entries that share base 0 with different offsets.
+
+**The offset goes to the fragment stage as well as the vertex stage, and that is the fact
+most likely to be got wrong.** The obvious reading is that a translation is a vertex-stage
+concern: move the quad, done. It is not, because this renderer is **signed-distance
+based** and an SDF is evaluated at an *absolute* point. The fragment shader asks "how far
+is this pixel from the shape", and the shape's coordinates are its own, not the group's.
+So the split is:
+
+* the **vertex** stage moves the quad by `+offset`, and
+* the **fragment** stage moves the query point by `-offset` and evaluates everything —
+  distance, gradient ramp, glyph coverage — at that shape-space point.
+
+Bind it to the vertex stage alone and the shape lands in the right place with the *wrong
+contents*: a gradient's ramp is sampled at the un-shifted pixel, so it slides across the
+shape, and a glyph reads the wrong texel of its bitmap. A scene of flat-filled rectangles
+cannot see any of it — which is why the acceptance scenes carry a gradient-filled item, a
+`Text` item and a clipped item inside translated groups.
+
+**The clip is the exception and stays in surface space.** `Paint.clip` is a window on the
+surface, not on the shape, so it is evaluated at the *un-shifted* point on both backends.
+Moving it with the group is the mistake that looks like a fix.
+
+Where the offset is bound differs per backend and per stage, so it is three numbers, not
+one: Vulkan uses a single push-constant range both stages declare; Metal uses
+`setVertexBytes:` at buffer index **1** and `setFragmentBytes:` at index **3**, because
+its fragment stage already has items, edges and the glyph bitmap at 0..2.
+
+**A predicate cannot decline a group scene by looking for a `Group` item.** By the time
+`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the offsets list, the walk
+has expanded every group away — a search finds nothing, the frame is accepted, and every
+group's child draws at the origin. plan-116-G solved that with a flag the *walk* set; with
+both backends taught the flag has no reader and was deleted, so a future backend that
+needs to decline has to set one again rather than search.
+
+**Count published records, not items, in the frame caps.** `__canvas_blockInstances` is
+the one answer to "how many instances does this block become", and both the draw list and
+the caps ask it. An item that both strokes and fills under a non-Normal blend mode
+publishes **two** records; counting it as one under-fills the cap, which is the direction
+that lets a scene write past the mapping. The emitters' own split test reads `strokeHalf`
+**signed** for the same reason — a paint that does not stroke reports `-1.0`, and a
+zero-extending load makes that a very large positive number.
+
 ### The per-item parameter block travels in a buffer, on both backends
 
 Since plan-116-A the item block is **not** a per-draw value. It lives in a per-frame
