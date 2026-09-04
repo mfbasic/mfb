@@ -1,0 +1,31 @@
+[package]
+name = "repo-authz-spike"
+version = "0.1.0"
+edition = "2021"
+
+# The registry authz exploits for audit-3 REPO-01 (bug-492), REPO-02 (bug-493),
+# and REPO-03 (bug-494). Not an MFB program — the untrusted surface is the
+# registry HTTP API, so these are plain HTTP clients that also open the store DB
+# directly to stand in for `mfb repo register`. See README.md.
+[dependencies]
+mfb_repository = { path = "../../../repository" }
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+serde_json = "1"
+
+[[bin]]
+name = "tokenesc"
+path = "src/bin/tokenesc.rs"
+
+[[bin]]
+name = "revoke"
+path = "src/bin/revoke.rs"
+
+[[bin]]
+name = "transfer"
+path = "src/main.rs"
+
+[[bin]]
+name = "expired"
+path = "src/bin/expired.rs"
+
+[workspace]
