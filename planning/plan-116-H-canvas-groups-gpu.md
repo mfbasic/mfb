@@ -518,11 +518,15 @@ Commit: `3ded46db6`, `240fdf6ee`, `c29046626`, `c6dbc0524`, `2c6809dcd`, `e33b9e
       `every_group_case_matches_the_software_oracle`, asserting `gpuFrames` **before**
       the pixels: a declined scene is drawn by the oracle itself and would match by
       construction.
-      Six of the seven are here. The `Text` case needs a font file beside the binary,
-      which this harness does not ship and `scripts/test-canvas-vulkan.sh` does — so it
-      is covered there, on the backend where the glyph path is also the one that had to
-      move its draw into the pass. Noted rather than dropped: it is asserted, just not
-      twice.
+      Six of the seven are in this test. The seventh — `Text` inside a translated group —
+      needs a font file beside the binary, which `rt_canvas_metal.rs`'s harness does not
+      ship, so it is asserted **on Metal** by
+      `the_gpu_draws_the_group_scene_the_reference_shows` in `tests/rt_canvas_golden.rs`,
+      whose `render_gpu_with_font` does ship one and whose scene carries a `Text` run
+      inside the panel. It is asserted on Vulkan by the group stage of
+      `scripts/test-canvas-vulkan.sh`.
+      So all seven cases are covered on both backends; only the *file* they live in
+      differs, and the reason is which harness writes a font fixture beside the binary.
 
 Acceptance: all five scenes match the oracle within `Tolerance::GPU_DEFAULT` with
 `metalReady=TRUE`.
