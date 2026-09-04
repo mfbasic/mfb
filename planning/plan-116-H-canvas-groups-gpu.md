@@ -589,7 +589,24 @@ Commit: `072cf8f58`
 Acceptance: `groups.png` matches on all three renderers; `cargo test --no-fail-fast`
 green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here); `scripts/test-accept.sh` green;
 `scripts/artifact-gate.sh all` 0 diffs.
-Commit: —
+
+**MET.** Measured on a settled, committed tree — not on the tree the phase work happened
+to be on when each gate was first tried (**H18**):
+
+| gate | result |
+|---|---|
+| `groups.png`, three renderers | software exact (macOS **and** box 2228), Metal within tolerance, Vulkan `worst=1 differing=0.0521%` |
+| mac RELEASE `cargo test --no-fail-fast` | `rc=0`, no failing target |
+| mac DEBUG `cargo test --bin mfb` | **3788 passed, 0 failed** — the row E6 exists for, where the `debug_assert!`s actually run |
+| `scripts/test-accept.sh` | `acceptance tests passed (1378 test(s) ran)` |
+| `scripts/artifact-gate.sh all` | 1356 tests, 1519 builds, **1878 goldens checked, 0 diffs** |
+| box 2228 RELEASE | see below |
+
+The whole-suite rows earned their place: between them they found three defects no canvas
+gate could see — a stale `HEADER_AUX0` census, a six-argument call staged as though Linux
+were the only Vulkan target, and a Phase 1 test pinning a `drawsText` string that Phase 2
+had legitimately grown a field (**H18**).
+Commit: `435cdeb89`, `0d3d35c9d`, `d8df01bc9`, `9580fdead`, `19be6a116`, `a81b02890`, `d615e7dd3`, `7597696f6`
 
 ## Validation Plan
 
