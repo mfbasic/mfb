@@ -505,6 +505,15 @@ pub(crate) const CANVAS_GROUP_RETIRED_FRAME: usize = 40;
 /// same frame would find the first still here, and the drain gate below is what makes
 /// that impossible to reach without freeing it first.
 pub(crate) const CANVAS_GROUP_RETIRED_ITEMS: usize = 48;
+/// The interned NAME a `removeGroup` or a replacing `setGroup` displaced, retired for
+/// the same reason and drained by the same gate.
+///
+/// It needs retiring rather than freeing for a reason that is easy to miss: the name is
+/// read on the **graphics thread**, not only on the worker. `__canvas_appendDraw`
+/// resolves a `canvas::Group` node by calling `canvas::groupResolve(g.name)`, which
+/// scans the table comparing name bytes — so a name block freed the moment a slot is
+/// cleared is a block a concurrent scan may be reading.
+pub(crate) const CANVAS_GROUP_RETIRED_NAME: usize = 56;
 /// Bytes per slot: **64**, not the 48 the six words need.
 ///
 /// A power of two, so a slot index converts to an address with a shift. The six-word
@@ -513,8 +522,9 @@ pub(crate) const CANVAS_GROUP_RETIRED_ITEMS: usize = 48;
 /// every resolve and every render walk, so paying 16 bytes a slot (4 KB across the
 /// table) to make it two shifts is the right trade twice over.
 ///
-/// One spare word remains after Phase 5 took the other for `RETIRED_ITEMS`. It is left
-/// unnamed for plan-116-J's resource ownership rather than claimed speculatively.
+/// Both spare words are now used: `RETIRED_ITEMS` and `RETIRED_NAME`. plan-116-J will
+/// need to grow the slot to 128 (still a power of two, still a shift) rather than find
+/// room here.
 pub(crate) const CANVAS_GROUP_SLOT_BYTES: usize = 64;
 /// `log2(CANVAS_GROUP_SLOT_BYTES)` — the shift that converts a slot index to a byte
 /// offset. Spelled beside the size so the two cannot drift; `the_group_slot_size_is_a_power_of_two`

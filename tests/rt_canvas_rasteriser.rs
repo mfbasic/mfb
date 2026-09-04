@@ -3273,3 +3273,69 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
         "expected one cache entry per distinct polygon: {stats:?}",
     );
 }
+
+/// Installing and removing groups under **many distinct names** does not grow the arena
+/// without bound (plan-116-G).
+///
+/// `setGroup` copies the caller's name into the arena, because the table outlives the
+/// caller's binding. That copy has to be released too — and it was not: `removeGroup`
+/// zeroed the name pointer and a replacing `setGroup` overwrote it, leaving the block
+/// unreachable either way.
+///
+/// **`groupBytes=` could not see this until the fix widened it**, which is why the
+/// existing drain test passed against the leak: the counter charged the *items* block
+/// only, so a run that leaked 200 name copies reported a table owning nothing. Making
+/// the counter mean "every byte this table is responsible for" is half the fix, and it
+/// is what turns this test into a direct measurement rather than an indirect one — a
+/// counter that does not cover everything the table owns cannot detect the table owning
+/// too much.
+///
+/// Measured both ways before being trusted: with the retire suppressed this reports
+/// **16,530 bytes** still owned after the loop, and with it restored, zero.
+///
+/// Names are long and distinct on purpose. A short name shares the arena's small-block
+/// behaviour with everything else in the frame; a 67-byte one leaked 400 times (each
+/// name is installed, replaced, then removed) is the ~16 KB above, on a path a
+/// long-running program hits every time it rebuilds its groups.
+#[test]
+fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
+    let (_, stats) = render(
+        "canvas_group_name_churn",
+        &scene(
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             LET pad AS String = \"a-deliberately-long-group-name-so-a-leaked-copy-is-worth-measuring-\"\n  \
+             canvas::present([keep])\n  \
+             MUT i AS Integer = 0\n  \
+             WHILE i < 200\n  \
+               LET n AS String = pad & toString(i)\n  \
+               canvas::setGroup(n, [red])\n  \
+               canvas::present([keep])\n  \
+               canvas::setGroup(n, [red, red])\n  \
+               canvas::present([keep])\n  \
+               canvas::removeGroup(n)\n  \
+               canvas::present([keep])\n  \
+               i = i + 1\n  \
+             END WHILE\n  \
+             LET last AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(canvas::rgb(0, 0, 255))]\n  \
+             canvas::present([keep, last])\n",
+        ),
+    );
+
+    let last = stats.last().expect("a final frame");
+    assert_eq!(
+        stat(last, "groups="),
+        "0",
+        "every name was removed, so the table should hold none: {stats:?}",
+    );
+    let bytes: i64 = stat(last, "groupBytes=").parse().expect("a number");
+    assert!(
+        bytes < 4096,
+        "the table still owns {bytes} bytes after 200 install/replace/remove cycles. \
+         The items drain on their own gate, so this is almost certainly the interned \
+         NAME copies: `setGroup` copies the caller's name into the arena because the \
+         table outlives the caller's binding, and both `removeGroup` and a replacing \
+         `setGroup` have to retire that copy rather than just overwrite the pointer. \
+         Suppressing the retire reports 16530 here: {stats:?}",
+    );
+}

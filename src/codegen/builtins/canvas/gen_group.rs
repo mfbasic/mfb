@@ -217,6 +217,17 @@ pub(crate) fn emit_set_group(
     builder.emit(abi::load_u64(&owned, &owned_base, CANVAS_GROUP_OWNED_BYTES));
     builder.emit(abi::load_u64(&added, abi::stack_pointer(), size_slot));
     builder.emit(abi::add_registers(&owned, &owned, &added));
+    // The NAME copy is charged too, so `groupBytes=` covers everything the table owns.
+    // Charging only the items is what made a name leak invisible: the counter reported
+    // a table owning nothing while 200 name copies sat unreachable.
+    let name_size_slot = builder.allocate_stack_object("canvas_group_name_size", 8);
+    builder.emit_inlined_block_size_from_ptr_slot(
+        &ParameterType::String,
+        name_slot,
+        name_size_slot,
+    )?;
+    builder.emit(abi::load_u64(&added, abi::stack_pointer(), name_size_slot));
+    builder.emit(abi::add_registers(&owned, &owned, &added));
     builder.emit(abi::store_u64(
         &owned,
         &owned_base,
@@ -377,6 +388,18 @@ pub(crate) fn emit_remove_group(
     builder.emit(abi::compare_immediate(&found, "0"));
     builder.emit(abi::branch_eq(&done));
 
+    // The name has to be SAVED before it is cleared, and the two cannot be reordered:
+    // clearing first is the concurrency invariant (the name is the discriminator, so a
+    // concurrent scan must stop seeing this slot before anything else about it changes),
+    // while `emit_retire_current_items` reads the live name to retire it — and by then
+    // it is zero. Capturing it here and writing it into the retired word afterwards is
+    // what lets both be true. Without the save the name block leaked, silently, because
+    // `groupBytes=` charges only the items.
+    let saved_name = builder.allocate_stack_object("canvas_group_rm_saved_name", 8);
+    let live_name = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&live_name, &found, CANVAS_GROUP_NAME));
+    builder.emit(abi::store_u64(&live_name, abi::stack_pointer(), saved_name));
+
     // Name first: it is the discriminator, so clearing it is what makes the slot
     // invisible to a concurrent scan. The pointers stay valid behind it for whatever
     // frame is still drawing them.
@@ -392,6 +415,21 @@ pub(crate) fn emit_remove_group(
     // The buffer is retired, not freed: a frame may be mid-copy of it. The drain gate
     // at the top of `present` frees it once a frame has completed.
     emit_retire_current_items(builder, &found, &symbol)?;
+
+    // ...and the saved name goes into the retired word. `emit_retire_current_items`
+    // read the slot's live name to retire it and found the zero this function had
+    // already written, so it retired nothing; this is where the real pointer lands.
+    let restore_name = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &restore_name,
+        abi::stack_pointer(),
+        saved_name,
+    ));
+    builder.emit(abi::store_u64(
+        &restore_name,
+        &found,
+        CANVAS_GROUP_RETIRED_NAME,
+    ));
 
     builder.emit(abi::label(&done));
     // The epilogue is explicit, as it is in every `abi_function` lowering here: the
@@ -455,6 +493,29 @@ fn emit_retire_current_items(
     builder.emit(abi::store_u64(&live, slot, CANVAS_GROUP_RETIRED_ITEMS));
     builder.emit(abi::store_u64(abi::ZERO, slot, CANVAS_GROUP_ITEMS));
 
+    // The NAME is retired too, and forgetting it was a real leak: `setGroup` copies the
+    // caller's name into the arena, and a `removeGroup` that only zeroed the pointer —
+    // or a replacing `setGroup` that only overwrote it — left that copy unreachable
+    // forever. It went unmeasured as well as unfreed, because `groupBytes=` charges only
+    // the item block, so a 200-cycle install/remove test passed with 200 names leaked.
+    //
+    // Retired rather than freed for the same reason the items are, and it is the
+    // sharper case of the two: `__canvas_appendDraw` resolves a group node on the
+    // GRAPHICS thread by calling `canvas::groupResolve`, which scans the table comparing
+    // name bytes. A name freed the instant a slot is cleared is a block a live scan may
+    // be reading.
+    let prior_name = builder.temporary_vreg();
+    let no_prior_name = builder.label("canvas_group_retire_no_prior_name");
+    builder.emit(abi::load_u64(&prior_name, slot, CANVAS_GROUP_RETIRED_NAME));
+    builder.emit(abi::compare_immediate(&prior_name, "0"));
+    builder.emit(abi::branch_eq(&no_prior_name));
+    emit_free_name_block(builder, &prior_name, symbol)?;
+    builder.emit(abi::label(&no_prior_name));
+
+    let live_name = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&live_name, slot, CANVAS_GROUP_NAME));
+    builder.emit(abi::store_u64(&live_name, slot, CANVAS_GROUP_RETIRED_NAME));
+
     let frame_now = builder.temporary_vreg();
     emit_load_frame_counter(builder, &frame_now, symbol);
     builder.emit(abi::store_u64(&frame_now, slot, CANVAS_GROUP_RETIRED_FRAME));
@@ -479,6 +540,45 @@ fn emit_free_items_block(
     let size_slot = builder.allocate_stack_object("canvas_group_free_size", 8);
     builder.emit(abi::store_u64(block, abi::stack_pointer(), ptr_slot));
     builder.emit_inlined_block_size_from_ptr_slot(list_type, ptr_slot, size_slot)?;
+
+    let base = groups_base(builder);
+    let owned = builder.temporary_vreg();
+    let taken = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&owned, &base, CANVAS_GROUP_OWNED_BYTES));
+    builder.emit(abi::load_u64(&taken, abi::stack_pointer(), size_slot));
+    builder.emit(abi::subtract_registers(&owned, &owned, &taken));
+    builder.emit(abi::store_u64(&owned, &base, CANVAS_GROUP_OWNED_BYTES));
+
+    builder.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), ptr_slot));
+    builder.emit(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        size_slot,
+    ));
+    emit_arena_free(symbol, &mut builder.instructions, &mut builder.relocations);
+    Ok(())
+}
+
+/// Free one interned name block, and take its bytes back off the owned total.
+///
+/// **Names are charged to `groupBytes=` deliberately, and an earlier version of this
+/// function did not charge them** — which is exactly why a name leak went unnoticed:
+/// with only the items counted, a run that leaked 200 name copies reported a table
+/// owning nothing, and a 200-cycle churn test passed against the bug. A counter that
+/// does not cover everything the table owns cannot detect the table owning too much.
+///
+/// So `groupBytes=` is "every byte this table is responsible for", not "what the items
+/// cost". The items dominate it in any real program, so the number still reads the way
+/// a caller expects.
+fn emit_free_name_block(
+    builder: &mut CodeBuilder,
+    block: &VirtualRegister,
+    symbol: &str,
+) -> Result<(), String> {
+    let ptr_slot = builder.allocate_stack_object("canvas_group_free_name_ptr", 8);
+    let size_slot = builder.allocate_stack_object("canvas_group_free_name_size", 8);
+    builder.emit(abi::store_u64(block, abi::stack_pointer(), ptr_slot));
+    builder.emit_inlined_block_size_from_ptr_slot(&ParameterType::String, ptr_slot, size_slot)?;
 
     let base = groups_base(builder);
     let owned = builder.temporary_vreg();
@@ -557,6 +657,26 @@ pub(crate) fn emit_group_reclaim(
         &slot_again,
         CANVAS_GROUP_RETIRED_ITEMS,
     ));
+
+    // The retired name drains on the same tick and behind the same gate. Guarded
+    // separately because a slot can hold a retired name with no retired items — a
+    // `removeGroup` on a group whose items were already drained does exactly that.
+    let retired_name = builder.temporary_vreg();
+    let no_name = builder.label("canvas_group_reclaim_no_name");
+    builder.emit(abi::load_u64(
+        &retired_name,
+        &slot_again,
+        CANVAS_GROUP_RETIRED_NAME,
+    ));
+    builder.emit(abi::compare_immediate(&retired_name, "0"));
+    builder.emit(abi::branch_eq(&no_name));
+    emit_free_name_block(builder, &retired_name, &symbol)?;
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        &slot_again,
+        CANVAS_GROUP_RETIRED_NAME,
+    ));
+    builder.emit(abi::label(&no_name));
 
     builder.emit(abi::label(&next));
     let advance = builder.temporary_vreg();

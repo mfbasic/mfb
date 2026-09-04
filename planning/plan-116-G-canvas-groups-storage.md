@@ -997,6 +997,41 @@ recorded here so the section is not read as still open.
 
 ## Corrections
 
+**G32 (Phase 5, found after the phase was ticked) — the interned NAME leaked, and the
+instrument that should have caught it was too narrow to.** `setGroup` copies the
+caller's name into the arena, because the table outlives the caller's binding. Nothing
+released that copy: `removeGroup` zeroed the name pointer and a replacing `setGroup`
+overwrote it, leaving the block unreachable either way. Every install/remove cycle
+leaked one name.
+
+**`groupBytes=` charged the items block only, so it reported a table owning nothing
+while 200 names sat leaked** — which is why `the_group_drain_does_not_depend_on_the_scene_changing`
+passed against the bug for its whole life. A counter that does not cover everything the
+table owns cannot detect the table owning too much, so widening it is half the fix
+rather than a nicety.
+
+The name is retired rather than freed, and it is the *sharper* of the two retirements:
+the items are read on the graphics thread only while a frame copies them, but the name
+is read by `canvas::groupResolve`, which `__canvas_appendDraw` calls **on the graphics
+thread** to resolve every group node — scanning the table comparing name bytes. A name
+freed the instant a slot is cleared is a block a live scan may be reading.
+
+One ordering subtlety, which is why `removeGroup` saves the pointer before clearing it:
+the two requirements pull opposite ways. Clearing the name first is the concurrency
+invariant (it is the discriminator, so a concurrent scan must stop seeing the slot
+before anything else about it changes), but `emit_retire_current_items` reads the live
+name to retire it — and by then it is zero. Saving it, clearing, retiring, then writing
+the saved pointer into the retired word satisfies both.
+
+`CANVAS_GROUP_RETIRED_NAME` takes the slot's last spare word. plan-116-J will have to
+grow the slot to 128 rather than find room in it — still a power of two, so still a
+shift.
+
+Proven red before green rather than reasoned: with the retire suppressed,
+`installing_and_removing_many_named_groups_does_not_grow_without_bound` reports
+**16,530 bytes** still owned after 200 install/replace/remove cycles; with it restored,
+zero.
+
 **G31 (Phase 6, corrected) — the hazard is a new FOREIGN-BOUNDARY entry point, not a
 function with many parameters.** A peer session found the x86_64 canvas crash the same
 day: MFBASIC's internal convention extends SysV's six argument registers with `rax` and
