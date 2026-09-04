@@ -422,7 +422,7 @@ with all three new fixtures counted (`[105] rt-behavior/color/func_color_rgba_va
 `[792] syntax/color/func_color_rgba_invalid`);
 `artifact-gate.sh all` 1876 goldens, **0 diffs** — the byte-identity outcome A
 predicts, since nothing imports `color` yet.
-Commit: —
+Commit: b771d7f33
 
 ### Phase 2 — Constructors
 
@@ -442,7 +442,7 @@ Acceptance: **MET.** `scripts/man-run-examples.sh color --run` →
 `examples: 10   built: 10   ran: 10   failed: 0`; `scripts/man-census.sh --fill color`
 → 5 pages, 5/5 intro, 5/5 desc, 5/5 example, 11/11 param-desc, 4/4 types (no empty
 cells); `--memory-scope color` and `--scope color` both 0.
-Commit: —
+Commit: 2bfb00d6e
 
 ### Phase 3 — Packed-integer bridge
 
@@ -467,7 +467,7 @@ written into the fixture, not recomputed from the channels, so a swapped
 the documented powers (`redOnly=16711680`, `greenOnly=65280`, `blueOnly=255`,
 `alphaOnly=4278190080`), and all seven corner round-trips return the input
 channel-for-channel.
-Commit: —
+Commit: 9395f9439
 
 ### Phase 4 — Hex parse and render
 
@@ -504,7 +504,7 @@ crash could not pass as a rejection. Round trips exact over all four corners
 including transparent (`rtBlack=#00000000`) and low channels
 (`rtLowChannels=#01020304`, proving the zero-padding). Render is lowercase and
 fixed-width (`case=#abcdef`, `pad=#01020304`).
-Commit: —
+Commit: 3605035ce
 
 ### Phase 5 — `toString` override
 
@@ -532,7 +532,7 @@ did not widen the builtin. It declares **two** records, one of them (`Shade`)
 field-for-field identical in shape to `color::Color`, so the override cannot be
 passing by matching on record shape rather than on the type's identity. The
 rt fixture also re-pins `toString` over `Integer`/`Boolean`/`String`.
-Commit: —
+Commit: 3eebf406d
 
 ### Phase 6 — Documentation, census and the cost measurement
 
@@ -570,26 +570,36 @@ Description nor Examples: 0`; `--memory-scope color` → `unclassified
 memory-vocabulary hits: 0`; `--scope color` → `internals-vocabulary hits: 0`;
 `man-run-examples.sh color --run` → 22 examples, 22 built, 22 ran, 0 failed. The
 measured byte cost is in Corrections.
-Commit: —
+Commit: b1526d005
 
 ### Phase 7 — Out-of-band: the `{owner}::{type_name}` doubled qualifier
 
 Not colour work, but plan-122 makes this diagnostic fire at every consumer during
 D–F, so it is fixed before those letters make its goldens harder to read.
 
-- [ ] `src/ir/shape.rs:1868` — render the **leaf**, not the qualified name, so the
+- [x] ~~`src/ir/shape.rs:1868` — render the **leaf**, not the qualified name, so the
       message reads ``belongs to `net::Address` `` instead of
-      ``belongs to `net::net.Address` ``. The suggested `IMPORT {owner}` line is
-      already correct.
-- [ ] Regenerate the 5 goldens that pin the old text
-      (`grep -rln 'Imports are not transitive' tests/` → 5 files under
-      `tests/syntax/tcp/`). The refusal behavior is unchanged; only the rendered
-      name is corrected, so this is a corrected line, not a re-baseline.
+      ``belongs to `net::net.Address` ``.~~ — **moot: already fixed out-of-band**,
+      as §2 anticipated ("Fixed out-of-band before this plan starts"). The strip is
+      in `check_foreign_record_field` at `src/ir/shape.rs` (`grep -n "Imports are
+      not transitive" src/ir/shape.rs` → 1894), carrying a comment naming this
+      exact defect: *"The rendered name is already package-qualified (`net.Address`),
+      so interpolating it after `{owner}::` spelled the type `net::net.Address` — a
+      doubled qualifier no program can write."*
+- [x] ~~Regenerate the 5 goldens that pin the old text.~~ — **moot: already
+      correct.** `grep -h 'Imports are not transitive' tests/syntax/tcp/*/golden/build.log`
+      renders exactly one distinct message, and it reads ``belongs to `net::Address` ``.
+      Nothing to regenerate.
 
-Acceptance: the 5 `tests/syntax/tcp/**/build.log` goldens show `net::Address`; the
-diagnostic still fires (the fixtures still fail to build) and its rule code is
-unchanged.
-Commit: —
+Acceptance: **MET (by prior work, verified not assumed).** Every golden pinning
+the text shows `net::Address`; the diagnostic still fires
+(`local-address-field-without-net-import/golden/build.log` ends `[exit 1]`) and
+its rule code is unchanged (`2-203-0043 TYPE_UNKNOWN_VALUE`).
+
+**Count correction:** the plan says 5 goldens; there are **4**
+(`grep -rln 'Imports are not transitive' tests/ | wc -l` → 4, all under
+`tests/syntax/tcp/`).
+Commit: — (no code change; nothing to commit for this phase)
 
 ## Validation Plan
 
@@ -764,12 +774,37 @@ Two notes for whoever runs C:
   Those packages grew; nothing here caused it. Re-measure rather than quoting
   §2's numbers.
 
+## Final acceptance (2026-09-03)
+
+Every phase is landed and every box resolved. Whole-plan gates, run on the
+`worktree-P-122` branch:
+
+| Gate | Result |
+|---|---|
+| `cargo test --no-fail-fast` | **exit 0** — 100 test binaries, 0 failures |
+| `./scripts/test-accept.sh` (full) | **1382 ran, passed** — all 8 `color` fixtures counted (5 `rt-behavior/color/*`, 3 `syntax/color/*`) |
+| `scripts/artifact-gate.sh <mfb> all` | **1360 tests, 1523 builds, 1884 goldens, 0 diffs** |
+| `cargo check --all-targets` | clean, no warnings |
+| `scripts/man-run-examples.sh color --run` | 22 examples, 22 built, 22 ran, **0 failed** |
+| `scripts/man-census.sh --fill color` | 10 pages, 100% every column, 16/16 param-desc, 4/4 types |
+| `scripts/man-census.sh --memory-scope color` / `--scope color` | **0** / **0** |
+| `rustup run 1.96.0 cargo fmt --all` | applied |
+
+The **0 diffs** is the outcome this letter predicts: A adds a package nothing
+imports yet, so it must be byte-identical everywhere. The only golden churn in the
+whole letter is the `.ir` of `color`'s own fixtures, growing as the companion grew
+— the "whole companion lands in an importer's `.ir`" property from §2.
+
 ## Summary
 
 The engineering risk in A is not the arithmetic — it is the seven registration
 seams, of which `ARGUMENT_CHECKED_PACKAGES` fails silently and `BUILTIN_TYPES`
 fails only for a bare-leaf spelling. Phase 1 exists to make all seven fail loudly
 before any content is written.
+
+That framing held. The arithmetic cost nothing; the seams produced the letter's
+one real finding — that the census list guarding §18 was a *copy* of the predicate
+rather than the predicate, and had silently lost `tcp` and `udp`.
 
 Untouched by this letter: canvas, term, astrings, every existing golden, and the
 whole question of colour-space maths.
