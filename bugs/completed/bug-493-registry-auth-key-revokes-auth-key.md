@@ -5,9 +5,9 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (authorization bypass / denial of service — account lockout)
 
-Status: Open (found in audit-3, Surface 8 REPO-02; reproduced live by the lead)
+Status: FIXED (found in audit-3, Surface 8 REPO-02; reproduced live by the lead; re-reproduced and fixed 2026-09-03)
 
-Regression Test: none yet — add a registry test asserting `/machines/revoke` rejects a challenge minted for an auth key (only an ident-key challenge suffices), and that revocation cannot remove the last current auth key.
+Regression Test: `repository/src/server.rs` — `machine_revocation_is_ident_authorized_and_kills_the_session` (an `/auth/challenge`-minted challenge, revocation message signed by that auth key, is refused at `/machines/revoke` and not burned; an ident challenge is refused at `/auth/login`; revoking the last machine key is refused with a valid ident signature). `repository/src/store.rs` — `revocation_challenge_requires_the_ident_key` (purpose binding both ways at the store) and `linked_machine_key_works_and_revocation_kills_sessions` (last-key guard; a publish token does not count as a machine and may itself still be revoked).
 
 ## Summary
 
@@ -83,3 +83,55 @@ None found (searched `complete_challenge_with`, `complete_revocation_challenge`,
 `revoke_auth_key`, "revocation authority", `role = 'ident'` across `bugs/`,
 `bugs/completed/`, `bugs/skipped/`, `planning/completed/audit-1-repository.md`,
 `audit-2-repository.md`, bug-419/271/276).
+
+## STATUS: FIXED
+
+Landed on `worktree-B-492` (shared with bug-492/494), merged to `main`.
+
+**Mechanism confirmed live before the fix** (`spikes/audit-3/repository-authz`,
+`revoke`, against the pre-fix `mfb-repo`):
+
+```
+ident private key is NEVER used below
+revoke status = 200 OK
+revoke body   = {"owner":"victimpre1","authFingerprint":"b0f12c82…","revoked":true}
+primary key still usable for login? false            # a secondary auth key killed the primary
+```
+
+**What changed:**
+
+- `auth_challenges.purpose` (`'login'` | `'revoke'`, `store.rs`), set by
+  `create_challenge_for_key` from its caller — `/auth/challenge` mints `login`,
+  `/machines/revoke/challenge` mints `revoke` — and added to legacy databases by
+  `add_column_if_missing` with the `'login'` default (every pre-existing row was
+  minted by `/auth/challenge`).
+- `complete_challenge_with` takes the expected purpose **and** key role and
+  checks both — before the signature is verified and before the row is burned —
+  so `/machines/revoke` refuses a login challenge (`"challenge was not issued for
+  revocation"`) and `/auth/login` refuses an ident challenge (`"...for login"`),
+  and a challenge presented to the wrong completer stays usable for its own.
+- `revoke_auth_key` refuses, inside its transaction, to revoke the account's
+  last current *machine* key (`"cannot revoke the account's last auth key; link
+  another machine first"`). Publish tokens are `auth` rows but do not count as
+  machines (they cannot enrol one after bug-492), so an account left with only a
+  token is treated as locked out too; a token itself may still be revoked here.
+  `/machines/revoke` reports that refusal as a 400, not a 500.
+
+**After the fix** (same harness, post-fix binary):
+
+```
+revoke status = 400 Bad Request
+revoke body   = {"error":"challenge was not issued for revocation"}
+primary key still usable for login? true
+```
+
+**Wire contract:** no request or response shape changed on `/auth/challenge`,
+`/machines/revoke/challenge`, or `/machines/revoke`; nonce, single-use, and
+expiry checks are untouched (the purpose/role checks precede them). The
+pre-existing happy path — the ident key revoking a linked machine and killing its
+session — is still asserted, now with a second machine present so the revoked
+key is not the last.
+
+**Gates:** `cargo test --no-fail-fast` in `repository/` green (320 lib + 21 bin);
+`cargo check --all-targets` 0 warnings; root `tests/cli_repo_*` acceptance suite
+from a detached worktree at the landed commit — see the landing report.
