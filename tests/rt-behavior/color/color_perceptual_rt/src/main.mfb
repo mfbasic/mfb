@@ -1,0 +1,88 @@
+' plan-122-B Phase 2: the perceptual operations and the sRGB seam under them.
+'
+' Two kinds of assertion here, and both are stated as CONTRACTS rather than as
+' whatever the implementation happens to produce:
+'
+'   - ENDPOINT EXACTNESS. brighten(c, 0.0) = c, brighten(c, 1.0) = white with c's
+'     alpha, darken(c, 1.0) = black with c's alpha, mix(a, b, 0.0) = a,
+'     mix(a, b, 1.0) = b. These are exact, not "close": each endpoint expression
+'     is printed next to the value it must equal, so a result one step short
+'     shows as a differing golden line rather than passing unnoticed.
+'   - THE TWO WCAG VALUES THE DEFINITION FIXES. contrastRatio(white, black) is
+'     21.0 and contrastRatio(x, x) is 1.0. A coefficient typo cannot pass both.
+
+IMPORT color
+IMPORT io
+
+SUB same(label AS String, got AS color::Color, want AS color::Color)
+  io::print(label & "=" & color::toHexAlpha(got) & " want " & color::toHexAlpha(want) & " equal " & toString(color::toHexAlpha(got) = color::toHexAlpha(want)))
+END SUB
+
+FUNC main AS Integer
+  LET c AS color::Color = color::rgba(51, 102, 204, 128)
+  LET white AS color::Color = color::rgb(255, 255, 255)
+  LET black AS color::Color = color::rgb(0, 0, 0)
+
+  ' --- the sRGB seam itself --------------------------------------------------
+  ' Endpoints exact, and the encoding is NOT proportional: 128 is ~22% of the
+  ' light of 255, not half. A linear-vs-encoded mix-up shows here first.
+  io::print("lin0=" & toString(color::toLinear(toByte(0))))
+  io::print("lin128=" & toString(color::toLinear(toByte(128))))
+  io::print("lin255=" & toString(color::toLinear(toByte(255))))
+  io::print("fromLin0=" & toString(color::fromLinear(0)))
+  io::print("fromLin65535=" & toString(color::fromLinear(65535)))
+  ' fromLinear saturates rather than raising, at both ends.
+  io::print("fromLinNeg=" & toString(color::fromLinear(-1000)))
+  io::print("fromLinBig=" & toString(color::fromLinear(999999)))
+  ' Exact in this direction for every channel (spot-checked at a few).
+  io::print("rt200=" & toString(color::fromLinear(color::toLinear(toByte(200)))))
+  io::print("rt1=" & toString(color::fromLinear(color::toLinear(toByte(1)))))
+
+  ' --- brighten / darken: endpoint exactness, alpha untouched ---------------
+  same("br0", color::brighten(c, 0.0), c)
+  same("br1", color::brighten(c, 1.0), color::rgba(255, 255, 255, 128))
+  same("dk0", color::darken(c, 0.0), c)
+  same("dk1", color::darken(c, 1.0), color::rgba(0, 0, 0, 128))
+  ' `amount` clamps rather than extrapolating past either end.
+  same("brNeg", color::brighten(c, -5.0), c)
+  same("brBig", color::brighten(c, 5.0), color::rgba(255, 255, 255, 128))
+  same("dkNeg", color::darken(c, -5.0), c)
+  same("dkBig", color::darken(c, 5.0), color::rgba(0, 0, 0, 128))
+  ' A midpoint, so a body that only got the endpoints right cannot pass.
+  io::print("brHalf=" & color::toHexAlpha(color::brighten(c, 0.5)))
+  io::print("dkHalf=" & color::toHexAlpha(color::darken(c, 0.5)))
+
+  ' --- mix: endpoints exact, and alpha IS interpolated ----------------------
+  LET a AS color::Color = color::rgba(10, 20, 30, 40)
+  LET b AS color::Color = color::rgba(200, 210, 220, 230)
+  same("mx0", color::mix(a, b, 0.0), a)
+  same("mx1", color::mix(a, b, 1.0), b)
+  ' The linear midpoint of black and white is NOT #808080 -- that is the whole
+  ' reason mix works in linear light.
+  io::print("mxmid=" & color::toHex(color::mix(black, white, 0.5)))
+  ' Alpha moves with the blend, unlike brighten/darken which leave it alone.
+  io::print("mxAlphaHalf=" & toString(color::mix(a, b, 0.5).alpha))
+
+  ' --- luminance and the two WCAG values ------------------------------------
+  io::print("lumBlack=" & toString(color::luminance(black)))
+  io::print("lumWhite=" & toString(color::luminance(white)))
+  ' Green far outweighs blue: the weights are not equal.
+  io::print("lumGreen=" & toString(color::luminance(color::rgb(0, 255, 0))))
+  io::print("lumBlue=" & toString(color::luminance(color::rgb(0, 0, 255))))
+  io::print("crWB=" & toString(color::contrastRatio(white, black)))
+  ' Argument order does not matter -- the function sorts its two sides.
+  io::print("crBW=" & toString(color::contrastRatio(black, white)))
+  io::print("crSame=" & toString(color::contrastRatio(c, c)))
+
+  ' --- grayscale and the two-way light/dark split ---------------------------
+  ' A vivid green and a deep blue must NOT become the same grey; averaging the
+  ' sRGB bytes would make them both #555555.
+  io::print("gsGreen=" & color::toHex(color::grayscale(color::rgb(0, 255, 0))))
+  io::print("gsBlue=" & color::toHex(color::grayscale(color::rgb(0, 0, 255))))
+  io::print("gsAlpha=" & toString(color::grayscale(c).alpha))
+  io::print("darkBlue=" & toString(color::isDark(color::rgb(0, 0, 255))))
+  io::print("darkYellow=" & toString(color::isDark(color::rgb(255, 255, 0))))
+  io::print("complement=" & toString(color::isLight(c) = (NOT color::isDark(c))))
+
+  RETURN 0
+END FUNC

@@ -330,19 +330,48 @@ Commit: —
 
 ### Phase 2 — Perceptual operations
 
-- [ ] `func_brighten.rs`, `func_darken.rs`, `func_mix.rs`, `func_grayscale.rs`,
+- [x] `func_brighten.rs`, `func_darken.rs`, `func_mix.rs`, `func_grayscale.rs`,
       `func_luminance.rs`, `func_contrast_ratio.rs`, `func_is_dark.rs`,
       `func_is_light.rs` per §5, each with full man prose.
-- [ ] Tests: the endpoint-exactness contract from §5 as explicit assertions
+      Plus `helper_clamp_fraction.rs` (added): `brighten`/`darken`/`mix` — and
+      later `saturate`/`desaturate` — all clamp `amount` the same way, and one
+      helper keeps them from drifting apart on the endpoint behaviour their
+      exactness contracts depend on.
+- [x] Tests: the endpoint-exactness contract from §5 as explicit assertions
       (`brighten(c, 0.0) = c`, `brighten(c, 1.0)` = white with `c`'s alpha,
       `mix(a, b, 0.0) = a`, `mix(a, b, 1.0) = b`), plus the two alpha rules
       (`brighten` leaves alpha untouched; `mix` interpolates it).
-- [ ] Tests: pin `contrastRatio(white, black) = 21.0` and
+- [x] Tests: pin `contrastRatio(white, black) = 21.0` and
       `contrastRatio(x, x) = 1.0` — the two values the WCAG definition fixes, so a
       coefficient typo cannot pass.
 
-Acceptance: the endpoint and WCAG assertions pass in a `tests/rt-behavior/color/`
-fixture; `scripts/man-run-examples.sh color --run` green.
+Acceptance: **MET**, in `tests/rt-behavior/color/color_perceptual_rt`.
+
+Endpoint exactness — each printed next to the value it must equal, so a result one
+step short shows as a differing golden line rather than passing unnoticed:
+`br0`/`dk0` = `#3366cc80` (the input), `br1` = `#ffffff80`, `dk1` = `#00000080`
+(white/black **with `c`'s alpha 0x80** — the alpha rule), `mx0` = `#0a141e28`,
+`mx1` = `#c8d2dce6`; all report `equal TRUE`. Clamping past both ends
+(`brNeg`/`brBig`/`dkNeg`/`dkBig`) returns the endpoints. Midpoints
+(`brHalf=#bec6e780`, `dkHalf=#23499580`) are pinned too, so a body that got only
+the endpoints right cannot pass.
+
+The two alpha rules, positively: `brighten`/`darken` carry alpha through
+(`0x80` in every result above), while `mix` interpolates it —
+`mxAlphaHalf=135`, exactly `40 + (230-40)/2`.
+
+WCAG: `crWB=21.00` **and** `crBW=21.00` (so argument order does not matter),
+`crSame=1.00`, `lumBlack=0.00`, `lumWhite=1.00`. The coefficients are pinned by
+`lumGreen=0.72` / `lumBlue=0.07`, which no equal-weight or transposed-coefficient
+implementation reproduces.
+
+`mix(black, white, 0.5)` = **`#bcbcbc`**, not `#808080` — the linear-vs-encoded
+distinction the function exists for, asserted rather than described.
+`grayscale` maps a vivid green to `#dcdcdc` and a deep blue to `#4c4c4c`, which
+byte-averaging would have collapsed to the same grey.
+
+`scripts/man-run-examples.sh color --run` → **40 examples, 40 built, 40 ran, 0
+failed**.
 Commit: —
 
 ### Phase 3 — Rasteriser cost check

@@ -40,11 +40,19 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
+mod func_brighten;
+mod func_contrast_ratio;
+mod func_darken;
 mod func_from_hex;
 mod func_from_linear;
 mod func_from_packed;
 mod func_gray;
+mod func_grayscale;
 mod func_invert;
+mod func_is_dark;
+mod func_is_light;
+mod func_luminance;
+mod func_mix;
 mod func_rgb;
 mod func_rgba;
 mod func_to_hex;
@@ -53,6 +61,7 @@ mod func_to_linear;
 mod func_to_packed;
 mod func_with_alpha;
 mod helper_clamp_byte;
+mod helper_clamp_fraction;
 mod helper_hex_byte;
 mod helper_hex_value;
 mod helper_srgb;
@@ -161,6 +170,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     helper_clamp_byte::register(&mut pkg);
+    helper_clamp_fraction::register(&mut pkg);
     helper_hex_value::register(&mut pkg);
     helper_hex_byte::register(&mut pkg);
     helper_to_string::register(&mut pkg);
@@ -188,6 +198,17 @@ pub(crate) fn register(r: &mut Registry) {
     // canvas-private duplicate of the table is exactly the drift plan-122 removes.
     func_to_linear::register(&mut pkg);
     func_from_linear::register(&mut pkg);
+
+    // Perceptual operations, all built on the seam above so they cannot disagree
+    // with what canvas renders. `luminance` before its three consumers.
+    func_brighten::register(&mut pkg);
+    func_darken::register(&mut pkg);
+    func_mix::register(&mut pkg);
+    func_grayscale::register(&mut pkg);
+    func_luminance::register(&mut pkg);
+    func_contrast_ratio::register(&mut pkg);
+    func_is_dark::register(&mut pkg);
+    func_is_light::register(&mut pkg);
 
     r.add_package(pkg);
 }
