@@ -508,6 +508,49 @@ Commit: —
 
 ## Corrections
 
+**H11 (Phase 2) — the fourth bug in the conversion, and the one worth carrying forward:
+`draws` is argument EIGHT, and reading it after other argument staging returns garbage.**
+
+Bisected rather than guessed, which is what makes it worth recording. Five variants were
+built and run on box 2228 against the software render of the same scene:
+
+| variant | differing |
+|---|---|
+| fragment-stage offset neutralised | **21418** |
+| both shader offsets neutralised (shaders behave exactly as HEAD) | **21418** |
+| draw list emitted one entry per block, no run merging | **21418** |
+| the software `offsets` list passed instead of the block list | **21418** |
+
+**Identical every time**, which is the finding: the difference does not depend on the draw
+list, the shaders, or the block list. And the pixels say what is missing — the three
+gradient items render as `000000`, which is their `fill`, while everything before them is
+correct to the byte:
+
+```
+(430,100) sw=ff4321 gpu=000000      (30,30) sw=ff0000 gpu=ff0000
+(500,130) sw=fbd955 gpu=000000     (450,250) sw=ffff00 gpu=ffff00
+```
+
+The gradient items are **last** in that scene. A draw walk that stops early loses exactly
+the tail — and the entry count is read from `draws`, the **eighth** parameter, which
+MFBASIC's convention places in `rbp` (bug-296), *after* the staging below it has written
+`SCRATCH` registers that alias the C argument bank on x86-64. That is
+`.ai/arch-abi.md`'s "stage ABI args via temporaries" rule, and it bites here rather than
+earlier because no previous argument to this function was the eighth. plan-116-G's **G31**
+established that widening past eight is safe; it did not say the eighth argument must be
+read before anything else is staged, and that is the missing half.
+
+**The fix — hoisting the `draws` parking above all other staging — is written and
+preserved as stash `59b7ae27a`, and is not yet correct**: with it the GPU path exits 0
+without producing a frame, while the software path is unaffected. So the hoist moved the
+failure rather than removing it, and the next step is to read the emitted prologue for
+that function and confirm where `draws` actually lands before trusting any further
+reasoning about it.
+
+Stashes on `worktree-P-116`, newest first: `59b7ae27a` (conversion + the arg hoist),
+`2c21706ae` (conversion as measured above). The branch itself stays at the last green
+commit.
+
 **H10 (Phase 2) — the emitter's two-pass conversion is written and preserved in a stash,
 not on the branch, because it makes the Vulkan harness worse than HEAD and the remaining
 failure is not yet understood.** What is on the branch (`3ded46db6`, `240fdf6ee`,
