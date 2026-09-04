@@ -426,15 +426,22 @@ Commit: —
 
 ### Phase 2 — Constructors
 
-- [ ] `func_rgb.rs`, `func_gray.rs`, `func_with_alpha.rs`, `func_invert.rs` — each
+- [x] `func_rgb.rs`, `func_gray.rs`, `func_with_alpha.rs`, `func_invert.rs` — each
       a `Body::mfb` member with full `INTRO`/`DESC`/`EX` prose per `.ai/man-content.md`.
-- [ ] Tests: extend the rt-behavior fixture; assert clamping at both ends
+- [x] Tests: extend the rt-behavior fixture; assert clamping at both ends
       (`rgba(300, -20, 128, 255)` → `255, 0, 128, 255`) and that `invert` preserves
       alpha.
+      Landed as a NEW sibling fixture `tests/rt-behavior/color/color_constructors_rt`
+      rather than by growing `func_color_rgba_valid`, whose name would then have
+      described a quarter of its content. Both clamp ends are asserted on every
+      argument position of every constructor, so a clamp wired to the wrong
+      parameter cannot pass; `invert` is asserted to preserve alpha at both colour
+      extremes.
 
-Acceptance: `mfb man color --all` shows every member with a non-empty
-intro/description/example; `scripts/man-run-examples.sh color --run` compiles and
-runs every example on the page with zero failures.
+Acceptance: **MET.** `scripts/man-run-examples.sh color --run` →
+`examples: 10   built: 10   ran: 10   failed: 0`; `scripts/man-census.sh --fill color`
+→ 5 pages, 5/5 intro, 5/5 desc, 5/5 example, 11/11 param-desc, 4/4 types (no empty
+cells); `--memory-scope color` and `--scope color` both 0.
 Commit: —
 
 ### Phase 3 — Packed-integer bridge
@@ -616,6 +623,31 @@ paragraph and by `is_builtin_import`, not a re-baseline.
 (`grep -n "ARGUMENT_CHECKED_PACKAGES\|ALL_BUILTIN_PACKAGES" src/codegen/builtins/mod.rs`).
 Cite the symbol and its grep, not the line — see
 `plan-line-citations-decay-silently`.
+
+**Phase 2 — a man example cannot use a member from a later phase.** Four Phase-2
+examples were first written with `io::print(toString(c))`, which does not compile
+until the Phase-5 `toString` override exists (`TYPE_CALL_ARGUMENT_MISMATCH`:
+`toString` has argument type(s) (color.Color)`). Phase 2's acceptance criterion
+requires `man-run-examples.sh color --run` green, so the criterion cannot be met
+by a page that forward-references its own package. Rewritten to print channels
+explicitly, which is also the better teaching example for a constructor page.
+**General rule for the rest of this plan: an `EX` block may only use members that
+already exist at the phase that lands it.** Weakening the criterion to "green
+except forward references" was rejected — the whole value of the example gate is
+that every published example runs.
+
+**Bug found and filed while running Phase 2's gates: bug-498.**
+`rt-behavior/threads/thread-transfer-bidirectional-rt` fails intermittently under
+a **full** acceptance run with `7-703-0004 Resource handle is already closed`
+(exit 255) instead of printing its two sizes. Not attributable to plan-122:
+`artifact-gate.sh all` reports `1878 golden(s) checked, 0 diff(s)`, so this change
+is byte-neutral for every program that does not import `color`, and this fixture
+does not; and the same fixture was green in the preceding full run. Measured:
+10/10 pass when run alone, 1 failure in 3 full parallel runs — so the trigger is
+load, and a filtered re-run can never show it. Written up with the evidence and
+the cheapest lines of enquiry in
+`bugs/bug-498-thread-transfer-bidirectional-flaky-under-load.md` rather than left
+as an unexplained red in a log.
 
 **Phase 6 — measured byte cost of the `color` companion** (this is plan-122-C's
 go/no-go input): recorded below when Phase 6 runs.

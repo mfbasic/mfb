@@ -91,19 +91,74 @@
     ]
   },
   {
-    "name": "#color_rgba",
+    "name": "#color_rgb",
     "line": 28,
     "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "red", "line": 28, "type": "Integer", "default": null },
     { "name": "green", "line": 28, "type": "Integer", "default": null },
-    { "name": "blue", "line": 28, "type": "Integer", "default": null },
-    { "name": "alpha", "line": 28, "type": "Integer", "default": null }
+    { "name": "blue", "line": 28, "type": "Integer", "default": null }
     ],
     "returns": "color.Color",
     "body": [
-    { "op": "return", "line": 29, "value": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "red" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "green" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "blue" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "alpha" }] }] } }
+    { "op": "return", "line": 29, "value": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "red" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "green" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "blue" }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "255" }] }] } }
+    ]
+  },
+  {
+    "name": "#color_rgba",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "red", "line": 32, "type": "Integer", "default": null },
+    { "name": "green", "line": 32, "type": "Integer", "default": null },
+    { "name": "blue", "line": 32, "type": "Integer", "default": null },
+    { "name": "alpha", "line": 32, "type": "Integer", "default": null }
+    ],
+    "returns": "color.Color",
+    "body": [
+    { "op": "return", "line": 33, "value": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "red" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "green" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "blue" }] }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "alpha" }] }] } }
+    ]
+  },
+  {
+    "name": "#color_gray",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "level", "line": 36, "type": "Integer", "default": null }
+    ],
+    "returns": "color.Color",
+    "body": [
+    { "op": "return", "line": 37, "value": { "kind": "call", "type": "color.Color", "target": "#color_rgb", "args": [{ "kind": "local", "name": "level" }, { "kind": "local", "name": "level" }, { "kind": "local", "name": "level" }] } }
+    ]
+  },
+  {
+    "name": "#color_withAlpha",
+    "line": 40,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 40, "type": "color.Color", "default": null },
+    { "name": "alpha", "line": 40, "type": "Integer", "default": null }
+    ],
+    "returns": "color.Color",
+    "body": [
+    { "op": "return", "line": 41, "value": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "red" }, { "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "green" }, { "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "blue" }, { "kind": "call", "type": "Byte", "target": "#color_clampByte", "args": [{ "kind": "local", "name": "alpha" }] }] } }
+    ]
+  },
+  {
+    "name": "#color_invert",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 44, "type": "color.Color", "default": null }
+    ],
+    "returns": "color.Color",
+    "body": [
+    { "op": "return", "line": 45, "value": { "kind": "constructor", "type": "color.Color", "args": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "255" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "red" }] } }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "255" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "green" }] } }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "255" }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "blue" }] } }] }, { "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "base" }, "member": "alpha" }] } }
     ]
   }
   ]

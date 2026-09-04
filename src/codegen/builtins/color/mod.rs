@@ -38,7 +38,11 @@
 use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
 use crate::types::ParameterType;
 
+mod func_gray;
+mod func_invert;
+mod func_rgb;
 mod func_rgba;
+mod func_with_alpha;
 mod helper_clamp_byte;
 
 /// The `Color` record type (`red`/`green`/`blue`/`alpha` `Byte`) — the leaf
@@ -126,7 +130,13 @@ pub(crate) fn register(r: &mut Registry) {
 
     helper_clamp_byte::register(&mut pkg);
 
+    // Constructors first, then the operations over an existing colour — the order
+    // a reader of `mfb man color` meets them in.
+    func_rgb::register(&mut pkg);
     func_rgba::register(&mut pkg);
+    func_gray::register(&mut pkg);
+    func_with_alpha::register(&mut pkg);
+    func_invert::register(&mut pkg);
 
     r.add_package(pkg);
 }
