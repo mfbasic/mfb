@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (denial of service — memory/CPU exhaustion on untrusted media)
 
-Status: Fixed (found in audit-3, Surface 5 DEC-50/51/52/53/54/55; agent-demonstrated with crafted files and measured RSS/wall time)
+Status: FIXED — see the STATUS block at the end (found in audit-3, Surface 5 DEC-50/51/52/53/54/55; agent-demonstrated with crafted files and measured RSS/wall time)
 
 Regression Test: fixtures asserting an oversized IHDR / inflate output / glyph raster / cmap12 numGroups / MML repeat is rejected in bounded time and memory.
 
@@ -126,3 +126,43 @@ RED evidence (unfixed build): six canvas bombs timed out or "decoded" (the zlib 
 reported a 1x1 image; `upem=1` was accepted), all three MML bombs timed out at 20 s
 (the nested one at 20 GB RSS). Spike numbers reproduced first: DEC-50 69 B → 4.98 GB,
 DEC-52 → 2.47 GB, DEC-55 nested → 20 GB in 12 s.
+
+## STATUS: FIXED (a42e28c64)
+
+Fix commits on `worktree-B-509`: `a42e28c64` (every cap, the RED/positive tests,
+man + spec doc sync), `91b4bd6fc` (the three `.ir` goldens that embed the audio
+helper bodies), `c849cc662` (a second DEC-54 test pinning `__canvas_cmap12`'s
+file-end bound — the audit's own subtable-at-EOF shape with a hostile `length`
+too — and the first cmap test's comment corrected to what its fixture shows: with
+`cmap` first in the file the unbounded scan ran into `glyf`/`head` and mapped `X`
+to glyph 2, a wrong answer rather than a hang), `a7f584c7f` (merge of main
+`90f6c1357`).
+
+Deviation from the Best fix: DEC-56 (honour every font table's `length`) is left
+as filed — a LOW enabler; the cmap12 bound uses its own subtable's `length` and
+the end of the file, which is the one place the length drove a scan.
+
+Gates, this session, after merging main `90f6c1357` and a release rebuild:
+
+- RED re-verified against the unfixed main-tip compiler
+  (`MFB_TEST_EXE=/private/tmp/term-base/target/release/mfb`): the DEC-51 bomb
+  "decoded as a 1x1 image"; `upem=1` was accepted; the cmap-first bomb measured
+  `[X] w=30.00` (glyph 2, over-scan) instead of `.notdef` 50.00; the cmap-at-EOF
+  bomb hit its 30 s deadline.
+- The original reproductions against the fixed binary (`/tmp/spk509`, built from
+  the checked-in `spikes/audit-3/DEC-5x`): DEC-50 (69 B claiming 4000x4000) →
+  `ErrBadImageFile` in 0.40 s / 15 MB RSS (was 4.4 s / 4.95 GB); DEC-51 (389 KB
+  inflating to 400 MB) → refused in 0.40 s / 42 MB (was 24 s / 25 GB and reported
+  success); DEC-55 `{ C }200000` → `ErrInvalidArgument` in 0.27 s / 13 MB (was
+  killed at 229 s / 38 GB), `{ { { { C }64 }64 }64 }64` refused in 0.08 s, and
+  `T255 L64 { { C }8 }8` still plays for its full length (1.03 s wall).
+- `cargo test --no-fail-fast -- --skip artifact_gate_all`: 4636 passed, 0 failed,
+  4 ignored across 115 targets, cargo exit 0 (`/tmp/b509-full.log`).
+- `scripts/artifact-gate.sh target/release/mfb all`: 1368 tests, 1531 builds,
+  1898 goldens checked, 0 diffs. The five `byte-identity/audio` `.ncodesum`
+  goldens moved (regenerated under bash; all five distinct per target).
+- `cargo check --all-targets`: 0 warnings; `cargo fmt --all -- --check` clean in
+  both workspaces.
+- Instrument note: no byte-identity fixture imports `canvas`, so the gate is
+  BLIND to the canvas half of this fix; that half is covered by the
+  `rt_canvas_image_decode` (15) and `rt_canvas_font` (17) suites, all green.
