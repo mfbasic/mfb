@@ -409,12 +409,23 @@ Commit: a4c3357fa
 
 Vulkan first, as in plan-116-A, because glslang gives measured reflection.
 
-- [ ] Add the `ivec2 offset` push constant to both GLSL files; vertex offsets then
+- [x] Add the `ivec2 offset` push constant to both GLSL files; vertex offsets then
       clamps; fragment subtracts before `geoDistance`, and **evaluates the clip at
-      `gl_FragCoord.xy`** (§4.2).
-- [ ] `scripts/regen-spirv.sh`.
-- [ ] Convert the Vulkan emitter to walk `__canvas_sceneDraws`, pushing the offset and
-      issuing one instanced `vkCmdDraw` per draw entry.
+      `gl_FragCoord.xy`** (§4.2). — `3ded46db6`. The range and both stage declarations
+      had to land together (**H4**): a layout declaring bytes no stage consumes is what
+      the validation layers flag.
+- [x] `scripts/regen-spirv.sh`. — `3ded46db6`; both blobs grew (vert 4420→4828,
+      frag 36648→37028) and both now carry a `PushConstant` storage class, checked by
+      decoding the committed words rather than by trusting the script ran.
+- [x] Convert the Vulkan emitter to walk `__canvas_sceneDraws`, pushing the offset and
+      issuing one instanced `vkCmdDraw` per draw entry. — `c6dbc0524` (the conversion,
+      plus the two halves of it that a stash had dropped) and `2c6809dcd` (the
+      `strokeHalf` sign bug the conversion exposed). `emit_run_flush` is gone; every
+      block is published first and `emit_draw_list_pass` issues the draws.
+      **12/12 on box 2228, `worst=2 differing=0.8116%`** — the pre-conversion control's
+      numbers exactly. Four corrections came out of this one box: **H12** (the ad-hoc
+      loop was not the harness), **H13** (draw-entry width), **H14** (the blend-split
+      instance rule), **H15** (the unsigned `strokeHalf` read).
 - [ ] Remove the `Group` decline from `__canvas_vulkanRenderable`; update its frame
       caps to sum over the resolved tree per §4.3.
 - [ ] Tests: on a Vulkan box, a group at `(0,0)` matches the oracle; a group at
