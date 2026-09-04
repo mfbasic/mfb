@@ -706,6 +706,26 @@ already exist at the phase that lands it.** Weakening the criterion to "green
 except forward references" was rejected — the whole value of the example gate is
 that every published example runs.
 
+> **RESOLVED, and the doc withdrawn (2026-09-03, after merging main).** The flake
+> below was a symptom of the **real** bug-498 — `thread::send`/`emit`/`transfer`
+> repointing the arena register at the *destination* thread's arena and allocating
+> there unlocked, corrupting the free list — fixed on main in `f2bf55a86` and
+> archived as `bugs/completed/bug-498-thread-send-cross-thread-arena-race.md`. That
+> doc's own proof covers bidirectional transfers, which is exactly this fixture.
+>
+> Two independent reasons to withdraw my write-up rather than renumber it: the
+> number **collided** (a peer session filed the real bug-498 concurrently — bug
+> numbers race between sessions exactly as plan and rule-code numbers do, and `ls
+> bugs/` under-reported because theirs was already archived), and after merging main
+> the symptom is gone — **96 concurrent runs of the fixture, 0 failures**, against a
+> defect that previously needed load to appear. A duplicate doc describing a fixed
+> defect under a taken number is worse than no doc.
+>
+> The transferable lesson is kept here rather than in a bug file: *a `Resource
+> handle is already closed` under load, in a fixture that is 10/10 green alone, can
+> be free-list corruption in the arena rather than a lifetime error in the code that
+> reports it.*
+
 **Bug found and filed while running Phase 2's gates: bug-498.**
 `rt-behavior/threads/thread-transfer-bidirectional-rt` fails intermittently under
 a **full** acceptance run with `7-703-0004 Resource handle is already closed`
