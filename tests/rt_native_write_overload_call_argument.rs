@@ -77,6 +77,7 @@ const WRITE_SOURCE: &str = r#"IMPORT tcp
 IMPORT net
 IMPORT strings
 IMPORT io
+IMPORT collections
 
 FUNC head(n AS Integer) AS String
   RETURN "value=" & toString(n) & ";"
@@ -100,11 +101,22 @@ FUNC main AS Integer
     RECOVER
   END TRAP
   tcp::close(conn)
+  ' Two separate writes are two segments: a single read returns whichever
+  ' happened to arrive, so this drained only "value=7;" about two runs in three.
+  ' Drain to EOF instead of reading once.
   MUT got AS List OF Byte = []
-  got = tcp::read(client, 4096) TRAP(e)
-    io::print("read raised " & toString(e.code))
-    RECOVER []
-  END TRAP
+  MUT open AS Boolean = TRUE
+  WHILE open
+    MUT chunk AS List OF Byte = []
+    chunk = tcp::read(client, 4096) TRAP(e)
+      open = FALSE
+      RECOVER []
+    END TRAP
+    IF len(chunk) = 0 THEN
+      open = FALSE
+    END IF
+    got = collections::append(got, chunk)
+  END WHILE
   io::print("got=" & toString(got))
   RETURN 0
 END FUNC
