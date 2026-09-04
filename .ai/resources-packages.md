@@ -269,9 +269,11 @@ that follow, and that a `grep` for `ctype` will not tell you:
 Adding a new builtin package (e.g. a resource package like `process`) touches far more than the descriptor. The obvious ones are documented; these are the ones a plan usually MISSES and the compiler/tests catch late:
 
 **Frontend / type resolution**
-- `src/builtins/<pkg>.rs`: `BuiltinModule` in the descriptor. An OPAQUE resource handle (`Socket`, `AudioInput`, `Process`) lives ONLY here as `TypeKind::Opaque` — NEVER in a source companion `.mfb` (`EXPORT TYPE` is for value records/enums).
-- `descriptor.rs` REGISTRY + its `production_registry_holds_migrated_packages` count assertion (bump N).
-- `mod.rs`: `mod <pkg>`, `is_builtin_import` match, `ALL_BUILTIN_PACKAGES`, `qualified_builtin_type` arm.
+- `src/codegen/builtins/<pkg>/mod.rs`: a `RegistryPackage::new(...)` assembled from per-member `func_*.rs` and shared `helper_*.rs` chunks, registered by `pub(crate) fn register(r: &mut Registry)`. An OPAQUE resource handle (`Socket`, `AudioInput`, `Process`) lives ONLY here (`add_resource`) — NEVER in a source companion `.mfb` (`EXPORT TYPE` is for value records/enums).
+  - **Corrected plan-122-A:** this bullet used to name `src/builtins/<pkg>.rs` and a `BuiltinModule` descriptor. Both are gone — `ls src/builtins` → `No such file or directory` — and the seam moved into `src/codegen/builtins/` on the clean-room registry.
+- `crate::codegen::builtins::<pkg>::register(&mut r)` in `registry::build()` (`src/codegen/registry/mod.rs`).
+  - **Corrected plan-122-A:** this bullet used to name a `descriptor.rs` REGISTRY plus a `production_registry_holds_migrated_packages` count to bump. There is no `descriptor.rs` anywhere in `src/` (`find src -name descriptor.rs` → no hits) and no count to bump; adding the `register` call is the whole seam.
+- `src/codegen/builtins/mod.rs`: `mod <pkg>`, and the name in **`BUILTIN_IMPORTS`** — the single sorted slice `is_builtin_import` tests and the §18 spec sentence is pinned against. Do NOT reintroduce a second copy of that list: it was a `matches!` arm with a hand-written mirror in the test module, the mirror silently lost `tcp` and `udp`, and because a `matches!` cannot be enumerated no test could see it (plan-122-A).
 - **`src/resolver/mod.rs` `BUILTIN_TYPES` slice** — a hardcoded list; a bare `AS <Type>` param/return fails `SYMBOL_UNKNOWN_TYPE` without it (the descriptor path `builtins::is_builtin_type` is NOT what the resolver consults).
 - `src/docs/spec/language/18_builtin-functions.md` §18 package sentence — pinned by `spec_section_18_package_list_matches_is_builtin_import`.
 - **`src/codegen/builtins/mod.rs` `ARGUMENT_CHECKED_PACKAGES`** (`checks_call_arguments`) — the package must be listed or the shared table checker never runs for it (`ir::shape::Walker::check_builtin_call` on the source path, `ir::verify`'s `check_builtin_call_args` on the package path), so invalid calls collapse to `TYPE_UNKNOWN_VALUE` with NO arity/argument diagnostic.
@@ -289,6 +291,19 @@ Adding a new builtin package (e.g. a resource package like `process`) touches fa
 **Record layout**: 96-byte envelope, tag@0 / handle@8 / closed@16 / STATE@24, type-specific tail @32+. Resource tag in `error_constants.rs RESOURCE_TAG_*` + `03_heap-values.md` table. `RESOURCE_RECORD_SIZE_BYTES=96` is the hard cap.
 
 A `Process`/spawn result is a resource → bind with `RES`, not `LET` (`TYPE_RESOURCE_REQUIRES_RES`).
+
+**A pure-source package's WHOLE companion is compiled into every importing binary, called or not.** This is a size decision, not a detail: it is paid by every program that writes `IMPORT <pkg>` even if it never calls a member. Measured by building `IMPORT io` + `IMPORT <pkg>` with no call and diffing against the `IMPORT io` baseline (66,596 bytes on macos-aarch64):
+
+| package | delta over baseline |
+|---|---|
+| `bits`, `math`, `collections`, `strings`, `os`, `money`, `term`, `tcp`, `tls` | **0** — empty or type-declarations-only companion |
+| `color` | +33,024 |
+| `encoding` | +462,336 |
+| `astrings` | +1,089,792 |
+
+Command: `mfb init /tmp/szp; printf 'IMPORT io\nIMPORT <pkg>\n\nFUNC main AS Integer\n  io::print("hi")\n  RETURN 0\nEND FUNC\n' > /tmp/szp/src/main.mfb; mfb build /tmp/szp; stat -f%z /tmp/szp/build/szp.out` (plan-122-A Phase 6; the `encoding`/`astrings` figures drift as those packages grow, so re-measure rather than quoting these).
+
+**The trigger is a non-empty companion, not `add_imports`.** `tcp` declares `add_imports(vec!["net"])` yet costs 0 bytes, because it declares no records/enums/helpers and renders an empty companion. `udp` declares the same import **plus** one record and therefore pays `net`'s full companion. `term` declares records and enums but no `add_imports`, and costs 0. So a **native** (`Body::abi_function`) member can name another package's value type in its signature through a qualified type-id constant — as `tcp::localAddress` returns `net.Address` — **without** dragging that package's companion in. Reach for that when the importer is size-sensitive (every TUI binary, for `term`).
 
 **Writing the native backend (`src/target/shared/code/<pkg>/`)**
 - Register operands in a hand-built helper MUST be a numeric virtual register `%v0`,`%v1`,… (`regalloc/mod.rs` decodes a vreg as `strip_prefix("%v")?.parse()` — a NUMBER). A "readable" name like `%vfile` parses to `None`, is treated as a physical register, and `finalize_vreg_body` PANICS via `find_physical_operand` (the zero-physical-register invariant). Allocate names with `Vregs::next()` or hardcode distinct `%vN` (net uses `%v9`..`%v15`).

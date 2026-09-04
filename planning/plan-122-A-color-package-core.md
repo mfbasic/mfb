@@ -536,23 +536,40 @@ Commit: —
 
 ### Phase 6 — Documentation, census and the cost measurement
 
-- [ ] `MODULE_INTRO`/`MODULE_DESC` on the package written to the `.ai/man-content.md`
+- [x] `MODULE_INTRO`/`MODULE_DESC` on the package written to the `.ai/man-content.md`
       standard: what a colour is here, the straight-alpha rule, the clamping rule,
       the `0xAARRGGBB` packed order, and that `Color` is an ordinary value record a
-      program may build and `WITH`-update.
-- [ ] `scripts/man-census.sh --fill color` → 100% fill on every column.
-- [ ] `scripts/man-census.sh --memory-scope color` and `--scope color` → **0**
+      program may build and `WITH`-update. (Landed in Phase 1; all five points are
+      in `MODULE_DESC`.)
+- [x] `scripts/man-census.sh --fill color` → 100% fill on every column.
+- [x] `scripts/man-census.sh --memory-scope color` and `--scope color` → **0**
       unclassified hits. No `copy`/`free`/`heap`/`borrow` vocabulary; the permitted
       words are copy, mutate, value, alias.
-- [ ] Add a `color` row to `src/docs/spec/stdlib/` as `18_color.md`, and its entry
+- [x] Add a `color` row to `src/docs/spec/stdlib/` as `18_color.md`, and its entry
       in `src/docs/spec/stdlib/spec.md`.
-- [ ] **Measure and record the package's unused-import byte cost** with the
+- [x] **Measure and record the package's unused-import byte cost** with the
       Verified-properties command from §2, and write the number into this file's
       Corrections section. This is C's input.
+- [x] **Added task — the Validation Plan's doc-sync of `.ai/resources-packages.md`.**
+      Corrected the two stale bullets in §"New builtin-package registration seams"
+      (`src/builtins/<pkg>.rs`, `descriptor.rs` — both verified gone) and added the
+      measured companion-cost table with its command and the
+      "trigger is a non-empty companion, not `add_imports`" finding. Also recorded
+      the `BUILTIN_IMPORTS` single-source-of-truth rule so the `tcp`/`udp` drift
+      cannot be reintroduced.
+- [x] **Added task — coverage denominator check.** `scripts/coverage-common.sh`'s
+      `IGNORE` is
+      `(^|/)(target|tests)/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$`,
+      which does not match `src/codegen/builtins/color/`, so the new module is in
+      the denominator rather than silently unmeasured
+      (`codegen-cover-fixture-may-not-cover-your-member`).
 
-Acceptance: `man-census.sh --fill color` reports no empty cells;
-`--memory-scope`/`--scope` report 0; `scripts/man-run-examples.sh color --run` is
-green; the measured byte cost is recorded here.
+Acceptance: **MET.** `man-census.sh --fill color` → 10 pages, 10/10 intro,
+10/10 desc, 10/10 example, **16/16** param-desc, 4/4 types, `pages with neither
+Description nor Examples: 0`; `--memory-scope color` → `unclassified
+memory-vocabulary hits: 0`; `--scope color` → `internals-vocabulary hits: 0`;
+`man-run-examples.sh color --run` → 22 examples, 22 built, 22 ran, 0 failed. The
+measured byte cost is in Corrections.
 Commit: —
 
 ### Phase 7 — Out-of-band: the `{owner}::{type_name}` doubled qualifier
@@ -716,8 +733,36 @@ rustc error points at the *following* prose rather than at the `"#`. Affected
 constants now use `r##"…"##`. Worth knowing for plan-122-C, whose named-colour
 examples will hit the same thing.
 
-**Phase 6 — measured byte cost of the `color` companion** (this is plan-122-C's
-go/no-go input): recorded below when Phase 6 runs.
+**Phase 6 — MEASURED byte cost of the `color` companion. This is plan-122-C's
+go/no-go input; read it before starting C.**
+
+Measured 2026-09-03 on macos-aarch64 with the §2 command (`mfb init /tmp/szp`,
+`IMPORT io` + `IMPORT <pkg>` with **no call** to `<pkg>`, `stat -f%z` the built
+`.out`):
+
+| build | bytes | delta over baseline |
+|---|---|---|
+| `IMPORT io` alone (baseline) | 66,596 | — |
+| `IMPORT io` + `IMPORT color` | 99,620 | **+33,024** |
+| `IMPORT io` + `IMPORT strings` | 66,596 | 0 (control — empty companion, as §2 predicts) |
+| `IMPORT io` + `IMPORT encoding` | 528,932 | +462,336 |
+| `IMPORT io` + `IMPORT astrings` | 1,156,388 | +1,089,792 |
+
+**`color`'s whole companion — record, 4 helpers, 10 members — costs an importer
+33,024 bytes.** That is an order of magnitude below every other pure-source
+package measured, and it is the denominator C's CSS name table is judged against:
+C's Phase 2 go/no-go asks whether the table is "a minority of the package's cost",
+so the table must be compared against **33,024**, not against a whole-binary
+figure.
+
+Two notes for whoever runs C:
+
+- The baseline reproduced the plan's recorded 66,596 exactly, so the measurement
+  is comparable to §2's table.
+- §2's `encoding` and `astrings` rows have **drifted** since the plan was
+  authored (recorded +429,312 and +1,073,280; measured +462,336 and +1,089,792).
+  Those packages grew; nothing here caused it. Re-measure rather than quoting
+  §2's numbers.
 
 ## Summary
 
