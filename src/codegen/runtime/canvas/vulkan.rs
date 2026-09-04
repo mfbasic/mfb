@@ -4078,12 +4078,26 @@ fn emit_split_or_publish(
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_eq(&single));
-    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16)...
+    // ...and the item actually strokes (`strokeHalf` > 0, in 16.16).
+    //
+    // SIGNED, and that is the whole point. `__canvas_strokeHalf` returns **-1.0** for a
+    // paint that does not stroke, which is `0xFFFF0000` in 16.16 -- and `load_u32`
+    // zero-extends, so the 64-bit compare below saw 4294901760 and every blended
+    // fill-only item took the SPLIT path. The comment under `single` has always claimed
+    // such an item is fill-only and takes the single path; this is the load that makes
+    // it true.
+    //
+    // It stayed invisible until plan-116-H. While the draws came from `emit_run_flush`
+    // the instance count was `cursor - run_start` -- whatever had actually been
+    // published -- so the spurious second record was drawn and painted nothing. Once the
+    // draw list predicts instance counts independently (`__canvas_blockInstances`), one
+    // extra record shifts every later base by one and the scene silently loses its tail.
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_MISC + 8,
     ));
+    builder.emit(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_le(&single));
     // ...and actually fills (fill alpha > 0). A `Line` or an `Arc` reaches here with

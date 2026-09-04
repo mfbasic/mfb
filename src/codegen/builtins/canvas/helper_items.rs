@@ -611,3 +611,39 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_geoRead", GEO_READ));
     pkg.add_helper(RegistryHelper::always("canvas_drawGeometry", DRAW_GEOMETRY));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `__canvas_strokeHalf` reports "this paint does not stroke" as a **negative**
+    /// value, not zero. Every native consumer therefore has to read it SIGNED.
+    ///
+    /// plan-116-H: the Vulkan emitter's blend-split test read it with `load_u32`, which
+    /// zero-extends, so `-1.0` in 16.16 (`0xFFFF0000`) compared as 4294901760 and every
+    /// blended fill-only item was published as TWO records instead of one. Nothing
+    /// caught it for as long as the draw call's instance count came from the emitter's
+    /// own cursor -- the extra record was drawn and painted nothing. It only became a
+    /// visible defect when the draw list started predicting instance counts
+    /// independently, at which point one extra record shifted every later draw base and
+    /// the scene lost its tail.
+    ///
+    /// This pins the sentinel because the cheap "fix" from the other direction -- making
+    /// it return `0.0` -- would silently paper over a signed-read bug and leave the next
+    /// consumer to rediscover this.
+    #[test]
+    fn a_paint_that_does_not_stroke_reports_a_negative_stroke_half() {
+        let negatives = STROKE_HALF.matches("RETURN 0.0 - 1.0").count();
+        assert_eq!(
+            negatives, 2,
+            "__canvas_strokeHalf must return a NEGATIVE sentinel for both \
+             non-stroking cases (zero alpha, non-positive width); native consumers \
+             read this field signed and a 0.0 sentinel changes what they publish",
+        );
+        assert!(
+            !STROKE_HALF.contains("RETURN 0.0\n"),
+            "a bare 0.0 sentinel makes the no-stroke case indistinguishable from a \
+             zero-width stroke under an unsigned read",
+        );
+    }
+}

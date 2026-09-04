@@ -508,6 +508,70 @@ Commit: —
 
 ## Corrections
 
+**H15 (Phase 2) — the residual 4.27% was a pre-existing emitter bug that only the draw
+list could expose: the blend-split test read `strokeHalf` UNSIGNED.**
+
+`emit_split_or_publish` splits an item into two published records when the blend mode is
+not Normal **and** it strokes **and** it fills. The middle test was:
+
+```rust
+builder.emit(abi::load_u32(SCRATCH[0], sp, off_item + ITEM_OFFSET_MISC + 8));
+builder.emit(abi::compare_immediate(SCRATCH[0], "0"));
+builder.emit(abi::branch_le(&single));
+```
+
+`__canvas_strokeHalf` (`helper_items.rs`) reports "does not stroke" as **`-1.0`**, which is
+`0xFFFF0000` in 16.16 — and `load_u32` **zero-extends**, so the 64-bit compare saw
+4294901760 and took the split. **Every blended fill-only item was published as two records
+instead of one.** The function's own comment already asserted the opposite ("so it is
+fill-only and takes the single path"); the load simply did not implement it. Fixed with
+`abi::sign_extend_word`, whose doc-comment cites bug-04 for this exact shape.
+
+**Why nothing caught it before.** While draws came from `emit_run_flush`, the instance
+count was `cursor - run_start` — *whatever had actually been published* — so the spurious
+second record was drawn and painted nothing. The bug was invisible by construction. The
+moment the draw list began predicting instance counts independently
+(`__canvas_blockInstances`), one extra record shifted every later draw base by one and the
+scene lost its tail. **That is the general hazard: replacing a self-consistent count with
+an independently predicted one turns every latent publish/predict disagreement into a
+visible defect.**
+
+**How it was found — by bisection on the box, not by reading.** The reasoning that looked
+right was wrong three times (the shaders, the ABI, the gradients), so the scene was shrunk
+until it was two rectangles:
+
+| scene | result |
+|---|---|
+| one gradient | 0 differing |
+| 7 items, all Normal, one entry | 184 (edges only) |
+| gradient **first**, blended second | 0 differing |
+| blended **first**, gradient second | **9000 — exactly the rect** |
+
+Then emitter probes on that two-item scene, each one harness run:
+
+* per-entry pipeline bind disabled → still wrong (**not the bind**)
+* per-entry push constants disabled → still wrong (**not the push**)
+* `firstInstance=0, instanceCount=8` → **0 differing**: every item *is* published
+* `firstInstance=3, instanceCount=1` → drew the **blue** rect, i.e. item **2**
+
+That last probe is the one that named it: the item buffer was shifted by one, so something
+published an extra record. Note the fill colour had to be changed from black first —
+the gradient items' fallback fill is `rgb(0,0,0)`, which is also the background, so
+"drawn with the fill" and "not drawn at all" were indistinguishable and I had read the
+symptom as a gradient failure for three rounds.
+
+**Gates.** `a_paint_that_does_not_stroke_reports_a_negative_stroke_half` in
+`helper_items.rs` pins the sentinel as negative, because the tempting fix from the other
+side — returning `0.0` — would hide a signed-read bug and leave the next consumer to
+rediscover this. The sibling test at `ITEM_OFFSET_FILL + 12` was checked and is correct
+unsigned: fill alpha is 0..255 and never negative.
+
+**Metal (Phase 3) has no split path yet**, so it does not carry this bug — but it must not
+reproduce it when it gains one.
+
+**Result: `scripts/test-canvas-vulkan.sh` is 12/12, `worst=2 differing=0.8116%` — byte-for-
+byte the pre-conversion control's numbers.**
+
 **H14 (Phase 2) — the SECOND lost half, and a misread tuple that pointed H10 at the
 harness instead of at the renderer.**
 

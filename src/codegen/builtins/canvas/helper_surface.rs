@@ -95,7 +95,9 @@ FUNC __canvas_drawsText() AS String
     IF i > 0 THEN
       out = out & "|"
     END IF
-    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0))
+    ' base:count:dx:dy:mode. The mode is word 4 and it selects the PIPELINE, so a draw
+    ' list that reads correct in the first four fields can still bind the wrong program.
+    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0))
     i = i + 8
   END WHILE
   RETURN out
