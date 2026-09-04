@@ -24,8 +24,8 @@ answer — it is the reason a naive "is this dark?" check misjudges mid-tones.
 shows; a half-transparent white is still a light colour, and what it ends up
 looking like depends on what is behind it.
 
-`color::contrastRatio` is what consumes this, and `color::isDark`/`color::isLight`
-are the two-way split of it."#;
+`color::contrastRatio` is built on this, and `color::isDark`/`color::isLight` are
+the two-way split of it."#;
 
 const EX: &str = r#"The endpoints are exact, and green far outweighs blue:
 

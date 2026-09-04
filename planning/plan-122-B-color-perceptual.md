@@ -399,17 +399,42 @@ Commit: —
 
 ### Phase 4 — HSL
 
-- [ ] `Hsl` record on the package; `func_hsl.rs`, `func_hsla.rs`, `func_to_hsl.rs`,
+- [x] `Hsl` record on the package; `func_hsl.rs`, `func_hsla.rs`, `func_to_hsl.rs`,
       `func_saturate.rs`, `func_desaturate.rs`, `func_rotate_hue.rs` per §6.
-- [ ] Tests: round-trip `toHsl(hsl(h, s, l))` over the six primary hues and the
+      Plus `helper_hsl.rs` (the shared conversion core) and, **added**,
+      `HSL_TYPE_ID` seeded into `resolver::BUILTIN_TYPES` — the plan never mentions
+      it, but without it a bare `AS Hsl` would be the bug-484 hole `Color` already
+      guards against. `math` joins `add_imports` for `abs`/`floor`/`min`/`max`
+      (0 bytes — empty companion).
+- [x] Tests: round-trip `toHsl(hsl(h, s, l))` over the six primary hues and the
       greys; hue wrap (`rotateHue(c, 400.0) = rotateHue(c, 40.0)`); the
       unsaturated-hue rule; saturation/lightness clamping at both ends.
-- [ ] Man prose must state the sRGB-vs-linear asymmetry (§6) on both `toHsl` and
+- [x] Man prose must state the sRGB-vs-linear asymmetry (§6) on both `toHsl` and
       `brighten`, so a reader cannot form the wrong mental model from either page
-      alone.
+      alone. (Also on `hsl`, `hsla`, `saturate` and `desaturate`.)
 
-Acceptance: the round-trip and wrap tests pass; `man-census.sh --fill color` still
-100%; `--memory-scope color` and `--scope color` still 0.
+Acceptance: **MET**, in `tests/rt-behavior/color/color_hsl_rt`.
+
+The six primary hues land **exactly** on `#ff0000` / `#ffff00` / `#00ff00` /
+`#00ffff` / `#0000ff` / `#ff00ff` with `roundTrip=TRUE`. That exactness is itself
+the proof of §6's central claim — HSL computed in *linear light* would not put the
+primaries on those bytes.
+
+Greys round-trip too (`black`, `midGrey`, `white` all `roundTrip=TRUE`) with
+`h=0.00 s=0.00`, so the unsaturated-hue rule holds and does not cost exactness.
+
+Hue wraps: `wrap400`, `wrap40` and `wrapNeg320` are all `#6633cc`, and
+`wrap360` returns the base. Saturation and lightness **clamp** instead
+(`satClampHigh/Low`, `lightClampHigh/Low` land on the endpoints), so the
+wrap-vs-clamp asymmetry §6 states is pinned in both directions.
+
+`saturate`/`desaturate` endpoints and clamping hold, alpha rides through all three
+manipulators (`satAlpha`/`desatAlpha`/`rotateAlpha` = `128`), and
+`hsl(h,s,l)` equals `hsla(h,s,l,255)` exactly.
+
+`man-census.sh --fill color` → **26 pages, 100% every column, 45/45 param-desc,
+7/7 types**; `--memory-scope color` **0**; `--scope color` **0**;
+`man-run-examples.sh color --run` → **52 examples, 52 built, 52 ran, 0 failed**.
 Commit: —
 
 ## Validation Plan
@@ -507,6 +532,38 @@ proves the move is byte-neutral for every program that does not import `canvas` 
 `color`. The only acceptance drift in the whole phase is the five `color` fixtures'
 `.ir`, whose delta introduces exactly `#color_srgbTable`, `#color_toLinear` and
 `#color_fromLinear`.
+
+**Phase 4 — a documentation claim I wrote was false, and the runtime caught it.**
+The `saturate` page first said: *"A colour with no saturation — any grey — has no
+hue to become more vivid, so `saturate` returns it unchanged whatever `amount`
+says."* The probe returned `#ff0101` for `saturate(color::gray(128), 1.0)`.
+
+The **code is right and the prose was wrong**. `toHsl` reports a grey's hue as
+`0.0`, and `0.0` degrees is red, so a fully saturated grey is red — the HSL
+model's own answer, and what CSS and Sass `saturate()` do. Verified the arithmetic
+rather than assuming: `gray(128)` is lightness `0.50196`, giving `c = 0.99608`,
+`m = 0.00392`, hence red `255` and green/blue `1` — exactly `#ff0101`.
+
+Deliberately **not** special-cased to return the grey, because that would make the
+function discontinuous at saturation `0`: a colour at `0.001` would come back
+almost fully red while one at exactly `0.0` came back grey. The page now states
+the real behaviour and shows how to test for it, and
+`color_hsl_rt` pins both halves — `greyRotate` **is** the identity (there is no
+hue to turn) while `greySaturate` is **not**.
+
+Worth noting for the plan's own §6: it says "A fully unsaturated colour has no
+meaningful hue — `toHsl` reports `0.0` and the round-trip is still exact". Both
+clauses are true and both are tested; the plan simply never said what `saturate`
+does with such a colour, and the natural assumption was wrong.
+
+**Phase 4 — two man-census false positives worth knowing.** `--scope`'s
+`SCOPE_CORE` regex matches the bare word **`lowering`**, so ordinary English like
+"by lowering its HSL saturation" is flagged as compiler-internals vocabulary.
+Reworded to "reducing". `--memory-scope` likewise flags **`consumed`/`consumes`**.
+Both are legitimate bans with innocent English collisions; the fix is a synonym,
+not an exemption. (The remaining `lowering` in `color/mod.rs` is inside a Rust
+`///` doc comment describing the actual native-lowering failure, which the census
+does not scan and where the compiler term is correct.)
 
 **Phase 3 — the rasteriser cost, measured. UNVERIFIED property from §2 resolved:
 the seam costs nothing detectable.**

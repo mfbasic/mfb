@@ -43,11 +43,14 @@ use crate::types::ParameterType;
 mod func_brighten;
 mod func_contrast_ratio;
 mod func_darken;
+mod func_desaturate;
 mod func_from_hex;
 mod func_from_linear;
 mod func_from_packed;
 mod func_gray;
 mod func_grayscale;
+mod func_hsl;
+mod func_hsla;
 mod func_invert;
 mod func_is_dark;
 mod func_is_light;
@@ -55,8 +58,11 @@ mod func_luminance;
 mod func_mix;
 mod func_rgb;
 mod func_rgba;
+mod func_rotate_hue;
+mod func_saturate;
 mod func_to_hex;
 mod func_to_hex_alpha;
+mod func_to_hsl;
 mod func_to_linear;
 mod func_to_packed;
 mod func_with_alpha;
@@ -64,6 +70,7 @@ mod helper_clamp_byte;
 mod helper_clamp_fraction;
 mod helper_hex_byte;
 mod helper_hex_value;
+mod helper_hsl;
 mod helper_srgb;
 mod helper_to_string;
 
@@ -74,6 +81,14 @@ pub(crate) const COLOR_TYPE: &str = "Color";
 /// resolver seeds, so a bare `AS Color` from another file is refused (bug-484).
 /// Every cross-package descriptor reference uses this constant, never a literal.
 pub(crate) const COLOR_TYPE_ID: &str = "color.Color";
+
+/// The `Hsl` record type (`hue`/`saturation`/`lightness` `Float`), returned by
+/// `color::toHsl` — the leaf spelling, as it appears inside the package's own
+/// injected companion.
+pub(crate) const HSL_TYPE: &str = "Hsl";
+/// `Hsl`'s package-qualified identity, seeded into `resolver::BUILTIN_TYPES` so a
+/// bare `AS Hsl` from another file is refused (bug-484), exactly as `Color` is.
+pub(crate) const HSL_TYPE_ID: &str = "color.Hsl";
 
 /// The internal source-companion render target for the `toString(color::Color)`
 /// override — routed here by [`RegistryPackage::add_override`], as
@@ -125,7 +140,10 @@ pub(crate) fn register(r: &mut Registry) {
     // The set grows with the members that need it rather than being declared up
     // front, so an injected `IMPORT` nothing calls never reaches an importer's
     // `.ir`.
-    pkg.add_imports(vec!["color", "bits", "strings", "collections"]);
+    // `math` backs the HSL conversions (`abs`/`floor`/`min`/`max` only — no
+    // transcendentals, per the module note above). It costs an importer 0 bytes:
+    // its companion is empty (plan-122-A §2).
+    pkg.add_imports(vec!["color", "bits", "strings", "collections", "math"]);
 
     pkg.add_record(RegistryRecord {
         name: COLOR_TYPE,
@@ -160,6 +178,38 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // The HSL view of a colour (plan-122-B §6). Deliberately describes the **sRGB**
+    // colour rather than linear light: that is what CSS `hsl()` and every design
+    // tool mean, so a round trip agrees with the hex a designer pasted in.
+    pkg.add_record(RegistryRecord {
+        name: HSL_TYPE,
+        export: true,
+        description: "A colour as hue, saturation and lightness — the HSL view of a \
+                      `color::Color`. `color::toHsl` returns one, and `color::hsl` \
+                      builds a colour back from the same three values. It describes \
+                      the sRGB colour, not linear light, so it matches what a design \
+                      tool shows for the same hex.",
+        props: vec![
+            RecordProp {
+                name: "hue",
+                ty: ParameterType::Float,
+                description: "The hue in degrees around the colour wheel, `0.0`..`360.0`. \
+                              Reported as `0.0` for a colour with no saturation.",
+            },
+            RecordProp {
+                name: "saturation",
+                ty: ParameterType::Float,
+                description: "How colourful, `0.0` (a neutral grey) to `1.0` (fully saturated).",
+            },
+            RecordProp {
+                name: "lightness",
+                ty: ParameterType::Float,
+                description: "How light, `0.0` (black) through `0.5` (the vivid hue) to \
+                              `1.0` (white).",
+            },
+        ],
+    });
+
     // `toString(color::Color)` renders the lossless `#rrggbbaa` form — the registry
     // home of what would otherwise be a hand row in
     // `builtins::general_override_target`, exactly as `toString(net::Url)` is.
@@ -175,6 +225,9 @@ pub(crate) fn register(r: &mut Registry) {
     helper_hex_byte::register(&mut pkg);
     helper_to_string::register(&mut pkg);
     helper_srgb::register(&mut pkg);
+    // After `helper_clamp_byte`/`helper_clamp_fraction` and `helper_srgb`: the HSL
+    // core calls the two clamps, and `get_mfb` renders helpers in this order.
+    helper_hsl::register(&mut pkg);
 
     // Constructors first, then the operations over an existing colour — the order
     // a reader of `mfb man color` meets them in.
@@ -209,6 +262,14 @@ pub(crate) fn register(r: &mut Registry) {
     func_contrast_ratio::register(&mut pkg);
     func_is_dark::register(&mut pkg);
     func_is_light::register(&mut pkg);
+
+    // HSL: the constructors, the decomposition, and the three manipulators.
+    func_hsl::register(&mut pkg);
+    func_hsla::register(&mut pkg);
+    func_to_hsl::register(&mut pkg);
+    func_saturate::register(&mut pkg);
+    func_desaturate::register(&mut pkg);
+    func_rotate_hue::register(&mut pkg);
 
     r.add_package(pkg);
 }

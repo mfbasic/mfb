@@ -1,0 +1,43 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_hsl_rt
+Wrote AST to tests/rt-behavior/color/color_hsl_rt/color_hsl_rt.ast
+Wrote IR to tests/rt-behavior/color/color_hsl_rt/color_hsl_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_hsl_rt
+Wrote executable to tests/rt-behavior/color/color_hsl_rt/build/color_hsl_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_hsl_rt/build/color_hsl_rt.out
+red hex=#ff0000 h=0.00 s=1.00 l=0.50 roundTrip=TRUE
+yellow hex=#ffff00 h=60.00 s=1.00 l=0.50 roundTrip=TRUE
+green hex=#00ff00 h=120.00 s=1.00 l=0.50 roundTrip=TRUE
+cyan hex=#00ffff h=180.00 s=1.00 l=0.50 roundTrip=TRUE
+blue hex=#0000ff h=240.00 s=1.00 l=0.50 roundTrip=TRUE
+magenta hex=#ff00ff h=300.00 s=1.00 l=0.50 roundTrip=TRUE
+black hex=#000000 h=0.00 s=0.00 l=0.00 roundTrip=TRUE
+midGrey hex=#808080 h=0.00 s=0.00 l=0.50 roundTrip=TRUE
+white hex=#ffffff h=0.00 s=0.00 l=1.00 roundTrip=TRUE
+wrap400=#6633cc
+wrap40=#6633cc
+wrapNeg320=#6633cc
+wrap360=#3366cc base=#3366cc
+satClampHigh=#0080ff
+satClampLow=#808080
+lightClampHigh=#ffffff
+lightClampLow=#000000
+sat0=#3366cc base=#3366cc
+sat1=#0055ff
+satClamped=#0055ff
+desat0=#3366cc
+desat1=#808080
+desatClamped=#3366cc
+greyRotate=#808080 grey=#808080
+greySaturate=#ff0101
+greySaturation=0.00
+desatBlue=#808080
+grayBlue=#4c4c4c
+satAlpha=128
+desatAlpha=128
+rotateAlpha=128
+hslaAlpha=#3380cc80
+hslOpaque=#3380ccff
+hslaOpaque=#3380ccff
+[exit 0]
