@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: security (denial of service — compiler crash on hostile source)
 
-Status: Open (found in audit-3, Surface 2 FE-01; reproduced live by the lead)
+Status: FIXED (see STATUS block at the end)
 
 Regression Test: a `tests/syntax/` fixture with a long `+` chain asserting `MFB_EXPR_TOO_DEEP` (or equivalent), not a crash.
 
@@ -50,9 +50,67 @@ heap-bounded. A clean diagnostic, never a crash.
 Do not lower the existing right-recursive cap; no language-surface change (a
 legitimately deep expression already errors cleanly).
 
+## Sub-issue B (found while fixing A): `|>` placeholder copies are exponential
+
+`parse_pipeline` lowers `left |> right` by cloning `left` into EVERY `_` of
+`right` (`substitute_placeholder`). A right-hand side with two placeholders
+therefore doubles the tree per stage: measured on the pre-fix release binary,
+`1 |> f(_, _)` × 12 stages = 6.5 s / 68 MB, × 14 = 19 s / 238 MB, × 16 = 100 s /
+720 MB, × 20 did not finish in 10 minutes — from a 200-byte source. Distinct
+mechanism from A (size, not depth: the tree stays shallow), same parser, same
+hostile-source class.
+
+Fix: charge `(placeholders − 1) × nodes(left)` against
+`MAX_PIPELINE_COPIED_NODES` (4096) BEFORE cloning; a single `_` (the ordinary
+form) is never charged. The doubling attack is refused at its 13th stage with a
+located diagnostic.
+
 ## Prior art
 
 bug-171-A, bug-220 (`bugs/completed/`) fixed adjacent depth halves; audit-2
 FE-02/FE-03 (bug-182/183) are fixed (monomorph + statement depth). This
 operator/member-chain axis is the remaining uncovered one (searched
 `MAX_EXPR_DEPTH`, `expr depth`, `stack overflow`, `left-assoc`).
+
+## STATUS: FIXED
+
+Fixed on `worktree-B-501` (this commit) — see `git log` for the hash.
+
+**Mechanism confirmed.** `MAX_EXPR_DEPTH` (`src/ast/expr.rs`, `enter_expr`) bounds
+the parser's *recursion*, but the left-associative loops (`parse_or` …
+`parse_multiplication`, `parse_member_access`) and `parse_pipeline` deepen the
+*tree* by one per iteration without recursing. On the pre-fix release binary
+(`mfb build` on `spikes/audit-3/FE-01`): 256 terms compiled, 300–2000 terms were
+rejected cleanly by `ir::verify`'s 256-level backstop (`expression nesting
+exceeds the 256 level limit`), 5 000+ overflowed the stack in the lowering
+passes before verify ran (SIGABRT). A composite of 250 nested groups each
+holding a 20-term chain (10.5 KB) also aborted — so charging chain LENGTH per
+loop would not have fixed it; only the depth of the BUILT tree can see it.
+
+**Fix (A).** `FileParser::expr_tree_depth` records the tree depth (0 = leaf,
+`1 + max(children)`) of the expression just completed; every node-building site
+in `expr.rs`/`stmt.rs` reports through `note_expr_tree_depth`, which emits
+`MFB_PARSE_UNEXPECTED_TOKEN` / "Expression nesting is too deep." at the operator
+that crosses `MAX_EXPR_DEPTH`, then latches `depth_exceeded` + `seek_to_end`
+(the bug-183/191 recovery) so exactly one diagnostic renders. The convention
+(root 0, reject > 256) is `ir::verify::check_value_depth`'s, so a 256-term chain
+still compiles and nothing that verified before is rejected (pinned by
+`tree_depth_guard_admits_a_chain_at_the_cap` and
+`chain_at_the_cap_still_compiles`). For `|>`, `placeholder_shape` gives the
+right-hand side's depth and its deepest `_`, so the spliced depth is exact.
+The existing right-recursive cap is untouched.
+
+**Fix (B).** See Sub-issue B above.
+
+**Tests.** `src/ast/expr.rs` unit tests (`tree_depth_guard_*`,
+`pipeline_placeholder_copy_budget`), `tests/cli_parse_expression_tree_depth.rs`
+(real binary: 20 000-term chain, 250×20 composite, 20 000-member chain, 20-stage
+`f(_, _)` pipeline → all `exit 1` with the located diagnostic; 256-term chain
+still builds), and `tests/syntax/parser/parser_operator_chain_depth` (golden).
+All RED on the pre-fix tree (SIGABRT / SIGTERM after 10 min / parse accepted),
+GREEN after.
+
+**Deviation from the doc.** `mfb fmt` is lexical and never parses, so it was
+never reachable by this defect; `mfb build`/`mfb audit` were. No new rule code
+was minted (rule codes race between sessions); the guard reuses the code the
+existing expression-depth guard emits.
