@@ -1647,6 +1647,40 @@ async fn package_index(
 const SNAPSHOT_TTL_SECS: i64 = 7 * 24 * 3600;
 const TIMESTAMP_TTL_SECS: i64 = 24 * 3600;
 
+/// The publish-token grant behind a session's auth key, if that key is a token
+/// (bug-492 / audit-3 REPO-01).
+///
+/// A publish token (plan-10-D1) is a *delegated* credential: an ordinary
+/// `keys` row plus a `publish_tokens` row naming its scope and expiry. Only
+/// `/signing` used to read that row, so every other authenticated route treated
+/// a token session as the account itself — a token could enrol a machine via
+/// `/machines/link` and mint a permanent unscoped key that outlived its own
+/// revocation. The scope and expiry are a property of the *session* now: this
+/// is the one reader of the row, every route that accepts a session calls it,
+/// and the expiry/revocation refusals live here so no route can forget them.
+///
+/// Returns `Ok(None)` for a machine key, `Ok(Some(scope))` for a live token,
+/// and `Err` for a revoked or expired one. The session JWT is minted for an
+/// hour and may well outlive a short token, which is why this re-reads the row
+/// per request instead of trusting the JWT.
+fn publish_token_scope(
+    store: &Store,
+    key_id: i64,
+) -> Result<Option<String>, (StatusCode, Json<ErrorResponse>)> {
+    let Some((scope, expires_at, revoked_at)) =
+        store.publish_token_for_key(key_id).map_err(internal)?
+    else {
+        return Ok(None);
+    };
+    if revoked_at.is_some() {
+        return Err(bad_request("publish token is revoked".to_string()));
+    }
+    if expires_at <= now_unix() {
+        return Err(bad_request("publish token has expired".to_string()));
+    }
+    Ok(Some(scope))
+}
+
 /// Shared preamble for ident-authorized account mutations (plan-10-D1): verify
 /// the session names `owner` and matches a current auth key, and return the
 /// owner record plus their current ident public key (for ident-signature
@@ -1662,7 +1696,7 @@ fn session_and_ident(
             "session owner does not match requested owner".to_string(),
         ));
     }
-    let Some((owner_record, _key)) = state
+    let Some((owner_record, key)) = state
         .store
         .owner_auth_key_by_fingerprint(owner, &claims.auth_fingerprint)
         .map_err(internal)?
@@ -1676,6 +1710,9 @@ fn session_and_ident(
             "session owner does not match requested owner".to_string(),
         ));
     }
+    // A token session still needs the ident signature these routes demand, but
+    // an expired or revoked token must not get even that far (bug-492).
+    publish_token_scope(&state.store, key.id)?;
     let Some((_owner, ident_key)) = state.store.owner_with_ident_key(owner).map_err(internal)?
     else {
         return Err(bad_request("owner has no current ident key".to_string()));
@@ -2021,7 +2058,7 @@ async fn release_state(
             "session owner does not match requested owner".to_string(),
         ));
     }
-    let Some((owner, _key)) = state
+    let Some((owner, key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
@@ -2035,6 +2072,9 @@ async fn release_state(
             "session owner does not match requested owner".to_string(),
         ));
     }
+    // An expired or revoked publish token is refused before the ident
+    // signature is even looked at (bug-492).
+    publish_token_scope(&state.store, key.id)?;
     // Maintainer states only — blocked/legal-tombstoned are operator states.
     if !matches!(
         request.state.as_str(),
@@ -2217,6 +2257,18 @@ async fn put_blob(
     // carry the body-field `sessionToken` every other authenticated route uses.
     let token = bearer_token(&headers)?;
     let claims = verify_session_token(&state.store, token).map_err(|err| unauthorized(&err))?;
+    // bug-492: a publish token's expiry binds this route too. A blob has no
+    // package, so scope does not apply, but an expired token must not keep
+    // staging bytes on the strength of its still-live session JWT.
+    let Some((_owner, key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(&claims.sub, &claims.auth_fingerprint)
+        .map_err(internal)?
+    else {
+        return Err(unauthorized("session key is not a current auth key"));
+    };
+    publish_token_scope(&state.store, key.id)
+        .map_err(|(_status, Json(err))| unauthorized(&err.error))?;
     // Per-owner upload throttle (§4.3): non-optional given there is no GC, so an
     // authenticated publisher cannot fill the datapath with unreclaimable bytes.
     if !state.rate_limiter.allow(
@@ -2359,7 +2411,7 @@ async fn link_start(
             "session owner does not match requested owner".to_string(),
         ));
     }
-    let Some((owner, _key)) = state
+    let Some((owner, key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
@@ -2371,6 +2423,17 @@ async fn link_start(
     if owner.id != claims.owner_id {
         return Err(bad_request(
             "session owner does not match requested owner".to_string(),
+        ));
+    }
+    // bug-492: enrolling a machine is account authority. A publish token is a
+    // delegated credential (one scope, a TTL, revocable); let it start a link
+    // and it parks a blob it can fetch itself with a fresh keypair, minting a
+    // permanent unscoped auth key that survives the token's revocation. The
+    // fetch half proves only possession of the *new* key, so the refusal has
+    // to be here.
+    if publish_token_scope(&state.store, key.id)?.is_some() {
+        return Err(bad_request(
+            "a publish token session cannot link a machine".to_string(),
         ));
     }
     if request.lookup.len() != 64
@@ -2503,6 +2566,9 @@ async fn login(
         .store
         .complete_challenge(&request.challenge_id, &signature)
         .map_err(conflict_or_bad_request)?;
+    // bug-492 / audit-3 REPO-09: an expired or revoked publish token must not
+    // open a session at all — the JWT minted below would outlive it by an hour.
+    publish_token_scope(&state.store, key.id)?;
     let issued_at = now_unix();
     let expires_at = issued_at + 3600;
     let jwt_id = Uuid::new_v4().to_string();
@@ -2606,18 +2672,9 @@ async fn signing(
         ));
     }
     // If the session's auth key is a scoped publish token (plan-10-D1), it may
-    // only attest packages within its scope, and only until it expires.
-    if let Some((scope, expires_at, revoked_at)) = state
-        .store
-        .publish_token_for_key(key.id)
-        .map_err(internal)?
-    {
-        if revoked_at.is_some() {
-            return Err(bad_request("publish token is revoked".to_string()));
-        }
-        if expires_at <= now_unix() {
-            return Err(bad_request("publish token has expired".to_string()));
-        }
+    // only attest packages within its scope, and only until it expires (the
+    // expiry/revocation refusals live in `publish_token_scope`, bug-492).
+    if let Some(scope) = publish_token_scope(&state.store, key.id)? {
         if !scope_permits(&scope, &request.ident) {
             return Err(bad_request(
                 "publish token scope does not permit this package".to_string(),
@@ -2896,6 +2953,25 @@ async fn validate_package_request(
         .allow(&format!("{route}:{}", claims.sub), per_owner_max, 60)
     {
         return Err(too_many_requests());
+    }
+    // bug-492: a publish token's scope and expiry bound `/validate` and
+    // `/publish` exactly as they bound `/signing`. A hard refusal rather than a
+    // diagnostic — the artifact may be perfectly valid; the credential is not —
+    // and checked before any of the expensive work below. `request.ident` is
+    // enough here: a package whose own ident differs fails the equality
+    // diagnostic further down and can never publish.
+    if let Some((_owner, key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(&claims.sub, &claims.auth_fingerprint)
+        .map_err(internal)?
+    {
+        if let Some(scope) = publish_token_scope(&state.store, key.id)? {
+            if !scope_permits(&scope, &request.ident) {
+                return Err(bad_request(
+                    "publish token scope does not permit this package".to_string(),
+                ));
+            }
+        }
     }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let package = match package::parse_mfp_package(&artifact) {
@@ -7420,6 +7496,244 @@ mod tests {
             )
             .1,
             "publish token has expired",
+        );
+    }
+
+    /// Issue a publish token for `alice` scoped to `scope` through the real
+    /// `/tokens` handler; returns the token's private key and fingerprint so
+    /// the caller can open a session with it.
+    async fn issue_scoped_token(
+        h: &Harness,
+        keys: &TestOwnerKeys,
+        owner_session: &str,
+        scope: &str,
+        ttl_seconds: i64,
+    ) -> (Vec<u8>, String) {
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_fingerprint = crypto::fingerprint(&token_public);
+        let proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        )
+        .unwrap();
+        let _ = issue_token(
+            State(h.state.clone()),
+            Json(TokenIssueRequest {
+                owner: "alice".to_string(),
+                token_key: crypto::encode_bytes(&token_public),
+                proof: crypto::encode_bytes(&proof),
+                scope: scope.to_string(),
+                ttl_seconds,
+                session_token: owner_session.to_string(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &keys.ident_private,
+                        &crypto::token_issue_message("alice", &token_fingerprint, scope),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("token issued");
+        (token_private, token_fingerprint)
+    }
+
+    /// bug-492 (audit-3 REPO-01): a publish token is a *delegated* credential
+    /// — one package, a TTL, revocable. `/machines/link` accepted any session,
+    /// so a token session could park a pairing blob and then fetch it with a
+    /// fresh keypair of its own choosing, minting a permanent, unscoped auth key
+    /// that outlived the token's revocation. Enrolling a machine is account
+    /// authority: a token-backed session is refused outright, while an ordinary
+    /// machine key — including one that was itself linked — still pairs.
+    #[tokio::test]
+    async fn a_publish_token_session_cannot_enrol_a_machine() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let owner_session = open_session(&h.store, "alice", &alice.auth_private);
+        let (token_private, token_fingerprint) =
+            issue_scoped_token(&h, &alice, &owner_session, "alice#toolbox", 3600).await;
+        let token_session =
+            open_session_for_key(&h.store, "alice", &token_private, &token_fingerprint);
+
+        let lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
+        let start = |session: &str, lookup: &str| LinkStartRequest {
+            owner: "alice".to_string(),
+            lookup: lookup.to_string(),
+            blob: crypto::encode_bytes(&[7u8; 64]),
+            salt: crypto::encode_bytes(&[9u8; 16]),
+            session_token: session.to_string(),
+        };
+        assert_eq!(
+            err_of(link_start(State(h.state.clone()), Json(start(&token_session, &lookup)),).await),
+            (
+                StatusCode::BAD_REQUEST,
+                "a publish token session cannot link a machine".to_string(),
+            ),
+        );
+        // Nothing was parked: the fetch half finds no pairing under that code,
+        // so the token cannot complete the self-pairing with a key of its own.
+        let (new_public, new_private) = crypto::generate_keypair();
+        let proof = crypto::encode_bytes(
+            &crypto::sign(
+                &new_private,
+                &crypto::registration_message(crypto::ROLE_AUTH, "alice", &new_public),
+            )
+            .unwrap(),
+        );
+        let fetch = |lookup: &str| LinkFetchRequest {
+            owner: "alice".to_string(),
+            lookup: lookup.to_string(),
+            auth_key: crypto::encode_bytes(&new_public),
+            proof: proof.clone(),
+        };
+        assert_eq!(
+            err_of(link_fetch(State(h.state.clone()), Json(fetch(&lookup))).await).1,
+            "unknown, used, or expired pairing code",
+        );
+        // Refusing the link did not narrow the token further: it still attests
+        // within its scope.
+        let (signing_public, _) = crypto::generate_keypair();
+        let _ = signing(
+            State(h.state.clone()),
+            peer("127.0.0.1"),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                signing_fingerprint: crypto::fingerprint(&signing_public),
+                session_token: token_session.clone(),
+            }),
+        )
+        .await
+        .expect("an in-scope attestation is still issued to the token");
+
+        // A real two-machine link is untouched: the account's machine key parks
+        // the blob and the new machine fetches it.
+        let _ = link_start(State(h.state.clone()), Json(start(&owner_session, &lookup)))
+            .await
+            .expect("a machine-key session still starts a link");
+        let fetched = link_fetch(State(h.state.clone()), Json(fetch(&lookup)))
+            .await
+            .expect("the new machine still fetches the pairing")
+            .0;
+        assert_eq!(fetched.auth_fingerprint, crypto::fingerprint(&new_public));
+        // ...and the newly linked key is a full machine key, not a token: it may
+        // itself enrol the next machine.
+        let linked_session =
+            open_session_for_key(&h.store, "alice", &new_private, &fetched.auth_fingerprint);
+        let next_lookup = crypto::pairing_lookup(&crypto::generate_pairing_code());
+        let _ = link_start(
+            State(h.state.clone()),
+            Json(start(&linked_session, &next_lookup)),
+        )
+        .await
+        .expect("a linked machine key can pair another machine");
+    }
+
+    /// bug-492, the other half: a token's scope and expiry were consulted by
+    /// `/signing` alone, so every other authenticated route treated a token
+    /// session as the account itself. They are a property of the *session* now
+    /// — `/validate` and `/publish` refuse an out-of-scope package, and an
+    /// expired token is refused at `PUT /blob` and at `/auth/login` even while
+    /// its session JWT is still live (the JWT outlives a short token by design,
+    /// which is exactly why the token row has to be re-read per request).
+    #[tokio::test]
+    async fn a_publish_token_is_bounded_on_every_authenticated_route() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let owner_session = open_session(&h.store, "alice", &alice.auth_private);
+
+        // A token for a *different* package cannot validate or publish
+        // alice#toolbox even with a perfectly valid, owner-attested artifact.
+        let (other_private, other_fingerprint) =
+            issue_scoped_token(&h, &alice, &owner_session, "alice#other", 3600).await;
+        let other_session =
+            open_session_for_key(&h.store, "alice", &other_private, &other_fingerprint);
+        let (_artifact, mut request) = signed_request(
+            &h.state,
+            &alice,
+            &owner_session,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        request.session_token = other_session.clone();
+        let refused = (
+            StatusCode::BAD_REQUEST,
+            "publish token scope does not permit this package".to_string(),
+        );
+        assert_eq!(
+            err_of(validate_package(State(h.state.clone()), Json(clone_request(&request))).await),
+            refused,
+        );
+        assert_eq!(
+            err_of(publish_package(State(h.state.clone()), Json(clone_request(&request))).await),
+            refused,
+        );
+        assert!(!h
+            .store
+            .package_version_exists("alice#toolbox", "1.0.0")
+            .unwrap());
+        // Scope is about packages; a content-addressed blob upload has none, so
+        // a live token may still stage native blobs.
+        let body = b"token-upload".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+        let put = |session: &str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                format!("Bearer {session}").parse().unwrap(),
+            );
+            put_blob(
+                State(h.state.clone()),
+                axum::extract::Path(hash.clone()),
+                headers,
+                axum::body::Bytes::from(body.clone()),
+            )
+        };
+        assert_eq!(put(&other_session).await.unwrap(), StatusCode::CREATED);
+
+        // A one-second token: its session JWT is minted for an hour, so after
+        // the token lapses only the token expiry can refuse these.
+        let (short_private, short_fingerprint) =
+            issue_scoped_token(&h, &alice, &owner_session, "alice#toolbox", 1).await;
+        let short_session =
+            open_session_for_key(&h.store, "alice", &short_private, &short_fingerprint);
+        tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+        assert!(verify_session_token(&h.store, &short_session).is_ok());
+        assert_eq!(
+            err_of(put(&short_session).await),
+            (
+                StatusCode::UNAUTHORIZED,
+                "publish token has expired".to_string()
+            ),
+        );
+        let challenge = h
+            .store
+            .create_auth_challenge("alice", &short_fingerprint)
+            .unwrap();
+        let signature = crypto::sign(
+            &short_private,
+            &crypto::challenge_message(&challenge.id, &challenge.nonce),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                login(
+                    State(h.state.clone()),
+                    peer("127.0.0.1"),
+                    Json(LoginRequest {
+                        challenge_id: challenge.id,
+                        signature: crypto::encode_bytes(&signature),
+                    }),
+                )
+                .await
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                "publish token has expired".to_string()
+            ),
         );
     }
 
