@@ -96,7 +96,7 @@ the time of writing, so a future implementer can see what changed.
 | plan-114 letters archived | 5 (A–E) | `ls planning/completed/plan-114-*` (2026-09-01) |
 | `Picture.image` type | `ImageRef` until plan-116-I lands | `mod.rs`'s `Picture` record and `ImageRef` record |
 | `Text.font` type | `FontRef` | `mod.rs`'s `Text` record |
-| Resources declared by `canvas` | 2 (`Image`, `Font`) | `mod.rs`'s two `add_resource` calls |
+| Resources declared by `canvas` | 2 (`Image`, `Font`) | `grep -n 'pkg\.add_resource' src/codegen/builtins/canvas/mod.rs` → 2 (2026-09-04). **Anchor on `pkg.add_resource`, not `add_resource`**: the bare form greps 4, because the module comment and an inline comment both name it (**J3**). |
 | `live_slots` on both | `&[]`, `sendable: false` | the `live_slots` and `sendable` fields of each `pkg.add_resource` call in `mod.rs` |
 
 ### Verified properties
@@ -339,6 +339,26 @@ Commit: —
   `.ai/canvas-threading.md` §7 documents and what a program can already encounter.
 
 ## Corrections
+
+**J3 (pre-execution, 2026-09-04) — re-measured §2; the counts hold, but one row's
+command over-counts by 2× and would have been read as drift.**
+`grep -c add_resource src/codegen/builtins/canvas/mod.rs` returns **4**, against a
+recorded count of 2. There has been no drift: two of the four hits are prose — the
+module comment at `:25` explaining that `add_resource` derives a runtime call from its
+close op, and an inline comment at `:993` making the same point. The real declarations
+are `pkg.add_resource(RegistryResource {` at `:1002` and `:1023`, which is 2.
+
+The row now anchors on `pkg.add_resource`. Worth a correction rather than a quiet edit
+because of which way this error runs: a census command that over-counts invites the next
+reader to *widen* the plan's scope to cover a population that does not exist, and to go
+looking for two resources that were never declared. Project memory records the opposite
+failure — a census by one helper name undercounting ~6× — and this is its mirror. Both
+come from grepping a token that appears in prose as well as in code.
+
+The other five rows re-measure correct: `TYPE_RESOURCE_FIELD_FORBIDDEN` still reserved-
+not-emitted at `src/rules/table.rs:1010`; `ls planning/completed/plan-114-*` → 5;
+`Picture.image` still `ImageRef` and `Text.font` still `FontRef` (plan-116-I has not
+run); `live_slots: &[]` and `sendable: false` on both resources.
 
 **J2 (2026-09-03, pre-execution, measured against plan-116-G as landed) — G's `setGroup`
 copies its item list with `copy_flat_block`, which is the wrong primitive the moment
