@@ -461,9 +461,19 @@ Acceptance: all five scenes match the software oracle within
 non-zero-offset case is the one that proves the fragment-stage offset landed; a pass
 there with a vertex-only implementation is not possible.
 
-**MET, and above the bar: seven scenes rather than five, at `worst=0
-differing=0.0000%` rather than merely inside `Tolerance::GPU_DEFAULT`,** with
-`vulkanReady=TRUE gpuFrames=1`. `scripts/test-canvas-vulkan.sh` reports 14/14.
+**MET, and above the bar: seven cases rather than five,** with
+`vulkanReady=TRUE gpuFrames=1`.
+
+Measured twice, and the second number is the one that stands. When this phase closed,
+the harness carried a purpose-built seven-case scene and reported **`worst=0
+differing=0.0000%`**. Phase 4 then replaced that scene with the one extracted from
+`tests/rt_canvas_golden.rs`, so the harness and `groups.png` could not drift apart —
+the same seven cases, but drawn as one reusable panel rather than as seven separate
+groups. It reports **`worst=1 differing=0.0521%`**, still well inside
+`Tolerance::GPU_DEFAULT` and now against the checked-in reference rather than only
+against the oracle. The earlier `worst=0` is left here because it is true of a scene
+the harness no longer runs, and quoting it as the current number would be a citation
+that decayed the moment the scene was unified.
 The whole-suite number is unchanged from before the conversion — `worst=2
 differing=0.8116%` on the primitive scene — so the two-pass emitter costs nothing in
 agreement with the oracle.
