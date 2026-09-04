@@ -332,9 +332,9 @@ Update as findings are filed.
 
 | ID | Surface | Title | Severity | Repro | Spike | Bug doc |
 |----|---------|-------|----------|-------|-------|---------|
-| _(none yet)_ | | | | | | |
+| [PKG-01](audit-3-package-decode.md#pkg-01--the-signature-gate-and-the-codegen-feeding-decode-are-separate-unsynchronised-reads-of-the-same-path) | 1 | Signature gate and codegen-feeding decode are separate, unsynchronised reads of the same path (TOCTOU) | LOW | structural (5 `fs::read` sites; no signature call on the decode path) | n/a — not MFB-expressible (a second local process, not file content) | — |
 
-Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 0 · NTH 0.
+Tallies: CRITICAL 0 · HIGH 0 · MEDIUM 0 · LOW 1 · NTH 0.
 
 ## Attack-surface map & progress
 
@@ -350,8 +350,10 @@ _Untrusted party: author of a `.mfp` artifact on the dependency path._
 - [ ] `src/target/package_mfp/`
 - [ ] `src/manifest/{entry,package,mod,json_edit}.rs`
 - [ ] `src/target/shared/validate/`
-- [ ] `src/cli/build/` (signature/hash gate at import/build)
-- [ ] `src/cli/resolve.rs`, `src/resolver/packages.rs`
+- [x] `src/cli/build/` (signature/hash gate at import/build) — **PKG-01 (LOW)**;
+      audit-1 PKG-01 re-verified fixed. `audit-3-package-decode.md` Q1.
+- [ ] `src/cli/resolve.rs`, `src/resolver/packages.rs` — `resolver/packages.rs`
+      clean; `cli/resolve.rs` (1740 lines) in the gap pass.
 
 **Surface 2 — Language front-end (lexer / parser / resolver / rules / hir / monomorph / ir / optimizer input)** (`FE-`)
 _Untrusted party: author of an arbitrary `.mfb` source file._
