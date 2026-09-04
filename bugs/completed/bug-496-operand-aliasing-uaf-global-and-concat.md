@@ -5,7 +5,29 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (memory safety — use-after-free)
 
-Status: Open (found in audit-3, Surface 3 MEM-12; reproduced live by the lead). Sibling of open bug-487 (its "half 2").
+Status: FIXED
+
+STATUS: FIXED (a075a589b, ratchet follow-up 316a5185c). `src/codegen/engine/value/
+operand_snapshot.rs`, hooked at the one seam every operand passes through
+(`lower_value`): on entry to a multi-operand node it records each operand that lowers
+to a pointer into storage a LATER operand's user-code call can reassign (a global, a
+by-ref / address-taken local, a resource's STATE, or a member/extract of one) and,
+when that operand is lowered, `copy_flat_block`s it into a statement-scope pending
+temp that the op consumes. Matching is by node address (fail-safe: a rewritten
+operand falls back to the old behavior, never to a wrong copy). Narrowness pinned by
+`tests/rt_operand_snapshot.rs` via the `operand_snapshot` stack-slot count: plain
+locals (`x = append(x, f())`, `s & f()`) and a global followed only by pure native
+builtins emit no snapshot, so the in-place `x = append(x, <pure>)` fast path is
+untouched. Fixture: `tests/rt-behavior/collections/bug496_operand_snapshot_rt`.
+Verified at -O0 and -O3 on the MEM-12 spike (`same -> [abcdefghtail] len=12`) and
+its `collections::append` global-evictor variant (`1,2,3,0,1,2,`); full `cargo test
+--no-fail-fast` exit 0; `artifact-gate all` 0 diffs (no committed fixture has the
+shape). No MFBASIC syntax or observable behavior of a correct program changed: the
+copy realizes the semantics `.ai/collections.md` already specified — operand 0 is
+the pre-call value, the nested write is still (correctly) lost, and `GS` reads `XY`
+afterwards. bug-487's in-place `RES … STATE` arms (half 1) are unchanged: they never
+pass a `Call` node through `lower_value`, and its repro fails identically before and
+after (7-701-0001).
 
 Regression Test: add an rt fixture asserting `GS & same()` returns operand 0's original bytes (`len=12`), and a `collections::append` global-evictor variant.
 
