@@ -93,7 +93,7 @@ Spec synced: `tooling/01_project-manifest.md` (`name` row + rule table) and
 `diagnostics/01_rule-codes.md` (`rules::tests::every_rule_is_documented_in_the_spec`
 gates the latter).
 
-STATUS: FIXED (COMMIT_HASH)
+STATUS: FIXED (e096f25d8)
 Reproduced first with the unfixed binary (`mfb build /tmp/lnk12` → 0755 Mach-O at
 `/tmp/lnk12-pwn/evil.out`); after the fix the same command exits 1 with
 `2-200-0017` and `/tmp/lnk12-pwn/` stays empty, no `build/` is created. No
