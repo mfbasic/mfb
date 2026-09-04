@@ -163,6 +163,7 @@ pub(crate) fn lower_vulkan_draw_scene(
         "the offsets argument",
         "the glyph metadata argument",
         "the glyph coverage argument",
+        "the draw list argument",
     ]
     .into_iter()
     .enumerate()
@@ -185,6 +186,7 @@ pub(crate) fn lower_vulkan_draw_scene(
         &located[4],
         &located[5],
         &located[6],
+        &located[7],
     )?;
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -288,6 +290,25 @@ fn scene_params() -> Vec<Parameter> {
             desc: "",
             aliases: &[],
             ty: ParameterType::list_of(ParameterType::Byte),
+            default: DefaultValue::None,
+        },
+        // plan-116-H: the per-draw list, four integers per entry —
+        // `(itemBase, itemCount, dx, dy)` with the offsets in 16.16. `offsets` above is
+        // now the flat BLOCK list a base indexes into, in which a shared group appears
+        // once; this says who draws which slice of it, and where.
+        //
+        // The eighth parameter, which is the one MFBASIC's convention puts in `rbp`
+        // (bug-296). That is safe here and the reason is worth stating, because the
+        // natural reading of "up to 8" is that eight is a ceiling to stay under: it is
+        // not, arguments past the eighth simply go on the stack. What actually matters
+        // is that every point where FOREIGN code calls into MFB code saves `rbp`, and
+        // this letter adds no such point — every call here is MFB→MFB (plan-116-G G31,
+        // which recorded the wrong version of this rule first and then corrected it).
+        Parameter {
+            name: "draws",
+            desc: "",
+            aliases: &[],
+            ty: ParameterType::list_of(ParameterType::Integer),
             default: DefaultValue::None,
         },
     ]

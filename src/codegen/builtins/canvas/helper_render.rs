@@ -628,7 +628,9 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
     RETURN FALSE
   END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
-  canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
+  ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset.
+  canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height

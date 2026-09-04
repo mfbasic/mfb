@@ -498,9 +498,30 @@ const LAYOUT_INFO_STYPE: usize = 0;
 const LAYOUT_INFO_SET_COUNT: usize = 20;
 const LAYOUT_INFO_SETS: usize = 24;
 const LAYOUT_INFO_RANGE_COUNT: usize = 32;
-// `pPushConstantRanges` (offset 40) is deliberately absent: `emit_struct` zeroes the
-// whole struct, and with `rangeCount` 0 the pointer must be null. plan-116-A moved the
-// item block out of the push constants, so there is no range to point at.
+/// `pPushConstantRanges`.
+///
+/// plan-116-A set `rangeCount` to 0 and left this null, and its comment was right at the
+/// time: *"a layout that declares bytes no stage consumes is a layout the validation
+/// layers flag"*. plan-116-H re-adds one range because both stages now consume it — the
+/// vertex stage offsets its quad, the fragment stage subtracts before evaluating the
+/// distance field (**H4**). Re-adding the range and the two shader declarations has to
+/// happen in ONE step for exactly the reason A deleted it: either half alone is an
+/// invalid layout, and invalid in a way that only surfaces on a box running the
+/// validation layers.
+const LAYOUT_INFO_RANGES: usize = 40;
+
+/// `VkPushConstantRange`, 12 bytes: `stageFlags`, `offset`, `size`.
+const PUSH_RANGE_SIZE: usize = 12;
+const PUSH_RANGE_STAGES: usize = 0;
+const PUSH_RANGE_OFFSET: usize = 4;
+const PUSH_RANGE_BYTES: usize = 8;
+
+/// The per-draw group offset: two 32-bit words, `dx` and `dy` in 16.16 (plan-116-H).
+///
+/// Eight bytes against the 128 every implementation guarantees, so the size is not the
+/// constraint — the constraint is that it is the *only* push constant, so its offset is
+/// 0 and any future addition has to be appended rather than inserted.
+const PUSH_OFFSET_BYTES: usize = 8;
 
 /// `VkAttachmentDescription`, 36 bytes.
 const ATTACHMENT_SIZE: usize = 36;
@@ -1815,6 +1836,23 @@ fn emit_vulkan_pipeline(
         abi::stack_pointer(),
         off_set_layout_handle,
     ));
+    // plan-116-H: one push-constant range, consumed by BOTH stages. `emit_struct` zeroes
+    // the struct first, so the fields not named here are already 0 — which is what
+    // `offset` must be, this being the only range.
+    let off_push_range = builder.allocate_stack_object("vk_push_range", PUSH_RANGE_SIZE);
+    emit_struct(
+        builder,
+        off_push_range,
+        PUSH_RANGE_SIZE,
+        &[
+            (
+                PUSH_RANGE_STAGES,
+                Field::U32(SHADER_STAGE_VERTEX_AND_FRAGMENT),
+            ),
+            (PUSH_RANGE_OFFSET, Field::U32("0")),
+            (PUSH_RANGE_BYTES, Field::U32(&PUSH_OFFSET_BYTES.to_string())),
+        ],
+    );
     emit_struct(
         builder,
         off_layout_info,
@@ -1826,7 +1864,8 @@ fn emit_vulkan_pipeline(
             ),
             (LAYOUT_INFO_SET_COUNT, Field::U32("1")),
             (LAYOUT_INFO_SETS, Field::Addr(off_set_layout_handle)),
-            (LAYOUT_INFO_RANGE_COUNT, Field::U32("0")),
+            (LAYOUT_INFO_RANGE_COUNT, Field::U32("1")),
+            (LAYOUT_INFO_RANGES, Field::Addr(off_push_range)),
         ],
     );
     emit_dlsym(
@@ -4736,6 +4775,7 @@ pub(crate) fn emit_vulkan_draw_scene(
     offsets: &Operand,
     glyph_meta: &Operand,
     glyph_coverage: &Operand,
+    draws: &Operand,
 ) -> Result<(), String> {
     if !has_vulkan_backend(platform) {
         return Ok(());
@@ -4758,6 +4798,8 @@ pub(crate) fn emit_vulkan_draw_scene(
     let off_height = builder.allocate_stack_object("vk_height", 8);
     let off_geometry = builder.allocate_stack_object("vk_geometry", 8);
     let off_offsets = builder.allocate_stack_object("vk_offsets", 8);
+    // plan-116-H: the draw list, parked beside the block list. Four integers per entry.
+    let off_draws = builder.allocate_stack_object("vk_draws", 8);
     let off_count = builder.allocate_stack_object("vk_draw_count", 8);
     let off_index = builder.allocate_stack_object("vk_draw_index", 8);
     let off_item = builder.allocate_stack_object("vk_item", ITEM_BLOCK_SIZE);
@@ -4857,6 +4899,31 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_offsets,
+    ));
+    // plan-116-H: the draw list's data pointer, parked the same way and for the same
+    // reason — an argument register does not survive the calls below.
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[0],
+        draws.clone(),
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_draws,
+    ));
+    // The entry COUNT too: the draw walk needs it, and the collection header is not
+    // reachable once only the data pointer is kept.
+    let off_draw_entries = builder.allocate_stack_object("vk_draw_entries", 8);
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        draws.clone(),
+        COLLECTION_OFFSET_COUNT as usize,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_draw_entries,
     ));
     builder.emit(abi::store_u64(
         width.clone(),

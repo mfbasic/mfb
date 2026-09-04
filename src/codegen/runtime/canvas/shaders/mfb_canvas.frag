@@ -40,6 +40,13 @@ layout(std430, set = 0, binding = 1) readonly buffer Items {
 // not exist in a fragment shader, so it has to travel as a varying.
 layout(location = 0) flat in int vItem;
 
+// plan-116-H: the group translation for THIS draw, in 16.16 — the same push constant
+// the vertex stage declares. Both stages consume it, which is what makes the range
+// valid (H4).
+layout(push_constant) uniform Draw {
+    ivec2 offset;
+} draw;
+
 // A private global rather than a local in `main`, because `shapeDistance` and
 // `glyphCoverage` below read `item` directly. Making it a local would mean threading
 // twenty-eight ints through both of them for no gain; `main` fills it on its first
@@ -416,6 +423,15 @@ void main() {
     // `(coverage * clipCov) / 255`. Integer, and by 255 rather than a shift, so the two
     // quantize identically — a float multiply here would disagree on the boundary
     // pixels, which are the only ones a clip can affect.
+    // plan-116-H: the shape-space point. The vertex stage moved the quad by +offset, so
+    // the distance field is evaluated at p - offset — the same translation-as-inverse-map
+    // rule plan-116-C established for `Paint.transform` and plan-116-G §4.5 restated for
+    // groups. One rule, three renderers.
+    //
+    // The CLIP deliberately keeps `gl_FragCoord.xy`. `Paint.clip` is a surface rectangle
+    // by definition (plan-116-B), so a group translates the shape THROUGH it — G5's
+    // first exception, and the reason this is two variables rather than one substitution.
+    vec2 p = gl_FragCoord.xy - vec2(fx(draw.offset.x), fx(draw.offset.y));
     int clipCov = clipCoverage(gl_FragCoord.xy);
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline
@@ -425,7 +441,7 @@ void main() {
         // point, nearest. `glyphCoverage` already indexes by whole pixels, so mapping
         // the query point is the whole change — the cache stays untransformed and one
         // entry serves every transform.
-        vec2 gp = hasTransform() ? inverseMap(gl_FragCoord.xy) : gl_FragCoord.xy;
+        vec2 gp = hasTransform() ? inverseMap(p) : p;
         fragColor = covered(item.fill, (glyphCoverage(gp) * clipCov) / 255);
         return;
     }
@@ -433,13 +449,13 @@ void main() {
     // distance and the stroke subtracts `half` BEFORE converting, so the outline scales
     // with the shape (§4.3). Untransformed, `dScale` is 1.0 and both collapse to the
     // expressions this shader had.
-    vec2 ds = shapeDistanceAndScale(gl_FragCoord.xy);
+    vec2 ds = shapeDistanceAndScale(p);
     float dRaw = ds.x;
     float dScale = ds.y;
     float d = dRaw / dScale;
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
-    ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(gl_FragCoord.xy) : item.fill;
+    ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;
     vec4 colour = covered(fillRgba,
         (int(clamp(0.5 - d, 0.0, 1.0) * 255.0 + 0.5) * clipCov) / 255);
     float halfWidth = fx(item.misc.z);

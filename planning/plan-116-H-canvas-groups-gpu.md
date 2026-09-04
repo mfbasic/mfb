@@ -403,7 +403,7 @@ The software renderer is untouched — `__canvas_sceneOffsets` is kept alongside
 than replaced, since it also feeds the geometry-cache warm-up. `rt_canvas_rasteriser`
 58, `rt_canvas_golden` 13, `rt_canvas_font` 17, `rt_canvas_damage` 6, all 0 failed, so
 no golden and no plan-116-G group scene moved.
-Commit: —
+Commit: a4c3357fa
 
 ### Phase 2 — Vulkan: the offset, both stages
 
