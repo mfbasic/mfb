@@ -4346,16 +4346,15 @@ fn emit_draw_list_pass(
         SHADER_STAGE_VERTEX_AND_FRAGMENT,
     ));
     builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    builder.emit(abi::move_immediate(
-        abi::c_arg(4),
-        "Integer",
-        &PUSH_OFFSET_BYTES.to_string(),
-    ));
-    builder.emit(abi::add_immediate(
-        abi::c_arg(5),
-        abi::stack_pointer(),
-        off_offset_pair,
-    ));
+    // Arguments five and six go through the register-model helpers, not through
+    // `c_arg(4)` and `c_arg(5)` directly. `has_vulkan_backend` is true for **Windows**
+    // as well as Linux, and Win64 passes only four integer arguments in registers — so
+    // a raw `c_arg(4)` there writes a register the callee never reads and leaves the
+    // real stack slot undefined. This is the only six-argument call this pass makes,
+    // and it is the reason `emit_run_flush` reached for `emit_int_arg_slot` on its
+    // fifth argument rather than writing the register.
+    emit_int_arg(builder, platform, 4, &PUSH_OFFSET_BYTES.to_string());
+    emit_addr_arg(builder, platform, 5, off_offset_pair);
     emit_call_fn(builder, off_push_fn);
 
     // vkCmdDraw(cmd, 4, count, 0, base)
