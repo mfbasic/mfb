@@ -628,6 +628,52 @@ Commit: —
 
 ## Corrections
 
+**H18 (Phase 4) — the acceptance runs found three defects the phase gates had not, and
+two of them were mine from this letter.**
+
+The phase gates are narrow by construction: `test-canvas-vulkan.sh` and
+`rt_canvas_metal.rs` exercise the renderers. The whole-suite runs exercise everything
+else, and they earned their place here.
+
+**1. `the_predicates_read_the_edge_count_slot`, caught by the full mac release suite.**
+A census counting `offset + 20` across both predicates expected 7; Phases 2 and 3 moved
+two of those reads into `__canvas_blockInstances`, so it found 5. The reads did not
+disappear — `__canvas_blockInstances` reads the slot as `__canvas_geoAt(offset, 20)`,
+which the census's pattern cannot match. Corrected to 5 with the enumerated table saying
+where the two went, and the failure message now tells the next reader to find where the
+read went **before** changing the number. Lowering a census without checking is the
+failure the enumeration exists to prevent.
+
+**2. The draw pass staged a six-argument call as though Linux were the only target.**
+`has_vulkan_backend` is true for **Windows** as well, and Win64 passes only four integer
+arguments in registers. `emit_draw_list_pass` wrote `vkCmdPushConstants`'s fifth and sixth
+arguments into `c_arg(4)` and `c_arg(5)` directly — registers the callee never reads
+there, with the real stack slots left undefined. Now `emit_int_arg` and `emit_addr_arg`,
+the register-model helpers this file already had; it is precisely why the `emit_run_flush`
+this pass replaced reached for `emit_int_arg_slot` on *its* fifth argument. Found by
+reading `has_vulkan_backend`, not by a test: no Linux or macOS run could catch it and no
+Windows box runs the canvas harness.
+
+**3. Two new Metal pins silently disabled the stack-slot census.** Inserting them anchored
+on `fn the_draw_frame_slots_do_not_overlap` put them **between that function's `#[test]`
+and the function**. Three things followed and only one was visible: the census lost its
+attribute and stopped being a test, its doc comment merged into the first new test's, and
+the orphaned `#[test]` landed on a test that already had one — which is the only thing the
+compiler mentioned, as a `duplicate_macro_attributes` **warning**. A cosmetic warning was
+the entire signal that the test guarding hand-assigned frame offsets had stopped running:
+the test that exists because plan-116-B widened `ITEM_BLOCK_SIZE` into `OFF_TEXTURE` and
+produced an entirely black GPU frame with the renderer still reporting success.
+
+The reusable rule: **an insertion anchored on `fn name(` lands inside the item's attribute
+block.** Anchor on the attribute, or insert after the previous item's closing brace — and
+read the test *count*, not just pass/fail, because the run stays green either way.
+
+**A note on method, since it cost time.** Editing source while a `cargo test` is in flight
+makes that run's result meaningless: cargo re-fingerprints between targets, so the run
+becomes a mix of pre- and post-edit binaries. That happened twice here. The gates were
+re-run from a settled, committed tree at the end, and the numbers recorded in the
+acceptance line are from that run alone.
+
 **H17 (Phase 3) — `__CANVAS_DRAW_HAS_GROUP` is deleted, and plan-116-G's decline test is
 inverted rather than removed.**
 
