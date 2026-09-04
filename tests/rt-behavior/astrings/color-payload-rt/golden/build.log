@@ -13,4 +13,14 @@ bgExpected=4279383126
 black=4278190080
 blackExpected=4278190080
 positive=TRUE
+halfPacked=2164228096
+halfExpected=2164228096
+halfRoundTrip=#ff800080
+halfSource=#ff800080
+halfEqual=TRUE
+clearPacked=0
+clearIsNotUnset=TRUE
+ghostRoundTrip=#3366cc00
+ghostEqual=TRUE
+everyAlphaRoundTrips=TRUE
 [exit 0]

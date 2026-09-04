@@ -392,3 +392,76 @@ END FUNC
         hex(out.as_bytes())
     );
 }
+
+/// A half-transparent foreground draws exactly the cells an opaque one draws.
+///
+/// The partner to `color-payload-rt`'s alpha round-trip, and the reason both are
+/// needed: plan-122-E widened the attribute payload so a colour keeps its alpha
+/// through storage, and that round-trip is asserted there. What must NOT change is
+/// what reaches the terminal — it has no alpha, so `__term_applyFg` reads only
+/// `.red`/`.green`/`.blue` from `color::fromPacked` and the emitted SGR escape is
+/// byte-identical whatever the alpha was.
+///
+/// Without this, "the bridge ignores alpha" would be a claim on a man page with
+/// nothing holding it: a future change that blended against the cell background,
+/// or that leaked the alpha byte into the escape, would break no test.
+#[test]
+fn native_term_draw_text_attributed_ignores_alpha() {
+    let program = |alpha: u16| {
+        format!(
+            r#"
+IMPORT term
+IMPORT astrings
+IMPORT color
+
+FUNC main AS Integer
+  term::on()
+  MUT a AS AttributedString = astrings::fromString("RedBlue")
+  a = astrings::addAttribute(a, 0, 2, astrings::foreground(color::rgba(255, 0, 0, {alpha})))
+  a = astrings::addAttribute(a, 3, 6, astrings::background(color::rgba(0, 0, 255, {alpha})))
+  term::drawText(0, 0, a)
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC
+"#
+        )
+    };
+
+    // Opaque, half-transparent, and fully transparent must all emit the same bytes.
+    let opaque = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_255", &program(255))),
+        b"",
+    );
+    let half = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_128", &program(128))),
+        b"",
+    );
+    let clear = run_with_stdin(
+        &build_project(&temp_project("native_term_alpha_0", &program(0))),
+        b"",
+    );
+
+    // The colours reach the terminal at full strength regardless of alpha — the
+    // same escapes `native_term_draw_text_attributed_applies_colors` pins.
+    assert!(
+        half.contains("\x1b[38;2;255;0;0m\x1b[48;2;0;0;0mRed"),
+        "a half-transparent red must still emit a full-strength red, got {:?}",
+        hex(half.as_bytes())
+    );
+    assert!(
+        half.contains("\x1b[38;2;255;255;255m\x1b[48;2;0;0;255mBlue"),
+        "a half-transparent blue background must still emit full-strength blue, got {:?}",
+        hex(half.as_bytes())
+    );
+
+    // And alpha changes nothing at all about the output.
+    assert_eq!(
+        opaque, half,
+        "alpha 128 changed the terminal output; the bridge must ignore alpha"
+    );
+    assert_eq!(
+        opaque, clear,
+        "alpha 0 changed the terminal output; the bridge must ignore alpha"
+    );
+}

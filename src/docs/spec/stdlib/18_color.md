@@ -73,6 +73,12 @@ colour rather than failing. `fromPacked(-1)` is opaque white.
 
 The two are exact inverses: `fromPacked(toPacked(c))` is `c` for every colour.
 
+This packed form is not only a convenience: it is what an `astrings`
+`Foreground`/`Background` attribute carries, so `color::toPacked` and
+`color::fromPacked` are the two ends of storing a colour in styled text
+(`./mfb spec stdlib astrings`). A terminal renders such an attribute without its
+alpha, but the attribute keeps it.
+
 A 24-bit `0xRRGGBB` value has a zero top byte and therefore unpacks **fully
 transparent**. This is the one sharp edge in the packed model, and it is the
 opposite of what `color::fromHex` does with the same 24 bits, where a missing

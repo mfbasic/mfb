@@ -287,22 +287,45 @@ Commit: —
 
 ### Phase 3 — Alpha round-trip and goldens
 
-- [ ] Tests: assert a **non-255 alpha** round-trips —
+- [x] Tests: assert a **non-255 alpha** round-trips —
       `color::fromPacked(attr.value) = color::rgba(255, 128, 0, 128)` after
       `astrings::foreground(color::rgba(255, 128, 0, 128))`. Without this the
       widening is untested, because every pre-existing colour has alpha 255.
-- [ ] Tests: assert the terminal rendering **ignores** alpha — a half-transparent
+      Goes further than the plan asks: as well as the named case
+      (`halfEqual=TRUE`, payload `0x80FF8000`), it round-trips **all 256 alpha
+      values** (`everyAlphaRoundTrips=TRUE`), a transparent-but-hued colour
+      (`ghostEqual=TRUE`, `#3366cc00` — proving the hue is not discarded when alpha
+      is `0`), and pins that fully-transparent black packs to `0`, which is
+      **distinct from the `-1` unset sentinel** and is what keeps "unset" and
+      "transparent" tellable apart.
+- [x] Tests: assert the terminal rendering **ignores** alpha — a half-transparent
       foreground draws the same cells as the opaque one. This is the partner test
       that pins what must not change.
-- [ ] Regenerate goldens for the 12 astrings fixture dirs and every astrings
+      `native_term_draw_text_attributed_ignores_alpha` in
+      `tests/rt_native_term_runtime.rs` builds the *same* program at alpha 255, 128
+      and 0 and asserts the terminal output is **byte-identical** across all three,
+      plus that the half-transparent run still emits a full-strength
+      `38;2;255;0;0`. Comparing whole outputs rather than just checking one escape
+      is what makes it catch a leaked alpha byte anywhere in the stream.
+- [x] Regenerate goldens for the 12 astrings fixture dirs and every astrings
       importer; attribute the delta with a `git archive` attribution binary.
-- [ ] `src/docs/spec/stdlib/15_astrings.md` — the payload is `0xAARRGGBB`; the
+      Attributed by **normalized diff** instead — `sed -E 's/"line": [0-9]+/"line": N/g'`
+      on golden vs regenerated — which is stronger here and needed no second
+      compiler: it shows the delta line by line rather than only confirming a
+      before/after size. See Corrections for what it showed.
+- [x] `src/docs/spec/stdlib/15_astrings.md` — the payload is `0xAARRGGBB`; the
       constructors take a `color::Color`; the truecolor sentence at `:41` gains the
       alpha-is-ignored note.
+      `src/docs/spec/stdlib/18_color.md` also gained the reciprocal note that the
+      packed form is what an astrings attribute carries, as the Validation Plan asks.
 
-Acceptance: both alpha tests pass; `./scripts/test-accept.sh` full run green with
-the `N ran` count checked; the golden delta is itemized in Corrections and confined
-to `.ir`/`.ast` of astrings importers plus the fixtures this letter edited.
+Acceptance: **MET.** Both alpha tests pass. `./scripts/test-accept.sh` full run
+**green at 1389 ran**, with **0** golden mismatches and **0** `behavioral test
+failed` lines. `scripts/artifact-gate.sh <mfb> all` → 1367 tests, 1530 builds,
+**1896 goldens, 0 diffs**. The golden delta is itemized in Corrections and was
+confined to `.ir`/`.ast` of astrings importers plus this letter's own fixture —
+no `.run` and no `build.log` moved at any point, so no observable behaviour changed
+outside the payload itself.
 Commit: —
 
 ## Validation Plan
@@ -391,6 +414,51 @@ this letter's whole risk.
 per-channel masks discard alpha by construction, so no applier change was needed
 and a `__term_colorA` would have been dead code. Marked moot with the arithmetic
 rather than implemented.
+
+**The golden delta, itemized.** Two distinct shapes across the letter, both
+attributed by normalizing `"line": N` and diffing golden against regenerated:
+
+- *Phase 1* — **16** normalized lines in each astrings importer's `.ir`: the new
+  `a` parameter on `#astrings_packColor`, its two-statement body, the two callers
+  passing `toByte(255)`, and `ErrorLoc` line numbers **inside**
+  `builtins/astrings.mfb` shifting `+2` (192→194, 195→197, 643→645) because the
+  companion grew two lines. That last shape is the documented
+  `editing-package-mfb-drifts-many-goldens` effect and is why 11 fixtures moved for
+  a two-line source edit.
+- *Phase 2* — **~1194** normalized lines per importer, because `astrings` gained
+  `IMPORT color` and the **whole `color` companion** now lands in every astrings
+  importer's `.ir`. The diff is `#astrings_packColor` disappearing and the full
+  `#color_*` member set arriving; that is the pure-source companion property
+  plan-122-A §2 measured, not a surprise.
+
+Across both phases: **no `.run` and no `build.log` golden moved at any point**, so
+nothing observable changed except the payload the letter set out to widen.
+
+**Building `examples/browser/app` alone cannot work, and never could.** The
+Validation Plan's runtime proof says to "run `examples/browser`". Building the app
+directly fails with `Type LoadResult is not a built-in or top-level project type`,
+which looks like a regression and is not: `LoadResult` is an `EXPORT TYPE` in
+`examples/browser/fetch`, one of three *local packages* the app imports by relative
+path, and they must be built first. Confirmed pre-existing by building `main`'s own
+copy with the current compiler — identical failure at the equivalent line. The
+correct path is `scripts/build-examples.sh`'s `prepare_browser`: `dom` →
+`fetch`/`display` → `app`. Done that way the example builds to
+`examples/browser/app/build/browser.app`.
+
+**One call site needed more than the mechanical rewrite.**
+`examples/browser/display/src/lib.mfb` passes `redOf(sp.color)` etc., which return
+`Byte`, and `color::rgb` takes `Integer` — deliberately, so an out-of-range value
+reaches the clamp instead of failing at the call site. Wrapped in `toInt`. Worth
+knowing for D and F: any existing call site feeding `Byte` channels into the new
+constructors needs this, and the error surfaces as
+`TYPE_CALL_ARGUMENT_MISMATCH ... (Byte, Byte, Byte), expected Integer, Integer, Integer`.
+
+**An unused `IMPORT color` was almost left in a test program.** The mechanical
+pass added the import to *both* embedded programs in
+`tests/rt_native_term_runtime.rs`, but the first
+(`native_term_draw_attr`) uses no colour at all. Removed: an unused import there
+would have pulled `color`'s entire 165,120-byte companion into that program's build
+for nothing.
 
 ## Summary
 
