@@ -508,6 +508,42 @@ Commit: —
 
 ## Corrections
 
+**H12 (Phase 2) — the ad-hoc repro loop was not the harness, and three findings recorded
+from it are measurement artifacts rather than defects.**
+
+To iterate faster than the ~20-minute `scripts/test-canvas-vulkan.sh`, I built a hand-rolled
+loop: build the scene, `scp` the AppDir to box 2228, run it with and without
+`MFB_CANVAS_GPU=1`, diff the dumps. It was wrong in three ways, each of which produced a
+confident reading:
+
+| omitted | what the box did instead | what I recorded |
+|---|---|---|
+| `MFB_GTKAPP_HEADLESS=1` | `Gtk-WARNING: Failed to open display`, exit 1, no dump | "the GPU path produces no frame" |
+| `MFB_CANVAS_SYNC=1` | dumped whichever frame happened to be current | "two *software* runs differ by 3.7%" |
+| `MFB_CANVAS_STATS=<path>` (I wrote `=1`) | wrote no stats file at all | a mis-grep for `gpuFrames` |
+
+The harness does all three (`scripts/test-canvas-vulkan.sh:294-297`), and the middle one is
+the important one: **`MFB_CANVAS_DUMP` overwrites, so without `MFB_CANVAS_SYNC=1` the file
+left behind is whichever frame the renderer last finished** — the script's own comment at
+line 430 says exactly this. Two runs differing is then expected, not a defect, and
+`rendering_is_byte_reproducible` was never in tension with it.
+
+So **H10's closing paragraph is withdrawn**: "two software runs of that scene differ by 3.7%
+with `gpuFrames=0` in both" is not evidence of a frame/damage defect and is not where the
+next session should start. **H11's conclusion is also weakened**: the "hoist produces no
+frame" observation that made the arg-8 fix look wrong was this same missing-display failure,
+so the hoist was never shown to be incorrect — it was never actually exercised.
+
+What survives unaffected is the part measured *through the harness*: the 21418-pixel
+constant across five bisected variants, and the pixel dumps showing the trailing gradient
+items rendering as their `fill`. Those came from harness runs, not from this loop.
+
+**The lesson, which is the reusable part: a hand-rolled substitute for an existing test
+harness must be diffed against that harness's invocation before anything is concluded from
+it.** Three environment variables separated "the renderer is broken" from "the program never
+opened a window". Re-measure through `scripts/test-canvas-vulkan.sh` and treat any ad-hoc
+loop's disagreement with it as the loop being wrong.
+
 **H11 (Phase 2) — the fourth bug in the conversion, and the one worth carrying forward:
 `draws` is argument EIGHT, and reading it after other argument staging returns garbage.**
 
