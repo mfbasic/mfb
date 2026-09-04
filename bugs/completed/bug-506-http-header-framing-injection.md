@@ -127,7 +127,10 @@ restructured as one change rather than stacking an intermediate loop that
 would have been rewritten a second time. Deviation from the fix-bug skill's
 one-bug-at-a-time order, deliberate and reported.
 
-Gates on the branch (worktree-B-506, main merged in at 01d1b8716):
+Gates on the branch (worktree-B-506; main merged in at 01d1b8716 and again at
+acb8f28cc after bug-495's codegen change landed — after that merge the release
+rebuild + `regen-ncodesum.sh` moved no golden, and the http + bug-495 rt tests
+re-ran green):
 `cargo test --no-fail-fast -- --skip artifact_gate_all` → 4598 passed, 0
 failed, cargo exit 0 (`/tmp/b506-full.log`); the new RED tests green before and
 after the merge; `cargo check --all-targets` clean; `test-accept.sh '*http*'`
