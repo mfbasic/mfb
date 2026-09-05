@@ -427,6 +427,75 @@ Commit: —
 
 ## Corrections
 
+**I5 (2026-09-04, pre-execution) — the §2 census is wrong in three ways that a re-run of
+its own commands does not reveal, and §4.1's seam list is 3 rows of 9.**
+
+Measured before starting, because I4 had already corrected these numbers once and the
+correction did not hold.
+
+**1. The two census commands return 29 over *different* 29-file sets.**
+
+```
+grep -rl 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/   → 29
+grep -rl 'imageRef\|fontRef\|ImageRef\|FontRef' src tests                                                   → 29
+```
+
+The first sees `examples/emoji/src/main.mfb` and misses `src/docs/spec/app/06_canvas.md`;
+the second does the reverse. The union is **30**, plus `.ai/canvas-threading.md`, which no
+command in the plan looks at. Two commands agreeing on a *count* while disagreeing on a
+*set* is the most persuasive way a census can be wrong, and it is why the number survived
+I4 unchallenged.
+
+**2. The `Text[` row counts a different package's records.** It reads 23 today, but only
+**20** are `canvas::Text[`. The other three are `astrings::AttrText[` —
+`astrings/func_font.rs:29`, `astrings/helper_decode_attr.rs:16`,
+`tests/acceptance/src/astrings.mfb:182` — matched because the pattern `Text\[` has no
+package qualifier. They have been in this row for all three of its measurements. (One of
+the 23 is genuinely new: plan-116-H's `groups.png` scene added a `Text` item, so the
+canvas figure moved 19 → 20 while the row moved 22 → 23.)
+
+**3. `tests/rt_canvas_present_deep_copy.rs`'s fabricated `FontRef` is at `:130`, not
+`:104`.** I1's table gives the old line.
+
+**4. §4.1 and §2 undercount the force-emit seams by six lines in three files the plan
+never names.** Beyond `data_objects.rs` and `module_analysis.rs`, each target keeps its
+own list:
+
+| file | lines |
+|---|---|
+| `src/target/macos_aarch64/mod.rs` | 75, 78 |
+| `src/target/win_x86_64/mod.rs` | 141, 144 |
+| `src/target/linux_common/mod.rs` | 90, 93 |
+
+And all three line numbers the plan *does* give are stale: `data_objects.rs:252` → **261**,
+`data_objects.rs:274` → **291**, `module_analysis.rs:47` → **58**. Phase 2's "seams
+cleaned" is a 3-of-9 checklist as written. Missing a per-target row does not fail the
+build — it force-emits a symbol that no longer exists, which is the shape
+`new-error-in-a-package-needs-a-data-object-row` records as a link failure on a
+historical symbol.
+
+**5. Two `.id` reads will break and appear in no census.**
+`tests/cli_canvas_image_resource.rs:104` (`IF handle.id = 0 THEN RETURN 6`) and
+`tests/rt_canvas_font.rs:74` (`IF r.id = 0`) are assertions *about* the handle rather than
+constructions *with* it, so the `Picture[`/`Text[` sweep that drives Phase 2 does not see
+them. Both need a semantic rewrite, not a substitution: there is no `.id` on a `RES`.
+
+**6. §Summary still says "five integer reads".** I3 corrected that number in §2 and in
+Phase 2 and stopped there — which is I3's own closing lesson ("a number in a plan is
+usually written down more than once") applied one place short. The count is **six**:
+`helper_geometry.rs:660, 694, 715, 987, 995, 1111`.
+
+**7. `.ai/canvas-threading.md` needs more than §7's last paragraph.** Row **R3** of the
+table at `:221` asserts `ErrResourceClosed` *at `imageRef`* as a race outcome. That member
+ceases to exist, so the row's mechanism is gone, not merely its wording.
+
+**Also confirmed, so Phase 1's probe is genuinely unprecedented:** no builtin record
+property anywhere declares a `Res` type. `grep -rn 'ParameterType::res(' src/codegen/builtins/`
+→ 0 hits; the only `ParameterType::Res` uses are two *parameters*
+(`tcp/func_poll.rs:149`, `udp/func_poll.rs:138`). I4 is right that there is no precedent
+to copy, and the registry arms Phase 1 must satisfy are
+`registry/mod.rs:1928, 2264, 2267, 2360, 2363, 2586, 2608, 3842`.
+
 **I4 (pre-execution, 2026-09-04) — re-measured all six rows; one had drifted again.**
 `Text[` is **22**, up from the 20 recorded by **I1** on 2026-09-02. The two new ones are
 plan-116-G's: `text_inside_a_translated_group_draws_at_the_offset` in
