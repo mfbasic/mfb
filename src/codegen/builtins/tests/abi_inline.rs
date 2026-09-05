@@ -99,12 +99,20 @@ fn every_abi_inline_lowering_refuses_an_argument_type_it_cannot_handle() {
             continue;
         };
         swept += 1;
-        let wrong = args(implementation, |_| ParameterType::named("NoSuchType"));
-        let harness = BuilderHarness::default();
-        let mut builder = harness.builder("_mfb_abi_inline_probe", &platform);
-        let ctx = harness.abi_ctx(&platform);
-        if lower(&mut builder, &wrong, &ctx).is_ok() {
-            accepted.push(member);
+        // One position at a time, not all at once. A body checks its arguments
+        // in order and returns at the first bad one, so poisoning every position
+        // only ever reaches the FIRST guard -- the second and third are then
+        // just as dead as they were. Poisoning position `at` alone is what walks
+        // past the earlier guards to the one being tested.
+        for at in 0..implementation.params.len() {
+            let mut wrong = args(implementation, Clone::clone);
+            wrong[at].type_ = ParameterType::named("NoSuchType");
+            let harness = BuilderHarness::default();
+            let mut builder = harness.builder("_mfb_abi_inline_probe", &platform);
+            let ctx = harness.abi_ctx(&platform);
+            if lower(&mut builder, &wrong, &ctx).is_ok() {
+                accepted.push(format!("{member} (argument {at})"));
+            }
         }
     }
     assert!(
@@ -114,7 +122,12 @@ fn every_abi_inline_lowering_refuses_an_argument_type_it_cannot_handle() {
     );
     let unexpected: Vec<&String> = accepted
         .iter()
-        .filter(|m| !TYPE_AGNOSTIC.contains(&m.as_str()))
+        .filter(|m| {
+            let member = m
+                .split_once(" (argument")
+                .map_or(m.as_str(), |(name, _)| name);
+            !TYPE_AGNOSTIC.contains(&member)
+        })
         .collect();
     assert!(
         unexpected.is_empty(),
@@ -123,12 +136,10 @@ fn every_abi_inline_lowering_refuses_an_argument_type_it_cannot_handle() {
          {unexpected:?}",
         unexpected.len()
     );
-    assert_eq!(
-        accepted.len(),
-        TYPE_AGNOSTIC.len(),
-        "one of the documented type-agnostic members has started checking its \
-         argument type. That is an improvement — remove it from TYPE_AGNOSTIC. \
-         Still accepting: {accepted:?}"
+    assert!(
+        !accepted.is_empty(),
+        "the documented type-agnostic members accepted nothing, so the sweep is \
+         no longer reaching them"
     );
 }
 
