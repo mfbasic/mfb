@@ -399,18 +399,60 @@ Every item below was executed; the result is recorded next to it.
 
 ## Acceptance ledger
 
+Every gate below was run on the **merged** tree (main merged in at `2660d4e2e`,
+after main advanced to `d624527b3` mid-execution), not on the pre-merge branch.
+
 | Gate | Result |
 |---|---|
-| `test-accept.sh` full | **1403 ran, 0 mismatches, 0 behavioral failures**, exit 0 |
-| `artifact-gate.sh all` | **1381 tests, 1546 builds, 1912 goldens, 0 diffs**, exit 0, uncontended |
+| `test-accept.sh` full | **1403 ran, 0 mismatches, 0 behavioral failures**, exit 0 — re-run post-merge with the same result |
+| `artifact-gate.sh all` | **1381 tests, 1546 builds, 1912 goldens, 0 diffs**, exit 0 — re-run post-merge with the same result |
 | `man-run-examples.sh canvas --run` | **22 examples, 22 built, 22 ran, 0 failed** |
 | `build-examples.sh` | 54 archived; 6 failures, all attributed pre-existing (C-note in Phase 3) |
 | emoji frame vs. pre-change build | **byte-identical**, 2,304,000 bytes |
 | `tests/golden/canvas/` (7 reference PNGs) | **untouched** — `git status --porcelain` empty |
-| `cargo test --release --no-fail-fast` | see below |
-| `cargo check --all-targets` | see below |
-| `cargo fmt --all` + `repository/` | see below |
+| `cargo test --release --no-fail-fast` | **133 binaries; 132 green.** One failure, attributed below and NOT caused by this letter |
+| `cargo check --all-targets` | **exit 0, 0 warnings, 0 errors** (post-merge) |
+| `cargo fmt --all` + `repository/` | **clean**; the only churn was pre-existing main drift, committed separately as `023a44c21` |
 | removal census (below) | **no live reference to the retired surface** |
+
+### The one `cargo test` failure, attributed
+
+`tests/rt_sigpipe_socket_and_pipe.rs`'s
+`tcp_write_to_closed_peer_raises_instead_of_killing_the_process` failed once in the
+full parallel run:
+
+```
+none of 10 runs saw the write fail, so the raise path was never exercised;
+the probe has stopped reproducing the condition
+```
+
+It is **not** an assertion about behaviour that broke — the test is a probe, and
+that message is it reporting that it could not set up its own precondition. Under a
+fully parallel release suite the kernel buffered all ten writes to the closed peer
+instead of failing one, so the raise path it wanted to exercise never ran.
+
+Attributed rather than assumed flaky, on four pieces of evidence:
+
+1. **It passes in isolation on this exact tree**: `cargo test --release --test
+   rt_sigpipe_socket_and_pipe` → `3 passed; 0 failed`.
+2. **The test file is untouched by this letter** — `git diff main..HEAD --
+   tests/rt_sigpipe_socket_and_pipe.rs` is empty.
+3. **Nothing this letter changes is reachable from it.** The 48 changed paths are
+   canvas builtins, canvas tests, two spec docs, the emoji example, the plan, and
+   three files rustfmt touched. None is tcp, net, socket, pipe or process runtime.
+4. **Those three rustfmt files are semantically identical to main.** `git diff -w`
+   still shows hunks because rustfmt moved line *breaks*, so that is not sufficient
+   proof; comparing whitespace-stripped token streams shows one genuine added
+   token, a trailing comma rustfmt inserts when it wraps an argument list
+   (`resource/mod.rs`, the `lower_tls_close_listener` call). Normalising trailing
+   commas before a closing delimiter makes all three byte-identical to `main:`.
+
+Deliberately **not fixed here**. The test is not proven wrong — failing loudly when
+its probe stops probing is arguably the behaviour it should have, and the
+alternative (retrying until the buffer fills, or asserting nothing) would weaken it.
+Under AGENTS.md's four-question gate this letter has no proof it is wrong, so the
+test wins and stays as it is. It is a pre-existing load-sensitivity in a probe
+fixture, and belongs to whoever takes on suite-under-load robustness.
 
 ### Closing removal census
 
