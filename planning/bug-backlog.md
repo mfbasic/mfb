@@ -1,13 +1,15 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **30** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 24 MEDIUM · 5 LOW/other** (re-derived from
-the `Severity:` line of each open bug on 2026-09-05; the previous 45/10/31/4 line
-predated several landings and no longer matched the tree)
+Open bugs: **29** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 25 MEDIUM · 3 LOW/other** (re-derived from
+each open bug's `Severity:` line on 2026-09-05; several rows carry a
+parenthetical qualifier after the word, so grep for the leading word, not the
+whole line)
 
-The audit-3 security pass (goal-08) is done: 19 of its 20 CRITICAL/HIGH findings
-are landed and archived; 499, 504 and 510 are the remainder and head this list.
+The audit-3 security pass (goal-08) is **complete**: all 20 of its
+CRITICAL/HIGH findings are landed and archived — 499, 504 and 510 were the last
+three and are all in `bugs/completed/`.
 
 ## Working rules for this pass
 
@@ -32,35 +34,44 @@ are landed and archived; 499, 504 and 510 are the remainder and head this list.
      `every_byte_list_producer_still_passes_the_write_header_check`, which
      caught that a new guard could reject valid programs.
 
-## Tier 1 — finish audit-3 (in flight)
+## Tier 1 — audit-3: DONE
 
-| Bug | Sev | Effort | Title | State |
-|---|---|---|---|---|
-| 510 | HIGH | medium | text-decoder DoS cluster (regex/json/csv/punycode) | agent running; also owes a verdict on a corruption lead |
-| 499 | HIGH | medium | spawned child inherits fds (no CLOEXEC) | worktree has partial work; lead taking it |
-| 504 | HIGH | medium | emitted PE has no ASLR (`.reloc`, DYNAMIC_BASE) | worktree has the RED test only, no fix |
+Nothing open. 499 (spawned child inherits fds), 504 (emitted PE has no ASLR) and
+510 (text-decoder DoS cluster) are landed and archived, as are 514, 535, 538,
+539 and 545. **Do not re-dispatch these** — the table that used to sit here said
+"agent running" for all three and was stale for a full session.
 
-## Tier 2 — HIGH, memory and correctness first
+## Tier 2 — the one remaining HIGH
 
 | Bug | Sev | Effort | Title | Note |
 |---|---|---|---|---|
-| 538 | HIGH | medium | `collections::get` of a recursive element aliases storage → append-grow UAF | **memory gate**; pairs with 536 |
-| 536 | HIGH | x-large | scope drop leaks recursive types / return-constructor string temps | **memory gate**; same family as 538 |
-| 514 | HIGH | large | `KeyPair` carries no curve tag (Ed vs X, 32-byte collision) | crypto: wrong-curve use is silent |
+| 536 | HIGH | large | scope drop leaks: shapes **B-2** and **C** remain | **memory gate** |
 
-535 is landed (`b93de7ed0`); 539 is landed (`af39f8bbe`) — it also fixed a
-pre-existing GTK draw-callback SIGSEGV on any pooled grapheme cluster, and put the
-Linux GTK app backend under byte-identity coverage for the first time (two new
-`.app.ncodesum` goldens). 540 and 541 carry notes on what it did and did NOT
-share with them: no shared root cause, but 541's expected widening to Linux does
-not happen, and 540's WIN-01/WIN-04 now have a worked in-tree precedent.
-Recommended order: **538 → 536** (one family,
-cheaper together), then **514**. 519 is landed. **532 is landed (`2cf23f5b0`)** —
-`regex::findMatch`/`findAllMatches` now report each match's span, text and
-capture groups through two new exported records, which also **unblocks bug-534's
-`split`** (532 deliberately did not take it; 534 owns the zero-width /
-empty-piece / `limit` decisions). 536 is the remaining x-large item and deserves
-a dedicated agent.
+**536 is the only open HIGH.** Three of its four parts are done:
+
+- **Shape A** — `RETURN <constructor>` abandoned the fresh block. Fixed
+  `f9be6e128`, merged `c210cc67d`.
+- **Shape B, native half** — an unbound `String` from a *native* producer was
+  never freed (`acc = acc + len(toString(i))` leaked 64 B per evaluation). Fixed
+  `cd8699103` by **fail-closed freshness provenance**: a producer that just
+  `arena_alloc`ed the block it returns marks it, and `register_pending_temp`
+  frees a bare `String` only on that mark. Unmarked keeps leaking, never wild-frees.
+  Golden delta was 142 `.ncodesum` + 4 `.ncode` + 1 `.mir` and **zero**
+  `.run`/`build.log`.
+- **Shape B-2, callee half** — a `String` returned by a user / `.mfb`-bodied
+  function. **Open**, and it is what still costs the decoders: `csv::parse` is
+  byte-identically unchanged by the native fix. The bug doc's old claim that "csv
+  has a SECOND leak that is NOT shape B" is **wrong** and now corrected there — it
+  is shape B one level up (`row = append(row, __csv_fieldValue(...))`). Needs a
+  transitive `function_returns_fresh_string` NIR predicate; it is a
+  **double-free** risk, not a leak risk, so it wants its own change and audit.
+- **Shape C** — a value of a recursive type is never freed. **Blocked**: it needs
+  recursive COPY-insertion, which does not exist, and the naive fix is a double
+  free. It is a design pass, not a bug fix. Do not dispatch it as one.
+
+514 is landed. 519, 532 and 535 are landed; 538 is landed and 539 also fixed a
+pre-existing GTK draw-callback SIGSEGV and put the Linux GTK app backend under
+byte-identity coverage for the first time. 532 **unblocked bug-534's `split`**.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
 
@@ -69,6 +80,9 @@ a dedicated agent.
 533 (empty-pattern replace is opposite) · 534 (no split/count/AttributedString — `split` unblocked by 532) ·
 528 (`pad` counts scalars, `displayWidth` counts columns) ·
 530 (`utf8Encode` return overload invisible in signature)
+
+**Regex/strings 529/531/533 are with an agent as of 2026-09-05** — check for a
+`bug-529`/`531`/`533` branch before dispatching. 534, 528 and 530 are unclaimed.
 
 **Resource / close contracts** (one agent): the cluster is **complete** — 524,
 525, 526, 522 and 523 are all landed.
@@ -126,23 +140,37 @@ operand UAF — **memory gate**) · 527 (range parameter naming, large)
 
 **Resource bookkeeping holes found by bug-535's sweep** (both hidden by the same
 "any other call into the package" condition, both reproduce on `4d56f1a1a`):
-545 (alias rebind of a tcp/udp socket → missing `_mfb_str_error_resource_closed`
-data object) · 546 (`thread::accept` of a user-declared `THREAD_SENDABLE`
-resource → `native inlined field size not available`; shares a message with 479)
+545 and 546 are both landed. **546 (`6da957747`) is worth reading before any
+codegen work that classifies a type**, because its root cause generalizes: every
+`codegen::builtins::is_resource_type` / `is_thread_sendable_resource_type` call
+answers for the BUILT-IN registry only, and a user-declared `RESOURCE` fell
+through to a default of `true` for both flatness modes — "this handle is a flat
+copyable block that may be relocated into another thread's arena". Use the
+model-aware `is_resource_nominal` / `is_sendable_resource_nominal` instead. The
+same blind spot had a SECOND consumer (`defer_resource_flag`), which meant
+bug-425's guarantee never held for user resources; **479 is the remaining bug
+that shares 546's error message**, so read them together. The invariant is
+recorded in `.ai/resources-packages.md`.
 
 ## Tier 4 — test-infrastructure flakes (cheap, and they are costing us now)
 
 | Bug | Sev | Effort | Title |
 |---|---|---|---|
-| 537 | LOW | small | `rt_macos_tls_write_capacity` fixed port + sleep readiness |
 | 488 | LOW | small | `rt_tls_connect_allow_self_signed` port gate is per-process |
 | 470 | MED | small | artifact-gate and test-accept do not lock against each other |
 | 456 | LOW | small | `mfb opt` sweep level-variant ncode goldens |
 | 472 | MED | small | man examples are never compiled |
 
-**These are worth doing early despite being LOW.** 488 and 537 produced false
-reds on four separate suite runs during the audit-3 fix pass, every time two
-`cargo test` runs shared the machine — which is exactly the agent-plus-lead
-setup this backlog prescribes. 470 is the same class (two harnesses that do not
-lock against each other). Each is <1h and each removes a recurring
+537 is landed. **The rest are worth doing early despite being LOW.** 488 and 537
+produced false reds on four separate suite runs during the audit-3 fix pass,
+every time two `cargo test` runs shared the machine — which is exactly the
+agent-plus-lead setup this backlog prescribes.
+
+**470 cost real time again on 2026-09-05**: a full-suite run's `artifact_gate_all`
+came back FAILED with "another gate run holds the lock — this is NOT a golden
+regression, nothing was checked", purely because the concurrent agent was running
+its own gate. That is a false red on the lead's landing gate, and it recurs every
+time the prescribed agent-plus-lead setup does what it is supposed to. There is
+prior work on branch `worktree-B-470` (three commits, stale base) — evaluate it
+before starting fresh. Each of these is <1h and each removes a recurring
 misdiagnosis risk from every later bug.
