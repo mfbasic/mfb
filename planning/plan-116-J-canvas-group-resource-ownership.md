@@ -701,11 +701,24 @@ Commit: —
 
 Acceptance: §4.3.1 has a resolution recorded in Open Decisions **with the probe output
 behind it**, and a test pinning that resolution; **the drop-the-binding case leaves the
-image OPEN** — asserted on resource state (`canvas::getSize` through a second binding
-raises nothing) rather than on pixels, because no `Picture` draws an image on any backend
-yet and a pixel assertion cannot tell *"owned correctly"* from *"nothing draws"*
-(**J11**); `cargo test --no-fail-fast` green; every canvas golden byte-identical.
-Commit: —
+resource OPEN** — asserted on what the group draws through a live resource rather than on
+a `Picture`'s pixels, because no `Picture` draws an image on any backend yet and a
+`Picture` assertion cannot tell *"owned correctly"* from *"nothing draws"* (**J11**);
+`cargo test --no-fail-fast` green; every canvas golden byte-identical.
+
+**MET on macOS.**
+
+| gate | result |
+|---|---|
+| §4.3.1 resolved with probe output | **J9**/**J10**, three probes; Open Decisions records option 2 transitive |
+| test pinning the resolution | `tests/syntax/resources/canvas-setgroup-consumes-items`, green through `scripts/test-accept.sh` |
+| the drop-the-binding case | `tests/rt_canvas_group_ownership.rs`, 4 passed — and **proven RED** with the fix disabled |
+| `cargo test --release --no-fail-fast` | `rc=0`, **114 targets ok, 0 FAILED** |
+| `scripts/artifact-gate.sh target/release/mfb all` | 1358 tests, 1521 builds, **1878 goldens, 0 diffs** |
+
+*(1358 rather than plan-116-I's 1357: the new syntax fixture. The `retiredItems`/
+`nextReclaimableGroup` work is Phase 3 and is not in these numbers.)*
+Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fbddbf09` (registry)
 
 ### Phase 3 — Ownership on the way out (largest blast radius)
 
