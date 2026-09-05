@@ -1025,6 +1025,35 @@ Commit: —
 
 ## Corrections
 
+**J21 (2026-09-04, Phase 4 acceptance) — three of this letter's gate failures were
+phantoms, from three different mechanisms, and none of them was a golden result. Recorded
+because the numbers below only mean something once they are separated out.**
+
+| what it looked like | what it was |
+|---|---|
+| `cargo test --release` → `rc=101`, `artifact_gate_all ... FAILED` | **exit 98, a refusal.** *"another gate run holds the lock … nothing was checked."* A peer session's `bash scripts/artifact-gate.sh …` held it. Nothing was compared. |
+| `artifact-gate.sh all` → `1906 golden(s) checked, 1 diff(s)`, `MISSING byte-identity/vector/vector_codegen_cover_rt.linux-aarch64.ncode` | **a starved cross-compile.** Run concurrently with a `cargo test --release` and a `test-accept.sh`. The **golden exists**; the *actual* was never produced. Six of that fixture's seven targets passed, and `vector` has no connection to this letter. |
+| `test-accept.sh` → `2 mismatch(es) (1399 test(s) ran)`, `missing actual rt-behavior/astrings/copy-drop-rt/copy_drop_rt.{ast,ir}` | **the same starvation**, on the acceptance side. Re-run alone: **passes**. |
+
+**The discriminator that settles all three is the same and is cheap: re-run the named
+thing on its own.** What made them worth writing up rather than silently re-running is that
+the second and third were produced with a **private** actual dir — the documented
+prevention for the *known* phantom, a shared-dir clobber — so the standard remedy had
+already been applied and the failure was still not real. `.ai/testing-gates.md` gains that
+distinction.
+
+**And one structural point about the first.** `artifact_gate_all` inside `cargo test`
+cannot distinguish "refused" from "found diffs" to a reader skimming the summary — both
+print `FAILED`. The script itself is careful (exit **98**, not 1, with a message saying
+nothing was checked), so the information is there; it is the cargo-level summary that
+flattens it. Worth knowing before spending an afternoon hunting a golden regression that
+was never measured.
+
+**What this letter actually rests on**, once the phantoms are removed: `133` release
+targets green, `3832` `--bin mfb` tests green, `1399` acceptance fixtures with the two
+starved ones passing on re-run, and an artifact-gate figure taken from an **uncontended**
+run.
+
 **J20 (2026-09-04, landing) — `main` moves faster than a full acceptance run, so
 "re-run the full acceptance after merging" needs a proportionate reading, and the
 landing needs a fast-forward.**
