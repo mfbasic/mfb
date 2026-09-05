@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Security
 
-Status: **Closed — fixed** (`<HASH>`). `crypto::convert` now proves the source
+Status: **Closed — fixed** (`77888e838`). `crypto::convert` now proves the source
 curve from the pair instead of inferring it from the key length, so the silent
 wrong-curve path it owned is gone. The `encrypt`/`decrypt`/`exchange`/`sign`
 half of the report is **not fixable as reported** — it is undecidable, not
