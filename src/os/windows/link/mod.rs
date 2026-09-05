@@ -3,7 +3,8 @@
 //! Binds an [`EncodedImage`] into a finished PE32+ `.exe`: builds `.idata`
 //! (import directory + ILTs + IATs + hint/name table) from `image.imports`,
 //! appends one `FF 25` IAT thunk per imported function to `.text`, patches every
-//! relocation, and hands the laid-out sections to [`pe::write_image`].
+//! relocation, emits the `.reloc` base-relocation table that makes the image
+//! ASLR-capable (bug-504), and hands the laid-out sections to [`pe::write_image`].
 //!
 //! Mirrors `src/os/linux/link/mod.rs`: the x86 `rel32 = target − (site+4)` math
 //! and the `FF 25 disp32` thunk are byte-for-byte the ELF path's, with the IAT
@@ -27,8 +28,8 @@ use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
 // in a dedicated read-only `.mfbnote` section.
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER};
 use pe::{
-    align_up, section_name, size_of_headers, ImportDirectories, Section, SCN_DATA, SCN_IDATA,
-    SCN_RDATA, SCN_TEXT,
+    align_up, build_reloc, section_name, size_of_headers, ImportDirectories, Section, SCN_DATA,
+    SCN_IDATA, SCN_RDATA, SCN_RELOC, SCN_TEXT,
 };
 use std::collections::HashMap;
 
@@ -312,13 +313,15 @@ pub(crate) fn write_executable(
     let has_sign = image.signing_metadata.is_some();
 
     // Count sections to size the headers, then lay out RVAs/file offsets. The
-    // `.mfbnote` provenance section (bug-433) is unconditional — the trailing +1;
-    // the `.mfbsign` signing section (bug-432) is present only on a signed build.
+    // `.reloc` base-relocation section (bug-504) and the `.mfbnote` provenance
+    // section (bug-433) are unconditional — the two trailing +1s; the `.mfbsign`
+    // signing section (bug-432) is present only on a signed build.
     let section_count = 1
         + has_rdata as usize
         + has_data as usize
         + has_idata as usize
         + has_rsrc as usize
+        + 1
         + 1
         + has_sign as usize;
     let headers = size_of_headers(section_count);
@@ -413,13 +416,14 @@ pub(crate) fn write_executable(
         Vec::new()
     };
 
-    // bug-433: the unconditional `.mfbnote` provenance section sits last (after
-    // `.rsrc`, or its reserved slot when there is no `.rsrc`), so its size affects
-    // no earlier RVA and it carries no data-directory entry. Body is the same
-    // owner+descriptor framing the ELF `PT_NOTE`/Mach-O `LC_NOTE` use, so a reader
-    // can locate `MFBasic\0` and read the 16-byte descriptor in any of the three
-    // formats.
-    let (mfbnote_rva, mfbnote_file) = if has_rsrc {
+    // bug-504: the `.reloc` base-relocation table follows `.rsrc` (link.exe's
+    // order), or takes its reserved slot when there is no `.rsrc`. The linker
+    // patches only RIP-relative references, so there are no DIR64 fixups to list
+    // (measured: the fixture corpus linked at two different image bases differs in
+    // no section byte) — the body is `build_reloc`'s one padding block, which is
+    // what lets the loader slide a `DYNAMIC_BASE` image whose `RELOCS_STRIPPED`
+    // bit is clear.
+    let (reloc_rva, reloc_file) = if has_rsrc {
         (
             align_up(rsrc_rva + rsrc_bytes.len() as u32, SECTION_ALIGNMENT),
             align_up(rsrc_file + rsrc_bytes.len() as u32, FILE_ALIGNMENT),
@@ -427,6 +431,17 @@ pub(crate) fn write_executable(
     } else {
         (rsrc_rva, rsrc_file)
     };
+    let reloc_bytes = build_reloc(&[], text_rva);
+
+    // bug-433: the unconditional `.mfbnote` provenance section follows `.reloc`,
+    // so its size affects no earlier RVA and it carries no data-directory entry.
+    // Body is the same owner+descriptor framing the ELF `PT_NOTE`/Mach-O `LC_NOTE`
+    // use, so a reader can locate `MFBasic\0` and read the 16-byte descriptor in
+    // any of the three formats.
+    let (mfbnote_rva, mfbnote_file) = (
+        align_up(reloc_rva + reloc_bytes.len() as u32, SECTION_ALIGNMENT),
+        align_up(reloc_file + reloc_bytes.len() as u32, FILE_ALIGNMENT),
+    );
     let mut mfbnote_bytes = Vec::with_capacity(MFB_NOTE_OWNER.len() + mfb_note_descriptor().len());
     mfbnote_bytes.extend_from_slice(MFB_NOTE_OWNER);
     mfbnote_bytes.extend_from_slice(&mfb_note_descriptor());
@@ -489,6 +504,16 @@ pub(crate) fn write_executable(
             bytes: &rsrc_bytes,
         });
     }
+    // bug-504: `.reloc` + data directory [5] BASERELOC pointing at it.
+    dirs.basereloc = (reloc_rva, reloc_bytes.len() as u32);
+    sections.push(Section {
+        name: section_name(".reloc"),
+        characteristics: SCN_RELOC,
+        virtual_address: reloc_rva,
+        virtual_size: reloc_bytes.len() as u32,
+        file_offset: reloc_file,
+        bytes: &reloc_bytes,
+    });
     // bug-433: `.mfbnote` — unconditional, no data directory. `.mfbnote` is exactly
     // 8 chars, fitting PE's 8-byte section-name field with no truncation.
     sections.push(Section {
@@ -683,6 +708,80 @@ mod tests {
         panic!("rva {rva:#x} not in any section");
     }
 
+    /// bug-504 (audit-3 LNK-13): the emitted PE must be ASLR-capable. Three header
+    /// facts have to hold together — the loader ignores `DYNAMIC_BASE` when
+    /// `IMAGE_FILE_RELOCS_STRIPPED` is set, and without a base-relocation directory
+    /// it cannot prove the image slides — so this asserts all of them on a real
+    /// linked image (imports + data), not a hand-laid header:
+    /// `RELOCS_STRIPPED` clear; `DYNAMIC_BASE | HIGH_ENTROPY_VA | NX_COMPAT` set;
+    /// data directory `[5]` points at a `.reloc` section whose block(s) parse.
+    #[test]
+    fn emitted_pe_is_aslr_capable() {
+        for gui in [false, true] {
+            let bytes = write_executable(&runnable_exit42_image(), gui, None, None)
+                .expect("link exit42");
+            let e_lfanew = le_u32(&bytes, 0x3C) as usize;
+            let coff = e_lfanew + 4;
+            let opt = coff + 20;
+            let characteristics = le_u16(&bytes, coff + 18);
+            assert_eq!(
+                characteristics & 0x0001,
+                0,
+                "IMAGE_FILE_RELOCS_STRIPPED must be clear (gui={gui}): {characteristics:#06x}"
+            );
+            assert_ne!(
+                characteristics & 0x0020,
+                0,
+                "LARGE_ADDRESS_AWARE stays set (gui={gui})"
+            );
+            let dll = le_u16(&bytes, opt + 70);
+            assert_eq!(
+                dll & (0x0040 | 0x0020 | 0x0100),
+                0x0040 | 0x0020 | 0x0100,
+                "DllCharacteristics needs DYNAMIC_BASE|HIGH_ENTROPY_VA|NX_COMPAT (gui={gui}): {dll:#06x}"
+            );
+            // Data directory [5] = BASERELOC, 112 bytes into the optional header.
+            let dd = opt + 112 + 5 * 8;
+            let (reloc_rva, reloc_size) = (le_u32(&bytes, dd), le_u32(&bytes, dd + 4));
+            assert_ne!(reloc_size, 0, "BASERELOC directory must be populated (gui={gui})");
+            let reloc = section_named(&bytes, b".reloc").expect(".reloc section present");
+            // The directory points at the section start and covers exactly its body.
+            let n = le_u16(&bytes, e_lfanew + 6) as usize;
+            let sect_table = opt + 240;
+            let reloc_hdr = (0..n)
+                .map(|i| sect_table + i * 40)
+                .find(|&s| &bytes[s..s + 6] == b".reloc")
+                .expect(".reloc header");
+            assert_eq!(le_u32(&bytes, reloc_hdr + 12), reloc_rva, "[5].RVA = .reloc RVA");
+            assert_eq!(le_u32(&bytes, reloc_hdr + 8), reloc_size, "[5].Size = .reloc VirtualSize");
+            assert_eq!(
+                le_u32(&bytes, reloc_hdr + 36),
+                0x4200_0040,
+                ".reloc is INITIALIZED_DATA | DISCARDABLE | READ"
+            );
+            // Walk the IMAGE_BASE_RELOCATION blocks: each names a page inside the
+            // image and its entries are either padding (ABSOLUTE) or DIR64.
+            let size_of_image = le_u32(&bytes, opt + 56);
+            let mut off = 0usize;
+            let mut blocks = 0;
+            while off < reloc_size as usize {
+                let page = le_u32(&reloc, off);
+                let block_size = le_u32(&reloc, off + 4) as usize;
+                assert!(block_size >= 8 && block_size % 4 == 0, "SizeOfBlock {block_size}");
+                assert_eq!(page % 0x1000, 0, "block page {page:#x} is page-aligned");
+                assert!(page < size_of_image, "block page {page:#x} inside the image");
+                for entry in (8..block_size).step_by(2) {
+                    let kind = le_u16(&reloc, off + entry) >> 12;
+                    assert!(kind == 0 || kind == 10, "entry type {kind} (ABSOLUTE or DIR64)");
+                }
+                off += block_size;
+                blocks += 1;
+            }
+            assert_eq!(off, reloc_size as usize, "blocks tile the directory exactly");
+            assert!(blocks >= 1, "at least one relocation block");
+        }
+    }
+
     /// bug-432: a signed Windows build emits the `mfb-signing-v1` blob verbatim in
     /// an `.mfbsign` PE section (the unified 8-char name shared with ELF/Mach-O).
     #[test]
@@ -749,10 +848,16 @@ mod tests {
         let img = image(vec![0xc3]); // ret
         let bytes = write_executable(&img, false, None, None).expect("link");
         assert_eq!(&bytes[0..2], b"MZ");
-        // Two sections: .text plus the unconditional .mfbnote provenance section
-        // (bug-433); no import directories.
+        // Three sections: .text, the unconditional .reloc the image needs to be
+        // ASLR-capable (bug-504 — DYNAMIC_BASE is ignored without a base
+        // relocation directory), and the unconditional .mfbnote provenance
+        // section (bug-433); no import directories.
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 2);
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 3);
+        assert!(
+            section_named(&bytes, b".reloc").is_some(),
+            "even a text-only image must carry .reloc, or it loads at a fixed base"
+        );
     }
 
     #[test]
@@ -834,9 +939,10 @@ mod tests {
     fn exit_process_image_has_text_and_idata_and_bound_call() {
         let bytes = write_executable(&exit_process_42_image(), false, None, None).expect("link");
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        // Three sections: .text (with the appended thunk), .idata, and the
-        // unconditional .mfbnote provenance section (bug-433).
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 3);
+        // Four sections: .text (with the appended thunk), .idata, the
+        // unconditional .reloc that makes the image ASLR-capable (bug-504), and
+        // the unconditional .mfbnote provenance section (bug-433).
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 4);
         // Data directory [1] Import and [12] IAT are populated.
         let dd = e_lfanew + 4 + 20 + 112;
         let import_rva = le_u32(&bytes, dd + 8);
@@ -922,8 +1028,9 @@ mod tests {
         img.rodata_size = SECTION_ALIGNMENT as usize;
         let bytes = write_executable(&img, false, None, None).expect("link");
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
-        // .text + .rdata + .data + the unconditional .mfbnote (bug-433) == 4 sections.
-        assert_eq!(le_u16(&bytes, e_lfanew + 6), 4);
+        // .text + .rdata + .data + the unconditional .reloc (bug-504) + the
+        // unconditional .mfbnote (bug-433) == 5 sections.
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 5);
         // The .data section's first byte round-trips.
         let sect_table = e_lfanew + 4 + 20 + 240;
         let data_vaddr = le_u32(&bytes, sect_table + 2 * 40 + 12);
