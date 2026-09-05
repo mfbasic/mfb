@@ -492,14 +492,24 @@ Commit: —
 
 ### Phase 2 — Ownership on the way in
 
-- [ ] **First: settle §4.3.1 by measurement.** Two groups can name one image, and closing
-      is global, so a group that closes "its" image closes it for every holder. Measure
-      whether option 2 is reachable — does a `List OF DrawItem` built inline arrive at
-      `setGroup` as something the move checker can attribute to a binding, so that a
-      second install is `2-203-0055` rather than a silent render-time wrong picture?
-      Write a probe first (a two-group program naming one image) and read the diagnostic,
-      the way **J7**'s probe read `destroyImage`'s. Record the answer in Open Decisions
-      and pick one of §4.3.1's three.
+- [x] **First: settle §4.3.1 by measurement.** Measured 2026-09-04 (**J9**, **J10**).
+      Probes: the two-group program compiles clean, so the hole is real; the per-frame
+      `present` loop compiles, so a consuming *constructor* is impossible; and
+      `destroyImage(img)` followed by `present([a])` compiles, so containment must not be
+      modelled as aliasing. **Option 2 is reachable in its transitive form and is the
+      choice** — `check_resource_moves` already carries plan-59-E's alias graph and
+      closure, and what is missing is a second, *directed* `contains` relation plus a
+      consuming-parameter flag. Sites in **J10**.
+- [ ] Implement the transitive move: the `contains` relation in
+      `check_resource_moves` (`src/ir/verify/resources.rs`), `consumed_resource`
+      (`src/ir/verify/link.rs:975` — grep `fn consumed_resource`) returning a set rather
+      than an `Option<String>`, and the consuming-parameter flag on `setGroup`'s `items`.
+      **Containment is directed**: consuming the container moves what it contains;
+      consuming a contained resource must leave the container usable, or the documented
+      *"closing it while a scene still names it draws nothing rather than failing"*
+      becomes a compile error.
+- [ ] Correct §Non-goals' *"`setGroup`'s signature is unchanged"* (**J10**): the rendered
+      signature is unchanged but its meaning is not, and that belongs on the man page.
 - [ ] `setGroup`'s deep copy routes resource ownership per Phase 1's design instead of
       copying a handle. **Note (§4.1): the copy already produces an alias** — `List OF
       DrawItem` is still `type_is_memcpy_copyable` because `flatness_walk`'s `Res(_)` arm
@@ -616,8 +626,85 @@ Commit: —
   it needs a measurement (whether a `List OF DrawItem` built inline reaches `setGroup` as
   something the move checker can attribute to a binding), so it is **Phase 2's first
   task**, not a document decision.
+  **RESOLVED 2026-09-04 — option 2, in its transitive form** (**J9**, **J10**). The two
+  cheap readings are dead: moving the list catches nothing (the two installs pass
+  different lists), and a consuming constructor is impossible (`present` and `setGroup`
+  take the identical `List OF canvas::DrawItem`, so a `DrawItem` cannot know its
+  destination, and the ordinary per-frame `present` loop would be refused on its second
+  pass). What remains is a move decided at the `setGroup` call, walking argument → list →
+  record → `RES` slot. `check_resource_moves` already has plan-59-E's alias graph and
+  `alias_closure`; what is missing is a second, **directed** `contains` relation —
+  directed because `destroyImage(img)` followed by `present([a])` compiles today and must,
+  since `Picture.image` promises *"closing it while a scene still names it draws nothing
+  rather than failing."*
 
 ## Corrections
+
+**J10 (2026-09-04, Phase 2's first box, measured early while letter I's Linux row
+compiled) — the transitive move IS reachable, the machinery is 80% there, and the 20%
+that is missing is a distinction the checker does not currently draw.**
+
+**What exists.** `TypeEnv::check_resource_moves` (`src/ir/verify/resources.rs`) already
+carries an **alias graph** — `aliases: HashMap<String, HashSet<String>>` with an
+`alias_closure` walk — added by plan-59-E for *"take a handle, give it back"*. A consume
+marks the whole closure moved:
+
+```rust
+for alias in alias_closure(&consumed, aliases) {
+    moved.insert(alias);
+}
+moved.insert(consumed);
+```
+
+So "consuming through one name consumes every name that may denote it" is solved, tested
+(`rejects_double_move_close_then_return`, `move_in_if_branch_propagates_past_join`,
+`foreach_body_move_leaks_to_outer`), and merges correctly across `If`/`Match`/`ForEach`
+joins.
+
+**Why it does not fire here.** The alias edge is recorded on `Bind` only when the bound
+value is a call whose **return type is itself a resource with a close op**, and only for
+arguments *of that same resource type*. `LET a AS canvas::DrawItem = canvas::Picture[…,
+image := img, …]` returns a `canvas.DrawItem`; `close_op_for(DrawItem)` is `None`; no edge.
+
+**And widening the alias relation to cover it would be a bug, not a fix.** Aliasing means
+*may denote the same resource*, and a consume of either end marks both. Containment is not
+symmetric: closing the image must **not** invalidate the item. Probed —
+
+```basic
+LET a AS canvas::DrawItem = canvas::Picture[…, image := img, …]
+canvas::destroyImage(img)
+canvas::present([a])
+```
+
+— **compiles**, and it has to: `Picture.image`'s own description promises *"closing it
+while a scene still names it draws nothing rather than failing."* Recording `a` and `img`
+as aliases would reject that program.
+
+**So the missing piece is a second, directed relation.** Sketch, in the terms the code
+already uses:
+
+* a `contains: HashMap<String, HashSet<String>>` populated at `IrOp::Bind` when the bound
+  type is a record (or a union of records, or a `List OF` one) with `RES` props and an
+  argument is a local of that prop's resource type — the same shape as the existing alias
+  edge, minus the symmetry;
+* `consumed_resource` (`src/ir/verify/link.rs:975`) returns `Option<String>` today and
+  would return a **set**: for a consuming-parameter call, the containment closure of the
+  argument;
+* a registry flag saying `setGroup`'s `items` parameter consumes what it contains.
+  `RegistryResource` already carries `close_function`, `sendable`, `close_may_fail` and
+  `live_slots`, so a per-`Parameter` consuming flag is the established shape rather than a
+  new mechanism.
+
+**Consequence for §Non-goals, which Phase 2 must correct rather than route around.** It
+says *"No new `canvas::` surface. `setGroup`'s signature is unchanged."* The rendered
+signature would indeed be unchanged, but its **meaning** would not: passing an item list
+would consume the resources inside it. That is a semantic change to a public builtin and it
+belongs in the man page, so the Non-goal as written is too strong and the letter should say
+what it actually promises — *no new members*, not *no change to what `setGroup` does to its
+argument*.
+
+**Not a stop.** This is larger than §3 claimed (**J9**), and larger is explicitly not a
+reason to narrow the Goal or defer the work.
 
 **J9 (2026-09-04, Phase 1 — measured, three probes) — §4.3.1's recommended option is
 right in outline and both of its cheap readings are dead; and §1's first Goal bullet
