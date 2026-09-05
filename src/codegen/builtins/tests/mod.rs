@@ -31,6 +31,7 @@
 mod canvas;
 mod collections;
 mod corpus;
+mod diagnostics;
 mod math;
 mod os;
 mod perf;
