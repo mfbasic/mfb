@@ -13,12 +13,12 @@ mod func_drop;
 mod func_filter;
 mod func_find;
 mod func_find_index;
-mod func_find_last_index;
+pub(crate) mod func_find_last_index;
 mod func_flatten;
 mod func_for_each;
 mod func_get;
 mod func_get_or;
-mod func_group_by;
+pub(crate) mod func_group_by;
 mod func_has_key;
 mod func_insert;
 mod func_intersection;
@@ -47,7 +47,7 @@ mod func_to_list;
 mod func_to_set;
 mod func_union;
 mod func_window;
-mod func_zip;
+pub(crate) mod func_zip;
 // `pub(crate)`: source-generic fast paths in `src/target` (sortBy, mapValues,
 // groupBy) reuse `lower_transform` directly until they too migrate (plan-96).
 pub(crate) mod func_transform;

@@ -83,14 +83,14 @@ pub fn lower_src(source: &str) -> IrProject {
 ///
 /// Panics on a lex/parse or monomorphization failure - a test-author error.
 pub fn concrete_hir_from_src(source: &str) -> crate::hir::HirProject {
-    let file = parse_source(Path::new("main.mfb"), "main.mfb", source)
-        .expect("test source must lex+parse");
-    let project = AstProject {
-        name: "test".to_string(),
-        files: vec![file],
-    };
-    let augmented =
-        crate::resolver::augment_project(&project).expect("builtin augmentation must succeed");
+    // Through `project_from_src`, so the compiler-owned prelude (`Pair`,
+    // `Partition`) is present exactly as the real project loader leaves it.
+    // Without it a program that names a prelude template -- everything
+    // `collections::zip` returns is a `Pair` -- monomorphizes to `Unknown` and
+    // dies far downstream with "native len does not accept argument type
+    // 'Unknown'", which reads as a codegen bug rather than a missing prelude.
+    let augmented = crate::resolver::augment_project(&project_from_src(source))
+        .expect("builtin augmentation must succeed");
     crate::monomorph::monomorphize_project(Path::new("."), &crate::hir::elaborate(&augmented))
         .expect("test source must monomorphize")
 }
@@ -341,6 +341,35 @@ pub fn app_code_cached(
         .app_mode()
         .unwrap_or_else(|| panic!("{} has no -app build mode", target.name()));
     code_for_src_cached(source, target, mode)
+}
+
+/// The `src/main.mfb` of a committed single-file fixture.
+///
+/// Hand-writing a test program that reaches a builtin's NATIVE fast path is
+/// harder than it looks — the fast paths are keyed on exact instantiations
+/// (`#collections_groupBy$String$Integer$String`), and a program that misses one
+/// silently exercises the interpreted `.mfb` body instead, so the suite passes
+/// while measuring nothing. The `tests/rt-behavior/**` fixtures were written
+/// against those instantiations and are proven to compile and run, which makes
+/// them the right source for a codegen suite that wants the fast path.
+///
+/// Panics if the fixture is missing or has no `src/main.mfb` — both are
+/// test-author errors, and a silently-skipped fixture is worse than a failure.
+pub fn fixture_src(name: &str) -> String {
+    let path = fixture_dir(name).join("src").join("main.mfb");
+    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
+}
+
+/// [`code_for_src_cached`] over a committed fixture's `src/main.mfb`.
+pub fn code_for_fixture(
+    name: &str,
+    target: CodeTarget,
+) -> &'static crate::codegen::engine::types::NativeCodePlan {
+    code_for_src_cached(
+        &fixture_src(name),
+        target,
+        crate::target::NativeBuildMode::Console,
+    )
 }
 
 /// The lowered function whose `name` matches, panicking with the available names

@@ -29,6 +29,7 @@
 //! `pub(crate)` paths.
 
 mod canvas;
+mod collections;
 mod math;
 mod os;
 mod perf;
