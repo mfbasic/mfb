@@ -1,10 +1,10 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "crypto_ed25519_malleability_invalid",
+  "project": "crypto-curve-attribution-valid",
   "entry": {
     "name": "main",
-    "returns": "Integer",
+    "returns": "Nothing",
     "accepts_args": false
   },
   "bindings": [
@@ -147,68 +147,203 @@
   ],
   "functions": [
   {
-    "name": "malleate",
-    "line": 20,
+    "name": "fill",
+    "line": 33,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sig", "line": 20, "type": "List OF Byte", "default": null }
+    { "name": "n", "line": 33, "type": "Integer", "default": null },
+    { "name": "v", "line": 33, "type": "Integer", "default": null }
     ],
     "returns": "List OF Byte",
     "body": [
-    { "op": "bind", "line": 21, "mutable": false, "name": "lbytes", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010" }] } },
-    { "op": "bind", "line": 22, "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
-    { "op": "bind", "line": 23, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 34, "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 35, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 24,
+      "line": 36,
       "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "n" } },
       "body": [
-      { "op": "assign", "line": 25, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "sig" }, { "kind": "local", "name": "i" }] }] } },
-      { "op": "assign", "line": 26, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 37, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "v" }] }] } },
+      { "op": "assign", "line": 38, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 28, "mutable": true, "name": "carry", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 29, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "return", "line": 40, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "basePoint",
+    "line": 43,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 43, "type": "Integer", "default": null },
+    { "name": "u", "line": 43, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "return", "line": 44, "value": { "kind": "call", "type": "List OF Byte", "target": "collections.set", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fill", "args": [{ "kind": "local", "name": "n" }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "u" }] }] } }
+    ]
+  },
+  {
+    "name": "code",
+    "line": 47,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "err", "line": 47, "type": "Error", "default": null }
+    ],
+    "returns": "String",
+    "body": [
     {
-      "op": "while",
-      "line": 30,
-      "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
-      "body": [
-      { "op": "bind", "line": 31, "mutable": false, "name": "sum", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "sig" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "32" }, "right": { "kind": "local", "name": "j" } }] }] }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "lbytes" }, { "kind": "local", "name": "j" }] }] } }, "right": { "kind": "local", "name": "carry" } } },
-      { "op": "assign", "line": 32, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "sum" }, { "kind": "const", "type": "Integer", "value": "255" }] }] }] } },
-      { "op": "assign", "line": 33, "name": "carry", "value": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "sum" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
-      { "op": "assign", "line": 34, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      "op": "if",
+      "line": 48,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+      "then": [
+      { "op": "return", "line": 49, "value": { "kind": "const", "type": "String", "value": "ErrInvalidArgument" } }
+      ],
+      "else": [
       ]
     },
-    { "op": "return", "line": 36, "value": { "kind": "local", "name": "out" } }
+    {
+      "op": "if",
+      "line": 51,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050016" } },
+      "then": [
+      { "op": "return", "line": 52, "value": { "kind": "const", "type": "String", "value": "ErrAuthenticationFailed" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 54, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "other=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }] } } }
+    ]
+  },
+  {
+    "name": "tryConvert",
+    "line": 59,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "c", "line": 59, "type": "crypto.KeyConvert", "default": null },
+    { "name": "priv", "line": 59, "type": "List OF Byte", "default": null },
+    { "name": "pub", "line": 59, "type": "List OF Byte", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 60, "mutable": false, "name": "kp", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "#crypto_convert", "args": [{ "kind": "local", "name": "c" }, { "kind": "constructor", "type": "crypto.KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] }] } },
+    { "op": "return", "line": 61, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "privateKey" }] }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "publicKey" }] } } },
+    {
+      "op": "trap",
+      "line": 62,
+      "name": "err",
+      "body": [
+      { "op": "return", "line": 63, "value": { "kind": "call", "type": "String", "target": "code", "args": [{ "kind": "local", "name": "err" }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "convertOk",
+    "line": 67,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "c", "line": 67, "type": "crypto.KeyConvert", "default": null },
+    { "name": "kp", "line": 67, "type": "crypto.KeyPair", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 68, "mutable": false, "name": "out", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "#crypto_convert", "args": [{ "kind": "local", "name": "c" }, { "kind": "local", "name": "kp" }] } },
+    { "op": "return", "line": 69, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "converted " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "out" }, "member": "privateKey" }] }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "out" }, "member": "publicKey" }] }] } } },
+    {
+      "op": "trap",
+      "line": 70,
+      "name": "err",
+      "body": [
+      { "op": "return", "line": 71, "value": { "kind": "call", "type": "String", "target": "code", "args": [{ "kind": "local", "name": "err" }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "roundTrip",
+    "line": 75,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "cipher", "line": 75, "type": "crypto.AsymmetricCipher", "default": null },
+    { "name": "kp", "line": 75, "type": "crypto.KeyPair", "default": null },
+    { "name": "msg", "line": 75, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 76, "mutable": false, "name": "box", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_encryptText", "args": [{ "kind": "local", "name": "cipher" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "publicKey" }, { "kind": "local", "name": "msg" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "clear", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_decrypt", "args": [{ "kind": "local", "name": "cipher" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "privateKey" }, { "kind": "local", "name": "box" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
+    { "op": "return", "line": 78, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "opened " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "clear" }] }] } } },
+    {
+      "op": "trap",
+      "line": 79,
+      "name": "err",
+      "body": [
+      { "op": "return", "line": 80, "value": { "kind": "call", "type": "String", "target": "code", "args": [{ "kind": "local", "name": "err" }] } }
+      ]
+    }
     ]
   },
   {
     "name": "main",
-    "line": 39,
+    "line": 84,
     "visibility": "public",
-    "kind": "func",
+    "kind": "sub",
     "params": [
     ],
-    "returns": "Integer",
+    "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 41, "mutable": false, "name": "kp", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }] } },
-    { "op": "bind", "line": 42, "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "canonical-S test" }] } },
-    { "op": "bind", "line": 43, "mutable": false, "name": "sig", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.sign", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "privateKey" }, { "kind": "local", "name": "msg" }] } },
-    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "ed-good=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "crypto.verify", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "publicKey" }, { "kind": "local", "name": "msg" }, { "kind": "local", "name": "sig" }] }] } }] } },
-    { "op": "bind", "line": 45, "mutable": false, "name": "mal", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "malleate", "args": [{ "kind": "local", "name": "sig" }] } },
-    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "ed-malleated=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "crypto.verify", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "kp" }, "member": "publicKey" }, { "kind": "local", "name": "msg" }, { "kind": "local", "name": "mal" }] }] } }] } },
-    { "op": "bind", "line": 49, "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "crypto.Hash", "target": { "kind": "local", "name": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "line": 50, "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "crypto.Hash", "target": { "kind": "local", "name": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "line": 51, "mutable": false, "name": "c", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_hashText", "args": [{ "kind": "memberAccess", "type": "crypto.Hash", "target": { "kind": "local", "name": "crypto.Hash" }, "member": "SHA2_256" }, { "kind": "const", "type": "String", "value": "abd" }] } },
-    { "op": "bind", "line": 52, "mutable": false, "name": "short", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "0102" }] } },
-    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cteq-equal=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] }] } }] } },
-    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cteq-diff=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "c" }] }] } }] } },
-    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cteq-len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "short" }] }] } }] } },
-    { "op": "return", "line": 56, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 86, "mutable": false, "name": "edSeed1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60" }] } },
+    { "op": "bind", "line": 87, "mutable": false, "name": "edPub1", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a" }] } },
+    { "op": "bind", "line": 88, "mutable": false, "name": "edSeed2", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb" }] } },
+    { "op": "bind", "line": 89, "mutable": false, "name": "edPub2", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c" }] } },
+    { "op": "bind", "line": 90, "mutable": false, "name": "xPriv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a" }] } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "xPub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a" }] } },
+    { "op": "bind", "line": 92, "mutable": false, "name": "xPrivB", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb" }] } },
+    { "op": "bind", "line": 93, "mutable": false, "name": "xPubB", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f" }] } },
+    { "op": "bind", "line": 94, "mutable": false, "name": "ed448Seed", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b" }] } },
+    { "op": "bind", "line": 95, "mutable": false, "name": "ed448Pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180" }] } },
+    { "op": "bind", "line": 96, "mutable": false, "name": "x448Priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#encoding_hexDecode", "args": [{ "kind": "const", "type": "String", "value": "9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b" }] } },
+    { "op": "bind", "line": 97, "mutable": false, "name": "base255", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "basePoint", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "line": 98, "mutable": false, "name": "base448", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "basePoint", "args": [{ "kind": "const", "type": "Integer", "value": "56" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "line": 99, "mutable": false, "name": "x448Pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_exchange", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X448" }, { "kind": "local", "name": "x448Priv" }, { "kind": "local", "name": "base448" }] } },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed25519-1=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "edSeed1" }, { "kind": "local", "name": "edPub1" }] } }] } },
+    { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed25519-2=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "edSeed2" }, { "kind": "local", "name": "edPub2" }] } }] } },
+    { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed448-1=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "local", "name": "ed448Seed" }, { "kind": "local", "name": "ed448Pub" }] } }] } },
+    { "op": "bind", "line": 109, "mutable": false, "name": "c1", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "#crypto_convert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "constructor", "type": "crypto.KeyPair", "args": [{ "kind": "local", "name": "edSeed1" }, { "kind": "local", "name": "edPub1" }] }] } },
+    { "op": "eval", "line": 110, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed25519-invariant=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_exchange", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X25519" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "c1" }, "member": "privateKey" }, { "kind": "local", "name": "base255" }] }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "c1" }, "member": "publicKey" }] }] } }] } },
+    { "op": "bind", "line": 111, "mutable": false, "name": "c4", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "#crypto_convert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "constructor", "type": "crypto.KeyPair", "args": [{ "kind": "local", "name": "ed448Seed" }, { "kind": "local", "name": "ed448Pub" }] }] } },
+    { "op": "eval", "line": 112, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed448-invariant=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_exchange", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X448" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "c4" }, "member": "privateKey" }, { "kind": "local", "name": "base448" }] }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "c4" }, "member": "publicKey" }] }] } }] } },
+    { "op": "eval", "line": 114, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-generated-ed25519=" }, "right": { "kind": "call", "type": "String", "target": "convertOk", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }] }] } }] } },
+    { "op": "eval", "line": 115, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-generated-ed448=" }, "right": { "kind": "call", "type": "String", "target": "convertOk", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed448" }] }] } }] } },
+    { "op": "eval", "line": 117, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sign-rfc8032-t1=" }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "crypto.sign", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "local", "name": "edSeed1" }, { "kind": "list", "type": "List OF Byte", "values": [] }] }] } }] } },
+    { "op": "eval", "line": 118, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "verify-rfc8032-t1=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "crypto.verify", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "local", "name": "edPub1" }, { "kind": "list", "type": "List OF Byte", "values": [] }, { "kind": "call", "type": "List OF Byte", "target": "crypto.sign", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "local", "name": "edSeed1" }, { "kind": "list", "type": "List OF Byte", "values": [] }] }] }] } }] } },
+    { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exchange-rfc7748-shared=" }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_exchange", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X25519" }, { "kind": "local", "name": "xPriv" }, { "kind": "local", "name": "xPubB" }] }] } }] } },
+    { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exchange-rfc7748-shared-ba=" }, "right": { "kind": "call", "type": "String", "target": "#encoding_hexEncode", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_exchange", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X25519" }, { "kind": "local", "name": "xPrivB" }, { "kind": "local", "name": "xPub" }] }] } }] } },
+    { "op": "bind", "line": 121, "mutable": false, "name": "ed", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed25519" }] } },
+    { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hpke-ed25519-roundtrip=" }, "right": { "kind": "call", "type": "String", "target": "roundTrip", "args": [{ "kind": "memberAccess", "type": "crypto.AsymmetricCipher", "target": { "kind": "local", "name": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "local", "name": "ed" }, { "kind": "const", "type": "String", "value": "attack at dawn" }] } }] } },
+    { "op": "bind", "line": 123, "mutable": false, "name": "ed448", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "Ed448" }] } },
+    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hpke-ed448-roundtrip=" }, "right": { "kind": "call", "type": "String", "target": "roundTrip", "args": [{ "kind": "memberAccess", "type": "crypto.AsymmetricCipher", "target": { "kind": "local", "name": "crypto.AsymmetricCipher" }, "member": "Ed448_CHACHA20POLY1305" }, { "kind": "local", "name": "ed448" }, { "kind": "const", "type": "String", "value": "attack at dawn" }] } }] } },
+    { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-x25519-pair-into-ed25519-map=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "xPriv" }, { "kind": "local", "name": "xPub" }] } }] } },
+    { "op": "eval", "line": 131, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-x25519-pair-b-into-ed25519-map=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "xPrivB" }, { "kind": "local", "name": "xPubB" }] } }] } },
+    { "op": "eval", "line": 135, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-mismatched-ed25519-halves=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "edSeed1" }, { "kind": "local", "name": "edPub2" }] } }] } },
+    { "op": "eval", "line": 139, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-x448-pair-into-ed448-map=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "local", "name": "x448Priv" }, { "kind": "local", "name": "x448Pub" }] } }] } },
+    { "op": "eval", "line": 141, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed448-pair-into-ed25519-map=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "ed448Seed" }, { "kind": "local", "name": "ed448Pub" }] } }] } },
+    { "op": "eval", "line": 142, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-ed25519-pair-into-ed448-map=" }, "right": { "kind": "call", "type": "String", "target": "tryConvert", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "local", "name": "edSeed1" }, { "kind": "local", "name": "edPub1" }] } }] } },
+    { "op": "bind", "line": 144, "mutable": false, "name": "p256", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "P256" }] } },
+    { "op": "eval", "line": 145, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-p256-pair-into-ed25519-map=" }, "right": { "kind": "call", "type": "String", "target": "convertOk", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "local", "name": "p256" }] } }] } },
+    { "op": "eval", "line": 146, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "convert-p256-pair-into-ed448-map=" }, "right": { "kind": "call", "type": "String", "target": "convertOk", "args": [{ "kind": "memberAccess", "type": "crypto.KeyConvert", "target": { "kind": "local", "name": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "local", "name": "p256" }] } }] } },
+    { "op": "bind", "line": 154, "mutable": false, "name": "xkp", "type": "crypto.KeyPair", "value": { "kind": "call", "type": "crypto.KeyPair", "target": "crypto.generate", "args": [{ "kind": "memberAccess", "type": "crypto.Certificate", "target": { "kind": "local", "name": "crypto.Certificate" }, "member": "X25519" }] } },
+    { "op": "bind", "line": 155, "mutable": false, "name": "box", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_encryptText", "args": [{ "kind": "memberAccess", "type": "crypto.AsymmetricCipher", "target": { "kind": "local", "name": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "memberAccess", "type": "List OF Byte", "target": { "kind": "local", "name": "xkp" }, "member": "publicKey" }, { "kind": "const", "type": "String", "value": "attack at dawn" }, { "kind": "list", "type": "List OF Byte", "values": [] }] } },
+    { "op": "eval", "line": 156, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "encrypt-bare-key-is-unattributable=accepted " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "box" }] }] } }, "right": { "kind": "const", "type": "String", "value": " bytes" } }] } },
+    { "op": "eval", "line": 157, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "decrypt-that-box=" }, "right": { "kind": "call", "type": "String", "target": "roundTrip", "args": [{ "kind": "memberAccess", "type": "crypto.AsymmetricCipher", "target": { "kind": "local", "name": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "local", "name": "xkp" }, { "kind": "const", "type": "String", "value": "attack at dawn" }] } }] } }
     ]
   },
   {

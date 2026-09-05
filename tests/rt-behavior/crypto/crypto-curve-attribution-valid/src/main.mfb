@@ -1,0 +1,158 @@
+' bug-514. `crypto::KeyPair` carries no tag naming its curve, and Ed25519 and
+' X25519 key material is 32 bytes on BOTH halves, so the length test that used to
+' be `crypto::convert`'s whole guard could not tell them apart: a genuine X25519
+' pair handed to `KeyConvert.Ed25519ToX25519` passed every check the package made
+' and was run through the Edwards->Montgomery birational map, returning a
+' well-formed but meaningless key pair with no diagnostic at all.
+'
+' `convert` is the ONE `crypto` member that receives both halves of a single
+' pair, so it is the one place the runtime can PROVE the curve rather than guess
+' it: RFC 8032 defines the public key AS the derivation of the seed
+' (`A = [clamp(SHA-512(seed)[0..32])]B` for Ed25519, `A = [prune(SHAKE256(seed,
+' 114)[0..57])]B` for Ed448), so re-deriving it and comparing accepts every
+' conformant pair of the source curve and rejects everything else. It is not the
+' forbidden shape heuristic: nothing about the public key's own encoding is
+' inspected, so it cannot be fooled by an X25519 `u` that decodes as a valid
+' Edwards `y` (which about half of them do).
+'
+' Every vector below is an official one, offline:
+'   * Ed25519 seed/public/signature -- RFC 8032 section 7.1 TEST 1 and TEST 2.
+'   * X25519 private/public/shared  -- RFC 7748 section 6.1 (Alice and Bob).
+'   * Ed448 seed/public             -- RFC 8032 section 7.4 test 1.
+'   * X448 private                  -- RFC 7748 section 6.2 (Alice).
+'
+' The `convert-*` and `sign`/`exchange` lines are the POSITIVE pins: a guard that
+' rejected real keys would show up here as a changed hex string or an
+' `ErrInvalidArgument`, not as a silently weaker check.
+IMPORT collections
+IMPORT crypto
+IMPORT encoding
+IMPORT errorCode
+IMPORT io
+
+FUNC fill(n AS Integer, v AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(v))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC basePoint(n AS Integer, u AS Integer) AS List OF Byte
+  RETURN collections::set(fill(n, 0), 0, toByte(u))
+END FUNC
+
+FUNC code(err AS Error) AS String
+  IF err.code = errorCode::ErrInvalidArgument THEN
+    RETURN "ErrInvalidArgument"
+  END IF
+  IF err.code = errorCode::ErrAuthenticationFailed THEN
+    RETURN "ErrAuthenticationFailed"
+  END IF
+  RETURN "other=" & toString(err.code)
+END FUNC
+
+' Convert, reporting the converted halves on success and the error name on
+' refusal. Both outcomes are printable, so one golden line covers both.
+FUNC tryConvert(c AS crypto::KeyConvert, priv AS List OF Byte, pub AS List OF Byte) AS String
+  LET kp AS crypto::KeyPair = crypto::convert(c, crypto::KeyPair[priv, pub])
+  RETURN encoding::hexEncode(kp.privateKey) & "/" & encoding::hexEncode(kp.publicKey)
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC convertOk(c AS crypto::KeyConvert, kp AS crypto::KeyPair) AS String
+  LET out AS crypto::KeyPair = crypto::convert(c, kp)
+  RETURN "converted " & toString(len(out.privateKey)) & "/" & toString(len(out.publicKey))
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+FUNC roundTrip(cipher AS crypto::AsymmetricCipher, kp AS crypto::KeyPair, msg AS String) AS String
+  LET box AS List OF Byte = crypto::encrypt(cipher, kp.publicKey, msg)
+  LET clear AS List OF Byte = crypto::decrypt(cipher, kp.privateKey, box)
+  RETURN "opened " & toString(len(clear))
+  TRAP(err)
+    RETURN code(err)
+  END TRAP
+END FUNC
+
+SUB main()
+  ' --- official vectors -----------------------------------------------------
+  LET edSeed1 AS List OF Byte = encoding::hexDecode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+  LET edPub1 AS List OF Byte = encoding::hexDecode("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+  LET edSeed2 AS List OF Byte = encoding::hexDecode("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb")
+  LET edPub2 AS List OF Byte = encoding::hexDecode("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")
+  LET xPriv AS List OF Byte = encoding::hexDecode("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+  LET xPub AS List OF Byte = encoding::hexDecode("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")
+  LET xPrivB AS List OF Byte = encoding::hexDecode("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")
+  LET xPubB AS List OF Byte = encoding::hexDecode("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
+  LET ed448Seed AS List OF Byte = encoding::hexDecode("6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b")
+  LET ed448Pub AS List OF Byte = encoding::hexDecode("5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180")
+  LET x448Priv AS List OF Byte = encoding::hexDecode("9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b")
+  LET base255 AS List OF Byte = basePoint(32, 9)
+  LET base448 AS List OF Byte = basePoint(56, 5)
+  LET x448Pub AS List OF Byte = crypto::exchange(crypto::Certificate.X448, x448Priv, base448)
+
+  ' --- POSITIVE: every legitimate key flow is unchanged ----------------------
+  ' Genuine RFC 8032 pairs convert exactly as before -- these two hex lines are
+  ' byte-identical to the pre-fix output.
+  io::print("convert-ed25519-1=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, edSeed1, edPub1))
+  io::print("convert-ed25519-2=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, edSeed2, edPub2))
+  io::print("convert-ed448-1=" & tryConvert(crypto::KeyConvert.Ed448ToX448, ed448Seed, ed448Pub))
+  ' The converted private key really is the X25519/X448 scalar of the converted
+  ' public key -- the invariant the conversion exists to satisfy.
+  LET c1 AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed25519ToX25519, crypto::KeyPair[edSeed1, edPub1])
+  io::print("convert-ed25519-invariant=" & toString(crypto::constantTimeEqual(crypto::exchange(crypto::Certificate.X25519, c1.privateKey, base255), c1.publicKey)))
+  LET c4 AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed448ToX448, crypto::KeyPair[ed448Seed, ed448Pub])
+  io::print("convert-ed448-invariant=" & toString(crypto::constantTimeEqual(crypto::exchange(crypto::Certificate.X448, c4.privateKey, base448), c4.publicKey)))
+  ' Freshly generated pairs of both signing curves still convert.
+  io::print("convert-generated-ed25519=" & convertOk(crypto::KeyConvert.Ed25519ToX25519, crypto::generate(crypto::Certificate.Ed25519)))
+  io::print("convert-generated-ed448=" & convertOk(crypto::KeyConvert.Ed448ToX448, crypto::generate(crypto::Certificate.Ed448)))
+  ' Signing, key agreement and HPKE are untouched by the new check.
+  io::print("sign-rfc8032-t1=" & encoding::hexEncode(crypto::sign(crypto::Certificate.Ed25519, edSeed1, [])))
+  io::print("verify-rfc8032-t1=" & toString(crypto::verify(crypto::Certificate.Ed25519, edPub1, [], crypto::sign(crypto::Certificate.Ed25519, edSeed1, []))))
+  io::print("exchange-rfc7748-shared=" & encoding::hexEncode(crypto::exchange(crypto::Certificate.X25519, xPriv, xPubB)))
+  io::print("exchange-rfc7748-shared-ba=" & encoding::hexEncode(crypto::exchange(crypto::Certificate.X25519, xPrivB, xPub)))
+  LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  io::print("hpke-ed25519-roundtrip=" & roundTrip(crypto::AsymmetricCipher.Ed25519_AES256GCM, ed, "attack at dawn"))
+  LET ed448 AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed448)
+  io::print("hpke-ed448-roundtrip=" & roundTrip(crypto::AsymmetricCipher.Ed448_CHACHA20POLY1305, ed448, "attack at dawn"))
+
+  ' --- RED: the wrong curve at the same length ------------------------------
+  ' A genuine RFC 7748 X25519 pair. 32 bytes on both halves, exactly like
+  ' Ed25519, so the length guard passed it. BEFORE the fix this printed a
+  ' converted hex pair -- garbage, no error, no warning. It must now be refused.
+  io::print("convert-x25519-pair-into-ed25519-map=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, xPriv, xPub))
+  io::print("convert-x25519-pair-b-into-ed25519-map=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, xPrivB, xPubB))
+  ' Two halves of two different Ed25519 identities: both are real Ed25519 key
+  ' material and both are 32 bytes, so this also passed the length guard and was
+  ' silently mapped into a pair whose halves do not correspond.
+  io::print("convert-mismatched-ed25519-halves=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, edSeed1, edPub2))
+
+  ' --- sizes that already collided or already differed ----------------------
+  ' 56-byte X448 pair into the 57-byte Ed448 map: caught by length, as before.
+  io::print("convert-x448-pair-into-ed448-map=" & tryConvert(crypto::KeyConvert.Ed448ToX448, x448Priv, x448Pub))
+  ' 57-byte Ed448 pair into the 32-byte Ed25519 map, and the reverse.
+  io::print("convert-ed448-pair-into-ed25519-map=" & tryConvert(crypto::KeyConvert.Ed25519ToX25519, ed448Seed, ed448Pub))
+  io::print("convert-ed25519-pair-into-ed448-map=" & tryConvert(crypto::KeyConvert.Ed448ToX448, edSeed1, edPub1))
+  ' NIST material (SEC1 blobs, 97/65 bytes for P-256) is refused on length.
+  LET p256 AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+  io::print("convert-p256-pair-into-ed25519-map=" & convertOk(crypto::KeyConvert.Ed25519ToX25519, p256))
+  io::print("convert-p256-pair-into-ed448-map=" & convertOk(crypto::KeyConvert.Ed448ToX448, p256))
+
+  ' --- the limit this fix does NOT remove, pinned deliberately --------------
+  ' `crypto::encrypt` receives ONE half -- a bare 32-byte recipient public key --
+  ' so there is nothing to derive it from and no way to attribute it. An X25519
+  ' public key under an `Ed25519_*` suite is still accepted and still produces a
+  ' box nobody can open. `mfb man crypto encrypt` now states this outright
+  ' instead of leaving the caveat on `convert`, where it was not reachable.
+  LET xkp AS crypto::KeyPair = crypto::generate(crypto::Certificate.X25519)
+  LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, xkp.publicKey, "attack at dawn")
+  io::print("encrypt-bare-key-is-unattributable=accepted " & toString(len(box)) & " bytes")
+  io::print("decrypt-that-box=" & roundTrip(crypto::AsymmetricCipher.Ed25519_AES256GCM, xkp, "attack at dawn"))
+END SUB

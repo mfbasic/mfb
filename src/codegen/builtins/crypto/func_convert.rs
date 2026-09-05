@@ -52,11 +52,40 @@ A pair whose halves are not both 57 bytes (`Ed448ToX448`) or both 32 bytes
 (`Ed25519ToX25519`) raises `ErrInvalidArgument` — so handing an Ed448 pair to the
 Ed25519 map, or vice versa, is rejected rather than silently mis-mapped.
 
-**No curve tagging.** A `crypto::KeyPair` carries no tag identifying its curve, so
-`convert` cannot detect a mismatched input beyond the length check — a 32-byte pair
-that is not really an Ed25519 pair (or a 57-byte one that is not an Ed448 pair) is
-simply mapped, producing an incorrect result rather than an error, so make sure
-`keys` really is a key pair of the source curve.
+**The source curve is verified, not assumed.** Length alone cannot tell an Ed25519
+pair from an X25519 one — both halves are 32 bytes on both curves — so before
+either map runs, `convert` proves the curve from the pair itself. RFC 8032 defines
+a signing public key *as* a derivation of the seed — `A = [clamp(SHA-512(seed)[0..32])]B`
+for Ed25519, `A = [prune(SHAKE256(seed, 114)[0..57])]B` for Ed448 — so
+`convert` re-derives it from `keys.privateKey` and compares it with
+`keys.publicKey` in constant time. When they differ, `keys` is not a key pair of
+the source curve, and `convert` raises `ErrInvalidArgument` instead of mapping it.
+That refuses:
+
+- **the wrong curve at the same size** — a real X25519 pair handed to
+  `Ed25519ToX25519`, which every length test accepts;
+- **halves from two different identities** — one pair's `privateKey` beside
+  another pair's `publicKey`;
+- **anything that is not an RFC 8032 key pair of the source curve at all.**
+
+The check accepts every pair `crypto::generate(crypto::Certificate.Ed25519)` and
+`crypto::generate(crypto::Certificate.Ed448)` return, and every conformant RFC 8032
+pair from any other implementation, because for those the derivation *is* how the
+public key was produced. It costs one fixed-base scalar multiplication — about the
+work of one `crypto::sign` — paid once, when you convert. And it is a proof rather
+than a guess: nothing about the public key's own encoding is inspected, so it
+cannot be fooled by an X25519 `u` coordinate that happens to decode as a valid
+Edwards `y` (about half of them do).
+
+**Only a whole pair can be attributed.** `convert` is the one `crypto` member
+handed both halves of a single key pair, which is exactly what makes the check
+above possible. A lone 32-byte public key, or a lone 32-byte seed, carries nothing
+that names its curve and cannot be checked by anything — so `crypto::encrypt`,
+`crypto::decrypt`, `crypto::exchange`, `crypto::sign` and `crypto::verify` each
+take the curve from their `crypto::AsymmetricCipher` or `crypto::Certificate`
+argument and trust you for the key bytes. Keep track of which curve produced each
+key in your own program, and see `crypto::encrypt` for what a wrong-curve public
+key does there.
 
 **Key reuse note.** Sharing one key pair across both signing and Diffie-Hellman is a
 deliberate, supported convenience here, but reusing key material across primitives

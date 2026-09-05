@@ -34,6 +34,13 @@ the peer's public key is a low-order point (RFC 7748 §6.1 requires this check) 
 force. The private key is clamped internally per RFC 7748, so a raw random scalar and
 a generated key behave identically.
 
+**The curve of privateKey is not checked, and cannot be.** Once clamped, any 32
+bytes are a usable X25519 scalar, so an Ed25519 seed handed here is accepted and
+yields a shared secret the peer will never reproduce — with no error raised on
+either side. When you start from a signing pair, derive the key-agreement pair with
+`crypto::convert`, which verifies the source curve, rather than passing signing key
+material straight in.
+
 **Implementation.** Both ladders are portable MFBASIC software cores over the
 `bits` package (X25519 over the shared GF(2^255−19) arithmetic, X448 over a 16 ×
 28-bit-limb GF(2^448−2^224−1) field): a fixed 255-/448-iteration Montgomery ladder

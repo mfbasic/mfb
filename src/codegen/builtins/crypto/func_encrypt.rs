@@ -46,6 +46,18 @@ the KEM curve internally (the `crypto::convert` `Ed25519ToX25519` / `Ed448ToX448
 map), so a single signing identity serves both signing and encryption. A key of
 any other length for the selected suite raises `ErrInvalidArgument`.
 
+**The curve of recipientPublicKey is not checked, and cannot be.** A bare public
+key is just bytes, and an X25519 public key is 32 bytes exactly like an Ed25519
+one, so handing one to an `Ed25519_*` suite passes every check this member can
+make: you get a well-formed box that **no private key in existence can open**, and
+the mistake surfaces at the recipient as an `ErrAuthenticationFailed` from
+`crypto::decrypt`, arbitrarily later. Nothing in the encoding separates the two
+curves — a Montgomery `u` coordinate decodes as a valid Edwards `y` about half the
+time — so the curve has to be tracked by your program rather than guessed by this
+one: keep each recipient's `crypto::Certificate` beside their public key and let it
+choose `cipher`. Where you hold a whole `crypto::KeyPair` rather than one key,
+`crypto::convert` verifies its curve for you.
+
 **Construction (RFC 9180 §6.1 `Seal`).** Per call, with `DH` = X25519 or X448 and
 `Nsecret` = 32 or 64 by suite:
 
