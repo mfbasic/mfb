@@ -782,7 +782,7 @@ Acceptance: all five rows pass; the 200-cycle loop shows no `groupBytes=` growth
 fd growth for the `Font` (`lsof` on the process, or the platform equivalent) — **the image
 half of the fd check is vacuous until the sampler lands and must be recorded as such
 rather than counted as a pass** (**J11**);
-`cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
+`cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
 Commit: —
 
 ### Phase 4 — Docs and gates
@@ -800,7 +800,7 @@ Commit: —
 - [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
       evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
 
-Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
 green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` describes
 the lifetime in observable terms with zero memory vocabulary.
 Commit: —
@@ -873,6 +873,39 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J16 (2026-09-04) — the box-2228 row cannot be a bare `cargo test --release`, and the
+plan asks for one in three places.**
+
+Measured rather than estimated. The run started for plan-116-I reached **2h37m** without
+completing a single test target:
+
+```
+$ ssh -p 2228 … 'grep -c "^test result" /home/test/p116/linux_i.log'
+0
+$ ssh -p 2228 … 'ps -eo etimes,pcpu,comm | grep -E "rustc|cargo"'
+   9425  0.2 cargo
+   2826 91.6 rustc
+```
+
+The first hour was `mfb` itself; the rest is **one `rustc` per test target**, each taking
+tens of minutes at 91% of the box's single core. There are ~90 test targets. A bare
+`cargo test --release --no-fail-fast` on 2228 is a **multi-day** run, not a slow one, and
+`.ai/remote_systems.md`'s note that this axis is one 1-core box is the reason.
+
+**So the row is decomposed rather than dropped**, which is what that constraint has always
+implied: run the targets whose behaviour can differ by *platform*, which is what the row
+exists for. plan-116-E **E6**'s point is that CI is `--release` on all five platforms, so
+the `debug_assert!`s run nowhere in it — a Linux row earns its place by exercising glibc
+and the x86-64 ABI, not by re-running targets that are pure host-independent logic already
+green on macOS.
+
+**And it is run ONCE, on the final tree, for plan-116-I and plan-116-J together.** The
+in-flight run was validating a snapshot taken before this letter touched `gen_group.rs`,
+`func_present.rs`, `helper_render.rs`, `ir/verify` and five support tables — so it could
+not have validated what will actually land, and finishing it would have proved something
+about a tree that no longer exists. A single scoped row on the merged tree covers both
+letters' blast radius, and the acceptance rows in both letters now say so.
 
 **J15 (2026-09-04, Phase 3) — **J14**'s residual case is real, was reachable on the first
 try, and is fixed rather than pinned. The live set is every group plus the incoming

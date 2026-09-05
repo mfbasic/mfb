@@ -45,7 +45,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-05: one match, archived after box 2228 went green) |
+| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-04: one match, archived after box 2228 went green) |
 | plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-measured 2026-09-04: 5 matches, A–E) |
 | A union variant record may carry a `RES` field, and `List OF <that union>` compiles | the probe program below (§2) | **MET** (re-probed 2026-09-04) |
 
@@ -417,7 +417,7 @@ Commit: `5a1dd63d1`, `509b72a22`
       says so, and says not to remove whichever variant looks unused — either alone
       would refuse the plane.
 
-Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 every canvas golden byte-identical on disk; `mfb man canvas --all | grep -ci
 'imageRef\|fontRef\|ImageRef\|FontRef'` → 0.
 
@@ -430,7 +430,7 @@ one-core machine.**
 | mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed** |
 | canvas goldens byte-identical | `git status tests/golden/canvas/` is empty |
 | `mfb man canvas --all \| grep -ci …` | **0** |
-| box 2228 RELEASE | pending |
+| box 2228 RELEASE | **folded into the combined final row** (**J16**) — the run started for this letter was validating a snapshot taken before plan-116-J rewrote `gen_group.rs`, `func_present.rs`, `helper_render.rs`, `ir/verify` and five support tables, so finishing it would have proved something about a tree that no longer exists |
 
 `man-run-examples.sh canvas --run`: **25 examples, 25 built, 25 ran, 0 failed** — two
 fewer than before because two members are gone, and every remaining example now
@@ -519,7 +519,7 @@ Commit: —
       and nine force-emit tables, and none of that is hashed. What the gate proves is
       the narrow thing — nothing *outside* canvas moved.
 
-Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
+Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs;
 `mfb man canvas picture`-reachable pages describe the new model with zero banned
 vocabulary.
@@ -533,7 +533,7 @@ vocabulary.
 | `scripts/test-accept.sh` | **1379 tests ran**, passed — one more than before this letter, which is `canvas-drawitem-thread-plane-invalid` |
 | `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs** |
 | banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** |
-| box 2228 RELEASE | running |
+| box 2228 RELEASE | **folded into the combined final row** (**J16**) — stopped at 2h37m with 0 test targets completed; see that correction for the measurement and the decomposition |
 
 The gate's refusal is worth noting rather than glossing: it exits **98** and says
 *"another gate run holds the lock … nothing was checked"*. Read as a failure it would
@@ -570,6 +570,30 @@ Commit: `f7280678d`
   the lowering reuses `func_image_ref.rs`'s emitted shape verbatim.
 
 ## Corrections
+
+**I7 (2026-09-04) — the box-2228 row is decomposed and folded into a combined final run;
+recorded here as well as in plan-116-J **J16**, because a reader of this letter alone must
+not conclude the row was skipped.**
+
+A bare `cargo test --release --no-fail-fast` on 2228 is **one `rustc` per test target on a
+single core**. Measured: the run started for this letter reached **2h37m with zero test
+targets completed** (`grep -c '^test result:' linux_i.log` → `0`, `rustc` at 91.6% of the
+one core), the first hour being `mfb` itself. With ~90 targets that is a multi-day run.
+
+Two changes follow, both recorded rather than quietly taken:
+
+1. **Scope.** The row is decomposed to the targets whose behaviour can differ by
+   *platform* — glibc and the x86-64 ABI — which is what plan-116-E **E6** put it there
+   for. Re-running host-independent logic already green on macOS buys nothing.
+2. **Timing.** It runs **once, on the final merged tree**, covering this letter and
+   plan-116-J together. The in-flight run was validating a snapshot taken before
+   plan-116-J rewrote `gen_group.rs`, `func_present.rs`, `helper_render.rs`, `ir/verify`
+   and five support tables, so completing it would have proved something about a tree that
+   will never land.
+
+Everything else in this letter's Phase 4 acceptance was met on macOS and is unaffected:
+mac RELEASE, mac DEBUG (3790), `test-accept` 1379, artifact-gate 1878 goldens 0 diffs, and
+`man-census.sh --memory-scope` 0 unclassified hits.
 
 **I6 (Phase 3) — three of Phase 3's four cases assume a runtime observation the type
 system makes unreachable. The guarantee is stronger than the plan asked for.**
@@ -691,7 +715,9 @@ property anywhere declares a `Res` type. `grep -rn 'ParameterType::res(' src/cod
 to copy, and the registry arms Phase 1 must satisfy are
 `registry/mod.rs:1928, 2264, 2267, 2360, 2363, 2586, 2608, 3842`.
 
-**I4 (pre-execution, 2026-09-04) — re-measured all six rows; one had drifted again.**
+**I8 (pre-execution, 2026-09-04; recorded as a second "I4" and renumbered 2026-09-04 —
+two corrections shared the number, so a reference to "I4" resolved to whichever the
+reader found first) — re-measured all six rows; one had drifted again.**
 `Text[` is **22**, up from the 20 recorded by **I1** on 2026-09-02. The two new ones are
 plan-116-G's: `text_inside_a_translated_group_draws_at_the_offset` in
 `tests/rt_canvas_font.rs`, and the fixture it builds.
