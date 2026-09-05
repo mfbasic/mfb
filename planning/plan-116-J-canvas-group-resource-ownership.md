@@ -639,7 +639,12 @@ The letter opens against a world that did not exist when it was written.
 
 Acceptance: §4 of this document is written against landed code, §2's table is current,
 and the transfer question has a recorded answer with the audit behind it.
-Commit: —
+
+**Met.** §4 is §4.1–§4.6 written against landed code; §2's table and §Prerequisites were
+re-run at the end of Phase 4 (**J17**, which caught one check this letter's own Phase 3
+had falsified); the transfer question is answered **no** with the record-tail audit
+recorded anyway (**J5**).
+Commit: `2996ef504` (§4 written), `73cac9404` (both tables re-run)
 
 ### Phase 2 — Ownership on the way in
 
@@ -783,7 +788,13 @@ fd growth for the `Font` (`lsof` on the process, or the platform equivalent) —
 half of the fd check is vacuous until the sampler lands and must be recorded as such
 rather than counted as a pass** (**J11**);
 `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here).
-Commit: —
+
+**All five rows pass** — `tests/rt_canvas_group_ownership.rs`, 10 tests, matrix rows
+**R17–R21**. The 200-cycle loop shows no `groupBytes=` growth. The image half of the fd
+check is **vacuous and is not counted** (**J11**). The full-suite rows are recorded under
+Phase 4, which is where they were finally run: this phase and Phase 4 land in the same
+tree, so running the suite twice would have measured the same thing.
+Commit: `dec6c5889` (implementation), `4705cb32c` (the five rows + **R17–R21**), `609a68455` (**J15**: close only what nothing live names)
 
 ### Phase 4 — Docs and gates
 
