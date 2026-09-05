@@ -839,7 +839,10 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
         `the_rebuild_still_frees_the_buffers_it_retires` for the same-resource case.
         **R18**, **R20**.
       - 200 × install/remove: `two_hundred_owning_cycles_return_group_bytes_to_baseline`.
-        **R21.** *(The fd half is **vacuous today** and is not counted as a pass:
+        **R21.** *(It covers the retired **name** as well as the items, which is not
+        obvious and is worth stating: plan-116-G charges interned names to `groupBytes=`
+        deliberately, precisely so a name leak cannot hide behind a counter that only
+        watches the items. The cycles call `removeGroup`, so every one retires a name.)* *(The fd half is **vacuous today** and is not counted as a pass:
         `createImage` allocates nothing outside MFB's own resource record, so there is no
         descriptor to grow — **J11**. What this asserts is `groupBytes=`, which is the
         leak that IS observable.)*
