@@ -132,7 +132,8 @@ pub(crate) fn register(r: &mut Registry) {
         // any recursive-descent reader of untrusted text — the regex engine's
         // own nesting cap and any future parser report the same two things.
         .add_constant(constant("ErrDepthExceeded", "77050024", "Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256).", "_mfb_str_error_depth_exceeded"))
-        .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"));
+        .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"))
+        .add_constant(constant("ErrCanvasGroupLimit", "77050026", "The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot.", "_mfb_str_error_canvas_group_limit"));
 
     r.add_package(pkg);
 }
@@ -293,6 +294,12 @@ mod tests {
         //       surrogate pair is well-formed JSON that has no Unicode scalar
         //       behind it. Distinct from a grammar error for the same reason:
         //       the document must be re-encoded, not re-punctuated.
+        //   +1  ErrCanvasGroupLimit (plan-116-G): the canvas named-group table is a
+        //       fixed 256 slots, and no existing row means "a fixed table is full".
+        //       Not `ErrOutOfMemory`, which is the closest candidate and would be
+        //       actively misleading: the arena has room, and a handler that responded
+        //       to it by freeing memory would change nothing. The fix is to remove a
+        //       group or reuse a name, and the message says so.
         const LEGACY_ROWS: usize = 45;
         const ADDED_SINCE_MIGRATION: &[&str] = &[
             "ErrBadPixelCount",
@@ -300,6 +307,7 @@ mod tests {
             "ErrBadImageFile",
             "ErrDepthExceeded",
             "ErrInvalidSurrogate",
+            "ErrCanvasGroupLimit",
         ];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");

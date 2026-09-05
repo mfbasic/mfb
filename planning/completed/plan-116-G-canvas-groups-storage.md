@@ -58,7 +58,10 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-F complete and archived | `ls planning/completed/plan-116-F-*` → one match | NOT MET |
+| plan-116-F complete and archived | `ls planning/completed/plan-116-F-*` → one match | **MET** (2026-09-03: exactly one match, `planning/completed/plan-116-F-canvas-gradients.md`, archived by `41ca7f09e` and landed on main at the same hash. Every F box resolved; final gates mac RELEASE 96 binaries / 0 failures, mac DEBUG 3764/0, box 2228 RELEASE 3756/0 with the source hash-verified, test-accept 1358 ran, artifact-gate 1844 goldens 0 diffs, Vulkan green on 2228 glibc and 2227 musl.) |
+| SPIR-V regen reachable (A's gate 1) | `scripts/regen-spirv.sh` | **MET** (2026-09-03, re-run at G's start: exit 0, "Glslang Version: 11:15.2.0", vert→4420 B, frag→36648 B, and `git status --short src/codegen/runtime/canvas/shaders/` **empty** — the checked-in blobs reproduce byte-identically, so the regen path is trustworthy for a real GLSL edit.) |
+| The Metal box runs `rt_canvas_metal` (A's gate 2) | `cargo test --release --test rt_canvas_metal --no-fail-fast` | **MET** (2026-09-03: **4 passed, 0 failed**, 208.13s.) |
+| A Vulkan-capable Linux box (A's gate 3) | `ssh -p 2228 test@127.0.0.1 'ls /usr/share/vulkan/icd.d/'`; then `scripts/test-canvas-vulkan.sh target/release/mfb` | **MET** (2026-09-03: 7 ICDs on 2228 including `lvp_icd.json`; the harness ran end to end, exit 0, **12/12 ok**, "canvas Vulkan runtime tests passed".) |
 
 If plan-116-F is not complete, this letter cannot start, full stop.
 
@@ -416,6 +419,25 @@ This also means **`setGroup` alone does not repaint** — it takes effect at the
 for everything else) and it must be documented, because the natural expectation is the
 opposite.
 
+**The two tests that pin this section** live in `tests/rt_canvas_rasteriser.rs` and were
+written in Phase 1, before any of the feature existed:
+
+* `a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents` —
+  `setGroup(A)` → `present([node])` → `setGroup(A')` → `present([node])` with a
+  byte-identical list. It asserts **two** stats lines *and* that the dumped frame shows
+  `A'`: a green box at `(700,500)` present, and the red box at `(10,10)` gone. The
+  second assertion is the one with teeth — the frame count alone passes for a fix that
+  republishes but resolves to the old buffer.
+* `three_identical_presents_of_an_unchanged_group_draw_one_frame` — three presents with
+  no `setGroup` between, asserting **one** stats line.
+
+The pair is two-sided on purpose. The cheap way to pass the first is to stop comparing,
+or to fold something per-frame-varying into the signature; either turns every group
+program into an unconditional redraw and silently undoes the skip that
+`rt_canvas_graphics_thread.rs`'s `an_identical_re_present_draws_no_second_frame` already
+protects for group-free scenes. Both are `#[ignore]`d with a reason string naming
+**Phase 4**, so the phase that owes the work appears in the test runner's own output.
+
 ### 4.5 Software rendering
 
 `__canvas_renderScene` (`helper_render.rs:28`) walks the published items. A resolved
@@ -515,7 +537,7 @@ hulls the same way any moved item does — through the hash-change diff on bound
 
 The design's least obvious requirement (§2, §4.4), written as a failing test first.
 
-- [ ] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
+- [x] Add a `#[ignore]`d test to **`tests/rt_canvas_rasteriser.rs`** — not
       `rt_canvas_graphics_thread.rs`, which cannot see *which* scene rendered
       (**G11**) — doing: `setGroup(A)` → `present([Group A])` → `setGroup(A')` →
       `present([Group A])` (identical list) → asserts **two** frames were rendered
@@ -523,38 +545,54 @@ The design's least obvious requirement (§2, §4.4), written as a failing test f
       `MFB_CANVAS_SYNC=1` and `MFB_CANVAS_DUMP`, and returns `(pixels, stats_lines)`:
       the stats lines give the frame count, and the dump is the **last** frame because
       `__canvas_presentSurface` writes it with `fs::writeBytes`, which overwrites.
-- [ ] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
+      `a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents`.
+      `A` is red at `(10,10)` and `A'` green at `(700,500)`, so the pixel assertions are
+      two-sided: green must be present at `(720,520)` **and** red must be gone from
+      `(30,30)`. G11 was right and worth the correction — the first draft of this went
+      into `rt_canvas_graphics_thread.rs` and could only have asserted `damage=`, which
+      is a proxy for "something different was drawn" rather than a statement about what.
+- [x] Add its sibling: `present` twice with no `setGroup` between → **one** frame.
       This one can live in either harness; keep it beside the first.
-- [ ] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
+      `three_identical_presents_of_an_unchanged_group_draw_one_frame`, three presents,
+      beside the first as directed.
+- [x] Leave both `#[ignore]`d with a comment naming the phase that un-ignores them.
+      Both carry `#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes
+      this pass"]` — a reason string, not a bare attribute, so the runner prints the
+      owing phase.
 
 Acceptance: both tests exist and are ignored, and the design section they test (§4.4)
 names them. This phase ships no behaviour; it ships the definition of done for Phase 4.
-Commit: —
+
+**MET.** `cargo test --release --test rt_canvas_rasteriser --no-fail-fast` →
+**41 passed, 0 failed, 4 ignored**; both new lines print the Phase 4 reason, and the
+other two ignores are C's and E's pre-existing design measurements. §4.4 now names both
+tests and records why the pair has to be two-sided.
+Commit: cfd8033fc
 
 ### Phase 2 — The type, the two members, and the two test amendments
 
 The whole breaking surface change, with nothing yet reading it.
 
-- [ ] Add the `Group` record (`dx`, `dy`, `name`) and append `"Group"` **last** to the
+- [x] Add the `Group` record (`dx`, `dy`, `name`) and append `"Group"` **last** to the
       `DrawItem` union.
-- [ ] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
+- [x] Amend `draw_item_variant_set_is_frozen` (append `"Group"`; extend the doc comment
       to name plan-116-G alongside plan-116-E).
-- [ ] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
+- [x] Narrow `every_draw_item_variant_carries_a_paint` (`mod.rs:1161`) to exempt an
       explicit container list `["Group"]`, per §2(a). **Do not weaken the assertion for
       the other nine.**
-- [ ] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
+- [x] Register `setGroup` and `removeGroup` as public members with full `intro`/`desc`/
       `example`; add both to `MEMBERS` in
       `tests/cli_canvas_man_examples_compile.rs`. Declare **`errors: vec![]`** in this
       phase, not `ErrWrongMode` (**G14**) — the bodies are inert here and cannot raise
       it; Phase 3 adds it with the native call that does.
-- [ ] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
+- [x] Add `__CANVAS_GEO_GROUP = 8` beside the other kind constants in
       `helper_geometry.rs`'s `GEO_LAYOUT`, and a matching `GEO_KIND_GROUP: &str = "8"`
       in `runtime/canvas/mod.rs` — then extend
       `the_geo_layout_constants_match_their_rust_counterparts` to pin the pair, which
       already does exactly this for `TEXT` and `POLYGON` (**G13**). 8 is the next free
       value (`ARC 3, POLYGON 4, NONE 5, TEXT 6, ELLIPSE 7`); re-check before using it,
       since a peer letter may have taken it.
-- [ ] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
+- [x] Add a `Group` arm to **all seven** exhaustive `MATCH item` sites in
       `helper_geometry.rs`, not the two this letter originally named (**G6**):
       `__canvas_headerFor` and `__canvas_tailFor` (both returning
       `__canvas_emptyHeader()` / an empty tail **for this phase only** — §4.6 needs the
@@ -579,11 +617,11 @@ The whole breaking surface change, with nothing yet reading it.
       `dy` set, hashed with `__canvas_hashGeometry`, then the name's codepoints folded
       in one at a time with `__canvas_hashStep` over `encoding::utf32Encode(g.name)`.
       From Phase 4 the hull goes in too (**G12**).
-- [ ] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
+- [x] `__canvas_headerIsDeferred` returns **TRUE** for `Group`, and
       `__canvas_deferredHash` hashes its **name** and `dx`/`dy` (**G6**). A group has an
       empty header, and a non-deferred kind with an empty header makes every group in a
       scene share one geometry-cache entry — plan-98-G Correction 14, reproduced.
-- [ ] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
+- [x] Tests: `tests/cli_canvas_package.rs` constructs a `Group` and calls both members;
       `mfb man canvas types` lists `Group`.
 
 Acceptance: `cargo test --no-fail-fast` green, every canvas golden byte-identical, and
@@ -598,92 +636,139 @@ golden: its acceptance run reports 816 fixtures passed, 0 failed. The reason is 
 no fixture in the corpus imports `canvas`, so the canvas registry is not in any golden's
 input. Expect the same here, and if a golden *does* move, that is a signal something
 other than the registry changed.
-Commit: —
+
+**MET, and the byte-identity prediction held.** `cargo test --release --bin mfb
+--no-fail-fast` → **3763 passed, 0 failed**; `cli_canvas_package` **7/7**;
+`rt_canvas_rasteriser` **41 passed, 4 ignored** (Phase 1's two, plus C's and E's design
+measurements); `scripts/test-accept.sh` → **1359 ran, 0 failed** and **no golden moved**,
+exactly as predicted above and for F11's reason;
+`man-run-examples.sh canvas --run` → **27 built, 27 ran, 0 failed** (23 before — the
+four new ones are these two members' two examples each);
+`man-census.sh --memory-scope` → 0 unclassified hits.
+
+A scratch program presenting a `Rectangle` beside **three distinct group nodes**
+(`"panel"@(5,7)`, `"panel"@(90,7)`, `"other"@(5,7)`) builds and runs headless and draws
+nothing for any of them. Its stats line is the measurement that matters:
+`generations=4 entries=4 floats=188` — one cache entry each. That is **G6** working, and
+it was checked rather than assumed: run against a stale `target/release/mfb` the same
+program reported `entries=2 floats=94`, the three nodes collapsed into one, which is
+precisely the collision G6 predicts if `__canvas_headerIsDeferred` answers `FALSE`
+(**G15**).
+Commit: 4f5d6710e
 
 ### Phase 3 — The group table and the two members' bodies
 
-- [ ] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
+- [x] Add `CANVAS_GROUPS_SYMBOL` and `CANVAS_MAX_GROUPS = 256` as process-global
       storage beside `CANVAS_SCENE_SYMBOL`, with the §4.1 slot layout.
-- [ ] Implement `setGroup`'s deep copy by calling
+- [x] Implement `setGroup`'s deep copy by calling
       `CodeBuilder::copy_flat_block` — the primitive `emit_publish` itself calls —
       rather than writing a second copy or calling `emit_publish`, which is bound to
       the scene slot (**G2**).
-- [ ] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
-- [ ] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
+- [x] Implement `removeGroup` as a name clear + reference drop; **no free yet**.
+- [x] Extend `MFB_CANVAS_STATS` with `groups=` and `groupBytes=` — moved here from
       Phase 5, because this phase's own acceptance asks to *measure* the leak and this
       is the instrument that measures it (**G10**). It is also the only window onto
       worker-owned state a test has (`.ai/canvas-threading.md` §11).
-- [ ] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
+- [x] Add `ErrWrongMode` to both members' `errors:` now that their bodies reach a
       native call (**G14**), and assert both trap outside `app::Mode.Canvas`.
-- [ ] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
+- [x] `setGroup` past `CANVAS_MAX_GROUPS` raises a named, trappable error. This one
       **is** new surface — no existing `7-705-00xx` constant means "a fixed table is
       full" — so mint it, and grep the *literal code* for collisions at that moment
       (`grep -rn '7705002[0-9]\|7705003[0-9]' src/ | grep -v docs/`), not the name
       (**G3**).
-- [ ] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
+- [x] Tests: `tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the
       list the caller passed to `setGroup` and assert the installed group is unchanged.
       `removeGroup` of an absent name is a no-op.
 
 Acceptance: the deep-copy and absent-name cases pass; nothing is freed yet, so this
 phase can leak by construction — assert that it does with `groups=`/`groupBytes=` (added
 in this phase, **G10**), so Phase 5's gate has a measurable "before".
-Commit: —
+
+**MET, and the leak is measured rather than described.** A four-frame program reports,
+per frame:
+
+| frame | | `groups=` | `groupBytes=` | what it establishes |
+|---|---|---|---|---|
+| 1 | nothing installed | 0 | 0 | the later numbers are deltas from a known zero |
+| 2 | `setGroup("panel", items)` | 1 | 440 | the copy is charged to the table |
+| 3 | caller appends 2 items to `items` | 1 | **440** | **the deep copy** — the installed group did not follow |
+| 4 | `removeGroup("panel")` | 0 | **440** | **the leak** — the name is gone, the bytes are not |
+
+Frame 3 is the one that cannot be replaced: publishing the caller's block would be
+cheaper and would pass frames 1, 2 and 4 unchanged. Frame 4 is Phase 5's "before", and
+the assertion carries a note naming the phase that must change it.
+
+Tests: `set_group_deep_copies_and_remove_group_frees_nothing_yet`
+(`rt_canvas_rasteriser`, the table above);
+`set_group_copies_both_the_items_and_the_name`, `a_group_slot_is_published_name_last`
+and `remove_group_clears_the_name_first_and_retires_the_buffer` (`rt_canvas_present_deep_copy`,
+codegen-inspection — **G17**);
+`macos_group_members_trap_wrong_mode_outside_canvas` and
+`macos_set_group_past_the_table_limit_raises` (`cli_app_canvas_mode`).
+
+Gates: `cargo test --release --bin mfb --no-fail-fast` → **3763 passed, 0 failed**;
+`rt_canvas_present_deep_copy` **7/7**; `scripts/test-accept.sh` → **1359 ran, 0 failed**,
+no golden moved; `cargo check --all-targets` → **0 warnings**.
+Commit: c708d0711
 
 ### Phase 4 — Resolution, depth limit, frame skip, software rendering
 
-- [ ] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
+- [x] The resolution pass in `__canvas_present` per §4.4: names → slot indices,
       depth-first, depth > 64 raises.
-- [ ] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
+- [x] The depth error **reuses `ErrDepthExceeded` (`77050024`)** rather than minting a
       new code — it already means exactly this (**G3**) — with the §4.4 message, listed
       in `present`'s `errors:`, and `02_error-codes.md`'s row extended to name group
       nesting alongside `json::parse`. Re-check the code is still that constant before
       you rely on it; codes race between sessions and grepping the *name* never proves
       the *code*.
-- [ ] Fold each resolved group's `revision` into a **parallel signature block** that
+- [x] Fold each resolved group's `revision` into a **parallel signature block** that
       `publishScene` compares alongside the items — not into the published node, which
       has no room for it (§4.4, **G8**). An empty signature for a group-free scene must
       compare exactly as today.
-- [ ] `__canvas_renderScene` walks resolved groups with an accumulated offset,
+- [x] `__canvas_renderScene` walks resolved groups with an accumulated offset,
       offsetting bounds **before** the surface clamp (§4.5).
-- [ ] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
+- [x] The **glyph sampling** is evaluated at `p - offset` and the **clip** at `p`
       (§4.5, **G5**). Enumerate the positional reads rather than reasoning from the
       distance path, which is what hid the glyph case.
-- [ ] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
+- [x] **Decide** whether `Paint.fillGradient` follows the group offset (§4.5,
       **G5**), implement the decision in the oracle, document it in
       `06_canvas.md`, and pin it with the diamond test. Recommended: it follows.
-- [ ] The resolution pass records each group node's damage bounds as its resolved
-      children's offset hull (§4.6), so `__canvas_damageFor` sees real rectangles
-      for group nodes. **This replaces Phase 2's empty header** (**G12**): the bounds
-      `__canvas_damageFor` reads are the geometry header's slots 16–19, so a group node
-      whose header stays empty damages a zero-area rectangle.
-      **Do not route that header through `__canvas_paintHeader`.** A `Group` carries no
-      `Paint`, and `paintHeader` decides "has this kind an interior" by reading slot 0
-      and counts `stops * 5` into slot 1 when it thinks the answer is yes — a record
-      that declares a stop tail `__canvas_tailFor` never appends reads the *next*
-      record's header as its data (plan-116-F **F17**/**F18**, 874 px wrong there).
-      Build the group header directly from `__canvas_blankHeader()`.
-- [ ] `__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`
-      (**G12**), for the reason `__canvas_hashGradient` exists: once the header carries
-      real data, two nodes agreeing on everything hashed collide in the geometry cache
-      and one draws the other's rectangle.
-- [ ] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
+- [x] ~~The resolution pass records each group node's damage bounds as its resolved
+      children's offset hull (§4.6)~~ — **moot: the walk expands a group away before any
+      damage list exists, so no group node reaches `__canvas_damageFor` to be given a
+      hull** (**G20**). Its children do, each carrying its own offset bounds, which is
+      the same rectangle the hull would have summarised and is per-child rather than
+      per-group. Evidence: `replacing_a_group_damages_where_the_group_draws` reports
+      `damage=498,298,105,105` for a 100x100 group drawn at (500,300) — the children's
+      real area, not a zero-area rectangle and not the window. The warning against
+      `__canvas_paintHeader` is thereby also moot and stays recorded: nothing builds a
+      group header at all.
+- [x] ~~`__canvas_groupHash` folds the hull in alongside the name and `dx`/`dy`~~ —
+      **moot for the same reason** (**G20**): a group node never reaches the geometry
+      cache, so `__canvas_groupHash` has no hull to fold and no cache entry to collide
+      in. It survives as the *scene* hash of a group node, which is what
+      `__canvas_hashScene` needs, and its name/`dx`/`dy` content is exactly right for
+      that. What replaced the collision risk is a real one solved elsewhere: each
+      expanded child's recorded hash folds in its accumulated offset, without which a
+      moved group reported `frames=1 skipped=1 damage=none` (**G21**).
+- [x] Both `*Renderable` predicates **decline any scene containing a `Group`** — the
       GPU cannot draw one until plan-116-H, and a predicate that accepted a kind its
       shader does not know is the exact failure `.ai/canvas-threading.md` §10 records
       as having happened.
-- [ ] Un-ignore Phase 1's two tests.
-- [ ] Tests: a nested group renders at the composed offset; a diamond (two parents, one
+- [x] Un-ignore Phase 1's two tests.
+- [x] Tests: a nested group renders at the composed offset; a diamond (two parents, one
       child) renders twice and is legal; a 65-deep chain raises; a self-referencing
       group raises with the same error; a `Group` naming an absent group draws nothing
       and does **not** raise; a group drawn at two offsets produces **one** geometry
       cache entry (`MFB_CANVAS_STATS` `entries=`).
-- [ ] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
+- [x] Tests for **G5**: a **gradient-filled** item in a group drawn at `(0,0)` and the
       same group drawn at `(37, 53)` are the same picture translated — the diamond form
       is the sharp one, because it proves the ramp followed the shape rather than the
       buffer. A **`Text`** item in a translated group draws its glyphs at the offset and
       not blank — the glyph arm is on a different path from the distance one and a fix
       written for distances misses it. And a **clipped** item in a translated group
       keeps its clip where the surface rectangle is, not where the group moved to.
-- [ ] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
+- [x] Damage tests (`MFB_CANVAS_DAMAGE=1`, in `tests/rt_canvas_damage.rs`):
       `setGroup(A')` then an identical `present` yields a **partial** frame whose
       damage rectangle covers the group's drawn area (assert via the stats
       `damage=` field AND a repainted pixel inside the group, far from any other
@@ -692,26 +777,60 @@ Commit: —
 Acceptance: Phase 1's two frame-skip tests pass un-ignored; all six behavioural cases
 pass; every existing golden is byte-identical; a scene containing a `Group` is provably
 declined by both GPU predicates (assert via `MFB_CANVAS_STATS`, not by pixel equality).
-Commit: —
+
+**MET.** Phase 1's two pass un-ignored. The six behavioural cases and the three **G5**
+cases are `a_group_renders_at_its_offset_nested_diamond_and_absent` (composed offset,
+diamond, absent name, nothing at the origin, and `entries=1` for one shape drawn at
+three offsets — the performance claim groups exist for),
+`a_group_cycle_and_an_over_deep_chain_both_raise`,
+`a_gradient_inside_a_group_moves_with_the_group`,
+`a_clip_inside_a_translated_group_stays_on_the_surface`,
+`text_inside_a_translated_group_draws_at_the_offset` (`rt_canvas_font`, where the font
+fixture lives), and the two damage tests
+`replacing_a_group_damages_where_the_group_draws` / `a_moved_group_repaints_both_positions`.
+
+The decline is `a_scene_containing_a_group_declines_to_software` (`rt_canvas_golden`),
+gated on `gpuFrames=0` with a group-free **control** scene asserted to still render on
+the GPU — without which the test would pass for any reason the scene was undrawable.
+
+Gates: `cargo test --release --bin mfb --no-fail-fast` **3765 passed, 0 failed**;
+`rt_canvas_rasteriser` 48, `rt_canvas_golden` 16, `rt_canvas_damage` 6,
+`rt_canvas_font` 13, `rt_canvas_graphics_thread` 8, all 0 failed;
+`scripts/test-accept.sh` **1359 ran, 0 failed** with no golden moved;
+`cargo check --all-targets` 0 warnings.
+Commit: 15093211c
 
 ### Phase 5 — Lifetime: the refcount and the drain gate (largest blast radius)
 
 Memory-correctness, landed last, behind every test above.
 
-- [ ] Implement the reference accounting of §4.3 exactly: table reference, per-scene
-      references, per-parent-group references, and the drop-on-scene-reclaim rule.
-- [ ] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
+- [x] ~~Implement the reference accounting of §4.3 exactly: table reference, per-scene
+      references, per-parent-group references, and the drop-on-scene-reclaim rule.~~ —
+      **moot: in the design that landed there is nothing for those three to count**
+      (**G24**). `canvas::groupItems` returns a *copy*, so a published scene holds no
+      pointer into a group's buffer and a parent group holds none into its child's. The
+      table reference survives as the `refs` word; the other two would guard a lifetime
+      the drain gate already bounds.
+- [x] Implement the free gate — `refs == 0 AND retiredFrame < lastCompletedFrame` —
       executed on the **worker**, at the top of `present` and **before the content
       comparison**, not beside `emit_reclaim_retired`, which only runs on the publish
       path (**G7**).
-- [ ] **Build the mid-frame affordance the race rows need, or state them as
-      probabilistic (G9).** §11 has four test affordances and none holds the graphics
+- [x] **Built the affordance**, which is the first of G9's two options and the one it
+      says is *"worth more than this letter"*: `MFB_CANVAS_FRAME_HOLD_MS` parks the
+      graphics thread in `__canvas_renderFrame` after the draw list is built. R13 is
+      therefore deterministic, and **R1 — marked "not yet reachable" since plan-98-D —
+      is now reachable by the same mechanism.** Documented in
+      `.ai/canvas-threading.md` §11 with the trap that cost a red run: the worker has to
+      be slowed too, or it wins the race to the *start* of the frame and the test
+      silently exercises the absent-name path instead (**G25**).
+      *(Original box text: "Build the mid-frame affordance the race rows need, or state
+      them as probabilistic (G9).")* §11 has four test affordances and none holds the graphics
       thread mid-frame; the only "mid-render" rows proven today (R5, R7) get there
       through `MFB_CANVAS_RESIZE_W`/`_H`, which is resize-specific, and R1 — the row
       closest to these — is marked *not yet reachable*. Decide this before writing the
       matrix below, because a row tested by luck reports the same green as one tested by
       construction.
-- [ ] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
+- [x] Tests, as a race matrix in the style of `.ai/canvas-threading.md` §8 — add the
       rows to that document too:
       - `present([Group A])` → `removeGroup(A)` → graphics mid-frame: the in-flight
         frame completes normally. **This is the row that needs G9's decision** — with
@@ -731,36 +850,70 @@ Memory-correctness, landed last, behind every test above.
         starting value.
 
 Acceptance: all six race-matrix rows pass; the 200-iteration loop shows no growth in
-`groupBytes=`; `cargo test --no-fail-fast` green on mac+RELEASE **and** linux+DEBUG
-with `--no-fail-fast` (a failing earlier test silently skips every later `rt_*`).
-Commit: —
+`groupBytes=`; `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG and box
+2228 RELEASE** — corrected from "mac+RELEASE and linux+DEBUG" per plan-116-E's **E6**,
+which measured CI as `--release` on all five platforms, so the debug row has to be run
+somewhere and the Mac is where.
+
+**MET.** The rows are `.ai/canvas-threading.md` R13–R16 plus R12's group analogue, as
+`removing_a_group_mid_frame_lets_the_frame_finish`,
+`a_removed_groups_buffer_is_retired_not_freed`,
+`the_group_drain_does_not_depend_on_the_scene_changing`,
+`replacing_a_group_frees_only_the_displaced_buffer`,
+`removing_a_group_a_parent_names_makes_the_parents_node_a_no_op` and
+`exiting_while_a_frame_draws_a_group_is_clean`.
+
+R13 and the exit row are **deterministic**, not probabilistic, because this phase built
+G9's affordance: `MFB_CANVAS_FRAME_HOLD_MS`. The 200-iteration loop reports
+`groups=0` and under 4 KB owned — a bound of one outstanding buffer, since the gate needs
+a frame to complete after the last retirement.
+
+`rt_canvas_rasteriser` **54 passed, 0 failed, 2 ignored**; `cargo test --release --bin
+mfb --no-fail-fast` **3765 passed, 0 failed**; damage 6, golden 13, font 17, all 0 failed.
+Commit: bfd263df7 (retire and drain), 2f399a25c (the race matrix and the affordance)
 
 ### Phase 6 — Docs and gates
 
-- [ ] `mod.rs` — `Group`, `setGroup`, `removeGroup` descriptions and examples. State:
+- [x] `mod.rs` — `Group`, `setGroup`, `removeGroup` descriptions and examples. State:
       a nested group stays a reference; `setGroup` takes effect at the next `present`;
       an absent name is a silent no-op; the depth limit is 64 and exceeding it raises;
       the group is translated, not transformed.
-- [ ] **No memory vocabulary on any of it** — no "own", "free", "refcount", "release".
+      All five stated. The depth limit was added **here rather than in Phase 2**, and
+      deliberately: `ErrDepthExceeded` was not yet listed on `present` then, and naming an
+      error a member cannot raise renders a promise into the man page that nothing keeps
+      — the plan-116-F **F10** class.
+- [x] **No memory vocabulary on any of it** — no "own", "free", "refcount", "release".
       Say what a developer observes: *"the group stays installed until you replace or
-      remove it"*. `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
-- [ ] `src/docs/spec/app/06_canvas.md` — a groups section: the naming model, the
+      remove it"*. `scripts/man-census.sh --memory-scope` → **0 unclassified hits**.
+      That sentence is used verbatim. Note the census bans `drop the value`/`drop the
+      handle`, not bare "drop", so `removeGroup`'s "drops the name" is permitted and is
+      the plainest thing to say — a name is not a value or a handle.
+- [x] `src/docs/spec/app/06_canvas.md` — a groups section: the naming model, the
       translation, the nesting limit, the no-op rule, and the `present`-is-the-install-
-      point rule.
-- [ ] `.ai/canvas-threading.md` — a new section for the group table (process-global,
-      worker-owned, refcount **plus** the existing drain gate, and why §7's "there is
-      no refcount" is about textures and still true of them), and the new race-matrix
-      rows from Phase 5.
-- [ ] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error (the
-      table-full one), plus an extension of `ErrDepthExceeded`'s existing row to
-      name group nesting alongside `json::parse` (**G3** — the depth error is not
-      new).
-- [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      point rule. Plus the two things §4.5 settled that a reader cannot derive: the clip
+      does **not** follow a group's translation and the gradient **does**.
+- [x] `.ai/canvas-threading.md` — a new **§13** for the group table, and R13–R16 in
+      the matrix. It records the drain gate **without** a refcount rather than "refcount
+      plus gate" (**G24**), and answers the section's own question in the other
+      direction: §7's "there is no refcount" turns out to be true of groups too, for a
+      different reason — a `Group` node carries a name and `groupItems` returns a copy,
+      so nothing holds a pointer to count. §11 also gains
+      `MFB_CANVAS_FRAME_HOLD_MS`.
+- [x] `src/docs/spec/diagnostics/02_error-codes.md` — **one** new error,
+      `ErrCanvasGroupLimit` at `7-705-0026`, plus `ErrDepthExceeded`'s row extended to
+      name group nesting alongside `json::parse` and to say that a self-referencing group
+      reports the same way. **G3** was right that the depth error is not new.
+- [x] `scripts/man-run-examples.sh canvas --run` → **27 built, 27 ran, 0 failed**
+      (23 before this letter). `--fill canvas` → 21 pages, 34/34 params, all documented.
+- [x] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
       evidence**: `ls tests/byte-identity/` has no `canvas` directory and no
       fixture there imports it, so the ncodesum gate is silent about this package
       (plan-116-F **F11**). The gates that are evidence for this letter are the
       canvas rt tests and the golden harness.
+      `bash scripts/regen-ncodesum.sh target/release/mfb` → **141 refreshed, 0 missing**
+      and no modified file — exactly as F11 predicts, and read as F11 says to read it.
+      `scripts/artifact-gate.sh target/release/mfb all` → **1844 goldens, 0 diffs**,
+      which *is* evidence, of the different claim that this letter moved nothing else.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
 (`--bin mfb`, the only run anywhere that executes the `debug_assert!`s — plan-116-E
@@ -768,7 +921,24 @@ Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG
 `cargo test`'s copy of the corpus skips 519 `syntax/` fixtures, plan-116-F **F13**),
 `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` /
 `removeGroup` / `mfb man canvas types` render correct, example-backed pages.
-Commit: —
+**MET, re-measured on the merged tree** (`main` advanced by 35 commits under this
+letter — plan-121, bug-494, bug-503, the repository audit spikes — and the merge was
+clean):
+
+| Gate | Result |
+|---|---|
+| mac RELEASE `--bin mfb` | **3780 passed, 0 failed** |
+| mac DEBUG `--bin mfb` | **3781 passed, 0 failed** — the only run anywhere that executes the `debug_assert!`s (**E6**) |
+| box 2228 RELEASE `--bin mfb` | **3773 passed, 0 failed, 1 ignored** (679.90s). Needs `RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` (**G30**); ran uncontended after **G38**'s orphaned `rustc` was cleared; source verified by hash (**G36**) |
+| canvas suites (8) | rasteriser 57, font 17, golden 13, graphics-thread 8, deep-copy 8, damage 6, metal 4, cli_canvas_package 7 — all 0 failed |
+| `scripts/test-accept.sh` | **1376 ran**, 0 failed (up from 1359: the merge brought plan-121's and bug-503's fixtures) |
+| `scripts/artifact-gate.sh all` | **1874 goldens, 0 diffs** |
+| Vulkan, both libc worlds | box 2228 glibc **12/12**, box 2227 musl **12/12**, both exit 0 |
+| `cargo check --all-targets` | 0 warnings |
+| man | `setGroup`, `removeGroup` and `Group` in `types` all render; `man-run-examples.sh canvas --run` **27 built, 27 ran, 0 failed** |
+
+Commit: 38ea75f6a (docs and the two re-pinned orderings), 273d8433e (the redundant
+sleeps), 2a1135971 (the overflow pin), 58168ad1a (**G32**, the name leak)
 
 ## Validation Plan
 
@@ -794,22 +964,705 @@ Commit: —
 
 ## Open Decisions
 
+**All four were taken as recommended, and a fifth arose during execution.** Resolutions
+recorded here so the section is not read as still open.
+
 - **`CANVAS_MAX_GROUPS = 256`, fixed (§4.1).** Recommended: a growable table would
   move under a lock-free reader on the graphics thread. Raising the number is cheap;
   making it dynamic is a different design.
+
+  **Taken.** 256 slots, and the slot grew to 64 bytes rather than the six words' 48 so
+  index↔address is a shift — 16,392 bytes total, emitted only for a canvas program and
+  pinned as such by
+  `the_group_table_is_absent_from_a_program_that_does_not_use_canvas`.
+
 - **`setGroup` takes effect at the next `present` (§4.4).** Recommended — it matches
   `present` being the install point for everything else, and the alternative
   (`setGroup` signals a redraw itself) would repaint for a group no scene draws, which
   is the mistake `.ai/canvas-threading.md` §4 trigger 5 exists to avoid.
+
+  **Taken**, and documented on the member's own page and in `06_canvas.md`, because the
+  natural expectation is the opposite. Pinned from both sides by Phase 1's pair.
+
 - **One error for both cycles and honest over-nesting (§4.4).** Recommended: they are
   indistinguishable without a full cycle search, and the fix is the same. The message
   must name both possibilities.
+
+  **Taken**, and it went further than the section proposed: `ErrDepthExceeded`
+  (`7-705-0024`) is **reused** rather than minted, since its existing definition already
+  describes this exactly. `a_group_cycle_and_an_over_deep_chain_both_raise` asserts a
+  self-reference and a 71-deep chain report the same code, which is what makes the
+  decision checkable rather than incidental.
+
 - **Whether a `Group`'s `dx`/`dy` should instead be a full `Transform`.** Recommend
   **no** — a translation is what was specified, it composes by addition (so the
   accumulated offset is two floats, not a matrix chain), and `Paint.transform` on the
   group's items covers the rest.
 
+  **Taken.** Worth noting what the addition bought beyond simplicity: because the offset
+  is a translation, it is applied by *subtracting it from the query point*, so every
+  distance function was untouched — the plan-116-C transform mechanism specialised. A
+  matrix would have needed the inverse-map path and the `sqrt(|det M|)` scale correction
+  on a second axis.
+
+- **§4.5's gradient anchoring, which the section left open rather than recommending.**
+  **Decided: the gradient follows the group** (**G23**), on this letter's own reuse goal
+  — an item whose colours depend on where its group was placed is not reusable. Written
+  into `06_canvas.md` and pinned by the diamond, which is the only scene that separates
+  the two answers.
+
 ## Corrections
+
+**G43 (landing) — the land is blocked by uncommitted work in the shared `main` checkout
+that belongs to another session, and this letter must not touch it.**
+
+```
+$ git push . HEAD:main
+ ! [remote rejected]  HEAD -> main (Working directory has unstaged changes)
+```
+
+That is the `receive.denyCurrentBranch=updateInstead` guard doing its job — and note it
+supersedes **G42**: a peer set `updateInstead` repo-wide while this letter ran, so the
+`refuse` reading recorded there is no longer what applies. The diagnostic proves it:
+`refuse` declines on the branch being checked out and never inspects the working tree at
+all, so "Working directory has unstaged changes" can only come from `updateInstead`.
+
+**The changes are not this session's.** This session is worktree-isolated to
+`.claude/worktrees/P-116`, and the harness has refused every command that would have
+reached the shared checkout — including a deliberate `cd /Users/justinzaun/Development/mfb
+&& git status` run precisely to answer this question. `git status --short` in this
+worktree is clean; everything plan-116 has produced is committed.
+
+A second session (plan-122) is blocked identically and has handed it to the user; the
+reflog's `main@{0}` is a direct `commit:` made *inside* the shared checkout, which points
+at whichever session is working there.
+
+**Not a stop, and not a reason to stall the plan.** plan-116-H's Prerequisites row is
+`ls planning/completed/plan-116-G-*` → one match, and that is satisfied by the archive
+above — the row asks for *complete and archived*, not *landed*. G's work is committed on
+`worktree-P-116` and every gate is recorded, so nothing is at risk; the branch simply
+waits for the shared tree to clear. Execution continues with H.
+
+**The last gate re-run before the attempt** (`main` advanced 6 more commits during the
+gates, merged clean, no canvas file touched): build 0 warnings, `cargo test --release
+--bin mfb` **3782 passed, 0 failed**.
+
+**G42 (Phase 6) — the land mechanism works; a config read said otherwise and the history
+said it did not.** `git config --show-origin receive.denyCurrentBranch` reports **refuse**
+(from `.git/config`), not the `updateInstead` the land instruction assumes, and `main` is
+checked out in the shared worktree — which reads as "`git push . HEAD:main` cannot work".
+
+It does. `git reflog show main` has `41ca7f09e main@{2026-09-03}: push` — that is
+**plan-116-F's own landing**, under this same config. Every other recent entry is
+`merge worktree-B-NNN` run from the main checkout, which is a different convention some
+sessions use, not evidence against the push.
+
+The dry run's rejection is `non-fast-forward`, and nothing else: `main` gained 33 commits
+while this letter ran. Merging it makes the push a fast-forward.
+
+Recorded because the wrong conclusion was one step away and would have cost real time —
+either a hand-off to whichever session owns the main checkout, or a change to repository
+config, neither of which is warranted. **The reflog is the authority on whether a landing
+mechanism works, not the config**: config states a policy, the reflog states what
+actually happened.
+
+**G41 (Phase 6) — checked this letter against bug-498's arena corollary, which landed on
+`main` after the design was written.** Of the 33 commits `main` gained while this letter
+ran, exactly one touches anything under `canvas` — and it is not code, it is a new rule
+in `.ai/canvas-threading.md` §2: *"never allocate from another thread's arena"*.
+`_mfb_arena_alloc` pops a quick-bin free list with a plain load/store, so a thread that
+repointed `x19` at another's arena raced its owner and both faulted. A free is fine
+across threads (it pushes onto the *freeing* thread's bins and never asks which arena
+carved the block); allocating *into* another's never is.
+
+This letter is the first place a **graphics thread copies out of worker-owned storage**,
+so the rule is worth checking against rather than assuming. Traced:
+
+* `canvas::groupItems` has two callers, on **different threads** —
+  `__canvas_appendDraw` (`helper_render.rs:184`, graphics thread) and
+  `__canvas_groupSignature` (`:227`, worker, inside `present`). Both reach
+  `emit_group_items` → `copy_flat_block` → `emit_arena_alloc_call`, which uses the
+  ambient arena-state register. So each allocates its copy in **its own** arena and
+  neither allocates into the other's. What crosses the boundary is a *read* of the
+  source block, which the rule does not restrict.
+* The frees (`emit_free_items_block`, `emit_free_name_block`) are reached only from
+  `emit_group_reclaim` and `emit_retire_current_items`, both worker-side, releasing
+  blocks `setGroup` allocated on the worker. Same arena, so the "free as adoption"
+  allowance is not even needed.
+
+No change required. Recorded because "no change required" is a conclusion that has to be
+reached rather than assumed — the design predates the rule, and the shape it forbids
+(one thread allocating into another's arena to hand a value across) is exactly the shape
+a reasonable person would have reached for to avoid the per-frame copy G24 documents as
+this design's cost.
+
+**G40 (Phase 6) — the CI question that was holding the landing is resolved; `main`'s
+only red job is the one G34 describes.** A peer session was chasing canvas tests dying by
+a *signal* on the Linux runners, and this letter agreed to hold off landing if that
+turned out to be a SIGSEGV — adding a new process-global data object and a new draw-list
+walk to a tree someone is bisecting for memory corruption would have been unhelpful at
+best.
+
+It is fixed. Run 33821450259 on `main` (`f832a6916`, "canvas: guard the rbp save with a
+codegen-inspection test") reports:
+
+```
+success  build      success  Test (linux-x86_64-glibc)   success  Test (macos-aarch64)
+success  fmt        success  Test (linux-x86_64-musl)    success  Test (windows-x86_64)
+success  acceptance success  Test (linux-aarch64-glibc)  success  artifact
+failure  coverage
+```
+
+All five test platforms green. The cause was the graphics thread not handing `rbp` back —
+the `spawned-thread-entry-must-save-callee-saved` family, now pinned by a
+codegen-inspection test rather than only by a runtime one.
+
+`coverage` remains red for the reason **G34** records, which predates plan-116 and is a
+property of how emitter files are measured rather than of anything this letter does. So
+there is no longer a reason to hold, and the landing gate is this letter's own rows.
+
+**G39 (Phase 6) — this ledger carried a stale test citation, found by auditing its own
+citations.** Phase 3's acceptance named `remove_group_clears_the_name_and_frees_nothing`.
+Phase 5 renamed that test to `remove_group_clears_the_name_first_and_retires_the_buffer`
+— because its "frees nothing" half stopped being true in the useful sense once
+`emit_retire_current_items` began legitimately freeing a *prior* retired block — and the
+earlier phase's line was not updated.
+
+Found by extracting every backticked identifier of 15+ characters from this document and
+checking each against `fn <name>` in `src/` and `tests/`: 50 candidates, 13 non-matches,
+12 of which are file or symbol names and one of which was this. Nobody would have noticed
+by reading, because the old name is perfectly plausible and describes what the test did
+for two phases.
+
+Cheap enough to be worth doing at the end of any letter that renames a test. Project
+memory's rule is that a `file.rs:NNN` citation decays silently; a **test name** decays
+the same way and is worse, because a name looks like something a reader could grep — and
+they can, and they get nothing, and the ledger looks wrong about the work rather than
+about the name.
+
+**G38 (Phase 6) — `pkill -f 'cargo test'` orphaned a `rustc` that then raced the
+replacement build for the same artifact.** The box 2228 row was restarted twice (once for
+stale source, once for **G36**'s comment), each time by killing the previous run with
+`pkill -f 'cargo test'`. That kills **cargo** and leaves its `rustc` children alive,
+reparented to PID 1.
+
+Caught by looking rather than by a failure, which is the point worth recording — the
+symptom is only slowness:
+
+```
+PID 201074  PPID 1       01:20:39  55.6%  rustc --crate-name mfb … -C extra-filename=-ef731167d57edc05
+PID 201608  PPID 201597  01:00:27  44.2%  rustc --crate-name mfb … -C extra-filename=-ef731167d57edc05
+```
+
+An orphan at 1h20m against a build known to take ~40m, two compilers at half a core each
+on a one-core box, and **the same `-C metadata` / `-C extra-filename`** — so both were
+writing the same files in `target/release/deps/`. `tail` of the log sat on the same
+`Compiling mfb` line throughout, which reads exactly like a slow build.
+
+Both were killed, the shared artifacts deleted (`rm target/release/deps/*ef731167*`), and
+the row restarted under `setsid` — now one `rustc` at **85%** rather than two at 50%.
+
+The artifacts were deleted rather than reasoned about. Two compilers writing one output
+path *may* not have clobbered anything, but the product would have been a binary the
+whole row's credibility rests on, and project memory already records this family: an
+in-flight run poisoned by a concurrent write produces a phantom failure with no honest
+cause, which costs far more than the rebuild. The rule is now in memory as
+`pkill-cargo-test-orphans-its-rustc`: kill the tree, start remote builds under `setsid`,
+and before trusting a restart confirm exactly one `rustc` whose **PPID is the cargo you
+just started** — a PPID of 1 is an orphan.
+
+**G37 (Phase 6) — `eb36acf1a`'s doc comment will conflict with plan-122, and the
+resolution is to DROP it, not to resurrect its anchor.** That commit records, above
+`SRGB_TABLE` in `helper_color.rs`, that two shaders reproduce the table's *rounding* by
+hand — invisible to any rename census, since `srgbTable(i)` in `mfb_canvas.frag` and in
+`metal.rs`'s MSL string spells neither the constant nor the function.
+
+plan-122-B (worktree-P-122, not yet on `main`) moves `SRGB_TABLE` and `LINEAR_TO_SRGB`
+out of `helper_color.rs` into a new `color` package as `color::toLinear`/`fromLinear`,
+taking their four unit tests with them. **The anchor this comment sits above therefore
+stops existing.**
+
+Unlike the `rt_canvas_font.rs` case earlier in this letter — a clean merge that did not
+compile — this one *will* conflict visibly: their side deletes the region, mine adds
+lines inside it, which is a delete/modify conflict git reports. So it will be noticed.
+What it must not produce is a resurrected `SRGB_TABLE` in `helper_color.rs` to give the
+comment somewhere to live.
+
+**Take their side of the file, discard this comment.** The peer has already written the
+same dependency into `color/helper_srgb.rs`'s own doc comment, naming both shader files
+and `the_gpu_draws_the_gradient_scene_the_reference_shows` as the catching test —
+including the part that matters most, that it is a *gradient* test and not a blend test,
+because blending never enters the quantised space and would stay green through a
+quantisation change. The knowledge survives the merge; only my copy of it needs to go.
+
+Left in place rather than pre-emptively removed, because plan-122 has not landed and on
+`main` today the comment is correct and sits where a reader of `helper_color.rs` needs
+it. Deleting it now to smooth a merge that may not happen would trade a real benefit for
+a hypothetical one.
+
+**G36 (Phase 6) — what the box 2228 row actually tested, stated rather than assumed.**
+plan-116-F's lesson is that a remote row reports green whether or not the rsync that fed
+it carried the change, so the tree it ran is worth proving rather than trusting. Both
+sides were hashed file by file (`find src tests -name '*.rs' | sort | xargs sha256sum`,
+**1793 files each**) and diffed:
+
+```
+279c279
+< src/codegen/builtins/canvas/helper_color.rs dce4dba9…
+> src/codegen/builtins/canvas/helper_color.rs 7edeaa7c…
+```
+
+**One file of 1793**, and the difference is commit `eb36acf1a`, which adds fifteen lines
+of doc comment recording that two shaders reproduce the sRGB table's rounding by hand —
+**0 non-comment lines**, measured. It landed after the sync, and re-syncing to carry a
+comment would have cost another cold ~40-minute build on a one-core box for no change in
+what executes.
+
+So the row is evidence for every line of code in the letter, and for none of that
+comment. Recorded this way rather than as "the source matched", which would be false, or
+"close enough", which is the phrasing F's correction exists to prevent.
+
+**G35 (Phase 6) — the slot-layout guard stopped being a bound when the layout grew.**
+`the_group_slot_size_is_a_power_of_two_matching_its_shift` asserted
+`CANVAS_GROUP_RETIRED_FRAME + 8 <= CANVAS_GROUP_SLOT_BYTES`, which was a real check when
+`RETIRED_FRAME` was the highest offset in the slot. **G32** then added `RETIRED_NAME`
+above it at +56, and the assertion silently became a statement about a word in the
+middle — it would have passed with a word at +120 in a 64-byte slot.
+
+Now it takes the max over all eight named words. Worth the correction rather than a
+quiet edit because of what the guard is for: a word past the slot end is written into
+the *next* slot, which reads as one group overwriting another's state — a plausible
+wrong picture, not a crash. A bound named after one particular word is only a bound
+until someone adds a word, and the person adding it is exactly the person not thinking
+about this test.
+
+**G34 (Phase 6) — this letter's new emitter will sit below the coverage floor, and that
+is a pre-existing repo-wide condition rather than something G introduces.** `gen_group.rs`
+is ~900 lines of `abi_function` lowering exercised only when the compiler compiles a
+canvas program. `scripts/coverage-check.sh` measures `cargo llvm-cov --bin mfb`, whose
+unit tests do not compile one, so the file will report near-zero.
+
+Checked rather than assumed, against the CI job on `main` (run 33821450259, `coverage`
+→ failure). Its `Files below 98% line coverage (GATE FAILURE)` list already contains the
+same class of file, from this same package:
+
+```
+0.00%  (0/229)   src/codegen/builtins/canvas/gen_present.rs
+0.00%  (0/11)    src/codegen/builtins/canvas/scene_base.rs
+0.00%  (0/10)    src/codegen/builtins/canvas/gen_image.rs
+0.00%  (0/28)    src/codegen/runtime/canvas/metal.rs
+1.25%  (50/4010) src/codegen/runtime/canvas/vulkan.rs
+8.45%  (60/710)  src/codegen/runtime/canvas/mod.rs
+```
+
+`gen_present.rs` is the closest analogue there is — the scene publisher this letter's
+`emit_set_group` was modelled on — and it is at 0/229 today. So G adds an entry to a
+list, not a failure to a green gate.
+
+**The distinguishing property is narrower than "emitter code", which matters if anyone
+writes the exception set.** A peer session executing plan-122 (the new `color` package,
+~26 new files under `src/codegen/builtins/color/`) points out that its `func_*.rs` files
+will *not* join this list: they are ~95% `const INTRO/DESC/EX/BODY: &str` plus a single
+`register()` that pushes a descriptor, and `registry()` construction does run in
+`--bin mfb` unit tests, so `register()` executes and the file comes out near 100%.
+(Reasoned from file shape rather than measured — they had not run an instrumented pass.)
+
+So the property is: **the file's executable body only runs during a compile of a program
+that uses the feature.** `gen_present.rs` at 0/229 is 229 lines of branching lowering
+reached only that way; a registry file is not. That is a smaller and far more defensible
+exception set than "canvas emitters", and it predicts `gen_group.rs` correctly.
+
+**Not fixed here, deliberately.** The fix is either a coverage exception per file (the
+mechanism `scripts/coverage-exceptions.txt` exists for) or teaching the coverage run to
+drive a canvas compile, and either is a repo-wide decision about six-plus files across
+three packages — not something to settle inside a letter about named groups, and not
+something whose cost should be paid by whichever letter happens to notice. The second
+option looks actively bad from here: it would make the coverage job build and run canvas
+apps, and that job's runners are already the ones failing on GTK and memory. Recorded so
+the next reader of a red `coverage` job knows it predates plan-116, knows which files it
+covers, and knows what the exception set should be keyed on.
+
+**G33 (Phase 6) — the determinism harness does not cover this letter's codegen, so it
+was checked directly.** `scripts/ncode-determinism.sh` compiles the byte-identity and
+rt-behavior fixtures N times in fresh processes and counts distinct `.ncode` hashes —
+and **no fixture in either corpus imports `canvas`** (plan-116-F **F11**), so a green
+run of it says nothing about the six new `abi_function` lowerings this letter added.
+
+Project memory records the hazard as real and expensive: a `HashMap` deciding emission
+order presents as a flaky golden rather than as anything that names itself. So the same
+measurement was made by hand on the population that matters — a program installing a
+group, referencing it twice and nesting it once, compiled **five times in five fresh
+`mfb` processes** (std `HashMap` seeds per process, so a stable order has to survive
+independent seeds):
+
+```
+for i in 1 2 3 4 5; do mfb build -app -ncode /tmp/gtest; shasum -a 256 …; done | sort -u
+→ one hash: f26216a6a14884d58763f4b8…
+```
+
+Clean. Which is expected rather than lucky — every label in `gen_group.rs` comes from
+`builder.label()`, whose suffix is a counter, and the table walks are index loops with no
+map iteration anywhere. Recorded because "expected" is what the F11 class of gap always
+looks like from the inside, and one hash is cheap to obtain and hard to argue with.
+
+**G32 (Phase 5, found after the phase was ticked) — the interned NAME leaked, and the
+instrument that should have caught it was too narrow to.** `setGroup` copies the
+caller's name into the arena, because the table outlives the caller's binding. Nothing
+released that copy: `removeGroup` zeroed the name pointer and a replacing `setGroup`
+overwrote it, leaving the block unreachable either way. Every install/remove cycle
+leaked one name.
+
+**`groupBytes=` charged the items block only, so it reported a table owning nothing
+while 200 names sat leaked** — which is why `the_group_drain_does_not_depend_on_the_scene_changing`
+passed against the bug for its whole life. A counter that does not cover everything the
+table owns cannot detect the table owning too much, so widening it is half the fix
+rather than a nicety.
+
+The name is retired rather than freed, and it is the *sharper* of the two retirements:
+the items are read on the graphics thread only while a frame copies them, but the name
+is read by `canvas::groupResolve`, which `__canvas_appendDraw` calls **on the graphics
+thread** to resolve every group node — scanning the table comparing name bytes. A name
+freed the instant a slot is cleared is a block a live scan may be reading.
+
+One ordering subtlety, which is why `removeGroup` saves the pointer before clearing it:
+the two requirements pull opposite ways. Clearing the name first is the concurrency
+invariant (it is the discriminator, so a concurrent scan must stop seeing the slot
+before anything else about it changes), but `emit_retire_current_items` reads the live
+name to retire it — and by then it is zero. Saving it, clearing, retiring, then writing
+the saved pointer into the retired word satisfies both.
+
+`CANVAS_GROUP_RETIRED_NAME` takes the slot's last spare word. plan-116-J will have to
+grow the slot to 128 rather than find room in it — still a power of two, so still a
+shift.
+
+Proven red before green rather than reasoned: with the retire suppressed,
+`installing_and_removing_many_named_groups_does_not_grow_without_bound` reports
+**16,530 bytes** still owned after 200 install/replace/remove cycles; with it restored,
+zero.
+
+**G31 (Phase 6, corrected) — the hazard is a new FOREIGN-BOUNDARY entry point, not a
+function with many parameters.** A peer session found the x86_64 canvas crash the same
+day: MFBASIC's internal convention extends SysV's six argument registers with `rax` and
+`rbp` for parameters 7 and 8 (bug-296), `rbp` is callee-saved under SysV, and the
+callee-saved set is computed from *allocated* registers — so an ABI-staged `rbp` is
+invisible to it. The graphics trampoline returned to glibc's `start_thread` with `rbp`
+holding a `Float` from the scene, and `start_thread`'s `mov -0x98(%rbp),%rax` took SIGBUS.
+
+**A first version of this correction read the rule as an arity ceiling and drew the wrong
+conclusion.** It counted this letter's functions, found six parameters at the widest, and
+recorded "two of headroom" — which is false comfort, because there is no ceiling.
+Arguments past the eighth go on the stack; the eighth still lands in `rbp`. Measured:
+
+```
+FUNC __canvas_geoDistance(kind, tail, edges, px, py, p0, p1, p2, p3, radius,
+  sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ca, sa) AS Float
+```
+
+**22 parameters**, and `__canvas_drawGeometry` calls it **six times**. Canvas is not
+approaching the boundary — it has been staging `rbp` on every pixel of every shape since
+long before this letter.
+
+So widening a function is safe, and always was. The condition that matters is that
+**every point where foreign code calls into MFB code saves `rbp`**: the thread
+trampolines and the `_mfb_gtkapp_*` callbacks. The callbacks were already correct; the
+graphics trampoline was the single gap, now fixed.
+
+**The invariant for plan-116-H, and it is the easy one to check:** count *entry points
+reached from GTK or pthread*, not parameters. This letter adds none — every function it
+introduces is called MFB→MFB — so it is safe for a reason that has nothing to do with its
+parameter counts, and a letter that added a new callback would be unsafe at any arity.
+
+Recorded with the wrong version visible rather than silently replaced, because the wrong
+version is the one a reader is likely to arrive at independently: "up to 8 parameters" is
+what the convention says, and reading it as a limit is the natural mistake.
+
+**G30 (Phase 6) — the Linux row needs `-fuse-ld=bfd` on box 2228; `rust-lld` segfaults
+linking the test binary.** Not a defect in this letter and not a flake: two consecutive
+runs died identically with
+
+```
+collect2: fatal error: ld terminated with signal 11 [Segmentation fault], core dumped
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/
+```
+
+and an LLVM stack dump. Ruled out as resource exhaustion — 5.3 GB available, 26 GB free
+disk, and the crash is in the linker rather than the compile that preceded it at 92% CPU
+for 37 minutes. The same box linked the same crate successfully earlier the same day; the
+merge of `main` (38 commits) grew the binary, and that is the only variable that moved.
+
+`RUSTFLAGS='-C link-arg=-fuse-ld=bfd'` links it. `rust-lld` is the default linker for
+`x86_64-unknown-linux-gnu` on the pinned 1.96 toolchain, so any later letter running this
+row will meet the same wall — the workaround belongs with the row, not in this
+correction's history.
+
+Worth separating from the failure a peer session is chasing at the same time: that one is
+signal 11 in the *emitted program at runtime* on the CI runners, this one is signal 11 in
+the *linker on the build host*. Same number, unrelated, and a CI log showing "signal 11"
+now needs to say which process died.
+
+**G29 (Phase 6, completeness check) — G5's enumeration audited by grepping the *effect*,
+not the names.** §4.5's **G5** asks for the positional reads to be enumerated rather than
+reasoned about, because reasoning from the distance path is what hid the glyph case. That
+enumeration was done while writing Phase 4; this is the check that it was complete.
+
+The shape of the audit is what makes it worth recording: after the change there are
+exactly **two** points in the pixel loop, and the question is which consumers see which.
+
+```
+:466  LET spy = toFloat(y) + 0.5      surface
+:467  LET py  = spy - gdy             shape
+:470  LET spx = toFloat(x) + 0.5      surface
+:471  LET px  = spx - gdx             shape
+```
+
+`grep -n 'spx\|spy' src/codegen/builtins/canvas/helper_items.rs` returns the two
+definitions and **one** consumer — `__canvas_clipCoverage(offset, spx, spy)` at `:528`.
+Everything else in the loop takes `px`/`py`, including both gradient arms (`:544-545`
+radial, `:550` linear), which is **G23**'s decision made visible: the gradient follows the
+group because it reads the shape point, and it needed no code of its own to do so.
+
+So the surface point has exactly one reader, and it is the one G5 names as the exception.
+That is a stronger statement than "the enumeration looks complete": a new consumer added
+to this loop takes `px`/`py` by default and therefore moves with the group, which is the
+right default for a shape, and anything that must not move has to name `spx`/`spy`
+explicitly and will be visible in that same one-line grep.
+
+(The first attempt at this audit matched `t = spx` and looked like a bug — it was
+`LET px AS Floa`**`t = spx`**` - gdx`. A grep whose pattern can match across a token
+boundary is not an audit; the definitions and consumers had to be listed by name.)
+
+**G27 (Phase 6, found by this letter's gates) — two pre-existing flakes in
+`tests/rt_tls_connect_allow_self_signed.rs`, both failing OPEN.** Not this letter's
+code, and recorded here because this letter's full-suite gate is what surfaced them —
+twice, on different tests, which is what stopped them reading as noise.
+
+* The readiness probe in `start_peer` was a bare TCP connect, which succeeds against
+  another case's `s_server` as readily as against ours. A case that lost the bind in the
+  window between `free_port` and `s_server` binding therefore reported ready and handed
+  its client the *other* case's identity: `still_rejects_a_name_mismatch` reported
+  `result=connected`, i.e. the assertion that `allowSelfSigned` is not a blanket
+  verification bypass failing open. The file's own comment predicted this exact pair of
+  symptoms. The probe now completes a handshake and reads the subject off the
+  certificate served — same one accept, and the one property that cannot be true of the
+  wrong server.
+* The scratch directory was named from the clock alone. The four cases start together
+  and `SystemTime::now()` need not advance between two reads, so two could share a root
+  and therefore `cert.pem` — `still_rejects_an_expired_certificate` then read the
+  in-date peer's 397-day certificate and reported *"the certificate meant to be expired
+  is still valid"*. An atomic counter makes the name unique by construction.
+
+Four consecutive clean runs after, against two failures in four runs before. Landed
+separately at `9ef204269`. Also worth separating from these: a third failure in the same
+gate, `rt_macos_tls_write_capacity`, was **CPU starvation** and not a defect — that test
+prints its own instruction to re-run it alone before treating it as a regression, which
+is what distinguished it, and it passes alone.
+
+**G28 (Phase 6) — this letter's new `Float`→`Integer` conversions are pinned against
+overflow.** `dx`/`dy` are user-supplied and reach `toInt(value * 65536.0)` in the draw
+hash and `toInt(gdx)` in the glyph path. A conversion that does not fit raises
+`7-705-0010` — *from `canvas::present`*, which no caller expects to fail because a shape
+was placed off-screen.
+
+Written because a peer session found exactly that error class in the canvas **font**
+path on linux-aarch64 during this letter's execution. That is not this code and the pin
+does not chase it; it establishes that this letter did not add another instance.
+`a_group_offset_far_off_surface_draws_nothing_and_does_not_raise` presents groups at
+`±1.0e9` and `1.0e5` beside an in-surface item: nothing raises, the in-surface item
+survives, and nothing lands at the origin — which is where a wrapped offset would most
+likely put it.
+
+**G24 (Phase 5) — §4.3's per-scene and per-parent-group references count something this
+design does not have.** The section specifies four reference sources. Two of them assume
+the published scene and a parent group hold *pointers* into a group's buffer, which is
+true of the design §4.4 sketched — slot indices published into the scene, followed live
+at draw time.
+
+What landed resolves and **copies** instead: `canvas::groupItems` returns a copy, for the
+same reason `canvas::installedItems` does. So a published scene points at no group
+buffer, and a parent group points at no child's. The only window in which anything reads
+the block is that copy, on the graphics thread, inside a single frame — and "a frame has
+completed since the retirement" closes exactly that window.
+
+The table's own reference is kept (`refs`), and the drop-on-scene-reclaim rule has
+nothing to drop. Implementing the other two would have been a second mechanism guarding a
+lifetime the drain gate already bounds, and the failure mode of a refcount that disagrees
+with reality is a use-after-free — the thing this phase exists to prevent.
+
+The cost is honest and worth stating: one copy per group per **rendered frame**, against
+one copy of the whole sub-picture per **`present`**. Presents outnumber rendered frames
+by design — the frame skip is what the reuse goal rests on — so the trade is the right
+way round, but it is a trade rather than a free win. Recorded in
+`.ai/canvas-threading.md` §13.
+
+**G25 (Phase 5) — the mid-frame affordance is only half the ordering; the worker has to
+be slowed too.** With `MFB_CANVAS_FRAME_HOLD_MS` set and the worker calling `removeGroup`
+straight after `present`, the first run of R13 measured the group **not drawn at all**.
+That is not the race failing — it is the race not happening: `present` returns as soon as
+it has signalled, so the worker reached `removeGroup` before the graphics thread had
+resolved the name, and the frame correctly drew nothing. The test was exercising the
+absent-name path while claiming to exercise the mid-frame one.
+
+Both sleeps are therefore load-bearing and both are documented in the test: a 600 ms hold
+and a 120 ms worker delay, against a frame measured in single-digit ms. Worth recording
+because the wrong version *passes* if the assertion is "no crash" — which is what a row
+"stated as probabilistic" (G9's other option) would have asserted.
+
+**G26 (Phase 5) — a sentinel written after a stamp destroyed the stamp.** `setGroup`'s
+install path wrote `-1` to `CANVAS_GROUP_RETIRED_FRAME` as an "unretired" marker, *after*
+`emit_retire_current_items` had just stamped that word with the frame the displaced
+buffer must outlive. Against an unsigned counter, `-1` makes the gate `frame_now <=
+stamped` true forever, so a **replaced** buffer was never freed while a **removed** one
+was — `groupBytes=2112` flat across six frames, while `removeGroup`'s path drained
+normally.
+
+Found by `replacing_a_group_frees_only_the_displaced_buffer`, which was written to check
+that a replace frees the old buffer and *not* the new one; the split behaviour between
+the two paths is what pointed at the install path rather than at the gate. There is no
+sentinel now: `CANVAS_GROUP_RETIRED_ITEMS` is the discriminator the drain reads first,
+and `RETIRED_FRAME` means nothing while it is zero. After the fix the same probe reads
+440, 1680, 2112, **872** — the 1,240-byte three-item buffer released exactly once.
+
+**G20 (Phase 4) — §4.6's "give the group node a bounds hull" is moot, because the design
+that landed has no group node left to give one to.** The section assumes the published
+scene reaches the renderer with `Group` nodes still in it, so the node needs a hull for
+the damage diff to have a rectangle. What was built instead expands each group where the
+*draw list* is assembled (`__canvas_appendDraw`, called from `__canvas_sceneOffsets`), so
+the list every consumer sees — the render walk, the damage diff, both GPU predicates — is
+already flat and contains only leaf items, each carrying its accumulated `(dx, dy)`.
+
+That is strictly better for the thing §4.6 was protecting: damage is per **child**
+rectangle rather than per group hull, so replacing one item in a large group damages that
+item and not the group's whole extent. Measured — `replacing_a_group_damages_where_the_group_draws`
+reports `damage=498,298,105,105` for a 100×100 group drawn at (500,300).
+
+It also makes **G12**'s warning moot: nothing builds a group header, so nothing can route
+one through `__canvas_paintHeader`. The warning is left in the ledger rather than deleted,
+because the hazard it names is real and the next letter to give a `Group` a header will
+need it.
+
+**G21 (Phase 4) — two damage bugs the new tests caught, both of which made a group look
+unchanged.** Neither was reasoned out; both came from a red test.
+
+* **`__canvas_damageFor` offset the remembered bounds and not the current ones.**
+  `__canvas_rememberScene` was updated to store drawn (offset) rectangles, but the diff
+  reads *this* frame's bounds straight from the geometry header. The union of an
+  un-offset current rectangle and an offset previous one spans the gap between them:
+  replacing a group at (500,300) damaged `0,0,603,403`, from the origin outward.
+  Offsetting only one side is worse than offsetting neither.
+* **A child's recorded hash did not include the offset it was drawn at.** Moving a group
+  node changes no geometry — the same rectangle is in the cache — so the diff saw
+  identical hashes and reported nothing changed: `frames=1 skipped=1 damage=none` for a
+  group moved 500px. The recorded hash now folds in `gdx`/`gdy`.
+
+**G22 (Phase 4) — the depth raise belongs on the worker, not where the recursion is.**
+The natural place for the limit is `__canvas_appendDraw`, which is the function that
+recurses. That function runs on the **graphics thread**, where a `FAIL` has no `present`
+call to return to and no user frame to unwind — the program would not see the error and
+the thread's behaviour past it is undefined.
+
+The check therefore runs twice, in two different senses. `__canvas_groupSignature`, on
+the worker inside `present`, raises `ErrDepthExceeded`; it walks the same tree for the
+frame-skip signature it has to build anyway, so the check is free. `__canvas_appendDraw`
+keeps a *silent* bound at the same depth, unreachable because a drawn scene has already
+passed the worker's check, and kept because "unreachable" plus "recursion" plus "a table
+another thread can edit" is not a combination to leave unbounded.
+
+`ErrDepthExceeded` (`7-705-0024`) is **reused** rather than minted. Its existing text —
+"structural nesting exceeds the implementation depth limit; the text is well-formed, it
+is just nested deeper than the reader will descend" — describes a group cycle exactly,
+and the caller's response is the one it already names. `a_group_cycle_and_an_over_deep_chain_both_raise`
+asserts a cycle and a 71-deep chain report the same code, which is the decision that a
+cycle *is* unbounded depth made checkable.
+
+**G23 (Phase 4) — §4.5's gradient decision, settled: it follows the group.** The
+recommendation is taken, on the letter's own goal (1): a group exists to be drawn
+somewhere else, and an item whose colours depend on where its group was placed is not
+reusable. Implemented by making `px`/`py` the shape-space point, so the gradient
+evaluation needed no change of its own; `Paint.clip` and the surface write take the
+separate `spx`/`spy`.
+
+Documented in `06_canvas.md` and pinned by `a_gradient_inside_a_group_moves_with_the_group`,
+which is the diamond the section asks for — one group at two offsets, asserting
+corresponding points agree, plus an assertion that the ramp is not flat, without which
+both anchoring rules would satisfy the first two trivially.
+
+**G17 (Phase 3) — the deep-copy case had to be split in two, because the file the plan
+names cannot make the assertion the plan asks for.** The phase says
+*"`tests/rt_canvas_present_deep_copy.rs` gains a group case — mutate the list the caller
+passed to `setGroup` and assert the installed group is unchanged."* That file is
+**codegen-inspection**: it builds `.ncode` and reads emitted instructions. It cannot run
+a program, so it cannot mutate anything or observe what survived.
+
+Both halves were written rather than either dropped, because they catch different
+things and project memory records why the inspection half is not optional (regalloc
+masks register/slot bugs in runtime fixtures):
+
+* `rt_canvas_present_deep_copy.rs` gains three inspection tests — that `setGroup`
+  allocates **twice** (items *and* name; a count, not `> 0`, so dropping either fails),
+  that a slot is published `name`-last, and that `removeGroup` clears `name` first and
+  calls no free.
+* `rt_canvas_rasteriser.rs` gains the runtime case, which is where a mutation can
+  actually be performed and its effect read back off `MFB_CANVAS_STATS`.
+
+**G18 (Phase 3) — three seams a new native member needs that the phase does not
+name.** Each was found by a failure, not by reading:
+
+* **`SUPPORTED_RUNTIME_CALLS`, five lists.** `mfb build -app` failed with *"native
+  backend does not support runtime call 'canvas.setGroup'"*. The call has to be added to
+  `target/{macos_aarch64,win_x86_64,linux_common}/mod.rs`,
+  `codegen/memory/data/data_objects.rs` and
+  `codegen/engine/analysis/module_analysis.rs` (**two** lists in that last file).
+* **The epilogue is not implicit.** A `Body::abi_function` lowering that ends by
+  returning its `ValueResult` emits no `ret`: the dump showed `removeGroup` ending on a
+  label, and execution fell off the end into the next function — SIGSEGV with no output.
+  Every other lowering here emits `RESULT_TAG_REGISTER` + `abi::return_()` by hand, and
+  this one has to as well. Localized from the `.ncode` in one read; guessing from the
+  crash would have suspected the scan loop, which was correct all along.
+* **`move_immediate` rejects a negative literal** (*"invalid immediate '-1'"*), so the
+  `retiredFrame` sentinel is built as `0 - 1`. Zero could not serve: it is a live frame
+  number.
+
+**G19 (Phase 3) — the new error's row in the legacy-count guard is a fourth required
+edit, and the guard is right to demand it.** `table_has_no_duplicate_names_or_codes`
+failed with `left: 46, right: 45` after `ErrCanvasGroupLimit` was minted. That is not
+noise: the guard requires every error added since the migration to be listed by name
+*with a comment justifying it*, which is exactly the review a new error code deserves.
+The comment records why this is not `ErrOutOfMemory` — the closest existing candidate,
+and actively misleading, since the arena has room and a handler that freed memory in
+response would change nothing.
+
+Code `7-705-0026` was chosen by grepping the **literal** codes rather than the names
+(**G3**): `0000`–`0025` are taken, `grep -rn "77050026\|7-705-0026" src tests` returns
+nothing.
+
+**G15 (Phase 2) — `cargo test --bin mfb` does not refresh `target/release/mfb`, and the
+group-cache measurement was read off a stale one.** The three-distinct-nodes check
+first reported `entries=2 floats=94` — the three group nodes sharing one geometry-cache
+entry, i.e. precisely the failure **G6** exists to prevent — after the arms had already
+been changed to `headerIsDeferred = TRUE`. The arms were correct; the compiler that
+built the program was not. `cargo test --release --bin mfb` builds the *test harness*
+binary, so a hand-run `./target/release/mfb build` afterwards silently uses whatever
+`cargo build --release --bin mfb` last produced. After an explicit rebuild the same
+program reports `generations=4 entries=4 floats=188`, one entry per node.
+
+Worth recording because the stale reading was **plausible and specific**: it agreed with
+a real, documented failure mode that this plan itself warns about, so it invited
+"re-open G6" rather than "rebuild". Project memory already notes that the tests run the
+release binary and that a stale one reds a clean tree; the nuance is that a `cargo test`
+run does not refresh it, so the two commands are not interchangeable for a hand-run
+probe.
+
+**G16 (Phase 2) — `GEO_KIND_GROUP` has no non-test consumer yet, and says so.** Adding
+it plain warned `constant GEO_KIND_GROUP is never used`: `GEO_KIND_TEXT` and
+`GEO_KIND_POLYGON` are read by the emitters, but nothing writes kind 8 into a header
+during Phase 2 — a group node still carries `__canvas_emptyHeader()`, whose kind is
+`NONE`. The pin in `the_geo_layout_constants_match_their_rust_counterparts` is its only
+reader, so it is `#[cfg(test)]`, which is what is true of it.
+
+Not an `#[allow(dead_code)]` "consumed by a later phase", which `AGENTS.md` names
+specifically as the wrong move: `#[cfg(test)]` states what is true now and is
+self-correcting, because the phase that teaches an emitter about groups cannot compile
+until the attribute comes off.
 
 **G14 (2026-09-03, pre-execution) — Phase 2's members must not declare `ErrWrongMode`,
 even though the finished members should raise it.** The natural registration copies
@@ -1176,8 +2029,23 @@ the scene list, so without a revision folded into the content comparison a progr
 would call `setGroup` and see nothing happen — which is why Phase 1 writes that test
 before anything else exists. The second is that a group is the subsystem's first piece
 of shared state that can be referenced from more than one place, so the texture model's
-"there is no refcount" does not carry over; it needs a count *and* the existing
-frame-drain gate, and the free must stay on the worker because an arena is per-thread.
+"there is no refcount" looked like it would not carry over.
+
+**It did carry over, and that is the letter's most useful finding** (**G24**). The
+refcount is not implemented, because in the design that landed there is nothing for it
+to count: `canvas::groupItems` returns a *copy*, so a published scene holds no pointer
+into a group's buffer and a parent group holds none into its child's. The only window in
+which anything reads the block is that copy, on the graphics thread, inside one frame —
+and "a frame has completed since the retirement" closes exactly that window. So the
+lifetime rule is the existing drain gate alone, the same one §3 gives for scene blocks
+and §7 for textures, and the subsystem still has one rule rather than three. A count
+would have been a second mechanism guarding a lifetime already bounded, and the failure
+mode of a refcount that disagrees with reality is the memory corruption this phase
+ordering exists to avoid.
+
+The free must still stay on the worker, because an arena is per-thread — and the gate
+must run at the *top of every `present`* rather than beside the scene ring's reclaim,
+which only runs on a publish (**G7**).
 That lifetime work is scheduled last, behind every behavioural test, because it is the
 only part of plan-116 whose failure mode is memory corruption rather than a wrong
 pixel. Untouched by this letter: the GPU backends (plan-116-H), the `RES` migration

@@ -922,6 +922,7 @@ pub(crate) fn lower_function(
         next_vector_native: 0,
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
+        resource_containment: HashMap::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
         for_bound_expr: HashMap::new(),
@@ -1005,6 +1006,10 @@ pub(crate) fn lower_function(
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
         promotable_vector_locals(&function.body, &builder.address_taken_locals);
+    // plan-116-J: what each local holds, for the consuming-parameter deactivation. A
+    // whole-function pre-pass rather than an incremental map built during lowering, so
+    // it does not depend on the order the builder happens to reach the ops in.
+    builder.resource_containment = crate::codegen::resource_containment(&function.body);
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
@@ -1353,6 +1358,7 @@ pub(crate) fn lower_abi_function_helper(
         next_vector_native: 0,
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
+        resource_containment: HashMap::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
         for_bound_expr: HashMap::new(),
@@ -1499,6 +1505,7 @@ pub(crate) fn lower_thread_copy_function(
         next_vector_native: 0,
         promoted_vector_locals: HashMap::new(),
         promotable_vector_locals: HashSet::new(),
+        resource_containment: HashMap::new(),
         integer_lower_bounds: HashMap::new(),
         integer_strict_upper: std::collections::HashSet::new(),
         for_bound_expr: HashMap::new(),

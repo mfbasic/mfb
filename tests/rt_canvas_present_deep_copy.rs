@@ -53,6 +53,32 @@ fn app_ncode(name: &str, source: &str) -> Value {
     plan
 }
 
+/// As `app_ncode`, without `-app`.
+///
+/// A program that does not import `canvas` cannot be built with `-app` — the `app`
+/// package requires app mode — so the one test that checks what a *non*-canvas program
+/// emits needs the plain form.
+fn ncode(name: &str, source: &str) -> Value {
+    let project = common::temp_project(name, source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-ncode")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -ncode");
+    assert!(
+        output.status.success(),
+        "mfb build -ncode failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let text =
+        std::fs::read_to_string(project.join(format!("{name}.ncode"))).expect("read ncode dump");
+    let plan: Value = serde_json::from_str(&text).expect("parse ncode json");
+    let _ = std::fs::remove_dir_all(&project);
+    plan
+}
+
 fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
     plan["functions"]
         .as_array()
@@ -97,16 +123,19 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC scene() AS List OF canvas::DrawItem\n\
+     FUNC scene(RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(c)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := canvas::FontRef[id := 1], size := 9.0, paint := canvas::fill(c)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := f, size := 9.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
-    \x20 canvas::present(scene())\n\
+    \x20 RES fnt AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n\
+    \x20   RETURN 1\n\
+    \x20 END TRAP\n\
+    \x20 canvas::present(scene(fnt))\n\
     \x20 RETURN 0\n\
      END FUNC\n";
 
@@ -147,12 +176,17 @@ fn the_revision_is_published_after_the_items_and_count() {
 /// that the allocator spills and reloads, giving a *different* physical base for each
 /// store. Stack traffic is excluded by its `sp` base; everything left after the
 /// publish label is a scene store.
+/// The frame is excluded on BOTH spellings via `common::is_stack_base` — see its doc
+/// comment for why one spelling is not enough. plan-116-H's box-2228 acceptance row is
+/// what surfaced it: `removeGroup`'s first "store" read as `+176` on Linux x86-64, an
+/// offset that cannot be a group-slot word, because a slot is 64 bytes and its words
+/// live at 0..56.
 fn scene_stores(ins: &[Value]) -> Vec<i64> {
     let publish =
         label_at(ins, "canvas_present_publish").expect("the publish path must have its own label");
     ins[publish..]
         .iter()
-        .filter(|i| i["op"].as_str() == Some("str_u64") && i["base"].as_str() != Some("sp"))
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         // Only the LIVE scene fields. The publish path also writes the retirement
         // bookkeeping (48..72, plan-98-D Phase 3), which is not part of the scene a
@@ -209,7 +243,7 @@ fn an_identical_re_present_skips_the_publish() {
     // is the early return.
     let stray = ins[skip..publish].iter().any(|i| {
         i["op"].as_str() == Some("str_u64")
-            && i["base"].as_str() != Some("sp")
+            && !common::is_stack_base(i)
             && i["offset"]
                 .as_str()
                 .and_then(|o| o.parse::<i64>().ok())
@@ -245,4 +279,170 @@ fn the_mode_gate_precedes_the_allocation() {
         calls(&plan, PUBLISH, "_mfb_str_error_wrong_mode") > 0,
         "the gate must raise ErrWrongMode"
     );
+}
+
+const SET_GROUP: &str = "_mfb_rt_canvas_canvas_setGroup";
+
+/// A program that installs a group and then removes one that was never installed.
+const GROUP_SOURCE: &str = "IMPORT app\n\
+     IMPORT canvas\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
+    \x20 canvas::setGroup(\"panel\", [a])\n\
+    \x20 canvas::removeGroup(\"absent\")\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+/// `setGroup` must allocate — twice.
+///
+/// The items for the reason `present_allocates_a_copy_of_the_scene` gives: publishing
+/// the caller's block would hand the graphics thread a pointer into storage the program
+/// is free to reuse. And the **name**, which is the one a reader might not expect: the
+/// table outlives the caller's binding, so a slot holding the caller's `String` would
+/// leave the scan reading a name out of reclaimed memory.
+///
+/// Asserted as a count rather than "> 0" so that dropping either copy fails here, which
+/// a single allocation would not.
+#[test]
+fn set_group_copies_both_the_items_and_the_name() {
+    let plan = app_ncode("canvas_set_group_copy", GROUP_SOURCE);
+    let allocs = calls(&plan, SET_GROUP, "_mfb_arena_alloc");
+    assert!(
+        allocs >= 2,
+        "canvas::setGroup made {allocs} allocation(s); it must copy BOTH the item list \
+         and the name — a slot pointing at either of the caller's blocks is a pointer \
+         into storage the program may reuse or drop"
+    );
+}
+
+/// The slot's `name` word is written **last** when a slot is published.
+///
+/// `name` is the discriminator: a graphics thread scanning the table treats a non-zero
+/// name as "this slot is real, follow its pointers". So a slot must never be visible
+/// under a name before its `items` and `count` are there. This is the same
+/// publish-then-flag rule `the_revision_is_published_after_the_items_and_count` pins for
+/// the scene region.
+///
+/// **Asserted as the ordering rather than as a literal sequence**, deliberately.
+/// plan-116-G Phase 5 later inserted the retire-and-stamp stores ahead of the install,
+/// which changed the exact list and broke a version of this test that pinned it —
+/// correctly, but for a reason that had nothing to do with what the test protects. The
+/// relations below hold under any addition that does not actually publish a name over a
+/// half-written slot, and fail under one that does.
+#[test]
+fn a_group_slot_is_published_name_last() {
+    let plan = app_ncode("canvas_set_group_order", GROUP_SOURCE);
+    let ins = instructions(&plan, SET_GROUP);
+    let install = label_at(ins, "canvas_set_group_install")
+        .expect("the install path must have its own label");
+    let offsets: Vec<i64> = ins[install..]
+        .iter()
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
+        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        .collect();
+
+    assert_eq!(
+        offsets.last(),
+        Some(&0),
+        "the LAST store on the install path must be the name (+0); it is what a scanning          graphics thread gates on, so anything written after it is written into a slot          that is already live. Stores were {offsets:?}",
+    );
+    // `position` finds the FIRST occurrence, which is the conservative one here: the
+    // retire clears `items` before the install writes it, so requiring "some items store
+    // precedes the name" would be satisfied by the clear alone. Requiring the LAST items
+    // store to precede the name is the real claim.
+    let name_at = offsets.iter().rposition(|&o| o == 0).expect("a name store");
+    for (word, label) in [(8i64, "items"), (16, "count"), (24, "revision")] {
+        let at = offsets
+            .iter()
+            .rposition(|&o| o == word)
+            .unwrap_or_else(|| panic!("no {label} store on the install path: {offsets:?}"));
+        assert!(
+            at < name_at,
+            "`{label}` (+{word}) is written after the name (+0), so a slot becomes              visible under its name before {label} is in it: {offsets:?}",
+        );
+    }
+}
+
+/// `removeGroup` clears the name **first**, and retires the buffer rather than freeing
+/// the one it is removing.
+///
+/// Name first because it is the discriminator: clearing it is what makes the slot
+/// invisible to a concurrent scan, and it has to happen before anything else about the
+/// slot changes. The buffer then moves to the retired word — a frame may be mid-copy of
+/// it, so the release waits for the drain gate (plan-116-G Phase 5, §13 of
+/// `.ai/canvas-threading.md`).
+///
+/// The "frees nothing" half is now stated as *what it does with the live buffer* rather
+/// than as an arena-free count. `emit_retire_current_items` legitimately frees a
+/// **prior** retired buffer when one is still present, so counting frees would forbid
+/// something correct; what must never happen is the block being removed going straight
+/// to a free, and the store to `RETIRED_ITEMS` is the positive evidence that it does not.
+#[test]
+fn remove_group_clears_the_name_first_and_retires_the_buffer() {
+    let plan = app_ncode("canvas_remove_group_order", GROUP_SOURCE);
+    let ins = instructions(&plan, "_mfb_rt_canvas_canvas_removeGroup");
+    let done =
+        label_at(ins, "canvas_remove_group_scan_done").expect("the scan must end at its own label");
+    let offsets: Vec<i64> = ins[done..]
+        .iter()
+        .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
+        .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
+        .collect();
+
+    assert_eq!(
+        offsets.first(),
+        Some(&0),
+        "the FIRST store after the scan must clear the name (+0). It is the          discriminator, so until it is zero a concurrent scan still treats the slot as          live — and everything after this point is changing that slot. Stores were          {offsets:?}",
+    );
+    assert!(
+        offsets.contains(&48),
+        "the live items block was never stored to RETIRED_ITEMS (+48), so `removeGroup`          did not retire it. Either it leaked the block or it freed it outright — and          freeing it here races a graphics thread that may be mid-copy: {offsets:?}",
+    );
+    let retired_at = offsets.iter().position(|&o| o == 48).unwrap();
+    let items_cleared = offsets
+        .iter()
+        .position(|&o| o == 8)
+        .unwrap_or_else(|| panic!("the live `items` word (+8) was never cleared: {offsets:?}"));
+    assert!(
+        retired_at < items_cleared,
+        "`items` (+8) was cleared before it was copied to RETIRED_ITEMS (+48), so the          buffer was lost rather than retired: {offsets:?}",
+    );
+}
+
+/// The group table is emitted only for a program that uses `canvas`.
+///
+/// `CANVAS_MAX_GROUPS` is 256 slots of 64 bytes plus a header — 16,392 bytes of literal
+/// zeroes in the data section. That size was chosen deliberately (plan-116-G's **G4**)
+/// on the argument that it is carried only by canvas programs, and this is the assertion
+/// that makes the argument true rather than intended: the data object sits behind
+/// `module_uses_canvas(module)` in `engine/builder/mod.rs`, beside the scene region and
+/// the font table.
+///
+/// Worth pinning rather than assuming because the gate is one `if` around three pushes,
+/// and a fourth added outside it would be invisible — every canvas test would still
+/// pass, and every program in the language would grow by 16 KB.
+#[test]
+fn the_group_table_is_absent_from_a_program_that_does_not_use_canvas() {
+    const PLAIN: &str = "IMPORT io\n\
+         FUNC main AS Integer\n\
+        \x20 io::print(\"no canvas here\")\n\
+        \x20 RETURN 0\n\
+         END FUNC\n";
+    let plan = ncode("canvas_group_table_gate", PLAIN);
+    let text = plan.to_string();
+    for symbol in [
+        "_mfb_rt_canvas_groups",
+        "_mfb_rt_canvas_scene",
+        "_mfb_rt_canvas_fonts",
+    ] {
+        assert!(
+            !text.contains(symbol),
+            "`{symbol}` was emitted into a program that never mentions canvas. The three \
+             canvas globals share one `module_uses_canvas` gate, so a data object added \
+             outside it grows every program in the language — and no canvas test would \
+             notice.",
+        );
+    }
 }

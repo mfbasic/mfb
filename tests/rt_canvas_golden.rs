@@ -51,39 +51,6 @@ SUB main()
 END SUB
 "#;
 
-/// The twelve-glyph fixture font, as bytes.
-fn fixture_truetype() -> Vec<u8> {
-    const B64: &str = concat!(
-        "AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA",
-        "AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD",
-        "AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA",
-        "AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA",
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB",
-        "9AAAAPoAAAEsAAAAAAAAABEAEQ==",
-    );
-    let table: Vec<u8> =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
-    let mut out = Vec::new();
-    let mut acc: u32 = 0;
-    let mut bits = 0u32;
-    for ch in B64.bytes() {
-        if ch == b'=' {
-            break;
-        }
-        let v = table
-            .iter()
-            .position(|&c| c == ch)
-            .expect("base64 alphabet") as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    out
-}
-
 fn golden_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -126,7 +93,7 @@ fn render_gpu(name: &str, source: &str) -> (Frame, String) {
 fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) -> (Frame, String) {
     let project = common::temp_project(name, source);
     if font {
-        std::fs::write(project.join("fixture.ttf"), fixture_truetype())
+        std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
             .expect("write the font fixture");
     }
     let frame_path = project.join("frame.rgba");
@@ -430,8 +397,8 @@ SUB main()
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
-  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
-  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := canvas::fontRef(face), size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := face, size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
 
   canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
   io::print("rendered")
@@ -1030,7 +997,7 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              startPoint := canvas::Point[x := 0.0, y := 0.0], \
              endPoint := canvas::Point[x := 400.0, y := 0.0], stops := s]\n  \
              LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, \
-             text := \"AA\", font := canvas::fontRef(face), size := 90.0, \
+             text := \"AA\", font := face, size := 90.0, \
              paint := {paint}]\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
              w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
@@ -1050,6 +1017,211 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              bitmap and a stroked one is an outline polygon, and neither has a fill to \
              replace. Before this was fixed the count was 874, with the glyph fill \
              reading out of the following record's header."
+        );
+    }
+}
+
+/// A scene containing a `canvas::Group` reaches the GPU, on whichever backend this host
+/// has.
+///
+/// This assertion has been inverted once, deliberately, and the history is the point.
+/// plan-116-G added it as "a group scene DECLINES to software": neither backend knew the
+/// per-draw offset, so accepting the frame would have drawn every group's children at
+/// the **origin** — the item blocks carry each shape's own coordinates and the group
+/// translation lived only in the software walk. `.ai/canvas-threading.md` §10 records
+/// that as having happened once already, and it is a plausible wrong picture reported as
+/// success rather than a fault.
+///
+/// plan-116-H taught both backends the offset — Vulkan in Phase 2, Metal in Phase 3 —
+/// so the decline became a refusal to do work the backend can do, and this test now
+/// pins the other side of it.
+///
+/// **It asserts the frame count, not the pixels, and that is not laziness.** A declined
+/// frame is drawn by the software renderer, which is the oracle, so it matches any
+/// reference *by construction*: a pixel comparison here would pass whether the group
+/// reached the GPU or not. The pixels are asserted where a real GPU frame exists to
+/// compare — `every_group_case_matches_the_software_oracle` in `rt_canvas_metal.rs`, and
+/// the group stage of `scripts/test-canvas-vulkan.sh`.
+///
+/// The subtlety worth keeping from the original: a predicate cannot decline by searching
+/// the offsets list for a `Group` item, because by the time it sees that list the walk
+/// has expanded every group away and a search finds nothing. plan-116-G solved that with
+/// a flag the walk itself set; with both backends taught, the flag has no reader and is
+/// gone, so a future backend that needs to decline has to set one again.
+#[test]
+fn a_scene_containing_a_group_reaches_the_gpu() {
+    let (_, stats) = render_gpu("canvas_group_declines", GROUP_SCENE);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "a scene containing a `canvas::Group` was declined to software. Both backends \
+         have known the per-draw offset since plan-116-H, so declining means a \
+         predicate is refusing work the backend can do: {stats}"
+    );
+    // And the control: the same scene with the group replaced by the item itself is
+    // rendered on the GPU too, so a host that accepted everything would not make the
+    // assertion above look like it proved something about groups.
+    let (_, flat) = render_gpu("canvas_group_declines_control", FLAT_SCENE);
+    if flat.contains("metalReady=TRUE") || flat.contains("vulkanReady=TRUE") {
+        assert!(
+            !flat.contains("gpuFrames=0"),
+            "the group-free control scene was declined, so this host declines for some \
+             reason other than groups and the assertion above proves nothing: {flat}"
+        );
+    }
+}
+
+const GROUP_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::setGroup("panel", [red])
+  canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
+  io::print("rendered")
+END SUB
+"#;
+
+const FLAT_SCENE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  canvas::present([red])
+  io::print("rendered")
+END SUB
+"#;
+
+/// The group reference scene (plan-116-H Phase 4).
+///
+/// Every drawn item lives inside a group, so a renderer that ignored the per-draw offset
+/// would still produce a complete, plausible picture — with everything stacked at the
+/// origin. That is the failure `.ai/canvas-threading.md` §10 records, and only a
+/// comparison at a NON-ZERO offset can see it.
+///
+/// The group's item list carries a **gradient-filled** item, a **`Text`** item and a
+/// **clipped** item on purpose (plan-116-H **H2**). Those are the three positional reads
+/// that do not follow the shifted query point for free: a gradient ramp and a glyph
+/// bitmap are sampled per fragment from the absolute point, and a clip is deliberately
+/// *not* shifted because it is a surface rectangle. A scene of plain filled shapes
+/// cannot see any of the three go wrong.
+///
+/// The same group is drawn twice — once at the origin and once at an offset — so the
+/// picture shows the offset's effect side by side rather than only its result. The
+/// nested group and the diamond are the two structural cases: a flattened diamond would
+/// change the picture, and so would a nested offset that failed to compose.
+const GROUPS: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 160.0, y := 70.0], stops := stops]
+  ' The panel: a gradient-filled bar, a clipped white band, a plain circle and a text
+  ' run, all in the group's own coordinates.
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 160.0, h := 70.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := ramp }]
+  LET band AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 80.0, w := 160.0, h := 30.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 90.5, h := 640.0] }]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 30.0, y := 140.0, radius := 22.0, paint := canvas::fillStroke(canvas::rgb(0, 170, 220), canvas::rgb(255, 255, 255), 5.0)]
+  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := face, size := 46.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
+  canvas::setGroup("panel", [bar, band, dot, tag])
+  ' A nested group: the outer holds the panel, so the two offsets compose.
+  canvas::setGroup("outer", [canvas::Group[name := "panel", dx := 20.0, dy := 30.0]])
+  ' A leaf referenced twice from the scene -- the diamond.
+  canvas::setGroup("leaf", [canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Group[name := "panel", dx := 340.0, dy := 210.0], canvas::Group[name := "outer", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 120.0, dy := 420.0], canvas::Group[name := "leaf", dx := 260.0, dy := 520.0]])
+END SUB
+"#;
+
+/// The software rasteriser reproduces the group reference exactly.
+///
+/// Exactly, not within tolerance: the software renderer *is* the oracle, so its own
+/// output against its own stored reference is a byte comparison. A tolerance here would
+/// let the oracle drift and take both GPU assertions with it.
+#[test]
+fn groups_match_their_reference_exactly() {
+    let rendered = render_with_font("canvas_golden_groups", GROUPS);
+    let reference = golden_path("groups");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the group scene no longer renders to its reference image: {diff}\n\
+             Localize against the picture: the panel appears twice, at (0,0) and at \
+             (340,210), so a difference in only one of them is the offset and a \
+             difference in both is the panel's own drawing. The pair of green leaves \
+             is the diamond — one group installed once and named twice — and the panel \
+             at (620,70) is the nested case, whose offset is the outer's plus the \
+             inner's."
+        );
+    }
+}
+
+/// Both GPU backends draw the group scene the reference shows.
+///
+/// Within `Tolerance::GPU_DEFAULT` rather than exactly, for the reason every GPU
+/// reference assertion here is: the hardware blends in float and the oracle blends
+/// through a 16-bit linear table, so a blended pixel agrees to within a step or two and
+/// rarely bit for bit.
+///
+/// The frame count is asserted first. A `*Renderable` predicate that declined this scene
+/// would hand the comparison a software frame — the very thing the reference was made
+/// from — and every pixel would match while proving nothing about the GPU. plan-116-G's
+/// decline did exactly that until Phase 2 and Phase 3 removed it.
+#[test]
+fn the_gpu_draws_the_group_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu_with_font("canvas_golden_groups_gpu", GROUPS);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the group scene, and every pixel below would then be the \
+         software renderer marking its own work: {stats}"
+    );
+
+    let reference = golden_path("groups");
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's group scene disagrees with the reference: {diff}\n\
+             Localize by what moved and what did not. Every item at the ORIGIN means \
+             the per-draw offset never reached the backend. A shape in the right place \
+             whose gradient ramp or glyph ink is shifted means the offset reached the \
+             VERTEX stage only — the fragment stage evaluates distance, ramp and \
+             coverage at an absolute point and needs it too. A clipped band that moved \
+             with its group means the opposite mistake: the clip is a surface rectangle \
+             and must be evaluated at the un-shifted point."
         );
     }
 }

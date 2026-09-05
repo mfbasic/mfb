@@ -328,7 +328,11 @@ pub(crate) fn emit_publish(
 /// ever increases, and the retirement gate is a `>` comparison. A stale read makes
 /// the free happen one publish later than it could — never earlier, which is the only
 /// direction that would be a use-after-free.
-fn emit_load_frame_counter(builder: &mut CodeBuilder, dst: &VirtualRegister, symbol: &str) {
+pub(crate) fn emit_load_frame_counter(
+    builder: &mut CodeBuilder,
+    dst: &VirtualRegister,
+    symbol: &str,
+) {
     let base = builder.temporary_vreg();
     push_symbol_address(
         symbol,

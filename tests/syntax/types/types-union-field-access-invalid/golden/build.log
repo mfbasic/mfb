@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/types/types-union-field-access-invalid
+  24 | FUNC main AS Integer
+  25 |   LET s AS Shape = Named[label := "hi"]
+  26 |   IF s.label <> "hi" THEN
+     | ^
+tests/syntax/types/types-union-field-access-invalid/src/main.mfb:26 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               field access requires a record value, got union `Shape`. A union's payload is reached with `MATCH`: `MATCH value` / `CASE ShapeVariant(v)` / `v.label`.
+[exit 1]

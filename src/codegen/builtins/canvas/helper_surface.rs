@@ -79,6 +79,30 @@ END FUNC
 ' The damage rectangle as `x,y,w,h`, or `none`. A test that wants to know a partial
 ' redraw happened has to be able to see WHICH rectangle -- "partial=1" alone would pass
 ' just as happily for a rectangle covering the whole window.
+' plan-116-H: the GPU draw list, rendered compactly for `MFB_CANVAS_STATS`.
+'
+' `base:count:dx:dy` per entry, `|`-separated, offsets in 16.16 as they are stored. The
+' draw list is built on the graphics thread and consumed by an emitter; a test has no
+' other way to see it, which is the same reason `groups=` and `groupBytes=` exist
+' (`.ai/canvas-threading.md` section 11).
+FUNC __canvas_drawsText() AS String
+  IF len(__CANVAS_DRAWS) < 8 THEN
+    RETURN "none"
+  END IF
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  WHILE i + 7 < len(__CANVAS_DRAWS)
+    IF i > 0 THEN
+      out = out & "|"
+    END IF
+    ' base:count:dx:dy:mode. The mode is word 4 and it selects the PIPELINE, so a draw
+    ' list that reads correct in the first four fields can still bind the wrong program.
+    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0))
+    i = i + 8
+  END WHILE
+  RETURN out
+END FUNC
+
 FUNC __canvas_damageText() AS String
   IF len(__CANVAS_DAMAGE) < 4 THEN
     RETURN "none"
@@ -91,7 +115,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_HASHES)) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " groups=" & toString(canvas::groupCount()) & " groupBytes=" & toString(canvas::groupBytes()) & " blocks=" & toString(len(__CANVAS_DRAW_BLOCKS)) & " draws=" & __canvas_drawsText() & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

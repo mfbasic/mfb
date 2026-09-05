@@ -1207,6 +1207,18 @@ impl CodeBuilder<'_> {
                 args,
                 ..
             } => {
+                // plan-116-J: a consuming parameter takes over closing the resources
+                // reachable from its argument, so this scope stops closing them.
+                //
+                // THIS is where a `Body::abi_function` member's call site arrives, and
+                // finding that took three wrong guesses worth recording: not
+                // `lower_value`'s `Call` arm, not its `CallResult` arm, and not
+                // `emit_call`. `canvas::setGroup` lowers to
+                // `{"kind": "runtimeCall", "helper": "canvas", "target":
+                // "canvas.setGroup"}` — a NIR node of its own, which none of those three
+                // see. The `--nir` dump is what settled it; a trace of 798 lowered calls
+                // through `emit_call` did not contain the one call the program makes.
+                self.deactivate_consumed_cleanups(target, args);
                 // `strings::`/`astrings::` native members migrated to the clean-room
                 // registry are `Body::abi_inline`, so they arrive on the `Call` path
                 // (reached through `try_abi_inline_lower` there), not this `RuntimeCall`

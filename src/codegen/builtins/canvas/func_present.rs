@@ -25,9 +25,10 @@ content against what is already installed and returns without republishing when
 they match, so an animation loop that redraws an unchanged frame costs a
 comparison rather than a re-render.
 
-An item names an image or font through a `canvas::ImageRef`/`canvas::FontRef` — an id, not the
-resource itself — so an installed scene never keeps an image open. Destroying an
-image a scene still names is safe: the scene holds its id, not the image.
+An item that draws an image or text holds the image or font itself. Destroying one a
+scene still names is safe: that item draws nothing, and the frame is unaffected. An
+installed scene does not keep an image open — closing it is still yours to do, and
+still takes effect immediately.
 
 Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
@@ -85,8 +86,55 @@ moment the radii happen to match."#;
 /// worth anything: publishing is three stores, rendering is the whole scene.
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
-  IF canvas::publishScene(items) THEN
+r#"' plan-116-G: the resolved-groups signature of the LAST present, so a `setGroup` under
+' a name this scene already referenced is seen as a change.
+'
+' A worker-thread global, which is what it must be: `present` runs on the worker, and
+' MFBASIC globals are per-thread (`.ai/canvas-threading.md` section 2). The graphics
+' thread has its own zeroed copy and never reads this one.
+MUT __CANVAS_LAST_GROUP_SIG AS List OF Integer = []
+
+FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
+  ' Two independent reasons to redraw, and both must be consulted.
+  '
+  ' `publishScene` compares the raw bytes of the item list, which catches a scene whose
+  ' ITEMS changed. It cannot catch a scene whose items are identical while a group's
+  ' contents were replaced -- a `Group` node is two floats and a string pointer, all
+  ' three unchanged by `setGroup` under the same name.
+  '
+  ' The signature is that second reason. Note the ordering: `publishScene` is called
+  ' FIRST and unconditionally, because it is what installs the scene; the signature is
+  ' then compared, and either one being new makes this a frame. The published items do
+  ' not need re-publishing when only the signature moved -- a group's contents live in
+  ' the group table and the renderer reads them from there -- so this asks for a
+  ' RE-RENDER, not a re-publish.
+  ' plan-116-G Phase 5: the drain gate, FIRST and unconditional. It frees every group
+  ' buffer a frame has completed past. It runs here rather than beside the scene ring's
+  ' own reclaim because that one sits on the publish path (G7): `removeGroup("panel")`
+  ' followed by presents of an unchanged scene would then never free anything -- the
+  ' frame skip would be working exactly as designed and the memory would be held anyway.
+  ' A memory bound that depends on the scene changing is not a bound.
+  '
+  ' plan-116-J: a group owns the images and fonts its items name, so the buffer being
+  ' freed is where they are closed. The walk is a MATCH rather than an open-coded step
+  ' over the DrawItem union's layout in codegen -- a MATCH a new variant must handle is a
+  ' compile error, a hand-written tag offset a new variant must not break is a hope (J13).
+  '
+  ' The gate stays in `nextReclaimableGroup`, which frees nothing. A FOR over all 256
+  ' slots here instead would put 256 builtin calls on the per-present path, which is the
+  ' exact axis plan-116-G optimised; with the scan in native code a present with nothing
+  ' due costs one call and this loop never runs.
+  MUT due AS Integer = canvas::nextReclaimableGroup()
+  WHILE due >= 0
+    __canvas_closeRetired(canvas::retiredItems(due), items)
+    canvas::groupReclaim(due)
+    due = canvas::nextReclaimableGroup()
+  END WHILE
+  LET installed AS Boolean = canvas::publishScene(items)
+  LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
+  LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
+  __CANVAS_LAST_GROUP_SIG = sig
+  IF installed OR moved THEN
     canvas::publishHashes(__canvas_hashScene(items))
     __canvas_ensureGraphics()
     canvas::signalRedraw()
@@ -112,7 +160,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWrongMode"],
+            // plan-116-G: `ErrDepthExceeded` is REUSED rather than minted. Its existing
+            // definition — "structural nesting exceeds the implementation depth limit;
+            // the text is well-formed, it is just nested deeper than the reader will
+            // descend" — describes a group cycle exactly, and the caller's response is
+            // the same one it names: raise the limit or fix the structure. A
+            // canvas-specific twin would be a second code for one mistake.
+            errors: vec!["ErrWrongMode", "ErrDepthExceeded", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__canvas_present"),
         }],
     });

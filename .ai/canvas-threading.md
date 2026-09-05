@@ -202,12 +202,33 @@ Supporting rules, each of which the gate depends on:
   knowledge of what the graphics thread is doing.
 * **A closed texture is skipped in new frames.** So `lastUsedFrame` stops advancing
   the moment it closes, and the gate is guaranteed to open.
-* **A closed image cannot be named again.** `canvas::imageRef(image)` is a read of
-  the *resource* and raises `ErrResourceClosed` (plan-98-B), so a program cannot mint
-  a fresh handle to a closed image and no future scene can resurrect one whose free is
-  pending. Note the guard is at `imageRef`, **not** at `present`: a `Picture` carries
-  an `ImageRef`, which is a plain value, so presenting a stale one draws nothing rather
-  than raising.
+* **A directly closed image cannot be named again — and since plan-116-I the compiler
+  is what says so.** `canvas::destroyImage`'s parameter is a plain `canvas::Image`, not
+  a `RES` one, so passing a resource to it is a **move**: a program that calls
+  `canvas::destroyImage(img)` and then builds a `Picture` from `img` is refused with
+  `2-203-0055 TYPE_USE_AFTER_MOVE`, *"Binding `img` was moved and cannot be used
+  again"* — a compile error rather than a runtime raise. The old guard
+  (`canvas::imageRef` raising `ErrResourceClosed`) is gone with the member.
+
+  **"Directly" is load-bearing.** A `RES` parameter is an *alias*, so a close that
+  happens behind one consumes nothing at the caller: `closeIt(RES img AS canvas::Image)`
+  leaves the caller's `img` usable, and `canvas::getSize(img)` afterwards compiles and
+  raises `ErrResourceClosed` at run time — pinned by `closedRefuses` in
+  `tests/cli_canvas_image_resource.rs`. Any close performed *inside* the runtime is in
+  that second category by construction. The compile-time refusal is therefore a
+  convenience for the direct case, **not** the invariant the rest of this section rests
+  on; the runtime guarantees below are.
+
+  What survives is the case the guard actually protected, and it is now a *render-time*
+  rule rather than a mint-time one: **a scene may still hold an item whose resource has
+  since been closed**, because the item was built while it was live. The renderer reads
+  the backend id through `canvas::imageHandle`/`fontHandle`, which answer **0** for a
+  closed resource instead of raising, and 0 is already "no such object" — so that item
+  draws nothing and the frame around it renders normally.
+
+  The property to preserve if this is ever touched: **the closed flag is read before the
+  handle**, not after. Reading the handle first and testing closed afterwards races a
+  concurrent destroy in exactly the window that makes the answer stale.
 
 ## 8. The race matrix
 
@@ -218,7 +239,8 @@ row names the rule from above that protects it.
 |---|---|---|---|
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the texture and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the texture; the free fires exactly once | §7 skip-in-new-frames + the gate |
-| R3 | `destroyImage` → try to name it again | `ErrResourceClosed` at `imageRef`, so no new scene can carry it | plan-98-B closed-read guard |
+| R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
+| R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
@@ -229,6 +251,31 @@ row names the rule from above that protects it.
 | R10 | `setBytes` on an image not in the live scene | no repaint at all | §4 trigger 5 |
 | R11 | `setBytes` → `destroyImage` → frame | no upload into a closed texture; free still gated | §7 skip-in-new-frames |
 | R12 | program exits while a frame is in flight | no use-after-free of the scene slots or the pixel buffer | shutdown must join graphics before the worker's frame unwinds |
+| R13 | present → `removeGroup` → graphics mid-frame | the in-flight frame completes and still draws the group it had already resolved | §13 retire-then-drain |
+| R14 | the same, then a completed frame, then a present **of an unchanged scene** | the buffer is freed exactly once and `groupBytes=` drops | §13 gate at the top of `present`, not on the publish path |
+| R15 | `setGroup(A, …)` replacing a live A | the displaced buffer is freed only after a frame completes; the new one is not | §13 one retired buffer per slot |
+| R16 | `removeGroup(A)` while a parent group still names A | the parent's node becomes a silent no-op, and the parent's other items still draw | §13 a parent holds a NAME, not a pointer |
+
+| R17 | a group **owning** an image → `removeGroup` → graphics mid-frame | the in-flight frame keeps the image **open**; it is closed only after a frame completes past the retirement | §13 retire-then-drain + plan-116-J's close on the free path |
+| R17b | the same with a **`Font`** | identical outcome, and it is a separate row because `destroyFont` unregisters the table slot **immediately**, behind no frame gate — so only this flavour can catch an early unregister | §13; the drain gate is what covers the asymmetry |
+| R18 | `setGroup` replacing a group whose new items name the **same** resource | **nothing is closed.** This is the ordinary shape — one long-lived font, a group rebuilt each frame — and closing here makes its text vanish one frame later, silently | plan-116-J: close only what nothing live names |
+| R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
+| R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
+| R21 | 200 × install/remove of a group owning a resource | `groupBytes=` returns to baseline | plan-116-J + §13's gate |
+
+**R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
+nothing live names it** — where "live" is the scene about to be published *plus every
+group's live items*. Closing on the narrower "what the retired buffer named" is wrong in
+three of these five rows, and wrong **silently**: `imageHandle`/`fontHandle` answer `0` for
+a closed resource, `0` is "no such object", so the item simply stops drawing and nothing is
+raised. All five are pinned by `tests/rt_canvas_group_ownership.rs`.
+
+**R13–R16 are plan-116-G's, and R13 is the first mid-frame row that is deterministic
+rather than probabilistic** — see `MFB_CANVAS_FRAME_HOLD_MS` in §11. R14's *"of an
+unchanged scene"* is load-bearing and not incidental: a free placed where the scene
+ring's `emit_reclaim_retired` sits would never run for it, because that code is after
+the publish label, and a test that changed the scene would pass against that wrong
+placement.
 
 **Rows R1, R2, R9, R10 and R11 are not yet reachable.** They are the texture and
 dirty-upload rows, and there is no texture: `Picture` draws nothing until plan-98-G
@@ -296,6 +343,63 @@ shape: it renders into an image and reads it back so the frame leaves through
 `canvas::blitSurface` like every other. It needs no `VkSurfaceKHR` and no swapchain, which
 is what lets it be tested on a box with no display server — and no reachable Linux box has
 one.
+
+### A group is one instanced draw per node, with an offset bound to BOTH stages
+
+Since plan-116-H a `canvas::Group` is not flattened away before the GPU sees it. The
+worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one entry
+per contiguous run of blocks at a given offset:
+
+```
+(itemBase, itemCount, dx, dy, blendMode, 0, 0, 0)     eight 64-bit words
+```
+
+Each backend walks it once, after every block is published, and issues one instanced
+draw per entry: `vkCmdDraw` with `firstInstance = itemBase`, or
+`drawPrimitives:…instanceCount:baseInstance:`. A group's blocks are recorded **once** and
+referenced by base, so a diamond — two parents naming one child — reports
+`entries=1 blocks=1` and two draw entries that share base 0 with different offsets.
+
+**The offset goes to the fragment stage as well as the vertex stage, and that is the fact
+most likely to be got wrong.** The obvious reading is that a translation is a vertex-stage
+concern: move the quad, done. It is not, because this renderer is **signed-distance
+based** and an SDF is evaluated at an *absolute* point. The fragment shader asks "how far
+is this pixel from the shape", and the shape's coordinates are its own, not the group's.
+So the split is:
+
+* the **vertex** stage moves the quad by `+offset`, and
+* the **fragment** stage moves the query point by `-offset` and evaluates everything —
+  distance, gradient ramp, glyph coverage — at that shape-space point.
+
+Bind it to the vertex stage alone and the shape lands in the right place with the *wrong
+contents*: a gradient's ramp is sampled at the un-shifted pixel, so it slides across the
+shape, and a glyph reads the wrong texel of its bitmap. A scene of flat-filled rectangles
+cannot see any of it — which is why the acceptance scenes carry a gradient-filled item, a
+`Text` item and a clipped item inside translated groups.
+
+**The clip is the exception and stays in surface space.** `Paint.clip` is a window on the
+surface, not on the shape, so it is evaluated at the *un-shifted* point on both backends.
+Moving it with the group is the mistake that looks like a fix.
+
+Where the offset is bound differs per backend and per stage, so it is three numbers, not
+one: Vulkan uses a single push-constant range both stages declare; Metal uses
+`setVertexBytes:` at buffer index **1** and `setFragmentBytes:` at index **3**, because
+its fragment stage already has items, edges and the glyph bitmap at 0..2.
+
+**A predicate cannot decline a group scene by looking for a `Group` item.** By the time
+`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the offsets list, the walk
+has expanded every group away — a search finds nothing, the frame is accepted, and every
+group's child draws at the origin. plan-116-G solved that with a flag the *walk* set; with
+both backends taught the flag has no reader and was deleted, so a future backend that
+needs to decline has to set one again rather than search.
+
+**Count published records, not items, in the frame caps.** `__canvas_blockInstances` is
+the one answer to "how many instances does this block become", and both the draw list and
+the caps ask it. An item that both strokes and fills under a non-Normal blend mode
+publishes **two** records; counting it as one under-fills the cap, which is the direction
+that lets a scene write past the mapping. The emitters' own split test reads `strokeHalf`
+**signed** for the same reason — a paint that does not stroke reports `-1.0`, and a
+zero-extending load makes that a very large positive number.
 
 ### The per-item parameter block travels in a buffer, on both backends
 
@@ -484,6 +588,31 @@ observable on Linux:
   `MFB_CANVAS_DUMP` still sees every frame — the dump is written by
   `__canvas_presentSurface`, before and independently of the blit.
 
+### `MFB_CANVAS_FRAME_HOLD_MS` — hold the graphics thread inside a frame
+
+Milliseconds to sleep in `__canvas_renderFrame`, immediately after
+`__canvas_sceneOffsets` has built the draw list. Unset or `0` is off, and it is off the
+production path like the four above.
+
+**It exists because nothing else here produces "graphics mid-frame."** The two proven
+mid-render rows (R5, R7) reach it through `MFB_CANVAS_RESIZE_W`/`_H` firing while the
+worker sits in `os::sleep`, which is specific to resize — so a row needing any *other*
+worker action mid-frame was either untestable (R1 sat marked "not yet reachable" for
+three letters) or tested by luck, and a green run tested by luck reads exactly like one
+tested by construction.
+
+The hold point is after the draw list is built, deliberately: by then every group name
+is resolved and every group's items copied, so a `removeGroup` arriving during the hold
+lands while a frame is demonstrably still working from that block. That is the window
+the drain gate exists for.
+
+**The worker has to be made to lose the race, too.** `present` returns as soon as it has
+signalled, so a worker that calls `removeGroup` immediately usually gets there before the
+graphics thread has resolved anything — the group is then removed before it is used and
+the frame correctly draws nothing, which exercises the absent-name path instead. The
+worker needs its own short sleep so its action lands *inside* the hold. R13's test uses
+a 600 ms hold and a 120 ms worker sleep against a frame measured in single-digit ms.
+
 ## 12. Why the font rasteriser is hand-rolled
 
 Canvas rasterises glyphs with a TrueType reader and a contour rasteriser written in
@@ -519,6 +648,127 @@ The residual risk moved rather than vanished. It is no longer "is the third-part
 rasteriser deterministic" but "does the contour rasteriser use anything width- or
 order-dependent" — a thing to not do, caught by the same cross-target byte-identity
 comparison.
+
+
+## 13. The named-group table (plan-116-G)
+
+A third process-global block, `_mfb_rt_canvas_groups`: 256 fixed slots plus a one-word
+header. Process-global for the reason the scene region and the font table are — §2 —
+`canvas::setGroup` runs on the worker and the renderer that draws a group runs on the
+graphics thread. **Fixed, not growable**: the graphics thread scans it without a lock,
+and a reallocating array would move under a reader.
+
+**A slot is published name-LAST and dropped name-FIRST.** `name` is the discriminator: a
+scanning graphics thread treats a non-zero name as "this slot is real, follow its
+pointers". So a slot must never be visible under a name before its `items` and `count`
+are written, and dropping one must hide it before anything else changes. This is the same
+publish-then-flag rule §3 gives for the scene revision.
+
+### There is no refcount, and there is nothing to count
+
+`canvas::groupItems` returns a **copy**, so a published scene never holds a pointer into
+a group's buffer and a parent group never holds one into its child's — a `canvas::Group`
+node carries a *name*, and the renderer resolves it per frame. The only window in which
+anything reads the block is that copy, on the graphics thread, inside one frame.
+
+So the **buffer's** lifetime rule is the drain gate alone, and it is the one §3 and §7
+already use *(the resources the buffer's items name are a separate question, and
+plan-116-J answers it below — still without a refcount)*:
+`removeGroup` and a replacing `setGroup` **retire** the displaced buffer and stamp the
+frame; the buffer is freed once a frame has completed since. A reference count would have
+been a second mechanism guarding a lifetime this already bounds.
+
+The cost is a copy per group per frame *that renders*, against a copy of the whole
+sub-picture per `present` — and presents outnumber rendered frames by design, because
+the frame skip is what this feature's reuse goal rests on.
+
+### The gate runs at the top of `present`, not where the scene ring reclaims
+
+`emit_reclaim_retired` is emitted *after* the publish label in `gen_present.rs`, so it
+runs only on a present that actually changes the scene. A group free placed beside it
+inherits that: `removeGroup("panel")` followed by presents of an unchanged scene would
+never free anything — the frame skip working exactly as designed, and the memory held
+anyway. **A memory bound that depends on the scene changing is not a bound.**
+
+`canvas::nextReclaimableGroup()` therefore runs first and unconditionally in
+`__canvas_present`. It is a scan of 256 slots with no allocation, which is what makes
+unconditional affordable. *(It was `canvas::groupReclaim()`, which both found and freed;
+plan-116-J split the two so the resources a retired buffer owns can be closed in
+between — see below. `groupReclaim(slot)` is now the freer and takes the slot the finder
+named.)*
+
+### A group OWNS the images and fonts its items name (plan-116-J)
+
+`canvas::setGroup`'s `items` parameter **consumes** the resources reachable from its
+argument. A group outlives the `present` that draws it, so it has to keep them alive — and
+it cannot while the caller still owns them, because scope-drop closes a `RES` its binding
+still owns and the group holds only an **alias** into the same record. So the caller's
+binding is moved: naming the image again is `2-203-0055 TYPE_USE_AFTER_MOVE`, and codegen
+drops that scope's close obligation.
+
+**The close hangs off the free path, and the rule is not "close what the retired buffer
+named".** It is:
+
+> A retired resource is closed only if **nothing live names it** — where *live* is the
+> scene about to be published **plus every group's live items**.
+
+Three ordinary programs break under the narrower rule, all of them silently, because
+`imageHandle`/`fontHandle` answer `0` for a closed resource and `0` already means "no such
+object" — the item simply stops drawing and nothing is raised:
+
+* **a group rebuilt each frame from one long-lived font.** The retired buffer and the one
+  replacing it name the same font. This is the shape every real canvas program has.
+* **a resource named by a group and by the live scene.** `present` does not take
+  ownership, so a `Picture` built *before* the `setGroup` reaches the scene with nothing
+  for the move checker to object to.
+* **a resource named by two groups.** Refused at compile time where the checker can see
+  it, but a loop body is analysed once, so a rebuild across iterations is a deliberate
+  false negative (that conservatism is what keeps the rule from rejecting valid programs).
+
+Identity is compared through `canvas::imageHandle`/`canvas::fontHandle`, which return the
+backend id as an `Integer` — two aliases of one resource are not comparable as `RES`
+values. This is the second reason their read order matters: they test the closed flag
+**before** loading the handle (§7), so a concurrent destroy cannot yield a stale non-zero
+id that keeps alive a resource nothing names.
+
+**A `Font`'s close is not symmetric with an `Image`'s.** `destroyImage` sets the closed
+flag and nothing else; `destroyFont` runs `emit_unregister_font` **first**, which clears
+the table slot immediately and is not deferred behind any frame gate — *"so that text
+still naming a released font draws empty rather than reading a block the program has
+finished with"*. The live-set check is what keeps that safe here: the close only fires
+once a frame has completed since the retirement, and if the frame now in flight names the
+font, the scan sees it. One narrow case survives — an in-flight frame drawing a previous
+scene that names the font **directly**, while the incoming scene and every group do not —
+and it costs that frame's glyphs, not a crash. It is what `destroyFont` mid-frame has
+always done. **R17 is pinned in both flavours** — an `Image` and a `Font` — because the
+image one cannot detect an early unregister, `destroyImage` having no unregister step to
+be early about.
+
+The walk is an MFBASIC `MATCH` (`__canvas_closeRetired`), not an open-coded step over the
+`DrawItem` union's layout in codegen: a `MATCH` that a new variant must handle is a
+compile error, and a hand-written tag offset that a new variant must not break is a hope.
+The scan runs **only when a buffer is actually being reclaimed**, so a present with
+nothing due costs what it always did — one call.
+
+Rows **R17–R21** in §8.
+
+### A group node is expanded before any consumer sees it
+
+`__canvas_appendDraw` resolves and flattens the group tree where the draw list is built,
+so the offsets list handed to the render walk, the damage diff and both GPU predicates
+contains only leaf items, each carrying its accumulated `(dx, dy)` in parallel globals.
+No consumer knows groups exist.
+
+Two consequences worth stating because they are easy to get wrong in the other order:
+
+* **The GPU predicates cannot look for a `Group`** — by the time they see the list there
+  is none. They read `__CANVAS_DRAW_HAS_GROUP`, set by the walk. A predicate that
+  searched would find nothing, accept the frame, and draw every group's children at the
+  origin: §10's failure exactly.
+* **Both sides of the damage diff need the offset.** The remembered bounds and the
+  current bounds must both be translated, and each draw entry's recorded hash must fold
+  in its offset — otherwise a moved group changes no geometry and reports "nothing
+  changed".
 
 ## See also
 

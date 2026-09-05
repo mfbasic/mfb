@@ -12,6 +12,49 @@
 - ssh -p 2231 test@127.0.0.1 # Android aarch64
 - ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
 
+## Which boxes have a Rust toolchain — probe, do not read
+
+**Three do, and no single probe finds all three.** Measured 2026-09-03; the claim in
+`scripts/linux-runtime-proof.sh`'s header that *"none of the Linux boxes carries a Rust
+toolchain (2229 is the lone exception)"* is false and has been corrected there too.
+
+| box | cargo | where | cores |
+|---|---|---|---|
+| **2227** Alpine x86_64 musl | 1.96.1 | `/usr/bin/cargo` (distro package) | **4** |
+| **2228** Ubuntu x86_64 gtk glibc | 1.96.0 | `~/.cargo/bin/cargo` — **not on the non-interactive PATH** | 1 |
+| **2229** Alpine riscv64 musl | 1.96.0 | `/usr/bin/cargo` | 8 |
+
+The trap is in the middle row. `ssh -p 2228 'command -v cargo'` answers **nothing**,
+because a non-login shell does not source the rustup env — yet 2228 is the box this
+project has built on for months. Conversely `ls ~/.cargo/bin/cargo` answers nothing on
+2227 and 2229, where it is a distro package. **Probe both:**
+
+```
+ssh -p PORT test@127.0.0.1 "ls ~/.cargo/bin/cargo 2>/dev/null; command -v cargo"
+```
+
+and invoke it by the path you found, not by name.
+
+**Prefer 2227 for a `cargo test` row.** Four cores against 2228's one turns the slowest
+gate in a plan series into something an hour shorter. Caveats worth knowing before
+moving a row there:
+
+* It is **musl**, so it is a different libc world from 2228's glibc — a row that is
+  about glibc behaviour still belongs on 2228.
+* It has **no `rsync`**. Ship with `git archive HEAD -o /tmp/tree.tar`, `scp`, `tar -x`,
+  which is arguably better for a gate anyway: it ships exactly the committed tree, so
+  uncommitted local state cannot leak into a result you are about to cite.
+* Put the target dir on tmpfs — `CARGO_TARGET_DIR=/tmp/target` — `/` has little free
+  space and `/tmp` has 7.8 G.
+
+**2228's linker crashes on a large link.** `rust-lld` segfaulted twice, identically,
+linking the `mfb` test binary (`ld terminated with signal 11`, LLVM stack dump), with
+5 GB free and 26 GB disk — so not resource exhaustion. `RUSTFLAGS='-C
+link-arg=-fuse-ld=bfd'` links it, at the cost of invalidating the dependency cache.
+
+*None of this stays true by itself.* This section is a snapshot of a probe; the probe is
+the part to keep.
+
 App-mode proof surface (plan-56-C §4.2.1) — **re-probe, do not assume**; three of
 these facts changed during plan-56 itself:
 

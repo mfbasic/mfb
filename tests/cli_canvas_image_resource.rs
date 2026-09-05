@@ -100,10 +100,11 @@ FUNC main AS Integer
     RETURN 5
   END IF
 
-  LET handle AS canvas::ImageRef = canvas::imageRef(img)
-  IF handle.id = 0 THEN
-    RETURN 6
-  END IF
+  ' Exit code 6 used to check that `imageRef(img)` minted a non-zero handle. plan-116-I
+  ' removed the minting step, and the question it stood for -- "did the backend really
+  ' register this image" -- is already answered above by the `getSize` checks that
+  ' return 1 and 2. So the code is retired rather than reworded; there is nothing left
+  ' for it to ask that is not already asked.
 
   LET fresh AS List OF Byte = [toByte(90), toByte(91), toByte(92), toByte(93), toByte(94), toByte(95), toByte(96), toByte(97)]
   canvas::setBytes(img, fresh)
@@ -115,8 +116,9 @@ FUNC main AS Integer
     RETURN 8
   END IF
 
-  ' The scene carries the handle, not the image.
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := handle, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  ' The scene carries the image itself since plan-116-I. Destroying it while the scene
+  ' still names it is still safe -- that item draws nothing.
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([tile])
 
   LET r1 AS Integer = badCreate()

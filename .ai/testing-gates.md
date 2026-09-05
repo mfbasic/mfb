@@ -358,6 +358,34 @@ On this SHARED machine other agents run their own `test-accept.sh` concurrently 
 
 **How to apply:** before trusting an acceptance failure, (1) check the failing fixture actually exercises your change (`grep` it); (2) re-run JUST that fixture into a **private** actual dir: `scripts/test-accept.sh <exe> /tmp/accept-check <glob>` — a pass there proves it was a concurrent-clobber false failure, not a regression. Also: `pgrep -fl test-accept` to see if a foreign run is live, and wait on YOUR specific PID (`until ! kill -0 <pid>`) not `grep -q test-accept` (which matches foreign runs and never fires).
 
+### …and a PRIVATE actual dir does not save you: build contention makes the same symptom
+
+The remedy above — run into your own `/tmp/accept-check` — fixes the *clobber*. It does
+not fix the other cause of an identical `missing actual …/x.ast` line: the fixture's
+**build was starved**, so the artifact was never written in the first place.
+
+Measured, plan-116-J. A full `test-accept.sh` into a private scratch dir, run alongside a
+`cargo test --release` and an `artifact-gate.sh`, reported
+`acceptance tests failed: 2 mismatch(es) (1399 test(s) ran)` — both
+`missing actual rt-behavior/astrings/copy-drop-rt/copy_drop_rt.{ast,ir}`, a fixture with
+no connection to the change under test. Re-run alone, into a fresh scratch dir:
+**passes**. The same session's `artifact-gate.sh` produced the twin symptom on its own
+side — `MISSING byte-identity/vector/vector_codegen_cover_rt.linux-aarch64.ncode`, one
+cross-compile of seven for a fixture equally unrelated — and `MISSING` counts as a diff,
+so the gate reported `1 diff(s)` and exited 1.
+
+**How to tell the two apart, and why it matters.** The clobber needs a *foreign* run
+sharing your actual dir; starvation needs only enough concurrent compilation. So
+`pgrep -fl test-accept` can come back empty and the failure still be phantom. The
+discriminator is the same either way and it is cheap: **re-run the named fixture alone**.
+What it is worth is that the two have different preventions — a private dir prevents the
+clobber and does nothing for starvation, for which the prevention is simply not running
+three build-heavy gates at once.
+
+**The tell:** a `missing actual` / `MISSING` on a fixture that has nothing to do with your
+change, and where the *golden* exists but the *actual* does not. A real regression changes
+an artifact; it does not fail to produce one.
+
 ## The `.run` golden is an empty marker
 
 When hand-validating a fixture's runtime output, do NOT diff against `golden/<pkg>.run` — that file is a **zero-byte marker** whose mere presence tells `test-accept.sh` to build, run, and capture. The **expected program stdout is in `golden/build.log`**, between the bare `$ .../build/<pkg>.out` run line and its following `[exit N]`. Extract it with:
@@ -409,6 +437,43 @@ against a sibling in the same directory. Only `.run` may legitimately be empty
 the fixture was never synced, and *nothing* in `cargo test` will tell you: the
 acceptance harness is not part of the cargo suite, so a green `cargo test` is
 silent about it.
+
+## A behavioural test whose observable cannot MOVE is vacuous — ship the control
+
+A test that asserts "X still works after Y" is only a test if X visibly works
+*without* Y. When it does not, the assertion is green or red for reasons that have
+nothing to do with what is being tested, and **the failure is indistinguishable from
+the bug**.
+
+Measured, plan-116-J. The natural test for "a group keeps the image its items name"
+is: install a `canvas::Picture`, drop the caller's binding, present the group, assert
+the image draws. Written that way it renders an **all-black frame** — and so does the
+identical program with the binding still alive, because `canvas::Picture` draws nothing
+on any backend. `helper_geometry.rs` gives it the `NONE` geometry kind
+(`CASE Picture(pic) RETURN __canvas_emptyHeader()`) that every renderer skips, and
+`canvas::imageHandle` has no caller in any renderer. So the test fails before the
+feature is written, fails after the feature is correct, and says nothing either way.
+
+**How to apply.** Before asserting that an observable *stayed* good, write the control
+that shows it can be good at all, and **keep it in the file**:
+
+* pick an observable that is known to move — plan-116-J switched every behavioural
+  test from an `Image` to a `Font`, because `Text` renders and `glyphs=` in
+  `MFB_CANVAS_STATS` moves;
+* ship the positive control **beside** the assertion
+  (`the_control_draws_with_the_binding_alive`), so a future change that kills the
+  observable fails the control loudly instead of leaving the real test green-by-accident;
+* prove the test RED before trusting it green — comment out the fix and confirm the
+  assertion fails while the control still passes.
+
+The same rule catches the milder version: a "no leak" assertion against a resource that
+allocates nothing, or an `lsof` check on a handle that holds no descriptor, is a gate
+that could not have failed. Run it if the plan says to, and **record it as vacuous
+rather than counting it as a pass** — a green result that was never at risk is worse
+than no result, because it is remembered as evidence.
+
+See also *"Negative-only assertions pass when the peer is unreachable"*: same failure,
+approached from the other side.
 
 ## A network-timing fixture can be flaky in BOTH directions
 

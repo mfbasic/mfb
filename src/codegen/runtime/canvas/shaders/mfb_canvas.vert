@@ -43,6 +43,17 @@ layout(std430, set = 0, binding = 1) readonly buffer Items {
 // available there.
 layout(location = 0) flat out int vItem;
 
+// plan-116-H: the group translation for THIS draw, in 16.16.
+//
+// Per-draw rather than per-item, which is the whole point: a group referenced twice is
+// one set of item blocks and two draws differing only by this. Both stages declare it —
+// the fragment stage subtracts it before evaluating the distance field — because a
+// range no stage consumes is a layout the validation layers reject, which is why
+// plan-116-A deleted the range rather than leaving it empty (H4).
+layout(push_constant) uniform Draw {
+    ivec2 offset;
+} draw;
+
 const float FIXED = 65536.0;
 
 float fx(int v) { return float(v) / FIXED; }
@@ -58,8 +69,18 @@ void main() {
 
     // Four corners of the item's bounds, expanded from gl_VertexIndex — no vertex
     // buffer, exactly as on Metal.
+    // plan-116-H: the group offset moves the QUAD, and the fragment stage moves the
+    // query point the other way. That is the same split the software renderer makes
+    // (plan-116-G §4.5) — bounds by +offset, distance evaluated at p - offset — so one
+    // rule covers all three renderers rather than each inventing its own.
+    //
+    // No clamp to the surface here. The quad may extend past it, and the rasteriser
+    // discards what falls outside clip space; the fragment stage's own bounds and clip
+    // tests do the rest. A clamp would additionally be wrong: it would shrink the quad
+    // that the fragment stage still expects to span the item's full extent.
     vec2 corner = vec2(fx((gl_VertexIndex & 1) == 0 ? item.quad.x : item.quad.z),
-                       fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w));
+                       fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w))
+                + vec2(fx(draw.offset.x), fx(draw.offset.y));
     // Vulkan clip space is Y-down already, unlike Metal's Y-up — so this is the one
     // line that differs between the two shaders, and it differs by *not* flipping.
     gl_Position = vec4(corner.x / float(item.surface.x) * 2.0 - 1.0,

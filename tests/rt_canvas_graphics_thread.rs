@@ -347,3 +347,100 @@ fn the_renderer_seam_reports_its_device_and_leaves_it_unselected() {
         "MFB_CANVAS_GPU must select the GPU renderer on a host that has one",
     );
 }
+
+/// One field of one stats line, by name.
+///
+/// Free rather than a closure inside a test, because the group tests below read the
+/// *second* line as well as the first — the whole point of a frame-skip assertion is
+/// what the later frames say.
+fn stat_field(line: &str, name: &str) -> String {
+    line.split_whitespace()
+        .find_map(|f| f.strip_prefix(name).map(str::to_string))
+        .unwrap_or_else(|| panic!("no {name} field in {line:?}"))
+}
+
+/// A group's contents changing must produce a second frame, even though the scene
+/// list handed to `present` is byte-for-byte the one already published.
+///
+/// This is plan-116-G §4.4's least obvious requirement and the reason it is written
+/// before any of the feature exists. `publishScene` decides whether to redraw by
+/// comparing the raw bytes of the `DrawItem` list's data region
+/// (`emit_compare_bytes_branch` in `gen_present.rs`). A `Group` node is `dx`, `dy` and
+/// `name` — and after `setGroup("panel", …)` installs *different* items under the same
+/// name, all three of those are unchanged. Two presents of the same list therefore
+/// compare equal and the second is skipped, so the program draws the OLD panel forever
+/// and nothing raises: a stale picture reported as success.
+///
+/// §4.4's answer is a parallel resolved-groups signature — `(slotIndex, revision)` per
+/// resolved group node, in scene order — published and compared alongside the items.
+/// This test does not care how it is done; it pins the observable consequence.
+///
+/// `A` is a box at the top-left and `A'` a box far away at the bottom-right, so
+/// "the second frame shows A'" is readable from `damage=` without pixel access. If the
+/// signature is missing, this fails at the frame count; if the signature exists but is
+/// compared instead of the items rather than as well, the sibling below fails.
+///
+/// Un-ignored by **Phase 4**, which lands the resolution pass. Until then `setGroup`
+/// does not exist and this cannot compile as a program, which is why it is `#[ignore]`d
+/// rather than merely failing.
+#[test]
+#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
+fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+         canvas::setGroup(\"panel\", [a])\n  \
+         LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
+         canvas::present([node])\n  \
+         LET b AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+         canvas::setGroup(\"panel\", [b])\n  \
+         canvas::present([node])\n  io::print(\"done\")\n";
+    let (_, frames) = run("canvas_group_revision", &program(body), true);
+
+    assert_eq!(
+        frames.len(),
+        2,
+        "replacing a group's contents must redraw, even though the scene list handed \
+         to the second `present` is byte-identical to the first: the group's revision \
+         has to reach the content comparison, or the program draws the old panel \
+         forever and nothing raises. {frames:?}",
+    );
+
+    let first = stat_field(&frames[0], "damage=");
+    let second = stat_field(&frames[1], "damage=");
+    assert_ne!(
+        first, second,
+        "the second frame drew the same region as the first, so it redrew the OLD \
+         group: a revision that reaches the skip comparison but not the resolved \
+         buffer is the failure this distinguishes. A is at (10,10) and A' at \
+         (700,500), so the two damage rectangles cannot coincide if A' was drawn.",
+    );
+}
+
+/// Its sibling, and the half that a careless fix breaks: with no `setGroup` between
+/// them, two identical presents still draw **once**.
+///
+/// The cheap way to pass the test above is to stop comparing, or to fold something
+/// per-frame-varying into the signature — either of which turns every group program
+/// into an unconditional redraw and silently undoes the skip that
+/// `an_identical_re_present_draws_no_second_frame` protects for group-free scenes.
+/// Pairing the two is what makes the requirement two-sided.
+///
+/// Un-ignored by **Phase 4**, with its sibling.
+#[test]
+#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
+fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]\n  \
+         canvas::setGroup(\"panel\", [a])\n  \
+         LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
+         canvas::present([node])\n  \
+         canvas::present([node])\n  \
+         canvas::present([node])\n  io::print(\"done\")\n";
+    let (_, frames) = run("canvas_group_no_revision", &program(body), true);
+
+    assert_eq!(
+        frames.len(),
+        1,
+        "three presents of an unchanged group must draw once: the resolved-groups \
+         signature has to compare EQUAL when nothing changed, or every group program \
+         redraws every present forever. {frames:?}",
+    );
+}

@@ -351,6 +351,56 @@ across it. When a converted function calls a still-untyped helper
 forbids is the opposite move: typing a signature and pushing the render *out* to
 its callers, which multiplies renders while the gate count goes down.
 
+## A `Body::abi_function` call SITE is `NirValue::RuntimeCall`
+
+To hook anything at the **call site** of a `Body::abi_function` builtin — a cleanup
+deactivation, an analysis, a rewrite — the arm to touch is
+**`NirValue::RuntimeCall { helper, target, args, .. }`** in
+`src/codegen/engine/value/builder_values.rs`.
+
+Three plausible places are all wrong, and each looks right until it is traced
+(measured, plan-116-J, hooking `canvas::setGroup`):
+
+* `lower_value`'s **`NirValue::Call`** arm — a trace printed every target it saw and
+  never the builtin's;
+* its **`CallResult`** arm — even though that member IS fallible (a non-empty `errors`
+  list); and
+* **`emit_call`** in `builder_emit_helpers.rs`, the apparent chokepoint — **798 lowered
+  calls** in a program that calls the member, not one of them named it.
+
+`mfb build --nir` settles it in one command: the dump shows
+`{"kind": "runtimeCall", "helper": "canvas", "target": "canvas.setGroup"}`. The same
+dump also carries **`resourceOwners` per function**, which answers "is this binding
+`ResOwner::Local` or `Float`" without reading `ir::resource_escape` at all.
+
+**Why the wrong guesses are expensive:** a hook on the wrong arm compiles, runs, and
+does nothing. No error, no warning — the feature silently never fires. Trace the target
+names before assuming an arm is on the path.
+
+## Writing MFBASIC into a package, and emitting it
+
+Injected package source (`RegistryHelper`, `Body::Mfb`) is compiled by the same
+front-end as user code, but a few of its rules are not guessable and each costs a build:
+
+* **There is no `%` operator.** `i % 100` is `1-101-0001 MFB_LEX_UNEXPECTED_CHARACTER`,
+  *"Unexpected character `%`"*. Write `i - 100 * (i / 100)`.
+* **`WHILE` ends with `END WHILE`**, not `WEND`.
+* **A loop variable reassigned in the body needs `MUT`**, not `LET` —
+  `2-203-0048 TYPE_ASSIGN_REQUIRES_MUT`.
+* **A union variant in a `CASE` is unqualified inside the package's own source**
+  (`CASE Picture(p)`) and **qualified from a user program** (`CASE canvas::Picture(p)`;
+  unqualified there is `2-201-0015 SYMBOL_UNKNOWN_TYPE`). This bites when a probe
+  written as a user program is transplanted into a helper, or the reverse.
+* **A `RES` read straight out of a record field may be passed to a consuming
+  (non-`RES`) parameter**: `canvas::destroyImage(p.image)` compiles, no intermediate
+  binding needed.
+
+And one on the emitter side:
+
+* **`abi::move_immediate` rejects a negative immediate.** `-1` fails the *build* with
+  `error: invalid immediate '-1'`, not the Rust compile. Build it as
+  `move_immediate(r, "Integer", "0")` then `subtract_immediate(r, r, 1)`.
+
 ## Two flatness predicates, not one (plan-114-B)
 
 `type_is_flat` is gone. It answered two questions with one predicate:

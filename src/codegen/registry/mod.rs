@@ -143,6 +143,20 @@ pub(crate) enum DefaultValue {
     Optional,
 }
 
+/// A parameter that consumes the resources reachable from its argument (plan-116-J).
+///
+/// Distinct from a resource type's `close_function`, which says *how* a resource is
+/// closed; this says *that passing a container closes what is inside it*. The two meet in
+/// the move checker: the containment closure of the argument is consumed, and each
+/// consumed binding is then closed by its own type's close op.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConsumingParameter {
+    /// The member's unqualified name, e.g. `"setGroup"`.
+    pub(crate) function: &'static str,
+    /// The parameter's canonical name, e.g. `"items"`.
+    pub(crate) parameter: &'static str,
+}
+
 /// One parameter of an [`Implementation`]'s signature.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Parameter {
@@ -947,6 +961,22 @@ pub(crate) struct RegistryPackage {
     /// own synthetic files by [`Registry::augment_project`].
     helpers: Vec<RegistryHelper>,
     functions: Vec<RegistryFunction>,
+    /// Parameters that **consume the resources reachable from their argument**
+    /// (plan-116-J). `canvas::setGroup`'s `items` is the first: the group takes over
+    /// closing every `canvas::Image`/`canvas::Font` named by the `DrawItem`s in the list,
+    /// so the caller's bindings must be marked moved or scope-drop closes them out from
+    /// under the group.
+    ///
+    /// **Data, not a field on [`Parameter`], deliberately.** A required field would have
+    /// to be spelled at all 726 `Parameter { … }` literals in the tree to say "no" 725
+    /// times, which buries the one site that says yes. The `add_*` builder shape is how
+    /// this registry already carries per-package facts that only a handful of members
+    /// have (`source_types`, `constants`, `overrides`).
+    ///
+    /// **Keyed by (function, parameter NAME), not by index**, because a parameter's
+    /// position is not stable under an overload split and a name-keyed verdict over an
+    /// overloaded builtin is wrong for exactly one overload if it is keyed any other way.
+    consuming_params: Vec<ConsumingParameter>,
     /// Value-type names (`EXPORT TYPE`/`ENUM`) a package declares **only** in its
     /// injected companion source (`package.mfb`) rather than as a modeled
     /// [`RegistryRecord`]/[`RegistryEnum`] — `datetime`'s `Instant`/`Date`/…/`ZoneKind`,
@@ -993,6 +1023,7 @@ impl RegistryPackage {
             resources: Vec::new(),
             helpers: Vec::new(),
             functions: Vec::new(),
+            consuming_params: Vec::new(),
             source_types: Vec::new(),
             constants: Vec::new(),
             overrides: Vec::new(),
@@ -1246,6 +1277,32 @@ impl RegistryPackage {
     pub(crate) fn add_resource(&mut self, resource: RegistryResource) -> &mut Self {
         self.resources.push(resource);
         self
+    }
+
+    /// Declare that `function`'s `parameter` **consumes the resources reachable from its
+    /// argument** — see [`consuming_params`](Self::consuming_params).
+    ///
+    /// The call must name a real member and a real parameter of it; nothing else in the
+    /// compiler would notice a typo, because a lookup that finds nothing reads exactly
+    /// like "this parameter does not consume". `the_consuming_parameters_name_real_members`
+    /// is what makes a typo fail, and it is a real test rather than a `debug_assert!`:
+    /// CI builds `--release` on all five platforms, so a `debug_assert!` here would run
+    /// nowhere in it.
+    pub(crate) fn add_consuming_parameter(
+        &mut self,
+        function: &'static str,
+        parameter: &'static str,
+    ) -> &mut Self {
+        self.consuming_params.push(ConsumingParameter {
+            function,
+            parameter,
+        });
+        self
+    }
+
+    /// The package's consuming parameters, in registration order.
+    pub(crate) fn consuming_params(&self) -> &[ConsumingParameter] {
+        &self.consuming_params
     }
 
     /// Add a function (a `RegistryFunction { … }`).
@@ -3730,6 +3787,189 @@ mod qualification_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Every `add_consuming_parameter` names a real member and a real parameter of
+    /// it.**
+    ///
+    /// The lookup that reads this data
+    /// (`crate::codegen::resource::builtin_consuming_parameter_index`) returns `None`
+    /// for a member with no consuming parameter *and* for a member that does not exist
+    /// — the same answer. So a typo in either string is not a compile error, not a
+    /// runtime error, and not a wrong answer: it is **silence**, and the feature it
+    /// switches on simply never happens. That is the worst shape a mistake can have
+    /// here, because the behaviour it disables is a `TYPE_USE_AFTER_MOVE` that would
+    /// otherwise catch a use-after-close.
+    ///
+    /// A real test rather than the `debug_assert!` in `add_function` beside it: CI
+    /// builds `--release` on all five platforms, so a `debug_assert!` runs nowhere in
+    /// it (plan-116-E **E6**).
+    #[test]
+    fn the_consuming_parameters_name_real_members() {
+        for package in registry().packages() {
+            for entry in package.consuming_params() {
+                let function = package.function(entry.function).unwrap_or_else(|| {
+                    panic!(
+                        "{}: add_consuming_parameter names `{}`, which is not a member \
+                         of the package",
+                        package.import_name(),
+                        entry.function,
+                    )
+                });
+                assert!(
+                    function
+                        .implementations
+                        .iter()
+                        .any(|imp| imp.params.iter().any(|p| p.name == entry.parameter)),
+                    "{}.{}: add_consuming_parameter names parameter `{}`, which no \
+                     implementation declares (parameters are {:?})",
+                    package.import_name(),
+                    entry.function,
+                    entry.parameter,
+                    function
+                        .implementations
+                        .iter()
+                        .flat_map(|imp| imp.params.iter().map(|p| p.name))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+
+    /// **A consuming parameter sits at the same index in every overload that has it.**
+    ///
+    /// The index is derived from the name by the first implementation that declares it,
+    /// so two overloads disagreeing would make the checker consume the wrong argument in
+    /// one of them — and consuming the wrong argument marks the wrong binding moved,
+    /// which is a false `TYPE_USE_AFTER_MOVE` on correct code or silence on broken code
+    /// depending on which way it lands. An overload that does not declare the parameter
+    /// at all is fine and contributes nothing.
+    #[test]
+    fn the_consuming_parameter_index_agrees_across_overloads() {
+        for package in registry().packages() {
+            for entry in package.consuming_params() {
+                let Some(function) = package.function(entry.function) else {
+                    continue; // reported by the test above
+                };
+                let indices: Vec<usize> = function
+                    .implementations
+                    .iter()
+                    .filter_map(|imp| imp.params.iter().position(|p| p.name == entry.parameter))
+                    .collect();
+                if let Some(first) = indices.first() {
+                    assert!(
+                        indices.iter().all(|i| i == first),
+                        "{}.{}: parameter `{}` sits at differing indices across \
+                         overloads ({indices:?}); the move checker would consume the \
+                         wrong argument in at least one of them",
+                        package.import_name(),
+                        entry.function,
+                        entry.parameter,
+                    );
+                }
+            }
+        }
+    }
+
+    /// **`canvas::setGroup`'s `items` is a consuming parameter, and it resolves to
+    /// argument 1.**
+    ///
+    /// Pinned by value rather than only by the two structural tests above, because those
+    /// two are both satisfied by an empty list. A registration silently lost — a merge
+    /// dropping the `add_consuming_parameter` line, a rename — would leave them green.
+    #[test]
+    fn set_group_items_is_the_consuming_parameter() {
+        assert_eq!(
+            crate::codegen::resource::builtin_consuming_parameter_index("canvas.setGroup"),
+            Some(1),
+            "canvas::setGroup(name, items) — `items` is argument 1",
+        );
+        assert_eq!(
+            crate::codegen::resource::builtin_consuming_parameter_index("canvas.present"),
+            None,
+            "`present` must NOT consume: a published scene never keeps an image open",
+        );
+    }
+
+    /// **plan-116-I Phase 1's premise: a builtin record property may carry a `RES`
+    /// type, and it survives every registry seam a record field passes through.**
+    ///
+    /// This is the letter's one unverified assumption, and it had no precedent to copy
+    /// from — `grep -rn 'ParameterType::res(' src/codegen/builtins/` finds **nothing**.
+    /// Every `Res` in a builtin descriptor today is a *parameter*
+    /// (`tcp/func_poll.rs`, `udp/func_poll.rs`); no record property has ever declared
+    /// one. plan-114-D lifted the language ban on resource-typed record fields; whether
+    /// the *registry* could describe one was never exercised.
+    ///
+    /// The three seams a record field crosses, in the order it crosses them:
+    ///
+    /// 1. **Export** — `RegistryRecord::render` writes the record out as MFBASIC source
+    ///    that is injected and then compiled. If `source_spelling` did not spell the
+    ///    `RES`, the emitted `TYPE` would declare a *value* field of the resource's
+    ///    name, and the program would compile against the wrong type rather than fail.
+    /// 2. **Qualification** — a nominal leaf is rewritten to its owning package. The
+    ///    hazard here is specific and has bitten before: a rewrite that rebuilds the
+    ///    type from `name()` can return `Named("RES canvas.Image")` — a *nominal whose
+    ///    text spells a resource* — instead of `Res(Named("canvas.Image"))`. The two
+    ///    render identically and behave differently, which is the failure
+    ///    `every_named_in_the_catalog_round_trips` exists to catch elsewhere.
+    /// 3. **The catalog's own leaf check** — every `Named` in a descriptor must satisfy
+    ///    `parse(n) == Named(n)`, and the walk recurses through `Res`.
+    ///
+    /// Asserted on a scratch record rather than on `Picture`/`Text`, because Phase 1
+    /// changes no surface: the real fields are still `ImageRef`/`FontRef` until Phase 2.
+    #[test]
+    fn a_builtin_record_property_may_carry_a_res_type() {
+        let image = ParameterType::res(ParameterType::named("canvas.Image"));
+
+        // 1. Export. The field must be spelled `RES canvas::Image` — package-separated
+        //    with `::`, since that is what the injected source is parsed as.
+        let record = RegistryRecord {
+            name: "ResProbe",
+            export: true,
+            description: "",
+            props: vec![RecordProp {
+                name: "image",
+                ty: image.clone(),
+                description: "",
+            }],
+        };
+        let rendered = record.render();
+        assert!(
+            rendered.contains("image AS RES canvas::Image"),
+            "a `Res` property must export as a RES field; got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("image AS canvas::Image"),
+            "the RES was dropped, so the field exports as a VALUE of the resource's \
+             name — which compiles, against the wrong type:\n{rendered}"
+        );
+
+        // 2. The wrapper survives, as a wrapper. `name()` alone cannot tell the two
+        //    apart, so this asserts the VARIANT rather than the spelling.
+        assert!(
+            matches!(image, ParameterType::Res(_)),
+            "the probe type is not a Res to begin with"
+        );
+        assert_eq!(image.name(), "RES canvas.Image");
+        assert_ne!(
+            image,
+            ParameterType::named("RES canvas.Image"),
+            "a Named that merely SPELLS a resource is a different value from a Res, \
+             and the two render identically — this is the substitution that would make \
+             every assertion above pass while the field was not a resource at all"
+        );
+
+        // 3. The catalog's leaf rule, applied to the inner nominal: a `Named` must
+        //    parse back to itself, or the descriptor is spelling structure in a name.
+        let ParameterType::Res(inner) = &image else {
+            unreachable!("checked above");
+        };
+        assert_eq!(
+            ParameterType::parse(&inner.name()),
+            **inner,
+            "the resource's nominal does not round-trip through `parse`"
+        );
+    }
 
     /// plan-111-C Phase 3's overload-resolution regression guard.
     ///

@@ -171,12 +171,18 @@ fn assert_close_marked_before_branch(ncode: &Value, target: &str) {
         .position(|op| call_target(op).ends_with("_close_error"))
         .map(|rel| close_idx + 1 + rel)
         .unwrap_or_else(|| panic!("{target}: fs::close has no branch to close_error"));
-    // A record-field store (base is the File pointer, not the `sp` spill area) of
-    // the CLOSED flag at offset 16, sitting before the close-result branch.
+    // A record-field store (base is the File pointer, not the spill area) of the CLOSED
+    // flag at offset 16, sitting before the close-result branch.
+    //
+    // The frame is excluded on BOTH spellings. `TARGETS` includes `linux-x86_64`, where
+    // the stack pointer prints `rsp`, so excluding only `sp` left this `any(...)` able
+    // to match a plain spill that happened to use offset 16 — the assertion below would
+    // then pass without `fs::close` storing CLOSED at all. A false pass, on the half of
+    // the targets nobody develops on.
     let marked = ins[close_idx + 1..branch_idx].iter().any(|op| {
         op_name(op) == "str_u64"
             && op.get("offset").and_then(Value::as_str) == Some(FILE_OFFSET_CLOSED)
-            && op.get("base").and_then(Value::as_str) != Some("sp")
+            && !common::is_stack_base(op)
     });
     assert!(
         marked,

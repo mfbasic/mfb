@@ -56,11 +56,23 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
       y = y + 1
     END WHILE
   END IF
-  FOR EACH offset IN offsets
-    IF full OR __canvas_boundsMeet(offset, damage) THEN
-      buffer = __canvas_drawGeometry(buffer, width, height, offset)
+  ' plan-116-G: indexed rather than `FOR EACH`, because each draw entry now carries an
+  ' accumulated group translation alongside its geometry offset. The two travel in
+  ' parallel globals written by `__canvas_sceneOffsets`, the arrangement
+  ' `__CANVAS_GEO_LIVE` already uses in that function -- one list per fact, indexed
+  ' together. A scene with no groups leaves every entry at 0.0 and draws exactly what it
+  ' drew before this letter.
+  MUT di AS Integer = 0
+  LET drawCount AS Integer = len(offsets)
+  WHILE di < drawCount
+    LET offset AS Integer = collections::getOr(offsets, di, 0)
+    LET gdx AS Float = collections::getOr(__CANVAS_DRAW_DX, di, 0.0)
+    LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, di, 0.0)
+    IF full OR __canvas_boundsMeetOffset(offset, damage, gdx, gdy) THEN
+      buffer = __canvas_drawGeometry(buffer, width, height, offset, gdx, gdy)
     END IF
-  NEXT
+    di = di + 1
+  END WHILE
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
@@ -119,10 +131,420 @@ END FUNC"#;
 /// them the one triangle.
 #[rustfmt::skip]
 const RENDER_METAL: &str =
-r#"FUNC __canvas_sceneOffsets() AS List OF Integer
+r#"' plan-116-G: the accumulated group translation of each draw entry, parallel to the
+' offsets list `__canvas_sceneOffsets` returns, and whether any group was expanded.
+'
+' Parallel globals rather than a widened return, because that return is consumed by
+' four callers -- the render walk, both `*Renderable` predicates and the damage pass --
+' which all index it one entry per item. Widening it to a strided record would touch
+' every one of them to express something three of them never read.
+MUT __CANVAS_DRAW_DX AS List OF Float = []
+MUT __CANVAS_DRAW_DY AS List OF Float = []
+
+' The hash of each DRAW entry, which is not the same list as the scene's hashes once a
+' group is expanded: one `Group` node becomes N children.
+'
+' The damage diff pairs hashes with offsets by index, so it needs the expanded list or
+' its two sides are different lengths and every group scene falls back to a full redraw.
+' For a group-free scene this records exactly what `canvas::installedHashes()` holds --
+' the value is passed straight through -- so nothing about damage changes for a scene
+' that uses no groups.
+MUT __CANVAS_DRAW_HASHES AS List OF Integer = []
+
+LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
+
+' One draw entry, or a whole group's worth of them.
+'
+' The recursion section 4.4 describes, done where the draw list is built rather than as
+' a separate pass over the published scene: it is the same walk either way, and doing it
+' here means the offsets list a renderer receives is already flat, so no consumer of it
+' has to know groups exist.
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, depth AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = offsets
+  MATCH item
+    CASE Group(g)
+      ' Depth is counted per PATH, so a diamond -- two parents naming one child -- is
+      ' legal and costs one level rather than two.
+      '
+      ' This stop is SILENT, and that is not the missing half of the depth rule. The
+      ' raise happens on the WORKER, in `__canvas_groupSignature` inside `present`,
+      ' because this function runs on the GRAPHICS THREAD -- a `FAIL` here has no
+      ' `present` call to reach and no user frame to unwind to. By the time a scene is
+      ' being drawn it has already passed the worker's check, so this is unreachable;
+      ' it is here because "unreachable" plus "recursion" plus "a table another thread
+      ' can edit" is not a combination to leave without a bound.
+      IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+        RETURN out
+      END IF
+      ' An unresolved name draws nothing and does NOT raise: `canvas::groupItems`
+      ' answers an empty list for the -1 a miss returns, so the loop runs zero times and
+      ' no branch is needed to make an absent group a silent no-op.
+      FOR EACH child IN canvas::groupItems(canvas::groupResolve(g.name))
+        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), gdx + g.dx, gdy + g.dy, depth + 1)
+      NEXT
+      RETURN out
+    CASE ELSE
+      LET offset AS Integer = __canvas_geometryFor(item, hash)
+      out = collections::append(out, offset)
+      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+      __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, gdx)
+      __CANVAS_DRAW_DY = collections::append(__CANVAS_DRAW_DY, gdy)
+      ' The accumulated offset is folded into the recorded hash, not just carried
+      ' beside it. The damage diff asks "is entry i the same as it was", and for an item
+      ' inside a group the answer depends on WHERE the group put it: the geometry is
+      ' identical when a node's `dx`/`dy` change, so a hash that ignored the offset
+      ' reported "nothing changed" and the moved group was never repainted -- measured
+      ' as `frames=1 skipped=1 damage=none` for a group moved 500px.
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(hash, gdx), gdy))
+      RETURN out
+  END MATCH
+END FUNC
+
+' The resolved-groups signature of a scene: `(slot, revision)` for every group node it
+' reaches, depth-first, in scene order (section 4.4).
+'
+' This is what lets `present` see a group's CONTENTS change when the scene list it is
+' handed is byte-identical to the published one. `publishScene` compares the raw bytes
+' of the item list, and a `Group` node's bytes are two floats and a string pointer --
+' all three unchanged by a `setGroup` under the same name. Without this the second
+' `present` is skipped and the program draws the old group forever, with nothing raised.
+'
+' It runs on the WORKER, inside `present`, which is also why the depth limit is enforced
+' here: this is the only place with a user call to fail back to.
+FUNC __canvas_groupSignature(items AS List OF DrawItem, depth AS Integer) AS List OF Integer
+  MUT sig AS List OF Integer = []
+  FOR EACH item IN items
+    MATCH item
+      CASE Group(g)
+        IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+          FAIL error(77050024, "canvas group nesting exceeded " & toString(__CANVAS_GROUP_MAX_DEPTH) & " levels -- this is a cycle or a bug")
+        END IF
+        LET slot AS Integer = canvas::groupResolve(g.name)
+        sig = collections::append(sig, slot)
+        sig = collections::append(sig, canvas::groupRevision(slot))
+        FOR EACH inner IN __canvas_groupSignature(canvas::groupItems(slot), depth + 1)
+          sig = collections::append(sig, inner)
+        NEXT
+      CASE ELSE
+        sig = sig
+    END MATCH
+  NEXT
+  RETURN sig
+END FUNC
+
+FUNC __canvas_intListEquals(a AS List OF Integer, b AS List OF Integer) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < len(a)
+    IF collections::getOr(a, i, 0) <> collections::getOr(b, i, 0) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
+
+' plan-116-H: the GPU draw list, and the block layout it indexes into.
+'
+' `__canvas_sceneDraws` is the sibling of `__canvas_sceneOffsets`. Both walk the same
+' resolved tree; they differ in what they produce and, critically, in **how often a
+' shared group is written**.
+'
+' `__CANVAS_DRAWS` is four integers per entry -- `(itemBase, itemCount, dx, dy)`, the
+' offsets in 16.16 -- and `__CANVAS_DRAW_BLOCKS` is the flat list of geometry offsets the
+' bases index into, one entry per item block the frame uploads.
+'
+' **The decision section 4.3 asks Phase 1 to make: a shared group's blocks are written
+' ONCE and referenced, not once per reference.** Three reasons, and the first is the one
+' that settles it:
+'
+'   1. It is the only shape in which a per-draw offset earns its place. The whole
+'      apparatus this letter adds -- a Vulkan push constant, Metal `setVertexBytes:` --
+'      exists so that two draws of one group differ only by a translation. If the blocks
+'      were duplicated per reference, the offset could simply be baked into each copy
+'      when it is written, and none of that machinery would be needed.
+'   2. It bounds what reuse costs. `__CANVAS_MAX_FRAME_ITEMS` is 4096; a UI drawing one
+'      200-item panel at thirty positions costs 200 blocks under sharing and 6000 under
+'      duplication -- over the cap, so the frame would decline to software and the
+'      feature would be slowest exactly where it is most used.
+'   3. It is this letter's stated goal (1), reuse, expressed in the buffer.
+'
+' The consequence for the predicates is that **two different things are capped**: the
+' number of BLOCKS (which a diamond does not double) and the number of DRAWS (which it
+' does). They are summed separately below.
+'
+' A group is memoised by slot index, so the second reference to a group finds its blocks
+' already laid out. Its own non-group items form one contiguous run; a nested group inside
+' it is not part of that run -- it becomes its own memoised run plus a draw entry at the
+' composed offset, which is what "a group ends the current run and starts a new one after
+' it" means once the group can itself contain groups.
+MUT __CANVAS_DRAWS AS List OF Integer = []
+MUT __CANVAS_DRAW_BLOCKS AS List OF Integer = []
+' Slot index -> the base of that group's own run in `__CANVAS_DRAW_BLOCKS`, and its
+' length. Parallel lists rather than a Map because a Map of Integer to Integer would
+' allocate per frame and this is walked once per group node.
+MUT __CANVAS_DRAW_MEMO_SLOT AS List OF Integer = []
+MUT __CANVAS_DRAW_MEMO_BASE AS List OF Integer = []
+MUT __CANVAS_DRAW_MEMO_COUNT AS List OF Integer = []
+
+' The instance index each block-list entry starts at.
+'
+' `base` and `count` in a draw entry are INSTANCES -- blocks in the item buffer -- and
+' those are not one per block-list entry. A `Text` item is one entry here and N quads
+' there, one per glyph, each taking its own block (plan-98-G). Every other kind is 1.
+'
+' Kept as a parallel list rather than folded into the block list because the block list
+' is what the emitter's publish walk iterates, and that walk is unchanged: it still sees
+' one entry per item and still lets the glyph path publish N blocks from one of them.
+MUT __CANVAS_DRAW_INST AS List OF Integer = []
+MUT __CANVAS_DRAW_NEXT_INST AS Integer = 0
+
+' How many item-buffer blocks one geometry record occupies.
+' How many INSTANCES one geometry block publishes. This has to agree, case for case,
+' with what the emitters actually write into the item buffer -- `emit_split_or_publish`
+' and `emit_glyph_publish` in src/codegen/runtime/canvas/vulkan.rs -- because the draw
+' list's bases are running sums of this function while the item buffer's contents are
+' the emitter's. A single case that disagrees shifts every base after it, and the last
+' entry then draws instances that were never published: uninitialised buffer, which
+' reaches the screen as opaque black. The failure therefore appears at the END of a
+' scene, nowhere near the item that actually disagreed.
+FUNC __canvas_blockInstances(offset AS Integer) AS Integer
+  ' A text run is N quads, one instance each -- slot 20 is HEADER_AUX0, the same field
+  ' `emit_glyph_publish` loops over.
+  IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN toInt(__canvas_geoAt(offset, 20))
+  END IF
+  ' A blended item that BOTH strokes and fills is published as two records -- fill with
+  ' the stroke switched off, then stroke with the fill made transparent -- because one
+  ' blended draw cannot composite the two against each other correctly. The three
+  ' conditions are `emit_split_or_publish`'s, in its order: a non-Normal blend mode,
+  ' a positive strokeHalf, and a non-zero fill alpha. A Line or an Arc arrives here
+  ' fill-only with a negative strokeHalf (`__canvas_strokeAsFill`) and takes the
+  ' single-record path.
+  IF toInt(__canvas_geoAt(offset, 26)) <> 0 THEN
+    IF __canvas_geoAt(offset, 7) > 0.0 THEN
+      IF toInt(__canvas_geoAt(offset, 11)) > 0 THEN
+        RETURN 2
+      END IF
+    END IF
+  END IF
+  RETURN 1
+END FUNC
+
+FUNC __canvas_memoLookup(slot AS Integer) AS Integer
+  MUT i AS Integer = 0
+  WHILE i < len(__CANVAS_DRAW_MEMO_SLOT)
+    IF collections::getOr(__CANVAS_DRAW_MEMO_SLOT, i, -1) = slot THEN
+      RETURN i
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN -1
+END FUNC
+
+' Append one draw entry: four integers, offsets in 16.16 so the whole list stays
+' `List OF Integer` and reaches an emitter without a second parallel Float list.
+SUB __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+  IF count <= 0 THEN
+    EXIT SUB
+  END IF
+  ' `base`/`count` arrive as block-list indices and leave as INSTANCES, which is what a
+  ' `vkCmdDraw`'s `firstInstance`/`instanceCount` and Metal's `baseInstance` want. The
+  ' two differ exactly where a `Text` item sits, so the conversion cannot be a constant
+  ' factor and has to be summed.
+  LET instBase AS Integer = collections::getOr(__CANVAS_DRAW_INST, base, 0)
+  MUT instCount AS Integer = 0
+  MUT k AS Integer = base
+  WHILE k < base + count
+    instCount = instCount + __canvas_blockInstances(collections::getOr(__CANVAS_DRAW_BLOCKS, k, 0))
+    k = k + 1
+  END WHILE
+  IF instCount <= 0 THEN
+    EXIT SUB
+  END IF
+  ' EIGHT words per entry, not four. The emitter addresses an entry with a shift, so the
+  ' stride has to be a power of two; the three trailing words are reserved rather than
+  ' packed into the others, because a mode smuggled into the high bits of `count` is the
+  ' kind of encoding that survives exactly until someone draws 65536 instances.
+  '
+  ' This width is agreed in THREE places and there is no gate that checks they agree:
+  ' here, `__canvas_drawsText` in helper_surface.rs, and `emit_draw_list_pass` in
+  ' src/codegen/runtime/canvas/vulkan.rs (`shift_left_immediate(.., 6)` = 8 x 8 bytes).
+  ' When they disagreed -- this SUB writing four words while the emitter strode by eight --
+  ' the emitter read every other entry and took the following entry's `base` as a blend
+  ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
+  ' VkPipeline. That does not fail cleanly: it SIGSEGVs inside the driver's JIT-compiled
+  ' code, with a backtrace containing no MFBASIC frame at all.
+  MUT out AS List OF Integer = __CANVAS_DRAWS
+  out = collections::append(out, instBase)
+  out = collections::append(out, instCount)
+  out = collections::append(out, toInt(dx * 65536.0))
+  out = collections::append(out, toInt(dy * 65536.0))
+  ' The BlendMode every block in this run shares. It travels with the entry because the
+  ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
+  ' left in the publish walk would apply the LAST item's mode to the whole frame.
+  out = collections::append(out, toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26)))
+  out = collections::append(out, 0)
+  out = collections::append(out, 0)
+  out = collections::append(out, 0)
+  __CANVAS_DRAWS = out
+END SUB
+
+' Whether two blocks can share one draw call.
+'
+' A draw binds ONE pipeline and issues ONE instanced call, so everything that must
+' differ between pipelines forces a split (**H8**). Two conditions, both read straight
+' out of the geometry the blocks already point at rather than re-visiting the scene:
+'
+'   * the BlendMode (slot 26) selects the pipeline, so a change ends the run;
+'   * a `Text` block is its own draw entirely -- its quads are N draws rather than N
+'     instances -- so it neither joins the previous run nor starts one.
+'
+' Section 4.1 named only the group boundary and Text. Blend mode is the third, and
+' omitting it draws a Multiply item with whichever pipeline happened to be bound, which
+' is a wrong colour rather than a missing shape.
+FUNC __canvas_drawsJoin(a AS Integer, b AS Integer) AS Boolean
+  IF toInt(__canvas_geoAt(a, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN FALSE
+  END IF
+  IF toInt(__canvas_geoAt(b, 0)) = __CANVAS_GEO_TEXT THEN
+    RETURN FALSE
+  END IF
+  RETURN toInt(__canvas_geoAt(a, 26)) = toInt(__canvas_geoAt(b, 26))
+END FUNC
+
+' Emit draw entries for one contiguous block range, split wherever a pipeline change or
+' a `Text` block forces one.
+'
+' Splitting HERE rather than in each emitter is deliberate: the list is what tells a
+' backend where its draw calls are, so a rule applied afterwards would live in two
+' assemblers and could differ between them -- the failure family
+' `.ai/canvas-threading.md` section 10 records.
+SUB __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float)
+  IF count <= 0 THEN
+    EXIT SUB
+  END IF
+  MUT runStart AS Integer = base
+  MUT i AS Integer = base + 1
+  WHILE i < base + count
+    LET prev AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i - 1, 0)
+    LET here AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i, 0)
+    IF NOT __canvas_drawsJoin(prev, here) THEN
+      __canvas_pushOneDraw(runStart, i - runStart, dx, dy)
+      runStart = i
+    END IF
+    i = i + 1
+  END WHILE
+  __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy)
+END SUB
+
+' Lay out one group's own (non-group) items once, returning its memo index.
+FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Integer) AS Integer
+  LET found AS Integer = __canvas_memoLookup(slot)
+  IF found >= 0 THEN
+    RETURN found
+  END IF
+  ' Claim the memo row BEFORE walking the children. A group that reaches itself would
+  ' otherwise recurse forever here rather than tripping the depth limit -- and this walk
+  ' runs on the graphics thread, where a raise has nowhere to go (plan-116-G G22).
+  LET base AS Integer = len(__CANVAS_DRAW_BLOCKS)
+  __CANVAS_DRAW_MEMO_SLOT = collections::append(__CANVAS_DRAW_MEMO_SLOT, slot)
+  __CANVAS_DRAW_MEMO_BASE = collections::append(__CANVAS_DRAW_MEMO_BASE, base)
+  __CANVAS_DRAW_MEMO_COUNT = collections::append(__CANVAS_DRAW_MEMO_COUNT, 0)
+  LET row AS Integer = len(__CANVAS_DRAW_MEMO_SLOT) - 1
+
+  MUT count AS Integer = 0
+  FOR EACH child IN canvas::groupItems(slot)
+    MATCH child
+      CASE Group(g)
+        ' A nested group is NOT part of this group's own run -- it gets its own memoised
+        ' run and its own draw entry, at the composed offset.
+        LET nested AS Integer = 0
+      CASE ELSE
+        LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
+        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
+        blocks = collections::append(blocks, childOffset)
+        __CANVAS_DRAW_BLOCKS = blocks
+        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
+        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
+        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
+        count = count + 1
+    END MATCH
+  NEXT
+  __CANVAS_DRAW_MEMO_COUNT = collections::set(__CANVAS_DRAW_MEMO_COUNT, row, count)
+  RETURN row
+END FUNC
+
+' Emit the draw entries for one group reference at an accumulated offset: its own run,
+' then its nested groups recursively.
+SUB __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, depth AS Integer)
+  IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+    EXIT SUB
+  END IF
+  LET row AS Integer = __canvas_memoGroup(slot, hashes, depth)
+  __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy)
+  FOR EACH child IN canvas::groupItems(slot)
+    MATCH child
+      CASE Group(g)
+        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, gdx + g.dx, gdy + g.dy, depth + 1)
+      CASE ELSE
+        ' A non-group child contributes no draw entry of its own: its block is already
+        ' inside the run this group's memo laid out.
+        LET skipped AS Integer = 0
+    END MATCH
+  NEXT
+END SUB
+
+FUNC __canvas_sceneDraws() AS List OF Integer
+  __CANVAS_DRAWS = []
+  __CANVAS_DRAW_BLOCKS = []
+  __CANVAS_DRAW_INST = []
+  __CANVAS_DRAW_NEXT_INST = 0
+  __CANVAS_DRAW_MEMO_SLOT = []
+  __CANVAS_DRAW_MEMO_BASE = []
+  __CANVAS_DRAW_MEMO_COUNT = []
+  LET hashes AS List OF Integer = canvas::installedHashes()
+  MUT index AS Integer = 0
+  MUT runBase AS Integer = 0
+  MUT runCount AS Integer = 0
+  FOR EACH item IN canvas::installedItems()
+    MATCH item
+      CASE Group(g)
+        ' A group ends the current run.
+        __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+        runCount = 0
+        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
+        runBase = len(__CANVAS_DRAW_BLOCKS)
+      CASE ELSE
+        LET itemOffset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
+        MUT blocks AS List OF Integer = __CANVAS_DRAW_BLOCKS
+        blocks = collections::append(blocks, itemOffset)
+        __CANVAS_DRAW_BLOCKS = blocks
+        MUT inst AS List OF Integer = __CANVAS_DRAW_INST
+        inst = collections::append(inst, __CANVAS_DRAW_NEXT_INST)
+        __CANVAS_DRAW_INST = inst
+        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(itemOffset)
+        IF runCount = 0 THEN
+          runBase = len(__CANVAS_DRAW_BLOCKS) - 1
+        END IF
+        runCount = runCount + 1
+    END MATCH
+    index = index + 1
+  NEXT
+  __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+  RETURN __CANVAS_DRAWS
+END FUNC
+
+FUNC __canvas_sceneOffsets() AS List OF Integer
   MUT offsets AS List OF Integer = []
   LET hashes AS List OF Integer = canvas::installedHashes()
   MUT index AS Integer = 0
+  __CANVAS_DRAW_DX = []
+  __CANVAS_DRAW_DY = []
+  __CANVAS_DRAW_HASHES = []
   ' Published as it goes, not at the end. The geometry cache is smaller than a large
   ' scene, so resolving item 300 can evict item 1 -- while this frame is still holding
   ' item 1's offset and has not drawn it yet. `__canvas_glyphEvict` reads this list to
@@ -130,21 +552,17 @@ r#"FUNC __canvas_sceneOffsets() AS List OF Integer
   ' silently, because their cache indices were renumbered out from under the offsets
   ' this function had already returned.
   __CANVAS_GEO_LIVE = []
+  ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
+  ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
+  ' resolved before the call writes into the block that pass released
+  ' (`.ai/collections.md`). `__canvas_appendDraw` keeps that discipline.
   FOR EACH item IN canvas::installedItems()
-    ' The result lands in a local first: `__canvas_geometryFor` can run an eviction pass
-    ' that reassigns `__CANVAS_GEO_LIVE`, and appending to a global whose operand was
-    ' resolved before the call writes into the block that pass released
-    ' (`.ai/collections.md`).
-    LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-    offsets = collections::append(offsets, offset)
-    __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+    offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
     index = index + 1
   NEXT
   FOR EACH layer IN canvas::installedLayers()
     FOR EACH item IN layer.items
-      LET offset AS Integer = __canvas_geometryFor(item, collections::getOr(hashes, index, 0))
-      offsets = collections::append(offsets, offset)
-      __CANVAS_GEO_LIVE = collections::append(__CANVAS_GEO_LIVE, offset)
+      offsets = __canvas_appendDraw(offsets, item, collections::getOr(hashes, index, 0), 0.0, 0.0, 0)
       index = index + 1
     NEXT
   NEXT
@@ -205,10 +623,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
       IF __canvas_runLargestGlyph(offset) > __CANVAS_METAL_MAX_GLYPH_SAMPLES THEN
         RETURN FALSE
       END IF
-      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-    ELSE
-      quads = quads + 1
     END IF
+    ' The cap counts PUBLISHED RECORDS, so it asks the same function the draw list
+    ' asks. A blended item that both strokes and fills publishes two
+    ' (`emit_split_or_publish`); counting it as one let a scene near the cap write past
+    ' the mapping, which is the direction this predicate exists to prevent.
+    quads = quads + __canvas_blockInstances(offset)
     ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
     ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
     ' edge cap has. A count below two is not a gradient and contributes nothing.
@@ -241,6 +661,16 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
+  ' plan-116-H Phase 3: Metal no longer declines a scene containing a group either. The
+  ' emitter walks `__canvas_sceneDraws` and sends each entry's offset to BOTH shader
+  ' stages -- `setVertexBytes:` at index 1 and `setFragmentBytes:` at index 3 -- so a
+  ' group's children land where the group puts them rather than at the origin.
+  '
+  ' With both backends taught, `__CANVAS_DRAW_HAS_GROUP` has no reader and is deleted
+  ' rather than left set for a caller that might want it. The rule it encoded is the
+  ' part worth keeping, and it lives in `__canvas_vulkanRenderable` and in
+  ' `.ai/canvas-threading.md` section 10: a predicate cannot decline by looking for a
+  ' `Group` item, because the walk has already expanded every group away by then.
   RETURN total <= __CANVAS_METAL_MAX_FRAME_EDGES
 END FUNC
 
@@ -249,7 +679,11 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
     RETURN FALSE
   END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
-  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
+  ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset. Same
+  ' arguments as the Vulkan twin, and deliberately so -- the two backends walking
+  ' different lists is how a group ends up correct on one and at the origin on the other.
+  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
@@ -292,10 +726,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
-      quads = quads + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
-    ELSE
-      quads = quads + 1
     END IF
+    ' The cap counts PUBLISHED RECORDS, so it has to ask the same function the draw
+    ' list asks. A blended item that both strokes and fills publishes two
+    ' (`emit_split_or_publish`), and counting it as one let a scene near the cap write
+    ' past the mapping -- the direction this predicate exists to prevent.
+    quads = quads + __canvas_blockInstances(offset)
     ' plan-116-F Phase 4: a gradient's stops take a slice of one frame-wide region, so
     ' what the frame can hold is a SUM and not a per-item bound -- the same shape the
     ' edge cap has. A count below two is not a gradient and contributes nothing.
@@ -319,6 +755,24 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   IF gradientStops > __CANVAS_MAX_FRAME_GRADIENT_STOPS THEN
     RETURN FALSE
   END IF
+  ' plan-116-H Phase 2: Vulkan no longer declines a scene containing a group. The
+  ' emitter walks `__canvas_sceneDraws` and pushes each entry's offset as a push
+  ' constant that BOTH shader stages consume, so a group's children land where the
+  ' group puts them rather than at the origin.
+  '
+  ' Phase 3 taught Metal the same offset, so `__CANVAS_DRAW_HAS_GROUP` -- the flag both
+  ' predicates used to decline on -- has no reader left and is gone. If a future backend
+  ' needs to decline a group scene it has to set a flag on the WALK again rather than
+  ' look for a `Group` item here: by the time a predicate sees this list the walk has
+  ' expanded every group away, so searching for one finds nothing and the backend draws
+  ' every group's children at the ORIGIN -- a plausible wrong picture reported as
+  ' success (`.ai/canvas-threading.md` section 10).
+  '
+  ' No cap needs a per-reference multiplier here. A group's blocks are recorded ONCE
+  ' and referenced by base, in both walks: a diamond referencing one leaf twice reports
+  ' `entries=1 blocks=1` and two draw entries that share base 0 with different offsets.
+  ' The caps above sum over recorded blocks, which is exactly what the item buffer
+  ' holds.
   RETURN total <= __CANVAS_VULKAN_MAX_FRAME_EDGES
 END FUNC
 
@@ -327,7 +781,9 @@ FUNC __canvas_renderVulkan(offsets AS List OF Integer, width AS Integer, height 
     RETURN FALSE
   END IF
   LET buffer AS List OF Byte = canvas::newSurface(width, height)
-  canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, offsets, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV)
+  ' plan-116-H: the BLOCK list, not the software walk's offsets. A shared group appears
+  ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset.
+  canvas::vulkanDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
   __CANVAS_KEPT = buffer
   __CANVAS_KEPT_W = width
   __CANVAS_KEPT_H = height
@@ -431,7 +887,39 @@ FUNC __canvas_renderFrame() AS Nothing
   ' renderer: an item's damaged rectangle is its geometry's bounds, so there is no
   ' diff to compute until the geometry exists.
   LET offsets AS List OF Integer = __canvas_sceneOffsets()
-  LET hashes AS List OF Integer = canvas::installedHashes()
+  ' plan-116-H Phase 1: build the GPU draw list beside the software one. Nothing
+  ' consumes it yet -- both backends still decline a group scene -- but it is built every
+  ' frame so `MFB_CANVAS_STATS` can report it, which is the only way a test can see a
+  ' structure that exists on the graphics thread and is handed straight to an emitter.
+  '
+  ' Cheap despite walking the tree a second time: both walks resolve geometry through
+  ' `__canvas_geometryFor`, which IS the cache, so the second one hits it.
+  LET draws AS List OF Integer = __canvas_sceneDraws()
+  ' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
+  ' worker action to land mid-render.
+  '
+  ' Here rather than anywhere else in the frame because this is the point after which
+  ' the renderer is committed: `__canvas_sceneOffsets` has resolved every group name and
+  ' copied out each group's items, so a `removeGroup` arriving during the hold is
+  ' exactly the race the drain gate exists for -- the block is retired while a frame is
+  ' demonstrably still working from it.
+  '
+  ' Off unless the variable is set, and off the production path in the same sense the
+  ' other four affordances in `.ai/canvas-threading.md` section 11 are. Before this,
+  ' every "mid-render" row was reached through `MFB_CANVAS_RESIZE_W`/`_H` firing while
+  ' the worker slept, which is resize-specific -- so the rows that needed a different
+  ' worker action were either untestable (R1) or tested by luck.
+  LET holdMs AS Integer = toInt(os::getEnvOr("MFB_CANVAS_FRAME_HOLD_MS", "0"))
+  IF holdMs > 0 THEN
+    os::sleep(holdMs)
+  END IF
+  ' plan-116-G: the EXPANDED hashes, written by the walk above, not
+  ' `canvas::installedHashes()`. The damage diff pairs hashes with offsets by index, and
+  ' expanding one `Group` node into N children makes those two lists different lengths
+  ' -- which `__canvas_damageFor` detects and answers with a full redraw, so a group
+  ' scene would silently never take the partial path. For a group-free scene this list
+  ' is `installedHashes()` passed through unchanged.
+  LET hashes AS List OF Integer = __CANVAS_DRAW_HASHES
   LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
   __CANVAS_DAMAGE = damage
   IF len(damage) = 0 THEN
@@ -467,6 +955,110 @@ FUNC __canvas_renderFrame() AS Nothing
   __canvas_renderScene(offsets, damage, size.width, size.height)
 END FUNC"#;
 
+/// plan-116-J: close the resources a retired group buffer owned.
+///
+/// **Not "close what the retired buffer named" — close what no LIVE buffer names**, and
+/// the difference is the commonest canvas program there is (**J14**). One long-lived font
+/// and a group rebuilt each frame names the same font in the retired buffer *and* in the
+/// buffer that replaced it; closing on the plain rule makes its text vanish one frame
+/// later, silently, because `fontHandle` then answers `0` and `0` is "no such object".
+///
+/// Identity is compared through `canvas::imageHandle`/`canvas::fontHandle`, which return
+/// the backend id as an `Integer`. That is only possible because plan-116-I added them —
+/// two aliases of one resource cannot be compared as `RES` values — and it is why their
+/// read order matters here too: they test the closed flag **before** loading the handle,
+/// so a concurrent destroy cannot yield a stale non-zero id that would keep a resource
+/// alive that nothing names.
+///
+/// `0` is skipped on both sides: an already-closed resource has nothing to close, and it
+/// must not match a live one either.
+const CLOSE_RETIRED: &str = r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem)
+  IF len(gone) = 0 THEN
+    EXIT SUB
+  END IF
+  FOR EACH item IN gone
+    MATCH item
+      CASE Picture(p)
+        LET ih AS Integer = canvas::imageHandle(p.image)
+        IF ih <> 0 AND NOT __canvas_anythingNamesImage(scene, ih) THEN
+          canvas::destroyImage(p.image)
+        END IF
+      CASE Text(t)
+        LET fh AS Integer = canvas::fontHandle(t.font)
+        IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
+          canvas::destroyFont(t.font)
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+END SUB
+
+' Everything still live: the scene about to be published, and EVERY group's live items.
+'
+' Not just the replacing slot's. Two other holders reach the same resource and both are
+' reachable from ordinary programs: another group naming it, and the scene naming it
+' directly. `present` does not take ownership, so a Picture built before the setGroup
+' reaches the scene with nothing for the move checker to object to -- and closing it there
+' makes the scene's item draw nothing, silently, one frame later.
+'
+' Every slot rather than the ones the scene references: an unreferenced group is not
+' drawn today and may be drawn tomorrow, so its items are live regardless.
+FUNC __canvas_anythingNamesImage(scene AS List OF DrawItem, handle AS Integer) AS Boolean
+  IF __canvas_listNamesImage(scene, handle) THEN
+    RETURN TRUE
+  END IF
+  MUT i AS Integer = 0
+  LET slots AS Integer = canvas::groupSlots()
+  WHILE i < slots
+    IF __canvas_listNamesImage(canvas::groupItems(i), handle) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_anythingNamesFont(scene AS List OF DrawItem, handle AS Integer) AS Boolean
+  IF __canvas_listNamesFont(scene, handle) THEN
+    RETURN TRUE
+  END IF
+  MUT i AS Integer = 0
+  LET slots AS Integer = canvas::groupSlots()
+  WHILE i < slots
+    IF __canvas_listNamesFont(canvas::groupItems(i), handle) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_listNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boolean
+  FOR EACH item IN live
+    MATCH item
+      CASE Picture(p)
+        IF canvas::imageHandle(p.image) = handle THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_listNamesFont(live AS List OF DrawItem, handle AS Integer) AS Boolean
+  FOR EACH item IN live
+    MATCH item
+      CASE Text(t)
+        IF canvas::fontHandle(t.font) = handle THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always(
         "canvas_ensureGraphics",
@@ -476,16 +1068,104 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));
+    pkg.add_helper(RegistryHelper::always("canvas_closeRetired", CLOSE_RETIRED));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::codegen::runtime::canvas::{
-        CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, MAX_EDGES,
-        MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES, METAL_MAX_GLYPH_SAMPLES,
-        VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+        CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
+        CANVAS_DRAW_ENTRY_WORDS, CANVAS_MAX_FRAME_ITEMS, GEO_KIND_POLYGON, GEO_KIND_TEXT,
+        HEADER_AUX0, MAX_EDGES, MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_EDGES,
+        METAL_MAX_GLYPH_SAMPLES, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
     };
+
+    /// The body of a `FUNC`/`SUB` in the injected MFBASIC source, by name.
+    fn body(name: &str) -> &'static str {
+        let start = RENDER_METAL
+            .find(&format!("__canvas_{name}("))
+            .unwrap_or_else(|| panic!("__canvas_{name} is not in RENDER_METAL"));
+        let rest = &RENDER_METAL[start..];
+        let end = rest
+            .find("\nEND ")
+            .unwrap_or_else(|| panic!("__canvas_{name} has no END"));
+        &rest[..end]
+    }
+
+    /// The draw list is BUILT here in MFBASIC and WALKED by the native emitters, so its
+    /// entry width lives on both sides of a boundary the Rust compiler cannot see across
+    /// -- this side is a `&str`.
+    ///
+    /// plan-116-H13: these two disagreed (the emitter at eight words, this source still
+    /// appending four) and the result was not a wrong picture. The emitter strode 64
+    /// bytes through a 32-byte array, so it read every other entry and took the following
+    /// entry's `base` as a blend mode -- indexing the pipeline table out of range and
+    /// handing Vulkan a junk `VkPipeline`. It SIGSEGVs inside the driver's JIT-compiled
+    /// code with no MFBASIC frame in the backtrace, on one remote box, in a harness that
+    /// is not part of `cargo test`. This assertion is the only cheap way to catch it.
+    #[test]
+    fn the_draw_entry_width_agrees_with_the_emitter() {
+        let appends = body("pushOneDraw")
+            .matches("collections::append(out,")
+            .count();
+        assert_eq!(
+            appends, CANVAS_DRAW_ENTRY_WORDS,
+            "__canvas_pushOneDraw appends {appends} words but the emitter strides \
+             CANVAS_DRAW_ENTRY_WORDS = {CANVAS_DRAW_ENTRY_WORDS}",
+        );
+        assert_eq!(
+            1usize << CANVAS_DRAW_ENTRY_SHIFT,
+            CANVAS_DRAW_ENTRY_WORDS * 8,
+            "the byte stride shift and the word count disagree",
+        );
+        assert_eq!(
+            1usize << CANVAS_DRAW_ENTRY_COUNT_SHIFT,
+            CANVAS_DRAW_ENTRY_WORDS,
+            "the element-count shift and the word count disagree",
+        );
+        assert!(
+            CANVAS_DRAW_ENTRY_MODE < CANVAS_DRAW_ENTRY_WORDS * 8,
+            "the blend mode is read from outside the entry",
+        );
+    }
+
+    /// `__canvas_blockInstances` predicts how many instances each block publishes, and
+    /// the draw list's bases are its running sum -- but what is actually WRITTEN into the
+    /// item buffer is `emit_split_or_publish`'s decision. One case that disagrees shifts
+    /// every base after it, and the final entry then draws instances that were never
+    /// published: uninitialised buffer, which reaches the screen as opaque black.
+    ///
+    /// That is why the symptom appears at the END of a scene rather than at the item that
+    /// disagreed -- plan-116-H13 chased it through the shaders, the draw list and the ABI
+    /// before finding it here. The blend split is the case that went missing, so it is
+    /// the case pinned by name.
+    #[test]
+    fn block_instances_keeps_the_blend_split_case() {
+        let rule = body("blockInstances");
+        assert!(
+            rule.contains("RETURN 2"),
+            "the blend split case is gone: an item that both strokes and fills under a \
+             non-Normal blend mode publishes TWO records in emit_split_or_publish, and \
+             this function must predict 2 for it",
+        );
+        for (slot, what) in [
+            ("26", "blend mode"),
+            ("7", "strokeHalf"),
+            ("11", "fill alpha"),
+        ] {
+            assert!(
+                rule.contains(&format!(", {slot})")),
+                "the split rule no longer reads slot {slot} ({what}); \
+                 emit_split_or_publish tests all three",
+            );
+        }
+        assert!(
+            rule.contains(", 20)"),
+            "a text run's instance count is HEADER_AUX0 = slot 20, the field \
+             emit_glyph_publish loops over",
+        );
+    }
 
     /// Find `LET <name> AS Integer = <n>` in the injected MFBASIC source.
     fn declared(name: &str) -> usize {
@@ -566,8 +1246,22 @@ mod tests {
     /// |---|---|---|
     /// | the glyph-run walk (`__canvas_runLargestGlyph` / `__canvas_runSamples`) | 1 | 1 |
     /// | the per-item `MAX_EDGES` decline | 1 | — (no per-item limit) |
-    /// | the frame edge sum | 1 (new) | 1 |
-    /// | the frame quad count, a glyph run's glyphs | 1 (new) | 1 (new) |
+    /// | the frame edge sum | 1 | 1 |
+    /// | ~~the frame quad count, a glyph run's glyphs~~ | — | — |
+    ///
+    /// It went 7 → 5 in plan-116-H, and the two that left did **not** stop reading the
+    /// slot — they moved. Both predicates' quad counts became one call to
+    /// `__canvas_blockInstances`, which is now the single answer to "how many instances
+    /// does this block become" and is what the draw list asks too; it reads the glyph
+    /// count as `__canvas_geoAt(offset, 20)`, which this census's `offset + 20` pattern
+    /// does not match by construction.
+    ///
+    /// So the invariant is intact and is asserted in two places rather than one:
+    /// `block_instances_keeps_the_blend_split_case` pins that
+    /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
+    /// and this census covers what is left in the predicates themselves. Lowering the
+    /// number without checking where the reads went would have been the failure this
+    /// enumeration exists to prevent.
     #[test]
     fn the_predicates_read_the_edge_count_slot() {
         assert_eq!(HEADER_AUX0, 20);
@@ -575,9 +1269,13 @@ mod tests {
             RENDER_METAL
                 .matches(&format!("offset + {HEADER_AUX0}"))
                 .count(),
-            7,
-            "every glyph-run walk, edge sum, edge decline and quad count in both \
-             predicates should read HEADER_AUX0"
+            5,
+            "every glyph-run walk, edge sum and edge decline in both predicates should \
+             read HEADER_AUX0. If this went DOWN, check where the read went before \
+             changing the number: the quad counts left in plan-116-H by moving into \
+             `__canvas_blockInstances`, which still reads slot 20 — a read that simply \
+             vanished would be a predicate summing an arc's start angle instead, which \
+             is a plausible number rather than an error"
         );
     }
 

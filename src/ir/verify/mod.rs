@@ -360,6 +360,7 @@ fn collect_diagnostics_with(
             &function.resource_owners,
             &non_owning,
             &mut HashMap::new(),
+            &mut HashMap::new(),
         );
     }
     // Global initializers are lowered into a synthetic function later; verify

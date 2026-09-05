@@ -109,6 +109,19 @@ impl Peer {
         }
     }
 
+    /// Just the CN value, for the readiness probe's identity check.
+    ///
+    /// Derived from `subject` rather than spelled again so the two cannot disagree —
+    /// a probe checking for a name no certificate carries would reject every server,
+    /// including the right one, and present as "lost the bind on ten consecutive
+    /// ports".
+    fn common_name(self) -> &'static str {
+        self.subject()
+            .rsplit("/CN=")
+            .next()
+            .expect("every subject in this file is a single CN")
+    }
+
     fn san(self) -> &'static str {
         match self {
             Peer::NameMismatch => "subjectAltName=DNS:wrong.example",
@@ -452,9 +465,34 @@ fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
                     break;
                 }
                 None => {
-                    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                        drop(guard);
-                        return (child, port);
+                    // A bare TCP connect was the readiness check here, and it is
+                    // exactly the hole the comment above describes: it succeeds against
+                    // *another case's* `s_server` just as readily as against ours, so a
+                    // case that lost the bind in the window between `free_port` and
+                    // `s_server` binding would report ready and then hand its client the
+                    // other case's identity. `still_rejects_a_name_mismatch` reported
+                    // `result=connected` that way during a full-suite run, which is a
+                    // security assertion failing open.
+                    //
+                    // The port gate narrows that window and the exited-child check
+                    // catches the common loser, but neither is a decision about *whose*
+                    // server answered. This is: complete a handshake and read the
+                    // subject off the certificate served. It costs the same one accept
+                    // the TCP probe cost, and it is the one property that cannot be
+                    // true of the wrong server.
+                    match served_common_name(port) {
+                        Some(cn) if cn.contains(peer.common_name()) => {
+                            drop(guard);
+                            return (child, port);
+                        }
+                        // Someone else's server: our child is about to exit having lost
+                        // the bind, or already has. Take a new port.
+                        Some(_) => {
+                            lost = true;
+                            break;
+                        }
+                        // Not up yet, or not speaking TLS yet. Keep waiting.
+                        None => {}
                     }
                 }
             }
@@ -469,6 +507,40 @@ fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
         let _ = child.wait();
     }
     panic!("openssl s_server lost the bind on ten consecutive ports");
+}
+
+/// The CN on the certificate `port` serves, or `None` if nothing answered a handshake.
+///
+/// `s_client` rather than a Rust TLS stack on purpose: this file already depends on the
+/// `openssl` CLI for its peer, so the probe adds no dependency and cannot disagree with
+/// the server about protocol details. `-verify_return_error` is deliberately NOT passed
+/// — the certificates here are self-signed and every one of them *should* fail
+/// verification; the probe asks who is there, not whether they are trusted.
+///
+/// Formatting differs across versions (`subject=CN = localhost` on OpenSSL 3,
+/// `subject=/CN=localhost` on older builds), so the caller matches on the CN value
+/// alone rather than on a rendered subject line.
+fn served_common_name(port: u16) -> Option<String> {
+    let out = Command::new("openssl")
+        .args([
+            "s_client",
+            "-connect",
+            &format!("127.0.0.1:{port}"),
+            "-servername",
+            "localhost",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let line = text.lines().find(|l| l.starts_with("subject="))?;
+    Some(line.to_string())
 }
 
 /// Build a client that connects to `port` and prints exactly one line:

@@ -389,6 +389,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// Local names the escape analysis cleared for vector promotion (computed once
     /// per function, consulted at each `Bind`).
     pub(crate) promotable_vector_locals: HashSet<String>,
+    /// plan-116-J: for each local, the resource locals it structurally **holds** —
+    /// `LET tag = canvas::Text[…, font := face, …]` gives `tag -> {face}`.
+    ///
+    /// Computed once per function as a pre-pass, in the shape
+    /// `promotable_vector_locals` established, and read only by
+    /// `deactivate_consumed_cleanups`: when a consuming parameter is handed `[tag]`, the
+    /// close obligation that must be dropped belongs to `face`, whose name appears
+    /// nowhere in the argument.
+    ///
+    /// **This is the NIR twin of `ir::verify`'s containment relation, and they are two
+    /// lists.** `IrValue` and `NirValue` are distinct types so the walk cannot literally
+    /// be shared; an arm added to one and not the other does not fail to compile. The
+    /// asymmetry of the failure is worth knowing: a missing arm in the verifier's walk
+    /// silently allows a use-after-close, and a missing arm HERE silently leaks — the
+    /// scope closes a resource the callee has taken over, and the callee's later close
+    /// is a defined no-op, so nothing crashes either way.
+    pub(crate) resource_containment: HashMap<String, Vec<String>>,
     /// plan-39 I1: proven **lower bounds** for Integer locals on the current
     /// straight-line path (`name -> C` means `name >= C` here). Established only by
     /// a guard `IF local < K THEN <terminal> END IF` with an empty else, dropped on
@@ -516,6 +533,7 @@ impl<'a> CodeBuilder<'a> {
             next_vector_native: 0,
             promoted_vector_locals: HashMap::new(),
             promotable_vector_locals: HashSet::new(),
+            resource_containment: HashMap::new(),
             integer_lower_bounds: HashMap::new(),
             integer_strict_upper: std::collections::HashSet::new(),
             for_bound_expr: HashMap::new(),
@@ -952,6 +970,25 @@ pub(crate) fn lower_module_for_platform(
             align: 8,
             size: CANVAS_FONT_TABLE_BYTES,
             value: "00".repeat(CANVAS_FONT_TABLE_BYTES),
+        });
+        // plan-116-G: the named-group table, process-global for the same reason again —
+        // `canvas::setGroup` runs on the worker and the renderer that draws a group
+        // runs on the graphics thread. Fixed size because the graphics thread reads it
+        // without a lock and a reallocating table would move under a reader.
+        data_objects.push(CodeDataObject {
+            symbol: CANVAS_GROUPS_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            // The slot count is interpolated rather than spelled: this string is the
+            // only description of the table a reader of the `.ncode` gets, and a
+            // hand-written `[256]` is one edit away from disagreeing with the array it
+            // describes.
+            layout: format!(
+                "mfb.runtime.canvas_groups.v1 {{ u64 name, items, count, revision, \
+                 refs, retiredFrame }}[{CANVAS_MAX_GROUPS}]; u64 ownedBytes"
+            ),
+            align: 8,
+            size: CANVAS_GROUP_TABLE_BYTES,
+            value: "00".repeat(CANVAS_GROUP_TABLE_BYTES),
         });
     }
     if module.entry.is_some() && module.target == "linux-riscv64" {

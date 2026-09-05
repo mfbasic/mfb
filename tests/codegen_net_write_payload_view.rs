@@ -197,8 +197,10 @@ fn byte_form_helpers_verify_the_collection_header_before_reading_a_length() {
             );
             let payload_reg = field(checks[0].1, "base");
             assert!(
-                payload_reg != "sp" && checks.iter().all(|(_, i)| field(i, "base") == payload_reg),
-                "{target} {sym}: header bytes read off more than one register"
+                !common::is_stack_register(payload_reg)
+                    && checks.iter().all(|(_, i)| field(i, "base") == payload_reg),
+                "{target} {sym}: header bytes read off more than one register, or off \
+                 the frame instead of the payload pointer"
             );
             assert!(
                 insts

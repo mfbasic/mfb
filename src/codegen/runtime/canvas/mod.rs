@@ -484,6 +484,22 @@ pub(crate) const GEO_KIND_POLYGON: &str = "4";
 /// with its own coverage bitmap, so a text item becomes N draws rather than one. Both
 /// emitters therefore branch on this before they build an item block at all.
 pub(crate) const GEO_KIND_TEXT: &str = "6";
+
+/// A `canvas::Group` node's kind (plan-116-G).
+///
+/// A group draws nothing itself, so this is not a shape the renderers dispatch on —
+/// it is what lets a group node be told apart from `GEO_KIND_NONE`, which means "an
+/// item with no geometry". Spelled here and once in MFBASIC as `__CANVAS_GEO_GROUP`,
+/// with `the_geo_layout_constants_match_their_rust_counterparts` as the only thing
+/// relating the two.
+///
+/// `#[cfg(test)]` because that guard is genuinely its only consumer right now: no
+/// emitter writes kind 8 yet, since a Phase 2 group node still carries an empty
+/// header. That is not a placeholder — the pin is the whole reason the Rust spelling
+/// exists at this point — and it is self-correcting: the phase that teaches an emitter
+/// about groups cannot compile until the attribute comes off.
+#[cfg(test)]
+pub(crate) const GEO_KIND_GROUP: &str = "8";
 /// Floats per glyph in a `__CANVAS_GEO_TEXT` tail: `cacheEntry, penX, penY`.
 pub(crate) const GLYPH_RUN_SLOTS: usize = 3;
 /// Integers per `__CANVAS_GLYPH_META` entry: `x0, y0, w, h, covStart`.
@@ -641,6 +657,30 @@ pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 /// already has and for the same reason: a truncated scene is a *different scene*, and
 /// software is the oracle, so declining is never worse than drawing.
 pub(crate) const CANVAS_MAX_FRAME_ITEMS: usize = 4096;
+
+/// How many 64-bit words one entry of the GPU draw list occupies.
+///
+/// The draw list is built in MFBASIC (`__canvas_pushOneDraw`) and walked by the native
+/// emitters, so this width exists on both sides of a boundary the Rust compiler cannot
+/// see across -- the MFBASIC side is a `&str`. It is a power of two because the emitter
+/// addresses an entry with a shift rather than a multiply.
+///
+/// When the two sides disagreed (plan-116-H13: the emitter at eight words, the builtin
+/// still appending four) the emitter strode 64 bytes through a 32-byte array. It then
+/// read every *other* entry, and took the following entry's `base` as a blend mode --
+/// which indexes the pipeline table out of range and hands Vulkan a junk `VkPipeline`.
+/// That does not fail as a wrong picture: it SIGSEGVs inside the driver's JIT-compiled
+/// code, with no MFBASIC frame anywhere in the backtrace.
+pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 8;
+
+/// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
+pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;
+
+/// `log2(CANVAS_DRAW_ENTRY_WORDS)` -- element count to entry count.
+pub(crate) const CANVAS_DRAW_ENTRY_COUNT_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros();
+
+/// Byte offset of the blend mode within an entry (word 4).
+pub(crate) const CANVAS_DRAW_ENTRY_MODE: usize = 32;
 /// The item buffer's size in bytes — one `ITEM_BLOCK_SIZE` record per quad.
 pub(crate) const CANVAS_ITEM_BUFFER_BYTES: usize = CANVAS_MAX_FRAME_ITEMS * ITEM_BLOCK_SIZE;
 

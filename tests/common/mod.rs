@@ -1233,6 +1233,79 @@ pub fn run_mfb_in(
         .expect("run mfb")
 }
 
+/// Whether an emitted instruction's base register is the STACK pointer, on either
+/// architecture.
+///
+/// Codegen-inspection tests read store or load ORDER out of an `.ncode` plan, and
+/// traffic to the frame is not traffic to the structure under test — a spill has
+/// nothing to do with the ordering being pinned. Excluding it by register name is
+/// right; excluding it by **one** name is not. The stack pointer prints as `sp` on
+/// AArch64 and as `rsp` on x86-64, so a filter written against `sp` alone is blind on
+/// half the targets these tests iterate.
+///
+/// Both directions of that blindness have been observed in this repo, and the second is
+/// the dangerous one:
+///
+/// * a **false failure** — `rt_canvas_present_deep_copy`'s `removeGroup` pin saw
+///   `+176` as its first "store" on Linux x86-64, an offset that cannot be a group-slot
+///   word at all, and failed for a reason unrelated to the emitter;
+/// * a **false pass** — a predicate of the shape *"some `str_u64` to offset N whose
+///   base is not `sp`"* is satisfied on x86-64 by any spill that happens to use that
+///   offset, so the assertion succeeds without the store it is looking for ever
+///   existing.
+///
+/// Use this rather than comparing against a spelling.
+pub fn is_stack_base(instruction: &serde_json::Value) -> bool {
+    matches!(instruction["base"].as_str(), Some("sp") | Some("rsp"))
+}
+
+/// The same test, for a base register already extracted as a string.
+pub fn is_stack_register(name: &str) -> bool {
+    name == "sp" || name == "rsp"
+}
+
+/// A minimal TrueType face, for tests that must construct a `canvas::Text`.
+///
+/// Shared rather than duplicated because plan-116-I made a font *resource* the thing a
+/// `Text` item holds: a fixture can no longer fabricate `FontRef[id := 0]` and must
+/// load a real face, so more than one test file needs these bytes.
+///
+/// It is a stub — its `A` and `B` glyphs are solid boxes — which is exactly what a
+/// coverage assertion wants: a glyph that either renders as a filled rectangle or does
+/// not render at all, with nothing in between to argue about.
+/// The twelve-glyph fixture font, as bytes.
+pub fn fixture_truetype() -> Vec<u8> {
+    const B64: &str = concat!(
+        "AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA",
+        "AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD",
+        "AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA",
+        "AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB",
+        "9AAAAPoAAAEsAAAAAAAAABEAEQ==",
+    );
+    let table: Vec<u8> =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for ch in B64.bytes() {
+        if ch == b'=' {
+            break;
+        }
+        let v = table
+            .iter()
+            .position(|&c| c == ch)
+            .expect("base64 alphabet") as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
+}
+
 /// `run_bounded`, plus the child's **peak resident set size** in bytes.
 ///
 /// bug-510: the decoder-bound tests assert that a program's memory stays a small

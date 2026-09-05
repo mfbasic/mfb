@@ -160,7 +160,20 @@ END FUNC"#;
 /// bounded: two copies here, not one per primitive.
 #[rustfmt::skip]
 const DRAW_GEOMETRY: &str =
-r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS Integer, offset AS Integer) AS List OF Byte
+r#"' plan-116-G: `gdx`/`gdy` are the accumulated translation of the groups this item is
+' drawn inside, zero for an item in the scene itself.
+'
+' Applied in exactly two ways, and section 4.5's whole rule is the difference between
+' them. The item's BOUNDS move by +(gdx, gdy), because that is where it lands on the
+' surface. The QUERY POINT moves by -(gdx, gdy), because a distance field is translated
+' by evaluating it at the inverse-translated point -- the same mechanism plan-116-C
+' established for `Paint.transform`, specialised to a translation, so no distance
+' function changes.
+'
+' `px`/`py` below are therefore the SHAPE-space point and every distance call keeps
+' using them unchanged. `spx`/`spy` are the surface point, and only two things want it:
+' the clip, which is a surface rectangle by definition, and the surface write itself.
+FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS Integer, offset AS Integer, gdx AS Float, gdy AS Float) AS List OF Byte
   MUT out AS List OF Byte = surface
   LET kind AS Integer = toInt(__canvas_geoAt(offset, 0))
   IF kind = __CANVAS_GEO_NONE THEN
@@ -196,8 +209,21 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
     WHILE gi < tGlyphs
       LET runBase AS Integer = runAt + gi * 3
       LET meta AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, runBase, 0.0)) * 5
+      ' plan-116-G / G5. A glyph is a cached coverage bitmap indexed by whole pixels
+      ' from this origin, not a distance field, so the "evaluate at p - offset" rule
+      ' that moves every shape does not reach it: text in a translated group would
+      ' sample the right texels and write them to the wrong place.
+      '
+      ' `gx`/`gy` stay the glyph's own origin, deliberately. Adding the group offset
+      ' here would be right for the untransformed blit and WRONG for the transformed
+      ' one, which forward-maps this box through `Paint.transform` -- the translation
+      ' would be rotated and scaled with the glyph. The composition is
+      ' `surface = groupOffset + transform(shape)`, so each path applies the offset on
+      ' its own side of the map: see `gsx`/`gsy` below and the AABB.
       LET gx AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta, 0) + toInt(collections::getOr(__CANVAS_GEO_DATA, runBase + 1, 0.0))
       LET gy AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 1, 0) + toInt(collections::getOr(__CANVAS_GEO_DATA, runBase + 2, 0.0))
+      LET gsx AS Integer = gx + toInt(gdx)
+      LET gsy AS Integer = gy + toInt(gdy)
       LET gw AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 2, 0)
       LET gh AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 3, 0)
       LET gStart AS Integer = collections::getOr(__CANVAS_GLYPH_META, meta + 4, 0)
@@ -229,14 +255,17 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
         LET by0 AS Float = toFloat(gy)
         LET bx1 AS Float = toFloat(gx + gw)
         LET by1 AS Float = toFloat(gy + gh)
-        LET cx0 AS Float = fa * bx0 + fc * by0 + ftx
-        LET cy0 AS Float = fb * bx0 + fd * by0 + fty
-        LET cx1 AS Float = fa * bx1 + fc * by0 + ftx
-        LET cy1 AS Float = fb * bx1 + fd * by0 + fty
-        LET cx2 AS Float = fa * bx0 + fc * by1 + ftx
-        LET cy2 AS Float = fb * bx0 + fd * by1 + fty
-        LET cx3 AS Float = fa * bx1 + fc * by1 + ftx
-        LET cy3 AS Float = fb * bx1 + fd * by1 + fty
+        ' The group offset is added AFTER the forward map, never through it: it is a
+        ' surface translation, and passing it through `Paint.transform` would rotate
+        ' and scale it with the glyph.
+        LET cx0 AS Float = fa * bx0 + fc * by0 + ftx + gdx
+        LET cy0 AS Float = fb * bx0 + fd * by0 + fty + gdy
+        LET cx1 AS Float = fa * bx1 + fc * by0 + ftx + gdx
+        LET cy1 AS Float = fb * bx1 + fd * by0 + fty + gdy
+        LET cx2 AS Float = fa * bx0 + fc * by1 + ftx + gdx
+        LET cy2 AS Float = fb * bx0 + fd * by1 + fty + gdy
+        LET cx3 AS Float = fa * bx1 + fc * by1 + ftx + gdx
+        LET cy3 AS Float = fb * bx1 + fd * by1 + fty + gdy
         LET loX AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cx0, cx1), __canvas_minF(cx2, cx3))) - 1, 0)
         LET loY AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cy0, cy1), __canvas_minF(cy2, cy3))) - 1, 0)
         LET hiX AS Integer = __canvas_minI(toInt(__canvas_maxF(__canvas_maxF(cx0, cx1), __canvas_maxF(cx2, cx3))) + 1, width - 1)
@@ -246,8 +275,12 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
           LET tRowBase AS Integer = ty * width * 4
           MUT tx AS Integer = loX
           WHILE tx <= hiX
-            LET fpx AS Float = toFloat(tx) + 0.5
-            LET fpy AS Float = toFloat(ty) + 0.5
+            ' The SURFACE point, for the clip; and the shape-space point the inverse
+            ' map wants, which is the same rule `px`/`spx` follow for a shape.
+            LET sfpx AS Float = toFloat(tx) + 0.5
+            LET sfpy AS Float = toFloat(ty) + 0.5
+            LET fpx AS Float = sfpx - gdx
+            LET fpy AS Float = sfpy - gdy
             ' FLOOR, not truncation, and floor of the mapped coordinate BEFORE the
             ' whole-pixel glyph origin is subtracted -- the same two decisions both
             ' shaders make.
@@ -263,7 +296,7 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
             IF ux >= 0 AND uy >= 0 AND ux < gw AND uy < gh THEN
               MUT tcov AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + uy * gw + ux, toByte(0)))
               IF tClipped THEN
-                tcov = (tcov * __canvas_clipCoverage(offset, fpx, fpy)) / 255
+                tcov = (tcov * __canvas_clipCoverage(offset, sfpx, sfpy)) / 255
               END IF
               IF tcov > 0 THEN
                 LET tAlpha AS Integer = (tA * tcov) / 255
@@ -288,12 +321,12 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
       ELSE
       MUT gRow AS Integer = 0
       WHILE gRow < gh
-        LET sy AS Integer = gy + gRow
+        LET sy AS Integer = gsy + gRow
         IF sy >= 0 AND sy < height THEN
           LET gRowBase AS Integer = sy * width * 4
           MUT gCol AS Integer = 0
           WHILE gCol < gw
-            LET sx AS Integer = gx + gCol
+            LET sx AS Integer = gsx + gCol
             IF sx >= 0 AND sx < width THEN
               MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
               IF tClipped THEN
@@ -401,10 +434,14 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   ' inside; toInt gives 10. A clip ENDING at x = 20.0 gives 20, so pixel 20 is visited
   ' and then contributes nothing -- its centre 20.5 is outside, so the coverage is 0.
   ' Visiting one pixel too many is free; missing one would clip a whole column.
-  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 16)), 0)
-  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 18)), width - 1)
-  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19)), height - 1)
-  MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17)), 0)
+  ' plan-116-G: offset FIRST, then clamp to the surface. A group translated partly
+  ' off-screen would otherwise be clipped against the rectangle its untranslated bounds
+  ' occupy, which is a different rectangle -- it would lose the columns it was moved
+  ' *into* and keep ones it was moved out of.
+  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 16) + gdx), 0)
+  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 18) + gdx), width - 1)
+  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19) + gdy), height - 1)
+  MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17) + gdy), 0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
   LET transformed AS Boolean = __canvas_hasTransform(offset)
   ' plan-116-B: the item's BlendMode, read ONCE per item rather than per pixel.
@@ -414,6 +451,10 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   ' 0 keeps the existing full-coverage fast path below, so an unblended item's inner
   ' loop is exactly the one it had.
   LET blendMode AS Integer = toInt(__canvas_geoAt(offset, 26))
+  ' plan-116-G / G5: the clip is NOT offset. `Paint.clip` is a surface rectangle by
+  ' definition (plan-116-B), so a group's translation moves the shape through the clip
+  ' rather than carrying the clip with it. These four narrow the already-offset bounds,
+  ' so a clipped item inside a translated group is clipped where the clip actually is.
   IF clipped THEN
     firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22)))
     y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23)))
@@ -422,10 +463,12 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
   END IF
   WHILE y <= lastY
     LET rowBase AS Integer = y * width * 4
-    LET py AS Float = toFloat(y) + 0.5
+    LET spy AS Float = toFloat(y) + 0.5
+    LET py AS Float = spy - gdy
     MUT x AS Integer = firstX
     WHILE x <= lastX
-      LET px AS Float = toFloat(x) + 0.5
+      LET spx AS Float = toFloat(x) + 0.5
+      LET px AS Float = spx - gdx
       ' plan-116-C: a transformed item is drawn by evaluating its distance field at the
       ' INVERSE-mapped query point, which is what makes one distance function serve
       ' every affine -- no kind needs a transformed variant.
@@ -482,7 +525,7 @@ r#"FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height 
       ' bounds, so this is the boundary's cost and nothing else's.
       MUT clipCov AS Integer = 255
       IF clipped THEN
-        clipCov = __canvas_clipCoverage(offset, px, py)
+        clipCov = __canvas_clipCoverage(offset, spx, spy)
       END IF
 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
@@ -567,4 +610,40 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_strokeHalf", STROKE_HALF));
     pkg.add_helper(RegistryHelper::always("canvas_geoRead", GEO_READ));
     pkg.add_helper(RegistryHelper::always("canvas_drawGeometry", DRAW_GEOMETRY));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `__canvas_strokeHalf` reports "this paint does not stroke" as a **negative**
+    /// value, not zero. Every native consumer therefore has to read it SIGNED.
+    ///
+    /// plan-116-H: the Vulkan emitter's blend-split test read it with `load_u32`, which
+    /// zero-extends, so `-1.0` in 16.16 (`0xFFFF0000`) compared as 4294901760 and every
+    /// blended fill-only item was published as TWO records instead of one. Nothing
+    /// caught it for as long as the draw call's instance count came from the emitter's
+    /// own cursor -- the extra record was drawn and painted nothing. It only became a
+    /// visible defect when the draw list started predicting instance counts
+    /// independently, at which point one extra record shifted every later draw base and
+    /// the scene lost its tail.
+    ///
+    /// This pins the sentinel because the cheap "fix" from the other direction -- making
+    /// it return `0.0` -- would silently paper over a signed-read bug and leave the next
+    /// consumer to rediscover this.
+    #[test]
+    fn a_paint_that_does_not_stroke_reports_a_negative_stroke_half() {
+        let negatives = STROKE_HALF.matches("RETURN 0.0 - 1.0").count();
+        assert_eq!(
+            negatives, 2,
+            "__canvas_strokeHalf must return a NEGATIVE sentinel for both \
+             non-stroking cases (zero alpha, non-positive width); native consumers \
+             read this field signed and a 0.0 sentinel changes what they publish",
+        );
+        assert!(
+            !STROKE_HALF.contains("RETURN 0.0\n"),
+            "a bare 0.0 sentinel makes the no-stroke case indistinguishable from a \
+             zero-width stroke under an unsigned read",
+        );
+    }
 }

@@ -58,6 +58,12 @@ fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
     (pixels, lines)
 }
 
+/// One pixel of a dumped frame, as RGBA.
+fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
+    let i = (y * WIDTH + x) * 4;
+    (frame[i], frame[i + 1], frame[i + 2], frame[i + 3])
+}
+
 /// A `key=value` field of the last stats line.
 fn last(lines: &[String], key: &str) -> String {
     let line = lines
@@ -285,5 +291,126 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
     assert!(
         out.contains("resizes:0"),
         "didResize reported a resize in a run where nothing resized:\n{out}",
+    );
+}
+
+/// Replacing a group's contents damages the area the group draws, not the window
+/// (plan-116-G Phase 4, §4.6).
+///
+/// This is the §4.6 failure written as a test. A `Group` node's own geometry is empty,
+/// so a design that left the node in the draw list and diffed *its* bounds would damage
+/// a zero-area rectangle: the frame would be reported as changed and repaint nothing,
+/// which reads as "the screen only updates on full redraws".
+///
+/// **No sleeps, unlike `UNCHANGED` and `MOVED` above.** Those predate this harness
+/// setting `MFB_CANVAS_SYNC=1` unconditionally, and with it `present` already waits for
+/// the frame it asked for — so the coalescing those sleeps guard against cannot happen
+/// here, and a fixed delay would only be a way for a slow or contended machine to make
+/// these flaky. Verified rather than assumed: the frame-count assertions below hold
+/// without them.
+const GROUP_REPLACED: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET far AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(200, 40, 40))]
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET b AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 120, 220))]
+  canvas::setGroup("panel", [a])
+  LET node AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 300.0, name := "panel"]
+  canvas::present([far, node])
+  canvas::setGroup("panel", [b])
+  canvas::present([far, node])
+END SUB
+"#;
+
+#[test]
+fn replacing_a_group_damages_where_the_group_draws() {
+    let (frame, stats) = render("canvas_damage_group", GROUP_REPLACED, true);
+
+    assert_eq!(
+        number(&stats, "frames"),
+        2,
+        "the second present must produce a frame: the scene list is byte-identical, so \
+         only the group's revision can have told it to. stats:\n{}",
+        stats.join("\n"),
+    );
+    assert!(
+        number(&stats, "partial") >= 1,
+        "the redraw must be PARTIAL. A full redraw would also show the new colour, so \
+         the pixel assertion below cannot tell the two apart — this is the assertion \
+         that says the damage rectangle was a real one rather than the whole window. \
+         stats:\n{}",
+        stats.join("\n"),
+    );
+
+    // The group's new colour is on screen where the group draws...
+    assert_eq!(
+        pixel(&frame, 550, 350),
+        (40, 120, 220, 255),
+        "the group's replaced contents were not painted at its offset",
+    );
+    // ...and the untouched item elsewhere still is, which is what a partial redraw
+    // promises and a damage rectangle that was too large would also satisfy — so it is
+    // paired with the `partial` assertion above rather than standing alone.
+    assert_eq!(
+        pixel(&frame, 50, 50),
+        (200, 40, 40, 255),
+        "the item outside the group's area was lost",
+    );
+
+    let damage = last(&stats, "damage");
+    let parts: Vec<i64> = damage.split(',').map(|p| p.parse().unwrap_or(-1)).collect();
+    // `damage=` is `x,y,WIDTH,HEIGHT` — `__canvas_damageText` subtracts the origin
+    // before printing — not `x0,y0,x1,y1`.
+    assert_eq!(parts.len(), 4, "damage= should be x,y,w,h: {damage}");
+    let (x, y, w, h) = (parts[0], parts[1], parts[2], parts[3]);
+    assert!(
+        (498..=500).contains(&x)
+            && (298..=300).contains(&y)
+            && (100..=106).contains(&w)
+            && (100..=106).contains(&h),
+        "the damage rectangle {damage} (x,y,w,h) is not the group's drawn area, which is \
+         100x100 at (500,300) plus at most a pixel or two of antialias margin. An \
+         origin-anchored rectangle means the group node's own empty bounds were diffed \
+         instead of its children's; 900x640 means it fell back to a full redraw.",
+    );
+}
+
+/// Moving a group node repaints both where it was and where it went.
+///
+/// The same contract any moved item has, and it has to be re-tested for a group because
+/// what moves is the *node* while the geometry in the cache does not change at all —
+/// an implementation keying damage off the geometry would see nothing changed.
+const GROUP_MOVED: &str = r#"IMPORT app
+IMPORT canvas
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  canvas::setGroup("panel", [a])
+  LET here AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "panel"]
+  LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]
+  canvas::present([here])
+  canvas::present([there])
+END SUB
+"#;
+
+#[test]
+fn a_moved_group_repaints_both_positions() {
+    let (frame, stats) = render("canvas_damage_group_move", GROUP_MOVED, true);
+
+    assert_eq!(number(&stats, "frames"), 2, "stats:\n{}", stats.join("\n"));
+    assert_eq!(
+        pixel(&frame, 650, 450),
+        (40, 200, 120, 255),
+        "the group was not painted at its new position",
+    );
+    assert_eq!(
+        pixel(&frame, 150, 150),
+        (0, 0, 0, 255),
+        "the group's OLD position was not erased — a moved item has to repaint where it \
+         was as well as where it is, and for a group the geometry in the cache is \
+         unchanged, so damage keyed off the geometry alone would miss this entirely",
     );
 }

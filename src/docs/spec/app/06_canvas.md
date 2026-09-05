@@ -274,6 +274,16 @@ diagnosable, where sorting would silently draw a picture the program did not des
 Before the first stop and after the last, that end stop's colour holds; neither end
 extrapolates.
 
+**A gradient inside a `canvas::Group` moves with the group.** This is the one place
+the surface-anchored rule above is set aside, and deliberately: a group exists to be
+drawn somewhere else, and an item whose colours depend on where its group was placed is
+not reusable. `Paint.transform` still does not drag a gradient — that reshapes one item
+in place, which is a different thing from relocating a whole sub-picture.
+
+Concretely: the group's accumulated translation is subtracted from the point before `t`
+is computed, so the same group referenced at two offsets shows the same colours at
+corresponding points within it.
+
 **A gradient interpolates in linear light**, the same space compositing uses, through
 the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
 to linear, mixed, and re-encoded. A black-to-white ramp is therefore evenly bright
@@ -281,28 +291,119 @@ across its width; mixing the encoded bytes directly would make it dark for most 
 length, which is the same error as blending encoded bytes and is just as plausible-
 looking.
 
+## Named groups
+
+`canvas::setGroup(name, items)` installs a list of items under a name;
+`canvas::removeGroup(name)` drops the name. A scene draws an installed group by
+including a `canvas::Group` node — `dx`, `dy` and the name — in place of the items:
+
+```basic
+canvas::setGroup("panel", panelItems)
+canvas::present([canvas::Group[dx := 10.0, dy := 20.0, name := "panel"]])
+```
+
+**A scene copies the node, not the group.** `canvas::present` copies the whole scene
+every time it is called, so a large static sub-picture referenced from many scenes — or
+from several positions in one — is copied once when it is installed rather than once per
+frame per reference.
+
+**`canvas::present` is the install point.** `setGroup` does not repaint. Presenting the
+same scene list after a `setGroup` *does* repaint, even though the list is unchanged: the
+change is inside the group and it is seen. This is the same rule everything else here
+follows, and it is worth stating because the natural expectation is the opposite.
+
+**A name that is not installed draws nothing and does not raise**, whether it was never
+installed or has since been removed. A scene may therefore reference a group before it is
+built, and removing a group does not invalidate any scene that names it.
+
+**A group is translated, not transformed.** The node carries two offsets and no matrix.
+`Paint.transform` on the group's own items covers reshaping, and the two compose in the
+order you would expect: the item is transformed in its own coordinates, then the group's
+translation places it. Two things are deliberately *not* carried along by that
+translation, and both follow from what they are:
+
+* **`Paint.clip` does not move** — it is a surface rectangle by definition, so a group
+  translates the shape *through* the clip.
+* **`Paint.fillGradient` does move**, which is the one place the surface-anchored rule is
+  set aside. A group exists to be drawn somewhere else, and an item whose colours depend
+  on where its group was placed would not be reusable.
+
+**Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
+resolved when the scene is presented, so replacing the inner group changes what the outer
+one draws without reinstalling the outer. Two groups may name the same third one, and it
+is drawn once per reference at each reference's position. Exceeding the depth raises
+`ErrDepthExceeded` from `canvas::present`, and so does a group that eventually references
+itself — a cycle is unbounded depth, and the two need the same fix.
+
+**A group stays installed until you replace it or remove it.** Installing again under the
+same name replaces what that name draws. The items are copied, so the list passed to
+`setGroup` is the caller's to change afterwards; the installed group does not follow it.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with
-`canvas::destroyImage`. A scene never holds one: an item that draws an image
-carries an `ImageRef`, a plain value holding the id the backend knows the image
-by, obtained with `canvas::imageRef`.
+`canvas::destroyImage`. An item that draws one names it directly:
+`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
+`RES canvas::Font`.
 
-That indirection is what makes the two lifetimes independent. A scene holding
-resources would have to keep them alive, which would make `canvas::destroyImage`
-a lie; holding only an id means an installed scene has no opinion about any
-image's lifetime at all. Destroying an image a presented scene still draws is
-therefore safe — the runtime simply defers freeing the backing object until the
-GPU has finished with the last frame that used it. That deferral is entirely
-runtime-side and invisible from MFBASIC: there is no reference count, no
-generation table, and nothing for a program to synchronise.
+**Naming a resource in a scene does not keep it alive.** The scene draws through
+the image you still own, and closing it is still yours to do — `canvas::destroyImage`
+means what it says, and takes effect at once. An item whose image has been closed
+draws nothing; the frame around it renders normally and nothing is raised. That is
+what makes the two lifetimes independent without the scene having an opinion about
+either.
+
+Destroying an image a presented scene still draws is therefore safe. The runtime
+defers freeing the backing object until the GPU has finished with the last frame
+that used it, and that deferral is entirely runtime-side and invisible from
+MFBASIC: there is no reference count, no generation table, and nothing for a
+program to synchronise.
+
+### A named group is the exception
+
+`canvas::setGroup` is the one place where naming a resource *does* keep it usable.
+A group outlives the `present` that installed it — that is the point of installing
+one — so an image or font named in its items becomes the group's to close, and the
+program does not close it:
+
+```
+SUB installPanel()
+  RES face AS canvas::Font = canvas::loadFont("ui.ttf")
+  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(canvas::rgb(230, 230, 230))]
+  canvas::setGroup("panel", [label])
+END SUB
+```
+
+`installPanel` returns and its bindings go out of scope, and the group keeps
+drawing. Presenting a `canvas::Group` naming `"panel"` still shows the text.
+
+The compiler enforces the hand-off rather than leaving it to a convention: after
+`canvas::setGroup`, naming the same font again is `2-203-0055`. If two groups need
+one image, build the image twice. This is deliberately stricter than a runtime
+rule would be, because the failure it prevents is silent — an item whose image has
+been closed draws nothing and raises nothing, so a group closing an image another
+group still names would show up only as a picture that is quietly wrong.
+
+`canvas::removeGroup`, and a `canvas::setGroup` that replaces the items, close what
+the old items named — *unless something still on screen names it too*. A group
+rebuilt every frame from one long-lived font therefore keeps drawing: the font is
+named by the new items as well as the old, so it stays usable. There is still no
+reference count; the question asked is "does anything drawn right now name this?",
+and it is asked only when a replaced group's items are being discarded.
+
+One consequence follows from the field being a resource rather than a plain value:
+**a `List OF canvas::DrawItem` cannot cross a thread's data plane.** A `Picture` or
+a `Text` carries a resource, and a resource crosses a thread only on the `RES`
+plane, so sending a scene to another thread is refused with
+`2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED`. Move the `Image` or `Font` with
+`thread::transfer` / `thread::accept` and build the scene on the receiving side.
 
 ### Image content is orthogonal to the scene
 
 An image's *pixels* are mutable without touching the scene. `canvas::setBytes`
-replaces them behind the id, and the change appears on the next rendered frame —
+replaces them behind the image, and the change appears on the next rendered frame —
 no `present` is involved, because the scene has not changed: the same items are in
-the same places, and only the content behind one of their ids is different.
+the same places, and only the content of one of their images is different.
 
 This is why a video frame, a plot, or a progress bar can update without rebuilding
 the scene at all.

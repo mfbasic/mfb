@@ -759,10 +759,29 @@ impl TypeEnv {
             );
             return;
         }
+        // A UNION is not a record, and its payload is reached with `MATCH` (spec
+        // §4.3, §9) — there is no field to read on the union itself. This used to fall
+        // into the "left unchecked" case below, where it inferred `Unknown`: passed to
+        // a builtin that rejects `Unknown` it surfaced as a confusing argument
+        // mismatch, and in a comparison (`s.label <> "hi"`) it type-checked, compiled,
+        // and read a field off a value that has no such field — SIGSEGV at runtime.
+        //
+        // `TYPE_FIELD_ACCESS_REQUIRES_RECORD` rather than a new code because the
+        // existing message is already exactly right: a union is not a record. The
+        // hint names `MATCH`, since a reader who wrote this wanted the payload.
+        if self.unions.contains_key(&target_type) {
+            self.emit(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                format!(
+                    "field access requires a record value, got union `{type_name}`. A union's payload is reached with `MATCH`: `MATCH value` / `CASE {type_name}Variant(v)` / `v.{member}`."
+                ),
+            );
+            return;
+        }
         // Only a record can be member-accessed. When the target resolves to a
         // record whose complete field set is known, the member must be present;
-        // otherwise (collections, unions, unresolved includes, unknown types)
-        // the access is left unchecked.
+        // otherwise (collections, unresolved includes, unknown types) the access is
+        // left unchecked.
         if let Some(fields) = self.record_fields(&target_type) {
             if !fields.contains(member) {
                 self.emit(

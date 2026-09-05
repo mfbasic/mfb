@@ -970,6 +970,144 @@ impl TypeEnv {
             })
     }
 
+    /// The bindings passed to a **consuming parameter** by this op (plan-116-J) —
+    /// the arguments whose reachable resources the callee takes over closing.
+    ///
+    /// Distinct from [`consumed_resource`](Self::consumed_resource), which answers "this
+    /// op closes THIS resource". Here the argument is a *container*: a
+    /// `List OF canvas::DrawItem` whose records name images and fonts. What is consumed
+    /// is what the container holds, which the caller resolves through its containment
+    /// map; this returns only the argument bindings to start that walk from.
+    ///
+    /// Returns at most one name per call today (no member declares two consuming
+    /// parameters), but a `Vec` rather than an `Option` because nothing in the registry
+    /// forbids two and a signature that silently drops the second would be the kind of
+    /// quiet incompleteness that reads as correct.
+    pub(super) fn consumed_contained(
+        &self,
+        op: &IrOp,
+        locals: &HashMap<String, ParameterType>,
+        contains: &HashMap<String, HashSet<String>>,
+    ) -> Vec<String> {
+        let consuming_args = |value: &IrValue| -> Vec<String> {
+            let (target, args) = match value {
+                IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+                    (target, args)
+                }
+                _ => return Vec::new(),
+            };
+            let Some(index) =
+                crate::codegen::resource::builtin_consuming_parameter_index(target.as_str())
+            else {
+                return Vec::new();
+            };
+            // The argument is usually an inline literal rather than a binding —
+            // `canvas::setGroup("one", [a])` passes a `ListLiteral` holding
+            // `Local("a")`, and `a` is a `DrawItem`, not a resource. So the walk has to
+            // run with the caller's REAL containment map: `a` holds `img` only because
+            // an earlier `Bind` recorded it. Handing `held_resources` an empty map here
+            // makes it return nothing and the whole feature silently does nothing —
+            // which is exactly what it did on the first attempt, and the program that
+            // should have been refused compiled clean.
+            match args.get(index) {
+                Some(IrValue::Local(name)) if locals.contains_key(name) => vec![name.clone()],
+                Some(other) => self
+                    .held_resources(other, locals, contains)
+                    .into_iter()
+                    .collect(),
+                None => Vec::new(),
+            }
+        };
+        match op {
+            IrOp::Eval { value, .. } => consuming_args(value),
+            IrOp::Bind {
+                value: Some(value), ..
+            } => consuming_args(value),
+            IrOp::Assign { value, .. } => consuming_args(value),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Every resource binding a value expression **puts inside** the value it builds
+    /// (plan-116-J).
+    ///
+    /// Structural only. A constructor, a list/set/map literal, a union wrap, a `WITH`
+    /// update and a `Checked` wrapper all place their operands into the value they
+    /// produce, so a resource named there is held by the result. An opaque **call** does
+    /// not: a callee's return value does not in general hold its arguments, and
+    /// recording that it might would move bindings the program still owns — a false
+    /// `TYPE_USE_AFTER_MOVE` on correct code.
+    ///
+    /// That is the opposite approximation direction from the alias graph beside it, and
+    /// deliberately so: a missed alias is a silent use-after-close, so `aliases`
+    /// over-approximates; a spurious containment edge rejects a valid program, so this
+    /// under-approximates. The two relations are unsound in opposite directions because
+    /// their failure modes are.
+    pub(super) fn held_resources(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+        contains: &HashMap<String, HashSet<String>>,
+    ) -> HashSet<String> {
+        let mut out = HashSet::new();
+        self.collect_held(value, locals, contains, &mut out);
+        out
+    }
+
+    fn collect_held(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+        contains: &HashMap<String, HashSet<String>>,
+        out: &mut HashSet<String>,
+    ) {
+        match value {
+            IrValue::Local(name) => {
+                if locals
+                    .get(name)
+                    .is_some_and(|t| self.close_op_for(&resource_base_type(t)).is_some())
+                {
+                    out.insert(name.clone());
+                } else if let Some(held) = contains.get(name) {
+                    // A container built earlier and named here contributes what it
+                    // holds — `LET a = Picture[image := img]` then `[a]`.
+                    out.extend(held.iter().cloned());
+                }
+            }
+            IrValue::Constructor { args, .. } => {
+                for arg in args {
+                    self.collect_held(arg, locals, contains, out);
+                }
+            }
+            IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
+                for element in values {
+                    self.collect_held(element, locals, contains, out);
+                }
+            }
+            IrValue::MapLiteral { entries, .. } => {
+                for (key, entry) in entries {
+                    self.collect_held(key, locals, contains, out);
+                    self.collect_held(entry, locals, contains, out);
+                }
+            }
+            IrValue::UnionWrap { value, .. } | IrValue::Checked { value, .. } => {
+                self.collect_held(value, locals, contains, out);
+            }
+            IrValue::WithUpdate {
+                target, updates, ..
+            } => {
+                // `WITH v { f := e }` produces a NEW record carrying both what `v` held
+                // and the update, so both flow in — the same edge
+                // `resource_escape`'s scan draws for the same expression.
+                self.collect_held(target, locals, contains, out);
+                for update in updates {
+                    self.collect_held(&update.value, locals, contains, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The resource binding consumed by an op, if any: a call to the binding's
     /// registered close op with it as the first argument, or `RETURN <binding>`.
     pub(super) fn consumed_resource(

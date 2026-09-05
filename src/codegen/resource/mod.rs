@@ -103,6 +103,38 @@ pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&
     }
 }
 
+/// The **argument index** of `target`'s consuming parameter, if it has one — the
+/// parameter that consumes every resource reachable from its argument (plan-116-J).
+///
+/// `target` is the qualified member name as it appears in an `IrValue::Call`, e.g.
+/// `"canvas.setGroup"`. Returns `None` for everything else, which is the overwhelming
+/// majority: a member with no consuming parameter and an unknown member are the same
+/// answer here, and that is why `the_consuming_parameters_name_real_members` exists —
+/// a typo in an `add_consuming_parameter` call would otherwise be silent.
+///
+/// **The index is derived from the parameter NAME, not stored.** Storing an index would
+/// go stale the first time a parameter is inserted ahead of it, and silently: the lookup
+/// would still succeed and point at the wrong argument.
+pub(crate) fn builtin_consuming_parameter_index(target: &str) -> Option<usize> {
+    let (pkg_name, func_name) = target.split_once('.')?;
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name() == pkg_name)?;
+    let entry = package
+        .consuming_params()
+        .iter()
+        .find(|c| c.function == func_name)?;
+    // Every overload that HAS the parameter must agree on where it sits; one that does
+    // not have it contributes nothing. `the_consuming_parameter_index_agrees_across_overloads`
+    // is what holds that, so this may take the first match.
+    package
+        .function(func_name)?
+        .implementations
+        .iter()
+        .find_map(|imp| imp.params.iter().position(|p| p.name == entry.parameter))
+}
+
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
 pub(crate) fn is_builtin_sendable_resource_type(type_: &ParameterType) -> bool {
     match registry().resolve_type(&type_.without_state().name()) {

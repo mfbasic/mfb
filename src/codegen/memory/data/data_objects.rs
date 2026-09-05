@@ -211,6 +211,17 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "canvas.present",
+            "canvas.setGroup",
+            "canvas.groupCount",
+            "canvas.groupBytes",
+            "canvas.groupResolve",
+            "canvas.groupRevision",
+            "canvas.groupItems",
+            "canvas.groupReclaim",
+            "canvas.nextReclaimableGroup",
+            "canvas.retiredItems",
+            "canvas.groupSlots",
+            "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",
             "canvas.publishLayers",
@@ -250,7 +261,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         &[
             "canvas.createImage",
             "canvas.loadImage",
-            "canvas.imageRef",
+            "canvas.imageHandle",
             "canvas.getSize",
             "canvas.getBytes",
             "canvas.setBytes",
@@ -262,6 +273,14 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             err_msg("ErrBadPixelCount"),
             err_msg("ErrBadImageFile"),
             err_msg("ErrWrongMode"),
+            // plan-116-G: `canvas::setGroup` is in the gate list above, and it is the
+            // only member that can raise this. Registering the string is what emits
+            // its data object — without the row the relocation the raise already
+            // emitted dangles at link time (the bug-256 class).
+            err_msg("ErrCanvasGroupLimit"),
+            // plan-116-G: `canvas::present` raises this when a group's nesting exceeds
+            // 64 levels, which is also how a cycle reports.
+            err_msg("ErrDepthExceeded"),
         ] {
             push_string_value(&mut values, value);
         }
@@ -272,7 +291,11 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     // that can raise it.
     if module_uses_any_call(
         module,
-        &["canvas.loadFont", "canvas.fontFromBytes", "canvas.fontRef"],
+        &[
+            "canvas.loadFont",
+            "canvas.fontFromBytes",
+            "canvas.fontHandle",
+        ],
     ) {
         for value in [
             err_msg("ErrOutOfMemory"),

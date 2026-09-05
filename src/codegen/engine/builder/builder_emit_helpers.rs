@@ -220,6 +220,18 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         return_type: Option<&str>,
     ) -> Result<ValueResult, String> {
+        // plan-116-J: a consuming parameter takes over closing the resources reachable
+        // from its argument, so this scope stops closing them.
+        //
+        // Placed HERE rather than on `lower_value`'s `Call` arm, which is where it went
+        // first: a builtin's call site does not reach that arm at all. Traced — 1759
+        // lowered calls in a program that calls `canvas::setGroup`, and not one of them
+        // named it. `emit_call` is the chokepoint every call actually passes through,
+        // and it has both the resolved `target` and the unlowered `args`.
+        //
+        // Before the arguments are lowered, so the deactivation is not sensitive to
+        // whatever lowering does to them.
+        self.deactivate_consumed_cleanups(target, args);
         let arg_values = self.emit_raw_call(symbol, args, "call_arg")?;
         let result_type = return_type
             .map(ParameterType::declared)

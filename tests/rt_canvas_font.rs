@@ -70,10 +70,15 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
   RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
     RETURN label & ": refused " & toString(e.code)
   END TRAP
-  LET r AS canvas::FontRef = canvas::fontRef(f)
-  IF r.id = 0 THEN
-    RETURN label & ": accepted with a zero handle"
-  END IF
+  ' The old form minted a `FontRef` and asserted a non-zero id. That checked one thing:
+  ' the mint step succeeded. plan-116-I removed the mint, so there is no second
+  ' assertion left to make here — whether the loader ACCEPTS a container, which is what
+  ' this function measures, is decided entirely by the TRAP above.
+  '
+  ' Deliberately not replaced with a `measureText` check: this fixture's faces are
+  ' synthetic containers built to exercise the loader's accept/refuse decision, and
+  ' several measure zero for reasons that have nothing to do with acceptance. Asserting
+  ' on their metrics would fail for the wrong reason, which is worse than not asserting.
   canvas::destroyFont(f)
   RETURN label & ": accepted"
 END FUNC
@@ -326,6 +331,101 @@ fn run_with_font(name: &str, source: &str) -> Vec<String> {
     lines
 }
 
+/// As `run_with_font`, plus the dumped RGBA frame.
+///
+/// A separate entry point rather than widening `run_with_font`: every other test here
+/// asserts on what the program printed, and a frame dump is a file those runs would
+/// write and never read.
+fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
+    let project = common::temp_project(name, source);
+    std::fs::write(project.join("fixture.ttf"), minimal_truetype()).expect("write the font");
+    let frame = project.join("frame.rgba");
+    let binary = common::build_app(&project, name);
+    let out = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        out.status.success(),
+        "program exited {:?}:\n{}\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let pixels = std::fs::read(&frame).expect("the canvas dump");
+    let _ = std::fs::remove_dir_all(&project);
+    pixels
+}
+
+/// A `Text` item inside a translated group draws its glyphs **at the offset**
+/// (plan-116-G §4.5, **G5**).
+///
+/// This is the case a fix written for distance fields misses, and it is why G5 asks for
+/// the positional reads to be enumerated rather than reasoned about. A glyph is not a
+/// distance field: it is a cached coverage bitmap indexed by whole pixels from the run's
+/// origin, so "evaluate the distance at `p - offset`" never reaches it. Text in a
+/// translated group would then draw at the *untranslated* origin — the glyphs would be
+/// perfectly correct and in the wrong place, which no per-pixel comparison of the group's
+/// own area would notice.
+///
+/// The fixture glyph is a filled square at (100,0)-(400,300) in a 1000-unit em, so at
+/// size 200 an 'A' is a solid block roughly 60px across. Asserting both that ink IS at
+/// the offset and that there is NONE at the unoffset origin is what separates "moved
+/// correctly" from "drawn twice" and from "not drawn at all".
+#[test]
+fn text_inside_a_translated_group_draws_at_the_offset() {
+    const SOURCE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("font failed")
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(canvas::rgb(255, 255, 0))]
+  canvas::setGroup("label", [label])
+  canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
+  io::print("done")
+END SUB
+"#;
+    let frame = run_with_font_frame("canvas_group_text", SOURCE);
+    const W: usize = 900;
+    let lit = |x: usize, y: usize| -> bool {
+        let i = (y * W + x) * 4;
+        frame[i] > 128 && frame[i + 1] > 128
+    };
+    // The run is drawn at (40,120) inside the group, so it lands near (440,420).
+    let mut moved = 0;
+    let mut origin = 0;
+    for y in 0..640usize {
+        for x in 0..W {
+            if !lit(x, y) {
+                continue;
+            }
+            if x >= 400 && y >= 300 {
+                moved += 1;
+            } else {
+                origin += 1;
+            }
+        }
+    }
+    assert!(
+        moved > 500,
+        "the glyph run did not draw inside the group's translated quadrant: {moved} lit          pixels there. A glyph is a cached bitmap, not a distance field, so the rule          that moves every shape does not reach it unless the run's ORIGIN is moved.",
+    );
+    assert_eq!(
+        origin, 0,
+        "{origin} lit pixels outside the translated quadrant — the run was drawn at its          untranslated position as well as (or instead of) the offset one",
+    );
+}
+
 const MEASURE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT io
@@ -502,7 +602,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -553,7 +653,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := canvas::fontRef(face), size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -571,11 +671,18 @@ END SUB
 }
 
 #[test]
-fn text_in_a_font_that_was_never_loaded_draws_nothing() {
-    // A `FontRef` a program fabricated, or one whose font it released — the runtime
-    // draws empty rather than following a handle it cannot resolve. This is the
-    // property that lets `canvas::destroyFont` be safe while a scene still names the
-    // font, so it is worth pinning separately from the happy path.
+fn text_whose_font_was_destroyed_draws_nothing() {
+    // The runtime draws empty rather than following a font it cannot resolve. This is
+    // the property that lets `canvas::destroyFont` be safe while a scene still names
+    // the font, so it is worth pinning separately from the happy path.
+    //
+    // **Written as destroy-then-present since plan-116-I** (§4.3). It used to fabricate
+    // `FontRef[id := 12345]` — a handle naming nothing — which is not expressible now
+    // that `Text.font` holds the font itself. That is a strictly better test for the
+    // same property: a made-up integer proved the renderer tolerated a bad *number*,
+    // while destroying a real font proves it tolerates the case that actually happens,
+    // and exercises the `closed` flag the bridge reads rather than a value no resource
+    // ever had.
     let frame = render(
         "canvas_glyph_no_font",
         r#"IMPORT app
@@ -583,14 +690,20 @@ IMPORT canvas
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := canvas::FontRef[id := 12345], size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    EXIT SUB
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
+  ' already gone — the ordering the guard exists for.
+  canvas::destroyFont(face)
   canvas::present([label])
 END SUB
 "#,
     );
     assert!(
         frame.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
-        "text in an unresolvable font drew something",
+        "text whose font was destroyed drew something",
     );
 }
 
@@ -611,7 +724,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
   canvas::present([label])
 END SUB
 "#;
@@ -683,7 +796,7 @@ SUB main()
     EXIT SUB
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(canvas::rgb(40, 60, 90))]
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := canvas::fontRef(face), size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
   LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
   canvas::present([under, label, tail])
 END SUB
@@ -749,7 +862,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := canvas::fontRef(face), size := size, paint := white]
+    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := face, size := size, paint := white]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -853,7 +966,7 @@ SUB main()
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
   LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := p]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p]
   canvas::present([label])
 END SUB
 "#;
@@ -867,7 +980,7 @@ SUB main()
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := canvas::fontRef(face), size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#;
@@ -992,6 +1105,62 @@ fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
     }
 }
 
+/// Two hundred presents through one font leave the glyph cache where they found it
+/// (plan-116-I Phase 3).
+///
+/// A `Text` now holds the font itself, so every present publishes a scene containing a
+/// resource. What this guards is the **pointer-chase** path — the renderer reaching
+/// through the item to the resource record on every frame — rather than a file
+/// descriptor: fonts are arena-backed, so a leak here shows up as cache growth.
+///
+/// **One font, presented two hundred times**, not two hundred loads. That distinction
+/// is the whole test. Each `loadFont` mints a *new backend identity*, and the glyph
+/// cache is keyed by it, so N loads legitimately produce N cache entries and a loop
+/// written that way measures the cache's key, not the pointer chase. Measured: 200
+/// loads leave `glyphs=200 glyphBytes=22000 glyphEvictions=0` — bounded by the cache
+/// cap rather than leaking, but growing for a reason that has nothing to do with this
+/// letter (**I6**).
+#[test]
+fn two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_it() {
+    let (_, stats) = render_env(
+        "canvas_font_present_churn",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load-failed")
+    EXIT SUB
+  END TRAP
+  MUT i AS Integer = 0
+  WHILE i < 200
+    ' The x moves each frame so the scene differs and the present is not skipped —
+    ' a skipped present would exercise nothing.
+    LET label AS canvas::DrawItem = canvas::Text[x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+    canvas::present([label])
+    i = i + 1
+  END WHILE
+END SUB
+"#,
+        &[],
+    );
+    assert!(
+        !stats.contains("load-failed"),
+        "the loop never loaded a font: {stats}"
+    );
+    let glyphs = stat(&stats, "glyphs");
+    let bytes = stat(&stats, "glyphBytes");
+    assert!(
+        glyphs <= 4 && bytes <= 4096,
+        "200 presents through ONE font left glyphs={glyphs} glyphBytes={bytes}. One \
+         face drawing one character at one size is a single cache entry; growth \
+         proportional to the number of PRESENTS means the renderer retains something \
+         each time it chases the item's pointer to the resource: {stats}"
+    );
+}
+
 // --- font-derived size bombs (bug-509, DEC-53/54) --------------------------------------
 //
 // A TrueType file names sizes the renderer used to trust: `cmap` format 12's
@@ -1092,7 +1261,7 @@ SUB main()
     io::print("load failed " & toString(e.code))
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := canvas::fontRef(face), size := {size}, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(canvas::rgb(255, 255, 255))]
   canvas::present([label])
   io::print("presented")
 END SUB

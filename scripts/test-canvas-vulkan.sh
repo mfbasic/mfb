@@ -498,6 +498,161 @@ else
   esac
 fi
 
+
+# ---------------------------------------------------------------------------------
+# plan-116-H: groups on the GPU, against the checked-in reference.
+#
+# A second program rather than more items in the first, because it asserts a different
+# thing. The first scene proves the primitives agree; this one proves the per-draw
+# OFFSET agrees. Every item here lives inside a group, so a backend that ignored the
+# offset would draw a picture that is complete, plausible and wrong — every shape
+# stacked at the origin. That is the failure `.ai/canvas-threading.md` §10 is about, and
+# only a comparison at a NON-ZERO offset can see it.
+#
+# **The scene is extracted from `tests/rt_canvas_golden.rs`, not copied.** It is the same
+# `GROUPS` const that `groups_match_their_reference_exactly` renders, so this script and
+# that test cannot drift into rendering different scenes and both claiming to check
+# `groups.png`. A copy here would be a second source of truth for a reference image that
+# has exactly one.
+#
+# What the scene covers, and why each case can only pass for the right reason:
+#
+#   the panel at (0,0) and again at (340,210)   the offset itself, side by side
+#   `outer`                                     a NESTED group: (600,40)+(20,30)
+#   `leaf` twice                                a DIAMOND: one group, two references
+#   the panel's gradient bar                    sampled per fragment from an absolute
+#                                               point, so a vertex-only offset shifts
+#                                               the ramp inside a correctly placed quad
+#   the panel's `Text` run                      glyph coverage, sampled the same way
+#   the panel's clipped band                    the one thing that must NOT move: a clip
+#                                               is a surface rectangle, so the band is
+#                                               visible in the panel at the origin and
+#                                               clipped away in both translated copies
+echo "--- groups: building for linux-x86_64 ---"
+projg="$work/groups"
+mkdir -p "$projg/src"
+cp "$proj/fixture.ttf" "$projg/fixture.ttf"
+sed 's/"name": "vkcanvas"/"name": "vkgroups"/' "$proj/project.json" > "$projg/project.json"
+# The Rust const's body, between the raw-string delimiters.
+sed -n '/^const GROUPS: &str = r#"/,/^"#;$/p' tests/rt_canvas_golden.rs \
+  | sed -e '1s/^const GROUPS: &str = r#"//' -e '$d' > "$projg/src/main.mfb"
+if ! grep -q "canvas::setGroup" "$projg/src/main.mfb"; then
+  fail "could not extract the GROUPS scene from tests/rt_canvas_golden.rs — the const's shape changed"
+  exit 1
+fi
+
+"$MFB_EXE" build --app --target linux-x86_64 "$projg" >/dev/null
+
+# The reference, decoded to raw RGBA here so the box needs no PNG library. Same bytes
+# `Frame::load_png` would hand the Rust comparators.
+python3 - "tests/golden/canvas/groups.png" "$work/groups.rgba" <<'PY'
+import struct, sys, zlib
+
+raw = open(sys.argv[1], "rb").read()
+assert raw[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+pos, idat = 8, bytearray()
+width = height = None
+while pos < len(raw):
+    length, kind = struct.unpack(">I4s", raw[pos:pos + 8])
+    body = raw[pos + 8:pos + 8 + length]
+    if kind == b"IHDR":
+        width, height, depth, colour, _, _, interlace = struct.unpack(">IIBBBBB", body)
+        assert (depth, colour, interlace) == (8, 6, 0), "expected 8-bit RGBA, not interlaced"
+    elif kind == b"IDAT":
+        idat += body
+    elif kind == b"IEND":
+        break
+    pos += 12 + length
+
+data = zlib.decompress(bytes(idat))
+stride = width * 4
+out = bytearray()
+prev = bytearray(stride)
+at = 0
+for _ in range(height):
+    filt = data[at]; at += 1
+    line = bytearray(data[at:at + stride]); at += stride
+    for i in range(stride):
+        a = line[i - 4] if i >= 4 else 0
+        b = prev[i]
+        c = prev[i - 4] if i >= 4 else 0
+        if filt == 1:   line[i] = (line[i] + a) & 0xFF
+        elif filt == 2: line[i] = (line[i] + b) & 0xFF
+        elif filt == 3: line[i] = (line[i] + (a + b) // 2) & 0xFF
+        elif filt == 4:
+            pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+            pred = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+            line[i] = (line[i] + pred) & 0xFF
+        elif filt != 0:
+            raise SystemExit(f"unknown PNG filter {filt}")
+    out += line
+    prev = line
+open(sys.argv[2], "wb").write(bytes(out))
+PY
+
+remoteg="$remote/groups"
+ssh -p "$PORT" "$host" "mkdir -p $remoteg"
+scp -P "$PORT" "$projg/build/vkgroups-$LIBC.AppImage" "$host:$remoteg/app.AppImage" >/dev/null
+scp -P "$PORT" "$projg/fixture.ttf" "$host:$remoteg/fixture.ttf" >/dev/null
+
+echo "--- groups: running on box $PORT ---"
+ssh -p "$PORT" "$host" "
+  set -e
+  cd $remoteg
+  ./app.AppImage --appimage-extract >/dev/null 2>&1
+  # `loadFont` resolves against the working directory, so the fixture has to sit beside
+  # the extracted tree and the run has to happen from there.
+  cp fixture.ttf squashfs-root/fixture.ttf
+  cd squashfs-root
+  bin=./usr/bin/vkgroups
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remoteg/sw.txt \
+    MFB_CANVAS_DUMP=$remoteg/sw.rgba timeout 180 \$bin >/dev/null 2>&1
+  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remoteg/gpu.txt \
+    MFB_CANVAS_DUMP=$remoteg/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
+"
+scp -P "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
+scp -P "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
+scp -P "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
+
+gstats="$(tail -1 "$work/ggpu.txt")"
+echo "    $gstats"
+
+# A group scene that DECLINED reads as a pass on the pixels — both sides would be the
+# software renderer agreeing with itself. plan-116-G's decline did exactly that, so the
+# frame count is asserted before any pixel is believed.
+case "$gstats" in
+  *gpuFrames=0*) fail "the group scene produced no GPU frame — the predicate declined it, so every pixel comparison below would be software against itself" ;;
+  *) pass "the group scene reached the GPU (gpuFrames non-zero)" ;;
+esac
+
+# The software render against the reference, EXACTLY. This is the assertion that makes
+# the GPU one below mean something on this box: it establishes that Linux's oracle is
+# the same oracle the reference was made from on macOS.
+verdict="$(compare "$work/groups.rgba" "$work/gsw.rgba" 900)"
+case "$verdict" in
+  ok*)
+    if [ "$verdict" = "ok worst=0 differing=0.0000%" ]; then
+      pass "groups: the software render reproduces tests/golden/canvas/groups.png exactly"
+    else
+      fail "groups: the software render is only NEAR the reference ($verdict) — the oracle must match it exactly, or the reference has drifted from the renderer that made it"
+    fi
+    ;;
+  *) fail "groups: the software render disagrees with tests/golden/canvas/groups.png: $verdict" ;;
+esac
+
+verdict="$(compare "$work/groups.rgba" "$work/ggpu.rgba" 900)"
+case "$verdict" in
+  ok*) pass "groups: the Vulkan render matches tests/golden/canvas/groups.png ($verdict)" ;;
+  *)   fail "groups: the Vulkan render disagrees with the reference: $verdict
+    Localize by what moved and what did not. Everything at the ORIGIN means the
+    per-draw offset never reached the backend. A shape in the right place whose
+    gradient ramp or glyph ink is shifted means the offset reached the VERTEX stage
+    only — distance, ramp and coverage are evaluated per fragment at an absolute
+    point and need it too. A white band visible in a TRANSLATED panel means the
+    opposite mistake: the clip is a surface rectangle and must not move with its
+    group." ;;
+esac
+
 if [ "$fails" -eq 0 ]; then
   echo "canvas Vulkan runtime tests passed"
 else
