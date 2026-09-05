@@ -670,7 +670,9 @@ a group's buffer and a parent group never holds one into its child's — a `canv
 node carries a *name*, and the renderer resolves it per frame. The only window in which
 anything reads the block is that copy, on the graphics thread, inside one frame.
 
-So the lifetime rule is the drain gate alone, and it is the one §3 and §7 already use:
+So the **buffer's** lifetime rule is the drain gate alone, and it is the one §3 and §7
+already use *(the resources the buffer's items name are a separate question, and
+plan-116-J answers it below — still without a refcount)*:
 `removeGroup` and a replacing `setGroup` **retire** the displaced buffer and stamp the
 frame; the buffer is freed once a frame has completed since. A reference count would have
 been a second mechanism guarding a lifetime this already bounds.
@@ -687,9 +689,54 @@ inherits that: `removeGroup("panel")` followed by presents of an unchanged scene
 never free anything — the frame skip working exactly as designed, and the memory held
 anyway. **A memory bound that depends on the scene changing is not a bound.**
 
-`canvas::groupReclaim()` therefore runs first and unconditionally in `__canvas_present`.
-It is a scan of 256 slots with no allocation, which is what makes unconditional
-affordable.
+`canvas::nextReclaimableGroup()` therefore runs first and unconditionally in
+`__canvas_present`. It is a scan of 256 slots with no allocation, which is what makes
+unconditional affordable. *(It was `canvas::groupReclaim()`, which both found and freed;
+plan-116-J split the two so the resources a retired buffer owns can be closed in
+between — see below. `groupReclaim(slot)` is now the freer and takes the slot the finder
+named.)*
+
+### A group OWNS the images and fonts its items name (plan-116-J)
+
+`canvas::setGroup`'s `items` parameter **consumes** the resources reachable from its
+argument. A group outlives the `present` that draws it, so it has to keep them alive — and
+it cannot while the caller still owns them, because scope-drop closes a `RES` its binding
+still owns and the group holds only an **alias** into the same record. So the caller's
+binding is moved: naming the image again is `2-203-0055 TYPE_USE_AFTER_MOVE`, and codegen
+drops that scope's close obligation.
+
+**The close hangs off the free path, and the rule is not "close what the retired buffer
+named".** It is:
+
+> A retired resource is closed only if **nothing live names it** — where *live* is the
+> scene about to be published **plus every group's live items**.
+
+Three ordinary programs break under the narrower rule, all of them silently, because
+`imageHandle`/`fontHandle` answer `0` for a closed resource and `0` already means "no such
+object" — the item simply stops drawing and nothing is raised:
+
+* **a group rebuilt each frame from one long-lived font.** The retired buffer and the one
+  replacing it name the same font. This is the shape every real canvas program has.
+* **a resource named by a group and by the live scene.** `present` does not take
+  ownership, so a `Picture` built *before* the `setGroup` reaches the scene with nothing
+  for the move checker to object to.
+* **a resource named by two groups.** Refused at compile time where the checker can see
+  it, but a loop body is analysed once, so a rebuild across iterations is a deliberate
+  false negative (that conservatism is what keeps the rule from rejecting valid programs).
+
+Identity is compared through `canvas::imageHandle`/`canvas::fontHandle`, which return the
+backend id as an `Integer` — two aliases of one resource are not comparable as `RES`
+values. This is the second reason their read order matters: they test the closed flag
+**before** loading the handle (§7), so a concurrent destroy cannot yield a stale non-zero
+id that keeps alive a resource nothing names.
+
+The walk is an MFBASIC `MATCH` (`__canvas_closeRetired`), not an open-coded step over the
+`DrawItem` union's layout in codegen: a `MATCH` that a new variant must handle is a
+compile error, and a hand-written tag offset that a new variant must not break is a hope.
+The scan runs **only when a buffer is actually being reclaimed**, so a present with
+nothing due costs what it always did — one call.
+
+Rows **R17–R21** in §8.
 
 ### A group node is expanded before any consumer sees it
 
