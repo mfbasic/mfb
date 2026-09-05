@@ -1061,6 +1061,42 @@ Commit: `76d938d02` (docs), `0ddaaeabd` + `5d0ce5bc9` (`.ai/canvas-threading.md`
 
 ## Corrections
 
+**J22 (2026-09-05, landing) — the second merge, and **J20**'s proportionate policy used
+in anger.**
+
+`main` advanced **19 further commits** while the first post-merge acceptance and the
+box-2228 row were running — regex span reporting (bug-532), a record-layout answer
+(bug-546), backlog bookkeeping. Merged: **clean, no conflicts**, against 3 overlapping
+files (`.ai/testing-gates.md`, `src/codegen/engine/builder/mod.rs`,
+`tests/rt_port_gate_is_cross_process.rs`) — git resolved all three, and the one that
+mattered (`builder/mod.rs`, where this letter added `resource_containment`) needed no help.
+
+**Re-validated proportionately per J20, not fully**, because the deltas are again disjoint:
+`--bin mfb` plus this letter's canvas targets plus `rt_regex_span` for the incoming area,
+then `artifact-gate all` — which checks **every** golden regardless of whose commit moved
+it, and is what makes the scoping safe rather than optimistic.
+
+| target | result |
+|---|---|
+| `--bin mfb` | **3831 passed**, 0 failed |
+| `cli_canvas_image_resource` | 7 |
+| `rt_canvas_font` | 19 |
+| `rt_canvas_golden` | 19 |
+| `rt_canvas_group_ownership` | **11** |
+| `rt_canvas_present_deep_copy` | 8 |
+| `cli_canvas_package` | 60 |
+| `rt_regex_span` (`main`'s new target) | 3 |
+
+`rc=0`, 8 targets, 0 failed.
+
+**What made this affordable and what would not.** Two merges, ~150 commits, and the only
+hand resolution needed was in the *first* one — and even there, four of five conflicts were
+mechanical. The one that was not (`rt_canvas_font.rs`, where `main` wrote 320 lines against
+a member plan-116-I had deleted) is recorded in **J18**. Had either merge touched
+`canvas/gen_group.rs`, `helper_render.rs` or `ir/verify/resources.rs`, the full run would
+have been back — J20 says so explicitly, and the disjointness was measured each time rather
+than assumed.
+
 **J21 (2026-09-04, Phase 4 acceptance) — three of this letter's gate failures were
 phantoms, from three different mechanisms, and none of them was a golden result. Recorded
 because the numbers below only mean something once they are separated out.**
