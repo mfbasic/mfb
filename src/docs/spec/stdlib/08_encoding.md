@@ -91,8 +91,13 @@ bytes that already back a `String`. Its inverse is the universal
 `xn--` prefix, and the standard parameters (`base 36`, `tmin 1`, `tmax 26`,
 `skew 38`, `damp 700`, `initial_bias 72`, `initial_n 128`) drive the
 delta/bias adaptation. Decoding reverses the generalized variable-length integers
-and inserts each code point at its computed position; it fails on an invalid digit
-or a truncated sequence.
+and inserts each code point at its computed position (RFC 3492's in-place shift);
+it fails with `ErrInvalidFormat` on an invalid digit, a truncated sequence, a
+variable-length integer that would overflow (the RFC §6.4 checks), or an encoded
+label longer than 1024 octets — the insertion is quadratic in the label's length,
+and 1024 is sixteen times the 63-octet DNS label limit (RFC 1034 §3.1, RFC 5890
+§2.3.1) and past every RFC 3492 sample string, so the bound is unreachable by any
+host label or by a round trip of ordinary text (bug-510).
 
 ## LEB128 and varints
 

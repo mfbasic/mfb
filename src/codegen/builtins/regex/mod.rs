@@ -25,7 +25,6 @@ mod helper_chr;
 mod helper_class_match;
 mod helper_class_match_one;
 mod helper_compile;
-mod helper_depth_limit;
 mod helper_expand;
 mod helper_fail;
 mod helper_init_caps;
@@ -46,10 +45,6 @@ mod helper_lookup_num;
 mod helper_lookup_ref;
 mod helper_make_class;
 mod helper_make_ctx;
-mod helper_match_alt;
-mod helper_match_cont;
-mod helper_match_node;
-mod helper_match_rep;
 mod helper_match_results;
 mod helper_parse_alt;
 mod helper_parse_atom;
@@ -73,6 +68,7 @@ mod helper_posix_prop;
 mod helper_prop_match_item;
 mod helper_prop_test;
 mod helper_required_first_cp;
+mod helper_run;
 mod helper_scalar_to_cp;
 mod helper_script_canon;
 mod helper_script_test;
@@ -285,6 +281,13 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "fold",
                 ty: ParameterType::Boolean,
+                description: "",
+            },
+            // bug-510: the literal's code point, computed once at parse so the matcher
+            // compares scalars (the context no longer carries the subject as Strings).
+            RecordProp {
+                name: "cp",
+                ty: ParameterType::Integer,
                 description: "",
             },
         ],
@@ -557,6 +560,92 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // bug-510: the matcher's backtrack stack. A choice point is a record whose `nxt`
+    // is the choice below it -- a linked list, never a growable `List OF`, because a
+    // `collections::get` of a recursive-type element aliases the list's storage and a
+    // growing `append` frees it (bug-538). `__regex_run` documents the field roles.
+    pkg.add_record(RegistryRecord {
+        name: "__regex_NoChoice",
+        export: false,
+        description: "",
+        props: vec![RecordProp {
+            name: "none",
+            ty: ParameterType::Boolean,
+            description: "",
+        }],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "__regex_Choice",
+        export: false,
+        description: "",
+        props: vec![
+            RecordProp {
+                name: "kind",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "alt",
+                ty: ParameterType::named("__regex_Node"),
+                description: "",
+            },
+            RecordProp {
+                name: "rep",
+                ty: ParameterType::named("__regex_Repeat"),
+                description: "",
+            },
+            RecordProp {
+                name: "cont",
+                ty: ParameterType::named("__regex_Cont"),
+                description: "",
+            },
+            RecordProp {
+                name: "pos",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "caps",
+                ty: ParameterType::list_of(ParameterType::Integer),
+                description: "",
+            },
+            RecordProp {
+                name: "i",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "count",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "p",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+            RecordProp {
+                name: "nxt",
+                ty: ParameterType::named("__regex_Choices"),
+                description: "",
+            },
+        ],
+    });
+    pkg.add_union(RegistryUnion {
+        name: "__regex_Choices",
+        export: false,
+        variants: vec![
+            UnionVariant {
+                name: "__regex_NoChoice",
+                description: "",
+            },
+            UnionVariant {
+                name: "__regex_Choice",
+                description: "",
+            },
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "__regex_Result",
         export: false,
@@ -585,11 +674,6 @@ pub(crate) fn register(r: &mut Registry) {
         export: false,
         description: "",
         props: vec![
-            RecordProp {
-                name: "text",
-                ty: ParameterType::list_of(ParameterType::String),
-                description: "",
-            },
             RecordProp {
                 name: "cps",
                 ty: ParameterType::list_of(ParameterType::Integer),
@@ -857,16 +941,12 @@ pub(crate) fn register(r: &mut Registry) {
     helper_fail::register(&mut pkg);
     helper_set_cap::register(&mut pkg);
     helper_char_eq::register(&mut pkg);
-    helper_match_node::register(&mut pkg);
-    helper_match_alt::register(&mut pkg);
+    helper_run::register(&mut pkg);
     helper_steps::register(&mut pkg);
     helper_step_budget::register(&mut pkg);
-    helper_depth_limit::register(&mut pkg);
     helper_parse_depth_limit::register(&mut pkg);
     helper_is_simple_node::register(&mut pkg);
     helper_simple_match_at::register(&mut pkg);
-    helper_match_rep::register(&mut pkg);
-    helper_match_cont::register(&mut pkg);
     helper_init_caps::register(&mut pkg);
     helper_try_at::register(&mut pkg);
     helper_search_from::register(&mut pkg);

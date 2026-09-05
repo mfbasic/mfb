@@ -114,15 +114,16 @@ fn a_repeat_that_does_not_match_still_fails_cleanly() {
 
 #[test]
 fn find_all_cost_is_bounded_for_the_whole_call() {
-    // DEC-02. `(a|aa){1,20}b|a` on a run of `a`s: at every start position the first
-    // alternative explores up to 2^20 ways of covering the remaining `a`s before
-    // failing, then the second alternative matches one character and the cursor
-    // advances one position. Each search stays under the per-search budget, so
-    // before the fix the whole call cost (positions x ~1M steps) — tens of seconds
-    // for sixty characters, and unbounded in the subject length. With one budget
-    // for the whole call the program finishes in about a second, either by
-    // completing or by raising the budget error; both are bounded, and the deadline
-    // is the assertion.
+    // DEC-02. `(a|aa){1,16}b|a` on a run of `a`s: at every start position the first
+    // alternative explores 2^17 ways of covering the `a`s ahead before failing, then
+    // the second alternative matches one character and the cursor advances one
+    // position. Each search costs ~400k steps — under the per-search budget, so it
+    // never raises — and the whole call cost matches x that: measured 22 s for a
+    // hundred characters before the fix, and unbounded in the subject length. (At
+    // `{1,20}` a single search exceeds the per-search budget and raises at once,
+    // which is why the exploit stays just under it.) With one budget for the whole
+    // call the program finishes in about a second, either by completing or by
+    // raising the budget error; both are bounded, and the deadline is the assertion.
     let source = r#"IMPORT io
 IMPORT regex
 IMPORT collections
@@ -140,11 +141,11 @@ END FUNC
 SUB main()
   MUT s AS String = ""
   MUT i AS Integer = 0
-  WHILE i < 60
+  WHILE i < 100
     s = s & "a"
     i = i + 1
   END WHILE
-  LET rc AS Integer = run("(a|aa){1,20}b|a", s)
+  LET rc AS Integer = run("(a|aa){1,16}b|a", s)
 END SUB
 "#;
     let lines = run(

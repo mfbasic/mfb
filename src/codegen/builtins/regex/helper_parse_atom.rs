@@ -28,7 +28,7 @@ r#"FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, fla
   IF c = "\\" THEN
     RETURN __regex_parseEscapeAtom(pat, n, i, flags, g, names)
   END IF
-  LET node AS __regex_Node = __regex_Lit[c, flags.ci]
+  LET node AS __regex_Node = __regex_Lit[c, flags.ci, __regex_scalarToCp(c)]
   RETURN __regex_Parse[node, i + 1, g, names]
 END FUNC"#;
 

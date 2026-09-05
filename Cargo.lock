@@ -1851,6 +1851,7 @@ dependencies = [
  "curve25519-dalek",
  "icns",
  "image",
+ "libc",
  "mfb_repository",
  "ring",
  "rusqlite",

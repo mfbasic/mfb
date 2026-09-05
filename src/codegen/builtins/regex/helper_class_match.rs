@@ -16,7 +16,9 @@ r#"FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_
     ' __regex_asciiClassBitset; `neg` is applied below, not in the bitset).
     hit = collections::get(cls.ascii, cp)
   ELSE
-    LET ch AS String = collections::get(ctx.text, pos)
+    ' bug-510: the character as text, built from its scalar -- the context no longer
+    ' carries a String per character.
+    LET ch AS String = __regex_chr(cp)
     hit = __regex_classMatchOne(cls.items, ch, cp)
     IF cls.fold AND hit = FALSE THEN
       LET lc AS String = strings::lower(ch)

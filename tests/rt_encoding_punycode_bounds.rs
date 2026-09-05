@@ -1,13 +1,14 @@
-//! `encoding::punycodeDecode` is bounded by the DNS label length (bug-510,
+//! `encoding::punycodeDecode` is bounded in the label length (bug-510,
 //! audit-3 DEC-05/06).
 //!
 //! DEC-05: the decoder inserted each code point by rebuilding its whole output list
 //! with `append`, so a label of `n` code points cost `n^2` appends *and* left every
-//! intermediate list in the arena — a 32 KB label took 47 s and 4.3 GB. A DNS
-//! label is at most 63 octets (RFC 1034 §3.1; RFC 5890 §2.3.1 for A-labels), so a
-//! Punycode label longer than that cannot name a host and is refused as
-//! `ErrInvalidFormat` before it is decoded; within the cap the insertion is the
-//! in-place shift RFC 3492 describes. DEC-06: the RFC's overflow checks on the
+//! intermediate list in the arena — a 32 KB label took 47 s and 4.3 GB. The
+//! insertion is quadratic in the label's length, so a label past 1024 octets is
+//! refused as `ErrInvalidFormat` before it is decoded — sixteen times the 63-octet
+//! DNS label limit (RFC 1034 §3.1; RFC 5890 §2.3.1) and past RFC 3492's own longest
+//! sample (74 octets), which a 63-octet cap would have refused; within the cap the
+//! insertion is the in-place shift RFC 3492 describes. DEC-06: the RFC's overflow checks on the
 //! variable-length integer were missing, so an overflowing label surfaced as
 //! `ErrOverflow` from the multiply rather than as malformed Punycode.
 //!
@@ -96,11 +97,11 @@ fn python_encode(text: &str) -> String {
 }
 
 #[test]
-fn a_label_past_the_dns_limit_is_refused_in_bounded_time() {
+fn a_label_past_the_length_limit_is_refused_in_bounded_time() {
     // DEC-05. The audit's shape: `xn--td` followed by thirty-two thousand `a`s
     // decodes (in principle) to thirty-two thousand `u-umlaut`s; before the fix that
-    // was 47 s and 4.3 GB. No DNS label is that long, so it is malformed input and
-    // is refused at once.
+    // was 47 s and 4.3 GB. It is five hundred times the longest label DNS carries,
+    // so it is malformed input and is refused at once.
     let label = format!("xn--td{}", "a".repeat(32_000));
     let lines = decode_all(
         "punycode_bounds_long",
@@ -116,26 +117,54 @@ fn a_label_past_the_dns_limit_is_refused_in_bounded_time() {
 }
 
 #[test]
-fn labels_up_to_63_octets_decode_and_a_64th_octet_is_refused() {
-    // The boundary, exactly. Fifty-seven `u-umlaut`s encode to a 63-octet A-label
-    // and fifty-eight to 64. The cap is on the *encoded* label — what DNS carries —
-    // including its `xn--` prefix.
-    let at_limit = python_encode(&"\u{FC}".repeat(57));
-    let past_limit = python_encode(&"\u{FC}".repeat(58));
-    assert_eq!(at_limit.len(), 63, "{at_limit}");
-    assert_eq!(past_limit.len(), 64, "{past_limit}");
+fn labels_up_to_the_limit_decode_and_one_octet_past_it_is_refused() {
+    // The boundary, exactly. A run of `u-umlaut`s whose A-label is exactly 1024
+    // octets long decodes to what Python decodes it to; one more octet is refused.
+    // The cap is on the *encoded* label, which is what a wire carries, excluding
+    // the `xn--` the caller strips.
+    let mut k = 1;
+    let (mut at_limit, mut past_limit) = (String::new(), String::new());
+    while k < 4096 {
+        let label = python_encode(&"\u{FC}".repeat(k));
+        let payload = label.len() - 4;
+        if payload == 1024 {
+            at_limit = label;
+        } else if payload == 1025 {
+            past_limit = label;
+            break;
+        }
+        k += 1;
+    }
+    assert!(!at_limit.is_empty() && !past_limit.is_empty(), "no label landed on the boundary");
     let lines = decode_all(
         "punycode_bounds_edge",
         &[at_limit.clone(), past_limit],
-        Duration::from_secs(30),
+        Duration::from_secs(60),
         "decoding boundary labels did not finish",
     );
     assert_eq!(lines.first().cloned().unwrap_or_default(), format!("ok {}", python_decode(&at_limit)));
     assert_eq!(
         lines.get(1).cloned().unwrap_or_default(),
         format!("raised {ERR_INVALID_FORMAT}"),
-        "a 64-octet label is not a DNS label and must be refused",
+        "a label one octet past the limit must be refused",
     );
+}
+
+#[test]
+fn a_label_longer_than_dns_allows_still_decodes() {
+    // The cap is a cost bound, not a DNS validity check: RFC 3492's own Korean
+    // sample is 74 octets, longer than any DNS label, and it decoded before bug-510
+    // — so it must decode after. (A 63-octet cap refused it, which is how the cap
+    // ended up at 1024.)
+    let label = "xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c".to_string();
+    assert!(label.len() > 63);
+    let lines = decode_all(
+        "punycode_bounds_over_dns",
+        &[label.clone()],
+        Duration::from_secs(30),
+        "decoding a 74-octet label did not finish",
+    );
+    assert_eq!(lines, vec![format!("ok {}", python_decode(&label))]);
 }
 
 /// RFC 3492 §7.1's sample strings, as the A-labels they encode to (the RFC gives
