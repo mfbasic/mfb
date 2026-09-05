@@ -516,28 +516,31 @@ into a finder and a freer, both internal-only:
 * `canvas::retiredItems(slot) AS List OF canvas::DrawItem` — `emit_group_items` with
   `CANVAS_GROUP_RETIRED_ITEMS` in place of `CANVAS_GROUP_ITEMS`. A copy, for the same
   reason.
-* `canvas::reclaimGroupSlot(slot)` — what `groupReclaim`'s body already does for one slot:
-  free the items block, free the retired name, zero both words. **Unconditional**; the
-  caller has just been told this slot is due.
+* ~~`canvas::reclaimGroupSlot(slot)`~~ **`canvas::groupReclaim(slot)` — the name is kept
+  and a `slot` parameter added.** What its body already did for one slot: free the items
+  block, free the retired name, zero both words. **Unconditional**; the caller has just
+  been told this slot is due — re-testing the gate would look like insurance and is the
+  opposite, because a re-test that ever declined would leave `RETIRED_ITEMS` non-zero and
+  spin the driving loop forever.
+  *(Keeping the name is why each of the five support tables gained **two** rows rather
+  than three: `canvas.groupReclaim` was already in all of them.)*
 
 `#canvas_present` then replaces its single `canvas::groupReclaim()` with
 
 ```basic
-LET slot AS Integer = canvas::nextReclaimableGroup()
-WHILE slot >= 0
-  FOR EACH gone IN canvas::retiredItems(slot)
-    MATCH gone
-      CASE Picture(p)
-        canvas::destroyImage(p.image)
-      CASE Text(t)
-        canvas::destroyFont(t.font)
-      CASE ELSE
-    END MATCH
-  NEXT
-  canvas::reclaimGroupSlot(slot)
-  slot = canvas::nextReclaimableGroup()
-WEND
+MUT due AS Integer = canvas::nextReclaimableGroup()
+WHILE due >= 0
+  __canvas_closeRetired(canvas::retiredItems(due), items)
+  canvas::groupReclaim(due)
+  due = canvas::nextReclaimableGroup()
+END WHILE
 ```
+
+*(As shipped, and it differs from the sketch above it in three ways worth noting because
+each cost a build: the terminator is `END WHILE`, not `WEND`; a loop variable reassigned in
+the body needs `MUT`, not `LET`; and the `MATCH` lives in `__canvas_closeRetired` rather
+than inline, because it needs the **live set** — `items`, the incoming scene — to decide
+whether to close anything at all (**J14**, **J15**).)*
 
 **Why not the obvious `FOR i = 0 TO CANVAS_MAX_GROUPS - 1` in MFBASIC.**
 `CANVAS_MAX_GROUPS` is **256**. A per-present MFBASIC loop calling a builtin per slot
