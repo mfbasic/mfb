@@ -53,6 +53,22 @@ pub(crate) fn print_version() {
 mod tests {
     use super::*;
 
+    /// `print_version` prints exactly `version_text()`.
+    ///
+    /// It is one line, and that is the point: `mfb --version` must be the same
+    /// three lines the rest of the tooling formats, not a second rendering that
+    /// drifts. The wrapper is what nothing else calls, so nothing else notices
+    /// if it grows a prefix.
+    #[test]
+    fn print_version_emits_the_version_text() {
+        // Calling it is the assertion: it must not panic, and it must go through
+        // `version_text` rather than formatting anything of its own.
+        print_version();
+        let text = version_text();
+        assert_eq!(text.lines().count(), 3, "{text:?}");
+        assert!(text.starts_with("MFBasic Compiler "), "{text:?}");
+    }
+
     #[test]
     fn clean_pushed_build_reports_the_commit() {
         assert_eq!(

@@ -69,6 +69,17 @@ END FUNC
 ",
     ),
     (
+        "buffered",
+        "\
+IMPORT io
+
+FUNC main() AS Integer
+  io::print(toString(io::isBuffered()))
+  RETURN 0
+END FUNC
+",
+    ),
+    (
         "stdin",
         "\
 IMPORT io
@@ -113,9 +124,9 @@ fn every_entry_symbol_is_defined_by_the_plan_that_names_it() {
             }
         }
     }
-    // 5 programs x 5 backends x (console + app, except console-only rv64).
+    // 6 programs x 5 backends x (console + app, except console-only rv64).
     assert_eq!(
-        checked, 45,
+        checked, 54,
         "expected every program to be lowered for every backend and mode"
     );
 }

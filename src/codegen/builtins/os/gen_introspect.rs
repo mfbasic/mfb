@@ -9,7 +9,12 @@ use std::collections::HashMap;
 /// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
 /// materialized directly into a fresh arena `String` (length header + bytes +
 /// NUL) so the result is an ordinary owned value.
-pub(crate) fn lower_const_string(symbol: &str, value: &str) -> Result<OsBodyParts, String> {
+///
+/// Infallible, and typed that way. It emits an arena allocation and a byte store
+/// per character and has no fallible step; returning `Result` only obliged both
+/// call sites to write a `?` whose error arm nothing can reach, which was one
+/// uncovered line in each of two otherwise fully-covered files.
+pub(crate) fn lower_const_string(symbol: &str, value: &str) -> OsBodyParts {
     let alloc_ok = format!("{symbol}_ok");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -49,7 +54,7 @@ pub(crate) fn lower_const_string(symbol: &str, value: &str) -> Result<OsBodyPart
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    Ok((instructions, relocations, 0))
+    (instructions, relocations, 0)
 }
 
 /// `os::hostName` — `gethostname(buf, 256)` into an on-frame buffer, then a

@@ -92,6 +92,20 @@ impl std::fmt::Display for Symbol {
 mod tests {
     use super::*;
 
+    /// `Display` renders the text; `Debug` quotes it.
+    ///
+    /// The two impls exist for different readers -- a diagnostic that
+    /// interpolates a type name wants `List OF Integer`, and a derived `Debug`
+    /// on `ParameterType` wants `Named("List OF Integer")` so the nesting is
+    /// visible. Collapsing one into the other silently changes every message
+    /// that goes through it.
+    #[test]
+    fn display_renders_the_text_and_debug_quotes_it() {
+        let symbol = Symbol::intern("List OF Integer");
+        assert_eq!(symbol.to_string(), "List OF Integer");
+        assert_eq!(format!("{symbol:?}"), "\"List OF Integer\"");
+    }
+
     #[test]
     fn same_string_interns_equal() {
         let a = Symbol::intern("CsvReader");

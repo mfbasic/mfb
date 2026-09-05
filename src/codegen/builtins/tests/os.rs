@@ -33,6 +33,7 @@ FUNC main() AS Integer
   io::print(os::arch())
   io::print(toString(os::uptime()))
   io::print(toString(os::isAdmin()))
+  io::print(toString(os::pid()))
   RETURN 0
 END FUNC
 ";
@@ -60,7 +61,7 @@ fn calls(f: &CodeFunction) -> Vec<String> {
 #[test]
 fn every_backend_implements_every_os_member() {
     for target in CodeTarget::ALL {
-        for member in ["version", "uptime", "isAdmin"] {
+        for member in ["version", "uptime", "isAdmin", "pid"] {
             let f = body(target, member);
             let called = calls(f);
             assert!(

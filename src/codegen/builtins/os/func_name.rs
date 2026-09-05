@@ -18,7 +18,7 @@ pub(crate) fn lower_name(
     let (instructions, relocations, stack_size) = super::gen_introspect::lower_const_string(
         &symbol,
         super::gen_shared::os_family(ctx.platform.family()),
-    )?;
+    );
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;

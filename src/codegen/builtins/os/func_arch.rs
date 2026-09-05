@@ -18,7 +18,7 @@ pub(crate) fn lower_arch(
     let (instructions, relocations, stack_size) = super::gen_introspect::lower_const_string(
         &symbol,
         super::gen_shared::os_arch(ctx.platform.target()),
-    )?;
+    );
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
     builder.stack_size = stack_size;
