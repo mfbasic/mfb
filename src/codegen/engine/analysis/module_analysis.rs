@@ -31,6 +31,7 @@ pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
             "canvas.groupReclaim",
             "canvas.nextReclaimableGroup",
             "canvas.retiredItems",
+            "canvas.groupSlots",
             "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",

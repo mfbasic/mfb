@@ -113,6 +113,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.groupReclaim",
     "canvas.nextReclaimableGroup",
     "canvas.retiredItems",
+    "canvas.groupSlots",
     "canvas.removeGroup",
     "canvas.presentLayers",
     "canvas.publishScene",

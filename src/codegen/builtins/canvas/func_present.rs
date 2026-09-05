@@ -126,7 +126,7 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' due costs one call and this loop never runs.
   MUT due AS Integer = canvas::nextReclaimableGroup()
   WHILE due >= 0
-    __canvas_closeRetired(canvas::retiredItems(due), due)
+    __canvas_closeRetired(canvas::retiredItems(due), items)
     canvas::groupReclaim(due)
     due = canvas::nextReclaimableGroup()
   END WHILE

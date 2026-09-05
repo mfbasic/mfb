@@ -47,6 +47,7 @@ impl NativeBackend for Backend {
                 "canvas.groupReclaim",
                 "canvas.nextReclaimableGroup",
                 "canvas.retiredItems",
+                "canvas.groupSlots",
                 "canvas.removeGroup",
                 "canvas.presentLayers",
                 "canvas.publishScene",

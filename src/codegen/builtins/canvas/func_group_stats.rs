@@ -5,7 +5,7 @@
 //! worker-owned state — and the group table is worker-owned state living in a
 //! process-global block no MFBASIC expression can reach.
 
-use super::gen_group::{emit_group_bytes, emit_group_count, emit_group_items, emit_group_reclaim, emit_group_resolve, emit_group_revision, emit_next_reclaimable_group, emit_retired_items};
+use super::gen_group::{emit_group_bytes, emit_group_count, emit_group_items, emit_group_reclaim, emit_group_resolve, emit_group_revision, emit_group_slots, emit_next_reclaimable_group, emit_retired_items};
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -101,6 +101,22 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::named("DrawItem")),
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(emit_group_items),
+        }],
+    });
+    // plan-116-J: the table's slot bound, so the close helper can scan every slot's LIVE
+    // items without a `256` spelled in MFBASIC source that nothing keeps in step.
+    pkg.add_function(RegistryFunction {
+        name: "groupSlots",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(emit_group_slots),
         }],
     });
     // plan-116-J: the retired buffer, for the free path's close. `groupItems`' twin --

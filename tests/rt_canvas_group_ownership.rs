@@ -208,6 +208,60 @@ FUNC main AS Integer
 END FUNC
 "#;
 
+/// **J14's residual case**: a resource named by a group *and* by the live scene.
+///
+/// `present` does not take ownership (§Non-goals), so a `Picture` built **before** the
+/// `setGroup` reaches the scene with nothing for the move checker to object to — the
+/// scene's item names `img`, and its construction happened before `img` was moved. If the
+/// group's free closed it, the scene's item would start drawing nothing, silently, one
+/// frame later.
+///
+/// This failed when first probed (`CLOSED-OUT-FROM-UNDER-THE-SCENE`), which is why the
+/// live set is every group's items **plus the incoming scene** rather than just the
+/// replacing slot's.
+const GROUP_AND_SCENE_SHARE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB install(RES img AS canvas::Image)
+  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("panel", [p])
+END SUB
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+  LET scenePic AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  install(img)
+
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic])
+  canvas::setGroup("panel", [canvas::Rectangle[x := 0.0, y := 0.0, w := 20.0, h := 20.0, paint := canvas::fill(canvas::rgb(0, 200, 0))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 30.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 40.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 50.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+
+  LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
+    io::print("CLOSED-OUT-FROM-UNDER-THE-SCENE")
+    RETURN 0
+  END TRAP
+  io::print("STILL-OPEN-SCENE-SAFE")
+  RETURN 0
+END FUNC
+"#;
+
+/// A group must not close a resource the live scene still names. **J14.**
+#[test]
+fn a_group_does_not_close_an_image_the_scene_still_names() {
+    let (out, _) = run_for("canvas_group_own_scene_share", GROUP_AND_SCENE_SHARE, false);
+    assert!(
+        out.contains("STILL-OPEN-SCENE-SAFE"),
+        "the scene names this image directly, so the group's free must leave it open — \
+         `CLOSED-OUT-FROM-UNDER-THE-SCENE` means the scene's item silently draws nothing \
+         from the next frame on\n{out}",
+    );
+}
+
 /// A group rebuilt each frame from one font keeps drawing. **J14.**
 #[test]
 fn a_group_rebuilt_each_frame_keeps_its_font() {

@@ -973,23 +973,20 @@ END FUNC"#;
 /// `0` is skipped on both sides: an already-closed resource has nothing to close, and it
 /// must not match a live one either.
 const CLOSE_RETIRED: &str =
-r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, slot AS Integer)
+r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, scene AS List OF DrawItem)
   IF len(gone) = 0 THEN
     EXIT SUB
   END IF
-  ' The buffer that replaced this one, if any. `groupItems` reads the LIVE word, so on a
-  ' removeGroup this is empty and every resource in `gone` closes.
-  LET live AS List OF DrawItem = canvas::groupItems(slot)
   FOR EACH item IN gone
     MATCH item
       CASE Picture(p)
         LET ih AS Integer = canvas::imageHandle(p.image)
-        IF ih <> 0 AND NOT __canvas_liveNamesImage(live, ih) THEN
+        IF ih <> 0 AND NOT __canvas_anythingNamesImage(scene, ih) THEN
           canvas::destroyImage(p.image)
         END IF
       CASE Text(t)
         LET fh AS Integer = canvas::fontHandle(t.font)
-        IF fh <> 0 AND NOT __canvas_liveNamesFont(live, fh) THEN
+        IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
           canvas::destroyFont(t.font)
         END IF
       CASE ELSE
@@ -997,7 +994,47 @@ r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, slot AS Integer)
   NEXT
 END SUB
 
-FUNC __canvas_liveNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boolean
+' Everything still live: the scene about to be published, and EVERY group's live items.
+'
+' Not just the replacing slot's. Two other holders reach the same resource and both are
+' reachable from ordinary programs: another group naming it, and the scene naming it
+' directly. `present` does not take ownership, so a Picture built before the setGroup
+' reaches the scene with nothing for the move checker to object to -- and closing it there
+' makes the scene's item draw nothing, silently, one frame later.
+'
+' Every slot rather than the ones the scene references: an unreferenced group is not
+' drawn today and may be drawn tomorrow, so its items are live regardless.
+FUNC __canvas_anythingNamesImage(scene AS List OF DrawItem, handle AS Integer) AS Boolean
+  IF __canvas_listNamesImage(scene, handle) THEN
+    RETURN TRUE
+  END IF
+  MUT i AS Integer = 0
+  LET slots AS Integer = canvas::groupSlots()
+  WHILE i < slots
+    IF __canvas_listNamesImage(canvas::groupItems(i), handle) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_anythingNamesFont(scene AS List OF DrawItem, handle AS Integer) AS Boolean
+  IF __canvas_listNamesFont(scene, handle) THEN
+    RETURN TRUE
+  END IF
+  MUT i AS Integer = 0
+  LET slots AS Integer = canvas::groupSlots()
+  WHILE i < slots
+    IF __canvas_listNamesFont(canvas::groupItems(i), handle) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_listNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boolean
   FOR EACH item IN live
     MATCH item
       CASE Picture(p)
@@ -1010,7 +1047,7 @@ FUNC __canvas_liveNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boo
   RETURN FALSE
 END FUNC
 
-FUNC __canvas_liveNamesFont(live AS List OF DrawItem, handle AS Integer) AS Boolean
+FUNC __canvas_listNamesFont(live AS List OF DrawItem, handle AS Integer) AS Boolean
   FOR EACH item IN live
     MATCH item
       CASE Text(t)

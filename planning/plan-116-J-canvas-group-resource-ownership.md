@@ -616,7 +616,7 @@ The letter opens against a world that did not exist when it was written.
       landed. Its load-bearing findings are **J4** (two free sites, one chokepoint; no
       `refs == 0` term; the slot is full), **J5** (alias, not copy) and **J7** (the close
       is a whole-word store, and the compile-time refusal does not reach this letter).
-- [ ] Settle the §2 open question: does installing a resource into a process-global,
+- [x] Settle the §2 open question: does installing a resource into a process-global,
       graphics-thread-readable group buffer constitute a transfer under plan-114's
       rules? If yes, audit `Image`'s and `Font`'s record tails and set `live_slots`
       accordingly (the `live_slots` field of each `pkg.add_resource` call in `mod.rs`) — *"opting an image in means auditing its
@@ -747,11 +747,13 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
       both sides. Measured both directions: 6 rebuild iterations keep `glyphs=1` and
       `groupBytes` flat, and a replacement that drops the image prints
       `OPEN-AFTER-INSTALL` then `CLOSED-BY-THE-GROUP`.
-- [ ] Decide and pin the group-and-live-scene case (**J14**): `present` does not consume,
-      so a `Picture` built before a `setGroup` can reach the scene, and the group's free
-      would close it out from under the scene. Either extend the "no live buffer names it"
-      scan to the published scene, or state the limitation **with a test pinning the
-      observable outcome**. Leaving it implicit is how §3's risk paragraph became **J8**.
+- [x] Decide and pin the group-and-live-scene case (**J14**). **Fixed, not pinned as a
+      limitation** (**J15**). Probed first and it failed —
+      `CLOSED-OUT-FROM-UNDER-THE-SCENE` — and the same probe exposed a second missed
+      holder: *another group* naming the resource. The live set is now the incoming scene
+      (`#canvas_present`'s own `items`) **plus every group's live items**, via a new
+      internal `canvas::groupSlots()` so no `256` is spelled in MFBASIC source. Pinned by
+      `a_group_does_not_close_an_image_the_scene_still_names`.
 - [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
       `.ai/canvas-threading.md` §8 as well:
       - group owning an image → `removeGroup` → graphics mid-frame: the frame completes
@@ -863,6 +865,55 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J15 (2026-09-04, Phase 3) — **J14**'s residual case is real, was reachable on the first
+try, and is fixed rather than pinned. The live set is every group plus the incoming
+scene.**
+
+**J14** left one case open and said so: a resource named by a group *and* by the **live
+scene**, since `present` does not take ownership. Probed, and it failed exactly as
+predicted:
+
+```basic
+LET scenePic AS canvas::DrawItem = canvas::Picture[…, image := img, …]   ' before the move
+install(img)                                    ' setGroup moves the callee's alias
+canvas::present([canvas::Group[name := "panel", …], scenePic])
+canvas::setGroup("panel", [ … a Rectangle … ])  ' the group drops the image
+… three presents …
+canvas::getSize(img)  →  CLOSED-OUT-FROM-UNDER-THE-SCENE
+```
+
+The move checker has nothing to object to: `scenePic`'s construction happens **before**
+`img` is moved, and `present([…, scenePic])` reads `scenePic`, not `img`.
+
+**And a second holder the first fix also missed.** `__canvas_closeRetired` compared only
+against *the replacing slot's* live items, so **another group** naming the same resource
+was equally invisible. Both are ordinary programs, not curiosities.
+
+**The rule is now: close a retired resource only if nothing live names it** — where
+"live" is the scene about to be published **plus every group's live items**, not the
+slot being reclaimed and not only the groups the scene happens to reference. An
+unreferenced group is not drawn *today* and may be drawn tomorrow, so its items are live
+regardless; scoping the scan to reachable groups would close a resource a program is
+about to use.
+
+The scene is available for free: the close loop runs inside `#canvas_present`, whose
+`items` parameter **is** the incoming scene, so it is passed down rather than fetched.
+
+**One new internal member, and it exists to avoid a shared constant.**
+`canvas::groupSlots()` returns `CANVAS_MAX_GROUPS`. The alternative was spelling `256` in
+the MFBASIC helper — and there is no compiler between the injected source and the emitter,
+so a later change to the constant would leave the helper scanning the wrong number of
+slots. Scanning too **few** is the dangerous direction: it silently closes a resource
+another group still names, which is precisely the bug this helper exists to prevent.
+
+**Cost.** The scan is `CANVAS_MAX_GROUPS` × items, and it runs **only when a buffer is
+actually being reclaimed** — not per present. A present with nothing due still costs one
+`nextReclaimableGroup` call, as it did before this letter.
+
+Pinned by `a_group_does_not_close_an_image_the_scene_still_names`, whose assertion message
+names the failure rather than the expectation, because the failure is silent: the scene's
+item draws nothing from the next frame on and nothing is raised.
 
 **J14 (2026-09-04, Phase 3 preparation — found by probing the ordinary case) — Phase 3's
 close, as §4.3 specifies it, breaks the commonest canvas program there is.**

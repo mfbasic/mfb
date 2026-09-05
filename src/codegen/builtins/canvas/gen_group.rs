@@ -815,6 +815,41 @@ pub(crate) fn emit_group_reclaim(
     })
 }
 
+/// `canvas::groupSlots() AS Integer` — the table's slot count (plan-116-J).
+///
+/// Exists so `__canvas_closeRetired` can scan every slot's LIVE items without spelling
+/// `256` in MFBASIC source. A constant duplicated between the injected source and the
+/// emitter has no compiler between the two copies, so a later change to
+/// `CANVAS_MAX_GROUPS` would leave the helper scanning the wrong number of slots — and
+/// scanning too FEW would silently close a resource another group still names, which is
+/// exactly the class of bug this helper exists to prevent.
+pub(crate) fn emit_group_slots(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let slots = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(
+        &slots,
+        "Integer",
+        &CANVAS_MAX_GROUPS.to_string(),
+    ));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &slots));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
 /// `canvas::groupCount()` — how many names the table currently holds.
 ///
 /// Internal-only, and read by `__canvas_presentSurface`'s `MFB_CANVAS_STATS` line.
