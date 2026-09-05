@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-04
 Effort: medium–large (needs a debugger on box 2230)
-Severity: HIGH (a crash, and it flakes the `windows-x86_64` CI row)
+Severity: HIGH (any Windows program that starts a thread and does not join it can crash ~10% of the time; also flakes the `windows-x86_64` CI row)
 Class: correctness / Win64 threading teardown
 
 Status: OPEN — reproduced and characterised, not fixed. Fixing it is Win64
@@ -59,6 +59,45 @@ over a crash. That is what hid this on the first attempt.)
 
 The same program is clean on macOS and Linux — the test passes on all three Unix
 rows.
+
+## It is NOT about `thread::accept`, or resources, or `tcp`
+
+The test that found it uses all three, so the first write-up implied they mattered.
+They do not. Same box, a worker that only spins — no `accept`, no `RES`, no
+`tcp` import, no resource type parameter:
+
+```basic
+ISOLATED FUNC worker(t AS ThreadWorker OF RES Integer TO Integer, n AS Integer) AS Integer
+  MUT i AS Integer = 0
+  MUT acc AS Integer = 0
+  WHILE i < 300000000
+    acc = acc + i
+    i = i + 1
+  END WHILE
+  RETURN acc
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Thread OF RES Integer TO Integer = thread::start(worker, 0)
+  io::print("started")
+  RETURN 0
+END FUNC
+```
+
+    15 runs:  0 0 5 0 0 0 0 0 0 5 0 0 0 0 0      <- 2 crashes
+
+**And joining removes it completely.** The identical worker, with
+`thread::waitFor(a)` before `RETURN 0`:
+
+    15 runs:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0      <- 15/15 clean
+
+So the trigger is exactly **process exit while an MFB worker thread is still
+running**, and the condition is generic: any Windows MFB program that calls
+`thread::start` and returns from `main` without `thread::waitFor` can fault. The
+`cli_thread_accept_res_bind` reproduction is one instance, not the shape of the
+bug.
+
+Workaround for a user hitting this today: join before returning from `main`.
 
 ## Where to look
 

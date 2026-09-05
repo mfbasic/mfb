@@ -292,6 +292,34 @@ This class does not reproduce locally on an idle machine — 40/40 and then 25/2
 saturating CPU load, both green, before *and* after. A single CI red with a working program
 and empty captured output is the tell; treat it as this bug, not as flake to re-run.
 
+## Never interpolate a host path into MFB source raw
+
+A test that builds an MFB program around a host path — a port file, a scratch
+dir, a fixture — must render it with `common::mfb_path_literal`, NOT
+`to_string_lossy()` / `display()`. MFB reads `\` in a string literal as an escape
+introducer, and a Windows path is nothing but backslashes. Measured on box 2230,
+the literal
+
+    "C:\Users\test\AppData\Local\Temp\f.txt"
+
+compiles to
+
+    C:Users<TAB>estAppDataLocalTempf.txt
+
+`\t` became a TAB and every other backslash was swallowed. **Nothing errors.**
+The program writes to that mangled RELATIVE path, the test waits on the absolute
+one it asked for, and the failure reads as a product bug in whatever the program
+was doing — three `http` suites reported "mfb http server never published its
+port" on the Windows row while the same servers worked by hand. Unix never
+notices, because its paths have no backslashes.
+
+`mfb_path_literal` escapes `\` and `"`. Verified that `\\` in MFB source yields
+exactly one backslash (a 38-char path round-tripped intact).
+
+Related shape, same cause: a `#![cfg(unix)]` runtime test plus a codegen-
+INSPECTION test look like two tests and are ZERO runtime coverage on Windows —
+see `.ai/arch-abi.md`'s bug-544 entry.
+
 ## Compiler tests live in the bin target
 
 `mfb` has **no `src/lib.rs`** — it is a binary crate (`src/main.rs` with `mod arch;`). So all the compiler/codegen/native-encoder unit tests (e.g. `arch::x86_64::encode::tests::*`, `#[cfg(test)] mod tests;`) compile into the **bin** test target.
