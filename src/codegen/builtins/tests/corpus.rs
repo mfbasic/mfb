@@ -98,9 +98,19 @@ const CROSS_BACKEND: &[&str] = &[
 /// RES/arena transfer paths, generics, traps, threads, and the error corpora.
 /// Four is right where the yield is in the SHAPES (a fifth `crypto-*` fixture
 /// exercises the same lowering as the first four); it is wrong where a family's
-/// fixtures differ in exactly the branch that family's bugs live in. The list is generated once
-/// and committed -- not discovered at run time -- so a fixture that stops
-/// lowering fails this test instead of quietly dropping out of it.
+/// fixtures differ in exactly the branch that family's bugs live in. The list is
+/// generated once and committed -- not discovered at run time -- so a fixture
+/// that stops lowering fails this test instead of quietly dropping out of it.
+///
+/// 704 of the 1,315 single-file fixtures under `tests/` lower here at all, and
+/// the 611 that do not were bucketed by their failure rather than assumed:
+/// ~400 are `tests/syntax/**` programs that are SUPPOSED to be rejected (the
+/// diagnostics suite covers those), 21 declare a native `LINK` and need a
+/// library table (`link.rs` covers those), 21 are deliberate parse errors, and
+/// the rest reference an imported `.mfp` package, which this harness has no way
+/// to supply. None of it is a product gap. Taking all 704 rather than these 421
+/// was measured too: +170 seconds of unit-suite time for 242 lines and one
+/// file, so the sampling stops here.
 const CORPUS: &[&str] = &[
     // rt-behavior/arena
     "construct-helper-loop",
