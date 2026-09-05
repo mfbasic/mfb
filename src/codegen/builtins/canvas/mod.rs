@@ -46,6 +46,7 @@ mod func_get_bytes;
 mod func_get_size;
 mod func_graphics;
 mod func_group_stats;
+mod func_handle_bridge;
 mod func_image_ref;
 mod func_installed_items;
 mod func_installed_layers;
@@ -1065,6 +1066,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_create_image::register(&mut pkg);
     func_load_image::register(&mut pkg);
     func_destroy_image::register(&mut pkg);
+    func_handle_bridge::register(&mut pkg);
     func_image_ref::register(&mut pkg);
     gen_font_table::register(&mut pkg);
     func_load_font::register(&mut pkg);
