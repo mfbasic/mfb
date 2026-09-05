@@ -5,7 +5,8 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **Shape A FIXED** (2026-09-04). Shapes B and C remain open, and shape C is
+Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`). Shapes B
+and C remain open, and shape C is
 **larger than this document assumed** — see "Shape C is blocked on recursive
 copy-insertion" below, which is a finding, not an excuse.
 Regression Test: `tests/rt_scope_drop_leaks.rs` (added — builds each minimal
