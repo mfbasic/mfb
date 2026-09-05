@@ -1,13 +1,20 @@
-' bug-522 -- `mfb man thread transfer` says:
+' bug-522 (FIXED) -- `mfb man thread transfer` used to say:
 '   "Only some resource types may cross at all: fs::File, tcp::Socket and
 '    udp::Socket may; LISTENERS AND tls::Socket MAY NOT."
-' `mfb man thread` (the package intro) says:
+' while `mfb man thread` (the package intro) said:
 '   "EVERY built-in socket and listener may cross -- fs::File, tcp::Socket,
 '    udp::Socket, tcp::Listener, tls::Socket and tls::Listener"
 '
-' The registry settles it: `sendable: true` on all six (bug-464 opted the
-' listeners in). This spike transfers a tcp::Listener across a real thread
-' boundary; if the transfer page were right, it would not compile.
+' The registry settled it: `sendable: true` on all six (bug-464 opted the
+' listeners in and updated the intro; the `transfer` page was missed). The
+' intro was right, so `transfer` and `accept` now state the same six, and both
+' also name the five that may NOT cross -- the question a reader actually has.
+'
+' This spike transfers a tcp::Listener across a real thread boundary. It always
+' worked; what changed is that the page no longer denies it. A test now asserts
+' every resource's `sendable` bit against an explicit table, so the next flip
+' cannot leave the prose behind silently
+' (`every_builtin_resource_sendability_matches_the_documented_set`).
 
 IMPORT io
 IMPORT thread
@@ -24,6 +31,6 @@ FUNC main AS Integer
   thread::transfer(t, server, 2000)
   LET done AS Integer = thread::waitFor(t)
   io::print("a tcp::Listener crossed a thread boundary; the worker returned " & toString(done))
-  io::print("=> `mfb man thread transfer`'s transferable-type list is stale.")
+  io::print("=> the transferable-type list on `mfb man thread transfer` is correct now.")
   RETURN 0
 END FUNC

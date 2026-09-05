@@ -87,8 +87,11 @@ by the `Res` in `Thread OF Msg RES Res TO Out`. A resource may not travel on the
 message channel; declare it on the resource channel instead. Every built-in
 socket and listener may cross — `fs::File`, `tcp::Socket`, `udp::Socket`,
 `tcp::Listener`, `tls::Socket` and `tls::Listener` — so a server may accept on
-one thread and hand each connection to a worker. A resource your own project
-declares may cross when it is declared `THREAD_SENDABLE`.
+one thread and hand each connection to a worker. The five that may not are `process::Process`, `audio::AudioInput`,
+`audio::AudioOutput`, `canvas::Image` and `canvas::Font`; `thread::transfer`'s
+page says why for each. A
+resource your own project declares may cross when it is declared
+`THREAD_SENDABLE`.
 
 Both channels are queues with a size limit, set by `thread::start`'s
 `inboundLimit` and `outboundLimit` and defaulting to 64 messages each. When a
