@@ -1010,9 +1010,22 @@ so a later change to the constant would leave the helper scanning the wrong numb
 slots. Scanning too **few** is the dangerous direction: it silently closes a resource
 another group still names, which is precisely the bug this helper exists to prevent.
 
-**Cost.** The scan is `CANVAS_MAX_GROUPS` × items, and it runs **only when a buffer is
-actually being reclaimed** — not per present. A present with nothing due still costs one
-`nextReclaimableGroup` call, as it did before this letter.
+**Cost, stated rather than glossed.** The scan is `CANVAS_MAX_GROUPS` × items **per
+resource in the retired buffer that the incoming scene does not already name**, and it
+runs **only when a buffer is actually being reclaimed** — not per present. A present with
+nothing due still costs one `nextReclaimableGroup` call, as it did before this letter.
+
+The part worth knowing: `canvas::groupItems(i)` returns a **copy**, so an empty slot still
+costs an allocation, and the scan touches all 256. A group churning every frame therefore
+allocates 256 short-lived empty lists per reclaim. Measured as acceptable — the 200-cycle
+churn test runs in the same time as its neighbours — and left unoptimised deliberately:
+the obvious fix is a `groupItemCount(slot)` cheap-check before the copy, which is a fourth
+internal member added for speed on a path that runs once per *reclaim*, and correctness
+here was hard enough to get right without a second code path guarding it. Recorded so the
+next person measures rather than rediscovers.
+
+`present` already declares `ErrOutOfMemory`, so `groupItems` raising from inside the close
+loop stays inside its documented contract — checked, not assumed.
 
 Pinned by `a_group_does_not_close_an_image_the_scene_still_names`, whose assertion message
 names the failure rather than the expectation, because the failure is silent: the scene's
