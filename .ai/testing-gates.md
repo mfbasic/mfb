@@ -408,6 +408,43 @@ the fixture was never synced, and *nothing* in `cargo test` will tell you: the
 acceptance harness is not part of the cargo suite, so a green `cargo test` is
 silent about it.
 
+## A behavioural test whose observable cannot MOVE is vacuous — ship the control
+
+A test that asserts "X still works after Y" is only a test if X visibly works
+*without* Y. When it does not, the assertion is green or red for reasons that have
+nothing to do with what is being tested, and **the failure is indistinguishable from
+the bug**.
+
+Measured, plan-116-J. The natural test for "a group keeps the image its items name"
+is: install a `canvas::Picture`, drop the caller's binding, present the group, assert
+the image draws. Written that way it renders an **all-black frame** — and so does the
+identical program with the binding still alive, because `canvas::Picture` draws nothing
+on any backend. `helper_geometry.rs` gives it the `NONE` geometry kind
+(`CASE Picture(pic) RETURN __canvas_emptyHeader()`) that every renderer skips, and
+`canvas::imageHandle` has no caller in any renderer. So the test fails before the
+feature is written, fails after the feature is correct, and says nothing either way.
+
+**How to apply.** Before asserting that an observable *stayed* good, write the control
+that shows it can be good at all, and **keep it in the file**:
+
+* pick an observable that is known to move — plan-116-J switched every behavioural
+  test from an `Image` to a `Font`, because `Text` renders and `glyphs=` in
+  `MFB_CANVAS_STATS` moves;
+* ship the positive control **beside** the assertion
+  (`the_control_draws_with_the_binding_alive`), so a future change that kills the
+  observable fails the control loudly instead of leaving the real test green-by-accident;
+* prove the test RED before trusting it green — comment out the fix and confirm the
+  assertion fails while the control still passes.
+
+The same rule catches the milder version: a "no leak" assertion against a resource that
+allocates nothing, or an `lsof` check on a handle that holds no descriptor, is a gate
+that could not have failed. Run it if the plan says to, and **record it as vacuous
+rather than counting it as a pass** — a green result that was never at risk is worse
+than no result, because it is remembered as evidence.
+
+See also *"Negative-only assertions pass when the peer is unreachable"*: same failure,
+approached from the other side.
+
 ## A network-timing fixture can be flaky in BOTH directions
 
 A "peer went away" fixture has two independent failure modes, and fixing one
