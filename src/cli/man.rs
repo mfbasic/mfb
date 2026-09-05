@@ -702,6 +702,99 @@ mod tests {
         values.iter().map(|value| value.to_string()).collect()
     }
 
+    /// bug-526: a rendered signature has to be a declaration that COMPILES.
+    ///
+    /// `mfb man tls poll` printed
+    /// `tls::poll(socks AS List OF tls::Socket, …)` in both the Overloads block
+    /// and the Parameters table, and that spelling is refused —
+    /// `TYPE_RESOURCE_REQUIRES_RES`, "Collection element type `tls.Socket` is a
+    /// resource; mark it `RES`". The same page's Description and example had it
+    /// right, so the page carried both the correct form and an uncompilable one,
+    /// and the uncompilable one was in the two places a reader looks first.
+    ///
+    /// The cause is that a `ParameterType` built by PARSING a string and one
+    /// built by CONSTRUCTION are not interchangeable: `parse` strips the `RES `
+    /// marker off a collection element, so a descriptor written
+    /// `ListOf(named(T))` has no marker to render, while `tcp::poll`'s
+    /// `list_of(Res(named(T)))` keeps one and still unifies against the same
+    /// concrete argument. The difference is invisible until something renders
+    /// it — which is exactly what this test does.
+    ///
+    /// Scoped to collection ELEMENTS because that is what the diagnostic
+    /// enforces: `List OF RES T`, never `List OF T`. A bare top-level resource
+    /// parameter (`sock AS tls::Socket`) renders without `RES` across the whole
+    /// tree and is a separate question.
+    #[test]
+    fn every_rendered_signature_marks_a_resource_collection_element_res() {
+        use crate::codegen::resource::is_builtin_resource_type;
+        use crate::types::ParameterType;
+
+        /// Walk `ty`, reporting each collection element that names a built-in
+        /// resource without a `RES` marker.
+        fn check(ty: &ParameterType, bad: &mut Vec<String>) {
+            match ty {
+                ParameterType::ListOf(inner) | ParameterType::SetOf(inner) => {
+                    element(inner, bad);
+                }
+                ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                    element(key, bad);
+                    element(value, bad);
+                }
+                ParameterType::ResultOf(inner) | ParameterType::Res(inner) => check(inner, bad),
+                ParameterType::Stateful { base, .. } => check(base, bad),
+                _ => {}
+            }
+        }
+
+        /// One collection element position.
+        fn element(ty: &ParameterType, bad: &mut Vec<String>) {
+            match ty {
+                // Marked: correct. Keep walking for a nested collection.
+                ParameterType::Res(inner) => check(inner, bad),
+                ParameterType::Stateful { base, .. } => element(base, bad),
+                other => {
+                    if is_builtin_resource_type(other) {
+                        bad.push(other.name().into_owned());
+                    }
+                    check(other, bad);
+                }
+            }
+        }
+
+        let mut failures = Vec::new();
+        for package in registry().packages() {
+            for function in package.functions() {
+                for implementation in function.implementations() {
+                    let mut bad = Vec::new();
+                    for param in &implementation.params {
+                        check(&param.ty, &mut bad);
+                    }
+                    check(&implementation.return_type, &mut bad);
+                    if !bad.is_empty() {
+                        failures.push(format!(
+                            "{} — unmarked resource element(s) {bad:?}",
+                            render_declaration(
+                                package.import_name(),
+                                function.name,
+                                implementation
+                            )
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "a rendered signature must be a declaration that compiles, and a \
+             collection of a resource must carry the `RES` marker \
+             (`List OF RES T`, never `List OF T` — TYPE_RESOURCE_REQUIRES_RES). \
+             Build the parameter with `ParameterType::list_of(ParameterType::\
+             Res(..))` as `tcp::poll` does, not `ListOf(named(..))`, which drops \
+             the marker (bug-526):\n{}",
+            failures.join("\n")
+        );
+    }
+
     #[test]
     fn renders_a_csv_function_from_the_clean_room_registry() {
         assert!(show_man(&s(&["csv", "parse"])).is_ok());
