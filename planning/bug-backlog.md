@@ -70,7 +70,7 @@ rather than sharing a slot.
 541 (backends do not enforce the inactive-term gate)
 
 **datetime**: 518 (withZone description contradicts the function) ·
-521 (`toIso` claims a round-trip it truncates) · 520 (no named zones — huge)
+520 (no named zones — huge). 521 is landed.
 
 **crypto**: 515 (no memory-hard password KDF) ·
 517 (SHA-1 advisory cannot tell hashing from HMAC) ·

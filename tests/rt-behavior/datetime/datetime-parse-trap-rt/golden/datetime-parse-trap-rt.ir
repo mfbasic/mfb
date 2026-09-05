@@ -2740,136 +2740,171 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 973, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "4" }] }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "const", "type": "Integer", "value": "3" }] } }, "right": { "kind": "call", "type": "String", "target": "#datetime_isoZone", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } } }
+    { "op": "return", "line": 973, "value": { "kind": "call", "type": "String", "target": "#datetime_toIso2", "args": [{ "kind": "local", "name": "dt" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
     ]
   },
   {
-    "name": "#datetime_parseIso",
+    "name": "#datetime_toIso2",
     "line": 976,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 976, "type": "String", "default": null }
+    { "name": "dt", "line": 976, "type": "datetime.DateTime", "default": null },
+    { "name": "digits", "line": 976, "type": "Integer", "default": null }
     ],
-    "returns": "datetime.DateTime",
+    "returns": "String",
     "body": [
-    { "op": "bind", "line": 977, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
-    { "op": "bind", "line": 978, "mutable": false, "name": "yr", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
-    { "op": "bind", "line": 979, "mutable": true, "name": "pos", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "nextPos" } },
-    { "op": "assign", "line": 980, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "String", "value": "-" }] } },
-    { "op": "bind", "line": 981, "mutable": false, "name": "mo", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "assign", "line": 982, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": "-" }] } },
-    { "op": "bind", "line": 983, "mutable": false, "name": "dy", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "assign", "line": 984, "name": "pos", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "nextPos" } },
-    { "op": "bind", "line": 985, "mutable": false, "name": "sep", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     {
       "op": "if",
-      "line": 986,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": "t" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": " " } } },
+      "line": 977,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "6" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "9" } } },
       "then": [
-      { "op": "fail", "line": 987, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "datetime: expected date/time separator" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/datetime.mfb" }, { "kind": "const", "type": "Integer", "value": "987" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 978, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "datetime: iso fraction digits must be 0, 3, 6 or 9" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/datetime.mfb" }, { "kind": "const", "type": "Integer", "value": "978" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "assign", "line": 989, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "line": 990, "mutable": false, "name": "hh", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "assign", "line": 991, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": ":" }] } },
-    { "op": "bind", "line": 992, "mutable": false, "name": "mm", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "assign", "line": 993, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": ":" }] } },
-    { "op": "bind", "line": 994, "mutable": false, "name": "ss", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "assign", "line": 995, "name": "pos", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "nextPos" } },
-    { "op": "bind", "line": 996, "mutable": true, "name": "nanos", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 980, "mutable": false, "name": "stem", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "year" }, { "kind": "const", "type": "Integer", "value": "4" }] }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "month" }] } }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Date", "target": { "kind": "local", "name": "dt" }, "member": "date" }, "member": "day" }] } }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "hour" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "minute" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "second" }] } } },
+    {
+      "op": "if",
+      "line": 981,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 982, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "stem" }, "right": { "kind": "call", "type": "String", "target": "#datetime_isoZone", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 984, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "stem" }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.left", "args": [{ "kind": "call", "type": "String", "target": "#datetime_padN", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "datetime.Time", "target": { "kind": "local", "name": "dt" }, "member": "time" }, "member": "nanos" }, { "kind": "const", "type": "Integer", "value": "9" }] }, { "kind": "local", "name": "digits" }] } }, "right": { "kind": "call", "type": "String", "target": "#datetime_isoZone", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dt" }, "member": "offset" }] } } }
+    ]
+  },
+  {
+    "name": "#datetime_parseIso",
+    "line": 987,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 987, "type": "String", "default": null }
+    ],
+    "returns": "datetime.DateTime",
+    "body": [
+    { "op": "bind", "line": 988, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "line": 989, "mutable": false, "name": "yr", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 990, "mutable": true, "name": "pos", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "nextPos" } },
+    { "op": "assign", "line": 991, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "String", "value": "-" }] } },
+    { "op": "bind", "line": 992, "mutable": false, "name": "mo", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 993, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": "-" }] } },
+    { "op": "bind", "line": 994, "mutable": false, "name": "dy", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 995, "name": "pos", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "nextPos" } },
+    { "op": "bind", "line": 996, "mutable": false, "name": "sep", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     {
       "op": "if",
       "line": 997,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": "T" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": "t" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "sep" }, "right": { "kind": "const", "type": "String", "value": " " } } },
+      "then": [
+      { "op": "fail", "line": 998, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "datetime: expected date/time separator" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/datetime.mfb" }, { "kind": "const", "type": "Integer", "value": "998" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "assign", "line": 1000, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 1001, "mutable": false, "name": "hh", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 1002, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": ":" }] } },
+    { "op": "bind", "line": 1003, "mutable": false, "name": "mm", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 1004, "name": "pos", "value": { "kind": "call", "type": "Integer", "target": "#datetime_expect", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "nextPos" }, { "kind": "const", "type": "String", "value": ":" }] } },
+    { "op": "bind", "line": 1005, "mutable": false, "name": "ss", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readNum", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "assign", "line": 1006, "name": "pos", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "nextPos" } },
+    { "op": "bind", "line": 1007, "mutable": true, "name": "nanos", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "if",
+      "line": 1008,
       "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "local", "name": "n" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "right": { "kind": "const", "type": "String", "value": "." } } },
       "then": [
-      { "op": "assign", "line": 998, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-      { "op": "bind", "line": 999, "mutable": true, "name": "frac", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-      { "op": "bind", "line": 1000, "mutable": true, "name": "digits", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "assign", "line": 1009, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "bind", "line": 1010, "mutable": true, "name": "frac", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 1011, "mutable": true, "name": "digits", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 1001,
+        "line": 1012,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "local", "name": "n" } }, "right": { "kind": "call", "type": "Boolean", "target": "#datetime_isDigit", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "9" } } },
         "body": [
-        { "op": "assign", "line": 1002, "name": "frac", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } } },
-        { "op": "assign", "line": 1003, "name": "digits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-        { "op": "assign", "line": 1004, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 1013, "name": "frac", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } } },
+        { "op": "assign", "line": 1014, "name": "digits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        { "op": "assign", "line": 1015, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
       {
         "op": "while",
-        "line": 1006,
+        "line": 1017,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "9" } },
         "body": [
-        { "op": "assign", "line": 1007, "name": "frac", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } },
-        { "op": "assign", "line": 1008, "name": "digits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 1018, "name": "frac", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "frac" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } },
+        { "op": "assign", "line": 1019, "name": "digits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "digits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "assign", "line": 1010, "name": "nanos", "value": { "kind": "local", "name": "frac" } },
+      { "op": "assign", "line": 1021, "name": "nanos", "value": { "kind": "local", "name": "frac" } },
       {
         "op": "while",
-        "line": 1011,
+        "line": 1022,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "local", "name": "n" } }, "right": { "kind": "call", "type": "Boolean", "target": "#datetime_isDigit", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
         "body": [
-        { "op": "assign", "line": 1012, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 1023, "name": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 1015, "mutable": false, "name": "off", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readOffset", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }] } },
-    { "op": "eval", "line": 1016, "value": { "kind": "call", "type": "Nothing", "target": "#datetime_checkFields", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
-    { "op": "bind", "line": 1017, "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }] } },
-    { "op": "bind", "line": 1018, "mutable": false, "name": "t", "type": "datetime.Time", "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
-    { "op": "return", "line": 1019, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] } }
+    { "op": "bind", "line": 1026, "mutable": false, "name": "off", "type": "#datetime_NumRead", "value": { "kind": "call", "type": "#datetime_NumRead", "target": "#datetime_readOffset", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "pos" }] } },
+    { "op": "eval", "line": 1027, "value": { "kind": "call", "type": "Nothing", "target": "#datetime_checkFields", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
+    { "op": "bind", "line": 1028, "mutable": false, "name": "d", "type": "datetime.Date", "value": { "kind": "constructor", "type": "datetime.Date", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "yr" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mo" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "dy" }, "member": "value" }] } },
+    { "op": "bind", "line": 1029, "mutable": false, "name": "t", "type": "datetime.Time", "value": { "kind": "constructor", "type": "datetime.Time", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "hh" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "mm" }, "member": "value" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ss" }, "member": "value" }, { "kind": "local", "name": "nanos" }] } },
+    { "op": "return", "line": 1030, "value": { "kind": "constructor", "type": "datetime.DateTime", "args": [{ "kind": "local", "name": "d" }, { "kind": "local", "name": "t" }, { "kind": "call", "type": "datetime.Zone", "target": "#datetime_fixedOffset1", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "off" }, "member": "value" }] } }
     ]
   },
   {
     "name": "#datetime_formatDuration",
-    "line": 1022,
+    "line": 1033,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "d", "line": 1022, "type": "datetime.Duration", "default": null }
+    { "name": "d", "line": 1033, "type": "datetime.Duration", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 1023, "mutable": true, "name": "totalMs", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "seconds" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000" } } } },
-    { "op": "bind", "line": 1024, "mutable": true, "name": "sign", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 1034, "mutable": true, "name": "totalMs", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "seconds" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "nanos" }, "right": { "kind": "const", "type": "Integer", "value": "1000000" } } } },
+    { "op": "bind", "line": 1035, "mutable": true, "name": "sign", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
     {
       "op": "if",
-      "line": 1025,
+      "line": 1036,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "assign", "line": 1026, "name": "sign", "value": { "kind": "const", "type": "String", "value": "-" } },
-      { "op": "assign", "line": 1027, "name": "totalMs", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "local", "name": "totalMs" } } }
+      { "op": "assign", "line": 1037, "name": "sign", "value": { "kind": "const", "type": "String", "value": "-" } },
+      { "op": "assign", "line": 1038, "name": "totalMs", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "local", "name": "totalMs" } } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 1029, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "86400000" } } },
-    { "op": "bind", "line": 1030, "mutable": false, "name": "hh", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "3600000" } }, "right": { "kind": "const", "type": "Integer", "value": "24" } } },
-    { "op": "bind", "line": 1031, "mutable": false, "name": "mm", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "60000" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } } },
-    { "op": "bind", "line": 1032, "mutable": false, "name": "ss", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } } },
-    { "op": "bind", "line": 1033, "mutable": false, "name": "ms", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } } },
-    { "op": "bind", "line": 1034, "mutable": true, "name": "out", "type": "String", "value": { "kind": "local", "name": "sign" } },
+    { "op": "bind", "line": 1040, "mutable": false, "name": "days", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "86400000" } } },
+    { "op": "bind", "line": 1041, "mutable": false, "name": "hh", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "3600000" } }, "right": { "kind": "const", "type": "Integer", "value": "24" } } },
+    { "op": "bind", "line": 1042, "mutable": false, "name": "mm", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "60000" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } } },
+    { "op": "bind", "line": 1043, "mutable": false, "name": "ss", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }, "right": { "kind": "const", "type": "Integer", "value": "60" } } },
+    { "op": "bind", "line": 1044, "mutable": false, "name": "ms", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "totalMs" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } } },
+    { "op": "bind", "line": 1045, "mutable": true, "name": "out", "type": "String", "value": { "kind": "local", "name": "sign" } },
     {
       "op": "if",
-      "line": 1035,
+      "line": 1046,
       "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "days" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "assign", "line": 1036, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "days" }] } }, "right": { "kind": "const", "type": "String", "value": "d " } } }
+      { "op": "assign", "line": 1047, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "days" }] } }, "right": { "kind": "const", "type": "String", "value": "d " } } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 1038, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "hh" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "mm" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "ss" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.padLeft", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ms" }] }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "String", "value": "0" }] } } }
+    { "op": "return", "line": 1049, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "hh" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "mm" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "#datetime_pad2", "args": [{ "kind": "local", "name": "ss" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.padLeft", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ms" }] }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "String", "value": "0" }] } } }
     ]
   }
   ]

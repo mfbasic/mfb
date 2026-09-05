@@ -6,6 +6,10 @@
 '
 ' Both cannot hold. `datetime::now()` and `datetime::time(...)` both carry
 ' nanosecond resolution, so the round trip loses up to 999,999 ns per value.
+'
+' FIXED: `datetime::toIso(dt, digits)` picks the fractional width from
+' {0, 3, 6, 9}; 9 is lossless. The one-argument form is unchanged and is still
+' millisecond-exact -- the page now says so instead of promising a round trip.
 
 IMPORT io
 IMPORT datetime
@@ -17,14 +21,20 @@ FUNC main AS Integer
   LET iso AS String = datetime::toIso(dt)
   LET back AS datetime::DateTime = datetime::parseIso(iso)
 
-  io::print("nanos in  = " & toString(dt.time.nanos))
-  io::print("toIso     = " & iso)
-  io::print("nanos out = " & toString(back.time.nanos))
-  io::print("lost      = " & toString(dt.time.nanos - back.time.nanos) & " ns")
-  IF dt.time.nanos = back.time.nanos THEN
-    io::print("=> round-trip is lossless")
+  io::print("nanos in   = " & toString(dt.time.nanos))
+  io::print("toIso      = " & iso)
+  io::print("nanos out  = " & toString(back.time.nanos))
+  io::print("lost       = " & toString(dt.time.nanos - back.time.nanos) & " ns  (default form: millisecond-exact, and the page says so)")
+
+  LET nine AS String = datetime::toIso(dt, 9)
+  LET back9 AS datetime::DateTime = datetime::parseIso(nine)
+  io::print("toIso(.,9) = " & nine)
+  io::print("nanos out  = " & toString(back9.time.nanos))
+  io::print("lost       = " & toString(dt.time.nanos - back9.time.nanos) & " ns")
+  IF dt.time.nanos = back9.time.nanos THEN
+    io::print("=> the nine-digit round trip is LOSSLESS")
   ELSE
-    io::print("=> round-trip is LOSSY; there is no toIso overload that keeps nanos")
+    io::print("=> still lossy")
   END IF
   RETURN 0
 END FUNC

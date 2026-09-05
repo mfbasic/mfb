@@ -5,8 +5,9 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — new `rt_datetime_iso_nanos` fixture (Phase 1)
+Status: **FIXED** — `datetime::toIso(dt, digits)` with `digits` in `{0, 3, 6, 9}`;
+`9` is lossless. The one-argument form's output is unchanged.
+Regression Test: `tests/rt-behavior/datetime/datetime-iso-nanos-rt`
 
 `mfb man datetime toIso` makes two claims a few sentences apart:
 
@@ -219,3 +220,106 @@ the only real hazard is a golden diff on an existing timestamp — which would
 mean the default moved and the change is wrong. The two capability assumptions
 (nine-digit `format`, nine-digit `parseIso`) are the things to actually run
 before building on them.
+
+
+## Resolution
+
+### Phase 1 — the two capability assumptions, executed
+
+Both were *assumed* by the fix design and neither had been run. Probed against
+the pre-fix compiler:
+
+```
+format9  = 2026-06-26T01:02:03.123456789Z     ' format DOES emit nine digits
+format6  = 2026-06-26T01:02:03.123456Z
+parseIso9 nanos = 123456789                   ' parseIso DOES read nine
+parseIso6 nanos = 123456000
+format9z = 2026-06-26T01:02:03.123456789+05:30 ' and with a signed offset
+parseIso9z nanos = 123456789
+```
+
+So the fix is a pattern *selection*, not new formatting machinery.
+
+**In-tree `toIso` emitters** (`grep -rn "toIso" src examples benchmark tests`):
+`benchmark/mfb/src/datetimeb.mfb:70` (the iso round-trip benchmark),
+`tests/rt-behavior/datetime/datetime-format-valid`,
+`tests/rt-behavior/datetime/datetime-parse-valid`,
+`tests/byte-identity/datetime`, `src/audit/collect/source.rs:1033` (a fixture
+string), and the man examples. No `json`/`csv`/`http` serializer calls it — none
+of those packages emits a timestamp. Every one of these reads the *default*
+form, which is exactly why the default had to stay put.
+
+**RED**, against the pre-fix compiler:
+
+```
+/tmp/probe521/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]
+    Call to `datetime.toIso` has 2 argument(s), expected 1.
+```
+
+### The language-surface question
+
+Adding a second `toIso` overload *is* new language surface, and the pass's
+constraint is "**no language-surface change**: a fix must not alter MFBASIC
+syntax or the observable runtime semantics of a *correct* program". This clears
+that bar and the alternative does not:
+
+- It changes no syntax and no *existing* program's behaviour. Arity dispatch is
+  the shape `datetime::parse` (2/3-arg), `datetime::instant`/`duration` (1..5)
+  and `datetime::fixedOffset` already use, so nothing new is introduced at the
+  language level. A program that called `toIso(dt, 9)` before did not compile,
+  so it was not a correct program.
+- The doc-only alternative was the bug's stated *forbidden* fix: it makes the
+  page honest while leaving the language with no lossless ISO writer, pushing a
+  caller who needs one onto a hand-written format string and the offset token's
+  spelling.
+
+Chosen: the overload, plus the corrected prose. Both, not either.
+
+### The fix
+
+- `__datetime_toIso2(dt, digits)` with `digits` in `{0, 3, 6, 9}`; anything else
+  raises `ErrInvalidArgument` (77050002). `0` omits the fractional field
+  entirely (RFC 3339 §5.6 permits its absence). The four widths are exactly the
+  `fff`/`ffffff`/`fffffffff` tokens `format` and `parseIso` already handle, so
+  every form this member emits can be read back — verified in the fixture, not
+  assumed.
+- **The one-argument form now DELEGATES** — `__datetime_toIso(dt)` is
+  `RETURN __datetime_toIso2(dt, 3)` — rather than keeping a second copy of the
+  pattern. Identical output is then true by construction, which is the property
+  the whole change hangs on.
+- Truncation stays truncation (`strings::left` of the 9-digit pad); nothing
+  rounds.
+
+### Doc sync
+
+- `mfb man datetime toIso`: the "round-trippable … equivalent" sentence is gone.
+  The page now states the precision of *each* form, that only `digits = 9` is
+  lossless, that the default discards up to 999999 ns, and that truncation is
+  toward zero. Two new examples, compiled and run, with their printed output on
+  the page.
+- `mfb spec stdlib datetime` §Format grammar: the arity split, the `{0,3,6,9}`
+  set, and the lossless-only-at-9 rule.
+- The spike now reports `lost = 0 ns` for the nine-digit form.
+
+### Gates
+
+- `datetime-iso-nanos-rt`: lossless at `nanos` = 123456789, 1, 999999999, 0;
+  all four widths emitted and read back; six rejected `digits` values.
+- **Positive pins**: `pin_utc`, `pin_off`, `pin_neg`, `pin_yr4` (the 4-digit
+  year pad), `pin_eq3` (`toIso(dt) = toIso(dt, 3)`), and `pin_fmt`
+  (`toIso(dt) = format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`).
+- `scripts/test-accept.sh` (full, 1395 tests): 16 mismatches, **all `.ir`, all
+  datetime-importing, zero `.run` goldens moved.** `datetime-format-valid.run`
+  and `datetime-parse-valid.run` both print `toIso` output and both are
+  byte-identical — that is the proof the default did not move, and the bug's
+  own acceptance criterion ("no acceptance golden's timestamp text changed").
+- `scripts/regen-ncodesum.sh`: 141 refreshed, only datetime's 5 changed.
+- `scripts/artifact-gate.sh target/release/mfb all`: 1904 goldens, **0 diffs**.
+- `cargo test --no-fail-fast`: exit 0, 4711 passed / 0 failed.
+- `scripts/man-run-examples.sh datetime --run`: 114 built, 114 ran, 0 failed.
+
+### Open Decision, answered
+
+The `digits` parameter deliberately names *only* precision. A later RFC 9557
+zone-name flag (bug-520) is an independent axis and would arrive as its own
+parameter or member, not by overloading this one's integer.

@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-iso-nanos-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-iso-nanos-rt/datetime-iso-nanos-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-iso-nanos-rt/datetime-iso-nanos-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-iso-nanos-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-iso-nanos-rt/build/datetime-iso-nanos-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-iso-nanos-rt/build/datetime-iso-nanos-rt.out
+n123456789 iso9=2026-06-26T01:02:03.123456789Z lossless=TRUE
+n123456789 default=2026-06-26T01:02:03.123Z ms_nanos=123000000
+n1 iso9=2026-06-26T01:02:03.000000001Z lossless=TRUE
+n1 default=2026-06-26T01:02:03.000Z ms_nanos=0
+n999999999 iso9=2026-06-26T01:02:03.999999999Z lossless=TRUE
+n999999999 default=2026-06-26T01:02:03.999Z ms_nanos=999000000
+n0 iso9=2026-06-26T01:02:03.000000000Z lossless=TRUE
+n0 default=2026-06-26T01:02:03.000Z ms_nanos=0
+w0=2026-06-25T14:30:00+05:30
+w3=2026-06-25T14:30:00.123+05:30
+w6=2026-06-25T14:30:00.123456+05:30
+w9=2026-06-25T14:30:00.123456789+05:30
+read0=0
+read3=123000000
+read6=123456000
+read9=123456789
+pin_utc=2026-06-25T14:30:00.000Z
+pin_off=2026-06-25T14:30:00.123+05:30
+pin_eq3=TRUE
+pin_neg=1969-07-20T20:17:00.000Z
+pin_yr4=0007-01-02T03:04:05.000Z
+pin_fmt=TRUE
+neg1=TRUE
+one=TRUE
+two=TRUE
+four=TRUE
+seven=TRUE
+ten=TRUE
+rejected_all=TRUE
+[exit 0]

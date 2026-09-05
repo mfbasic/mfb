@@ -223,7 +223,14 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 | `E` | weekday name | `EEEE`+ = full, shorter = abbreviated |
 | `Z` | zone offset | `Z` = `Z` if offset 0 else `±HH:MM`; `ZZ` = always `±HH:MM`; `ZZZ`+ = `±HHMM` (compact) |
 
-`toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. `formatDuration(d)`
+`toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. It is arity-split: the
+two-argument `toIso(dt, digits)` selects the fractional width from `{0, 3, 6, 9}`
+(`0` omits the fractional field; any other value is `ErrInvalidArgument`,
+`77050002`), and the one-argument form is defined as `toIso(dt, 3)`, so the
+default output is millisecond-fixed by construction. Because a `DateTime` carries
+nanoseconds, **only `digits = 9` round-trips through `parseIso` losslessly**
+(bug-521: the page previously promised a round trip and truncated); every
+narrower width truncates toward zero. `formatDuration(d)`
 renders a signed span as `[Nd ]HH:MM:SS.mmm` (millisecond resolution, leading
 day part only when non-zero). [[src/codegen/builtins/datetime/func_to_iso.rs:__datetime_toIso]]
 
