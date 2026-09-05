@@ -5,7 +5,28 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun (flaky test — a real fix is masked as environment noise, or a green tree reads red)
 
-Status: Open (observed once in a full `cargo test --no-fail-fast` on `worktree-B-509` at `fec4ceddc` while probe builds ran alongside; green in isolation immediately after, and green in the previous full run of the same test on the same code)
+Status: FIXED (4d2bb44bc)
+
+Both defects removed, and unlike its sibling bug-488 this one reproduces on
+demand, so the claim is a measured before/after rather than a mechanism argument.
+
+- `const PORT: u16 = 18453` was a machine-wide singleton; the program now binds
+  port 0 and prints `port=<n>`.
+- The 1000 ms sleep was a readiness guess that fails exactly when the machine is
+  loaded. The `port=` line cannot appear before `tls::listen` returns, so reading
+  it IS the readiness signal.
+
+Three concurrent copies of the test binary:
+
+    pre-fix  (isolated worktree at HEAD):  FAILED / ok / FAILED   — 2 of 3
+             "peer did not receive the exact byte payload
+              [65, 66, 67, 68, 69]; got []"
+    post-fix:                              ok / ok / ok           — 3 of 3
+
+The pre-fix failure is the collision itself: the loser's peer reaches the
+winner's server, which has already served its single client and closed, so the
+payload arrives empty. That is also why the original sighting looked like a TLS
+write bug rather than a port clash.
 Regression Test: the test itself, run under load (`for i in $(seq 8); do (while :; do :; done) & done`) twenty times
 
 `tests/rt_macos_d4_union_state_tls.rs` starts an MFB TLS server on `PORT: u16 =

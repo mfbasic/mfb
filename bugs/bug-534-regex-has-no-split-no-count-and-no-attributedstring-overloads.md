@@ -1,12 +1,30 @@
 # bug-534: `regex` has no `split`, no `count`, and no `AttributedString` overloads, all of which `strings` has
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
+Status: Open — **`split` is unblocked as of 2026-09-05**
 Regression Test: `tests/` — new `rt_regex_surface_parity` fixture per member added
+
+**bug-532 landed, so Phase 4's prerequisite is satisfied.** `regex::findMatch`
+and `regex::findAllMatches` now report each match's `start`, `endIndex`, `text`
+and capture groups (`regex::MatchInfo` / `regex::Group`), so `split` can be
+written the way this document asks for it — one pass, no re-running the engine
+per piece, no delimiter workaround. Concretely: iterate
+`regex::findAllMatches(value, pattern)`, emit `strings::mid(value, cursor,
+m.start - cursor)` per match and set `cursor = m.endIndex`, then emit the tail.
+bug-532 deliberately did NOT take `split`, because this document owns the three
+semantic decisions Stage 3 lists (the zero-width-pattern rule, whether
+leading/trailing empty pieces are kept, and `limit`) and deciding them elsewhere
+would have decided them without the analysis. Stages 1 and 2 (`AttributedString`
+overloads, `count`) were already independent and remain so.
+
+One thing bug-532 settled that Phase 1 should not re-derive: the zero-width rule
+lives in exactly one place, `__regex_matchResults`, which `findAll`,
+`findAllMatches` and `replace` all consume. A `split` built on
+`findAllMatches` inherits it rather than restating it.
 
 `regex` is deliberately shaped as the pattern-matching mirror of `strings`:
 `match`↔`contains`, `find`↔`find`, `replace`↔`replace`. Three members of that
@@ -132,8 +150,8 @@ the mirror stops here.
 
 - `src/codegen/builtins/regex/` — three new members (or two plus an intro
   paragraph), and overloads on three existing ones.
-- **bug-532 is a hard prerequisite for `split`.** It must land first, or `split`
-  cannot be implemented correctly. `count` and the `AttributedString` overloads
+- **bug-532 was a hard prerequisite for `split`. It landed on 2026-09-05**, so
+  `split` is implementable now. `count` and the `AttributedString` overloads
   are independent and can land first.
 - `src/codegen/builtins/astrings/` — the overload seam. Adding a builtin
   overload has known traps (`os_alias` invisible to `resolve_func`; the registry
@@ -195,7 +213,9 @@ piece. Quadratic, and it duplicates matching logic that will need deleting.
       `regex::split` can mirror it.
 - [ ] `grep -rn "regex::" src/codegen/builtins/ examples/ benchmark/` — find
       in-tree code hand-rolling a pattern split.
-- [ ] Confirm bug-532's status; `split` is blocked until it lands.
+- [x] Confirm bug-532's status; `split` is blocked until it lands. **Landed
+      2026-09-05** — see the note under Status for the exact shape `split` can
+      now be built on.
 
 Acceptance: the parity table is complete with a verdict per member;
 `strings::split`'s edge behavior is written down.

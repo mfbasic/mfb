@@ -1,12 +1,21 @@
 ' bug-514 -- `crypto::KeyPair` carries no curve tag, so a 32-byte X25519 pair is
-' indistinguishable from a 32-byte Ed25519 pair. `crypto::convert` and
-' `crypto::encrypt` check only the LENGTH, so the wrong curve's key is accepted
-' and mapped, and nothing reports it.
+' indistinguishable from a 32-byte Ed25519 pair. Both `crypto::convert` and
+' `crypto::encrypt` used to check only the LENGTH, so the wrong curve's key was
+' accepted and mapped, and nothing reported it.
 '
-' Expected (a fix): handing X25519 key material to an `Ed25519*` operation is
-' rejected at compile time, or at worst raises `ErrInvalidArgument`.
-' Observed today: both calls succeed. `encrypt` produces a well-formed 62-byte
-' box that NO private key can ever open.
+' `crypto::convert` is FIXED. It receives both halves of one pair, so it can
+' PROVE the curve rather than guess it: RFC 8032 defines the public key as a
+' derivation of the seed, so `convert` re-derives it and requires a match. The
+' second `convert` below now raises `ErrInvalidArgument` (77050002).
+'
+' `crypto::encrypt` is NOT, and cannot be. It receives ONE key half -- a bare
+' 32-byte recipient public key -- and there is nothing to derive it from. An
+' X25519 public key under an `Ed25519_*` suite is still accepted and still
+' produces a well-formed 62-byte box that NO private key can ever open. That
+' limit is now stated on `mfb man crypto encrypt` and in `mfb spec stdlib`
+' ("Curve attribution") instead of being conceded on `convert`'s page, where a
+' caller of `encrypt` would never have found it. Closing it needs per-curve key
+' types, which is a language-surface change.
 
 IMPORT io
 IMPORT crypto
@@ -63,6 +72,7 @@ FUNC main AS Integer
   io::print("  " & decryptGuard("with the X25519 private key ", x.privateKey, wrong))
   io::print("  " & decryptGuard("with the Ed25519 private key", ed.privateKey, wrong))
   io::print("")
-  io::print("The second box is unopenable by anyone. The sender was told nothing.")
+  io::print("The second box is unopenable by anyone. The sender was told nothing --")
+  io::print("a bare public key names no curve, so encrypt has nothing to check.")
   RETURN 0
 END FUNC

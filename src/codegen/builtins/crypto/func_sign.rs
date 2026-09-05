@@ -1674,7 +1674,13 @@ for the chosen curve, or an `Ed25519` key that is not 32 bytes, or an `Ed448` ke
 that is not 57 bytes, or an otherwise
 malformed key the platform import rejects, raises `ErrInvalidArgument`; `message`
 may be any length, including empty. `X25519` and `X448` are key-agreement keys and
-cannot sign — they raise `ErrInvalidArgument`. A platform-library or system failure raises
+cannot sign — they raise `ErrInvalidArgument`. Within a size, though, the curve of
+`privateKey` is not checked and cannot be: every distinct signing curve here has a
+distinct key size, so a cross-curve mix-up is caught, but any 32 bytes are a valid
+`Ed25519` seed, so an X25519 private key handed to `sign(crypto::Certificate.Ed25519, …)`
+produces a perfectly valid signature — under a public key that is not the one you
+published. Take the `crypto::Certificate` from wherever the key was generated.
+A platform-library or system failure raises
 `ErrUnknown`, and running out of memory raises `ErrOutOfMemory`. The private key
 material is zeroed from the working buffers before return.
 

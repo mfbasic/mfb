@@ -1,7 +1,7 @@
 # Regex Engine
 
 The `regex` package is a pure-MFBASIC regular-expression engine: a recursive-descent
-parser builds an AST of `__regex_Node` values, and a continuation-passing backtracking
+parser builds an AST of `__regex_Node` values, and an explicit-stack backtracking
 matcher walks that AST in leftmost-first (greedy-by-default) preference order. The
 engine is hand-written MFBASIC; the Unicode general-category and Script tables are
 pinned generated data the compiler reads natively. All matching is over Unicode scalar
@@ -18,32 +18,45 @@ scalar.[[src/codegen/builtins/regex/mod.rs:source_file]]
 
 ## Public Surface
 
-Four built-in calls are recognized and rewritten to internal entry points during the
+Six built-in calls are recognized and rewritten to internal entry points during the
 front end. Their signatures and return types are fixed (resolved by exact arg-type
-match); `find`/`findAll` take an optional `start` that is padded to `0` during IR
-lowering.[[src/codegen/builtins/regex/mod.rs:resolve_call]][[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
+match); `find`/`findAll`/`findMatch`/`findAllMatches` take an optional `start` that is
+padded to `0` during IR lowering.[[src/codegen/builtins/regex/mod.rs:resolve_call]][[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
 
 | Call | Internal | Returns | Args |
 |------|----------|---------|------|
 | `regex.match` | `__regex_match` | `Boolean` | `value, pattern` |
 | `regex.find` | `__regex_find` | `Integer` | `value, pattern[, start=0]` |
 | `regex.findAll` | `__regex_findAll` | `List OF Integer` | `value, pattern[, start=0]` |
+| `regex.findMatch` | `__regex_findMatch` | `regex.MatchInfo` | `value, pattern[, start=0]` |
+| `regex.findAllMatches` | `__regex_findAllMatches` | `List OF regex.MatchInfo` | `value, pattern[, start=0]` |
 | `regex.replace` | `__regex_replace` | `String` | `value, pattern, replacement` |
 
 `find` returns the scalar index of the first match at or after `start`, or `-1`.
-`findAll` returns the start index of every non-overlapping match. `replace` substitutes
-every match. There is no separate flags argument: flags are set inline in the pattern
-(see [Flags](#flags)). Per-call API detail is owned by `mfb man regex`.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
+`findAll` returns the start index of every non-overlapping match. `findMatch` and
+`findAllMatches` return the same matches with their spans, text and captures attached
+(see [Match Projection](#match-projection)). `replace` substitutes every match. There is
+no separate flags argument: flags are set inline in the pattern (see [Flags](#flags)).
+Per-call API detail is owned by `mfb man regex`.
+
+The package exports exactly two type names, both value records; every other declaration
+is `__regex_`-prefixed and package-internal. `MATCH` is a reserved keyword, so the match
+record is spelled `MatchInfo`.[[src/codegen/builtins/regex/mod.rs:MatchInfo]]
+
+| Type | Fields |
+|------|--------|
+| `regex.Group` | `start AS Integer`, `endIndex AS Integer`, `text AS String` |
+| `regex.MatchInfo` | `start AS Integer`, `endIndex AS Integer`, `text AS String`, `groups AS List OF Group`, `names AS Map OF String TO Integer` |[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Errors use `FAIL error(code, ...)`: `77050003` invalid pattern, `77050001` `start` index
 out of range. There is no `ErrNotFound`; absence is reported as `-1` / empty / unchanged.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 ## Scalar Model
 
-A subject string is decomposed into a `__regex_Ctx`: a parallel list of single-scalar
-`String`s (`text`) and their code points (`cps`), plus the length `n`. Positions
-throughout the engine are scalar offsets into these lists, **not** byte offsets, so all
-returned indices are scalar indices.[[src/codegen/builtins/regex/helper_make_ctx.rs:__regex_makeCtx]]
+A subject string is decomposed into a `__regex_Ctx`: the list of its code points
+(`cps`) plus the length `n`. Positions throughout the engine are scalar offsets into
+that list, **not** byte offsets, so all returned indices are scalar indices. A consumer
+that needs a scalar as text builds it from the code point with `__regex_chr`.[[src/codegen/builtins/regex/helper_make_ctx.rs:__regex_makeCtx]]
 
 Code points are derived two ways. `__regex_chr` UTF-8-encodes an `Integer` to a scalar
 string, clamping out-of-range and surrogate values; `__regex_scalarToCp` recovers a code
@@ -191,6 +204,27 @@ span is group 0.[[src/codegen/builtins/regex/helper_init_caps.rs:__regex_initCap
 resume at the match end; after an empty match they record it once and advance by one
 scalar, tracking `lastMatch` to avoid emitting an empty match adjacent to a prior
 non-empty one.[[src/codegen/builtins/regex/func_find_all.rs:__regex_findAll]]
+
+### Match Projection
+
+`findAll`, `findAllMatches` and `replace` all consume the SAME `__regex_matchResults`
+walk, so the match sequence — including the zero-width rule above — is one
+implementation, not three. They differ only in the projection applied to each
+`__regex_Result`: `findAll` takes capture slot `0`, `replace` expands the replacement
+template, and `findAllMatches` calls `__regex_makeMatch`.[[src/codegen/builtins/regex/helper_match_results.rs:__regex_matchResults]]
+
+`__regex_makeMatch` reports what the search already computed; it never re-runs the
+matcher. Group `k`'s span is capture slots `2k`/`2k+1`, sliced out of the subject with
+the same `strings::mid` call `__regex_lookupNum` uses to expand `$k`, so `groups[k].text`
+and `$k` are the same text by construction. An unset slot stays at the `-1` that
+`__regex_initCaps` seeded, which is how a non-participating group is reported. Slots are
+scalar positions throughout, so no index conversion occurs. `names` is `prog.names`, the
+compile-time name→number map.[[src/codegen/builtins/regex/helper_make_match.rs:__regex_makeMatch]]
+
+Absence keeps the package's sentinel contract: `__regex_findMatch` returns
+`__regex_noMatch()` — `start` and `endIndex` `-1`, empty `text`, empty `groups` and
+`names` — rather than raising, and `__regex_findAllMatches` returns the empty
+list.[[src/codegen/builtins/regex/helper_no_match.rs:__regex_noMatch]]
 
 ## Supported Syntax
 

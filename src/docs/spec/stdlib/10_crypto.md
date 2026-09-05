@@ -141,9 +141,18 @@ extensions); computation is portable-arithmetic only, identical across targets.
   `SHAKE256(seed)[0..56]` — libdecaf's `decaf_ed448_convert_*_to_x448`
   convention, under which the edwards448 base point maps to `u = 5` and
   `X448(convertedPrivate, 5) = convertedPublic`. Both maps check the input
-  lengths (32 bytes for `Ed25519ToX25519`, 57 for `Ed448ToX448`) and raise
-  `ErrInvalidArgument` otherwise, so a pair from the other curve is rejected
-  rather than mis-mapped.
+  lengths (32 bytes for `Ed25519ToX25519`, 57 for `Ed448ToX448`) **and then
+  verify the source curve** before mapping: RFC 8032 defines the public key as a
+  derivation of the seed, so `convert` re-derives it (`A =
+  [clamp(SHA-512(seed)[0..32])]B` for Ed25519, `A = [prune(SHAKE256(seed,
+  114)[0..57])]B` for Ed448) and requires it to equal `keys.publicKey`, compared
+  in constant time; anything else raises `ErrInvalidArgument` rather than being
+  mis-mapped. Length alone is not sufficient — an X25519 pair is 32 bytes on both
+  halves exactly like an Ed25519 pair — and the derivation check, unlike any test
+  of the public key's encoding, cannot be fooled by a Montgomery `u` that decodes
+  as a valid Edwards `y`. It accepts every pair `generate(Certificate.Ed25519)` /
+  `generate(Certificate.Ed448)` and every conformant RFC 8032 implementation
+  produce, and costs one fixed-base scalar multiplication.
   [[src/codegen/builtins/crypto/helper_ed448_pub_to_x448.rs:BODY]]
   [[src/codegen/builtins/crypto/helper_ed448_priv_to_x448.rs:BODY]]
 - **Verification** — `constantTimeEqual` compares two byte lists in time
@@ -182,6 +191,22 @@ lets an intermediate cross `2^63`. Poly1305 uses a 5 × 26-bit limb representati
   reuse a `(key, nonce)` pair.
 - **Fail closed.** AEAD `open` returns no plaintext on tag mismatch — verification
   is not optional.
+- **Curve attribution.** `KeyPair` carries no field naming the curve that
+  produced it, and curves collide on size: Ed25519 and X25519 keys are both 32
+  bytes on both halves (Ed448 is 57 and X448 56, so those two differ by one). A
+  wrong-curve key is therefore **decidable exactly when a member is handed both
+  halves of one pair**, which is `convert` alone — it re-derives one half from
+  the other, as above. Every other member sees a single key: `encrypt` /
+  `decrypt` a lone recipient key, `exchange` a lone private key beside a peer's
+  public key, `sign` / `verify` a lone key with the curve named separately. For
+  those, the curve is taken from the `AsymmetricCipher` / `Certificate` selector
+  and the key bytes are trusted; no check is possible, because a 32-byte key of
+  one curve is indistinguishable from a 32-byte key of the other, and a shape
+  test on the public key would pass a Montgomery `u` about half the time.
+  Wrong-curve use there is silent at the call and surfaces later — an
+  `ErrAuthenticationFailed` at the recipient's `decrypt`, a shared secret the
+  peer never reproduces, a signature under an unpublished public key — so the
+  program, not the runtime, is what tracks the curve of each key.
 - **Secret safety.** `KeyPair.privateKey` bytes are sensitive; `typeName` /
   `toString` / diagnostics are not security boundaries. Never log a `KeyPair`.
 - **Determinism.** Key generation is random and ECDSA signatures are

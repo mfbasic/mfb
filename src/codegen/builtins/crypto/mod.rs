@@ -102,7 +102,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "KeyPair",
         export: true,
-        description: "A public-key key pair, holding the secret `privateKey` used to sign or derive and the matching `publicKey` shared with counterparties.",
+        description: "A public-key key pair, holding the secret `privateKey` used to sign or derive and the matching `publicKey` shared with counterparties. Nothing on the record names the curve that produced it, and different curves often use the same sizes — Ed25519 and X25519 keys are both 32 bytes on both halves — so keep track of the curve in your own program. `crypto::convert` is handed both halves of one pair and so can verify the curve for you; every member handed a single key, such as `crypto::encrypt` or `crypto::exchange`, takes the curve from its selector argument and trusts the bytes.",
         props: vec![
             RecordProp { name: "privateKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The secret key bytes; keep confidential." },
             RecordProp { name: "publicKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The public key bytes; safe to share." },

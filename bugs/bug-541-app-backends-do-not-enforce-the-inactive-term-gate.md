@@ -54,6 +54,25 @@ References:
   (Windows reduced implementation). GATE-02 becomes broader in scope once
   bug-539 lands, because GTK will then have real drawing writers to gate.
 
+**Update after bug-539 landed.** bug-539's root cause is NOT shared with any of
+GATE-01/02/03 — it was the GTK dispatcher returning `None` for the six positioned
+members, so they fell through to the console emitter and no-oped on a shadow-grid
+header a GTK build never allocates. The gate was never the reason they drew
+nothing. Two consequences for this bug:
+
+- The anticipated widening of GATE-02 to Linux **did not happen**. Every one of
+  the six new GTK arms opens with `emit_gtk_term_active_gate`, exactly like the
+  GTK setters, so the new drawing writers are inert while `ST_TERM_ACTIVE` is 0 —
+  including after `term::off`, which clears it. Linux needs no new work for the
+  drawing writers; GATE-02 stays a Windows-only finding (the Windows helpers gate
+  on the live `TUI_MEMDC` handle, which `term::off` never clears).
+- GATE-03 is untouched and still open exactly as written: `emit_app_term_off` in
+  `src/target/linux_gtk/app_io.rs` still has no gate of its own and still
+  schedules the present + hide idles unconditionally.
+
+GATE-01 was likewise unaffected — `term::terminalSize` is a Windows arm bug and
+the GTK arm already raises `ErrUnsupported` while inactive.
+
 ## Failing Reproduction
 
 ```

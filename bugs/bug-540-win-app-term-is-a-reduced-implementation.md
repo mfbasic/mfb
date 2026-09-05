@@ -48,6 +48,30 @@ References:
 - Sibling gaps filed at the same time: bug-539 (GTK draws nothing), bug-541
   (inactive gate not enforced in app mode).
 
+**Update after bug-539 landed.** No shared root cause: bug-539 was the GTK
+dispatcher returning `None` for the six positioned members (so they fell through
+to a console emitter that no-ops in an app build), whereas Windows *does*
+dispatch all six and the defect is in the bodies themselves. Nothing in the
+bug-539 fix touched `src/target/win_x86_64/`, and the Windows `.ncodesum` goldens
+are byte-identical across it.
+
+The GTK fix does, however, supply a worked precedent for **WIN-01** and
+**WIN-04**, both of which are now solved twice in-tree rather than once:
+
+- WIN-01: `src/target/linux_gtk/term_draw.rs:emit_select_packed_glyph` resolves
+  the `LineStyle`/`FillStyle` ordinal against the same
+  `crate::codegen::error::constants::TERM_*_CODEPOINTS` tables the console and
+  macOS backends read, converting each entry to the backend's own cell encoding
+  **at emit time** (`pack_codepoint`). That is the shape WIN-01 wants: read the
+  shared table, never hard-code a code point.
+- WIN-04: `term::drawText` there is not a second walk. It is the *write* helper's
+  own cluster walk emitted a second time under `TermWriteMode::DrawText`, so the
+  clustering, the width lookup and the "drop a wide cluster that would not fit"
+  rule are literally the same instructions `io::write` uses. If the Windows
+  backend has an immediate-mode text writer with correct clustering, WIN-04 is the
+  same move; if it does not, WIN-04 and its `io::write` twin should be fixed
+  together rather than separately.
+
 ## Failing Reproduction
 
 ```

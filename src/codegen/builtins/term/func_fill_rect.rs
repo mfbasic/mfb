@@ -32,12 +32,10 @@ cursor.
 `Dark` (▓), and the two quadrant patterns `Checker` (▚) and `CheckerAlt` (▞). The
 shade variants read as translucent overlays at a glance; the solid block is opaque.
 
-**Two app-mode gaps apply to this call** (see `mfb man term`). In a **Linux**
-`--app` build it is not implemented and fills nothing; a Linux terminal is
-unaffected. In a **Windows** `--app` build it fills the region but ignores
-`fill`, painting the current background colour instead of the block or shade
-glyph. The console backend on every platform, and macOS app mode, honour the
-style.
+**One app-mode gap applies to this call** (see `mfb man term`): in a **Windows**
+`--app` build it fills the region but ignores `fill`, painting the current
+background colour instead of the block or shade glyph. The console backend on
+every platform, and macOS and Linux app mode, honour the style.
 
 The call is gated: while TUI mode is off it does nothing and reports no
 error (in a Linux or Windows `mfb build --app` build the gate is

@@ -1,0 +1,221 @@
+{
+  "project": "crypto-curve-attribution-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 27 },
+    { "module": "crypto", "line": 28 },
+    { "module": "encoding", "line": 29 },
+    { "module": "errorCode", "line": 30 },
+    { "module": "io", "line": 31 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fill",
+      "line": 33,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 33 },
+      { "name": "v", "type": "Integer", "default": null, "line": 33 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 35 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "n" } },
+        "line": 36,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "v" }] }] }, "line": 37 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 38 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "basePoint",
+      "line": 43,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 43 },
+      { "name": "u", "type": "Integer", "default": null, "line": 43 }
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "call", "callee": "fill", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "0" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "u" }] }] }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "code",
+      "line": 47,
+      "params": [
+      { "name": "err", "type": "Error", "default": null, "line": 47 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } },
+        "line": 48,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "ErrInvalidArgument" }, "line": 49 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrAuthenticationFailed" } },
+        "line": 51,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "ErrAuthenticationFailed" }, "line": 52 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "other=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 54 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryConvert",
+      "line": 59,
+      "params": [
+      { "name": "c", "type": "crypto.KeyConvert", "default": null, "line": 59 },
+      { "name": "priv", "type": "List OF Byte", "default": null, "line": 59 },
+      { "name": "pub", "type": "List OF Byte", "default": null, "line": 59 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "kp", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.convert", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "constructor", "type": "crypto.KeyPair", "arguments": [{ "kind": "identifier", "value": "priv" }, { "kind": "identifier", "value": "pub" }] }] }, "line": 60 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }] } }, "line": 61 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 62,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 63 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "convertOk",
+      "line": 67,
+      "params": [
+      { "name": "c", "type": "crypto.KeyConvert", "default": null, "line": 67 },
+      { "name": "kp", "type": "crypto.KeyPair", "default": null, "line": 67 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "out", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.convert", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "kp" }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "converted " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "out" }, "member": "privateKey" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "out" }, "member": "publicKey" }] }] } }, "line": 69 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 70,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 71 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 75,
+      "params": [
+      { "name": "cipher", "type": "crypto.AsymmetricCipher", "default": null, "line": 75 },
+      { "name": "kp", "type": "crypto.KeyPair", "default": null, "line": 75 },
+      { "name": "msg", "type": "String", "default": null, "line": 75 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "box", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "identifier", "value": "cipher" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }] }, "line": 76 },
+      { "kind": "binding", "mutable": false, "name": "clear", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "identifier", "value": "cipher" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "box" }] }, "line": 77 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opened " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "clear" }] }] } }, "line": 78 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 79,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "code", "arguments": [{ "kind": "identifier", "value": "err" }] }, "line": 80 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 84,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "edSeed1", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60" }] }, "line": 86 },
+      { "kind": "binding", "mutable": false, "name": "edPub1", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a" }] }, "line": 87 },
+      { "kind": "binding", "mutable": false, "name": "edSeed2", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb" }] }, "line": 88 },
+      { "kind": "binding", "mutable": false, "name": "edPub2", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c" }] }, "line": 89 },
+      { "kind": "binding", "mutable": false, "name": "xPriv", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a" }] }, "line": 90 },
+      { "kind": "binding", "mutable": false, "name": "xPub", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a" }] }, "line": 91 },
+      { "kind": "binding", "mutable": false, "name": "xPrivB", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb" }] }, "line": 92 },
+      { "kind": "binding", "mutable": false, "name": "xPubB", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f" }] }, "line": 93 },
+      { "kind": "binding", "mutable": false, "name": "ed448Seed", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "6c82a562cb808d10d632be89c8513ebf6c929f34ddfa8c9f63c9960ef6e348a3528c8a3fcc2f044e39a3fc5b94492f8f032e7549a20098f95b" }] }, "line": 94 },
+      { "kind": "binding", "mutable": false, "name": "ed448Pub", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "5fd7449b59b461fd2ce787ec616ad46a1da1342485a70e1f8a0ea75d80e96778edf124769b46c7061bd6783df1e50f6cd1fa1abeafe8256180" }] }, "line": 95 },
+      { "kind": "binding", "mutable": false, "name": "x448Priv", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "9a8f4925d1519f5775cf46b04b5800d4ee9ee8bae8bc5565d498c28dd9c9baf574a9419744897391006382a6f127ab1d9ac2d8c0a598726b" }] }, "line": 96 },
+      { "kind": "binding", "mutable": false, "name": "base255", "type": "List OF Byte", "value": { "kind": "call", "callee": "basePoint", "arguments": [{ "kind": "number", "value": "32" }, { "kind": "number", "value": "9" }] }, "line": 97 },
+      { "kind": "binding", "mutable": false, "name": "base448", "type": "List OF Byte", "value": { "kind": "call", "callee": "basePoint", "arguments": [{ "kind": "number", "value": "56" }, { "kind": "number", "value": "5" }] }, "line": 98 },
+      { "kind": "binding", "mutable": false, "name": "x448Pub", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.exchange", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X448" }, { "kind": "identifier", "value": "x448Priv" }, { "kind": "identifier", "value": "base448" }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed25519-1=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "edSeed1" }, { "kind": "identifier", "value": "edPub1" }] } }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed25519-2=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "edSeed2" }, { "kind": "identifier", "value": "edPub2" }] } }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed448-1=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "identifier", "value": "ed448Seed" }, { "kind": "identifier", "value": "ed448Pub" }] } }] }, "line": 106 },
+      { "kind": "binding", "mutable": false, "name": "c1", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.convert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "constructor", "type": "crypto.KeyPair", "arguments": [{ "kind": "identifier", "value": "edSeed1" }, { "kind": "identifier", "value": "edPub1" }] }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed25519-invariant=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "call", "callee": "crypto.exchange", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X25519" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c1" }, "member": "privateKey" }, { "kind": "identifier", "value": "base255" }] }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c1" }, "member": "publicKey" }] }] } }] }, "line": 110 },
+      { "kind": "binding", "mutable": false, "name": "c4", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.convert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "constructor", "type": "crypto.KeyPair", "arguments": [{ "kind": "identifier", "value": "ed448Seed" }, { "kind": "identifier", "value": "ed448Pub" }] }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed448-invariant=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.constantTimeEqual", "arguments": [{ "kind": "call", "callee": "crypto.exchange", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X448" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c4" }, "member": "privateKey" }, { "kind": "identifier", "value": "base448" }] }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c4" }, "member": "publicKey" }] }] } }] }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-generated-ed25519=" }, "right": { "kind": "call", "callee": "convertOk", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }] }] } }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-generated-ed448=" }, "right": { "kind": "call", "callee": "convertOk", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed448" }] }] } }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sign-rfc8032-t1=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "identifier", "value": "edSeed1" }, { "kind": "list", "values": [] }] }] } }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "verify-rfc8032-t1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "identifier", "value": "edPub1" }, { "kind": "list", "values": [] }, { "kind": "call", "callee": "crypto.sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }, { "kind": "identifier", "value": "edSeed1" }, { "kind": "list", "values": [] }] }] }] } }] }, "line": 118 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exchange-rfc7748-shared=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.exchange", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X25519" }, { "kind": "identifier", "value": "xPriv" }, { "kind": "identifier", "value": "xPubB" }] }] } }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exchange-rfc7748-shared-ba=" }, "right": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "call", "callee": "crypto.exchange", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X25519" }, { "kind": "identifier", "value": "xPrivB" }, { "kind": "identifier", "value": "xPub" }] }] } }] }, "line": 120 },
+      { "kind": "binding", "mutable": false, "name": "ed", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed25519" }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hpke-ed25519-roundtrip=" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "identifier", "value": "ed" }, { "kind": "string", "value": "attack at dawn" }] } }] }, "line": 122 },
+      { "kind": "binding", "mutable": false, "name": "ed448", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "Ed448" }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hpke-ed448-roundtrip=" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed448_CHACHA20POLY1305" }, { "kind": "identifier", "value": "ed448" }, { "kind": "string", "value": "attack at dawn" }] } }] }, "line": 124 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-x25519-pair-into-ed25519-map=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "xPriv" }, { "kind": "identifier", "value": "xPub" }] } }] }, "line": 130 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-x25519-pair-b-into-ed25519-map=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "xPrivB" }, { "kind": "identifier", "value": "xPubB" }] } }] }, "line": 131 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-mismatched-ed25519-halves=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "edSeed1" }, { "kind": "identifier", "value": "edPub2" }] } }] }, "line": 135 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-x448-pair-into-ed448-map=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "identifier", "value": "x448Priv" }, { "kind": "identifier", "value": "x448Pub" }] } }] }, "line": 139 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed448-pair-into-ed25519-map=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "ed448Seed" }, { "kind": "identifier", "value": "ed448Pub" }] } }] }, "line": 141 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-ed25519-pair-into-ed448-map=" }, "right": { "kind": "call", "callee": "tryConvert", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "identifier", "value": "edSeed1" }, { "kind": "identifier", "value": "edPub1" }] } }] }, "line": 142 },
+      { "kind": "binding", "mutable": false, "name": "p256", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "P256" }] }, "line": 144 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-p256-pair-into-ed25519-map=" }, "right": { "kind": "call", "callee": "convertOk", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed25519ToX25519" }, { "kind": "identifier", "value": "p256" }] } }] }, "line": 145 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "convert-p256-pair-into-ed448-map=" }, "right": { "kind": "call", "callee": "convertOk", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.KeyConvert" }, "member": "Ed448ToX448" }, { "kind": "identifier", "value": "p256" }] } }] }, "line": 146 },
+      { "kind": "binding", "mutable": false, "name": "xkp", "type": "crypto.KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.Certificate" }, "member": "X25519" }] }, "line": 154 },
+      { "kind": "binding", "mutable": false, "name": "box", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "xkp" }, "member": "publicKey" }, { "kind": "string", "value": "attack at dawn" }] }, "line": 155 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "encrypt-bare-key-is-unattributable=accepted " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "box" }] }] } }, "right": { "kind": "string", "value": " bytes" } }] }, "line": 156 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "decrypt-that-box=" }, "right": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "identifier", "value": "xkp" }, { "kind": "string", "value": "attack at dawn" }] } }] }, "line": 157 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -5,7 +5,28 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: FIXED (6bb5a98c8)
+
+Fixed by the pattern the codebase already used twelve lines below the broken
+gate. The unicode tables had hit the identical disagreement — a pre-codegen NIR
+heuristic vs what codegen actually emitted, leaving an undefined
+`_mfb_unicode_*` relocation — and were fixed by scanning the emitted
+relocations, a scan their comment calls "the ground truth". The fixed
+`_mfb_str_error_*` strings now use the same scan, so the guard's emitter and the
+string's registrar are no longer two lists kept in step by hand. That closes the
+bug-256 class rather than adding a third name to it.
+
+Additive by construction: a string is emitted only when a generated function
+relocates against it AND it is not already present, so every program that links
+today is untouched. Measured rather than argued — `artifact-gate all` 0 diffs
+over the whole corpus, confining the delta to programs that fail today.
+
+Evidence: both the `tcp::Socket` and `udp::Socket` repros build and run
+(`started`, exit 0); pins added beside the `fs::File` shape in
+`tests/cli_thread_accept_res_bind.rs`, deliberately with no other call into the
+package since that is what masked the bug; verified RED in a throwaway worktree
+without the fix ("an alias-only `tcp::Socket` rebind must build (bug-545)");
+`cargo test --no-fail-fast` exit 0, 4715 passed / 0 failed.
 Regression Test: none yet — `tests/cli_thread_accept_res_bind.rs` carries the
 `fs::File` shape that already passes; the `tcp`/`udp` shapes belong beside it.
 

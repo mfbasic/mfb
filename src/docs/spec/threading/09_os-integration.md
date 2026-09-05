@@ -48,15 +48,30 @@ arena state, calls the worker export, stores the returned result in the control
 block, keeps the worker arena live as needed for that result, marks the worker
 complete, and returns `NULL` to pthread.
 
-Linux threaded programs do not explicitly destroy the main runtime arena during
-process shutdown. A worker may still be running when the main function returns,
-and unmapping shared runtime memory would race that worker. Process exit lets
-the OS reclaim the arena instead.
-
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
 the Linux backend. They may be used by libc internally, but generated
 thread helpers must call the libc/pthread interface. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+
+## Arena Teardown at Process Exit
+
+A threaded program does not explicitly destroy the main runtime arena during
+process shutdown, on **any** platform. A worker may still be running when the
+main function returns, and unmapping shared runtime memory would race that
+worker: `thread::start` allocates both the worker's thread control block and the
+worker's whole arena-state block out of the *spawning* thread's arena, so a
+running worker's pinned arena register and current-thread register point into the
+main arena's blocks. Dropping a `Thread` handle only cancels and broadcasts — a
+detached worker keeps running — so `_mfb_shutdown` is reached with those blocks
+live, and freeing them pulls a worker's own arena state out from under it. Process
+exit lets the OS reclaim the arena instead. The deferral is gated on the program
+embedding any `thread.` runtime call, so a program that starts no worker still
+frees the arena at exit exactly as before.
+
+This is platform-independent by necessity, not by convention. Windows was the
+one backend that still destroyed the arena at exit with a worker live, and it
+faulted `0xC0000005` inside the trampoline's own `THREAD_OFFSET_ARENA_STATE`
+load on a freed control block (bug-547). [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 
 ## Standard Input Broadcast
 

@@ -33,14 +33,21 @@ actually serves:
 | `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
 | `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`) |
 | `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
-| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | **no** | draws, **`LineStyle` ignored** (always Light) |
-| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | **no** | draws, **`LineStyle` ignored** |
-| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | **no** | draws, **`FillStyle` ignored** (background wash) |
-| `drawText`, `drawGlyph` | yes | yes | **no** | yes |
+| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** (always Light) |
+| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | yes, per `LineStyle` | draws, **`LineStyle` ignored** |
+| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | yes, per `FillStyle` | draws, **`FillStyle` ignored** (background wash) |
+| `drawText`, `drawGlyph` | yes | yes | yes | yes |
 
-"**no**" means the GTK dispatcher returns `None` for the call, so it falls through
-to the console emitter — which finds no console grid header in an app build (GTK
-owns `term::on`) and no-ops. [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+The Linux column read "**no**" until bug-539. Returning `None` from the app
+dispatcher means "keep this call on the console emitter", which is right for the
+pure readers and a **trap for a writer**: every console drawing emitter opens by
+loading the console shadow-grid header out of term-state slot 48, and the only
+writer of that slot is the *console* `term::on`, which a GTK app build never runs.
+All six therefore took their inactive branch on the first instruction and returned
+`OK` having drawn nothing. Each now has its own GTK arm calling a worker-side
+helper that stamps the cell arrays directly.
+[[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+[[src/target/linux_gtk/term_draw.rs:emit_term_stamp_helper]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_draw_box]]
 
 `term::setForeground`/`setBackground` take a `color::Color` and
@@ -631,12 +638,25 @@ the fg word's free bits 27–28 (`WIDTH_SHIFT`); a wide glyph reserves a
 edge. Multi-scalar clusters fold combining marks into a per-cell length-prefixed
 **EGC pool** slot (`ST_TERM_POOL`, 32 B/cell) rebuilt via `pango_layout_set_text`.
 Cell metrics come from `pango_layout_get_pixel_extents`; scroll shifts the pool
-with the char/fg/bg arrays and resize is free (fixed stride). **All six** GTK
-positioned draw helpers — `drawHLine`, `drawVLine`, `drawBox`, `fillRect`,
-`drawText` and `drawGlyph` — remain unimplemented for the grid: the dispatcher
-returns `None` for each, so they fall through to the console emitter, which finds
-no console grid header in an app build and no-ops. See the coverage table at the
-top of this topic. [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+with the char/fg/bg arrays and resize is free (fixed stride).
+
+**All six** GTK positioned draw helpers stamp these same arrays (bug-539).
+`_mfb_gtkapp_term_stamp` is the leaf: bounds-checked against the ACTIVE extent,
+clearing the surviving half of any wide pair it breaks, then writing char / fg
+(`cur_fg | bold | underline | width<<27`) / bg. `_mfb_gtkapp_term_run` normalises
+and clamps a span and is what every line, box edge and fill row is built from;
+`_mfb_gtkapp_term_hline`/`_vline`/`_box`/`_fill` resolve their glyphs from the
+shared `TERM_*_CODEPOINTS` tables at EMIT time (converted to the packed-UTF-8 cell
+form by `pack_codepoint`, so a style can never drift from the console or macOS
+backend), and `_mfb_gtkapp_term_glyph` encodes one scalar and looks its width up
+through the same `charwidth` trie the writer uses. `term::drawText` is
+`_mfb_gtkapp_term_draw_text` — **the write helper's own cluster walk, emitted a
+second time** under `TermWriteMode::DrawText`: absolute start cell, clipped at both
+edges instead of wrapping, control bytes taking a column without stamping, no
+scroll, and no cursor commit. One emitter, two specializations, so `io::write` and
+`term::drawText` cannot disagree about the same string.
+[[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+[[src/target/linux_gtk/term_draw.rs:TermWriteMode]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters

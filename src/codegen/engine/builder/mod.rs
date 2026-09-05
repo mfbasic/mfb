@@ -1202,24 +1202,43 @@ pub(crate) fn lower_module_for_platform(
         .collect();
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
-    // Linux defers arena teardown while worker threads may still be live; macOS
-    // does not. 47-H must deliberately decide this for Windows (§3.2 flags the
-    // silent `false` a raw `starts_with("linux")` would have handed it).
-    let family_defers_arena_destroy = match platform.family() {
-        PlatformFamily::Linux => true,
-        // macOS destroys the arena at exit; Windows console does the same. This is
-        // computed for EVERY build, so it must be a real answer, not unreachable!.
-        // A threadless program has no live workers, so destroying is safe; 47-H
-        // revisits this when Windows threads (CreateThread) land, exactly as it
-        // will for the Linux `&& has_threads` guard below.
-        PlatformFamily::MacOS | PlatformFamily::Windows => false,
-    };
-    let skip_entry_arena_destroy = family_defers_arena_destroy
-        && runtime_symbols.iter().any(|symbol| {
-            runtime::spec_for_symbol(symbol)
-                .map(|spec| spec.call.starts_with("thread."))
-                .unwrap_or(false)
-        });
+    // bug-547: the main arena is NOT destroyed at exit when the program can still
+    // have a live worker — on EVERY platform family. This is not a platform
+    // preference, it is a use-after-free.
+    //
+    // `thread.start` `arena_alloc`s BOTH the worker's thread control block and the
+    // worker's entire arena-state block (arena state + the per-arena globals
+    // region, stored at `THREAD_OFFSET_ARENA_STATE`) out of the SPAWNING thread's
+    // arena, so a running worker's two pinned registers — its arena register and
+    // `abi::CURRENT_THREAD` — both point INTO the main arena's blocks. Dropping a
+    // `Thread` handle only cancels and broadcasts (detached semantics, bug-205), so
+    // a program that returns from `main` without `thread::waitFor` reaches
+    // `_mfb_shutdown` with those blocks live; `_mfb_arena_destroy` then
+    // `munmap`/`VirtualFree`s them and the still-running worker faults on its next
+    // touch of its own arena state.
+    //
+    // Only Linux deferred. Windows was left `false` by 47-H pending "when Windows
+    // threads (CreateThread) land" — they landed, and the deferral was never
+    // revisited: box 2230 faulted `0xC0000005` in ~8% of runs of a program whose
+    // worker merely spins (bug-547). macOS carried the identical latent UAF and was
+    // only ever incidentally clean (its `exit` follows the `munmap` closely enough
+    // that the worker rarely gets scheduled in between).
+    //
+    // Skipping the free costs nothing: the process is exiting, so the OS reclaims
+    // every block either way — a bulk `arena_destroy` at exit is ceremony. And it
+    // leaves NO window rather than narrowing one: nothing at all is released before
+    // the platform process-exit, so a worker terminated at an arbitrary instruction
+    // boundary (which is exactly what Windows `ExitProcess` does) cannot fault.
+    // Observable semantics are unchanged — a detached worker still does not block
+    // exit, which joining every worker here would have broken.
+    //
+    // The gate keeps it surgical: a program with no `thread.` runtime call can have
+    // no worker outliving it, and still destroys the arena byte-identically.
+    let skip_entry_arena_destroy = runtime_symbols.iter().any(|symbol| {
+        runtime::spec_for_symbol(symbol)
+            .map(|spec| spec.call.starts_with("thread."))
+            .unwrap_or(false)
+    });
 
     let global_initializer_symbol = if module.globals.is_empty() {
         None
@@ -2375,6 +2394,47 @@ pub(crate) fn lower_module_for_platform(
         // every table read). Fall back to the full set rather than risk an
         // undefined symbol.
         data_objects.extend(unicode_runtime_data_objects(None));
+    }
+
+    // bug-545: the fixed `_mfb_str_error_*` messages, emitted iff some generated
+    // function actually relocates against one — the same ground-truth scan the
+    // unicode tables above use, and for the same reason.
+    //
+    // The gates that register these run BEFORE codegen and predict the emission
+    // instead of observing it: one fires on a planned `_mfb_rt_fs_*`/
+    // `_mfb_rt_thread_*` runtime symbol, the other on a list of call names
+    // (`thread.cancel`, `thread.send`, …). Neither describes "this module emits a
+    // resource closed guard", so an aliasing `RES` rebind of a `tcp`/`udp`
+    // socket — §15.6's documented shape, with no other call into the package —
+    // emitted the guard, referenced `_mfb_str_error_resource_closed`, and failed
+    // the build with a message about a compiler-internal symbol. `fs::File` was
+    // fine only because its package drags in the whole standard set, and adding
+    // any `tcp::` call "fixed" it for the same accidental reason. That is the
+    // bug-256 class, patched twice before by adding one more name to the list;
+    // this closes it by construction, because the emitter and the registrar stop
+    // being two lists that have to be kept in step by hand.
+    //
+    // Additive only: a symbol is emitted here just when a function relocates
+    // against it AND it is not already present. Every program that links today
+    // already carries every string it references, so nothing is added to it and
+    // its data section stays byte-identical — the delta is confined to the
+    // programs that fail today.
+    let referenced_error_strings: std::collections::HashSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
+            relocation.binding == "data" && relocation.to.starts_with("_mfb_str_error_")
+        })
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    if !referenced_error_strings.is_empty() {
+        for (_, message, symbol) in standard_error_messages() {
+            if referenced_error_strings.contains(symbol)
+                && !data_objects.iter().any(|object| object.symbol == *symbol)
+            {
+                data_objects.push(string_data_object(symbol, message.to_string()));
+            }
+        }
     }
 
     // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a

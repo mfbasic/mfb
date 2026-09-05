@@ -54,12 +54,69 @@ pub(crate) fn emit_app_term_helper(
             instructions,
             relocations,
         ),
+        // bug-539: the six positioned drawing members. Each is an active gate plus a
+        // call into the shared worker-side body — the incoming ABI argument
+        // registers already hold the member's row-before-column arguments in the
+        // order `mfb spec app term-backend` fixes, so no restaging is needed.
+        "term.drawHLine" => {
+            emit_app_term_draw(symbol, TERM_HLINE_SYMBOL, instructions, relocations)
+        }
+        "term.drawVLine" => {
+            emit_app_term_draw(symbol, TERM_VLINE_SYMBOL, instructions, relocations)
+        }
+        "term.drawBox" => emit_app_term_draw(symbol, TERM_BOX_SYMBOL, instructions, relocations),
+        "term.fillRect" => emit_app_term_draw(symbol, TERM_FILL_SYMBOL, instructions, relocations),
+        "term.drawGlyph" => {
+            emit_app_term_draw(symbol, TERM_GLYPH_SYMBOL, instructions, relocations)
+        }
+        "term.drawText" => {
+            emit_app_term_draw(symbol, TERM_DRAW_TEXT_SYMBOL, instructions, relocations)
+        }
         "term.terminalSize" => emit_app_term_terminal_size(symbol, instructions, relocations),
         "term.showCursor" => emit_app_term_set_cursor(symbol, "1", instructions, relocations),
         "term.hideCursor" => emit_app_term_set_cursor(symbol, "0", instructions, relocations),
         _ => return None,
     }
     Some(Ok(()))
+}
+
+/// bug-539: the shared app arm for `term::drawHLine`/`drawVLine`/`drawBox`/
+/// `fillRect`/`drawGlyph`/`drawText`.
+///
+/// Before this existed the GTK dispatcher returned `None` for all six, which means
+/// "this backend keeps the call on the console emitter". That is the right contract
+/// for the pure readers, but for a WRITER it is a trap: every console drawing
+/// emitter opens by loading the console shadow-grid header out of term-state slot
+/// 48, and the only code that ever writes that slot is the *console* `term::on`. A
+/// GTK app build runs [`emit_app_term_on`] instead, so the slot held 0 for the life
+/// of the program and all six calls took their inactive branch on the first
+/// instruction and returned `OK` having drawn nothing — silently, with `term::isOn`
+/// reporting `TRUE` (bug-539).
+///
+/// The body is the §4.2.1 no-op gate plus a call to the worker-side helper, which
+/// stamps the GTK cell arrays directly. The member's arguments are already in the
+/// incoming ABI argument registers and the helper reads them there, so this arm
+/// neither restages nor reorders them — the row-before-column contract lives in one
+/// place (`mfb spec app term-backend` → "Coordinate convention") and every backend
+/// reads the same table. Drawing schedules no redraw: the frame appears on the next
+/// `term::sync`/`io::flush`/`term::off` (the mandatory-present contract).
+fn emit_app_term_draw(
+    symbol: &str,
+    helper: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
+    // builds it and saves lr across the call. Nothing is held across it (the helper
+    // consumes the argument registers), so no vregs are needed.
+    let mut asm = Asm::new(symbol);
+    emit_gtk_term_active_gate(&mut asm, "draw_inactive"); // §4.2.1 no-op gate (bug-111)
+    asm.call_internal(helper);
+    asm.push(abi::label("draw_inactive"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::sync()` app arm (plan-35-E): the single coalesced present. Schedules ONE

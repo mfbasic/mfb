@@ -33,6 +33,14 @@ its X25519/X448 scalar internally; another length raises `ErrInvalidArgument`.
 `box` is RFC 9180's `enc (Nenc bytes) ‖ ct` where `ct` is the AEAD
 `ciphertext ‖ tag (16 bytes)`.
 
+**The curve of recipientPrivateKey is not checked, and cannot be.** One 32-byte
+seed looks like any other, so an X25519 private key handed to an `Ed25519_*` suite
+is accepted and folded into the wrong X25519 scalar; the only symptom is
+`ErrAuthenticationFailed`, the same error a tampered box gives. If you hold the
+whole `crypto::KeyPair`, `crypto::convert` will tell you which curve it is before
+you reach this call; otherwise keep the `crypto::Certificate` that generated the
+key beside it.
+
 **How it works (RFC 9180 §6.1 `Open`).** The suite's `Nenc`-byte `enc` is read from
 the front of the box; `Decap` computes `dh = DH(skR, enc)` (X25519 or X448) and the
 KEM shared secret `LabeledExpand(LabeledExtract("", "eae_prk", dh),
