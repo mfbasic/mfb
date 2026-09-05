@@ -37,3 +37,4 @@ mod entry;
 mod math;
 mod os;
 mod perf;
+mod registry_bodies;
