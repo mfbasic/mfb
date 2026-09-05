@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (terminal spoofing / trust-decision forgery)
 
-Status: **FIXED** (2026-09-05)
+Status: **FIXED** (2026-09-05, `a1cd9d0c7`)
 
 Regression Test: `repository/src/client.rs` — `a_server_authored_error_is_escaped_at_the_boundary`,
 `a_server_authored_newline_is_escaped`, `an_ordinary_server_error_is_unchanged`;
