@@ -214,9 +214,18 @@ The per-file ledger is generated from the Phase 0 baseline; see
 - [x] `os/func_arch.rs`, `os/func_name.rs`, `os/func_pid.rs`,
       `io/func_is_buffered.rs`, `manifest/url.rs`, `intern.rs`,
       `cli/version.rs` — seven near-miss files, one to three lines each.
-- [ ] The remaining 246 `src/**` files below the floor, worst first. Regenerate
+- [x] `link_thunk.rs` 64.30% (1464/2277) -> 90.95% (2071/2277): the native
+      `LINK` thunk, which could not be lowered at all without a library table.
+- [x] The corpus at every optimization level. `src/optimizer/**` was 36 files
+      and ~1,250 lines short because `active_opt_level` defaults to `-O1` and
+      the dial is a thread-local the harness's lowering thread never saw.
+- [x] `entry.rs` 70.58% -> above the top six: `accepts_args` is read off the
+      source instead of hardcoded `false`.
+- [x] The whole `os::` surface (eighteen of nineteen members) on five backends.
+- [ ] The remaining 231 `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
-      which sorts by LINES SHORT rather than by percentage.
+      which sorts by LINES SHORT rather than by percentage, and
+      `scripts/coverage-src-delta.py` to diff two reports.
 - [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
       `--bins` (Findings F1) but `repository/src/**` is not, and only the full
       run measures it.
@@ -236,7 +245,8 @@ these files, and is not for `repository/src/**`).
 | after the canvas/fmod/perf/os per-file suites | 371 | 11,498 |
 | after the whole-program + diagnostic corpora | 348 | 11,166 |
 | after the three registry sweeps | 253 | 10,648 |
-| after the near-miss batch | **246** | **10,717** |
+| after the near-miss batch | 246 | 10,717 |
+| after the LINK / corpus / optimizer-level suites | **231** | **7,747** |
 
 The uncovered-line count moves less than the file count in the later rows, and
 that is the shape of the remaining work rather than a stall: the sweeps closed
@@ -359,6 +369,36 @@ in `codegen/engine/tests/mod.rs`; both paths are excluded by `IGNORE`, so the
 declaration damages nothing. Deleting the never-executed plain binary before
 reporting was also tried and changes `src/**` by exactly nothing (0 files
 moved), so the object list is not the lever — the module placement is.
+
+### C6 — the gate counts a never-executed second copy of the crate
+
+`cargo llvm-cov --bins` leaves two instrumented `mfb` binaries in the target
+directory: the test harness (`deps/mfb-62f5312171eba2f4`, which runs) and the
+plain binary (`deps/mfb-b63d0159555d2520` and its `debug/mfb` copy, which is
+built, instrumented, and never executed). The report merges both, and the
+never-run copy contributes 10,954 function records, every one at count 0.
+
+Where the two copies inline the same function differently, llvm-cov reports the
+union of their regions, so lines the running copy demonstrably executes come
+back uncovered. That is C3's mechanism, and it is also why the number moves for
+reasons that have nothing to do with tests: making
+`os::gen_introspect::lower_const_string` infallible (a real cleanup, 4035966c7)
+doubled that file's countable lines from 83 to 166, because the plain binary
+started emitting an out-of-line copy. Its records:
+
+    290  ..Cs6neornPKIZM_..gen_introspect18lower_const_string   (the test binary)
+      0  ..Cse8eQQ6yvCB6_..gen_introspect18lower_const_string   (the plain one)
+
+Removing the plain binary before reporting was measured, on the same profile:
+**231 files -> 228, 7,747 uncovered lines -> 7,488.** Every line it removes is
+one the test copy already covers, and `src/**` contains no `#[cfg(not(test))]`
+code (`grep -rn "cfg(not(test))" src/ | grep -v cfg_attr` = 0), so nothing can
+exist only in the plain binary.
+
+**Not changed.** The gain is 3 files, the scripts are shared with CI, and
+AGENTS.md is right that a gate's measurement is not something to alter casually.
+The evidence is recorded here so a future session can weigh it with the numbers
+rather than rediscover the mechanism.
 
 ### C5 — the largest single lever was not per-file work
 
