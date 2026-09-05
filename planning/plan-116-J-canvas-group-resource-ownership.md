@@ -62,7 +62,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 | plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-run 2026-09-04, end of Phase 4: 5 matches) |
 | The ban on resource record fields is retired | `grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src \| grep -v rules/table.rs` → **no emit site**, only doc comments and the test that pins its absence | **MET** (re-verified 2026-09-04: hits are `ir/verify/tests.rs` ×3, `ir/verify/types.rs` ×2, `ir/verify/resources.rs` ×1 — all doc comments or the pinning tests — plus the spec and the rule-code table; no emit site) |
 | **The `canvas::Picture` image sampler exists** — a `Picture` in a scene actually draws its image | `sed -n '159,160p' src/codegen/builtins/canvas/helper_geometry.rs` → the `CASE Picture(pic)` arm returns something other than `__canvas_emptyHeader()` | **NOT MET** (re-run 2026-09-04): the arm is still `CASE Picture(pic) / RETURN __canvas_emptyHeader()`, the `NONE` kind every renderer skips. Measured in **J11**: a `Picture` handed straight to `present`, binding alive, renders an all-black frame. Owned by plan-98-E/G, not by any letter of plan-116. **The second half of this check was deleted 2026-09-04, having been falsified by this letter's own Phase 3** — it read *"`grep -rn imageHandle` → at least one renderer call site"*, and `__canvas_closeRetired` now calls `canvas::imageHandle` twice. Those are on the **free** path, not in a renderer, so the row's verdict is unchanged; but the command would report a match and a reader running it would mark the row MET. The geometry arm is the check that cannot be satisfied by anything except the sampler landing. |
-| **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | NOT MET |
+| **plan-116-I complete and archived** — `Picture` holds a `RES canvas::Image`, `Text` a `RES canvas::Font`, and `ImageRef`/`FontRef` are gone | `ls planning/completed/plan-116-I-*` → one match; `grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs` → no type declarations | **MET in substance; the archive move is pending** (re-run 2026-09-04). The second command passes: `ImageRef`/`FontRef` survive only as prose and as the test that asserts neither resolves. The first does **not** yet — the letter is still in `planning/`, because every one of its boxes is ticked and every gate green **except the box-2228 row it shares with this letter** (**J16**/**I7**), and archiving before that row reports would be claiming a gate neither letter has. This blocked the *start* of this letter and no longer does: what the row gates now is the filing, not the work. |
 
 **The sampler row does NOT block this letter, and saying why matters.** What it blocks is
 exactly two *pixel-level* acceptance clauses, which §Phases now states as resource-state
@@ -701,8 +701,19 @@ Fixed before plan-114 landed, and still true:
 
 The letter opens against a world that did not exist when it was written.
 
-- [ ] Re-run every row of §Prerequisites and every row of §2's measured table; update
-      both in place.
+- [x] Re-run every row of §Prerequisites and every row of §2's measured table; update
+      both in place. Done at the **end of Phase 4** rather than the start, so the numbers
+      are the ones that land — and the re-run earned its place: it caught a check this
+      letter's own Phase 3 had falsified (**J17**), and it is what found the plane-rule
+      bullet's seven line numbers broken by this letter's own Phase 2.
+      **Two Prerequisites rows read NOT MET, and neither blocks — read the row text, not
+      the verdict.** The sampler row is a cross-plan dependency this letter explicitly
+      does not need (**J11**), and `plan-116-I complete and archived` is waiting on the
+      *filing step alone*: every one of that letter's boxes is ticked, every `Commit:`
+      line filled, and every gate green except the **box-2228 row it shares with this
+      letter** (**J16**/**I7**). This box asks for a re-run and an update in place; it
+      does not ask that every row come back MET, and recording a row's true status is the
+      re-run doing its job.
 - [x] Read plan-114-B, -C and -D **as landed** and write §4's detailed design against
       them. §4 is now §4.1–§4.6, written against `gen_group.rs`, `func_destroy_image.rs`,
       `func_handle_bridge.rs`, `builder_resource_cleanup.rs` and `flatness_walk` as
