@@ -32,6 +32,7 @@ mod abi_inline;
 mod canvas;
 mod collections;
 mod corpus;
+mod data_layout;
 mod diagnostics;
 mod entry;
 mod imported_types;
