@@ -7209,7 +7209,7 @@
       "line": 2193,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "r" }, "member": "ok" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "then": [
-      { "op": "return", "line": 2194, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "fail", "line": 2194, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "Requested item, key, file, or resource was not found." }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "2194" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]

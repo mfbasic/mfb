@@ -1,0 +1,147 @@
+{
+  "project": "regex_find_absence_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 24 },
+    { "module": "regex", "line": 25 },
+    { "module": "strings", "line": 26 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findGuard",
+      "line": 28,
+      "params": [
+      { "name": "v", "type": "String", "default": null, "line": 28 },
+      { "name": "p", "type": "String", "default": null, "line": 28 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "index=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "identifier", "value": "p" }] }] } }, "line": 29 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 30,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 31 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findAtGuard",
+      "line": 35,
+      "params": [
+      { "name": "v", "type": "String", "default": null, "line": 35 },
+      { "name": "p", "type": "String", "default": null, "line": 35 },
+      { "name": "s", "type": "Integer", "default": null, "line": 35 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "index=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "identifier", "value": "p" }, { "kind": "identifier", "value": "s" }] }] } }, "line": 36 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 37,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 38 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "stringsFindGuard",
+      "line": 42,
+      "params": [
+      { "name": "v", "type": "String", "default": null, "line": 42 },
+      { "name": "n", "type": "String", "default": null, "line": 42 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "index=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "identifier", "value": "n" }] }] } }, "line": 43 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 44,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 45 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "findOrMinusOne",
+      "line": 50,
+      "params": [
+      { "name": "v", "type": "String", "default": null, "line": 50 },
+      { "name": "p", "type": "String", "default": null, "line": 50 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "identifier", "value": "p" }] }, "line": 51 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 52,
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 53 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 57,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "subj", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "xabcx" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "present", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "xbx" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "absent", "type": "String", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "xzx" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- absence is a raise, in both packages, with the same code --" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "regex::find    absent=" }, "right": { "kind": "call", "callee": "findGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] } }, "right": { "kind": "string", "value": " present=" } }, "right": { "kind": "call", "callee": "findGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "strings::find  absent=" }, "right": { "kind": "call", "callee": "stringsFindGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] } }, "right": { "kind": "string", "value": " present=" } }, "right": { "kind": "call", "callee": "stringsFindGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] } }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the raise survives a start offset, and a start past the last match --" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(start=0) " }, "right": { "kind": "call", "callee": "findAtGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "number", "value": "0" }] } }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(start=2) " }, "right": { "kind": "call", "callee": "findAtGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "number", "value": "2" }] } }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(start=3) " }, "right": { "kind": "call", "callee": "findAtGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "number", "value": "3" }] } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- an out-of-range start still raises ErrIndexOutOfRange, not ErrNotFound --" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(start=4) " }, "right": { "kind": "call", "callee": "findAtGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "number", "value": "4" }] } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(start=-1) " }, "right": { "kind": "call", "callee": "findAtGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "1" } }] } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- an invalid pattern still raises ErrInvalidFormat --" }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find(\"(\")     " }, "right": { "kind": "call", "callee": "findGuard", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "string", "value": "(" }] } }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the other members keep their answers: absence is not an error there --" }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "match    absent=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] }] } }, "right": { "kind": "string", "value": " present=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }] } }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findAll  absent=n" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "regex.findAll", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] }] }] } }, "right": { "kind": "string", "value": " present=n" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "regex.findAll", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }] }] } }] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace  absent=\"" }, "right": { "kind": "call", "callee": "regex.replace", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": "\" present=\"" } }, "right": { "kind": "call", "callee": "regex.replace", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }, { "kind": "string", "value": "-" }] } }, "right": { "kind": "string", "value": "\"" } }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findMatch absent start=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "regex.findMatch", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] }, "member": "start" }] } }, "right": { "kind": "string", "value": " present start=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "regex.findMatch", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }, "member": "start" }] } }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- find and findMatch still agree WHERE A MATCH EXISTS --" }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }] } }, "right": { "kind": "string", "value": " findMatch.start=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "regex.findMatch", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }, "member": "start" }] } }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-- the documented TRAP-to-(-1) wrapper reproduces the old shape --" }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findOrMinusOne absent=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "findOrMinusOne", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "absent" }] }] } }, "right": { "kind": "string", "value": " present=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "findOrMinusOne", "arguments": [{ "kind": "identifier", "value": "subj" }, { "kind": "identifier", "value": "present" }] }] } }] }, "line": 95 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 96 }
+      ]
+    }
+    ]
+  }
+  ]
+}

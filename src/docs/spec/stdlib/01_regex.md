@@ -32,7 +32,8 @@ padded to `0` during IR lowering.[[src/codegen/builtins/regex/mod.rs:resolve_cal
 | `regex.findAllMatches` | `__regex_findAllMatches` | `List OF regex.MatchInfo` | `value, pattern[, start=0]` |
 | `regex.replace` | `__regex_replace` | `String` | `value, pattern, replacement` |
 
-`find` returns the scalar index of the first match at or after `start`, or `-1`.
+`find` returns the scalar index of the first match at or after `start`, and
+raises `ErrNotFound` when there is none.
 `findAll` returns the start index of every non-overlapping match. `findMatch` and
 `findAllMatches` return the same matches with their spans, text and captures attached
 (see [Match Projection](#match-projection)). `replace` substitutes every match. There is
@@ -49,7 +50,23 @@ record is spelled `MatchInfo`.[[src/codegen/builtins/regex/mod.rs:MatchInfo]]
 | `regex.MatchInfo` | `start AS Integer`, `endIndex AS Integer`, `text AS String`, `groups AS List OF Group`, `names AS Map OF String TO Integer` |[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Errors use `FAIL error(code, ...)`: `77050003` invalid pattern, `77050001` `start` index
-out of range. There is no `ErrNotFound`; absence is reported as `-1` / empty / unchanged.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
+out of range, `77050004` (`ErrNotFound`) raised by `find` alone when no match exists at
+or after `start`.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
+
+Absence is reported per member, and which form a member uses is decided by whether its
+return type holds a value that can mean "no match": `match` returns `FALSE`, `findAll`
+and `findAllMatches` return empty lists, `findMatch` returns a `MatchInfo` whose `start`
+and `endIndex` are `-1` with empty `text`/`groups`/`names`, and `replace` returns `value`
+unchanged. `find` returns an `Integer` index, where every value is a position some search
+could legitimately report, so it has no spare value for "absent" and raises instead. That
+matches `strings::find` and the `collections` find-family, which raise `77050004` on the
+same condition — see ./mfb spec unicode strings-model. `regex::match` is the guard for a
+caller that treats absence as ordinary; a caller wanting the old sentinel writes a `TRAP`
+returning `-1`.
+
+Consequence for the `find`/`findMatch` pair: `findMatch(value, pattern, start).start`
+equals `find(value, pattern, start)` **wherever a match exists**, and only there — on
+absence `find` raises while `findMatch` reports its no-match record.
 
 ## Scalar Model
 

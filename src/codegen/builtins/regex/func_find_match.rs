@@ -45,8 +45,11 @@ counting parentheses. `names` is empty when the pattern names no groups; use
 When there is no match at or after `start`, `findMatch` does not fail: it returns
 a `MatchInfo` whose `start` and `endIndex` are both `-1`, whose `text` is empty, and
 whose `groups` and `names` are empty. Because every real match has `start >= 0`,
-testing `m.start >= 0` is the unambiguous "there was a match" test, the same
-sentinel `regex::find` uses.
+testing `m.start >= 0` is the unambiguous "there was a match" test. This is where
+`findMatch` and `regex::find` part company: a `MatchInfo` has room for a no-match
+value and an index does not, so `find` raises `ErrNotFound` on absence while
+`findMatch` reports one. Use `findMatch` when absence should be a value rather
+than an error.
 
 Positions are Unicode scalar values, never UTF-8 bytes and never grapheme
 clusters, consistent with `len` and the `strings` package. A string of `n`

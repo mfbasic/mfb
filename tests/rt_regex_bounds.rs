@@ -167,6 +167,16 @@ END SUB
 const LARGE_SUBJECT: &str = r#"IMPORT io
 IMPORT regex
 
+' bug-531: `regex::find` raises `ErrNotFound` on absence. This test measures
+' memory, not the absence contract, so it keeps its `-1` observable through the
+' documented TRAP wrapper rather than restating the contract here.
+FUNC findOrMinusOne(v AS String, p AS String) AS Integer
+  RETURN regex::find(v, p)
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+
 SUB main()
   MUT s AS String = ""
   MUT i AS Integer = 0
@@ -174,7 +184,7 @@ SUB main()
     s = s & "a"
     i = i + 1
   END WHILE
-  LET at AS Integer = regex::find(s, "zzz")
+  LET at AS Integer = findOrMinusOne(s, "zzz")
   io::print("find=" & toString(at))
 END SUB
 "#;
@@ -218,10 +228,24 @@ IMPORT regex
 IMPORT collections
 IMPORT strings
 
+' bug-531: `regex::find` raises `ErrNotFound` on absence, and this corpus's
+' single TRAP would swallow a whole row -- losing its match/findAll/replace
+' coverage -- if a non-matching pattern raised out of `one`. The guard keeps the
+' recorded `f=-1` observable, so the 85 rows below still pin what they always did.
+FUNC findOrMinusOne(subj AS String, pat AS String, start AS Integer) AS Integer
+  RETURN regex::find(subj, pat, start)
+TRAP(err)
+  IF err.code = 77050004 THEN
+    RETURN -1
+  END IF
+  FAIL error(err.code, err.message)
+END TRAP
+END FUNC
+
 FUNC one(idx AS Integer, pat AS String, subj AS String, repl AS String) AS String
   LET m AS Boolean = regex::match(subj, pat)
-  LET f AS Integer = regex::find(subj, pat)
-  LET f2 AS Integer = regex::find(subj, pat, 1)
+  LET f AS Integer = findOrMinusOne(subj, pat, 0)
+  LET f2 AS Integer = findOrMinusOne(subj, pat, 1)
   LET all AS List OF Integer = regex::findAll(subj, pat)
   MUT alls AS String = ""
   FOR EACH a IN all

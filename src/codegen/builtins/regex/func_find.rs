@@ -50,10 +50,36 @@ time; it uses MFBASIC's own portable regex dialect, defined in
 produces identical results on every target and never defers to a host regex
 library. Because `String` literals process backslash escapes, a literal
 backslash is written `"\\"` — `regex::find(value, "\\d")` searches for the first
-digit. An invalid pattern fails with `ErrInvalidFormat`; when no match exists at
-or after `start`, `find` returns `-1` rather than failing. Because every real
-match position is `>= 0`, `-1` is an unambiguous "no match" sentinel. (This
-differs from `strings::find`, which fails with `ErrNotFound` on absence.)
+digit. An invalid pattern fails with `ErrInvalidFormat`.
+
+When no match exists at or after `start`, `find` raises `ErrNotFound`
+(`77050004`). It never returns a sentinel such as `-1`: every value an `Integer`
+can hold is a position some other search could legitimately report, so an index
+has no spare value that could mean "absent". This is the same contract
+`strings::find`, `collections::find`, `collections::findIndex` and
+`collections::findLastIndex` use, so moving a search between a literal needle and
+a pattern does not change how absence behaves.
+
+Absence is an ordinary outcome for a pattern search, so guard it. `regex::match`
+is that guard — it answers the same question with a `Boolean` and never fails on
+absence — and `regex::findMatch` is the other route, returning a `MatchInfo`
+whose `start` is `-1` when nothing matched. To get an index and a sentinel in one
+call, wrap `find` in a `TRAP`:
+
+```
+FUNC findOrMinusOne(v AS String, p AS String) AS Integer
+  RETURN regex::find(v, p)
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+```
+
+Only `find` changes shape on absence. `regex::match` still returns `FALSE`,
+`regex::findAll` still returns an empty list, `regex::replace` still returns
+`value` unchanged, and `regex::findMatch`/`regex::findAllMatches` still report a
+no-match `MatchInfo` and an empty list — each of those return types already has a
+value that means "no match", which is exactly what an index does not.
 
 `find` reports only where the match begins. Because a pattern's match *length* is
 an output — the caller cannot know it in advance the way it knows `len(needle)`
@@ -85,20 +111,35 @@ SUB main()
 END SUB
 ```
 
-Handle absence with the `-1` sentinel:
+Absence raises, so guard with `regex::match` or catch it:
 
 ```
 IMPORT regex
 IMPORT io
 
 SUB main()
-  LET i AS Integer = regex::find("abc", "\\d")
-  IF i >= 0 THEN
-    io::print("matched at " & toString(i))
+  IF regex::match("abc", "\\d") THEN
+    io::print("matched at " & toString(regex::find("abc", "\\d")))
   ELSE
     io::print("no match")
   END IF
 END SUB
+```
+
+The same thing written as a `TRAP`, when the search should not run twice:
+
+```
+IMPORT regex
+IMPORT io
+
+FUNC main() AS Integer
+  io::print("matched at " & toString(regex::find("abc", "\\d")))
+  RETURN 0
+TRAP(err)
+  io::print("no match")
+  RETURN 0
+END TRAP
+END FUNC
 ```"#;
 
 #[rustfmt::skip]
@@ -111,7 +152,7 @@ r#"FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS In
   END IF
   LET r AS __regex_Result = __regex_searchFrom(prog, ctx, start)
   IF r.ok = FALSE THEN
-    RETURN -1
+    FAIL error(77050004, "Requested item, key, file, or resource was not found.")
   END IF
   RETURN collections::get(r.caps, 0)
 END FUNC"#;
@@ -152,7 +193,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Integer,
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange"],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrNotFound"],
             body: Body::mfb(FUNC_BODY, "__regex_find"),
         }],
     });

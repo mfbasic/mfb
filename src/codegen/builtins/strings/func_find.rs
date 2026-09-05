@@ -47,7 +47,11 @@ either handle the failure with a `TRAP` or search the suffix beginning at
 `start` instead.
 
 `find` does not mutate either operand. The bare `find` name is also defined for
-lists; see `mfb man collections find` for the `List` form.
+lists; see `mfb man collections find` for the `List` form. Every index-returning
+`find` in the language reports absence the same way — `strings::find`,
+`regex::find`, `collections::find`, `collections::findIndex` and
+`collections::findLastIndex` all raise `ErrNotFound` — so swapping a literal
+search for a pattern search does not change how absence behaves.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and

@@ -1,0 +1,36 @@
+$ mfb build -ast -ir tests/rt-behavior/regex/regex-find-absence-rt
+Wrote AST to tests/rt-behavior/regex/regex-find-absence-rt/regex_find_absence_rt.ast
+Wrote IR to tests/rt-behavior/regex/regex-find-absence-rt/regex_find_absence_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/regex/regex-find-absence-rt
+Wrote executable to tests/rt-behavior/regex/regex-find-absence-rt/build/regex_find_absence_rt.out
+[exit 0]
+$ tests/rt-behavior/regex/regex-find-absence-rt/build/regex_find_absence_rt.out
+-- absence is a raise, in both packages, with the same code --
+regex::find    absent=RAISED 77050004 present=index=1
+strings::find  absent=RAISED 77050004 present=index=1
+
+-- the raise survives a start offset, and a start past the last match --
+find(start=0) index=1
+find(start=2) RAISED 77050004
+find(start=3) RAISED 77050004
+
+-- an out-of-range start still raises ErrIndexOutOfRange, not ErrNotFound --
+find(start=4) RAISED 77050001
+find(start=-1) RAISED 77050001
+
+-- an invalid pattern still raises ErrInvalidFormat --
+find("(")     RAISED 77050003
+
+-- the other members keep their answers: absence is not an error there --
+match    absent=FALSE present=TRUE
+findAll  absent=n0 present=n1
+replace  absent="abc" present="a-c"
+findMatch absent start=-1 present start=1
+
+-- find and findMatch still agree WHERE A MATCH EXISTS --
+find=1 findMatch.start=1
+
+-- the documented TRAP-to-(-1) wrapper reproduces the old shape --
+findOrMinusOne absent=-1 present=1
+[exit 0]

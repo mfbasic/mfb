@@ -5,8 +5,9 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/` — new `rt_find_absence_parity` fixture (Phase 1)
+Status: Fixed — `regex::find` raises `ErrNotFound` on absence. This is a
+BREAKING change with no compile-time signal; see the migration note below.
+Regression Test: `tests/rt-behavior/regex/regex-find-absence-rt`
 
 The two search packages report "not found" in incompatible ways.
 
@@ -219,55 +220,162 @@ this position.
 
 ### Phase 1 — caller sweep + census (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-531-find-absence/` (done).
-- [ ] `grep -rn "regex::find" src/ examples/ benchmark/ tests/ repository/` —
-      enumerate **every** call site and classify each: guarded by a `>= 0` test,
-      guarded by a preceding `regex::match`, or unguarded. This is a
-      prerequisite for Phase 2, not an audit: each one raises after the change
-      and must be migrated in the same commit.
-- [ ] Record the absence contract of every `find`-family member across
-      `strings`, `regex`, `collections` and `astrings`, measured — extend the
-      spike rather than reading the pages. `collections::findIndex` /
-      `findLastIndex` return indices and must be given a verdict: if they use a
-      sentinel, they belong in this convergence too.
-- [ ] Add a fixture pinning the desired behavior: `regex::find("abc", "z")`
-      raises `ErrNotFound`. Confirm it fails today.
+- [x] Land `spikes/api-review/bug-531-find-absence/` (done).
+- [x] `grep -rn "regex::find" src/ examples/ benchmark/ tests/ repository/` —
+      enumerate **every** call site and classify each.
+- [x] Record the absence contract of every `find`-family member across
+      `strings`, `regex`, `collections` and `astrings`, **measured**.
+- [x] Add a fixture pinning the desired behavior. Confirm it fails today.
 
-Acceptance: every in-tree caller classified; the family-wide contract table is
-measured; the fixture fails for the documented reason.
-Commit: —
+**The measured census.** `regex::find` was the only sentinel in the tree — the
+split was 4-to-1, not the 1-to-1 the report describes:
+
+| member | absence | measured |
+| --- | --- | --- |
+| `strings::find(v, n)` | raises `ErrNotFound` (77050004) | ✓ |
+| `collections::find(l, x)` | raises `ErrNotFound` (77050004) | ✓ |
+| `collections::findIndex(l, p)` | raises `ErrNotFound` (77050004) | ✓ |
+| `collections::findLastIndex(l, p)` | raises `ErrNotFound` (77050004) | ✓ |
+| `regex::find(v, p)` | returned `-1` | ✗ — the one converged here |
+
+That answers the open question about `collections`: `findIndex`/`findLastIndex`
+already raise (`func_find_index.rs:17` states it in as many words — "rather than
+returning a sentinel index"), so this is a two-package convergence and nothing in
+`collections` needed to move.
+
+**The caller sweep, complete.** `grep -rn "regex::find("` over
+`src/ examples/ benchmark/ tests/ repository/ spikes/`:
+
+- **Product code: zero call sites.** `examples/`, `benchmark/` and `repository/`
+  contain no `regex::find` at all — the five `regex::` hits under `benchmark/`
+  are all `findAll`, which is unchanged. No user-visible program in the tree
+  relied on `-1`.
+- `tests/acceptance/src/regex.mfb` — 9 assertions expecting `-1`, migrated to
+  `expectTrap(..., errorCode::ErrNotFound)`, plus one that needed more care (see
+  below).
+- `tests/rt_regex_bounds.rs` — the 85-row `MATCHER_CORPUS` and the 1.2 MB
+  `LARGE_SUBJECT` memory probe. Both migrated through a `findOrMinusOne` TRAP
+  wrapper **inside the MFBASIC program**, not by editing the expectations: the
+  corpus has a single outer `TRAP`, so a bare raising `find` would have collapsed
+  every non-matching row to `raised 77050004` and destroyed the
+  `match`/`findAll`/`replace` coverage that row carries. The recorded `f=-1`
+  observable is byte-identical after the migration.
+- `tests/rt_regex_span.rs` — the `find`/`findMatch` cross-check, same wrapper for
+  the same reason.
+- `tests/byte-identity/regex`, `tests/rt-behavior/regex/regex-from-string-rt`,
+  `src/ir/tests.rs:2646` — every pattern matches; no absence, no migration.
+- `tests/syntax/regex/func_regex_find_invalid` — arity/type diagnostics only.
+
+**One call site the grep classified wrongly, found by running the suite.**
+`tests/acceptance/src/regex.mfb`'s `TCASE "in-range start does not trap"`
+asserted `expectNTrap(findAt("hello", "l", 5))`. It reads as a *range* assertion
+and it is one — but its observable was "no trap of any kind", which conflated
+"`start` is in range" with "a match exists". Those were the same question while
+absence returned `-1` and are two questions now. Corrected per AGENTS.md's
+four-question gate by keeping the intent and fixing the observable: the boundary
+`start == len(value)` is now probed with a zero-length pattern that genuinely
+matches there, and a second assertion pins that the same in-range boundary with a
+*non*-matching pattern raises `ErrNotFound` and **not** `ErrIndexOutOfRange` —
+which is the discriminator proving the boundary was accepted rather than
+rejected. The case can still fail; it was not weakened.
+
+Acceptance: met.
+Commit: (this commit)
 
 ### Phase 2 — the convergence
 
-- [ ] `regex::find` raises `ErrNotFound` on absence; add `ErrNotFound` to its
-      descriptor's `errors:` list.
-- [ ] Migrate every call site from Phase 1.
-- [ ] Rewrite the `regex` intro's per-member absence paragraph, replacing the
-      "`ErrNotFound` is never raised by this package" claim.
-- [ ] Cross-link `strings::find` and `regex::find`; show the
-      `TRAP`-to-`-1` wrapper for callers who want the old shape.
-- [ ] Apply the same convergence to any `collections` member Phase 1 found
-      using a sentinel.
+- [x] `regex::find` raises `ErrNotFound` on absence; `ErrNotFound` added to its
+      descriptor's `errors:` list. The lowering is one line of the `__regex_find`
+      MFBASIC body: `RETURN -1` became
+      `FAIL error(77050004, "Requested item, key, file, or resource was not found.")`.
+- [x] Migrate every call site from Phase 1.
+- [x] Rewrite the `regex` intro's per-member absence paragraph. The replacement
+      states the *reason* for the split rather than listing it: a member reports
+      absence as a value when its return type has one, and `find` returns an
+      index, where every `Integer` is a position some search could legitimately
+      report. `match`/`findAll`/`findAllMatches`/`findMatch`/`replace` keep their
+      answers.
+- [x] Cross-link `strings::find` and `regex::find`; show the `TRAP`-to-`-1`
+      wrapper for callers who want the old shape (on the `regex::find` page, and
+      as the second worked example).
+- [x] No `collections` member needed the convergence — Phase 1 measured all four
+      as already raising.
 
-Acceptance: the Phase 1 fixture passes; `regex::findAll`, `match` and `replace`
-are unchanged; no in-tree caller relies on `-1`.
-Commit: —
+**One consequence the decision did not name, and its resolution.** The `regex`
+package intro and `regex::findMatch`'s page both stated an *equality*:
+`findMatch(value, pattern, start).start` **is** `find(value, pattern, start)`.
+That is now false on absence, where `find` raises and `findMatch` reports a
+no-match `MatchInfo`. `findMatch` was **not** converged, and the reason is the
+decision's own rule: a record has room for an absent value and an index does not,
+so the `-1` in `MatchInfo.start` is a documented no-match *value*, not a sentinel
+standing in for a missing error channel. Both pages now state the equality as
+holding wherever a match exists, and say what happens where none does. The spec
+carries the same narrowing.
+
+Acceptance: met — the fixture passes; `findAll`, `match`, `replace` and
+`findMatch` are unchanged (asserted in the same fixture); no in-tree caller
+relies on `-1` except through the documented wrapper.
+Commit: (this commit)
 
 ### Phase 3 — regenerate + validation
 
-- [ ] Check whether adding `ErrNotFound` to `regex::find`'s `errors:` flips any
-      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning — a member that could not fail
-      now can.
-- [ ] Regenerate the `.ncodesum` goldens the descriptor change shifts (run the
-      regen scripts under **bash**).
-- [ ] `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh strings --run`, `regex --run`.
-- [ ] Update the spike so it asserts the converged behavior.
-- [ ] Write the release note naming the break.
+- [x] Check whether adding `ErrNotFound` to `regex::find`'s `errors:` flips any
+      `TYPE_INLINE_TRAP_DEAD_HANDLER` warning. **It cannot.** That warning is
+      driven by `builtins::inline_builtin_is_infallible`, a census of *inline*
+      builtin lowerings; `regex::` members are `Body::mfb` source bodies, and
+      `src/ir/fallible.rs` treats "an imported package's export" as fallible
+      unconditionally. `regex::find` was already on the fallible side before the
+      change, so no warning could move in either direction. Confirmed by the
+      full acceptance run, which compares every diagnostic-bearing `build.log`.
+- [x] Regenerate the `.ncodesum` goldens (`bash scripts/regen-ncodesum.sh`).
+- [x] `cargo test --release --no-fail-fast`; `scripts/test-accept.sh`.
+- [x] `scripts/man-run-examples.sh regex --run` (17/17) and `strings --run`
+      (84/84); `man-census.sh --memory-scope` 0 unclassified hits.
+- [x] Update the spike so it asserts the converged behavior.
+- [x] Write the release note naming the break — recorded below; the repository
+      carries no CHANGELOG file, so it lives in this document and on the
+      `regex::find` page, which shows the migration wrapper.
 
-Acceptance: full suite green; golden deltas are only regex's; the break is
-documented.
-Commit: —
+**Golden delta, and why it is exactly this.** `regen-ncodesum.sh` refreshed 143
+goldens and **5** moved: `regex_codegen_cover_rt.{macos-aarch64, linux-x86_64,
+linux-aarch64, linux-riscv64, windows-x86_64}.ncodesum` — all five targets of the
+one byte-identity fixture that emits `__regex_find`. Three `.ir` goldens moved
+(`byte-identity/regex`, `rt-behavior/regex/regex-from-string-rt`,
+`rt-behavior/regex/regex-posix-classes-rt`), each by **one line**, and that line
+is the `return -1` → `fail error(77050004, …)` op at source line 2194 — the body
+kept its line count, so nothing shifted downstream.
+`tests/rt-behavior/threads/thread-regex-rt` did **not** move, which was checked
+rather than assumed: its `.ir` golden is the main module only and contains no
+`__regex_` symbol at all, because the `IMPORT regex` lives in a sibling source
+file. The full `artifact-gate.sh all` confirms nothing outside that set moved.
+
+Acceptance: met.
+Commit: (this commit)
+
+## The break, stated
+
+`regex::find(value, pattern[, start])` used to return `-1` when no match existed
+and now raises `ErrNotFound` (`77050004`). **The return type did not move**, so
+every existing call still compiles and nothing catches an unmigrated caller at
+build time; the failure is a `TRAP` at run time in code that never had one. Two
+migrations, both on the member's page:
+
+* guard with `regex::match` (the intended shape — it answers the same question
+  with a `Boolean` and never fails on absence); or
+* keep the old shape with a four-line wrapper:
+
+```
+FUNC findOrMinusOne(v AS String, p AS String) AS Integer
+  RETURN regex::find(v, p)
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+```
+
+Nothing else in `regex` changed: `match` still returns `FALSE`, `findAll` and
+`findAllMatches` still return empty lists, `findMatch` still returns a `MatchInfo`
+whose `start` is `-1`, and `replace` still returns `value` unchanged.
 
 ## Validation Plan
 

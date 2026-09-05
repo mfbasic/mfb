@@ -105,7 +105,11 @@ after scalar index `start`, and returns the match position as a **scalar index**
 - Otherwise a byte-level substring search runs on the suffix starting at
   `start`'s byte offset; the byte hit is reported as the scalar index of the
   candidate position (the search advances candidate positions scalar by scalar).
-- No match raises `ErrNotFound`.
+- No match raises `ErrNotFound` (`77050004`). This is the language-wide contract
+  for an index-returning `find`: `regex::find` and the `collections` find-family
+  (`find`, `findIndex`, `findLastIndex`) raise the same code on the same
+  condition, because an `Integer` index has no value left over to mean "absent".
+  See ./mfb spec stdlib regex.
 
 Matching is byte-exact on raw UTF-8 with **no normalization and no case
 folding**: `"é"` (NFC, one scalar) does not match `"e\u{301}"` (NFD, two
