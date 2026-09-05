@@ -614,12 +614,20 @@ to be on when each gate was first tried (**H18**):
 | mac DEBUG `cargo test --bin mfb` | **3788 passed, 0 failed** — the row E6 exists for, where the `debug_assert!`s actually run |
 | `scripts/test-accept.sh` | `acceptance tests passed (1378 test(s) ran)` |
 | `scripts/artifact-gate.sh all` | 1356 tests, 1519 builds, **1878 goldens checked, 0 diffs** |
-| box 2228 RELEASE | see below |
+| box 2228 RELEASE | **111 targets green**, 2 failing — both test-harness defects, fixed, and both targets re-run green there: `rt_canvas_present_deep_copy` 8 passed, `rt_canvas_rasteriser` 58 passed (**H21**) |
 
 The whole-suite rows earned their place: between them they found three defects no canvas
 gate could see — a stale `HEADER_AUX0` census, a six-argument call staged as though Linux
 were the only Vulkan target, and a Phase 1 test pinning a `drawsText` string that Phase 2
-had legitimately grown a field (**H18**).
+had legitimately grown a field (**H18**). The box-2228 row then found four more, none of
+them in this letter's code and three of them tests that had stopped guarding rather than
+started failing (**H21**).
+
+**The Linux row cost about six hours of wall clock on a one-core box** — roughly an hour
+per full compile, and it was compiled four times because each fix had to be re-verified
+there. That is the price of the row, and it bought seven defects. Worth recording so the
+next letter budgets for it rather than discovering it: decompose the axis, or accept that
+"green on 2228" is an overnight gate rather than a same-session one.
 Commit: `435cdeb89`, `0d3d35c9d`, `d8df01bc9`, `9580fdead`, `19be6a116`, `a81b02890`, `d615e7dd3`, `7597696f6`
 
 ## Validation Plan

@@ -45,7 +45,7 @@ See plan-116-A §Prerequisites for the three environment gates.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | NOT MET |
+| plan-116-H complete and archived | `ls planning/completed/plan-116-H-*` → one match | **MET** (2026-09-05: one match, archived after box 2228 went green) |
 | plan-114 A–E complete and archived | `ls planning/completed/plan-114-*` → 5 matches | **MET** (re-measured 2026-09-04: 5 matches, A–E) |
 | A union variant record may carry a `RES` field, and `List OF <that union>` compiles | the probe program below (§2) | **MET** (re-probed 2026-09-04) |
 
