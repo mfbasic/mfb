@@ -354,7 +354,6 @@ this task adds for a platform-specific file must name its target explicitly
 rather than relying on the host.
 
 ## Corrections
-
 ### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
 
 `.github/workflows/coverage.yml` runs `cargo fmt --all -- --check` under 1.96.0
@@ -401,6 +400,30 @@ declaration damages nothing. Deleting the never-executed plain binary before
 reporting was also tried and changes `src/**` by exactly nothing (0 files
 moved), so the object list is not the lever — the module placement is.
 
+### C4 — one commit per file, but one suite per program
+
+The task says one commit per file. Where a single program and a single suite
+close several files at once (the three per-platform `os::` emitters; the three
+canvas files behind one `canvas::present` program), splitting the commit would
+mean landing a suite that does not compile, or landing it three times. Those
+land as one commit that names every file it closes with its own before/after.
+Everything else is one file, one commit.
+
+### C5 — the largest single lever was not per-file work
+
+The task's shape is "work it file by file", and for the first ten that was
+right. It stopped being right around the 119 files that were one to three lines
+short: every one of them was the same two guards — a type check on a builtin
+lowering's arguments and a `?` on the platform emitter that resolves its libc
+import — and both are unreachable from any source program, so they were dead in
+coverage terms in ~90 files simultaneously.
+
+Three sweeps over the REGISTRY (not over a list of files) took the count from
+371 to 253 in about an hour, and each runs in 0.02s. Per-file work would have
+been ~90 commits for the same result, with 90 copies of the same assertion.
+The task's "one file per commit" rule still holds for a real gap; it does not
+hold for a gap that is one defect replicated by a code pattern.
+
 ### C6 — the gate counts a never-executed second copy of the crate
 
 `cargo llvm-cov --bins` leaves two instrumented `mfb` binaries in the target
@@ -430,27 +453,3 @@ exist only in the plain binary.
 AGENTS.md is right that a gate's measurement is not something to alter casually.
 The evidence is recorded here so a future session can weigh it with the numbers
 rather than rediscover the mechanism.
-
-### C5 — the largest single lever was not per-file work
-
-The task's shape is "work it file by file", and for the first ten that was
-right. It stopped being right around the 119 files that were one to three lines
-short: every one of them was the same two guards — a type check on a builtin
-lowering's arguments and a `?` on the platform emitter that resolves its libc
-import — and both are unreachable from any source program, so they were dead in
-coverage terms in ~90 files simultaneously.
-
-Three sweeps over the REGISTRY (not over a list of files) took the count from
-371 to 253 in about an hour, and each runs in 0.02s. Per-file work would have
-been ~90 commits for the same result, with 90 copies of the same assertion.
-The task's "one file per commit" rule still holds for a real gap; it does not
-hold for a gap that is one defect replicated by a code pattern.
-
-### C4 — one commit per file, but one suite per program
-
-The task says one commit per file. Where a single program and a single suite
-close several files at once (the three per-platform `os::` emitters; the three
-canvas files behind one `canvas::present` program), splitting the commit would
-mean landing a suite that does not compile, or landing it three times. Those
-land as one commit that names every file it closes with its own before/after.
-Everything else is one file, one commit.
