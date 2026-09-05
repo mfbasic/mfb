@@ -142,6 +142,34 @@ cannot strip a whitespace scalar buried inside a cluster, but no standard cluste
 begins with a `White_Space` scalar). Zero-width characters (e.g. ZWSP `U+200B`,
 ZWJ) are **not** `White_Space` and are never trimmed. [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim]]
 
+## The empty-needle rule
+
+A `strings::` member that takes a *needle* — the argument spelled `needle`,
+`prefix`, `suffix`, `old` or `delimiter` — resolves an empty one by a single rule:
+**an empty needle is present at every position, beginning at 0.** What a member
+does with that presence is decided by what the member does, not by its name:
+
+| behaviour | members | empty needle |
+|-----------|---------|--------------|
+| answers a question about an occurrence | `contains`, `startsWith`, `endsWith`, `startsWithAny`, `endsWithAny` | `TRUE` [[src/codegen/builtins/strings/func_contains.rs:lower]] |
+| answers with the position of an occurrence | `find` | `start` (short-circuit, no scan) [[src/codegen/builtins/strings/func_find.rs:register]] |
+| acts at a single named position | `stripPrefix`, `stripSuffix` | the zero-length match is removed, so `value` is reproduced [[src/codegen/builtins/strings/gen_strip.rs:lower_strings_strip]] |
+| counts or rewrites every occurrence | `count`, `split` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] |
+
+`replace` belongs to the last row by behaviour and is a **recorded exception**: an
+empty `old` matches nothing and a copy of `value` is returned, rather than
+raising. [[src/codegen/builtins/strings/func_replace.rs:register]]
+
+The rule does not reach two arguments that are not needles: `trimChars` takes a
+*set* of scalars (the empty set holds nothing, so nothing is trimmed) and `join`
+takes a *delimiter to write* rather than one to find (the empty one concatenates
+with nothing between the parts).
+
+`regex::` reaches the same answers for its query members from the other
+direction — a zero-length pattern has a zero-width match at every position — so
+`regex::find(v, "")` and `strings::find(v, "")` both report `0`. See
+./mfb spec stdlib regex.
+
 ## `split` and the empty-delimiter error
 
 `split(value, delimiter)` splits on a **byte-exact** delimiter substring and

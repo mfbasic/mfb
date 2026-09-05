@@ -34,8 +34,11 @@ found, and is therefore never empty. Everything else follows from that rule:
 - Splitting the empty string yields a single-element list holding `""`.
 
 `delimiter` must not be empty; an empty delimiter is rejected with
-`ErrInvalidArgument` before any scanning occurs. `value` is not mutated; the
-returned list and its elements are their own values.
+`ErrInvalidArgument` before any scanning occurs. An empty delimiter occurs at
+every position, and cutting at every position is not a division of the text, so
+`split` refuses it exactly as `strings::count` does — see `mfb man strings` for
+the rule. `value` is not mutated; the returned list and its elements are their
+own values.
 
 `delimiter` is also accepted under the name `separator`. Joining the result with
 the same non-empty delimiter reproduces `value` exactly — `split` and

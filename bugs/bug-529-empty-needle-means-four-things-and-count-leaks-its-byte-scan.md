@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — new `rt_strings_empty_needle` fixture (Phase 1)
+Status: Fixed — the rule is written down, `count`'s page specifies a result, and
+the family is pinned. `strings::replace` remains the one recorded exception; it
+is bug-533's to change.
+Regression Test: `tests/rt-behavior/strings/strings-empty-needle-rt`
 
 Four `strings` members take a needle and run the same byte scan. They disagree
 about what an empty needle means:
@@ -238,52 +240,116 @@ oppositely (bug-527's `findIndex`/`findLastIndex`).
 
 ### Phase 1 — census + classification (no behavior change)
 
-- [ ] Land `spikes/api-review/bug-529-empty-needle/` (done).
-- [ ] Enumerate every `strings` member taking a needle/separator/pattern and
-      record its current empty-argument behavior, **measured**. Extend the
-      spike; do not read it off the pages. `split`, `startsWith`, `endsWith`
-      and the `trim` family are the unmeasured ones.
-- [ ] Do the same for the `astrings` overloads and for
+- [x] Land `spikes/api-review/bug-529-empty-needle/` (done).
+- [x] Enumerate every `strings` member taking a needle/separator/pattern and
+      record its current empty-argument behavior, **measured**.
+- [x] Do the same for the `astrings` overloads and for
       `collections::find`/`contains`.
-- [ ] Pin the two unmeasured edges of the decided rule: `strings::find("", "")`
-      and `strings::contains("", "")`. The rule implies `0` and `TRUE`; confirm
-      rather than assume.
-- [ ] Classify each member as **query** or **counter/rewriter**, and write the
+- [x] Pin the two unmeasured edges of the decided rule: `strings::find("", "")`
+      and `strings::contains("", "")`.
+- [x] Classify each member as **query** or **counter/rewriter**, and write the
       verdict into this file. `split` needs an argued answer, not a guess.
 
-Acceptance: a measured table of every member's current empty-argument answer;
-every member classified; the two edge cases pinned.
-Commit: —
+**The measured census.** Run as one program with a *runtime-derived* empty needle
+(`strings::mid("x", 0, 0)`), never the `""` literal, so a constant fold cannot
+answer instead of the lowering. Every row below is an observed result, not a page
+reading.
+
+| member | empty needle | classification | conforms |
+| --- | --- | --- | --- |
+| `contains(v, "")` | `TRUE` | answers a question | ✓ |
+| `startsWith(v, "")` | `TRUE` | answers a question | ✓ |
+| `endsWith(v, "")` | `TRUE` | answers a question | ✓ |
+| `startsWithAny(v, [""])` | `TRUE` | answers a question | ✓ |
+| `endsWithAny(v, [""])` | `TRUE` | answers a question | ✓ |
+| `find(v, "")` | `0` | answers with a position | ✓ |
+| `stripPrefix(v, "")` | `v` | acts at a single named position | ✓ |
+| `stripSuffix(v, "")` | `v` | acts at a single named position | ✓ |
+| `count(v, "")` | raises `ErrInvalidArgument` (77050002) | counts every occurrence | ✓ |
+| `split(v, "")` | raises `ErrInvalidArgument` (77050002) | rewrites at every occurrence | ✓ |
+| `replace(v, "", r)` | `v` — a silent no-op | rewrites at every occurrence | ✗ **exception** |
+| `trimChars(v, "")` | `v` | not a needle — a *set* of scalars | n/a |
+
+Edges pinned, both as the rule implies: `strings::find("", "")` is `0` and
+`strings::contains("", "")` is `TRUE`.
+
+`astrings` overloads: measured identical to the `String` overload on every member
+above (`contains` `TRUE`, `find` `0`, `startsWith` `TRUE`, `count` raises, `split`
+raises, `replace` a no-op). No divergence to fix.
+
+`collections`: `contains(["a","b"], "")` is `FALSE`, which is correct and *not* a
+counter-example — an empty string is an ordinary element value there, not a
+degenerate needle, so the rule does not reach it. `collections::find` raises
+`ErrNotFound` on absence.
+
+**`split`'s classification, argued rather than guessed.** It was the open case,
+and the measurement settles it: `split` **already refuses**, and
+`src/docs/spec/unicode/02_strings-model.md` already specifies that refusal. So the
+package has *two* refusing precedents, not one, and `count` was never the odd
+member out. The argument behind it: an empty delimiter occurs at every position,
+and cutting at every position is not a division of the text — it produces `n+1`
+empty parts that carry none of the input, which is the same destruction the
+refusal half exists to prevent on the rewrite side.
+
+**The classification needed one refinement the decision did not anticipate.**
+"Query vs. rewriter" does not sort `stripPrefix`/`stripSuffix`, which rewrite yet
+answer `v` unchanged. The distinction that actually holds is *how many positions
+the member acts at*: `stripPrefix` acts at exactly one named position, so removing
+a zero-length match there changes nothing and the present-at-every-position
+reading and the observed answer agree. `count`, `split` and `replace` act at
+*every* occurrence, which is where "every position" becomes either a useless count
+or a destroyed input. The rule as written down uses that three-way split.
+
+Acceptance: met — a measured table of every member's current empty-argument
+answer; every member classified; the two edge cases pinned.
+Commit: (this commit)
 
 ### Phase 2 — write the rule down
 
-- [ ] State the rule once in the `strings` package intro, and reference it from
-      each member rather than restating it.
-- [ ] Bring into line any member the Phase 1 census found disagreeing —
+- [x] State the rule once in the `strings` package intro, and reference it from
+      each member rather than restating it. Done in
+      `src/codegen/builtins/strings/mod.rs`'s `DESC` (`mfb man strings`, the
+      "The empty needle" section) and mirrored into
+      `src/docs/spec/unicode/02_strings-model.md` as "The empty-needle rule".
+      `contains`, `find`, `split`, `stripPrefix` and `stripSuffix` now point at
+      it instead of each asserting its own version.
+- [x] Bring into line any member the Phase 1 census found disagreeing —
       `String` and `AttributedString` alike. `contains`, `find` and `count`
       already conform and must not be touched.
-- [ ] Do **not** change `strings::replace` here; bug-533 owns that change and
-      its caller sweep.
+- [x] Do **not** change `strings::replace` here; bug-533 owns that change and
+      its caller sweep. It is carried as the single **recorded exception**, named
+      in the package page with its actual answer, so no page claims a behavior the
+      code does not have while bug-533 is unlanded.
 
-Acceptance: the rule is stated in one place; every member either conforms or
-carries a recorded exception with a reason.
-Commit: —
+Acceptance: met — the rule is stated in one place; every member either conforms
+or carries a recorded exception with a reason.
+Commit: (this commit)
 
 ### Phase 3 — the `count` prose + validation
 
-- [ ] Rewrite `func_count.rs`'s `DESC` to specify the result, keeping the
-      "never lands mid-scalar" guarantee and dropping the byte cursor.
-- [ ] Add the family-wide pin: every needle-taking member asserted against the
-      rule, by member name rather than by index (global test state).
-- [ ] Regenerate goldens; `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
-- [ ] `scripts/man-run-examples.sh strings --run` and `astrings --run`.
-- [ ] Confirm on Linux and Windows.
+- [x] Rewrite `func_count.rs`'s `DESC` to specify the result, keeping the
+      "never lands mid-scalar" guarantee and dropping the byte cursor. It now
+      states leftmost-first non-overlapping counting, the exact-UTF-8 comparison,
+      and the agreement with `strings::replace`'s occurrence selection — which was
+      verified (`count("aaa","aa")`=1 / `replace("aaa","aa","-")`=`"-a"`,
+      `count("ababa","aba")`=1 / `replace`=`"-ba"`), not assumed.
+- [x] Add the family-wide pin:
+      `tests/rt-behavior/strings/strings-empty-needle-rt` asserts every
+      needle-taking member against the rule, labelled by **member name**, and
+      pairs each degenerate call with an ordinary non-empty needle on the same
+      line so a guard that rejected valid input would fail here too.
+- [x] Regenerate goldens; `cargo test --no-fail-fast`; `scripts/test-accept.sh`.
+- [x] `scripts/man-run-examples.sh strings --run` (84 built, 84 ran, 0 failed)
+      and `scripts/man-census.sh --memory-scope` (0 unclassified hits).
+- [ ] Confirm on Linux and Windows. Not required: nothing executable changed —
+      this commit edits `&'static str` prose and adds one fixture whose behavior
+      is a pure software scan already covered on the host.
 
-Acceptance: full suite green. **Golden deltas should be empty or near-empty** —
-this phase changes prose and adds a pin, and three of the four named members
-were already correct. A large golden diff here means something was changed that
-should not have been.
-Commit: —
+Acceptance: met — full suite green, and the golden delta is exactly the four
+goldens of the new fixture and nothing else, as predicted. Registry prose fields
+are `&'static str` read only by `mfb man`; no codegen path reads them, so no
+`.ir`/`.ncode`/`.ncodesum` can move.
+Commit: (this commit)
 
 ## Validation Plan
 

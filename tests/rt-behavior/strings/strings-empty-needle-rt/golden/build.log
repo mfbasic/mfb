@@ -1,0 +1,45 @@
+$ mfb build -ast -ir tests/rt-behavior/strings/strings-empty-needle-rt
+Wrote AST to tests/rt-behavior/strings/strings-empty-needle-rt/strings_empty_needle_rt.ast
+Wrote IR to tests/rt-behavior/strings/strings-empty-needle-rt/strings_empty_needle_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/strings/strings-empty-needle-rt
+Wrote executable to tests/rt-behavior/strings/strings-empty-needle-rt/build/strings_empty_needle_rt.out
+[exit 0]
+$ tests/rt-behavior/strings/strings-empty-needle-rt/build/strings_empty_needle_rt.out
+-- queries: the empty needle is PRESENT at position 0 --
+contains        empty=TRUE nonEmpty=TRUE
+startsWith      empty=TRUE nonEmpty=TRUE
+endsWith        empty=TRUE nonEmpty=TRUE
+startsWithAny   empty=TRUE nonEmpty=TRUE
+endsWithAny     empty=TRUE nonEmpty=TRUE
+find            empty=0 nonEmpty=1
+
+-- the empty candidate LIST is a different question: no candidate matches --
+startsWithAny   emptyList=FALSE listWithEmpty=TRUE
+endsWithAny     emptyList=FALSE listWithEmpty=TRUE
+
+-- single named position: the zero-length match changes nothing --
+stripPrefix     empty="abc" nonEmpty="bc"
+stripSuffix     empty="abc" nonEmpty="ab"
+
+-- counting and rewriting members REFUSE (77050002) --
+count           empty=RAISED 77050002 nonEmpty=2
+split           empty=RAISED 77050002 nonEmpty=n=3
+replace         empty="abc" nonEmpty="a-ca-c"
+
+-- trimChars takes a SET of scalars, not a needle: the empty set holds nothing --
+trimChars       empty="aba" nonEmpty="b"
+
+-- the AttributedString overloads give the same answers --
+contains        empty=TRUE nonEmpty=TRUE
+find            empty=0 nonEmpty=1
+startsWith      empty=TRUE nonEmpty=TRUE
+count           empty=RAISED 77050002 nonEmpty=1
+split           empty=RAISED 77050002 nonEmpty=n=2
+replace         empty="abc" nonEmpty="a-c"
+
+-- the two edges of the rule: an empty value too --
+contains("","")   = TRUE
+find("","")       = 0
+count("","")      = RAISED 77050002
+[exit 0]

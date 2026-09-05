@@ -121,6 +121,43 @@ optional `start` position, and `padLeft` and `padRight` take an optional
 `padChar` that defaults to a single space. The pad character, when supplied, must
 be exactly one Unicode scalar value.
 
+## The empty needle
+
+Many members take a *needle* — a substring to look for, named `needle`, `prefix`,
+`suffix`, `old` or `delimiter`. A needle usually arrives at run time, from a
+configuration value, a form field or a command-line flag, so an empty one is a
+normal accident rather than a thing a program writes on purpose. One rule covers
+every such member:
+
+> **An empty needle is present at every position, beginning at 0.** A member that
+> answers a question about an occurrence reports it; a member that acts at a
+> single named position acts on the zero-length match there, which changes
+> nothing; a member that counts or rewrites every occurrence refuses the empty
+> needle with `ErrInvalidArgument`.
+
+Which member falls in which group follows from what the member does, not from its
+name:
+
+- **Answers a question** — `contains`, `startsWith`, `endsWith`, `startsWithAny`
+  and `endsWithAny` return `TRUE`; `find` returns `start`. These are the
+  mathematically standard answers, and they are safe because reporting a match
+  cannot damage anything.
+- **Acts at a single named position** — `stripPrefix` and `stripSuffix` remove
+  the zero-length match at the position they name, so they return a copy of
+  `value`.
+- **Counts or rewrites every occurrence** — `count` and `split` refuse, raising
+  `ErrInvalidArgument`. "Every position" has no useful count, and rewriting at
+  every position destroys the text the caller meant to keep.
+
+One member is a recorded exception: `replace` belongs to the third group but
+returns a copy of `value` instead of refusing, so an empty `old` is a silent
+no-op there rather than an error. Its own page states that answer.
+
+Two arguments that look like needles and are not, and so do not follow this rule:
+`trimChars` takes a *set* of scalars, and the empty set holds nothing, so nothing
+is trimmed; `join` takes a *delimiter* to write rather than to find, and the empty
+one concatenates with nothing between the elements.
+
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
 Many `strings` functions also accept an `astrings::AttributedString` at the text

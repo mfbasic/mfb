@@ -28,7 +28,9 @@ precomposed `é` does not match a decomposed one.
 through the scalar length of `value` *inclusive*; the upper bound equals the
 length so a search may begin at the very end of the string, where only an empty
 needle can match. A negative `start`, or one past the scalar length, raises
-`ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`.
+`ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`,
+which is the package's empty-needle rule for a member that answers with a
+position (see `mfb man strings`).
 
 `find` always returns a valid index on success and never reports absence with a
 sentinel such as `-1`. When `needle` does not occur at or after `start` it raises

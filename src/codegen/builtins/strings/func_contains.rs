@@ -21,9 +21,11 @@ matching byte run is always also a whole-scalar substring — a match can never
 land mid-scalar.
 
 The empty `needle` occurs at every position and returns `TRUE` for any `value`,
-including the empty string. A `needle` longer than `value` returns `FALSE`, and
-searching a non-empty `needle` in an empty `value` returns `FALSE`. Neither
-operand is modified and the call never fails.
+including the empty string — `contains` answers a question about an occurrence,
+and the package's empty-needle rule (see `mfb man strings`) has such members
+report it. A `needle` longer than `value` returns `FALSE`, and searching a
+non-empty `needle` in an empty `value` returns `FALSE`. Neither operand is
+modified and the call never fails.
 
 `contains` answers only *whether* the needle is present. Use `strings::find` to
 get the position of the first occurrence — and note that `find` raises

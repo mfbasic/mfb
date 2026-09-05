@@ -21,9 +21,11 @@ string.
 
 Exactly one copy is removed. If `value` ends with `suffix` repeated, only the
 last copy is stripped and the earlier ones remain — call `stripSuffix` in a loop
-to remove them all. An empty `suffix` removes no bytes, a `suffix` longer than
-`value` cannot match, and a non-matching `suffix` leaves `value` alone; all three
-return an equal string.
+to remove them all. An empty `suffix` matches at the end and removes nothing —
+`stripSuffix` acts at a single named position, so the package's empty-needle rule
+(see `mfb man strings`) makes it a no-op here rather than an error. A `suffix`
+longer than `value` cannot match, and a non-matching `suffix` leaves `value`
+alone; all three return an equal string.
 
 The function is total and never fails. Neither operand is modified, and you
 always get a new `String` back, even on the unchanged path.

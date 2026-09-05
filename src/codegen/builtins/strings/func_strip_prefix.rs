@@ -22,9 +22,11 @@ string.
 
 Exactly one copy is removed. If `value` begins with `prefix` repeated, only the
 first copy is stripped and the rest remain — call `stripPrefix` in a loop to
-remove them all. An empty `prefix` removes no bytes, a `prefix` longer than
-`value` cannot match, and a non-matching `prefix` leaves `value` alone; all three
-return an equal string.
+remove them all. An empty `prefix` matches at the start and removes nothing —
+`stripPrefix` acts at a single named position, so the package's empty-needle rule
+(see `mfb man strings`) makes it a no-op here rather than an error. A `prefix`
+longer than `value` cannot match, and a non-matching `prefix` leaves `value`
+alone; all three return an equal string.
 
 The function is total and never fails. Neither operand is modified, and you
 always get a new `String` back, even on the unchanged path.
