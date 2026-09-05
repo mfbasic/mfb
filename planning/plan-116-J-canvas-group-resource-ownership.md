@@ -173,27 +173,48 @@ the time of writing, so a future implementer can see what changed.
 
 ## 3. Design Overview
 
-Three pieces, and the whole letter is deliberately small because plan-116-G already
-built the hard part:
+*Rewritten 2026-09-04 (Phase 1). What it said: "three pieces, and the whole letter is
+deliberately small because plan-116-G already built the hard part." Two of the three
+turned out to be nothing, and a fourth piece — the one the Goal actually rests on — was
+missing. **The letter is not small.***
 
-1. **Establish whether group ownership is a "transfer"** under plan-114's rules, and
-   audit both `canvas` resources' record tails if it is. §2's verified-properties note.
-2. **`setGroup`'s deep copy takes the resources with it** — the copy already exists
-   (plan-116-G §4.2 reuses `gen_present.rs:emit_publish`); post-plan-114 it must route
-   ownership per plan-114-C's escape-record-edges rules rather than copying a handle.
+1. ~~**Establish whether group ownership is a "transfer"**~~ — **answered, no** (**J5**,
+   §4.1). The record never changes arena and the graphics thread only reads it, which is
+   what it already does for every published scene. `live_slots` and `sendable` unchanged.
+   Not a piece of work; a question with an answer.
+2. ~~**`setGroup`'s deep copy takes the resources with it**~~ — **already true, and it is
+   the problem rather than the solution.** `List OF DrawItem` is still
+   `type_is_memcpy_copyable` (`flatness_walk`'s `Res(_)` arm), so the existing
+   `copy_flat_block` copies the 8-byte pointer and the group gets an **alias** (**J4**
+   ¶3, **J5**). There is nothing to route: at install time nothing new comes into being.
 3. **The group's free path closes what it owns**, immediately before releasing the
-   buffer, inside the gate plan-116-G §4.3 already implements. **No new deferral**: the
-   close sets the closed flag and the existing texture gate
+   buffer. Real, and §4.3 places it at `emit_free_items_block` — the chokepoint **both**
+   free sites funnel through, not just the gated one (**J4** ¶2). **No new deferral**:
+   the close sets the closed flag and the existing texture gate
    (`.ai/canvas-threading.md` §7) does the rest.
+4. **NEW — `setGroup` moves every resource transitively reachable from `items`.** This is
+   what Goal bullet 1's *"the caller's bindings may go out of scope without closing
+   them"* requires, and nothing implements it (**J9**). Without it Phase 2's own test
+   fails regardless of the free path, because scope-drop closes the caller's `RES` and
+   the group's alias does not stop it. It is also the only defence against §4.3.1's
+   sharing hole. New analysis in `src/ir/verify/`; Phase 2's first box.
 
 **Where the correctness risk concentrates:** double-close and use-after-close across
 the worker/graphics boundary. plan-59-B's runtime backstop makes a second close a
 defined `ErrResourceClosed` rather than corruption, which bounds the damage — but a
 group closing an image a *scene* still names would make that scene draw nothing, which
-is a silent wrong picture. The rule that prevents it is already written:
+is a silent wrong picture. ~~The rule that prevents it is already written:
 `.ai/canvas-threading.md` §7 says a `Picture` carries a value handle, so *"presenting a
-stale one draws nothing rather than raising"* — post-plan-114 that sentence changes and
-**must be re-derived, not assumed**.
+stale one draws nothing rather than raising"*~~ — **re-derived 2026-09-04, and §7 does
+not prevent it; §7 is the mechanism by which it happens.** "Draws nothing rather than
+raising" is what makes the wrong picture *silent*. The sentence survives plan-116-I in a
+new mechanism (`imageHandle` answers `0`, `errors: vec![]`, closed read before handle),
+and that changes nothing about this risk.
+
+**And the risk is wider than a scene.** Two *groups* can name one image just as easily —
+probed, and it compiles clean today (**J9**). §4.3.1 carries this paragraph's warning
+into the design and the phases, which is what it never had: it was stated here as a risk
+and then not addressed by any of §3's pieces or any phase box.
 
 **Byte-identity is NOT this letter's gate.** **Expected NOT to diff:** every canvas
 golden — this letter changes ownership, not pixels. **Expected to diff:** `.ncodesum`
@@ -703,6 +724,17 @@ group free path closes each owned resource once"*. Written as stated, against a 
 record, "once" is satisfied and the program is still wrong — the count is right and the
 close is global. A phase whose acceptance criterion can be met by broken code is the shape
 this correction exists to catch.
+
+**Credit where it is due: §3 saw this and then dropped it.** Its risk paragraph says, in
+as many words, that *"a group closing an image a scene still names would make that scene
+draw nothing, which is a silent wrong picture"* — the same failure, one holder narrower.
+So the finding here is not the hazard, which the letter already knew; it is that **the
+hazard was named in prose and then addressed by none of §3's three pieces and no phase
+box**, and that it is wider than stated (two groups, not just group-versus-scene). §3 also
+claimed *"the rule that prevents it is already written"*, pointing at
+`.ai/canvas-threading.md` §7 — and §7 does not prevent it. §7 is what makes the wrong
+picture *silent*. Both are corrected in §3, and §4.3.1 is where the warning finally
+reaches the design.
 
 **J7 (2026-09-04, Phase 1) — verifying `.ai/canvas-threading.md` §7 against landed code
 found one true claim stated too broadly, and disproved a constraint I had just written
