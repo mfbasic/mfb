@@ -318,15 +318,15 @@ mod tests {
         let mut lowered: Vec<(&str, Vec<crate::codegen::engine::types::CodeRelocation>)> =
             Vec::new();
         let push = |label: &'static str,
-                        parts: Result<
-                            (
-                                Vec<crate::codegen::engine::types::CodeInstruction>,
-                                Vec<crate::codegen::engine::types::CodeRelocation>,
-                                usize,
-                            ),
-                            String,
-                        >,
-                        sink: &mut Vec<_>| {
+                    parts: Result<
+            (
+                Vec<crate::codegen::engine::types::CodeInstruction>,
+                Vec<crate::codegen::engine::types::CodeRelocation>,
+                usize,
+            ),
+            String,
+        >,
+                    sink: &mut Vec<_>| {
             let (_ins, rel, _frame) = parts.unwrap_or_else(|e| panic!("lower {label}: {e}"));
             sink.push((label, rel));
         };
@@ -366,7 +366,11 @@ mod tests {
         );
         push(
             "tls::close listener (Windows / Schannel)",
-            tls::gen_schannel::lower_tls_close_listener("t_tls_closel_sch", &imports, &TestPlatform),
+            tls::gen_schannel::lower_tls_close_listener(
+                "t_tls_closel_sch",
+                &imports,
+                &TestPlatform,
+            ),
             &mut lowered,
         );
         push(

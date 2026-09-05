@@ -197,11 +197,7 @@ fn a_program_with_its_own_group_record_still_compiles_alongside_regex() {
         Duration::from_secs(120),
         "the own-Group fixture did not finish",
     );
-    assert_output(
-        "the own-Group fixture",
-        &out,
-        "mine=42\ntheirs=b at 1\n",
-    );
+    assert_output("the own-Group fixture", &out, "mine=42\ntheirs=b at 1\n");
 }
 
 /// The 85 pattern/subject pairs `rt_regex_bounds.rs` pins, run through the OLD

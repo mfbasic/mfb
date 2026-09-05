@@ -16,8 +16,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str =
-    r#"Locate every non-overlapping regular-expression match and return each one's span, text, and groups."#;
+const INTRO: &str = r#"Locate every non-overlapping regular-expression match and return each one's span, text, and groups."#;
 
 const DESC: &str = r#"`regex::findAllMatches` compiles `pattern` as a regular expression, scans
 `value` for every non-overlapping match beginning at or after the position

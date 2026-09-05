@@ -25,8 +25,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 use super::gen_shared::{ProcBodyParts, PROC_STDIN_W};
-const INTRO: &str =
-    r#"Close a child's standard input, signalling end-of-input to the child."#;
+const INTRO: &str = r#"Close a child's standard input, signalling end-of-input to the child."#;
 const DESC: &str = r#"`process::closeInput` closes the child's standard input — the parent's write end of
 the child's stdin pipe. It sends end-of-input to the child, so a filter that reads
 until EOF (`sort`, `cat`, `wc`, `tr`, …) stops waiting for more input and produces
