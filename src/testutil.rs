@@ -129,6 +129,40 @@ fn main_entry(source: &str) -> crate::ir::EntryPoint {
     }
 }
 
+/// [`check_src`] with a table of types imported from a `.mfp` package.
+///
+/// A program that names a type from an imported binary package reaches
+/// `ir::shape` and `ir::verify` through a different door: the type is not
+/// declared anywhere in the source, so both passes learn its shape from the
+/// decoded package table rather than from the AST. That door is what a real
+/// `IMPORT` of a built `.mfp` opens, and nothing in process could open it —
+/// every in-process caller passes an empty table — so the imported-type arms of
+/// both passes were unreachable.
+pub fn check_src_with_imports(
+    source: &str,
+    imported: &[crate::ir::ImportedTypeDef],
+) -> Vec<String> {
+    let project_dir = Path::new(".");
+    let concrete = concrete_hir_from_src(source);
+    let no_signatures = HashMap::new();
+    let mut diagnostics = crate::ir::shape::collect_diagnostics(
+        project_dir,
+        &concrete,
+        imported,
+        &no_signatures,
+        &[],
+    );
+    let lowered = crate::ir::lower_augmented_project(&concrete, None, &no_signatures, imported);
+    let link_spans = crate::ir::link_spans(&concrete);
+    diagnostics.extend(crate::ir::verify_source_diagnostics(
+        &lowered,
+        project_dir,
+        &[],
+        &link_spans,
+    ));
+    diagnostics.into_iter().map(|d| d.rule).collect()
+}
+
 /// Run the build path's two checkers over `src` and return the emitted
 /// diagnostic rule codes (in stream order). An empty vector means the program
 /// is accepted.

@@ -34,6 +34,7 @@ mod collections;
 mod corpus;
 mod diagnostics;
 mod entry;
+mod imported_types;
 mod link;
 mod math;
 mod optimizer;
