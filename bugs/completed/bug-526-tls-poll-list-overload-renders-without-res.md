@@ -1,12 +1,15 @@
 # bug-526: `mfb man tls poll` prints a list-overload signature that does not compile
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — a renderer pin asserting the `RES` marker survives into every rendered signature
+Status: **FIXED** (`521b731e0`) — the descriptor carries the `RES` node the way
+`tcp::poll` does, so both the Overloads block and the Parameters table print
+`List OF RES tls::Socket`.
+Regression Test: `cli::man::tests::every_rendered_signature_marks_a_resource_collection_element_res`
+— a registry-wide renderer pin, not a `tls`-specific assertion
 
 `mfb man tls poll` renders its multiplex overload as:
 
@@ -245,3 +248,47 @@ is visible to the registry's strict matcher, so the change must be proven not to
 shift which overload selects. `tcp::poll` running with the node present is
 strong prior evidence. The lasting value is the general pin — a rendered
 signature that does not compile is a defect class, not an incident.
+
+## Resolution (2026-09-05, `521b731e0`)
+
+**Which side was wrong: the descriptor.** The Description and the example were
+the halves that were true; the rendered signature was the defect, exactly as the
+report's "tempting wrong fix, forbidden" note said.
+
+The comment above the parameter is the interesting part of the record. It stated
+a true fact about `ParameterType::parse` — parsing a string strips the `RES `
+marker off a collection element — and drew a false conclusion from it, that the
+descriptor therefore *could not* carry the marker. `tcp::poll` had been carrying
+it since it was written, by CONSTRUCTING the node rather than parsing a
+spelling, and unifying against the same concrete argument. Matching is
+RES-transparent; rendering is not. So the general hazard is: **a
+`ParameterType` built by parsing and one built by construction are not
+interchangeable, and the difference is invisible until something renders it.**
+
+### The sibling census, completed mechanically
+
+Phase 1 asked for a list of every descriptor building a collection of a named
+type, with a verdict on each. Rather than grep, the pin enumerates them: it
+walks every registry function, renders each overload, and reports every
+collection element that names a built-in resource without the marker. Before the
+fix it reported **exactly one** violation in the whole registry — `tls::poll` —
+so the census is complete and empty by construction.
+
+### Overload resolution is measured, not assumed
+
+The registry's strict matcher gates on whether a parameter is a resource, so
+adding a `Res` node changes what the matcher sees. A program that pastes the
+page's printed signature verbatim now builds, and inside it:
+
+- the **list** form still selects (an empty list still raises
+  `ErrInvalidArgument`), and
+- the **scalar** form still selects for a bare `Socket` and still answers
+  `Boolean`.
+
+A scoped acceptance run over every `tcp`/`udp`/`tls`/`poll` fixture is green with
+no golden movement (23 tests, 0 mismatches), and the full run is green with 0
+diffs, so the descriptor change shifts no `.ir`, no `.ncodesum` and no `.run`.
+
+### Open Decisions
+
+None, as the report recorded — the correct construction was already in the tree.
