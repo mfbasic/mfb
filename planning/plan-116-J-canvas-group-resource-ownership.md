@@ -1017,6 +1017,40 @@ Commit: —
 
 ## Corrections
 
+**J19 (2026-09-04, Phase 4 — found re-reading the shipped helper) — a `Font`'s close is
+NOT symmetric with an `Image`'s, and the live-set check is what makes that safe. One
+narrow case survives, and it is stated rather than left implicit.**
+
+`lower_destroy_image` sets the closed flag and nothing else. `lower_destroy_font` runs
+`emit_unregister_font` **first**, and that function's own doc says why: *"so that text
+still naming a released font draws empty rather than reading a block the program has
+finished with."* Clearing the slot is immediate and global — it is not deferred behind any
+frame gate.
+
+So the group's close of a `Font` can, in principle, make an **in-flight** frame's text go
+empty, where the same close of an `Image` cannot.
+
+**Why it is safe in every case the design reaches.** The close only fires when the drain
+gate has opened, which means a frame has *completed* since the retirement — so no frame
+that was drawing the retired buffer is still in flight. The frame that *is* in flight is
+drawing the previously published scene, and if that scene names the font, then
+`__canvas_anythingNamesFont` sees it (the live set includes every group's items) and the
+close does not happen.
+
+**The one case that survives**, and it is narrow: the in-flight frame draws a previously
+published scene that names the font **directly** — not through any group — while the
+incoming `items` does not name it and no group's live items do. The close then fires and
+that frame's glyphs go empty for one frame. **No crash and no raise**: §7's *"close never
+frees"* still holds, and the next frame draws the incoming scene, which does not want the
+font anyway.
+
+That is exactly what a program calling `canvas::destroyFont` mid-frame already gets, so
+this is the group inheriting `destroyFont`'s semantics rather than adding a hazard. It is
+recorded because **R17 pins the image case and not the font case** — the mid-frame test
+uses a `Picture` — so nothing in the suite would tell a reader that the two differ.
+A font-flavoured R17 is the test that would close this, and it is worth writing when
+someone next touches this path.
+
 **J18 (2026-09-04) — merging `main` exercised plan-116-I's migration against code written
 after it, and that is worth recording as evidence rather than as merge bookkeeping.**
 
