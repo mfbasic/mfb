@@ -1,0 +1,43 @@
+' bug-526 -- `mfb man tls poll` renders the list overload as
+'     tls::poll(socks AS List OF tls::Socket, ...) AS tls::Socket
+' but its own Description says "Given a List OF RES tls::Socket" and "The
+' elements must be marked RES", and its example declares
+'     MUT socks AS List OF RES tls::Socket
+'
+' `mfb man tcp poll` renders the same overload correctly, as
+'     tcp::poll(socks AS List OF RES tcp::Socket, ...) AS tcp::Socket
+' because tcp builds the parameter as ParameterType::list_of(ParameterType::Res(..))
+' while tls builds it as ParameterType::ListOf(ParameterType::named(..)),
+' dropping the RES marker from the rendered signature.
+'
+' This spike is the copy-paste test: the signature `mfb man` prints for tls is
+' not a declaration that compiles. Uncomment the `LIST OF tls::Socket` binding
+' to see it rejected.
+
+IMPORT io
+IMPORT tls
+
+FUNC touch(go AS Boolean) AS Integer
+  IF go THEN
+    RES s = tls::connect("127.0.0.1", 1)
+    RETURN 1
+  END IF
+  RETURN 0
+TRAP(err)
+  RETURN -1
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' What the man page's Description and example say -- this compiles:
+  MUT ok AS List OF RES tls::Socket = []
+  io::print("List OF RES tls::Socket declared: " & toString(len(ok)))
+
+  ' What the man page's Overloads and Parameters tables print. Restore this
+  ' line to see the RES rule reject it:
+  '   MUT bad AS List OF tls::Socket = []
+
+  io::print("touch = " & toString(touch(FALSE)))
+  io::print("=> compare `mfb man tls poll` with `mfb man tcp poll`.")
+  RETURN 0
+END FUNC

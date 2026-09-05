@@ -1,0 +1,30 @@
+' bug-521 -- `mfb man datetime toIso` promises:
+'   "The output is round-trippable: datetime::parseIso parses a string produced
+'    by toIso back into an EQUIVALENT DateTime."
+' and, three sentences earlier:
+'   "The nanos of dt are truncated to milliseconds for the fff field."
+'
+' Both cannot hold. `datetime::now()` and `datetime::time(...)` both carry
+' nanosecond resolution, so the round trip loses up to 999,999 ns per value.
+
+IMPORT io
+IMPORT datetime
+
+FUNC main AS Integer
+  LET t AS datetime::Time = datetime::time(1, 2, 3, 123456789)
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
+
+  LET iso AS String = datetime::toIso(dt)
+  LET back AS datetime::DateTime = datetime::parseIso(iso)
+
+  io::print("nanos in  = " & toString(dt.time.nanos))
+  io::print("toIso     = " & iso)
+  io::print("nanos out = " & toString(back.time.nanos))
+  io::print("lost      = " & toString(dt.time.nanos - back.time.nanos) & " ns")
+  IF dt.time.nanos = back.time.nanos THEN
+    io::print("=> round-trip is lossless")
+  ELSE
+    io::print("=> round-trip is LOSSY; there is no toIso overload that keeps nanos")
+  END IF
+  RETURN 0
+END FUNC

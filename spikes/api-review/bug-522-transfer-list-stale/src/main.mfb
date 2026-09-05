@@ -1,0 +1,29 @@
+' bug-522 -- `mfb man thread transfer` says:
+'   "Only some resource types may cross at all: fs::File, tcp::Socket and
+'    udp::Socket may; LISTENERS AND tls::Socket MAY NOT."
+' `mfb man thread` (the package intro) says:
+'   "EVERY built-in socket and listener may cross -- fs::File, tcp::Socket,
+'    udp::Socket, tcp::Listener, tls::Socket and tls::Listener"
+'
+' The registry settles it: `sendable: true` on all six (bug-464 opted the
+' listeners in). This spike transfers a tcp::Listener across a real thread
+' boundary; if the transfer page were right, it would not compile.
+
+IMPORT io
+IMPORT thread
+IMPORT tcp
+
+ISOLATED FUNC listenerWorker(w AS ThreadWorker OF RES tcp::Listener TO Integer, n AS Integer) AS Integer
+  RES l AS tcp::Listener = thread::accept(w, 2000)
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF RES tcp::Listener TO Integer = thread::start(listenerWorker, 0)
+  RES server = tcp::listen("127.0.0.1", 0)
+  thread::transfer(t, server, 2000)
+  LET done AS Integer = thread::waitFor(t)
+  io::print("a tcp::Listener crossed a thread boundary; the worker returned " & toString(done))
+  io::print("=> `mfb man thread transfer`'s transferable-type list is stale.")
+  RETURN 0
+END FUNC
