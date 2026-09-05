@@ -1,12 +1,16 @@
 # bug-524: `process::close` is the only `close` in the language that does not close its argument
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `spikes/api-review/bug-524-process-close/` promoted to a `tests/` fixture
+Status: **FIXED** (`be88539c8`) — the member is `process::closeInput`. The
+behaviour is byte-for-byte unchanged; only the name and the prose moved, and
+`process::close` no longer exists (no alias: every call site was in-tree).
+Regression Test: `codegen::resource::tests::a_member_named_close_is_its_packages_resource_close_op`
+(the RED pin) + `tests/rt-behavior/process/close-input-keeps-handle` (the
+behaviour pin promoted from the spike)
 
 Six built-in packages export a `close`. Five of them close the resource and
 release the OS handle:
@@ -261,3 +265,83 @@ sweep and the golden regeneration it shifts. The one judgement call — whether
 `close` survives as an alias — should be made from the Phase 1 count rather
 than in advance, because keeping it preserves exactly the confusion this bug
 exists to remove.
+
+## Resolution (2026-09-05, `be88539c8`)
+
+**Which side was wrong: the code.** Not the emitted instructions — the
+descriptor's `name` field. The page's prose was *accurate*; that was the
+symptom. `mfb spec language resource-management` §15 defines `close` as the
+resource-invalidation event that releases the OS handle, and the five sibling
+members implement exactly that. `process::close` implemented none of the four
+§15 events, so it needed three qualifying paragraphs to describe itself
+truthfully. A member name that has to be argued with is the defect.
+
+The Open Decision — does `close` survive as a deprecated alias? — was decided
+from the Phase 1 count, as the plan required. Every call site is in-tree:
+
+| site | kind |
+| --- | --- |
+| `tests/rt-behavior/process/{send-grep,send-timeout,sendbytes}` | fixture source |
+| `tests/byte-identity/process` | fixture source |
+| `tests/syntax/process/close_invalid` | fixture source + `build.log` |
+| `tests/cli_process_windows_build.rs`, `tests/rt_process_spawn_no_fd_inherit.rs` | Rust test source |
+| `spikes/api-review/bug-524-process-close` | spike |
+| `src/target/{macos_aarch64,linux_common,win_x86_64}/mod.rs`, `src/codegen/memory/data/data_objects.rs` | per-target supported-call gates |
+
+No external exposure, so the name was **removed outright** rather than kept as
+an alias. `src/docs/spec/**` mentions `process::close` nowhere.
+
+The `p` parameter defect was broader than the report recorded: the stock
+"The handle stays open — you still close it" blurb was on **seven** `process`
+members (`closeInput`, `send`, `sendBytes`, `waitFor`, `isRunning`, `pid`,
+`signal`), not just `close`. All seven are corrected; the sentence stays as-is
+on the `tcp`/`udp`/`tls`/`audio` members, where it is true.
+
+### What did not change
+
+The behaviour, exactly as the Non-goals require: closing the child's stdin, its
+idempotence on the pipe, `ErrResourceClosed` on a detached or scope-ended
+handle, and the child continuing to run. `Process`'s `close_function: DROP`,
+`process::detach`, `process::signal` and `process::waitFor` are untouched, and
+no `close` that closes the handle was added.
+
+### Evidence the semantics are preserved
+
+- **Zero `.run` goldens moved.** The whole golden delta is the five
+  `byte-identity/process` `.ncodesum` targets (the runtime helper symbol
+  renamed `_mfb_rt_process_close` → `_mfb_rt_process_closeInput`), the
+  `.ast`/`.ir` of the four fixtures whose *source* changed, and the arity
+  fixture's `build.log`, which now names the renamed member. Nothing outside
+  `process` moved: `artifact-gate.sh all` reports 1376 tests / 1912 goldens /
+  0 diffs after regeneration.
+- **A positive pin, not only the negative one.**
+  `tests/rt-behavior/process/close-input-keeps-handle` asserts the child's
+  output is still readable *through the same handle* after the call, `pid`
+  still answers, a second `closeInput` is a no-op, a later `send` raises
+  `ErrResourceClosed` (`77030004`), and `waitFor` still collects the exit code.
+
+### The pin that would have caught it
+
+`a_member_named_close_is_its_packages_resource_close_op`
+(`src/codegen/resource/mod.rs`) walks every registry package and asserts that a
+member spelled `close` is the registered close op of one of that package's
+resources — counting the `os_aliases` code forms a close op may be registered
+under, so `audio::close` (registered as `audio.closeInput`/`audio.closeOutput`)
+passes. Before the fix it failed for `process` alone
+(`["process.close"]` vs `["process.__drop"]`) and passed for the other five.
+
+### Gates
+
+`cargo test --no-fail-fast` exit 0 (135 suites, 0 failed) ·
+`artifact-gate.sh target/release/mfb all` 0 diffs ·
+`test-accept.sh` 1398 ran, passed · `man-run-examples.sh process --run` 18/18 ·
+`man-census.sh --memory-scope` 0 unclassified · `cargo check --all-targets`
+clean.
+
+### Noted, not fixed here
+
+`process`'s package description still says a `Process` "cannot be a field of a
+record". That is **false** — a `RES` field is legal (`mfb spec language
+resource-management` §15.4, and `tests/rt-behavior/resources/record-res-field-export-rt`
+proves it across a package boundary) — but it is bug-523's subject, not this
+one, and is corrected there.
