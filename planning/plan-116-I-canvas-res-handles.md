@@ -114,12 +114,13 @@ tested against the finished renderer.)
 
 | What | Count | Command |
 |---|---|---|
-| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | ~~22~~ **29** | `grep -rln 'imageRef\|fontRef\|ImageRef\|FontRef' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
+| Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | ~~22~~ ~~29~~ **30 + 1** | `grep -rln … src/ tests/ examples/` gives 29 and `… src tests` gives 29, but over **different sets** (**I5**). The union is 30; `.ai/canvas-threading.md` is the +1 that no command reaches. |
 | `Picture[` construction sites (code + doc examples) | 7 | `grep -rn 'Picture\[' --include='*.rs' --include='*.mfb' src/ tests/ examples/` |
-| `Text[` construction sites | ~~12~~ ~~20~~ **22** | same grep, `Text\[` (2026-09-04) |
+| `canvas::Text[` construction sites | ~~12~~ ~~20~~ ~~22~~ **20** | `grep -rn 'canvas::Text\[' …`. The old figure used the unqualified `Text\[`, which also matches three `astrings::AttrText[` sites in another package (**I5**). Today's unqualified count is 23. |
 | Renderer reads of `t.font.id` | ~~5~~ **6** | `grep -n 't\.font\.id' src/codegen/builtins/canvas/helper_geometry.rs` |
 | Renderer reads of `pic.image` | 0 | `grep -rn 'pic\.image' src/codegen/builtins/canvas/` (bug-484) |
-| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | ~~3~~ **5** | `tests/cli_canvas_package.rs` ×3, `tests/rt_canvas_font.rs`, `tests/rt_canvas_present_deep_copy.rs` |
+| `.id` reads that are **not** construction sites | **2** | `tests/cli_canvas_image_resource.rs:104` (`IF handle.id = 0`), `tests/rt_canvas_font.rs:74` (`IF r.id = 0`). Assertions *about* a handle, so the `Picture[`/`Text[` sweep cannot see them and they need a semantic rewrite, not a substitution (**I5**). |
+| Fabricated zero-handle uses (`ImageRef[id := 0]`, `FontRef[id := …]`) | ~~3~~ **5** | `tests/cli_canvas_package.rs` `:54`, `:55`, `:233`; `tests/rt_canvas_font.rs:672`; `tests/rt_canvas_present_deep_copy.rs:130` (**not** `:104` — **I5**) |
 
 > **Re-measured 2026-09-02 (I1).** Four of the six rows had drifted, two of them by
 > more than half. The growth is this plan's own: letters C, D and E added text and
@@ -604,9 +605,9 @@ moment the letter before it lands. Verify with
 
   | Row | Plan (2026-09-01) | Now |
   |---|---|---|
-  | Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | **29** |
-  | `Text[` construction sites | 12 | **20** |
-  | Renderer reads of `t.font.id` | 5 | **6** |
+  | Files naming `imageRef`/`fontRef`/`ImageRef`/`FontRef` | 22 | **30 + `.ai/canvas-threading.md`** |
+  | `canvas::Text[` construction sites | 12 | **20** (the unqualified pattern reads 23; three are `astrings::AttrText[`) |
+  | Renderer reads of `t.font.id` | 5 | **6** — `helper_geometry.rs:660, 694, 715, 987, 995, 1111` |
   | Fabricated zero-handle uses | 3 | **5** |
   | `Picture[` sites | 7 | 7 |
   | Renderer reads of `pic.image` | 0 | 0 |
@@ -668,7 +669,7 @@ moment the letter before it lands. Verify with
 
 ## Summary
 
-The migration is small at the renderer — five integer reads move behind a guarded
+The migration is small at the renderer — **six** integer reads move behind a guarded
 pointer chase, and nothing else in the pipeline ever knew the handles existed —
 and large at the surface: two records and two members disappear, every
 construction site in the tree changes shape, and the "scene holds only integers"
