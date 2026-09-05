@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (credential confidentiality / SSRF-adjacent)
 
-Status: **FIXED** (2026-09-05)
+Status: **FIXED** (2026-09-05, `18f589667`)
 
 Regression Test: `repository/src/client.rs` —
 `a_credentialed_post_does_not_follow_a_cross_origin_redirect` (RED before the
