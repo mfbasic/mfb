@@ -211,15 +211,23 @@ the time of writing, so a future implementer can see what changed.
   buffer the graphics thread reads are all outside its reach. plan-116-G's design
   stands on this axis.
 
-  **Re-verified 2026-09-03 against `resources.rs` as merged, and it holds.**
+  **Re-verified 2026-09-04 against `resources.rs` as merged, and it holds.**
   `grep -n emit_thread_resource_plane_required src/ir/verify/resources.rs` gives one
-  definition (`:574`, whose own doc comment says *"the one place `2-203-0138` is
-  worded"*) and exactly **three** callers, at `:559`, `:622` and `:749`, inside
-  `require_thread_sendable` (`:555`), `check_thread_sendability` (`:591`) and
-  `check_thread_boundary_sendability` (`:662`). All three take a `ParameterType` and
-  nothing else; none can see storage duration or which thread touches a value. So the
-  claim is measured rather than inherited, and Phase 1 can tick this row by re-running
-  that grep instead of re-deriving the argument.
+  definition — whose own doc comment says *"the one place `2-203-0138` is worded"* — and
+  exactly **three** callers, inside `require_thread_sendable`,
+  `check_thread_sendability` and `check_thread_boundary_sendability`. All three take a
+  `ParameterType` and nothing else; none can see storage duration or which thread touches
+  a value. So the claim is measured rather than inherited, and this row is re-checked by
+  re-running that grep rather than re-deriving the argument.
+
+  *(**The seven line numbers this bullet used to carry are deleted, and by this letter's
+  own hand.** It cited the definition at `:574` and callers at `:559`/`:622`/`:749`
+  inside functions at `:555`/`:591`/`:662`. Phase 2 added the containment relation to
+  this very file, so every one of them moved — the definition is now at `:677` and the
+  callers at `:662`/`:725`/`:852`. Three separate corrections in this letter are the same
+  failure (**J1**, **J6**, **J17**), so the fix is to stop writing the number: the
+  **symbol names plus the grep** are what cannot drift, and the count — one definition,
+  three callers — is the part the claim actually rests on.)*
 
 - **The constraint that *does* govern the group table is the arena one, not the rule.**
   Arena state is per-thread and a spawned thread sees its own zeroed copy, so
