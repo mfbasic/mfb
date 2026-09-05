@@ -1465,7 +1465,7 @@ already uses:
   type is a record (or a union of records, or a `List OF` one) with `RES` props and an
   argument is a local of that prop's resource type — the same shape as the existing alias
   edge, minus the symmetry;
-* `consumed_resource` (`src/ir/verify/link.rs:975`) returns `Option<String>` today and
+* `consumed_resource` (`grep -n 'fn consumed_resource' src/ir/verify/link.rs`) returns `Option<String>` today and
   would return a **set**: for a consuming-parameter call, the containment closure of the
   argument;
 * a registry flag saying `setGroup`'s `items` parameter consumes what it contains.
@@ -1755,7 +1755,7 @@ no runtime call; the OS-side free is already deferred behind the backend's own
 resource is closed). The cost of this letter is the walk, not the close.
 
 **Stale citations, corrected.** `Picture.image` is now `RES canvas::Image` and `Text.font`
-`RES canvas::Font`; the two `pkg.add_resource` calls moved to `mod.rs:981` and `:1002`
+`RES canvas::Font`; the two `pkg.add_resource` calls moved (they were at `:981`/`:1002` when this was written and are at `:986`/`:1007` now, which is the point — `grep -n 'pkg\.add_resource'` is the citation that keeps working)
 (J2 and J3 both give older numbers — G1's lesson repeating twice in one document). Two
 strings §Non-goals quotes as documented promises **no longer exist** in the tree: *"an
 installed scene never keeps an image open"* and *"keeps the scene from retaining
