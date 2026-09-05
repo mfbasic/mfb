@@ -1,18 +1,27 @@
 # bug-536: three scope-drop leaks in codegen — recursive-type values are never freed, `RETURN <constructor>` abandons the fresh block, String call results consumed by an operator are never freed
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one is the large half
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`). Shapes B
-and C remain open, and shape C is
+Status: **Shape A FIXED** (2026-09-04, `f9be6e128`, merged `c210cc67d`).
+**Shape B's NATIVE half FIXED** (2026-09-05, branch `bug-536-shape-b`) — every
+unbound `String` a *native* producer makes is now freed at statement end. Shape
+B's **callee half** (a `String` returned by a user / `.mfb`-bodied function) is
+open and is what still costs the decoders; shape C is
 **larger than this document assumed** — see "Shape C is blocked on recursive
 copy-insertion" below, which is a finding, not an excuse.
-Regression Test: `tests/rt_scope_drop_leaks.rs` (added — builds each minimal
-program at two iteration counts, reads the child's `ru_maxrss` through
+Regression Test: `tests/rt_scope_drop_leaks.rs` (builds each minimal program at
+two iteration counts, reads the child's `ru_maxrss` through
 `common::run_bounded_with_rss`, and asserts peak RSS does not grow with the count;
-plus a positive behaviour pin per shape)
+plus a positive behaviour pin per shape). Shape B adds
+`an_unbound_string_call_result_runs_at_constant_rss`,
+`an_unbound_string_concat_runs_at_constant_rss`,
+`unbound_native_string_producers_run_at_constant_rss`,
+`a_bound_string_call_result_still_runs_at_constant_rss`, and the positive pin
+`every_string_producer_still_produces_the_right_value` — which passes on the
+pre-fix compiler too, so it pins the fix and not the bug.
 
 Three distinct codegen shapes leave arena blocks that are never freed, so a
 program that evaluates them in a loop grows without bound. None is an aliasing
@@ -225,7 +234,7 @@ than a leak. It should be planned (`write-plan`) rather than attempted as a bug
 phase. bug-538's fix is the first piece of it: `collections::get` now deep-copies,
 so the READ side of the class is already independent.
 
-### Shape B — attributed precisely; and csv has a SECOND leak that is not shape B
+### Shape B — attributed precisely (2026-09-04)
 
 Measured on this tree (shape A landed), 400 000 vs 800 000 iterations:
 
@@ -237,42 +246,147 @@ Measured on this tree (shape A landed), 400 000 vs 800 000 iterations:
 | `acc = acc + len(toString(i))` | **25 MB** | **50 MB** | leaks 64 B per evaluation |
 
 So shape B is exactly and only **an unbound String call result**: reassignment and
-binding both already free correctly. That narrows the fix's blast radius but not
-the audit, which is what makes it expensive.
+binding both already free correctly.
 
-**csv's amplification is NOT (only) shape B.** `csv::parse` of 1.26 MB of *empty*
-fields costs +117 MB per repeat call, and of 1.89 MB of two-character fields
-+235 MB. `__csv_decodeRange`'s `out & __encoding_fromCodepoint(cp)` — the shape-B
-site the original report named — runs **zero times** on an empty field, so
-something per-field or per-row leaks as well. That matches the bug-510 agent's note
-that rewriting the csv tokenizer "moved the leak, worse on empty fields". Whoever
-takes shape B should attribute csv's per-field cost first rather than assuming the
-scalar loop is the whole story.
+### Shape B — the NATIVE half is FIXED (2026-09-05)
 
-### Shape B — remains open; the audit is the work
+`register_pending_temp`'s blanket `String` exemption is replaced by **fail-closed
+freshness provenance**, design 1 of the two below.
 
-`register_pending_temp`'s `String` exemption is sound only because a String call
-result's provenance is unknown. The four existing guards
-(`value_is_aliasing_source`, `static_string_value`, `call_returns_rodata_string`,
-`call_returns_param_borrow`) already exclude the known non-fresh producers, so what
-is left is the **native** String-returning lowerings: 49 members declare
-`return_type: ParameterType::String` with an `abi_inline`/`abi_function` body (26
-more are `.mfb`-bodied), plus the generic/overloaded producers (`toString`,
-`collections::get` on a `List OF String`). Each has to be read and proven to return
-a fresh arena block before it can be opted in; freeing a rodata pointer is a SIGBUS
-and freeing a view into an argument corrupts the free list.
+**Mechanism.** A producer that has just `_mfb_arena_alloc`ed the block it is about
+to return calls `CodeBuilder::mark_fresh_string(<that operand>)`.
+`lower_value` clears the mark before lowering a node and `take()`s it after, and
+honours it only when it names **that node's own `ValueResult.location`** — an
+operand's own `lower_value` frame already consumed its mark, so what survives was
+set by this node's emitter, and the identity test rejects an *interior* block a
+lowering allocated but did not return. `register_pending_temp` then frees a bare
+`String` temp only with that mark.
 
-Two designs, both sound, neither attempted here:
+**Deviation from the doc's design 1, and why.** The flag is on the **builder**,
+not on `ValueResult`. `ValueResult` has 333 construction sites here
+(`rg -c 'ValueResult\s*\{' src | ...`, up from the 325 recorded above), and the
+shared String producers return a bare `VirtualRegister` — the `ValueResult` is
+built by the caller, and rebuilt again by most intermediate wrappers. A struct
+field would therefore have been dropped at nearly every site, i.e. fail-closed
+**and inert**. The mark survives those rebuilds because it never travels in the
+value. The safety asymmetry the design exists for is unchanged and is the whole
+argument: **an unmarked producer keeps leaking; nothing unmarked can ever be
+freed.** The four existing guards (`value_is_aliasing_source`,
+`static_string_value`, `call_returns_rodata_string`, `call_returns_param_borrow`)
+are untouched.
 
-1. **Fail-closed provenance** — a `fresh` flag on `ValueResult` set by the shared
-   String emitters (`emit_materialize_string_from_bytes`, `copy_flat_block`, the
-   concat/`toString` runtime helpers), with `register_pending_temp` gating on it. A
-   lowering that loses the flag keeps leaking; it can never wild-free. Cost:
-   `ValueResult` has **325 construction sites**, so the field addition is the bulk
-   of the work.
-2. **An audited allowlist of call targets**, extended one member at a time, seeded
-   with the decoders' producers. Cheaper, and it is what the Fix Design already
-   proposes; the audit is still per-member.
+**Producers opted in**, each by reading its lowering to the `arena_alloc` it
+returns: `emit_materialize_string_from_bytes` (the shared materializer — covers
+`collections::get` on a `List OF String`, `strings::trim`/`trimChars`/`left`/
+`right`/`stripPrefix`/`stripSuffix`/`graphemeAt`, `fs::pathBaseName`/
+`pathExtension`, `toString(Scalar)`), `_mfb_rt_string_concat` (pairwise `&`), the
+fused concat chain, `_mfb_rt_int_to_string`, `_mfb_rt_float_to_string`, the
+`Fixed`/`Money`/`Scalar` out-of-line renderers, the inline `Fixed`/`Money`
+renderers, `toString(List OF Byte)`, `toString(AttributedString)` (its
+`copy_flat_block`), `strings::repeat`/`upper`/`lower`/`caseFold`/`title`
+(`gen_case_map`)/`normalizeNfc`/`join`/`padLeft`/`padRight`/`mid`/`replace`,
+`fs::pathJoin`, `fs::pathNormalize`, `json::sciParts`.
+
+**Producers deliberately NOT opted in** (each would be a wild free):
+
+- `toString(String)` — the `String` arm is the IDENTITY: it hands back its own
+  argument. This is the trap the whole design exists for.
+- `toString(Boolean)`, `typeName`, every constant fold, and the constant-fold
+  early return in `strings::upper`/`lower`/`caseFold`/`normalizeNfc` — rodata.
+- `fs::pathDirName` — one arm yields a rodata constant pointer.
+- The `io::` readers (`abi_function` bodies; their `ValueResult` is the
+  synthesized function's, not the call site's).
+- Any user / `.mfb`-bodied function's return (see below).
+
+**A second, separate leak found and fixed in the same change.**
+`strings::padLeft(s, n)` / `padRight(s, n)` with the default padChar materialize a
+one-byte pad String, copy it into the result and never return it. No
+result-shaped rule can reach an *interior* block, so it is handed to the
+statement-scope free explicitly (`register_fresh_string_temp`). Measured at
+200k/400k calls: 13 MB → 25 MB before, 1 MB → 1 MB after.
+
+**Measured, 400 000 vs 800 000 iterations, before → after:**
+
+| loop body | before | after |
+| --- | --- | --- |
+| `acc = acc + len(toString(i))` | 25 MB → 50 MB | 1 MB → 1 MB |
+| `acc = acc + len("x" & toString(i) & "y")` | 93 MB → 191 MB | 1 MB → 1 MB |
+| the 8 native producers together (100k/200k) | 224 MB → 447 MB | 1 MB → 1 MB |
+| `LET t = toString(i)` + `strings::padLeft` + `s = toString(i) & "-"` | 50 MB → 99 MB | 1 MB → 1 MB |
+
+### csv's per-field cost IS shape B — the CALLEE half, not a separate defect
+
+The previous revision of this document recorded that "csv has a SECOND leak that
+is NOT shape B", reasoning that `__csv_decodeRange`'s
+`out & __encoding_fromCodepoint(cp)` runs zero times on an empty field. **That
+conclusion is wrong.** The site that leaks is one level up, in `__csv_parse`:
+
+```
+row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
+```
+
+`__csv_fieldValue` returns a `String`; the call result is never bound, `append`
+copies its bytes into the row's payload, and nothing frees the block. That is
+shape B exactly — the producer is simply a **user-level (`.mfb`-bodied)**
+function rather than a native one, and native provenance cannot see through it.
+
+Reproduced standalone (200k vs 400k iterations, post-fix compiler):
+
+```
+FUNC mkEmpty(i AS Integer) AS String
+  MUT out AS String = ""
+  RETURN out
+END FUNC
+...
+xs = collections::append(xs, mkEmpty(j))          ' 14 MB -> 27 MB   (68 B/iter)
+LET fv AS String = mkEmpty(j)                      ' 1 MB  ->  1 MB
+xs = collections::append(xs, fv)
+```
+
+Binding the result makes it flat; leaving it unbound leaks 68 B per empty
+String. `csv::parse` of 1.26 MB of empty fields (63 000 rows x 20 fields =
+1 260 000 fields) costs +123 MB per repeat call — 98 B per field including
+fragmentation — and is **unchanged by this fix** (544 / 667 / 913 MB at 1 / 2 / 4
+calls, byte-identical before and after), which is the expected result for a
+native-only provenance fix and confirms the attribution.
+
+### Shape B — what remains: callee-side freshness (shape B-2)
+
+A `String` returned by a user / `.mfb`-bodied function cannot be freed by the
+caller today, because a callee may return a non-fresh block on some path:
+
+1. `RETURN "literal"` — a rodata pointer (`arena_free` on it is SIGBUS).
+2. `RETURN <param>` — already handled: `function_returns_param_borrow` (plan-86
+   K1) classifies such a call as an aliasing source, so it is neither freed nor
+   double-copied.
+3. `RETURN toString(s)` where `s` is a `String` parameter — the identity arm
+   returns the argument, and case 2's predicate does **not** see through the
+   call. This is a live counter-example, verified by measurement: a probe with
+   `FUNC ident(s AS String) AS String RETURN toString(s) END FUNC` is flat at
+   both counts precisely because nothing is allocated — freeing its result would
+   free the CALLER's live `String`.
+4. `RETURN <global>` — an alias into a global's block.
+
+The sound fix is a callee-side NIR predicate in the shape of
+`function_returns_param_borrow` — `function_returns_fresh_string(f)`, computed
+over `f.body` before lowering so it is order-independent, requiring EVERY
+`NirOp::Return` to be provably fresh, with a fixpoint over calls to other user
+functions and a seed set of native producers (the `mark_fresh_string` list above).
+`RETURN <owned String local>` is the easy arm (every String bind deep-copies an
+aliasing source, so the local owns its own block and `plan_returned_move` moves
+it), and it alone fixes `__csv_decodeRange`; it does NOT fix `csv::parse`, whose
+leaking site calls `__csv_fieldValue`, which itself returns call results — so the
+transitive form is what the decoders need. Getting it wrong is a double free of
+the caller's live String, not a leak, so it wants its own change with its own
+audit rather than being bolted on here.
+
+Two designs were on the table; design 1 is what landed for natives, and design 2
+remains rejected:
+
+1. **Fail-closed provenance** — landed (see above).
+2. **An audited allowlist of call targets** — rejected: it has the same
+   per-member audit cost with none of the structural proof, and it cannot
+   express "this block came from the alloc two lines up".
 
 ## Root Cause
 
@@ -308,11 +422,13 @@ returned as-is. A fresh **call** result of record type takes the same
 re-materialisation path as a constructor and leaks identically (measured above);
 the shape is therefore "RETURN of any fresh, non-local record/union value".
 
-**Shape B** — `register_pending_temp` returns early for `result.type_ == String`
+**Shape B** — `register_pending_temp` returned early for `result.type_ == String`
 ("a standalone String produced by a call may be a shared rodata constant … or a
 non-owned view … String temps therefore leak until scope exit", plan-25). They
-do not leak "until scope exit" — nothing tracks them, so they leak for the life
-of the process. A bound String (`LET s = toString(i)`) is owned by the binding's
+did not leak "until scope exit" — nothing tracked them, so they leaked for the
+life of the process. FIXED for native producers by the freshness mark above; a
+producer with no mark still takes the early return, which is why the user-callee
+half (shape B-2) remains. A bound String (`LET s = toString(i)`) is owned by the binding's
 `OwnedValue` cleanup and freed; an unbound one consumed by `&`, a comparison, a
 call argument or a `MATCH` never is. In the decoders: `csv/helper_decode_range.rs`
 (`out & __encoding_fromCodepoint(cp)`, once per scalar),
@@ -449,11 +565,20 @@ Commit: —
 
 ### Phase 4 — shape B
 
-- [ ] Static-string return copy; lift the String exemption for `.mfb` call
-      results; audit and opt in native String producers one at a time.
+- [x] Audit and opt in the **native** String producers one at a time, behind
+      fail-closed provenance (`mark_fresh_string`). 23 producers opted in, 5
+      classes deliberately excluded; `strings::padLeft`/`padRight`'s interior pad
+      String freed via `register_fresh_string_temp`.
+- [ ] **Shape B-2, open:** callee-side `function_returns_fresh_string` so a
+      `String` returned by a user / `.mfb`-bodied function may be freed by its
+      caller. This is what `csv::parse` / `json::parse` / `regex::findAll` need;
+      the static-string return copy the Fix Design proposes is one half of it and
+      is not sufficient on its own (`RETURN toString(s)` still returns the
+      argument).
 
-Acceptance: the shape-B test passes; `csv::parse` ×2 ≈ ×1 + rows.
-Commit: —
+Acceptance: the four shape-B RSS tests pass (they do); `csv::parse` ×2 ≈ ×1 + rows
+(NOT yet — blocked on B-2).
+Commit: (branch `bug-536-shape-b`)
 
 ### Phase 5 — regenerate expected outputs + full validation
 

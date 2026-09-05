@@ -264,6 +264,10 @@ pub(crate) fn lower(
     builder.emit(abi::store_u8(byte, &scratch13, 0));
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    // bug-536 shape B: the joined String is this lowering's own
+    // `emit_arena_alloc_call` block (`result_slot`); every element was copied
+    // into it, so nothing of the list's storage is handed back.
+    builder.mark_fresh_string(Operand::from(result.render()));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

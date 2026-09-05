@@ -296,6 +296,10 @@ pub(crate) fn lower_strings_case_map(
     builder.emit(abi::label(&case_done));
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    // bug-536 shape B: the case-mapped output is this lowering's own
+    // `emit_arena_alloc_call` block (`result_slot`), written by the pass above —
+    // never the input's storage.
+    builder.mark_fresh_string(Operand::from(result.render()));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

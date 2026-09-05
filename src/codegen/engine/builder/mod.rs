@@ -306,6 +306,31 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
+    /// bug-536 shape B: the location of a `String` block this builder has just
+    /// **provably freshly allocated** — set by the shared String producers
+    /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
+    /// `toString` formatter helpers) immediately after the `arena_alloc` whose
+    /// block they return, and consumed by the very next `lower_value` that
+    /// finishes lowering a node.
+    ///
+    /// This is fail-closed provenance, and the asymmetry is the whole safety
+    /// argument. `register_pending_temp` frees a bare `String` temp only when
+    /// this mark names the same operand the node's `ValueResult` carries; a
+    /// producer that does not set it (a `RETURN "literal"` rodata pointer, the
+    /// `toString(String)` identity arm that hands back its *argument*, a
+    /// `strings::*` view into a parameter) keeps the pre-existing leak, which is
+    /// bounded and safe. Freeing one of those instead would be a wild
+    /// `arena_free` — SIGBUS on rodata, free-list corruption on a borrow.
+    ///
+    /// It lives on the builder rather than on `ValueResult` deliberately: the
+    /// producers return a bare `VirtualRegister`, and the 333 `ValueResult`
+    /// literals between them and `lower_value` would each have to re-thread a
+    /// struct field, so the flag would be dropped (and the fix inert) at almost
+    /// every site. Staleness is impossible because `lower_value` clears the mark
+    /// before lowering a node and takes it after, and honours it only when it
+    /// names that node's own result operand — the vregs the producers return are
+    /// freshly allocated, so no unrelated value can wear one.
+    pub(crate) fresh_string_block: Option<Operand>,
     /// bug-496: addresses (`&NirValue as usize`) of the operand nodes of every
     /// multi-operand value currently being lowered that must be **snapshotted**
     /// before a later sibling operand runs. Pushed by `lower_value` on entry to a
@@ -523,6 +548,7 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
+            fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
             for_each_iterable_state_fields: Vec::new(),

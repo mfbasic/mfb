@@ -2285,6 +2285,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(&scratch15, &scratch13, 0));
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: this block came from the `emit_arena_alloc_call`
+        // above and nothing else holds it, so a caller that returns it verbatim
+        // as its value's result is handing back a fresh, unaliased String. The
+        // mark only takes effect if `lower_value` sees this exact operand as the
+        // node's result (`mark_fresh_string`), so the callers that materialize an
+        // *interior* String and return something else stay opted out.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(result)
     }
 }

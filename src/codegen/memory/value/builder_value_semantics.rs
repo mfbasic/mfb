@@ -750,6 +750,11 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
 
+        // bug-536 shape B: `_mfb_rt_string_concat` arena-allocates the result and
+        // copies both operands' bytes into it (`lower_string_concat_helper`), so
+        // the block is fresh and unaliased — neither operand's storage is handed
+        // back. An unbound `a & b` may therefore be freed at statement end.
+        self.mark_fresh_string(Operand::from(result_ptr.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -864,6 +869,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(byte, "Integer", "0"));
         self.emit(abi::store_u8(byte, write_cur, 0));
 
+        // bug-536 shape B: the one `emit_arena_alloc_call` in step 3 is this
+        // block's only allocation and every operand was *copied* into it, so the
+        // fused chain's result is as fresh as the pairwise form's.
+        self.mark_fresh_string(Operand::from(result_ptr.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,

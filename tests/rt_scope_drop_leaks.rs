@@ -204,3 +204,238 @@ fn every_return_shape_still_produces_the_right_value() {
     assert_eq!(out.trim(), expected, "a RETURN shape changed its value");
     let _ = std::fs::remove_dir_all(&project);
 }
+
+// ---------------------------------------------------------------- shape B
+
+/// `acc = acc + len(toString(i))` — a `String` produced by a call and consumed
+/// by an operator, never bound. `register_pending_temp` returned early for every
+/// `String`, so nothing ever freed the block: 25 MB at 400k evaluations, 50 MB at
+/// 800k (measured on the pre-fix compiler). The fix gives the shared String
+/// producers fail-closed provenance (`mark_fresh_string`) so this one is freed at
+/// statement end.
+const SHAPE_B_CALL_RESULT: &str = "IMPORT io\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(toString(i))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The same shape through the concatenation operator: `"x" & toString(i) & "y"`
+/// allocates the fused chain's block and hands it straight to `len`.
+const SHAPE_B_CONCAT: &str = "IMPORT io\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  WHILE i < {N}\n\
+    acc = acc + len(\"x\" & toString(i) & \"y\")\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The native `strings::` producers, unbound. `strings::padLeft(s, n)` also
+/// leaked an INTERIOR block — the one-byte default pad String it materializes and
+/// copies into its result — which no result-shaped fix can reach; it is freed by
+/// `register_fresh_string_temp`.
+const SHAPE_B_NATIVE_PRODUCERS: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+SUB main()\n\
+  MUT names AS List OF String = []\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < 40\n\
+    names = collections::append(names, \"name\" & toString(k))\n\
+    k = k + 1\n\
+  END WHILE\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  MUT sink AS String = \"seed\"\n\
+  WHILE i < {N}\n\
+    acc = acc + len(collections::get(names, i MOD 40))\n\
+    acc = acc + len(strings::trim(sink & \"  \"))\n\
+    acc = acc + len(strings::left(collections::get(names, i MOD 40), 2))\n\
+    acc = acc + len(strings::padLeft(toString(i), 12))\n\
+    acc = acc + len(strings::upper(sink & \"z\"))\n\
+    acc = acc + len(strings::mid(sink & \"abcdef\", 1, 3))\n\
+    acc = acc + len(strings::replace(sink & \"abc\", \"a\", \"zz\"))\n\
+    acc = acc + len(strings::join(names, \",\"))\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+/// The bug report's contrast line — binding the call result already freed it —
+/// wrapped around the two shapes that did NOT: the `toString(i)` operand inside
+/// `toString(i) & "-"`, and `strings::padLeft`'s interior pad String. It is
+/// therefore RED pre-fix too (128 B per iteration: 50 MB at 400k, 99 MB at 800k).
+///
+/// What it pins is the other half: the fix now ALSO registers the *bound*
+/// results as temps, and `lower_value_owned`'s `claim_pending_temp` is the only
+/// thing keeping that from becoming a second free. If the claim ever stopped
+/// matching, this program would abort on a double free rather than leak.
+const SHAPE_B_CONTRAST_BOUND: &str = "IMPORT io\n\
+IMPORT strings\n\
+SUB main()\n\
+  MUT i AS Integer = 0\n\
+  MUT acc AS Integer = 0\n\
+  MUT s AS String = \"\"\n\
+  WHILE i < {N}\n\
+    LET t AS String = toString(i)\n\
+    LET u AS String = strings::padLeft(t, 9)\n\
+    s = toString(i) & \"-\"\n\
+    acc = acc + len(t) + len(u) + len(s)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"acc=\" & toString(acc))\n\
+END SUB\n";
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_string_call_result_runs_at_constant_rss() {
+    assert_flat("b536_shape_b_call", SHAPE_B_CALL_RESULT, 400_000, 800_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unbound_string_concat_runs_at_constant_rss() {
+    assert_flat("b536_shape_b_concat", SHAPE_B_CONCAT, 400_000, 800_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn unbound_native_string_producers_run_at_constant_rss() {
+    assert_flat(
+        "b536_shape_b_native",
+        SHAPE_B_NATIVE_PRODUCERS,
+        100_000,
+        200_000,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bound_string_call_result_still_runs_at_constant_rss() {
+    assert_flat(
+        "b536_shape_b_bound",
+        SHAPE_B_CONTRAST_BOUND,
+        400_000,
+        800_000,
+    );
+}
+
+/// The positive behaviour pin for shape B, and the one that matters most: the
+/// fix ADDS `arena_free`s, so the failure mode it risks is a **wild free**, not a
+/// leak. Every String kind the guards deliberately exclude is exercised here
+/// unbound and in a churning loop, so a block freed by mistake is either read
+/// back wrong or corrupts the free list and faults a later allocation:
+///
+/// * a rodata literal returned from a callee (`lit`) — `arena_free` on rodata is
+///   SIGBUS;
+/// * `toString(String)`, whose `String` arm hands back its own ARGUMENT (`ident`);
+/// * a callee that returns one of its parameters (`pick`) — the plan-86 K1
+///   param-borrow;
+/// * a `String` element read out of a `List OF String`, whose container must
+///   survive the read;
+/// * `strings::*` results both bound and unbound, mixed;
+/// * a live `MUT String` reassigned every iteration, and a fresh list allocated
+///   every iteration so a corrupted free list surfaces as a later fault.
+const SHAPE_B_BEHAVIOUR: &str = "IMPORT io\n\
+IMPORT collections\n\
+IMPORT strings\n\
+FUNC pick(a AS String, b AS String, useA AS Boolean) AS String\n\
+  IF useA THEN\n    RETURN a\n  END IF\n  RETURN b\n\
+END FUNC\n\
+FUNC lit(i AS Integer) AS String\n\
+  IF i MOD 2 = 0 THEN\n    RETURN \"even-literal\"\n  END IF\n  RETURN \"odd-literal\"\n\
+END FUNC\n\
+FUNC ident(s AS String) AS String\n  RETURN toString(s)\nEND FUNC\n\
+SUB main()\n\
+  MUT names AS List OF String = []\n\
+  MUT k AS Integer = 0\n\
+  WHILE k < 8\n\
+    names = collections::append(names, \"name\" & toString(k))\n\
+    k = k + 1\n\
+  END WHILE\n\
+  MUT total AS Integer = 0\n\
+  MUT sink AS String = \"seed\"\n\
+  MUT i AS Integer = 0\n\
+  WHILE i < 2000\n\
+    total = total + len(toString(i))\n\
+    total = total + len(\"x\" & toString(i) & \"y\")\n\
+    total = total + len(lit(i))\n\
+    total = total + len(ident(sink))\n\
+    total = total + len(pick(sink, \"fallback\", i MOD 3 = 0))\n\
+    total = total + len(collections::get(names, i MOD 8))\n\
+    total = total + len(\"plain\")\n\
+    IF collections::get(names, i MOD 8) = \"name7\" THEN\n\
+      total = total + 1\n\
+    END IF\n\
+    total = total + len(strings::trim(\"  pad  \"))\n\
+    total = total + len(strings::left(collections::get(names, i MOD 8), 2))\n\
+    total = total + len(strings::padLeft(toString(i), 12))\n\
+    LET bound AS String = strings::upper(sink)\n\
+    total = total + len(bound)\n\
+    sink = \"S\" & toString(i MOD 7)\n\
+    LET churn AS List OF Integer = [i, i + 1, i + 2]\n\
+    total = total + collections::get(churn, 2)\n\
+    i = i + 1\n\
+  END WHILE\n\
+  io::print(\"total=\" & toString(total))\n\
+  io::print(\"sink=\" & sink)\n\
+  io::print(\"names=\" & collections::get(names, 0) & \",\" & collections::get(names, 7))\n\
+  io::print(\"lit=\" & lit(2) & \",\" & lit(3))\n\
+  io::print(\"pick=\" & pick(\"A\", \"B\", true) & pick(\"A\", \"B\", false))\n\
+  io::print(\"pad=[\" & strings::padLeft(\"7\", 4) & \"]\")\n\
+END SUB\n";
+
+#[test]
+fn every_string_producer_still_produces_the_right_value() {
+    let project = common::temp_project("b536_shape_b_behaviour", SHAPE_B_BEHAVIOUR);
+    let exe = common::build_project(&project);
+    let output = std::process::Command::new(&exe)
+        .output()
+        .expect("run the behaviour probe");
+    assert!(
+        output.status.success(),
+        "{}",
+        common::exit_description(&output.status)
+    );
+    let out = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let mut total: i64 = 0;
+    let mut sink = String::from("seed");
+    for i in 0..2000i64 {
+        total += i.to_string().len() as i64;
+        total += format!("x{i}y").len() as i64;
+        total += if i % 2 == 0 { 12 } else { 11 };
+        total += sink.len() as i64;
+        total += if i % 3 == 0 {
+            sink.len() as i64
+        } else {
+            "fallback".len() as i64
+        };
+        total += format!("name{}", i % 8).len() as i64;
+        total += "plain".len() as i64;
+        if i % 8 == 7 {
+            total += 1;
+        }
+        total += "pad".len() as i64;
+        total += 2;
+        total += 12;
+        total += sink.to_uppercase().len() as i64;
+        sink = format!("S{}", i % 7);
+        total += i + 2;
+    }
+    let expected = format!(
+        "total={total}\nsink={sink}\nnames=name0,name7\nlit=even-literal,odd-literal\npick=AB\npad=[   7]"
+    );
+    assert_eq!(
+        out.trim(),
+        expected,
+        "a String producer changed its value — a freed block was read back"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}

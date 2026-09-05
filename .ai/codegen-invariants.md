@@ -133,6 +133,57 @@ Load-bearing gotchas:
 - The elision is INVISIBLE to `.ir`/`.ast` (a codegen-only decision) but churns `.ncode` for every fixture containing a passthrough function; a fresh-returning function (`RETURN append(xs,…)`, a `Call` not a bare param) is correctly NOT marked.
 - Measured: the benchmark `list (Dynamic) copy` pattern (`len(copyStrs(base))` over a 1000-element String list) went from a full-list deep-copy per call to a pointer return — a ~2900x drop on the isolated micro-bench. Related: collection memory management and the read-only element-borrow twin (get-borrow pending-temp + MATCH-desugar).
 
+## Bare `String` temps: fail-closed freshness provenance, not a call-target allowlist
+
+plan-25's `register_pending_temp` exempted **every** `String` result from the
+statement-scope free, because a String produced by a call may be a shared rodata
+constant, an alias of an argument, or a view into a container. So an *unbound*
+String — `acc = acc + len(toString(i))`, `out & fromCodepoint(cp)`, a comparison
+operand, a `MATCH` scrutinee — had no owner at all and leaked for the life of the
+process (bug-536 shape B, 64 B per evaluation).
+
+The fix is a **freshness mark on the builder**, not a flag on `ValueResult` and
+not a list of blessed call targets:
+
+- A producer that has just `_mfb_arena_alloc`ed the block it is about to return
+  calls `mark_fresh_string(<that operand>)`.
+- `lower_value` clears the mark before lowering a node and `take()`s it after, and
+  honours it only when it names **that node's own result operand**. An operand's
+  own `lower_value` frame already consumed its mark, so what survives was set by
+  this node's emitter, and the identity test rejects an *interior* block the
+  lowering allocated but did not return.
+- `register_pending_temp` frees a bare `String` only with that mark.
+
+Why the builder and not `ValueResult`: the producers return a bare
+`VirtualRegister`, and there are 333 `ValueResult` literals in the tree
+(`rg -c 'ValueResult\s*\{'`). A struct field would be dropped by almost every
+intermediate rebuild between the emitter and `lower_value`, so it would be
+fail-closed **and inert**. The mark survives those rebuilds because it never
+travels in the value.
+
+The asymmetry is the entire safety argument, so keep it: **an unmarked producer
+keeps leaking; nothing unmarked can ever be freed.** Freeing a rodata String is
+SIGBUS (the free list is written into read-only memory) and freeing a view into
+an argument or a container corrupts the free list, surfacing much later as
+"Allocation failed". Traps found while opting producers in:
+
+- `toString(String)` is the IDENTITY arm — it hands back its own argument. Not fresh.
+- `toString(Boolean)`, `typeName`, every constant fold, and `strings::upper/lower/caseFold/normalizeNfc`'s
+  constant-fold early return load a rodata pointer. Not fresh.
+- `fs::pathDirName` has one arm that yields a rodata constant and one that
+  materializes. Not fresh (its siblings `pathBaseName`/`pathExtension` materialize
+  on every path and are).
+- `strings::padLeft/padRight` with the default padChar allocate an INTERIOR
+  one-byte pad String that is copied into the result and never returned. No
+  result-shaped rule can reach it — that one is handed to the statement free
+  explicitly with `register_fresh_string_temp`.
+- A **user/`.mfb`-bodied** function returning `String` is NOT covered: `RETURN
+  "literal"` yields rodata and `RETURN toString(s)` yields the argument, so
+  freeing a user call result needs a callee-side NIR predicate (the shape of
+  `function_returns_param_borrow`) that does not exist yet. This is what still
+  makes `csv::parse` / `json::parse` / `regex::findAll` leak per field — see
+  bug-536.
+
 ## Producer-side `Operand::imm` is an allocation trap
 
 Replacing `.field("imm"/"offset", &n.to_string())` (builds `Operand::Raw`) with a typed `Operand::imm(n)` at the PRODUCER is not automatically an allocation win, and is often a net LOSS. The trap: `Operand::rendered()` (operand.rs) returns `Cow::Borrowed` for `Raw`/`Phys` (0 alloc) but `Cow::Owned(render())` for `Imm`/`VReg` — so `Imm::rendered()` allocates a fresh `String` every call.

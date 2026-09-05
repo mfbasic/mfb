@@ -179,6 +179,10 @@ pub(crate) fn lower(
     builder.emit(abi::label(&invalid));
     builder.raise_error("strings.repeat", "ErrInvalidArgument")?;
     builder.emit(abi::label(&after));
+    // bug-536 shape B: `result_slot` was written from this lowering's own
+    // `emit_arena_alloc_call` and the source bytes were copied in, so the block
+    // is fresh and unaliased.
+    builder.mark_fresh_string(Operand::from(result.render()));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

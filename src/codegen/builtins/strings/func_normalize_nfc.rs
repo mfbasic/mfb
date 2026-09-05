@@ -561,6 +561,10 @@ pub(crate) fn lower(
     builder.emit(abi::label(&nfc_done));
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    // bug-536 shape B: the normalized output is this lowering's own
+    // `emit_arena_alloc_call` block (`result_slot`). The constant-fold early
+    // return above loads a rodata pointer and is deliberately NOT marked.
+    builder.mark_fresh_string(Operand::from(result.render()));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

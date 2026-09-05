@@ -311,6 +311,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));
 
+        // bug-536 shape B: BOTH arms put a fresh block in `result` — the
+        // replacing arm its own `emit_arena_alloc_call`, the no-match arm the
+        // `copy_flat_block` right above (which exists precisely so the result is
+        // never an alias of the input).
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -918,6 +923,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&text_ptr, &value_register, 0));
                 self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
                 let copied = self.copy_flat_block(&ParameterType::String, &text_ptr)?;
+                // bug-536 shape B: `copied` is the `copy_flat_block` above —
+                // a fresh arena block, deliberately not the record's inlined
+                // text field.
+                self.mark_fresh_string(Operand::from(copied.render()));
                 Ok(ValueResult {
                     origin: None,
                     type_: ParameterType::String,
@@ -986,6 +995,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_int_to_string` renders into its own stack
+        // buffer, `_mfb_arena_alloc`s the String block and copies the digits in
+        // (`lower_int_to_string_helper`); the argument is an Integer, so no
+        // caller storage can be aliased. Fresh — an unbound `toString(i)` is
+        // freed at statement end.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1230,6 +1245,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(byte, dst, 0));
         self.emit(abi::load_u64(result, abi::stack_pointer(), result_slot));
 
+        // bug-536 shape B: `result_slot` holds this lowering's own
+        // `emit_arena_alloc_call` block, with the list's bytes copied in.
+        self.mark_fresh_string(Operand::from(result.to_string()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1720,6 +1738,9 @@ impl CodeBuilder<'_> {
 
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: the rendered decimal is this lowering's own
+        // `result_slot` allocation; the argument is a scalar.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1910,6 +1931,9 @@ impl CodeBuilder<'_> {
 
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        // bug-536 shape B: the rendered decimal is this lowering's own
+        // `result_slot` allocation; the argument is a scalar.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1948,6 +1972,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_float_to_string` ends in an
+        // `_mfb_arena_alloc` + copy of its own digit buffer (`float_format.rs`),
+        // and its argument is an f64 bit pattern — nothing of the caller's can
+        // come back. Fresh.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1983,6 +2012,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: `_mfb_rt_float_to_string_sci` ends in an
+        // `_mfb_arena_alloc` (`float_format_sci.rs`) and takes an f64 bit
+        // pattern, so its String is fresh.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,

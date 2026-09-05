@@ -82,12 +82,22 @@ impl CodeBuilder<'_> {
         // bug-496: note which of this node's operands must be snapshotted before
         // a later sibling's call can reassign the storage they point into.
         let snapshot_mark = self.push_operand_snapshot_frame(value);
+        // bug-536 shape B: drop any fresh-String mark left by an emitter that ran
+        // outside a `lower_value` frame, so this node can only ever be credited
+        // with provenance its own lowering established.
+        self.fresh_string_block = None;
         let result = self.lower_value_inner(value);
+        // The mark a producer set while lowering THIS node. An operand's own
+        // `lower_value` cleared and consumed its mark before returning, so what
+        // survives here was set after the last operand — by this node's own
+        // emitter.
+        let fresh_string = self.fresh_string_block.take();
         self.operand_snapshot_wanted.truncate(snapshot_mark);
         crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
-            self.register_pending_temp(value, result);
+            let fresh_string = fresh_string.is_some_and(|block| block == result.location);
+            self.register_pending_temp(value, result, fresh_string);
         }
         // bug-496: if THIS value is such an operand of the enclosing node, hand
         // its consumer a statement-scope deep copy instead of the live pointer.
@@ -108,10 +118,17 @@ impl CodeBuilder<'_> {
     /// fix). Only *fresh arena blocks* qualify — exactly the values copy-insertion
     /// treats as ownable without a copy: not an aliasing source / static string
     /// (`value_needs_owning_copy`), not runtime-managed (thread-owned), and a
-    /// freeable-flat type. The block pointer is spilled to a fresh slot so the
+    /// freeable-flat type. A bare `String` additionally needs `fresh_string`
+    /// provenance from its producer (bug-536 shape B; see `mark_fresh_string`).
+    /// The block pointer is spilled to a fresh slot so the
     /// eventual `arena_free` survives the intervening register clobbers; the live
     /// register in `result` is left untouched for the immediate consumer.
-    fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+    fn register_pending_temp(
+        &mut self,
+        value: &NirValue,
+        result: &ValueResult,
+        fresh_string: bool,
+    ) {
         // plan-86 E: a read-only `get`-borrow returns an ALIAS into the container's
         // data region (not a fresh block), so it must NOT be registered for the
         // statement-scope free — freeing it would `arena_free` INTO the container and
@@ -132,17 +149,24 @@ impl CodeBuilder<'_> {
         {
             return;
         }
-        // A bare `String` result is conservatively NOT freed here (plan-25). A
-        // record/union/Result/collection temp is a self-contained fresh arena
-        // block (a nested `String` field is byte-inlined, so one `arena_free`
-        // reclaims it), but a *standalone* `String` produced by a call may be a
-        // shared rodata constant NOT loaded through the tracked static-string
-        // path, or a non-owned view into an argument — indistinguishable from a
-        // fresh block at this point, and freeing one is a wild `arena_free` that
-        // corrupts the arena. String temps therefore leak until scope exit as
-        // they did pre-plan-25; the benchmark's poison is large *list* temps,
-        // which are freed.
-        if result.type_ == ParameterType::String {
+        // A bare `String` result is freed here only with **provenance**
+        // (bug-536 shape B). A record/union/Result/collection temp is a
+        // self-contained fresh arena block (a nested `String` field is
+        // byte-inlined, so one `arena_free` reclaims it), but a *standalone*
+        // `String` produced by a call may be a shared rodata constant NOT loaded
+        // through the tracked static-string path, or a non-owned view into an
+        // argument — freeing one is a wild `arena_free` (SIGBUS on rodata,
+        // free-list corruption on a borrow). plan-25 therefore exempted every
+        // String, which made `acc = acc + len(toString(i))` leak 64 bytes per
+        // evaluation for the life of the process.
+        //
+        // `fresh_string` is set only when the shared String producers
+        // (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
+        // `toString` formatter helpers — each of which returns the block of an
+        // `arena_alloc` it just made) marked THIS node's own result operand. It
+        // is fail-closed: a producer that does not mark keeps the old leak, and
+        // no unmarked value can ever be freed here.
+        if result.type_ == ParameterType::String && !fresh_string {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
@@ -151,6 +175,43 @@ impl CodeBuilder<'_> {
             type_: result.type_.clone(),
             slot,
             location: result.location.clone(),
+        });
+    }
+
+    /// bug-536 shape B: record that `block` names a `String` arena block this
+    /// builder has **just allocated** and that no other owner holds — the sole
+    /// way a bare `String` temp becomes eligible for the statement-scope free.
+    ///
+    /// Call it only from a producer that (a) allocated the block itself through
+    /// `_mfb_arena_alloc` on the path that reaches this call, and (b) returns
+    /// exactly this operand as the value's result. `lower_value` re-checks (b) by
+    /// comparing the mark against the node's own `ValueResult.location`, so a
+    /// producer that materializes an *interior* String (a pad character, a merge
+    /// key written into a payload) and returns something else is not opted in —
+    /// its mark simply fails to match and the value keeps leaking, which is the
+    /// safe direction.
+    pub(crate) fn mark_fresh_string(&mut self, block: impl Into<Operand>) {
+        self.fresh_string_block = Some(block.into());
+    }
+
+    /// Register an **interior** fresh `String` block — one a lowering allocates
+    /// for its own use and never returns — for the statement-scope free.
+    ///
+    /// `mark_fresh_string` cannot cover these: it is honoured only when the
+    /// marked operand IS the value's result, and an interior block by definition
+    /// is not. Without this the block has no owner at all and leaks for the life
+    /// of the process (`strings::padLeft(s, n)` with the default padChar leaked
+    /// its one-byte pad String on every call — bug-536 shape B). The caller must
+    /// have allocated the block itself on the path reaching this call, exactly as
+    /// for `mark_fresh_string`.
+    pub(crate) fn register_fresh_string_temp(&mut self, block: impl Into<Operand>) {
+        let location = block.into();
+        let slot = self.allocate_stack_object("pending_temp", 8);
+        self.emit(abi::store_u64(&location, abi::stack_pointer(), slot));
+        self.pending_temp_frees.push(PendingTemp {
+            type_: ParameterType::String,
+            slot,
+            location,
         });
     }
 

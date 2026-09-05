@@ -216,6 +216,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
+        // bug-536 shape B: each of the three synthesized renderers ends in
+        // `emit_decimal_alloc_and_copy_integer` / `emit_materialize_string_from_bytes`
+        // (the module doc above establishes both are allocation-only), and each
+        // takes a scalar argument, so the returned block is fresh and unaliased.
+        self.mark_fresh_string(Operand::from(result.render()));
         Ok(ValueResult {
             origin: None,
             type_: ParameterType::String,
