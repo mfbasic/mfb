@@ -1701,15 +1701,40 @@ moment the letter before it lands. Verify with
 
 ## Summary
 
-This letter is small in code and unusually large in preconditions. The feature request
-describes it in terms of a world that does not exist — `Picture` holding a `RES Image`
-— and the honest treatment is a hard prerequisite on plan-114 rather than a fallback,
-a dual-mode design, or quietly implementing the vacuous version and calling it done.
-plan-116-G already ships groups in full, including the lifetime gate this letter hooks
-into; what is added here is only *who closes the resources and when*. The parts worth
-real care are two: whether a process-global, second-thread-readable group buffer counts
-as a transfer under plan-114's rules — which decides whether `Image` and `Font` need the
-record-tail audit `mod.rs`'s `Image` resource (`live_slots`) says they have never had — and whether
-`.ai/canvas-threading.md` §7's "presenting a stale handle draws nothing" survives
-`Picture` becoming a resource. Both are scheduled as Phase 1 reading tasks, because
-both are assumptions that would otherwise be inherited silently.
+*Rewritten 2026-09-04, at the end of the letter. What it said: "small in code and
+unusually large in preconditions … what is added here is only who closes the resources
+and when", with the two hard parts being the transfer question and §7's stale-handle
+paragraph. **Both of those turned out to be twenty-minute reading tasks, and neither was
+where the letter's difficulty was.** The original text is preserved in the git history of
+this file; leaving it standing would misdirect anyone reading this letter as precedent.*
+
+**It was not small in code.** §3 called itself *"deliberately small"* and listed three
+pieces; two of them turned out to be nothing — the transfer question was a question with
+an answer (**J5**), and `setGroup`'s copy already produced the alias (**J4**) — and a
+fourth piece was missing entirely: **`setGroup` has to *move* the resources out of the
+caller's bindings**, or the Goal's headline promise cannot hold. Scope-drop closes a `RES`
+its binding still owns, and a group holding an alias does nothing to stop that. That move
+is new analysis in the compiler (`ir::verify`'s directed containment relation, **J12**),
+plus a codegen deactivation, plus a registry seam — and the analysis half alone does not
+suffice, because `moved` is a verification set that codegen never consults.
+
+**And the design's hard part was not lifetime at all — it was *aliasing*.** Closing is
+global: one `closed` word per resource record, so a group closing "its" image closes it for
+every holder, which then silently draws nothing. Three ordinary programs hit this, and one
+of them is the shape every real canvas application has — a group rebuilt each frame from
+one long-lived font (**J14**). The rule the letter ships is therefore not "the group closes
+what its buffer named" but **"close only what nothing live names"**, where *live* is the
+scene about to be published plus every group's live items (**J15**). §3 named this hazard
+in prose and then addressed it in none of its three pieces (**J8**) — which is the single
+most useful thing to carry forward from this letter.
+
+**The prerequisite that actually bit was one nobody listed.** `canvas::Picture` draws
+nothing on any backend (**J11**), so two acceptance clauses could not discriminate a
+correct implementation from a broken one, and the natural test — install a `Picture`, drop
+the binding, check it still draws — renders black either way. Every behavioural test here
+is built on a `Font` instead, and each ships a *control* proving the observable can move,
+because a green assertion that could not have failed is worse than no assertion.
+
+What plan-116-G supplied was real and load-bearing: the drain gate, the retire-then-free
+discipline, and `groupBytes=` as a window onto worker-owned state. This letter hooks into
+all three and adds the resource dimension to each.
