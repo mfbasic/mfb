@@ -236,6 +236,20 @@ pub fn code_for_src_mode(
     code_for_src_with(source, target, build_mode, Default::default())
 }
 
+/// [`code_for_src_mode`], but returning the compiler's message instead of
+/// panicking.
+///
+/// A corpus sweep needs this: the panic a failed lowering raises carries the
+/// compiler's message but not the FIXTURE, and "some program does not lower on
+/// macos-aarch64" is not actionable across four hundred of them.
+pub fn try_code_for_src(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    try_code_for_src_with(source, target, build_mode, Default::default())
+}
+
 /// [`code_for_linking_src`], but returning the compiler's message instead of
 /// panicking.
 ///
@@ -248,7 +262,21 @@ pub fn try_code_for_linking_src(
     target: CodeTarget,
     libraries: &[&str],
 ) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
-    let table = link_library_table(target, libraries);
+    try_code_for_src_with(
+        source,
+        target,
+        crate::target::NativeBuildMode::Console,
+        link_library_table(target, libraries),
+    )
+}
+
+/// The fallible lowering both `try_*` entry points share.
+fn try_code_for_src_with(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+    table: crate::binary_repr::NativeLibraryTable,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
     let source = source.to_string();
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
@@ -257,12 +285,7 @@ pub fn try_code_for_linking_src(
             let hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(|_| {}));
             let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                code_for_src_inner(
-                    &source,
-                    target,
-                    crate::target::NativeBuildMode::Console,
-                    table,
-                )
+                code_for_src_inner(&source, target, build_mode, table)
             }));
             std::panic::set_hook(hook);
             lowered.map_err(|payload| {

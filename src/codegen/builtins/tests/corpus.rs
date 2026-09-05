@@ -32,7 +32,7 @@
 use std::collections::BTreeSet;
 
 use crate::codegen::engine::types::NativeCodePlan;
-use crate::testutil::{code_for_src_cached, fixture_src, CodeTarget};
+use crate::testutil::{fixture_src, try_code_for_src, CodeTarget};
 
 /// Committed single-file programs, one per language or library area.
 ///
@@ -47,22 +47,48 @@ use crate::testutil::{code_for_src_cached, fixture_src, CodeTarget};
 /// field write, a guarded match, a generic instantiation, a growable list, a map
 /// rebuild -- not about how many programs use them.
 const CROSS_BACKEND: &[&str] = &[
+    // scalar arithmetic, conversions, control flow
     "record-field",
     "float-fma-fusion",
     "bug144_toint_base10_overflow",
     "control-flow-behavior",
     "bug118_match_guard_helper",
     "bug361_match_oneof_literals",
+    // functions, generics, callbacks
     "call-function-value-rt",
     "user-generic-single-param-rt",
     "user-generic-nested-rt",
+    // collections: the mutation and rebuild paths
     "bulk-append-inplace",
     "mut-append-grow",
     "map-set-grow-rt",
     "set-algebra-rt",
     "nested-fixed-list-rt",
+    "inplace-grow-free",
+    "reduce-accumulator-reclaim-rt",
+    // strings, json, regex
     "json-behavior",
     "regex-posix-classes-rt",
+    // The per-backend surface: a thread spawns a trampoline, a RES type emits a
+    // close op and a scope drop, and a trap emits an error route. Each is
+    // per-ARCH code that a single-backend lowering cannot reach.
+    //
+    // Every name here is one this harness can lower. Two obvious candidates are
+    // deliberately absent -- `thread-fixed-list-transfer-rt` and
+    // `p121d-state-reach-rt` -- because they do not lower here on ANY backend
+    // ("thread.start entry point must name an ISOLATED FUNC"). That is a harness
+    // gap, not a product difference: both were lowered for all five targets,
+    // eight times each, and every attempt failed identically. Picking a fixture
+    // by hand without checking is how a cross-backend suite ends up reporting a
+    // front-end limitation as a backend disagreement.
+    "thread-executable-local-entry-rt",
+    "thread-start-local-entry-valid",
+    "p121d-state-ops-rt",
+    "p121d-state-splice-rt",
+    "func-bare-trap-loop-leak-rt",
+    "return-param-borrow-rt",
+    "get-borrow-match-rt",
+    "recursive-get-then-grow-rt",
 ];
 
 /// Every committed single-file fixture this harness can lower, four per family.
@@ -593,10 +619,10 @@ const CORPUS: &[&str] = &[
 /// Runtime helpers (`runtime.*`), constructors and the per-backend program entry
 /// are excluded: those legitimately differ, and including them would turn a real
 /// disagreement into noise nobody reads.
-fn program_functions(plan: &NativeCodePlan) -> BTreeSet<&str> {
+fn program_functions(plan: &NativeCodePlan) -> BTreeSet<String> {
     plan.functions
         .iter()
-        .map(|f| f.name.as_str())
+        .map(|f| f.name.clone())
         .filter(|name| {
             !name.starts_with("runtime.")
                 && !name.starts_with("construct.")
@@ -612,16 +638,16 @@ fn program_functions(plan: &NativeCodePlan) -> BTreeSet<&str> {
 fn every_backend_lowers_the_corpus_to_the_same_program() {
     for fixture in CROSS_BACKEND {
         let source = fixture_src(fixture);
-        let mut agreed: Option<(CodeTarget, BTreeSet<&str>)> = None;
+        let mut agreed: Option<(CodeTarget, BTreeSet<String>)> = None;
         for target in CodeTarget::ALL {
-            let plan =
-                code_for_src_cached(&source, target, crate::target::NativeBuildMode::Console);
+            let plan = try_code_for_src(&source, target, crate::target::NativeBuildMode::Console)
+                .unwrap_or_else(|err| panic!("{fixture} on {}: {err}", target.name()));
             assert_eq!(
                 plan.target,
                 target.name(),
                 "{fixture}: the code plan must record the backend it was lowered for"
             );
-            let functions = program_functions(plan);
+            let functions = program_functions(&plan);
             assert!(
                 !functions.is_empty(),
                 "{fixture}: {} emitted no program functions at all",
@@ -630,8 +656,8 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
             match &agreed {
                 None => agreed = Some((target, functions)),
                 Some((first, expected)) => {
-                    let missing: Vec<&&str> = expected.difference(&functions).collect();
-                    let extra: Vec<&&str> = functions.difference(expected).collect();
+                    let missing: Vec<&String> = expected.difference(&functions).collect();
+                    let extra: Vec<&String> = functions.difference(expected).collect();
                     assert!(
                         missing.is_empty() && extra.is_empty(),
                         "{fixture}: {} and {} disagree on the emitted program. \
@@ -663,11 +689,12 @@ fn no_corpus_function_lowers_to_an_empty_body() {
     );
     for fixture in CORPUS {
         let source = fixture_src(fixture);
-        let plan = code_for_src_cached(
+        let plan = try_code_for_src(
             &source,
             CodeTarget::LinuxX86_64,
             crate::target::NativeBuildMode::Console,
-        );
+        )
+        .unwrap_or_else(|err| panic!("{fixture}: {err}"));
         for f in &plan.functions {
             assert!(
                 f.instructions.len() > 1,
