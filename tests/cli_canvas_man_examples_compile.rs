@@ -21,8 +21,11 @@ use std::process::Command;
 /// discovered, so *removing* a member's example is a visible edit here rather than
 /// a silently shrinking test.
 const MEMBERS: &[&str] = &[
-    "rgb",
-    "rgba",
+    // plan-122-D removed `rgb` and `rgba` from `canvas` -- colour construction is
+    // `color::rgb`/`color::rgba` now. Their rows are deleted here rather than
+    // left to fail, which is the visible edit this list's doc comment asks for.
+    // The examples themselves did not go away: `mfb man color rgb` renders them,
+    // and `scripts/man-run-examples.sh color --run` compiles them.
     "fill",
     "stroke",
     "fillStroke",

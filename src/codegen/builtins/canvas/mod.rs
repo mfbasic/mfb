@@ -101,11 +101,15 @@ const MODULE_INTRO: &str =
     r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
 presents. Like `app`, it is importable **only** in `--app` builds, and every call
-call requires `app::Mode.Canvas` — outside it they raise the trappable
-`ErrWrongMode`, with no exceptions. Colour is not a canvas concept: a paint takes a
-`color::Color`, built with `color::rgb`, `color::fromHex` or any other `color`
-constructor, none of which need a mode at all. So a program still computes its
-palette before it ever presents anything — it just does so through `IMPORT color`.
+that touches the surface requires `app::Mode.Canvas` — outside it they raise the
+trappable `ErrWrongMode`. The `canvas::Paint` constructors `canvas::fill`,
+`canvas::stroke` and `canvas::fillStroke` are exempt: they build a value and touch
+no surface.
+
+Colour is not a canvas concept at all. Those three take a `color::Color`, built with
+`color::rgb`, `color::fromHex` or any other `color` member — and `color` is gated by
+nothing, in any build. So a program still computes its palette before it ever
+presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
 installs it with `canvas::present`; the runtime keeps rendering that scene on

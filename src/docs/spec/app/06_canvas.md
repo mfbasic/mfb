@@ -369,7 +369,7 @@ program does not close it:
 ```
 SUB installPanel()
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(canvas::rgb(230, 230, 230))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230))]
   canvas::setGroup("panel", [label])
 END SUB
 ```
@@ -422,11 +422,18 @@ Every `canvas::` call that touches the surface requires `Mode.Canvas` and raises
 the trappable `ErrWrongMode` elsewhere, on the same seam `term::` uses.
 [[src/codegen/app/hook/app.rs:ModeRequirement]]
 
-The **value constructors are exempt**: `canvas::rgb`, `canvas::rgba`,
-`canvas::fill`, `canvas::stroke` and `canvas::fillStroke` build values and touch
-no surface, so a program may compute its palette before it presents anything.
-Gating them would buy no safety and cost real ergonomics — the same reasoning that
-leaves `io::readByte` outside the gated console-read set.
+The **value constructors are exempt**: `canvas::fill`, `canvas::stroke` and
+`canvas::fillStroke` build a `canvas::Paint` and touch no surface, so a program may
+assemble its paints before it presents anything. Gating them would buy no safety and
+cost real ergonomics — the same reasoning that leaves `io::readByte` outside the
+gated console-read set.
+
+That list used to name `canvas::rgb` and `canvas::rgba` as well. It no longer can:
+plan-122-D removed them, and colour construction lives in `color`, which is not an
+app-mode package at all. So the exemption did not grow to cover colour — colour left
+the gated package entirely. `color::rgb` is callable from a console build, from a
+`Mode.Term` build, and from a canvas build before `setMode`, because nothing about
+`color` is mode-dependent. See `./mfb spec stdlib color`.
 
 `canvas` is importable only in `--app` builds: `IMPORT canvas` in a console build
 is a compile-time error, because a console binary has no surface to draw on.

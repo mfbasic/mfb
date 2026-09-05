@@ -218,7 +218,7 @@ census additionally found four sites §2 does not list at all. Each disagreement
 reconciled in Corrections C1–C7 with the command that measured it, and the phase
 work lists below are rewritten against the measured population, not §2's. Nothing
 is carried forward unreconciled.
-Commit: —
+Commit: `15f4ec3d0`
 
 ### Phase 2 — Descriptor and companion
 
@@ -256,7 +256,7 @@ Commit: —
 Acceptance: `cargo test --no-fail-fast` green except for the fixtures Phase 3
 updates; `mfb man canvas` shows no `Color`/`rgb`/`rgba` entries and
 `mfb man canvas types` no longer lists `canvas::Color`.
-Commit: —
+Commit: `0b3fc656f`
 
 ### Phase 3 — Tests and examples
 
@@ -270,6 +270,11 @@ Commit: —
       canvas program that draws no colour did not gain an unused import (16
       `IMPORT canvas` in `rt_canvas_font.rs`, only 11 needed colour).
       Built, not assumed: all 12 suites run green below.
+- [x] **Added (C11), discovered by the full suite:**
+      `tests/cli_canvas_man_examples_compile.rs` — a 13th canvas test file that
+      names `"rgb"`/`"rgba"` as bare Rust strings and so was invisible to every
+      census in this plan. Its two rows are deleted, which is the visible edit its
+      own doc comment asks for.
 - [x] Update `examples/emoji/src/main.mfb` and run `scripts/build-examples.sh`.
 - [x] Update any `tests/rt-behavior/canvas` / `tests/syntax/canvas` fixtures the
       Phase-1 census found, regenerating all four goldens per fixture. Measured:
@@ -308,27 +313,46 @@ is empty) and the 6th is `emoji` on `linux-riscv64`, which fails with *"app mode
 requires a macOS, Linux, or Windows target"* — a target-capability refusal emitted
 before any source is read, on a build script and `project.json` this letter did not
 touch. `emoji` builds on the other four targets, including the macOS `.app`.
-Commit: —
+Commit: `45f1e391a`
 
 ### Phase 4 — Docs and golden regeneration (largest blast radius)
 
-- [ ] `src/docs/spec/app/06_canvas.md` — rewrite `:263`'s "value constructors are
-      exempt" sentence: with `rgb`/`rgba` gone, **every** `canvas::` call requires
-      `app::Mode.Canvas`, and colour construction happens in `color` which needs no
-      mode at all.
-- [ ] The other 3 docs the census found (`src/docs/man/types/package.md`,
+- [x] `src/docs/spec/app/06_canvas.md` — rewrite the "value constructors are
+      exempt" sentence (measured at `:425`, not `:263`). **The plan's instruction
+      for this box was wrong and is not followed as written — C8.** It says that
+      with `rgb`/`rgba` gone, *every* `canvas::` call requires `Mode.Canvas`. It
+      does not: `canvas::fill`, `canvas::stroke` and `canvas::fillStroke` are named
+      in the same exempt sentence and are still exempt, because they build a
+      `canvas::Paint` value and touch no surface. The paragraph is rewritten to
+      drop `rgb`/`rgba` and keep the other three, and to say why the exemption did
+      not *grow* to cover colour — colour left the gated package entirely. Also
+      fixed the example at `:372`.
+- [x] ~~The other 3 docs the census found (`src/docs/man/types/package.md`,
       `src/docs/spec/architecture/02_frontend.md`, `:09_modules.md`,
-      `src/docs/spec/package/04_type-table.md` — reconcile against Phase 1's list).
-- [ ] Regenerate `.ncode`/`.ncodesum` and `.ir`/`.ast` goldens; **attribute the
+      `src/docs/spec/package/04_type-table.md`)~~ — **moot: those four are
+      plan-122-F's `TermColor` list, already rewritten there, and each contains
+      zero canvas colour mentions** (C5, with the `grep -c` output). Reconciled
+      against Phase 1's list as this box instructs: the canvas doc population is
+      one file, `06_canvas.md`.
+- [x] Regenerate `.ncode`/`.ncodesum` and `.ir`/`.ast` goldens; **attribute the
       delta** with a `git archive` attribution binary, not a sibling worktree.
-      Confirm the delta is confined to canvas fixtures and canvas importers and
-      contains no `build.log`/`.run` behavior change.
+      **There is no delta to attribute — C9.** `artifact-gate.sh all`: 1381 tests,
+      1546 builds, **1912 goldens checked, 0 diffs**. `find tests/byte-identity
+      -name '*.ncodesum' | wc -l` is still **133**, the Phase-1 figure. The
+      attribution binary was still built (`git archive main | tar -x`) and used for
+      the stronger check the Validation Plan asks for: the rendered frame.
 
 Acceptance: `./scripts/test-accept.sh` full run green (watch the `N ran` count);
 `scripts/artifact-gate.sh` green, re-run uncontended if it reports `exit=98`;
 the golden delta is itemized in Corrections and every entry is attributable to
 this letter.
-Commit: —
+
+**Met.** `test-accept.sh` full: **1403 ran, 0 mismatches, 0 behavioral failures,
+exit 0** (up from plan-122-F's 1390 — 2 are this letter's new fixtures, the rest
+arrived on main between the two letters). `artifact-gate.sh all`: **1912 goldens,
+0 diffs, exit 0**, first try and uncontended. The golden delta is itemized in C9:
+it is one file.
+Commit: (this commit)
 
 ## Validation Plan
 
@@ -476,6 +500,138 @@ D was authored to run before E and F. It ran after them (E and F landed
 2026-09-04, D started 2026-09-05). Nothing depended on the authored order: D cites
 no term or astrings symbol, and E/F cite no canvas file. §Prerequisites records the
 re-measurement.
+
+### C8 — Phase 4's rewrite instruction is wrong: three constructors stay exempt
+
+Phase 4 says to rewrite `06_canvas.md`'s exemption sentence on the grounds that
+*"with `rgb`/`rgba` gone, **every** `canvas::` call requires `app::Mode.Canvas`"*.
+That is false, and I wrote the same false claim into canvas's `MODULE_DESC` in
+Phase 2 before measuring. The sentence names five members, not two:
+
+> The **value constructors are exempt**: `canvas::rgb`, `canvas::rgba`,
+> `canvas::fill`, `canvas::stroke` and `canvas::fillStroke` build values and touch
+> no surface…
+
+`fill`/`stroke`/`fillStroke` survive this letter and are still exempt. The gate is
+per-member and measurable — it is carried on the descriptor, not on the package:
+
+```
+$ grep -rn 'ModeRequirement::Canvas' src/ --include='*.rs' | grep -v hook/app.rs
+src/codegen/builtins/canvas/func_create_image.rs:186
+src/codegen/builtins/canvas/gen_present.rs:314
+src/codegen/builtins/canvas/gen_group.rs:340
+src/codegen/builtins/canvas/gen_group.rs:452
+src/codegen/builtins/canvas/func_did_resize.rs:95
+src/codegen/builtins/canvas/func_scene_hashes.rs:75
+```
+
+Six surface members carry `ModeRequirement::Canvas`. The three `Paint`
+constructors are `Body::mfb` companions and carry none, exactly as before.
+
+So the doc change is **not** "the exemption is removed". It is: the exemption
+loses two of its five members, and the reason is that colour construction left the
+gated package altogether — `color` is gated by nothing, in any build, which is a
+strictly better outcome than an exemption. Both `MODULE_DESC` and `06_canvas.md`
+now say that. Had the box been executed as written, `mfb man canvas` would have
+told every reader that `canvas::fill` raises `ErrWrongMode` outside canvas mode,
+which is not what the compiler does.
+
+### C9 — Phase 4 predicted wide golden drift; the measured drift is one file
+
+Section 3 states: *"canvas `.ncode`/`.ncodesum` and every canvas importer's
+`.ir`/`.ast` are **expected** to drift."* Measured: **zero.** `artifact-gate.sh
+all` reports 1912 goldens and 0 diffs; `test-accept.sh` full reports 1403 ran and
+0 mismatches. The only golden this letter changed is
+`tests/syntax/resources/canvas-setgroup-consumes-items/golden/build.log`, synced
+in Phase 3.
+
+Per the standing rule, an unexpected *absence* of drift gets the same scrutiny as
+an unexpected presence — a gate that silently never ran canvas would look exactly
+like this. It did not; the reason is structural and measurable:
+
+```
+$ ls tests/byte-identity/
+audio bits collections crypto csv datetime encoding fs general http io json
+link-const-pins math money net os process regex resource-xfer-slots strings tcp
+term thread tls udp vector
+$ grep -rl '^IMPORT canvas' --include='*.mfb' tests/
+tests/syntax/canvas/canvas_color_surface_removed_invalid/src/main.mfb
+tests/syntax/canvas/canvas_color_type_removed_invalid/src/main.mfb
+tests/syntax/resources/canvas-setgroup-consumes-items/src/main.mfb
+tests/syntax/threads/canvas-drawitem-thread-plane-invalid/src/main.mfb
+```
+
+**There is no `tests/byte-identity/canvas` directory** — canvas has never had
+`.ncode`/`.ncodesum` goldens, so there was nothing there to drift. And canvas is
+importable only in `--app` builds, so exactly **four** fixtures in the whole tree
+import it, each carrying a single `build.log`. Two of those four are this letter's
+own new fixtures and the fourth (`canvas-drawitem-thread-plane-invalid`) never
+named the colour surface.
+
+Canvas's real regression coverage is not the golden harness at all — it is the 12
+Rust suites and the seven reference PNGs under `tests/golden/canvas/`, which is
+why Phase 3's acceptance, not Phase 4's, is where this letter was actually at risk.
+
+### C10 — the emoji frame, compared rather than assumed
+
+The Validation Plan asks for the rendered frame, not a green suite. Done with a
+`git archive main | tar -x` attribution binary (never a sibling worktree), which
+compiles `examples/emoji`'s **pre-change** source (`canvas::rgb`, 9 sites) while
+this worktree compiles the **post-change** source (`color::rgb`):
+
+```
+$ MFB_CANVAS_DUMP=... MFB_CANVAS_SYNC=1 <emoji binary>     # both, bounded at 60s
+pre:  dump 2304000 bytes
+post: dump 2304000 bytes
+$ cmp /tmp/pD-f2-pre.rgba /tmp/pD-f2-post.rgba   ->  exit 0
+FRAME IDENTICAL: 2304000 bytes
+```
+
+Both runs were bounded and killed identically rather than one being allowed to
+finish — `emoji` is a GUI event loop and does not self-terminate, so an asymmetric
+comparison (one completed, one killed) would not have been a comparison of the
+same thing. 2,304,000 bytes is 960 x 600 x 4 (RGBA8).
+
+### C11 — a 13th canvas test file, invisible to every census in this plan
+
+`tests/cli_canvas_man_examples_compile.rs` names the removed members as **bare
+strings in a Rust array**, with no `canvas::` token and no MFBASIC anywhere:
+
+```rust
+const MEMBERS: &[&str] = &[
+    "rgb",
+    "rgba",
+    "fill",
+    ...
+```
+
+It renders `mfb man canvas <member>` for each and compiles the example it finds.
+So it does not appear in §2's population, it does not appear in Phase 1's census
+(which greps `canvas::rgb(`, `canvas::Color`, `AS Color` and `named("Color")` —
+none of which match a bare `"rgb"`), and it is not one of the 12 files Phase 3
+migrated. It failed in the full suite with:
+
+```
+mfb man canvas rgb failed:
+error: unknown canvas function `rgb`
+```
+
+**Fixed by deleting the two rows, which is what the list is designed for.** Its own
+doc comment: *"Kept explicit rather than discovered, so removing a member's example
+is a visible edit here rather than a silently shrinking test."* Deleting a row is
+the sanctioned edit; the alternative — making the list discovered — would defeat the
+property the file exists to hold. A comment records where the examples went
+(`mfb man color rgb` renders them; both `color::rgb` and `color::rgba` have an
+Examples section).
+
+**The lesson, which cost a red suite in plan-122-F for the same reason and again
+here.** F's census missed MFBASIC embedded in Rust *strings*; D's census missed a
+member named as a Rust *string literal in a list*. A census for a removal is not
+over the call syntax — it is over every place the member's NAME can appear,
+including places that contain no code in this language at all. The census that
+would have caught it is `grep -rn '"rgb"\|"rgba"' src tests --include='*.rs'`,
+which returns exactly three files: `color/func_rgb.rs`, `color/func_rgba.rs`, and
+this one.
 
 ### The census, grouped by the phase that executes it
 
