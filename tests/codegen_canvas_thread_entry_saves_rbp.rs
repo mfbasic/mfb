@@ -41,10 +41,11 @@ use std::process::Command;
 /// what makes the caller stage an eighth argument.
 const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(canvas::rgb(40, 200, 120))]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
   canvas::present([dot])
 END SUB
 "#;

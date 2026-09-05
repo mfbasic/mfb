@@ -26,6 +26,7 @@ use std::process::Command;
 /// `fs::File` — unlike the value types (`Color`, `DrawItem`), which are bare.
 const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT collections
 IMPORT errorCode
 IMPORT io
@@ -118,7 +119,7 @@ FUNC main AS Integer
 
   ' The scene carries the image itself since plan-116-I. Destroying it while the scene
   ' still names it is still safe -- that item draws nothing.
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 4.0, h := 2.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([tile])
 
   LET r1 AS Integer = badCreate()

@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/canvas/canvas_color_type_removed_invalid
+  30 | FUNC main AS Integer
+  31 |   app::setMode(app::Mode.Canvas)
+  32 |   LET ink AS canvas::Color = canvas::Color[red := toByte(1), green := toByte(2), blue := toByte(3), alpha := toByte(255)]
+     | ^
+tests/syntax/canvas/canvas_color_type_removed_invalid/src/main.mfb:32 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `canvas` does not export `canvas.Color`.
+  30 | FUNC main AS Integer
+  31 |   app::setMode(app::Mode.Canvas)
+  32 |   LET ink AS canvas::Color = canvas::Color[red := toByte(1), green := toByte(2), blue := toByte(3), alpha := toByte(255)]
+     | ^
+tests/syntax/canvas/canvas_color_type_removed_invalid/src/main.mfb:32 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `canvas` does not export `canvas.Color`.
+[exit 1]

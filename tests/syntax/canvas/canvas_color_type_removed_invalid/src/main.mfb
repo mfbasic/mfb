@@ -1,0 +1,36 @@
+' plan-122-D: the TYPE `canvas::Color` was REMOVED, and its removal is a tested
+' contract rather than an absence. The sibling `canvas_color_surface_removed_invalid`
+' pins the CALL `canvas::rgb`; this one pins the type name, and they are separate
+' fixtures because the compiler reports the first unresolved name and stops.
+'
+' WHY THE TYPE NEEDS ITS OWN PIN. Both removals land on the same lookup -- a name
+' the built-in package does not export -- so this is not pinning a second code path.
+' It is pinning a second REGISTRATION. `canvas::rgb` is gone because `func_rgb.rs`
+' and its `register` call are gone; `canvas::Color` is gone because the `add_record`
+' is. Those are independent edits, and restoring either one alone would leave this
+' language with two colour types again.
+'
+' The failure mode worth naming: a stale `Color` entry left in canvas's type table
+' would make the annotation below resolve to a record no member returns any more.
+' The program would typecheck and fail later, on a field read, with a diagnostic
+' naming nothing useful. Both lines here are refused BY NAME instead -- note the
+' golden reports the error twice, once for the annotation and once for the
+' constructor, because they are two separate resolutions of the same dead name.
+'
+' THE MIGRATION: add `IMPORT color` and write `color::Color`. It has the same four
+' `Byte` fields -- `red`, `green`, `blue`, `alpha` -- in the same order, so a value
+' built by `color::rgb` drops straight into `canvas::Paint.fill`, `.stroke` and
+' `canvas::GradientStop.color`, all three of which are `color::Color` now.
+'
+' Do not "fix" this fixture by importing `color`. The point is that the OLD spelling
+' is refused.
+IMPORT app
+IMPORT canvas
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET ink AS canvas::Color = canvas::Color[red := toByte(1), green := toByte(2), blue := toByte(3), alpha := toByte(255)]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(ink)]
+  canvas::present([dot])
+  RETURN 0
+END FUNC

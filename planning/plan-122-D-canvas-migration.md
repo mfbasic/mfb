@@ -260,17 +260,54 @@ Commit: —
 
 ### Phase 3 — Tests and examples
 
-- [ ] Update the 8 Rust canvas test files' embedded programs: add `IMPORT color`
-      **and** rename the calls. Build each one, do not assume.
-- [ ] Update `examples/emoji/src/main.mfb` and run `scripts/build-examples.sh`.
-- [ ] Update any `tests/rt-behavior/canvas` / `tests/syntax/canvas` fixtures the
-      Phase-1 census found, regenerating all four goldens per fixture.
-- [ ] Add a `tests/syntax/canvas/` fixture pinning that `canvas::rgb(1,2,3)` is now
+- [x] Update the **12** (not 8 — C1) Rust canvas test files' embedded programs: add
+      `IMPORT color` **and** rename the calls. **346 name sites, 55 `IMPORT color`
+      lines.** The programs are embedded three ways and the insertion has to match
+      the style it lands in or the *Rust* stops compiling: `"IMPORT canvas\n…"`
+      (escape chars on one Rust line), `IMPORT canvas\n\` + real newline (a Rust
+      line-continuation with indentation), and a bare line inside `r#"…"#`. Scoped
+      per program — each embedded program holds exactly one `IMPORT canvas`, so a
+      canvas program that draws no colour did not gain an unused import (16
+      `IMPORT canvas` in `rt_canvas_font.rs`, only 11 needed colour).
+      Built, not assumed: all 12 suites run green below.
+- [x] Update `examples/emoji/src/main.mfb` and run `scripts/build-examples.sh`.
+- [x] Update any `tests/rt-behavior/canvas` / `tests/syntax/canvas` fixtures the
+      Phase-1 census found, regenerating all four goldens per fixture. Measured:
+      **there are no `tests/rt-behavior/canvas` or `tests/syntax/canvas` fixtures**
+      (`find tests -type d -name '*canvas*'` → `tests/golden/canvas` (PNGs),
+      `tests/syntax/resources/canvas-setgroup-consumes-items`,
+      `tests/syntax/threads/canvas-drawitem-thread-plane-invalid`). The one fixture
+      carrying the surface is the `resources/` one; its single golden
+      (`build.log` — not four; a `syntax/` fixture has one) is regenerated. Its
+      pinned diagnostic is unchanged: still `TYPE_USE_AFTER_MOVE` on the same
+      binding, one line lower because of the added `IMPORT color`.
+- [x] Add a `tests/syntax/canvas/` fixture pinning that `canvas::rgb(1,2,3)` is now
       a diagnostic, so the removal is a tested contract rather than an absence.
+      **Two fixtures, because the compiler stops at the first unresolved name and
+      the two removals are independent registrations:**
+      `canvas_color_surface_removed_invalid` (the call → *"Built-in package `canvas`
+      does not export `canvas.rgb`"*) and `canvas_color_type_removed_invalid` (the
+      type, reported twice — once for the annotation, once for the constructor).
+      Both need `"mode": "app"` in `project.json`; without it the fixture pins
+      *"the `app` package requires app mode"* and never reaches the colour surface
+      at all.
 
 Acceptance: `tests/rt_canvas_rasteriser.rs` and `tests/rt_canvas_golden.rs` pass
 with **pixel-identical** output; `scripts/build-examples.sh` green;
 `scripts/man-run-examples.sh canvas --run` compiles and runs every canvas example.
+
+**Met.** All 12 canvas suites green, **161 tests, 0 failures**
+(`cargo test --release --no-fail-fast --test rt_canvas_*  --test cli_canvas_* …`);
+`rt_canvas_golden` 19/19 with `git status --porcelain tests/golden/canvas/` **empty**
+— the repo's established pixel-identity proof (plan-116-C/D/F used the same check).
+`scripts/man-run-examples.sh canvas --run`: **22 examples, 22 built, 22 ran, 0
+failed.** `scripts/build-examples.sh`: 54 builds archived, 6 failures, **all
+attributed and pre-existing** — 5 are `examples/audio` on every target
+(`libsnd.mfp` is not in git at all: `git ls-tree main -- examples/audio/packages/`
+is empty) and the 6th is `emoji` on `linux-riscv64`, which fails with *"app mode
+requires a macOS, Linux, or Windows target"* — a target-capability refusal emitted
+before any source is read, on a build script and `project.json` this letter did not
+touch. `emoji` builds on the other four targets, including the macOS `.app`.
 Commit: —
 
 ### Phase 4 — Docs and golden regeneration (largest blast radius)

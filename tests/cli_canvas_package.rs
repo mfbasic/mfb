@@ -40,11 +40,12 @@ fn build(name: &str, source: &str, app: bool) -> (PathBuf, bool, String) {
 /// regression says which property broke rather than just "non-zero".
 const SURFACE_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
-    \x20 LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)\n\
-    \x20 LET green AS canvas::Color = canvas::rgb(0, 160, 0)\n\
-    \x20 LET clamped AS canvas::Color = canvas::rgba(300, -20, 128, 255)\n\
+    \x20 LET yellow AS color::Color = color::rgb(255, 255, 0)\n\
+    \x20 LET green AS color::Color = color::rgb(0, 160, 0)\n\
+    \x20 LET clamped AS color::Color = color::rgba(300, -20, 128, 255)\n\
     \x20 IF yellow.red <> toByte(255) THEN\n\
     \x20   RETURN 1\n\
     \x20 END IF\n\
@@ -111,8 +112,9 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
 #[cfg(target_os = "macos")]
 const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      FUNC main AS Integer\n\
-    \x20 LET red AS canvas::Color = canvas::rgb(255, 0, 0)\n\
+    \x20 LET red AS color::Color = color::rgb(255, 0, 0)\n\
     \x20 LET filled AS canvas::Paint = canvas::fill(red)\n\
     \x20 IF filled.stroke.alpha <> toByte(0) THEN\n\
     \x20   RETURN 1\n\
@@ -157,8 +159,9 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
 /// `canvas` draws on a window surface a console binary does not have, so importing
 /// it outside an `--app` build is a compile error — the same gate `app` has.
 const CONSOLE_IMPORT_SOURCE: &str = "IMPORT canvas\n\
+     IMPORT color\n\
      FUNC main AS Integer\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
+    \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 RETURN toInteger(c.red)\n\
      END FUNC\n";
 
@@ -249,8 +252,9 @@ fn macos_canvas_surface_runs() {
 #[cfg(target_os = "macos")]
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      FUNC one(r AS Float, RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
-    \x20 LET c AS canvas::Color = canvas::rgb(10, 20, 30)\n\
+    \x20 LET c AS color::Color = color::rgb(10, 20, 30)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
@@ -294,10 +298,11 @@ fn macos_repeated_and_changed_presents_are_sound() {
 #[cfg(target_os = "macos")]
 const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT color\n\
      IMPORT errorCode\n\
      FUNC layers(r AS Float) AS List OF canvas::DrawLayer\n\
-    \x20 LET sky AS canvas::Color = canvas::rgb(20, 30, 60)\n\
-    \x20 LET dot AS canvas::Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET sky AS color::Color = color::rgb(20, 30, 60)\n\
+    \x20 LET dot AS color::Color = color::rgb(255, 200, 0)\n\
     \x20 LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]\n\
     \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot)]\n\
     \x20 LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]\n\
@@ -305,7 +310,7 @@ const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
     \x20 RETURN [back, front]\n\
      END FUNC\n\
      FUNC flat() AS List OF canvas::DrawItem\n\
-    \x20 LET dot AS canvas::Color = canvas::rgb(255, 200, 0)\n\
+    \x20 LET dot AS color::Color = color::rgb(255, 200, 0)\n\
     \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot)]\n\
     \x20 RETURN [marker]\n\
      END FUNC\n\

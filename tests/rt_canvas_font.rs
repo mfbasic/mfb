@@ -381,6 +381,7 @@ fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
 fn text_inside_a_translated_group_draws_at_the_offset() {
     const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
@@ -389,7 +390,7 @@ SUB main()
     io::print("font failed")
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(canvas::rgb(255, 255, 0))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(color::rgb(255, 255, 0))]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
   io::print("done")
@@ -596,13 +597,14 @@ fn a_glyph_outline_renders_where_its_own_coordinates_put_it() {
         "canvas_glyph_render",
         r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -647,13 +649,14 @@ fn a_string_advances_the_pen_between_glyphs() {
         "canvas_glyph_advance",
         r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#,
@@ -687,13 +690,14 @@ fn text_whose_font_was_destroyed_draws_nothing() {
         "canvas_glyph_no_font",
         r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
@@ -718,13 +722,14 @@ END SUB
 /// inside both.
 const GPU_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgb(220, 40, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgb(220, 40, 160))]
   canvas::present([label])
 END SUB
 "#;
@@ -789,15 +794,16 @@ fn text_on_the_gpu_matches_the_software_oracle() {
 /// final flush is always empty and the ordering is never exercised.
 const GPU_TEXT_THEN_SHAPE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(canvas::rgb(40, 60, 90))]
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(canvas::rgba(220, 40, 160, 150))]
-  LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]
+  LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(color::rgb(40, 60, 90))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150))]
+  LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60))]
   canvas::present([under, label, tail])
 END SUB
 "#;
@@ -852,10 +858,11 @@ fn a_shape_after_a_glyph_run_matches_the_software_oracle() {
 /// cheap while the bitmaps — 6x6 up to 36x36 — add up to far more than the forced budget.
 const EVICTION: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT collections
 
 FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
-  LET white AS canvas::Paint = canvas::fill(canvas::rgb(255, 255, 255))
+  LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
   MUT items AS List OF canvas::DrawItem = []
   MUT i AS Integer = 0
   WHILE i < 300
@@ -958,6 +965,7 @@ fn eviction_frees_unpinned_glyphs_and_changes_no_pixel() {
 /// and the transformed per-glyph bounds, not the sampling filter.
 const ROTATED_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
@@ -965,7 +973,7 @@ SUB main()
     EXIT SUB
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
-  LET p AS canvas::Paint = WITH canvas::fill(canvas::rgb(255, 255, 255)) { transform := t }
+  LET p AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) { transform := t }
   LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p]
   canvas::present([label])
 END SUB
@@ -974,13 +982,14 @@ END SUB
 /// The same run with no transform, so the two can be compared as pictures.
 const UPRIGHT_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
 END SUB
 "#;
@@ -1126,6 +1135,7 @@ fn two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_
         "canvas_font_present_churn",
         r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
@@ -1138,7 +1148,7 @@ SUB main()
   WHILE i < 200
     ' The x moves each frame so the scene differs and the present is not skipped —
     ' a skipped present would exercise nothing.
-    LET label AS canvas::DrawItem = canvas::Text[x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+    LET label AS canvas::DrawItem = canvas::Text[x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(color::rgb(255, 255, 255))]
     canvas::present([label])
     i = i + 1
   END WHILE
@@ -1253,6 +1263,7 @@ fn draw_a(size: &str) -> String {
     format!(
         r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
@@ -1261,7 +1272,7 @@ SUB main()
     io::print("load failed " & toString(e.code))
     EXIT SUB
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([label])
   io::print("presented")
 END SUB

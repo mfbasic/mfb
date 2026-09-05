@@ -27,13 +27,14 @@ const HEIGHT: u32 = 640;
 /// rather than blocking on input — a golden run must terminate.
 const SMILEY: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
 
-  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
-  LET green AS canvas::Color = canvas::rgb(0, 160, 0)
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
+  LET green AS color::Color = color::rgb(0, 160, 0)
 
   LET canvasSize AS canvas::Size = canvas::getSize()
   LET cx AS Float = toFloat(canvasSize.width) / 2.0
@@ -271,26 +272,27 @@ fn too_many_small_differences_fail_tolerance() {
 /// carries both paint channels under every mode.
 const BLEND_MODES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
 
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(128, 128, 128))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
 
-  LET warm AS canvas::Color = canvas::rgb(230, 120, 40)
-  LET cool AS canvas::Color = canvas::rgb(40, 120, 230)
+  LET warm AS color::Color = color::rgb(230, 120, 40)
+  LET cool AS color::Color = color::rgb(40, 120, 230)
 
-  LET boxNormal AS canvas::DrawItem = canvas::RoundedRect[x := 40.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET boxNormal AS canvas::DrawItem = canvas::RoundedRect[x := 40.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
   LET dotNormal AS canvas::DrawItem = canvas::Circle[x := 160.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Normal }]
 
-  LET boxMultiply AS canvas::DrawItem = canvas::RoundedRect[x := 260.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET boxMultiply AS canvas::DrawItem = canvas::RoundedRect[x := 260.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
   LET dotMultiply AS canvas::DrawItem = canvas::Circle[x := 380.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Multiply }]
 
-  LET boxScreen AS canvas::DrawItem = canvas::RoundedRect[x := 480.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET boxScreen AS canvas::DrawItem = canvas::RoundedRect[x := 480.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
   LET dotScreen AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Screen }]
 
-  LET boxAdd AS canvas::DrawItem = canvas::RoundedRect[x := 700.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, canvas::rgb(255, 255, 255), 8.0)]
+  LET boxAdd AS canvas::DrawItem = canvas::RoundedRect[x := 700.0, y := 80.0, w := 160.0, h := 160.0, cornerRadius := 24.0, paint := canvas::fillStroke(cool, color::rgb(255, 255, 255), 8.0)]
   LET dotAdd AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 200.0, radius := 70.0, paint := WITH canvas::fill(warm) { blend := canvas::BlendMode.Add }]
 
   ' A stroked arc under each mode too: a mode has to reach the stroke channel, not
@@ -302,7 +304,7 @@ SUB main()
 
   ' One clipped item, so the reference covers the other half of this letter as well:
   ' a fractional clip edge that must stay antialiased.
-  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 560.0, w := 820.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 100.25, y := 560.0, w := 700.5, h := 60.0] }]
+  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 560.0, w := 820.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 100.25, y := 560.0, w := 700.5, h := 60.0] }]
 
   canvas::present([ground, boxNormal, dotNormal, boxMultiply, dotMultiply, boxScreen, dotScreen, boxAdd, dotAdd, arcNormal, arcMultiply, arcScreen, arcAdd, clipped])
   io::print("rendered")
@@ -368,6 +370,7 @@ fn blend_modes_match_their_reference_exactly() {
 /// glance whether the pair differs the way the matrix says.
 const TRANSFORMS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
@@ -376,29 +379,29 @@ SUB main()
     EXIT SUB
   END TRAP
 
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(96, 96, 96))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(96, 96, 96))]
 
   ' 45 degrees: the hull is 1.41x the shape-space box in both axes.
   LET k AS Float = 0.7071067811865476
   LET rotT AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 200.0, ty := 160.0]
-  LET plainRect AS canvas::DrawItem = canvas::Rectangle[x := 480.0, y := 90.0, w := 140.0, h := 140.0, paint := canvas::fill(canvas::rgb(255, 190, 60))]
-  LET rotRect AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 70.0, y := 0.0 - 70.0, w := 140.0, h := 140.0, paint := WITH canvas::fill(canvas::rgb(255, 190, 60)) { transform := rotT }]
+  LET plainRect AS canvas::DrawItem = canvas::Rectangle[x := 480.0, y := 90.0, w := 140.0, h := 140.0, paint := canvas::fill(color::rgb(255, 190, 60))]
+  LET rotRect AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 70.0, y := 0.0 - 70.0, w := 140.0, h := 140.0, paint := WITH canvas::fill(color::rgb(255, 190, 60)) { transform := rotT }]
 
   ' 2:1 in x only -- the case sqrt(|det M|) gets wrong.
   LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 380.0]
-  LET plainCircle AS canvas::DrawItem = canvas::Circle[x := 550.0, y := 380.0, radius := 60.0, paint := canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 8.0)]
-  LET scaledCircle AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 60.0, paint := WITH canvas::fillStroke(canvas::rgb(90, 200, 255), canvas::rgb(255, 255, 255), 8.0) { transform := scaleT }]
+  LET plainCircle AS canvas::DrawItem = canvas::Circle[x := 550.0, y := 380.0, radius := 60.0, paint := canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 8.0)]
+  LET scaledCircle AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 60.0, paint := WITH canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 8.0) { transform := scaleT }]
 
   ' A 30 degree shear in x.
   LET shearT AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5773502691896258, d := 1.0, tx := 660.0, ty := 480.0]
   LET tri AS List OF canvas::Point = [canvas::Point[x := 0.0 - 60.0, y := 50.0], canvas::Point[x := 60.0, y := 50.0], canvas::Point[x := 0.0, y := 0.0 - 50.0]]
-  LET plainPoly AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]], paint := canvas::fill(canvas::rgb(220, 120, 220))]
-  LET shearPoly AS canvas::DrawItem = canvas::Polygon[points := tri, paint := WITH canvas::fill(canvas::rgb(220, 120, 220)) { transform := shearT }]
+  LET plainPoly AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]], paint := canvas::fill(color::rgb(220, 120, 220))]
+  LET shearPoly AS canvas::DrawItem = canvas::Polygon[points := tri, paint := WITH canvas::fill(color::rgb(220, 120, 220)) { transform := shearT }]
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
-  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := face, size := 50.0, paint := canvas::fill(canvas::rgb(200, 255, 120))]
-  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 50.0, paint := WITH canvas::fill(canvas::rgb(200, 255, 120)) { transform := textT }]
+  LET plainText AS canvas::DrawItem = canvas::Text[x := 380.0, y := 300.0, text := "AA", font := face, size := 50.0, paint := canvas::fill(color::rgb(200, 255, 120))]
+  LET rotText AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := "AA", font := face, size := 50.0, paint := WITH canvas::fill(color::rgb(200, 255, 120)) { transform := textT }]
 
   canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
   io::print("rendered")
@@ -509,37 +512,38 @@ fn the_gpu_draws_the_transform_scene_the_reference_shows() {
 /// against the type's description should find nothing there.
 const ENDCAPS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
 
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(64, 68, 78))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(64, 68, 78))]
 
   ' Row 1 -- lines. Butt left, round right, same geometry and paint otherwise.
-  LET ink AS canvas::Color = canvas::rgb(255, 214, 92)
+  LET ink AS color::Color = color::rgb(255, 214, 92)
   LET buttLine AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 120.0, x2 := 340.0, y2 := 120.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(ink, 28.0)]
   LET roundLine AS canvas::DrawItem = canvas::Line[x1 := 540.0, y1 := 120.0, x2 := 760.0, y2 := 120.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(ink, 28.0)]
 
   ' The endpoints, marked. A butt cap's claim is that the stroke stops HERE, which is
   ' only readable against something that says where "here" is.
-  LET mark AS canvas::Color = canvas::rgb(255, 255, 255)
+  LET mark AS color::Color = color::rgb(255, 255, 255)
   LET markA AS canvas::DrawItem = canvas::Line[x1 := 340.0, y1 := 88.0, x2 := 340.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
   LET markB AS canvas::DrawItem = canvas::Line[x1 := 760.0, y1 := 88.0, x2 := 760.0, y2 := 152.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(mark, 2.0)]
 
   ' Row 2 -- arcs, swept 0..0.6*PI so both ends are in view. Butt left, round right.
-  LET arcInk AS canvas::Color = canvas::rgb(120, 226, 255)
+  LET arcInk AS color::Color = color::rgb(120, 226, 255)
   LET buttArc AS canvas::DrawItem = canvas::Arc[x := 230.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Butt, paint := canvas::stroke(arcInk, 28.0)]
   LET roundArc AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 90.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(arcInk, 28.0)]
 
   ' Row 3 -- a diagonal pair, so a cap is checked on an axis the two rows above miss.
-  LET diagInk AS canvas::Color = canvas::rgb(228, 148, 255)
+  LET diagInk AS color::Color = color::rgb(228, 148, 255)
   LET buttDiag AS canvas::DrawItem = canvas::Line[x1 := 140.0, y1 := 470.0, x2 := 320.0, y2 := 560.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(diagInk, 28.0)]
   LET roundDiag AS canvas::DrawItem = canvas::Line[x1 := 560.0, y1 := 470.0, x2 := 740.0, y2 := 560.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(diagInk, 28.0)]
 
   ' Row 4 -- the degenerate pair. The butt one draws nothing, and its absence is part
   ' of the reference.
-  LET dotInk AS canvas::Color = canvas::rgb(160, 255, 170)
+  LET dotInk AS color::Color = color::rgb(160, 255, 170)
   LET buttDot AS canvas::DrawItem = canvas::Line[x1 := 230.0, y1 := 610.0, x2 := 230.0, y2 := 610.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(dotInk, 28.0)]
   LET roundDot AS canvas::DrawItem = canvas::Line[x1 := 650.0, y1 := 610.0, x2 := 650.0, y2 := 610.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(dotInk, 28.0)]
 
@@ -645,36 +649,37 @@ fn the_gpu_draws_the_endcap_scene_the_reference_shows() {
 /// firing, this is where a reader would see the rim shift.
 const ELLIPSES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
 
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(58, 62, 72))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(58, 62, 72))]
 
   ' Row 1 -- axis-aligned 3:1, beside the circle its radiusX would give.
-  LET warm AS canvas::Color = canvas::rgb(255, 196, 84)
+  LET warm AS color::Color = color::rgb(255, 196, 84)
   LET wide AS canvas::DrawItem = canvas::Ellipse[x := 240.0, y := 100.0, radiusX := 180.0, radiusY := 60.0, angle := 0.0, paint := canvas::fill(warm)]
   LET round AS canvas::DrawItem = canvas::Circle[x := 560.0, y := 100.0, radius := 60.0, paint := canvas::fill(warm)]
 
   ' Row 2 -- 10:1, the eccentricity where an approximate distance is worst, and the
   ' same shape turned a quarter turn. The turned one gets its own column on the right,
   ' because a 10:1 ellipse a quarter turn round is as tall as the row is wide.
-  LET cool AS canvas::Color = canvas::rgb(120, 214, 255)
+  LET cool AS color::Color = color::rgb(120, 214, 255)
   LET thin AS canvas::DrawItem = canvas::Ellipse[x := 220.0, y := 260.0, radiusX := 200.0, radiusY := 20.0, angle := 0.0, paint := canvas::fill(cool)]
   LET thinTurned AS canvas::DrawItem = canvas::Ellipse[x := 800.0, y := 300.0, radiusX := 200.0, radiusY := 20.0, angle := 1.5707963267948966, paint := canvas::fill(cool)]
 
   ' Row 3 -- rotated, filled-and-stroked and stroke-only, so the band's width is
   ' readable all the way round a curve whose curvature varies ninefold.
-  LET violet AS canvas::Color = canvas::rgb(226, 150, 255)
-  LET tilted AS canvas::DrawItem = canvas::Ellipse[x := 200.0, y := 450.0, radiusX := 150.0, radiusY := 50.0, angle := 0.5235987755982988, paint := canvas::fillStroke(violet, canvas::rgb(255, 255, 255), 10.0)]
+  LET violet AS color::Color = color::rgb(226, 150, 255)
+  LET tilted AS canvas::DrawItem = canvas::Ellipse[x := 200.0, y := 450.0, radiusX := 150.0, radiusY := 50.0, angle := 0.5235987755982988, paint := canvas::fillStroke(violet, color::rgb(255, 255, 255), 10.0)]
   LET hollow AS canvas::DrawItem = canvas::Ellipse[x := 530.0, y := 450.0, radiusX := 120.0, radiusY := 70.0, angle := 0.0 - 0.5235987755982988, paint := canvas::stroke(violet, 16.0)]
 
   ' Row 4 -- the load-bearing pair: an Ellipse with equal radii beside the Circle of
   ' that radius, same paint. They must be indistinguishable.
-  LET mint AS canvas::Color = canvas::rgb(150, 255, 190)
-  LET asCircle AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 585.0, radiusX := 38.0, radiusY := 38.0, angle := 0.0, paint := canvas::fillStroke(mint, canvas::rgb(255, 255, 255), 6.0)]
-  LET realCircle AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 585.0, radius := 38.0, paint := canvas::fillStroke(mint, canvas::rgb(255, 255, 255), 6.0)]
+  LET mint AS color::Color = color::rgb(150, 255, 190)
+  LET asCircle AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 585.0, radiusX := 38.0, radiusY := 38.0, angle := 0.0, paint := canvas::fillStroke(mint, color::rgb(255, 255, 255), 6.0)]
+  LET realCircle AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 585.0, radius := 38.0, paint := canvas::fillStroke(mint, color::rgb(255, 255, 255), 6.0)]
 
   canvas::present([ground, wide, round, thin, thinTurned, tilted, hollow, asCircle, realCircle])
   io::print("rendered")
@@ -774,28 +779,29 @@ fn the_gpu_draws_the_ellipse_scene_the_reference_shows() {
 /// a reader comparing against the type's description should find exactly that.
 const GRADIENTS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
 
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(canvas::rgb(48, 50, 58))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(48, 50, 58))]
 
   ' Row 1 -- a two-stop linear ramp, and the same ramp on a rotated axis so the
   ' gradient is visibly independent of the shape's own orientation.
-  LET warm AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET warm AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 400.0, y := 0.0], stops := warm]
-  LET linBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gLin }]
+  LET linBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gLin }]
   LET gDiag AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 500.0, y := 60.0], endPoint := canvas::Point[x := 840.0, y := 170.0], stops := warm]
-  LET diagBar AS canvas::DrawItem = canvas::Rectangle[x := 500.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gDiag }]
+  LET diagBar AS canvas::DrawItem = canvas::Rectangle[x := 500.0, y := 60.0, w := 340.0, h := 110.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gDiag }]
 
   ' Row 2 -- radial, on a circle and on an ellipse. The ramp is measured in surface
   ' pixels, so it does not follow the shape: the ellipse's ramp stays circular.
-  LET glow AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(90, 30, 120)]]
+  LET glow AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := color::rgb(90, 30, 120)]]
   LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 320.0], endPoint := canvas::Point[x := 300.0, y := 320.0], stops := glow]
-  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 320.0, radius := 95.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad }]
+  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 320.0, radius := 95.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
   LET gRad2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 620.0, y := 320.0], endPoint := canvas::Point[x := 740.0, y := 320.0], stops := glow]
-  LET blob AS canvas::DrawItem = canvas::Ellipse[x := 620.0, y := 320.0, radiusX := 170.0, radiusY := 80.0, angle := 0.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gRad2 }]
+  LET blob AS canvas::DrawItem = canvas::Ellipse[x := 620.0, y := 320.0, radiusX := 170.0, radiusY := 80.0, angle := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad2 }]
 
   ' A gradient-filled POLYGON, in the gap between the two round shapes of row 2. It is
   ' here for one reason: a gradient's stops sit at the END of the geometry record, so a
@@ -804,19 +810,19 @@ SUB main()
   ' directly after the header, where a base computed either way agrees — so a polygon
   ' is the only shape that can tell a correct base from a lucky one.
   LET gTri AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 330.0, y := 240.0], endPoint := canvas::Point[x := 330.0, y := 400.0], stops := warm]
-  LET triBar AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]], paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gTri }]
+  LET triBar AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gTri }]
 
   ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
   ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth
   ' band. That is the rule made visible.
-  LET many AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 0.75, color := canvas::rgb(255, 220, 0)], canvas::GradientStop[offset := 0.4, color := canvas::rgb(0, 160, 255)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(255, 255, 255)]]
+  LET many AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 0.75, color := color::rgb(255, 220, 0)], canvas::GradientStop[offset := 0.4, color := color::rgb(0, 160, 255)], canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]
   LET gMany AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := many]
-  LET manyBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 440.0, w := 780.0, h := 70.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gMany }]
+  LET manyBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 440.0, w := 780.0, h := 70.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gMany }]
 
   ' Row 4 -- black to white. THE case that makes the interpolation space inspectable.
-  LET mono AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(0, 0, 0)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(255, 255, 255)]]
+  LET mono AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(0, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]
   LET gMono AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 60.0, y := 0.0], endPoint := canvas::Point[x := 840.0, y := 0.0], stops := mono]
-  LET monoBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 540.0, w := 780.0, h := 60.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := gMono }]
+  LET monoBar AS canvas::DrawItem = canvas::Rectangle[x := 60.0, y := 540.0, w := 780.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gMono }]
 
   canvas::present([ground, linBar, diagBar, orb, blob, triBar, manyBar, monoBar])
   io::print("rendered")
@@ -937,6 +943,7 @@ fn a_frame_past_the_gradient_stop_cap_declines_to_software() {
 /// upload rather than after — the ordering that matters.
 const GRADIENT_OVERFLOW: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT collections
 IMPORT io
 
@@ -947,12 +954,12 @@ SUB main()
   MUT i AS Integer = 0
   WHILE i < 4200
     LET t AS Float = toFloat(i) / 4199.0
-    stops = collections::append(stops, canvas::GradientStop[offset := t, color := canvas::rgb(255 - i / 20, 40, i / 20)])
+    stops = collections::append(stops, canvas::GradientStop[offset := t, color := color::rgb(255 - i / 20, 40, i / 20)])
     i = i + 1
   END WHILE
 
   LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 900.0, y := 0.0], stops := stops]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := g }]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]
 
   canvas::present([bar])
   io::print("rendered")
@@ -982,17 +989,17 @@ END SUB
 #[test]
 fn a_gradient_on_a_stroked_text_is_ignored() {
     const STROKED: &str =
-        "canvas::fillStroke(canvas::rgb(255, 255, 0), canvas::rgb(0, 128, 255), 4.0)";
+        "canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(0, 128, 255), 4.0)";
 
     fn program(paint: &str) -> String {
         format!(
-            "IMPORT app\nIMPORT canvas\nIMPORT io\n\nSUB main()\n  \
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nSUB main()\n  \
              app::setMode(app::Mode.Canvas)\n  \
              RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    \
              io::print(\"nofont\")\n    EXIT SUB\n  END TRAP\n  \
              LET s AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, \
-             color := canvas::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
-             color := canvas::rgb(0, 0, 255)]]\n  \
+             color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, \
+             color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 0.0, y := 0.0], \
              endPoint := canvas::Point[x := 400.0, y := 0.0], stops := s]\n  \
@@ -1000,7 +1007,7 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              text := \"AA\", font := face, size := 90.0, \
              paint := {paint}]\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 380.0, \
-             w := 60.0, h := 60.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
              canvas::present([label, box])\n  io::print(\"rendered\")\nEND SUB\n"
         )
     }
@@ -1076,11 +1083,12 @@ fn a_scene_containing_a_group_reaches_the_gpu() {
 
 const GROUP_SCENE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::setGroup("panel", [red])
   canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
   io::print("rendered")
@@ -1089,11 +1097,12 @@ END SUB
 
 const FLAT_SCENE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(canvas::rgb(255, 0, 0))]
+  LET red AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 200.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   canvas::present([red])
   io::print("rendered")
 END SUB
@@ -1119,25 +1128,26 @@ END SUB
 /// change the picture, and so would a nested offset that failed to compose.
 const GROUPS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     EXIT SUB
   END TRAP
-  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := canvas::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 160.0, y := 70.0], stops := stops]
   ' The panel: a gradient-filled bar, a clipped white band, a plain circle and a text
   ' run, all in the group's own coordinates.
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 160.0, h := 70.0, paint := WITH canvas::fill(canvas::rgb(0, 0, 0)) { fillGradient := ramp }]
-  LET band AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 80.0, w := 160.0, h := 30.0, paint := WITH canvas::fill(canvas::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 90.5, h := 640.0] }]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 30.0, y := 140.0, radius := 22.0, paint := canvas::fillStroke(canvas::rgb(0, 170, 220), canvas::rgb(255, 255, 255), 5.0)]
-  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := face, size := 46.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 160.0, h := 70.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := ramp }]
+  LET band AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 80.0, w := 160.0, h := 30.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 90.5, h := 640.0] }]
+  LET dot AS canvas::DrawItem = canvas::Circle[x := 30.0, y := 140.0, radius := 22.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 5.0)]
+  LET tag AS canvas::DrawItem = canvas::Text[x := 70.0, y := 155.0, text := "AA", font := face, size := 46.0, paint := canvas::fill(color::rgb(230, 60, 170))]
   canvas::setGroup("panel", [bar, band, dot, tag])
   ' A nested group: the outer holds the panel, so the two offsets compose.
   canvas::setGroup("outer", [canvas::Group[name := "panel", dx := 20.0, dy := 30.0]])
   ' A leaf referenced twice from the scene -- the diamond.
-  canvas::setGroup("leaf", [canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(canvas::rgb(120, 220, 60))]])
+  canvas::setGroup("leaf", [canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]])
   canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Group[name := "panel", dx := 340.0, dy := 210.0], canvas::Group[name := "outer", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 120.0, dy := 420.0], canvas::Group[name := "leaf", dx := 260.0, dy := 520.0]])
 END SUB
 "#;
