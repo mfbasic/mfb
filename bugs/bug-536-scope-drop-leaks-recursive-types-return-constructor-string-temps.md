@@ -224,6 +224,30 @@ than a leak. It should be planned (`write-plan`) rather than attempted as a bug
 phase. bug-538's fix is the first piece of it: `collections::get` now deep-copies,
 so the READ side of the class is already independent.
 
+### Shape B — attributed precisely; and csv has a SECOND leak that is not shape B
+
+Measured on this tree (shape A landed), 400 000 vs 800 000 iterations:
+
+| loop body | 400k | 800k | verdict |
+| --- | --- | --- | --- |
+| `s = "xy"` (reassign a MUT String to a literal) | 0 MB | 0 MB | flat — the assignment frees the old block |
+| `s = toString(i)` (reassign to a call result) | 0 MB | 0 MB | flat |
+| `LET t AS String = toString(i)` | 0 MB | 0 MB | flat — the binding owns and frees it |
+| `acc = acc + len(toString(i))` | **25 MB** | **50 MB** | leaks 64 B per evaluation |
+
+So shape B is exactly and only **an unbound String call result**: reassignment and
+binding both already free correctly. That narrows the fix's blast radius but not
+the audit, which is what makes it expensive.
+
+**csv's amplification is NOT (only) shape B.** `csv::parse` of 1.26 MB of *empty*
+fields costs +117 MB per repeat call, and of 1.89 MB of two-character fields
++235 MB. `__csv_decodeRange`'s `out & __encoding_fromCodepoint(cp)` — the shape-B
+site the original report named — runs **zero times** on an empty field, so
+something per-field or per-row leaks as well. That matches the bug-510 agent's note
+that rewriting the csv tokenizer "moved the leak, worse on empty fields". Whoever
+takes shape B should attribute csv's per-field cost first rather than assuming the
+scalar loop is the whole story.
+
 ### Shape B — remains open; the audit is the work
 
 `register_pending_temp`'s `String` exemption is sound only because a String call
