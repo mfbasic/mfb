@@ -115,11 +115,56 @@ better than today's unlocated lowering error, but it removes a documented
 capability (`mfb man thread`), so it is a product decision rather than a
 mechanical fix.
 
-**Recommended next step:** determine empirically what record a user-declared
-`RESOURCE` allocates (canonical `RESOURCE_RECORD_SIZE` with the closed flag at
-+16, or something the `LINK` block shapes), then pick the arm that follows from
-it. Until that is answered this is not a 1-2h fix, and the effort estimate above
-is optimistic.
+## The record-layout question is ANSWERED (2026-09-05) — it is the canonical record
+
+`src/codegen/link/thunk/link_thunk.rs:1555-1585` (`if function.return_resource`):
+a `LINK` function returning `AS RES T` does **not** hand back the bare native
+handle. It `arena_alloc`s `RESOURCE_RECORD_SIZE` and fills the canonical plan-80
+record — `{tag@0 = RESOURCE_TAG_NATIVE, FD@8 = the handle, CLOSED@16 = 0,
+STATE@24, buffer words zeroed}` — and its own comment states the intent:
+
+> the exact shape a built-in `fs.File STATE S` uses, so `.state`,
+> drop-reclamation (plan-52-B), and the closed guard all work unchanged.
+
+So a user-declared resource's record **is** the layout `copy_resource_to_current_arena`
+already handles. That removes both hazards recorded above:
+
+- **No duplicated OS handle / wrong layout.** The deep copy is over the same
+  canonical record a builtin uses; `emit_copy_resource_live_slots` carries the
+  declared tail generically and emits nothing when a resource declares no slots.
+- **No cross-arena dangle.** The sendable arm copies *into the current arena*,
+  which is exactly what makes it the safe arm and why the pointer arm was the
+  risky one.
+
+**So the correct arm is the sendable one**, and the fix is to make the dispatch
+reach it for a user-declared resource rather than to widen the pointer arm.
+
+## What still has to be plumbed (the real remaining work)
+
+`TypeModel::resource_names` records only the type NAME
+(`engine/validation/validation.rs:304-306` — `"resource" => resource_names.insert(...)`).
+It does **not** record whether the declaration carried `THREAD_SENDABLE`, and
+codegen has no other sendability signal for a user type: the only `sendable`
+mention in the builder is a comment. Routing every user-declared resource to the
+sendable arm would therefore also send resources the author did NOT mark, which
+is the opposite error — the frontend forbids transferring a non-sendable
+resource, and codegen must not quietly permit it.
+
+So the change is:
+
+1. carry `THREAD_SENDABLE` from the `RESOURCE` declaration into the NIR type
+   entry and into `TypeModel` beside `resource_names` (a sendable subset);
+2. consult it in `is_thread_sendable_resource_type`'s caller (or a new builder
+   predicate that ORs builtin ∪ declared-sendable), leaving
+   `is_builtin_resource_type` alone so no builtin behaviour moves;
+3. keep the non-sendable user resource on the pointer arm, matching today's
+   frontend rule.
+
+With the layout question settled this is a scoped change rather than an open
+design problem, but it is still plumbing through NIR, so the "medium (1h-2h)"
+estimate remains optimistic. The runtime half of the Goal — the accepted handle
+is usable and closed exactly once — must be proven with an `rt_*` test, not just
+a build.
 
 ## Original hypothesis (now superseded by the section above)
 
