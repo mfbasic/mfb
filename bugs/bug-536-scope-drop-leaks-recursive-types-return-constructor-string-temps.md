@@ -5,8 +5,13 @@ Effort: x-large (1d–3d) — three independent shapes; the recursive-drop one i
 Severity: HIGH
 Class: Memory-safety / Security (denial of service — unbounded memory growth on ordinary programs; the real amplifier behind audit-3 DEC-03)
 
-Status: Open (found while measuring bug-510 DEC-03; every shape reproduced with a minimal program and measured by `maximum resident set size`)
-Regression Test: `tests/rt_scope_drop_leaks.rs` (to add — builds each minimal program below, runs it at two iteration counts under `getrusage`, and asserts peak RSS does not grow with the count)
+Status: **Shape A FIXED** (2026-09-04). Shapes B and C remain open, and shape C is
+**larger than this document assumed** — see "Shape C is blocked on recursive
+copy-insertion" below, which is a finding, not an excuse.
+Regression Test: `tests/rt_scope_drop_leaks.rs` (added — builds each minimal
+program at two iteration counts, reads the child's `ru_maxrss` through
+`common::run_bounded_with_rss`, and asserts peak RSS does not grow with the count;
+plus a positive behaviour pin per shape)
 
 Three distinct codegen shapes leave arena blocks that are never freed, so a
 program that evaluates them in a loop grows without bound. None is an aliasing
@@ -126,6 +131,123 @@ Whole-decoder measurements (same binary; `/tmp/spk510` probes):
 
 The per-call increments (194 / 83 / 200 MB) are the leaked part; the first-call
 excess over them is geometric-growth garbage the arena does reuse.
+
+## Progress (2026-09-04)
+
+### Shape A — FIXED
+
+`lower_returned_value` (`engine/control/builder_exits.rs`) now claims the
+statement's pending temp when the returned value **is** that temp and reports it
+`already_standalone = true`. A registered pending temp is by construction a fresh
+standalone arena block (`register_pending_temp` requires
+`!value_needs_owning_copy`, freeable-flat, not runtime-managed, not a borrowed
+`get`, not a bare `String`), so the `materialize_inline_value_in_arena` copy
+`store_pending_success_result` used to make was redundant as well as leaky. One
+block, one owner. This is plan-25-C C1's `move_elided` reasoning reached for a
+fresh temp instead of an owned local.
+
+Evidence:
+
+- **RED → GREEN.** `tests/rt_scope_drop_leaks.rs`'s two shape-A cases fail on the
+  pre-fix compiler with exactly the reported numbers — `25 MB → 50 MB` between
+  400 000 and 800 000 iterations for both `RETURN Plain[i, i]` and
+  `RETURN mkLocal(i)` — and pass after. The two positive pins
+  (`RETURN <owned local>` stays flat; every RETURN shape still yields the right
+  value) pass on **both** compilers, so they pin the fix rather than the bug.
+- **Golden containment**, pre vs post binaries at instruction level: every changed
+  fixture removes N × {`bl _mfb_arena_alloc` + its `_mfb_make_error_result` /
+  `_mfb_rt_park_error` OOM path} and the `inline_value_source` / `inline_value_size`
+  / `inline_value_result` stack-slot triples that drove it, and adds **zero** new
+  `bl` targets and zero new slot kinds (json 5 sites, csv 4, term 24). The rest of
+  each fixture's diff is the mechanical stack-offset renumbering the removed slots
+  cause. `artifact-gate all`: 71 `.ncodesum` diffs across 15 fixtures, all of them
+  fixtures that `RETURN` a fresh record/union; 0 after regeneration.
+- **Semantics.** `mfb spec language memory-semantics` §14.2 — *"Returning a value
+  moves it into the caller's return slot"* — is what this now does. No value's
+  identity changes (the caller receives the constructor's own block rather than a
+  byte-copy of it), and no user-visible free moves.
+
+### Shape A does NOT move either headline decoder number
+
+Measured on this machine, pre vs post shape A, identical to the megabyte:
+
+| probe | pre | post |
+| --- | --- | --- |
+| `spikes/audit-3/DEC-03` (800 KB JSON) | 735 MB | 735 MB |
+| `csv::parse` of 1.2 MB of empty fields, ×1 / ×2 | 538 / 655 MB | 538 / 655 MB |
+
+So the decoder amplification is shapes **B and C**, not A. Shape A is a real
+per-call leak (64 B per `RETURN <constructor>`) and worth having, but anyone
+tracking DEC-03 should not expect it to move until C lands.
+
+### Shape C is blocked on recursive COPY-insertion, which does not exist
+
+The Fix Design's Phase 3 ("emit a per-type recursive drop … register `OwnedValue`
+cleanups for those types") **cannot be landed on its own**: it would convert the
+leak into a double free.
+
+plan-02 note-1's "everything else leaks pointers" is not only about the *drop*
+side. There is no recursive **copy** on an owning store either, so every recursive
+value in a program is *shared*, and freeing any one owner dangles the others.
+Verified by codegen inspection, not inference — this program:
+
+```
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+SUB main()
+  LET a AS Node = Node[kids := [], tag := 1]
+  LET b AS Node = Node[kids := [a], tag := 2]     ' a into a list literal
+  MUT xs AS List OF Node = []
+  xs = collections::append(xs, a)                  ' a into a growable list
+  LET c AS Node = a                                ' a into another binding
+  ...
+END SUB
+```
+
+emits **zero** `_mfb_thread_copy_*` calls in `_mfb_fn_main` (the only two in the
+module are inside the emitted copy function itself). The collection payload writer
+(`emit_..._payload` in `collection/layout/builder_collection_layout.rs`) copies an
+inline record/union payload with `emit_copy_bytes` — the recursive field's pointer
+word verbatim — and `lower_value_owned` skips its copy for the class because
+`is_freeable_flat_value` is false. So `b.kids[0]`, `xs[0]` and `c` all point at
+`a`'s `kids` block.
+
+A correct shape C is therefore: **recursive copy-insertion at every owning store**
+(bind, assign, global, return, record-field construction, union wrap, collection
+insert/set/literal, closure capture) **and then** the per-type recursive drop, with
+the two proven inverse. That is a much larger project than "mirror
+`thread_copy_symbol`", it changes the codegen and the performance of every
+recursive-typed program, and getting the symmetry wrong is arena corruption rather
+than a leak. It should be planned (`write-plan`) rather than attempted as a bug
+phase. bug-538's fix is the first piece of it: `collections::get` now deep-copies,
+so the READ side of the class is already independent.
+
+### Shape B — remains open; the audit is the work
+
+`register_pending_temp`'s `String` exemption is sound only because a String call
+result's provenance is unknown. The four existing guards
+(`value_is_aliasing_source`, `static_string_value`, `call_returns_rodata_string`,
+`call_returns_param_borrow`) already exclude the known non-fresh producers, so what
+is left is the **native** String-returning lowerings: 49 members declare
+`return_type: ParameterType::String` with an `abi_inline`/`abi_function` body (26
+more are `.mfb`-bodied), plus the generic/overloaded producers (`toString`,
+`collections::get` on a `List OF String`). Each has to be read and proven to return
+a fresh arena block before it can be opted in; freeing a rodata pointer is a SIGBUS
+and freeing a view into an argument corrupts the free list.
+
+Two designs, both sound, neither attempted here:
+
+1. **Fail-closed provenance** — a `fresh` flag on `ValueResult` set by the shared
+   String emitters (`emit_materialize_string_from_bytes`, `copy_flat_block`, the
+   concat/`toString` runtime helpers), with `register_pending_temp` gating on it. A
+   lowering that loses the flag keeps leaking; it can never wild-free. Cost:
+   `ValueResult` has **325 construction sites**, so the field addition is the bulk
+   of the work.
+2. **An audited allowlist of call targets**, extended one member at a time, seeded
+   with the decoders' producers. Cheaper, and it is what the Fix Design already
+   proposes; the audit is still per-member.
 
 ## Root Cause
 
@@ -276,13 +398,19 @@ Commit: —
 
 ### Phase 2 — shape A
 
-- [ ] `lower_returned_value`: claim-and-standalone for a fresh pending temp.
+- [x] `lower_returned_value`: claim-and-standalone for a fresh pending temp.
 - [ ] RETURN path drops (not clears) interior pending temps before the exit.
-- [ ] Regenerate `.ncodesum` goldens under bash; prove the delta is RETURN-site only.
+      **Deliberately not done.** This is a second, smaller leak (`RETURN f(g(i))`,
+      where `g`'s temp is interior) and it needs the returned value parked before
+      the frees clobber caller-saved registers, plus a watermark
+      `emit_return_exit_inner` does not currently carry. Left for the same change
+      that does shape B, where the temp machinery is being touched anyway.
+- [x] Regenerated `.ncodesum` goldens under bash; the delta is proven RETURN-site
+      only by an instruction-level pre/post attribution (removed `arena_alloc` +
+      `inline_value_*` slots, zero added `bl` targets).
 
-Acceptance: the shape-A test passes; `rt-behavior/arena/return-copy-elision` and
-`scope-drop-free*` unchanged; full suite green.
-Commit: —
+Acceptance: the shape-A tests pass; full suite green.
+Commit: (see below)
 
 ### Phase 3 — shape C
 
