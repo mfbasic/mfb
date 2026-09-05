@@ -5,8 +5,10 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: `tests/` — new `rt_datetime_parse_range` fixture (Phase 1)
+Status: **FIXED** — `datetime::parse` and `datetime::parseIso` now apply the
+`date`/`time` bounds and raise `ErrInvalidFormat` (77050003).
+Regression Test: `tests/rt-behavior/datetime/datetime-parse-range-rt` (19 rejection
+cases + 17 positive pins + an `addDays`/`addMonths` rollover pin)
 
 `datetime::parse` performs no range check on the calendar fields it decodes.
 Parsing `"2026-13-45 25:70:99"` with `"yyyy-MM-dd HH:mm:ss"` succeeds and
@@ -245,3 +247,111 @@ the rollover breaks loudly. That is the correct outcome — the alternative is
 what the spike prints — but the Phase 1 caller audit is what makes it a managed
 change rather than a surprise. The rollover helpers that `addDays`/`addMonths`
 depend on are deliberately untouched.
+
+
+## Resolution
+
+### Phase 1 findings
+
+**`parseIso` shares the defect** and is fixed in the same change. It does not
+route through `__datetime_buildFromFields` — it builds `Date[...]`/`Time[...]`
+record literals itself — but record literals do not validate either, so the
+outcome is the same class with a different shape: `parseIso` *does* carry the
+bad field into the returned value (`parseIso("2026-13-01T00:00:00Z")` printed
+`2026-13-01T00:00:00.000Z`), and the normalization happens later, the first time
+anything calls `resolve` on it. Worse than `parse`, not better: the wrong value
+is latent instead of immediate.
+
+**In-tree callers of `parse`/`parseIso`** (`grep -rn "datetime::parse" src
+examples benchmark tests spikes`): `src/ir/tests.rs:4907,5805` (arity-padding
+lowering assertions), `benchmark/mfb/src/datetimeb.mfb:71`,
+`tests/rt-behavior/datetime/datetime-parse-valid`,
+`tests/rt-behavior/datetime/datetime-parse-trap-rt`,
+`tests/rt-behavior/datetime/datetime-invalid`,
+`tests/rt-behavior/general/stdlib-error-code-contracts-rt`,
+`tests/byte-identity/datetime`, and the three `spikes/api-review` projects.
+**Every one passes an in-range date**, so no caller needed a new `TRAP`. The
+full acceptance run confirms it: not one `.run` golden moved.
+
+**Pre-fix behavior of each fixture case**, recorded from the RED run:
+
+```
+month13  -> 2027-01-01   month0 -> 2025-12-01   day45 -> 2026-07-15
+day0     -> 2026-05-31   day32  -> 2026-02-01   feb30 -> 2026-03-02
+feb29common -> 2026-03-01 apr31 -> 2026-05-01   hour25 -> 2026-06-27T01:00
+hour24   -> 2026-06-27   minute70 -> 00:70->01:10  second99 -> 00:00:99->00:01:39
+allbad   -> 2027-02-15T02:11:39Z                 pm25 -> 2026-06-27T01:00
+isoMonth13 -> 2026-13-01T00:00:00.000Z (carried, not normalized)
+isoFeb30/isoHour24/isoMinute70/isoSecond99 -> likewise carried verbatim
+```
+
+### The contract, and which side was wrong
+
+Both sides were wrong, in different ways, and the code was the one worth
+changing:
+
+- The man page said an out-of-range field "is **carried into** the resulting
+  `DateTime` rather than rejected". For `parse` that was simply false — the
+  field was normalized away, leaving nothing to inspect. For `parseIso` it was
+  accidentally true, and detectable only until the value was resolved.
+- A *deliberate* silent-normalization contract would have to be stated on the
+  page and give the caller a way to detect it. Neither existed, and the
+  package's own constructors (`date`, `time`) already refuse the same fields —
+  as does `parse`'s one existing numeric bound, the offset token. Two positions
+  on what a date is, with the permissive one fed by untrusted text.
+
+So the code was changed to match the package's stated position, and the prose
+was replaced by a statement of the check.
+
+### The fix
+
+- New shared helper `__datetime_checkFields(year, month, day, hour, minute,
+  second, nanos)` (`src/codegen/builtins/datetime/helper_check_fields.rs`),
+  bounds identical to `date`/`time`, raising **`ErrInvalidFormat` (77050003)**
+  rather than the constructors' `ErrInvalidArgument`: the argument is a
+  well-formed `String`, the *text* is malformed, and 77050003 is what both
+  readers already raise for a shape mismatch, so one `TRAP` still catches every
+  flavour of bad text.
+- `__datetime_buildFromFields` calls it **after** the 12-hour/AM-PM fold and
+  before the `Date`/`Time` literals, so `hh`+`a` is bounded as the hour actually
+  stored. `parseIso` calls it after the offset read, at the same point.
+- `helper_days_from_civil.rs` and every rollover member
+  (`addDays`/`addMonths`/`plus`/`minus`) are untouched — the fixture pins
+  `addMonths(2026-01-31, 1) = 2026-02-28` and `addDays(2026-01-31, 1) =
+  2026-02-01` unchanged.
+
+### Doc sync
+
+- `mfb man datetime parse` — the "does not range-check" paragraph is replaced by
+  the bounds and a "there is no rollover" sentence, plus a new compiled-and-run
+  example whose printed output (`rejected: datetime: month out of range`) is on
+  the page.
+- `mfb man datetime parseIso` — the mirrored paragraph, likewise.
+- `mfb spec stdlib datetime` — new "Decoded fields are range-checked" subsection
+  under Parse grammar, and the Validation section now names three input
+  boundaries rather than two.
+- `spikes/api-review/bug-519-parse-normalizes` re-run: all three of `parse`,
+  `parseIso` and `date` now refuse the same fields.
+
+### Gates
+
+- `datetime-parse-range-rt`: 19 rejections all FALSE→TRUE; **17 positive pins
+  and both rollover pins byte-identical to the pre-fix run.**
+- `scripts/man-run-examples.sh datetime --run`: 113 built, 113 ran, 0 failed.
+- `scripts/test-accept.sh` (full, 1394 tests): 15 mismatches, **all `.ir`, all
+  datetime-importing fixtures, zero `.run` goldens moved** — that containment is
+  the semantics-preservation proof. Regenerated; re-run green.
+- `scripts/regen-ncodesum.sh`: 141 goldens refreshed, only datetime's 5 changed.
+- `scripts/artifact-gate.sh target/release/mfb all`: 1372 tests, 1902 goldens,
+  **0 diffs**.
+- `cargo test --no-fail-fast`: 4710 passed, 0 failed across 126 targets.
+
+### Not done here
+
+- bug-520 (no named zones) is untouched. The fix does not interact with it: the
+  bound is on calendar fields, not on zone identity.
+- The weekday token's documented laxity, the offset token's ±24h check, and
+  `civil`'s trust in its `Date`/`Time` arguments are all unchanged. `civil` is
+  now provably safe to leave trusting: with `date`, `time`, `parse` and
+  `parseIso` all bounded, an out-of-range `Date`/`Time` is not constructible
+  from outside the package.

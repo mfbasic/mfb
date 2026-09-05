@@ -1,0 +1,177 @@
+{
+  "project": "datetime-parse-range-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 16 },
+    { "module": "datetime", "line": 17 },
+    { "module": "errorCode", "line": 18 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "rejects",
+      "line": 20,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 20 },
+      { "name": "value", "type": "String", "default": null, "line": 20 },
+      { "name": "pattern", "type": "String", "default": null, "line": 20 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=ACCEPTED " } }, "right": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "dt" }] } }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 24,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "rejectsIso",
+      "line": 30,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 30 },
+      { "name": "value", "type": "String", "default": null, "line": 30 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=ACCEPTED " } }, "right": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "dt" }] } }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 34,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 36 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "accepts",
+      "line": 40,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 40 },
+      { "name": "value", "type": "String", "default": null, "line": 40 },
+      { "name": "pattern", "type": "String", "default": null, "line": 40 },
+      { "name": "want", "type": "String", "default": null, "line": 40 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "dt" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "want" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 44 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 45,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=REJECTED " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "acceptsIso",
+      "line": 51,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 51 },
+      { "name": "value", "type": "String", "default": null, "line": 51 },
+      { "name": "want", "type": "String", "default": null, "line": 51 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt" }] }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "want" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 54 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 55 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 56,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=REJECTED " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 57 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 58 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 62,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 64 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "month13" }, { "kind": "string", "value": "2026-13-01 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 65 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "month0" }, { "kind": "string", "value": "2026-00-01 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 66 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "day45" }, { "kind": "string", "value": "2026-06-45 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 67 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "day0" }, { "kind": "string", "value": "2026-06-00 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 68 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "day32" }, { "kind": "string", "value": "2026-01-32 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 69 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "feb30" }, { "kind": "string", "value": "2026-02-30 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 70 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "feb29common" }, { "kind": "string", "value": "2026-02-29 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 71 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "apr31" }, { "kind": "string", "value": "2026-04-31 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 72 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "hour25" }, { "kind": "string", "value": "2026-06-26 25:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 73 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "hour24" }, { "kind": "string", "value": "2026-06-26 24:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 74 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "minute70" }, { "kind": "string", "value": "2026-06-26 00:70:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 75 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "second99" }, { "kind": "string", "value": "2026-06-26 00:00:99" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 76 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "allbad" }, { "kind": "string", "value": "2026-13-45 25:70:99" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] } }, "line": 78 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejects", "arguments": [{ "kind": "string", "value": "pm25" }, { "kind": "string", "value": "2026-06-26 25:00:00 PM" }, { "kind": "string", "value": "yyyy-MM-dd hh:mm:ss a" }] } }, "line": 80 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejectsIso", "arguments": [{ "kind": "string", "value": "isoMonth13" }, { "kind": "string", "value": "2026-13-01T00:00:00Z" }] } }, "line": 81 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejectsIso", "arguments": [{ "kind": "string", "value": "isoFeb30" }, { "kind": "string", "value": "2026-02-30T00:00:00Z" }] } }, "line": 82 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejectsIso", "arguments": [{ "kind": "string", "value": "isoHour24" }, { "kind": "string", "value": "2026-06-26T24:00:00Z" }] } }, "line": 83 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejectsIso", "arguments": [{ "kind": "string", "value": "isoMinute70" }, { "kind": "string", "value": "2026-06-26T00:70:00Z" }] } }, "line": 84 },
+      { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "call", "callee": "rejectsIso", "arguments": [{ "kind": "string", "value": "isoSecond99" }, { "kind": "string", "value": "2026-06-26T00:00:99Z" }] } }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rejected_all=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "19" } }] } }] }, "line": 86 },
+      { "kind": "binding", "mutable": true, "name": "ok", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 89 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "plain" }, { "kind": "string", "value": "2026-06-26 09:30:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }, { "kind": "string", "value": "2026-06-26T09:30:00.000Z" }] } }, "line": 90 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "jan1" }, { "kind": "string", "value": "2026-01-01 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }, { "kind": "string", "value": "2026-01-01T00:00:00.000Z" }] } }, "line": 91 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "dec31" }, { "kind": "string", "value": "2026-12-31 23:59:59" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }, { "kind": "string", "value": "2026-12-31T23:59:59.000Z" }] } }, "line": 92 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "leapfeb29" }, { "kind": "string", "value": "2024-02-29 12:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }, { "kind": "string", "value": "2024-02-29T12:00:00.000Z" }] } }, "line": 93 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "apr30" }, { "kind": "string", "value": "2026-04-30 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }, { "kind": "string", "value": "2026-04-30T00:00:00.000Z" }] } }, "line": 94 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "maxnanos" }, { "kind": "string", "value": "2026-06-26 00:00:00.999999999" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss.fffffffff" }, { "kind": "string", "value": "2026-06-26T00:00:00.999Z" }] } }, "line": 95 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "noTimeToken" }, { "kind": "string", "value": "2026-06-26" }, { "kind": "string", "value": "yyyy-MM-dd" }, { "kind": "string", "value": "2026-06-26T00:00:00.000Z" }] } }, "line": 96 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "monthName" }, { "kind": "string", "value": "Jun 25 2026 2:30 PM" }, { "kind": "string", "value": "MMM d yyyy h:mm a" }, { "kind": "string", "value": "2026-06-25T14:30:00.000Z" }] } }, "line": 97 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "midnight12am" }, { "kind": "string", "value": "2026-01-02 12:05 AM" }, { "kind": "string", "value": "yyyy-MM-dd hh:mm a" }, { "kind": "string", "value": "2026-01-02T00:05:00.000Z" }] } }, "line": 98 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "noon12pm" }, { "kind": "string", "value": "2026-01-02 12:05 PM" }, { "kind": "string", "value": "yyyy-MM-dd hh:mm a" }, { "kind": "string", "value": "2026-01-02T12:05:00.000Z" }] } }, "line": 99 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "eve11pm" }, { "kind": "string", "value": "2026-01-02 11:05 PM" }, { "kind": "string", "value": "yyyy-MM-dd hh:mm a" }, { "kind": "string", "value": "2026-01-02T23:05:00.000Z" }] } }, "line": 100 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "weekday" }, { "kind": "string", "value": "Fri 2026-06-26" }, { "kind": "string", "value": "EEE yyyy-MM-dd" }, { "kind": "string", "value": "2026-06-26T00:00:00.000Z" }] } }, "line": 101 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "accepts", "arguments": [{ "kind": "string", "value": "defaults" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "1970-01-01T00:00:00.000Z" }] } }, "line": 102 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "acceptsIso", "arguments": [{ "kind": "string", "value": "isoPlain" }, { "kind": "string", "value": "1969-07-20T20:17:00Z" }, { "kind": "string", "value": "1969-07-20T20:17:00.000Z" }] } }, "line": 103 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "acceptsIso", "arguments": [{ "kind": "string", "value": "isoOffset" }, { "kind": "string", "value": "2026-06-25T14:30:00.250+05:30" }, { "kind": "string", "value": "2026-06-25T09:00:00.250Z" }] } }, "line": 104 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "acceptsIso", "arguments": [{ "kind": "string", "value": "isoLeap" }, { "kind": "string", "value": "2024-02-29T23:59:59Z" }, { "kind": "string", "value": "2024-02-29T23:59:59.000Z" }] } }, "line": 105 },
+      { "kind": "assignment", "name": "ok", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "call", "callee": "acceptsIso", "arguments": [{ "kind": "string", "value": "isoSpaceSep" }, { "kind": "string", "value": "2026-06-26 09:30:00-08:00" }, { "kind": "string", "value": "2026-06-26T17:30:00.000Z" }] } }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accepted_all=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "ok" }, "right": { "kind": "number", "value": "17" } }] } }] }, "line": 107 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": "datetime.DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "2026-01-31 00:00:00" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "addMonths=" }, "right": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "datetime.addMonths", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "number", "value": "1" }] }] } }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "addDays=" }, "right": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "datetime.addDays", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "number", "value": "1" }] }] } }] }, "line": 112 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 113 }
+      ]
+    }
+    ]
+  }
+  ]
+}

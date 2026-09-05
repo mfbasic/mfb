@@ -8,6 +8,11 @@
 ' The man page is also wrong about its own behavior. It says an out-of-range
 ' component "is CARRIED INTO the resulting DateTime rather than rejected",
 ' which would leave month = 13. It does not: it is normalized away.
+'
+' FIXED: `parse` and `parseIso` now apply the constructors' bounds and raise
+' ErrInvalidFormat (77050003). Before the fix this printed
+'   datetime::parse  -> year=2027 month=2 day=15 ... 2027-02-15T02:11:39.000Z
+' Rebuild and run to see the two readers agree with `datetime::date`.
 
 IMPORT io
 IMPORT datetime
@@ -20,19 +25,32 @@ TRAP(err)
 END TRAP
 END FUNC
 
+FUNC parseGuard(text AS String, pattern AS String) AS String
+  LET dt AS datetime::DateTime = datetime::parse(text, pattern)
+  RETURN "ACCEPTED " & datetime::toIso(dt)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code) & " " & err.message
+END TRAP
+END FUNC
+
+FUNC isoGuard(text AS String) AS String
+  LET dt AS datetime::DateTime = datetime::parseIso(text)
+  RETURN "ACCEPTED " & datetime::toIso(dt)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code) & " " & err.message
+END TRAP
+END FUNC
+
 FUNC main AS Integer
   LET text AS String = "2026-13-45 25:70:99"
   io::print("input text: " & text)
   io::print("")
 
-  LET bad AS datetime::DateTime = datetime::parse(text, "yyyy-MM-dd HH:mm:ss")
-  io::print("datetime::parse  -> year=" & toString(bad.date.year) & " month=" & toString(bad.date.month) & " day=" & toString(bad.date.day))
-  io::print("                    hour=" & toString(bad.time.hour) & " minute=" & toString(bad.time.minute) & " second=" & toString(bad.time.second))
-  io::print("                    toIso = " & datetime::toIso(bad))
-  io::print("")
+  io::print("datetime::parse  -> " & parseGuard(text, "yyyy-MM-dd HH:mm:ss"))
+  io::print("datetime::parseIso -> " & isoGuard("2026-13-45T25:70:99Z"))
   io::print("datetime::date(2026, 13, 45) -> " & dateGuard(2026, 13, 45))
   io::print("")
-  io::print("Same fields, two answers: the constructor refuses them, the parser")
-  io::print("invents a different date. Nothing downstream can tell.")
+  io::print("All three refuse the same fields, so nothing downstream is handed")
+  io::print("a date the caller never wrote.")
   RETURN 0
 END FUNC

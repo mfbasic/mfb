@@ -44,13 +44,12 @@ are landed and archived; 499, 504 and 510 are the remainder and head this list.
 |---|---|---|---|---|
 | 538 | HIGH | medium | `collections::get` of a recursive element aliases storage → append-grow UAF | **memory gate**; pairs with 536 |
 | 536 | HIGH | x-large | scope drop leaks recursive types / return-constructor string temps | **memory gate**; same family as 538 |
-| 519 | HIGH | medium | `datetime parse` silently normalizes out-of-range fields | silent data corruption |
 | 514 | HIGH | large | `KeyPair` carries no curve tag (Ed vs X, 32-byte collision) | crypto: wrong-curve use is silent |
 | 532 | HIGH | x-large | regex reports only match starts, so extraction is impossible | API gap, large |
 | 539 | HIGH | large | GTK app-mode draws no positioned `term` output | platform |
 
 535 is landed (`b93de7ed0`). Recommended order: **538 → 536** (one family,
-cheaper together), then **519**, **514**. The two x-large items (532, 536) deserve a dedicated agent
+cheaper together), then **514**. 519 is landed. The two x-large items (532, 536) deserve a dedicated agent
 rather than sharing a slot.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster

@@ -33,11 +33,14 @@ surrounding separators are present. The offset is mandatory; unlike
 conforming RFC 3339 timestamp always carries its own offset. The parsed offset is
 applied directly, making the result a fixed-offset moment.
 
-Like `datetime::parse`, `parseIso` does not range-check the decoded calendar
-fields: an out-of-range component such as month 13 or day 40 is carried into the
-resulting `datetime::DateTime` rather than rejected. The one validated numeric range is the
-offset, whose magnitude must be under 24 hours. `parseIso` is pure: it reads no
-host state and has no side effects."#;
+Like `datetime::parse`, `parseIso` range-checks the decoded calendar fields
+against the bounds `datetime::date` and `datetime::time` enforce: `month` in
+`1 .. 12`, `day` in `1 ..` the length of that month in that year, `HH` in
+`0 .. 23`, `mm` and `ss` in `0 .. 59`. An out-of-range component such as month
+13 or day 40 raises `ErrInvalidFormat` rather than being carried into the
+resulting `datetime::DateTime` or rolled over into a different date. The offset's
+magnitude must be under 24 hours. `parseIso` is pure: it reads no host state and
+has no side effects."#;
 const EX: &str = r#"Parse a UTC timestamp:
 
 ```
@@ -128,6 +131,7 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
     END WHILE
   END IF
   LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
+  __datetime_checkFields(yr.value, mo.value, dy.value, hh.value, mm.value, ss.value, nanos)
   LET d AS Date = Date[yr.value, mo.value, dy.value]
   LET t AS Time = Time[hh.value, mm.value, ss.value, nanos]
   RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]

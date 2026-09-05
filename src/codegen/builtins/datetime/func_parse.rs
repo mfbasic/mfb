@@ -52,11 +52,20 @@ forms accept the same. Name tokens (month names, AM/PM) are matched without rega
 to case. The weekday token only skips over the run of letters in `value`; it does
 not check that the named weekday agrees with the parsed date.
 
-`parse` does not range-check the decoded calendar fields the way `datetime::date`
-and `datetime::time` do: an out-of-range component in `value` (for example month
-13) is carried into the resulting `datetime::DateTime` rather than rejected. The one
-validated numeric range is the offset token, whose magnitude must be under 24
-hours.
+`parse` range-checks the decoded calendar fields against exactly the bounds
+`datetime::date` and `datetime::time` enforce: `month` in `1 .. 12`, `day` in
+`1 ..` the length of that month in that year (so `"2026-02-30"` and a 29
+February outside a leap year are both refused), `hour` in `0 .. 23`, `minute`
+and `second` in `0 .. 59`, and the fractional second in
+`0 .. 999999999` nanoseconds. An out-of-range component raises
+`ErrInvalidFormat` — the same code a shape mismatch raises, so one `TRAP`
+catches every flavour of bad text. The bound is applied to the hour the value
+actually names, after the 12-hour/AM-PM fold. The offset token's magnitude must
+also be under 24 hours.
+
+There is no rollover: `"2026-13-45"` is an error, not December-plus-one-month.
+That normalization belongs to `datetime::addMonths`/`datetime::addDays`, which
+are asked for it explicitly; a reader of untrusted text is not.
 
 An offset token sets the `datetime::DateTime`'s offset directly and makes the result a
 fixed-offset moment, overriding `zone`. When `pattern` contains no offset token,
@@ -93,6 +102,30 @@ IMPORT datetime
 SUB main()
   LET dt AS datetime::DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
 END SUB
+```
+
+An out-of-range calendar field raises `ErrInvalidFormat` rather than rolling
+over into a different date:
+
+```
+IMPORT datetime
+IMPORT io
+
+SUB main()
+  LET bad AS datetime::DateTime = datetime::parse("2026-13-45", "yyyy-MM-dd")
+  io::print("accepted")
+  EXIT SUB
+TRAP(err)
+  io::print("rejected: " & err.message)
+  EXIT SUB
+END TRAP
+END SUB
+```
+
+prints:
+
+```
+rejected: datetime: month out of range
 ```
 
 Text that does not match the pattern raises `ErrInvalidFormat`:
