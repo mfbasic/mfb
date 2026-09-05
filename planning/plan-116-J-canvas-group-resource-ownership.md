@@ -531,10 +531,13 @@ Two things Phase 3 must check rather than assume:
 2. **`retiredItems`' copy must register no cleanup of its own**, or `#canvas_present`'s
    scope exit closes the resources a second time — harmless by idempotence (§4.2), but it
    would also mean the *live* scene's `groupItems` copies do the same, which is not
-   harmless. Expected fine:
-   `is_resource_owning_container(List OF DrawItem)` is false (it is not a `List OF RES T`,
-   and `record_res_field_types` has no entry for a union), which is the same reason
-   `groupItems`' copies register none today. **Verify it rather than expect it.**
+   harmless. **Measured 2026-09-04: it registers none.** A named
+   `LET items AS List OF canvas::DrawItem` local, built in a `SUB` that presents it and
+   returns, leaves the font open — `canvas::measureText` afterwards prints
+   `STILL-OPEN width=32.00` rather than raising. `is_resource_owning_container` is false
+   for it: not a `List OF RES T`, and `record_res_field_types` has no entry for a union.
+   Same reason `groupItems`' copies register none today, now measured in the shape that
+   matters — a **named local**, not a temporary.
 
 The close itself remains two instructions per resource with no call and no tag to check
 (§4.2).
@@ -718,10 +721,15 @@ Commit: —
       `src/codegen/memory/data/data_objects.rs`, and
       `src/codegen/engine/analysis/module_analysis.rs`. Measured by
       `grep -rn 'canvas.groupReclaim' src/ --exclude-dir=builtins` → exactly those five.
-- [ ] Verify §4.4's open check 2: `retiredItems`' copy registers no cleanup of its own.
-      Expected — `is_resource_owning_container(List OF DrawItem)` is false, which is why
-      `groupItems`' copies register none today — but **verify rather than expect**, since
-      if it were true the live scene's copies would be closing resources too.
+- [x] Verify §4.4's open check 2: `retiredItems`' copy registers no cleanup of its own.
+      **Measured 2026-09-04, and it does not.** A `SUB draw(RES face AS canvas::Font)`
+      that builds a named `LET items AS List OF canvas::DrawItem = [tag]` naming the font,
+      presents it, and returns — then `canvas::measureText(face, …)` in `main` afterwards.
+      Prints `STILL-OPEN width=32.00`, so the list's scope exit closed nothing. Confirms
+      `is_resource_owning_container(List OF DrawItem)` is false in the shape that matters
+      (a *named local*, not just a temporary), which is why `groupItems`' copies register
+      none today. Worth measuring rather than assuming: if it had been true, the **live**
+      scene's copies would have been closing resources on every frame.
 - [ ] `setGroup` replacing a live group closes the **old** buffer's resources only.
 - [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
       `.ai/canvas-threading.md` §8 as well:
