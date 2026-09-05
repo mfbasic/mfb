@@ -611,19 +611,28 @@ pub(super) fn emit_term_draw_helper() -> Result<CodeFunction, String> {
         abi::SCRATCH[3],
         abi::LOCAL[2],
     ));
+    // idx*32 (the pool stride).
     asm.push(abi::shift_left_immediate(
         abi::SCRATCH[3],
         abi::SCRATCH[3],
         5,
-    )); // idx*32 (pool stride)
-    asm.state_array(abi::SCRATCH[0], ST_TERM_SNAP_POOL);
+    ));
+    // The destination must NOT be `SCRATCH[0]`: `state_array` uses that register as
+    // its own temporary for an offset past the add immediate, so a `SCRATCH[0]`
+    // destination overwrites the base with the offset and the following add doubles
+    // it — this computed `2 * ST_TERM_SNAP_POOL + idx*32`, an absolute low address,
+    // and SIGSEGV'd the GTK main thread the first time the renderer met a pooled cell
+    // (found while proving bug-539; `Asm::state_array` now refuses the aliasing
+    // outright). `SCRATCH[2]` is dead here — it held the row stride the multiply above
+    // consumed.
+    asm.state_array(abi::SCRATCH[2], ST_TERM_SNAP_POOL);
     asm.push(abi::add_registers(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+        abi::SCRATCH[2],
         abi::SCRATCH[3],
     )); // pool slot
-    asm.push(abi::load_u8(abi::c_arg(2), abi::SCRATCH[0], 0)); // length prefix
-    asm.push(abi::add_immediate(abi::c_arg(1), abi::SCRATCH[0], 1)); // cluster bytes
+    asm.push(abi::load_u8(abi::c_arg(2), abi::SCRATCH[2], 0)); // length prefix
+    asm.push(abi::add_immediate(abi::c_arg(1), abi::SCRATCH[2], 1)); // cluster bytes
     asm.push(abi::branch("d_set_text"));
     asm.push(abi::label("d_inline_text"));
     asm.push(abi::add_immediate(
@@ -1185,6 +1194,33 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
     asm.finish(TERM_RESIZE_SYMBOL, "Nothing")
 }
 
+/// Which contract [`emit_term_write_helper`] emits its shared cluster walk under
+/// (bug-539). The two modes differ ONLY at the edges of the run:
+///
+/// | | `Write` (`io::write`/`print`) | `DrawText` (`term::drawText`) |
+/// |---|---|---|
+/// | start | the shadow cursor | the `(row, column)` arguments |
+/// | row off the grid | impossible (cursor is clamped) | draws nothing |
+/// | `column < 0` | impossible | advances without stamping (left clip) |
+/// | `column >= cols` | wraps to the next row | ends the run (right clip) |
+/// | wide glyph at the edge | wraps, never split | dropped, ends the run |
+/// | control byte | `'\n'` starts a new row, others stamp | one column, no stamp |
+/// | bottom of the grid | scrolls up | unreachable (one row) |
+/// | on return | commits the cursor | leaves the cursor untouched |
+///
+/// Everything else — the UTF-8 decode, the `charwidth` lookup, the combining-mark
+/// fold into the EGC pool, the `GTK_WIDE_TRAIL` sentinel, the fg/bg/bold/underline/
+/// width packing — is literally the same emitted code, which is the point: a second
+/// hand-written walk for `drawText` is how the two would silently start disagreeing
+/// about the same string.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TermWriteMode {
+    /// `io::write`/`io::print` into the grid at the shadow cursor.
+    Write,
+    /// `term::drawText` at an absolute cell, clipped to its row.
+    DrawText,
+}
+
 /// `void _mfb_gtkapp_term_write(string obj /*x0*/, gboolean newline /*x1*/)` — the
 /// worker-side grid writer the io write helpers call when term:: is active. It
 /// mutates the fixed grid arrays (chars/fg/bg) from the worker thread. Bytes advance
@@ -1200,8 +1236,26 @@ pub(super) fn emit_term_resize_helper() -> Result<CodeFunction, String> {
 /// fixed-size static buffers (no reallocation, no dangling pointer, no memory
 /// unsafety). Do not reintroduce a per-write redraw or a lock the worker holds across
 /// the draw callback (either the mandatory-present contract breaks or the UI stalls).
-pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, String> {
-    let mut asm = Asm::new(TERM_WRITE_SYMBOL);
+///
+/// bug-539: the same body is emitted a second time, specialized as
+/// [`TermWriteMode::DrawText`], to serve `term::drawText`. The two differ only in
+/// where the run starts and what happens at an edge — everything that decides how a
+/// string becomes cells (the UTF-8 decode, the `charwidth` lookup, the combining-mark
+/// fold into the EGC pool, the wide-cell sentinel, the attribute packing) is shared
+/// verbatim, which is what keeps `io::write` and `term::drawText` from disagreeing
+/// about the same string. Specialized at EMIT time, not by a runtime flag, so the
+/// `Write` body stays byte-identical.
+pub(super) fn emit_term_write_helper(
+    uses_term: bool,
+    mode: TermWriteMode,
+) -> Result<CodeFunction, String> {
+    let draw_text = mode == TermWriteMode::DrawText;
+    let symbol = if draw_text {
+        TERM_DRAW_TEXT_SYMBOL
+    } else {
+        TERM_WRITE_SYMBOL
+    };
+    let mut asm = Asm::new(symbol);
     // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
     // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88,
     // x19(code-point byte length)@96. plan-70-E: glyph@104, width@112 spill the
@@ -1237,14 +1291,33 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     ] {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
-    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(1))); // newline flag
-    asm.push(abi::load_u64(abi::LOCAL[3], abi::c_arg(0), 0)); // text len
-    asm.push(abi::add_immediate(abi::LOCAL[4], abi::c_arg(0), 8)); // text ptr
+    if draw_text {
+        // `drawText(row /*x0*/, column /*x1*/, text /*x2*/)`: the run starts at an
+        // ABSOLUTE cell and the shadow cursor is not read and never moved.
+        asm.push(abi::load_u64(abi::LOCAL[3], abi::c_arg(2), 0)); // text len
+        asm.push(abi::add_immediate(abi::LOCAL[4], abi::c_arg(2), 8)); // text ptr
+        asm.push(abi::move_register(abi::LOCAL[6], abi::c_arg(0))); // row
+        asm.push(abi::move_register(abi::LOCAL[7], abi::c_arg(1))); // column
+    } else {
+        asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(1))); // newline flag
+        asm.push(abi::load_u64(abi::LOCAL[3], abi::c_arg(0), 0)); // text len
+        asm.push(abi::add_immediate(abi::LOCAL[4], abi::c_arg(0), 8)); // text ptr
+    }
     asm.state_array(abi::LOCAL[5], ST_TERM_CHARS);
     asm.state_array(abi::LOCAL[8], ST_TERM_FG);
     asm.state_array(abi::LOCAL[9], ST_TERM_BG);
-    asm.load_state(abi::LOCAL[6], ST_TERM_ROW);
-    asm.load_state(abi::LOCAL[7], ST_TERM_COL);
+    if draw_text {
+        // The row is bounds-checked, not clamped: a run whose row is off the grid
+        // draws nothing rather than sliding onto the top or bottom edge.
+        asm.push(abi::compare_immediate(abi::LOCAL[6], "0"));
+        asm.push(abi::branch_lt("tw_after"));
+        asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+        asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
+        asm.push(abi::branch_ge("tw_after"));
+    } else {
+        asm.load_state(abi::LOCAL[6], ST_TERM_ROW);
+        asm.load_state(abi::LOCAL[7], ST_TERM_COL);
+    }
     // fgval = cur_fg | (bold ? BOLD_FLAG : 0) | (underline ? UNDERLINE_FLAG : 0).
     // Hold cur_fg in x11 — load_state clobbers x9 as its address scratch.
     asm.load_state(abi::SCRATCH[2], ST_TERM_CUR_FG);
@@ -1300,14 +1373,28 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::label("tw_loop"));
     asm.push(abi::compare_registers(abi::LOCAL[2], abi::LOCAL[3]));
     asm.push(abi::branch_ge("tw_after"));
+    if draw_text {
+        // Clip at the right edge: once the column reaches `cols` nothing further in
+        // the run is visible, so stop rather than wrapping to the next row.
+        asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
+        asm.push(abi::compare_registers(abi::LOCAL[7], abi::SCRATCH[0]));
+        asm.push(abi::branch_ge("tw_after"));
+    }
     asm.push(abi::add_registers(
         abi::SCRATCH[0],
         abi::LOCAL[4],
         abi::LOCAL[2],
     ));
     asm.push(abi::load_u8(abi::SCRATCH[1], abi::SCRATCH[0], 0)); // byte = ptr[i]
-    asm.push(abi::compare_immediate(abi::SCRATCH[1], "10")); // '\n'
-    asm.push(abi::branch_eq("tw_newline"));
+    if draw_text {
+        // A control character (including '\n') advances one column and one byte
+        // without stamping — `drawText` places a run on ONE row.
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "32"));
+        asm.push(abi::branch_lt("tw_control"));
+    } else {
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "10")); // '\n'
+        asm.push(abi::branch_eq("tw_newline"));
+    }
     // Decode ONE code point into x10 as its UTF-8 bytes packed little-endian,
     // with its length in x19 (bug-203). Storing a byte per cell split a
     // multi-byte glyph across cells: each cell held a lone fragment, the cursor
@@ -1365,43 +1452,66 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
         asm.push(abi::move_immediate(abi::SCRATCH[6], "Integer", "1"));
     }
     // Wide-at-edge: a width-2 glyph that would straddle the right edge wraps to the
-    // next row first (spill glyph+width across the scroll, then reload).
+    // next row first (spill glyph+width across the scroll, then reload) — or, for
+    // `drawText`, is dropped and ends the run, since a clipped run never wraps and a
+    // wide glyph is never split across the edge.
     asm.push(abi::compare_immediate(abi::SCRATCH[6], "2"));
     asm.push(abi::branch_ne("tw_edge_ok"));
     asm.push(abi::add_immediate(abi::SCRATCH[0], abi::LOCAL[7], 1));
     asm.load_state(abi::SCRATCH[2], ST_TERM_COLS);
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[2]));
     asm.push(abi::branch_lt("tw_edge_ok"));
-    asm.push(abi::store_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        off_glyph,
-    ));
-    asm.push(abi::store_u64(
-        abi::SCRATCH[6],
-        abi::stack_pointer(),
-        off_width,
-    ));
-    asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
-    asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
-    asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
-    asm.push(abi::branch_lt("tw_edge_noscroll"));
-    asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
-    asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.push(abi::label("tw_edge_noscroll"));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        off_glyph,
-    ));
-    asm.push(abi::load_u64(
-        abi::SCRATCH[6],
-        abi::stack_pointer(),
-        off_width,
-    ));
+    if draw_text {
+        asm.push(abi::branch("tw_after"));
+    } else {
+        asm.push(abi::store_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_glyph,
+        ));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[6],
+            abi::stack_pointer(),
+            off_width,
+        ));
+        asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
+        asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+        asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
+        asm.push(abi::branch_lt("tw_edge_noscroll"));
+        asm.call_internal(TERM_SCROLL_SYMBOL);
+        asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
+        asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.push(abi::label("tw_edge_noscroll"));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_glyph,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[6],
+            abi::stack_pointer(),
+            off_width,
+        ));
+    }
     asm.push(abi::label("tw_edge_ok"));
+    if draw_text {
+        // Clip at the LEFT edge: a run that starts off-grid advances through its
+        // hidden cells without stamping, so the part that reaches column 0 lands in
+        // the right place. The pooled base is reset so a following combining mark
+        // cannot fold into a cell this run never wrote.
+        asm.push(abi::compare_immediate(abi::LOCAL[7], "0"));
+        asm.push(abi::branch_ge("tw_oncell"));
+        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        asm.push(abi::bitwise_not(abi::SCRATCH[0], abi::SCRATCH[0])); // -1
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_lastbase,
+        ));
+        asm.push(abi::branch("tw_advance"));
+        asm.push(abi::label("tw_oncell"));
+    }
     // idx = row*MAX_COLS + col; chars[idx]=glyph; fg[idx]=fgval|(width<<27); bg=bgval.
     asm.push(abi::move_immediate(
         abi::SCRATCH[2],
@@ -1506,30 +1616,53 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     ));
     asm.push(abi::store_u32(abi::SCRATCH[0], abi::SCRATCH[5], 4));
     asm.push(abi::label("tw_no_trail"));
-    // col += width; wrap to next row at the active cols.
-    asm.push(abi::add_registers(
-        abi::LOCAL[7],
-        abi::LOCAL[7],
-        abi::SCRATCH[6],
-    ));
-    asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
-    asm.push(abi::compare_registers(abi::LOCAL[7], abi::SCRATCH[0]));
-    asm.push(abi::branch_lt("tw_next"));
-    asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
-    asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.push(abi::branch("tw_clamp"));
-    asm.push(abi::label("tw_newline"));
-    asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "1")); // '\n' is one byte
-    asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
-    asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.push(abi::label("tw_clamp"));
-    // Scroll the grid up when the cursor passes the bottom (matches macOS).
-    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
-    asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
-    asm.push(abi::branch_lt("tw_next"));
-    asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
-    asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+    if draw_text {
+        // col += width. No wrap and no scroll: a `drawText` run stays on its row and
+        // is clipped by the loop-top and wide-at-edge checks above.
+        asm.push(abi::label("tw_advance"));
+        asm.push(abi::add_registers(
+            abi::LOCAL[7],
+            abi::LOCAL[7],
+            abi::SCRATCH[6],
+        ));
+        asm.push(abi::branch("tw_next"));
+        // A control character occupies one column and one byte, stamping nothing.
+        asm.push(abi::label("tw_control"));
+        asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "1"));
+        asm.push(abi::add_immediate(abi::LOCAL[7], abi::LOCAL[7], 1));
+        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        asm.push(abi::bitwise_not(abi::SCRATCH[0], abi::SCRATCH[0])); // -1
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_lastbase,
+        ));
+    } else {
+        // col += width; wrap to next row at the active cols.
+        asm.push(abi::add_registers(
+            abi::LOCAL[7],
+            abi::LOCAL[7],
+            abi::SCRATCH[6],
+        ));
+        asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
+        asm.push(abi::compare_registers(abi::LOCAL[7], abi::SCRATCH[0]));
+        asm.push(abi::branch_lt("tw_next"));
+        asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
+        asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.push(abi::branch("tw_clamp"));
+        asm.push(abi::label("tw_newline"));
+        asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "1")); // '\n' is one byte
+        asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
+        asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.push(abi::label("tw_clamp"));
+        // Scroll the grid up when the cursor passes the bottom (matches macOS).
+        asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+        asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
+        asm.push(abi::branch_lt("tw_next"));
+        asm.call_internal(TERM_SCROLL_SYMBOL);
+        asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
+        asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+    }
     asm.push(abi::label("tw_next"));
     // Advance by the code point's byte length (x19), set to 1 on the '\n' path
     // below. The cursor moved one column per glyph above (bug-203).
@@ -1541,20 +1674,24 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     asm.push(abi::branch("tw_loop"));
 
     asm.push(abi::label("tw_after"));
-    // print's trailing newline.
-    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
-    asm.push(abi::branch_eq("tw_store"));
-    asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
-    asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
-    asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
-    asm.push(abi::branch_lt("tw_store"));
-    asm.call_internal(TERM_SCROLL_SYMBOL);
-    asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
-    asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
-    asm.push(abi::label("tw_store"));
-    asm.store_state(abi::LOCAL[6], ST_TERM_ROW);
-    asm.store_state(abi::LOCAL[7], ST_TERM_COL);
+    if !draw_text {
+        // print's trailing newline.
+        asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        asm.push(abi::branch_eq("tw_store"));
+        asm.push(abi::move_immediate(abi::LOCAL[7], "Integer", "0"));
+        asm.push(abi::add_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+        asm.push(abi::compare_registers(abi::LOCAL[6], abi::SCRATCH[0]));
+        asm.push(abi::branch_lt("tw_store"));
+        asm.call_internal(TERM_SCROLL_SYMBOL);
+        asm.load_state(abi::LOCAL[6], ST_TERM_ROWS);
+        asm.push(abi::subtract_immediate(abi::LOCAL[6], abi::LOCAL[6], 1));
+        asm.push(abi::label("tw_store"));
+        // `drawText` skips this: it stamps at an absolute cell and must leave the
+        // shadow cursor exactly where the program left it.
+        asm.store_state(abi::LOCAL[6], ST_TERM_ROW);
+        asm.store_state(abi::LOCAL[7], ST_TERM_COL);
+    }
     // plan-35-E: NO per-write redraw. Writing only mutates the live grid; a present
     // (`term::sync`/`io::flush`/`term::off`) snapshots + queue_draws on the main loop.
 
@@ -1575,5 +1712,673 @@ pub(super) fn emit_term_write_helper(uses_term: bool) -> Result<CodeFunction, St
     }
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
-    asm.finish(TERM_WRITE_SYMBOL, "Nothing")
+    asm.finish(symbol, "Nothing")
+}
+
+// --- bug-539: the positioned `term::` drawing helpers ------------------------
+//
+// `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/`drawText` had no
+// GTK arm, so `emit_app_term_helper` returned `None` and they fell through to the
+// CONSOLE emitters — whose first act is to load the console shadow-grid header from
+// term-state slot 48, a slot only the console `term::on` ever writes. In a GTK app
+// build it stays 0 for the life of the program, so every one of those six calls took
+// its inactive branch on entry and returned `OK` without drawing anything.
+//
+// These helpers close that: they stamp the SAME live grid arrays the write path
+// mutates (`ST_TERM_CHARS`/`ST_TERM_FG`/`ST_TERM_BG` plus the `ST_TERM_POOL` EGC
+// slots), with the same packed-UTF-8 cell encoding, the same `COLOR_SET`/bold/
+// underline/width bit packing, and the same "no per-write redraw" rule — a present
+// (`term::sync`/`io::flush`/`term::off`) marshals the frame. The clamp/clip rules are
+// the console backend's, which `mfb spec app term-backend` states normatively:
+// runs clamp their span and skip an off-grid fixed coordinate, `drawText` clips at
+// both edges, `drawGlyph` is bounds-checked rather than clamped.
+
+/// The cell `fg` word with its display-width bits (27-28) cleared — used to reset a
+/// wide glyph's surviving half to width 1 without disturbing its colour/attributes.
+const WIDTH_CLEAR_MASK: u32 = !(3u32 << WIDTH_SHIFT);
+
+/// A code point in the char-cell encoding: its UTF-8 bytes packed little-endian
+/// (lead byte in the low byte, zero-padded), which is what `emit_term_draw_helper`
+/// hands `cairo_show_text` as a NUL-terminated string. The style tables hold code
+/// points, so this conversion happens at EMIT time — the glyph selectors below
+/// materialize an already-packed immediate and never re-derive a code point.
+fn pack_codepoint(codepoint: u32) -> u32 {
+    let mut buffer = [0u8; 4];
+    let encoded = char::from_u32(codepoint)
+        .expect("term style tables hold valid scalars")
+        .encode_utf8(&mut buffer)
+        .len();
+    let mut packed = 0u32;
+    for (index, byte) in buffer.iter().take(encoded).enumerate() {
+        packed |= u32::from(*byte) << (8 * index);
+    }
+    packed
+}
+
+/// Emit `dst = pack_codepoint(table[ord])` as a select-by-ordinal chain, defaulting
+/// to entry 0 for an out-of-range ordinal — the GTK twin of the console
+/// `emit_select_glyph` and the macOS `emit_app_select_unichar`, reading the SAME
+/// `TERM_*_CODEPOINTS` tables so the three backends cannot drift on a style.
+fn emit_select_packed_glyph(asm: &mut Asm, ord: &str, dst: &str, table: &[u32], tag: &str) {
+    let done = format!("{tag}_done");
+    asm.push(abi::move_immediate(
+        dst,
+        "Integer",
+        &pack_codepoint(table[0]).to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{tag}_{ordinal}");
+        asm.push(abi::compare_immediate(ord, &ordinal.to_string()));
+        asm.push(abi::branch_ne(&next));
+        asm.push(abi::move_immediate(
+            dst,
+            "Integer",
+            &pack_codepoint(*codepoint).to_string(),
+        ));
+        asm.push(abi::branch(&done));
+        asm.push(abi::label(&next));
+    }
+    asm.push(abi::label(&done));
+}
+
+/// Frame prologue for the drawing helpers: carve `frame` bytes, park `lr` at +0 and
+/// the `count` callee-saved locals `LOCAL[1..=count]` at +8, +16, … `LOCAL[0]` is
+/// deliberately never used — it realizes to the pinned arena register.
+fn emit_draw_prologue(asm: &mut Asm, frame: usize, count: usize) {
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    for index in 1..=count {
+        asm.push(abi::store_u64(
+            abi::LOCAL[index],
+            abi::stack_pointer(),
+            index * 8,
+        ));
+    }
+}
+
+/// The matching epilogue: restore `lr` + the locals and release the frame.
+fn emit_draw_epilogue(asm: &mut Asm, frame: usize, count: usize) {
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for index in 1..=count {
+        asm.push(abi::load_u64(
+            abi::LOCAL[index],
+            abi::stack_pointer(),
+            index * 8,
+        ));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+}
+
+/// `void _mfb_gtkapp_term_stamp(row /*x0*/, col /*x1*/, packed glyph /*x2*/,
+/// width /*x3*/)` — stamp one cell with the current attributes.
+///
+/// **Bounds-checked, not clamped**: a cell outside the ACTIVE `cols`x`rows` extent
+/// is dropped, which is what makes an off-grid box corner or `drawGlyph` position a
+/// silent no-op rather than sliding onto the rim (`mfb spec app term-backend` →
+/// "Coordinate convention"). Before overwriting it clears the surviving half of any
+/// wide pair the cell belongs to — the GTK analogue of the console
+/// `emit_clear_wide_pair` — so no orphaned half-glyph is left behind.
+///
+/// Leaf (no calls), so it uses the caller-saved scratch pool only; `SCRATCH[0]` is
+/// left free because `load_state`/`state_array` clobber it.
+pub(super) fn emit_term_stamp_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(TERM_STAMP_SYMBOL);
+    let row = abi::SCRATCH[1];
+    let col = abi::SCRATCH[2];
+    let glyph = abi::SCRATCH[3];
+    let width = abi::SCRATCH[4];
+    let limit = abi::SCRATCH[5];
+    let idx4 = abi::SCRATCH[6];
+    let charp = abi::SCRATCH[7];
+    let value = abi::SCRATCH[8];
+    // The row is dead once `idx4` has been formed, so the address/mask temporary
+    // reuses it rather than reaching for `SCRATCH[9]`. That index realizes to `x18`,
+    // which `finalize_x86_app_function` deliberately leaves PHYSICAL — it lands on
+    // `rcx`, a caller-saved register the x86 wrap bracket does not preserve. Correct
+    // in a leaf, and a silent corruption the moment someone adds a call here.
+    let tmp = row;
+    asm.push(abi::label("entry"));
+    // Park the four arguments before any state access: `load_state` clobbers
+    // SCRATCH[0], and the scratch pool never aliases an argument register on any
+    // backend (x86 excludes rdi/rsi/rdx/rcx from allocation).
+    asm.push(abi::move_register(row, abi::c_arg(0)));
+    asm.push(abi::move_register(col, abi::c_arg(1)));
+    asm.push(abi::move_register(glyph, abi::c_arg(2)));
+    asm.push(abi::move_register(width, abi::c_arg(3)));
+    asm.push(abi::compare_immediate(row, "0"));
+    asm.push(abi::branch_lt("st_ret"));
+    asm.load_state(limit, ST_TERM_ROWS);
+    asm.push(abi::compare_registers(row, limit));
+    asm.push(abi::branch_ge("st_ret"));
+    asm.push(abi::compare_immediate(col, "0"));
+    asm.push(abi::branch_lt("st_ret"));
+    asm.load_state(limit, ST_TERM_COLS);
+    asm.push(abi::compare_registers(col, limit));
+    asm.push(abi::branch_ge("st_ret"));
+    // idx4 = (row*TERM_MAX_COLS + col) * 4 — the byte offset shared by the char/fg/bg
+    // arrays (the backing stride is the FIXED maximum, not the active `cols`).
+    asm.push(abi::move_immediate(
+        idx4,
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
+    asm.push(abi::multiply_registers(idx4, row, idx4));
+    asm.push(abi::add_registers(idx4, idx4, col));
+    asm.push(abi::shift_left_immediate(idx4, idx4, 2));
+    asm.state_array(charp, ST_TERM_CHARS);
+    asm.push(abi::add_registers(charp, charp, idx4));
+    // --- clear the paired half of any wide glyph this cell breaks ---
+    asm.push(abi::load_u32(value, charp, 0));
+    asm.push(abi::move_immediate(tmp, "Integer", GTK_WIDE_TRAIL));
+    asm.push(abi::compare_registers(value, tmp));
+    asm.push(abi::branch_ne("st_not_trail"));
+    // This cell is a trailing sentinel: blank the wide primary to its left.
+    asm.push(abi::compare_immediate(col, "0"));
+    asm.push(abi::branch_le("st_pair_done"));
+    asm.push(abi::subtract_immediate(tmp, charp, 4));
+    asm.push(abi::move_immediate(value, "Integer", "0"));
+    asm.push(abi::store_u32(value, tmp, 0));
+    asm.state_array(tmp, ST_TERM_FG);
+    asm.push(abi::add_registers(tmp, tmp, idx4));
+    asm.push(abi::subtract_immediate(tmp, tmp, 4));
+    asm.push(abi::branch("st_pair_narrow"));
+    asm.push(abi::label("st_not_trail"));
+    // This cell is a wide primary: blank the trailing sentinel to its right.
+    asm.state_array(tmp, ST_TERM_FG);
+    asm.push(abi::add_registers(tmp, tmp, idx4));
+    asm.push(abi::load_u32(value, tmp, 0));
+    asm.push(abi::shift_right_immediate(value, value, WIDTH_SHIFT as u8));
+    asm.push(abi::move_immediate(limit, "Integer", "3"));
+    asm.push(abi::and_registers(value, value, limit));
+    asm.push(abi::compare_immediate(value, "2"));
+    asm.push(abi::branch_ne("st_pair_done"));
+    asm.push(abi::add_immediate(limit, col, 1));
+    asm.load_state(value, ST_TERM_COLS);
+    asm.push(abi::compare_registers(limit, value));
+    asm.push(abi::branch_ge("st_pair_done"));
+    asm.push(abi::move_immediate(value, "Integer", "0"));
+    asm.push(abi::add_immediate(limit, charp, 4));
+    asm.push(abi::store_u32(value, limit, 0));
+    asm.push(abi::add_immediate(tmp, tmp, 4));
+    // Shared tail: `tmp` addresses the neighbour's fg word — keep its colour and
+    // attributes, reset its width field to 1 so the presenter advances one column.
+    asm.push(abi::label("st_pair_narrow"));
+    asm.push(abi::load_u32(value, tmp, 0));
+    asm.push(abi::move_immediate(
+        limit,
+        "Integer",
+        &WIDTH_CLEAR_MASK.to_string(),
+    ));
+    asm.push(abi::and_registers(value, value, limit));
+    asm.push(abi::move_immediate(
+        limit,
+        "Integer",
+        &(1usize << WIDTH_SHIFT).to_string(),
+    ));
+    asm.push(abi::or_registers(value, value, limit));
+    asm.push(abi::store_u32(value, tmp, 0));
+    asm.push(abi::label("st_pair_done"));
+    // --- stamp: char = glyph, fg = cur_fg | bold | underline | width<<27, bg = cur_bg ---
+    asm.push(abi::store_u32(glyph, charp, 0));
+    asm.load_state(value, ST_TERM_CUR_FG);
+    asm.load_state(tmp, ST_TERM_CUR_BOLD);
+    asm.push(abi::compare_immediate(tmp, "0"));
+    asm.push(abi::branch_eq("st_no_bold"));
+    asm.push(abi::move_immediate(tmp, "Integer", &BOLD_FLAG.to_string()));
+    asm.push(abi::or_registers(value, value, tmp));
+    asm.push(abi::label("st_no_bold"));
+    asm.load_state(tmp, ST_TERM_CUR_UNDERLINE);
+    asm.push(abi::compare_immediate(tmp, "0"));
+    asm.push(abi::branch_eq("st_no_ul"));
+    asm.push(abi::move_immediate(
+        tmp,
+        "Integer",
+        &UNDERLINE_FLAG.to_string(),
+    ));
+    asm.push(abi::or_registers(value, value, tmp));
+    asm.push(abi::label("st_no_ul"));
+    asm.push(abi::shift_left_immediate(tmp, width, WIDTH_SHIFT as u8));
+    asm.push(abi::or_registers(value, value, tmp));
+    asm.state_array(tmp, ST_TERM_FG);
+    asm.push(abi::add_registers(tmp, tmp, idx4));
+    asm.push(abi::store_u32(value, tmp, 0));
+    asm.load_state(value, ST_TERM_CUR_BG);
+    asm.state_array(tmp, ST_TERM_BG);
+    asm.push(abi::add_registers(tmp, tmp, idx4));
+    asm.push(abi::store_u32(value, tmp, 0));
+    asm.push(abi::label("st_ret"));
+    asm.push(abi::return_());
+    asm.finish(TERM_STAMP_SYMBOL, "Nothing")
+}
+
+/// `void _mfb_gtkapp_term_run(horizontal /*x0*/, fixed /*x1*/, endA /*x2*/,
+/// endB /*x3*/, packed glyph /*x4*/)` — stamp one clamped run of single-width cells.
+///
+/// The console `emit_stamp_run` semantics, which every line, box edge and fill row
+/// shares: the fixed coordinate must be ON the grid or the whole run is skipped
+/// (never slid onto the rim); the two endpoints may arrive in either order and are
+/// normalised; the span is then clamped to the grid and an empty span draws nothing.
+pub(super) fn emit_term_run_helper() -> Result<CodeFunction, String> {
+    let frame = 64;
+    let mut asm = Asm::new(TERM_RUN_SYMBOL);
+    let horizontal = abi::LOCAL[1];
+    let fixed = abi::LOCAL[2];
+    let lo = abi::LOCAL[3];
+    let hi = abi::LOCAL[4];
+    let glyph = abi::LOCAL[5];
+    let fixed_limit = abi::SCRATCH[1];
+    let span_limit = abi::SCRATCH[2];
+    let tmp = abi::SCRATCH[3];
+    asm.push(abi::label("entry"));
+    emit_draw_prologue(&mut asm, frame, 5);
+    asm.push(abi::move_register(horizontal, abi::c_arg(0)));
+    asm.push(abi::move_register(fixed, abi::c_arg(1)));
+    asm.push(abi::move_register(lo, abi::c_arg(2)));
+    asm.push(abi::move_register(hi, abi::c_arg(3)));
+    asm.push(abi::move_register(glyph, abi::c_arg(4)));
+    // A horizontal run's fixed coordinate is a row and its span runs over columns;
+    // the vertical form is the mirror image.
+    asm.push(abi::compare_immediate(horizontal, "0"));
+    asm.push(abi::branch_eq("rn_vertical"));
+    asm.load_state(fixed_limit, ST_TERM_ROWS);
+    asm.load_state(span_limit, ST_TERM_COLS);
+    asm.push(abi::branch("rn_limits"));
+    asm.push(abi::label("rn_vertical"));
+    asm.load_state(fixed_limit, ST_TERM_COLS);
+    asm.load_state(span_limit, ST_TERM_ROWS);
+    asm.push(abi::label("rn_limits"));
+    asm.push(abi::compare_immediate(fixed, "0"));
+    asm.push(abi::branch_lt("rn_ret"));
+    asm.push(abi::compare_registers(fixed, fixed_limit));
+    asm.push(abi::branch_ge("rn_ret"));
+    // lo = min(endA, endB), hi = max(endA, endB).
+    asm.push(abi::compare_registers(lo, hi));
+    asm.push(abi::branch_le("rn_ordered"));
+    asm.push(abi::move_register(tmp, lo));
+    asm.push(abi::move_register(lo, hi));
+    asm.push(abi::move_register(hi, tmp));
+    asm.push(abi::label("rn_ordered"));
+    // Clamp lo up to 0 and hi down to span_limit-1; an empty span draws nothing.
+    asm.push(abi::compare_immediate(lo, "0"));
+    asm.push(abi::branch_ge("rn_lo_ok"));
+    asm.push(abi::move_immediate(lo, "Integer", "0"));
+    asm.push(abi::label("rn_lo_ok"));
+    asm.push(abi::subtract_immediate(tmp, span_limit, 1));
+    asm.push(abi::compare_registers(hi, tmp));
+    asm.push(abi::branch_le("rn_hi_ok"));
+    asm.push(abi::move_register(hi, tmp));
+    asm.push(abi::label("rn_hi_ok"));
+    asm.push(abi::label("rn_loop"));
+    asm.push(abi::compare_registers(lo, hi));
+    asm.push(abi::branch_gt("rn_ret"));
+    asm.push(abi::compare_immediate(horizontal, "0"));
+    asm.push(abi::branch_eq("rn_pos_vertical"));
+    asm.push(abi::move_register(abi::c_arg(0), fixed));
+    asm.push(abi::move_register(abi::c_arg(1), lo));
+    asm.push(abi::branch("rn_pos"));
+    asm.push(abi::label("rn_pos_vertical"));
+    asm.push(abi::move_register(abi::c_arg(0), lo));
+    asm.push(abi::move_register(abi::c_arg(1), fixed));
+    asm.push(abi::label("rn_pos"));
+    asm.push(abi::move_register(abi::c_arg(2), glyph));
+    // plan-70-C: line/box/fill glyphs are all single-width, so the cell records
+    // width 1 even where it overwrites a stale wide cell.
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "1"));
+    asm.call_internal(TERM_STAMP_SYMBOL);
+    asm.push(abi::add_immediate(lo, lo, 1));
+    asm.push(abi::branch("rn_loop"));
+    asm.push(abi::label("rn_ret"));
+    emit_draw_epilogue(&mut asm, frame, 5);
+    asm.finish(TERM_RUN_SYMBOL, "Nothing")
+}
+
+/// `void _mfb_gtkapp_term_hline(style /*x0*/, row /*x1*/, columnA /*x2*/,
+/// columnB /*x3*/)` and its vertical twin
+/// `_mfb_gtkapp_term_vline(style /*x0*/, rowA /*x1*/, column /*x2*/, rowB /*x3*/)`.
+///
+/// Row-before-column throughout, so the fixed coordinate is argument 1 for the
+/// horizontal form and argument 2 for the vertical one — the normative register
+/// contract in `mfb spec app term-backend`.
+pub(super) fn emit_term_line_helper(horizontal: bool) -> Result<CodeFunction, String> {
+    let symbol = if horizontal {
+        TERM_HLINE_SYMBOL
+    } else {
+        TERM_VLINE_SYMBOL
+    };
+    let frame = 48;
+    let mut asm = Asm::new(symbol);
+    let first = abi::LOCAL[1];
+    let second = abi::LOCAL[2];
+    let third = abi::LOCAL[3];
+    let glyph = abi::SCRATCH[1];
+    let ordinal = abi::SCRATCH[2];
+    asm.push(abi::label("entry"));
+    emit_draw_prologue(&mut asm, frame, 3);
+    asm.push(abi::move_register(ordinal, abi::c_arg(0)));
+    asm.push(abi::move_register(first, abi::c_arg(1)));
+    asm.push(abi::move_register(second, abi::c_arg(2)));
+    asm.push(abi::move_register(third, abi::c_arg(3)));
+    let table = if horizontal {
+        &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS
+    } else {
+        &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS
+    };
+    emit_select_packed_glyph(&mut asm, ordinal, glyph, table, "ln_glyph");
+    asm.push(abi::move_register(abi::c_arg(4), glyph));
+    if horizontal {
+        asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
+        asm.push(abi::move_register(abi::c_arg(1), first)); // fixed = row
+        asm.push(abi::move_register(abi::c_arg(2), second)); // columnA
+        asm.push(abi::move_register(abi::c_arg(3), third)); // columnB
+    } else {
+        asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+        asm.push(abi::move_register(abi::c_arg(1), second)); // fixed = column
+        asm.push(abi::move_register(abi::c_arg(2), first)); // rowA
+        asm.push(abi::move_register(abi::c_arg(3), third)); // rowB
+    }
+    asm.call_internal(TERM_RUN_SYMBOL);
+    emit_draw_epilogue(&mut asm, frame, 3);
+    asm.finish(symbol, "Nothing")
+}
+
+/// `void _mfb_gtkapp_term_box(style /*x0*/, rowA /*x1*/, columnA /*x2*/,
+/// rowB /*x3*/, columnB /*x4*/)` — `term::drawBox`.
+///
+/// Two opposite corners in either order, each written row before column. Draws the
+/// four edges as runs in this style's own line glyph (so a dashed style gets dashed
+/// edges) and then overwrites the four corner cells; `*Dash`/`*Dot` reuse the Light
+/// or Heavy corners, which is what the shared `TERM_CORNER_*` tables encode. Each
+/// edge and corner clamps/skips independently, so a partly off-grid box draws its
+/// visible part and a fully off-grid one draws nothing.
+pub(super) fn emit_term_box_helper() -> Result<CodeFunction, String> {
+    let frame = 64;
+    let mut asm = Asm::new(TERM_BOX_SYMBOL);
+    let ordinal = abi::LOCAL[1];
+    let row_lo = abi::LOCAL[2];
+    let col_lo = abi::LOCAL[3];
+    let row_hi = abi::LOCAL[4];
+    let col_hi = abi::LOCAL[5];
+    let glyph = abi::SCRATCH[1];
+    let tmp = abi::SCRATCH[2];
+    asm.push(abi::label("entry"));
+    emit_draw_prologue(&mut asm, frame, 5);
+    asm.push(abi::move_register(ordinal, abi::c_arg(0)));
+    asm.push(abi::move_register(row_lo, abi::c_arg(1)));
+    asm.push(abi::move_register(col_lo, abi::c_arg(2)));
+    asm.push(abi::move_register(row_hi, abi::c_arg(3)));
+    asm.push(abi::move_register(col_hi, abi::c_arg(4)));
+    // Normalise the two corners so "lo" is always the smaller row / column: the
+    // edges and corners below are placed from these, not from the raw arguments.
+    asm.push(abi::compare_registers(row_lo, row_hi));
+    asm.push(abi::branch_le("bx_rows_ok"));
+    asm.push(abi::move_register(tmp, row_lo));
+    asm.push(abi::move_register(row_lo, row_hi));
+    asm.push(abi::move_register(row_hi, tmp));
+    asm.push(abi::label("bx_rows_ok"));
+    asm.push(abi::compare_registers(col_lo, col_hi));
+    asm.push(abi::branch_le("bx_cols_ok"));
+    asm.push(abi::move_register(tmp, col_lo));
+    asm.push(abi::move_register(col_lo, col_hi));
+    asm.push(abi::move_register(col_hi, tmp));
+    asm.push(abi::label("bx_cols_ok"));
+    // Four edges: top and bottom horizontal runs, left and right vertical runs.
+    // The glyph is re-selected per edge rather than parked, so the body needs five
+    // callee-saved locals instead of eleven.
+    let edges: [(bool, &str, &str, &str, &[u32; 7], &str); 4] = [
+        (
+            true,
+            row_lo,
+            col_lo,
+            col_hi,
+            &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS,
+            "bx_top",
+        ),
+        (
+            true,
+            row_hi,
+            col_lo,
+            col_hi,
+            &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS,
+            "bx_bottom",
+        ),
+        (
+            false,
+            col_lo,
+            row_lo,
+            row_hi,
+            &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS,
+            "bx_left",
+        ),
+        (
+            false,
+            col_hi,
+            row_lo,
+            row_hi,
+            &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS,
+            "bx_right",
+        ),
+    ];
+    for (horizontal, fixed, end_a, end_b, table, tag) in edges {
+        emit_select_packed_glyph(&mut asm, ordinal, glyph, table, tag);
+        asm.push(abi::move_register(abi::c_arg(4), glyph));
+        asm.push(abi::move_immediate(
+            abi::c_arg(0),
+            "Integer",
+            if horizontal { "1" } else { "0" },
+        ));
+        asm.push(abi::move_register(abi::c_arg(1), fixed));
+        asm.push(abi::move_register(abi::c_arg(2), end_a));
+        asm.push(abi::move_register(abi::c_arg(3), end_b));
+        asm.call_internal(TERM_RUN_SYMBOL);
+    }
+    // Four corners on top of the edges, each bounds-checked by the stamp helper.
+    let corners: [(&str, &str, &[u32; 7], &str); 4] = [
+        (
+            row_lo,
+            col_lo,
+            &crate::codegen::error::constants::TERM_CORNER_TL_CODEPOINTS,
+            "bx_tl",
+        ),
+        (
+            row_lo,
+            col_hi,
+            &crate::codegen::error::constants::TERM_CORNER_TR_CODEPOINTS,
+            "bx_tr",
+        ),
+        (
+            row_hi,
+            col_lo,
+            &crate::codegen::error::constants::TERM_CORNER_BL_CODEPOINTS,
+            "bx_bl",
+        ),
+        (
+            row_hi,
+            col_hi,
+            &crate::codegen::error::constants::TERM_CORNER_BR_CODEPOINTS,
+            "bx_br",
+        ),
+    ];
+    for (row, col, table, tag) in corners {
+        emit_select_packed_glyph(&mut asm, ordinal, glyph, table, tag);
+        asm.push(abi::move_register(abi::c_arg(2), glyph));
+        asm.push(abi::move_register(abi::c_arg(0), row));
+        asm.push(abi::move_register(abi::c_arg(1), col));
+        // Box corners are single-width box-drawing glyphs (plan-70-C).
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "1"));
+        asm.call_internal(TERM_STAMP_SYMBOL);
+    }
+    emit_draw_epilogue(&mut asm, frame, 5);
+    asm.finish(TERM_BOX_SYMBOL, "Nothing")
+}
+
+/// `void _mfb_gtkapp_term_fill(style /*x0*/, rowA /*x1*/, columnA /*x2*/,
+/// rowB /*x3*/, columnB /*x4*/)` — `term::fillRect`.
+///
+/// One clamped horizontal run per row, exactly like the console emitter, so the
+/// region clamps to the grid the same way. The ROW range is clamped before the loop
+/// (rather than left to the per-run skip) so a rectangle spanning a huge coordinate
+/// range does not spin through millions of skipped runs.
+pub(super) fn emit_term_fill_helper() -> Result<CodeFunction, String> {
+    let frame = 64;
+    let mut asm = Asm::new(TERM_FILL_SYMBOL);
+    let glyph = abi::LOCAL[1];
+    let row_lo = abi::LOCAL[2];
+    let col_lo = abi::LOCAL[3];
+    let row_hi = abi::LOCAL[4];
+    let col_hi = abi::LOCAL[5];
+    let row = abi::LOCAL[6];
+    let ordinal = abi::SCRATCH[1];
+    let tmp = abi::SCRATCH[2];
+    asm.push(abi::label("entry"));
+    emit_draw_prologue(&mut asm, frame, 6);
+    asm.push(abi::move_register(ordinal, abi::c_arg(0)));
+    asm.push(abi::move_register(row_lo, abi::c_arg(1)));
+    asm.push(abi::move_register(col_lo, abi::c_arg(2)));
+    asm.push(abi::move_register(row_hi, abi::c_arg(3)));
+    asm.push(abi::move_register(col_hi, abi::c_arg(4)));
+    emit_select_packed_glyph(
+        &mut asm,
+        ordinal,
+        glyph,
+        &crate::codegen::error::constants::TERM_FILL_CODEPOINTS,
+        "fr_glyph",
+    );
+    asm.push(abi::compare_registers(row_lo, row_hi));
+    asm.push(abi::branch_le("fr_rows_ok"));
+    asm.push(abi::move_register(tmp, row_lo));
+    asm.push(abi::move_register(row_lo, row_hi));
+    asm.push(abi::move_register(row_hi, tmp));
+    asm.push(abi::label("fr_rows_ok"));
+    asm.push(abi::compare_immediate(row_lo, "0"));
+    asm.push(abi::branch_ge("fr_lo_ok"));
+    asm.push(abi::move_immediate(row_lo, "Integer", "0"));
+    asm.push(abi::label("fr_lo_ok"));
+    asm.load_state(tmp, ST_TERM_ROWS);
+    asm.push(abi::subtract_immediate(tmp, tmp, 1));
+    asm.push(abi::compare_registers(row_hi, tmp));
+    asm.push(abi::branch_le("fr_hi_ok"));
+    asm.push(abi::move_register(row_hi, tmp));
+    asm.push(abi::label("fr_hi_ok"));
+    asm.push(abi::move_register(row, row_lo));
+    asm.push(abi::label("fr_loop"));
+    asm.push(abi::compare_registers(row, row_hi));
+    asm.push(abi::branch_gt("fr_ret"));
+    asm.push(abi::move_register(abi::c_arg(4), glyph));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
+    asm.push(abi::move_register(abi::c_arg(1), row));
+    asm.push(abi::move_register(abi::c_arg(2), col_lo));
+    asm.push(abi::move_register(abi::c_arg(3), col_hi));
+    asm.call_internal(TERM_RUN_SYMBOL);
+    asm.push(abi::add_immediate(row, row, 1));
+    asm.push(abi::branch("fr_loop"));
+    asm.push(abi::label("fr_ret"));
+    emit_draw_epilogue(&mut asm, frame, 6);
+    asm.finish(TERM_FILL_SYMBOL, "Nothing")
+}
+
+/// `void _mfb_gtkapp_term_glyph(row /*x0*/, column /*x1*/, codepoint /*x2*/)` —
+/// `term::drawGlyph`.
+///
+/// Encodes the scalar into the cell's packed-UTF-8 form, looks its display width up
+/// through the same `charwidth` trie the write path uses, and stamps it. Control
+/// code points (below U+0020) are skipped — they would corrupt the presented frame —
+/// matching the console emitter, and a width-2 scalar reserves the neighbouring cell
+/// as a `GTK_WIDE_TRAIL` sentinel.
+pub(super) fn emit_term_glyph_helper() -> Result<CodeFunction, String> {
+    let frame = 48;
+    let mut asm = Asm::new(TERM_GLYPH_SYMBOL);
+    let row = abi::LOCAL[1];
+    let col = abi::LOCAL[2];
+    let packed = abi::LOCAL[3];
+    let width = abi::LOCAL[4];
+    let codepoint = abi::SCRATCH[1];
+    let length = abi::SCRATCH[2];
+    asm.push(abi::label("entry"));
+    emit_draw_prologue(&mut asm, frame, 4);
+    asm.push(abi::move_register(row, abi::c_arg(0)));
+    asm.push(abi::move_register(col, abi::c_arg(1)));
+    asm.push(abi::move_register(codepoint, abi::c_arg(2)));
+    asm.push(abi::compare_immediate(codepoint, "32"));
+    asm.push(abi::branch_lt("dg_ret"));
+    // UTF-8 byte length from the scalar, then the packed bytes themselves.
+    asm.push(abi::move_immediate(length, "Integer", "1"));
+    asm.push(abi::compare_immediate(codepoint, "128"));
+    asm.push(abi::branch_lt("dg_len_done"));
+    asm.push(abi::move_immediate(length, "Integer", "2"));
+    asm.push(abi::compare_immediate(codepoint, "2048"));
+    asm.push(abi::branch_lt("dg_len_done"));
+    asm.push(abi::move_immediate(length, "Integer", "3"));
+    asm.push(abi::compare_immediate(codepoint, "65536"));
+    asm.push(abi::branch_lt("dg_len_done"));
+    asm.push(abi::move_immediate(length, "Integer", "4"));
+    asm.push(abi::label("dg_len_done"));
+    crate::codegen::term::core::emit_encode_utf8(
+        codepoint,
+        packed,
+        abi::SCRATCH[3],
+        abi::SCRATCH[4],
+        abi::SCRATCH[5],
+        "dg_enc",
+        &mut asm.ins,
+    );
+    // plan-70-E: the display width (0/1/2) of this one scalar; a zero-width scalar
+    // stamped on its own still takes one cell.
+    emit_gtk_charwidth(
+        &mut asm,
+        packed,
+        length,
+        width,
+        abi::SCRATCH[3],
+        abi::SCRATCH[4],
+        abi::SCRATCH[5],
+        "dg_cw",
+    );
+    asm.push(abi::compare_immediate(width, "0"));
+    asm.push(abi::branch_ne("dg_have_width"));
+    asm.push(abi::move_immediate(width, "Integer", "1"));
+    asm.push(abi::label("dg_have_width"));
+    asm.push(abi::move_register(abi::c_arg(0), row));
+    asm.push(abi::move_register(abi::c_arg(1), col));
+    asm.push(abi::move_register(abi::c_arg(2), packed));
+    asm.push(abi::move_register(abi::c_arg(3), width));
+    asm.call_internal(TERM_STAMP_SYMBOL);
+    asm.push(abi::compare_immediate(width, "2"));
+    asm.push(abi::branch_ne("dg_ret"));
+    // The wide trail — bounds-checked by the stamp helper, so a wide glyph in the
+    // last column simply loses its sentinel rather than wrapping.
+    asm.push(abi::move_register(abi::c_arg(0), row));
+    asm.push(abi::add_immediate(abi::c_arg(1), col, 1));
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        GTK_WIDE_TRAIL,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_internal(TERM_STAMP_SYMBOL);
+    asm.push(abi::label("dg_ret"));
+    emit_draw_epilogue(&mut asm, frame, 4);
+    asm.finish(TERM_GLYPH_SYMBOL, "Nothing")
+}
+
+/// bug-539: the eight worker-side bodies behind the six positioned `term::` members,
+/// in dependency order (the leaf stamper first). Emitted as a set because they call
+/// each other — `drawBox` → run → stamp — and a partially-emitted set would leave an
+/// undefined internal relocation target.
+pub(super) fn emit_term_positioned_helpers() -> Result<Vec<CodeFunction>, String> {
+    Ok(vec![
+        emit_term_stamp_helper()?,
+        emit_term_run_helper()?,
+        emit_term_line_helper(true)?,
+        emit_term_line_helper(false)?,
+        emit_term_box_helper()?,
+        emit_term_fill_helper()?,
+        emit_term_glyph_helper()?,
+        // `drawText` is the write path's cluster walk under the clip contract.
+        emit_term_write_helper(true, TermWriteMode::DrawText)?,
+    ])
 }

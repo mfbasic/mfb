@@ -126,19 +126,16 @@ rendered on the console backend (using the terminal's alternate screen and ANSI
 sequences) and in windowed app mode (`mfb build --app`), so the same program
 source drives both.
 
-**Three app-mode gaps are worth knowing before you rely on them**, all of them
+**Two app-mode gaps are worth knowing before you rely on them**, both of them
 about `mfb build --app` only — a program run in a terminal behaves the same
 everywhere.
 
-1. The positioned drawing calls — `term::drawHLine`, `drawVLine`, `drawBox`,
-   `fillRect`, `drawText` and `drawGlyph` — are **not implemented by the Linux app
-   backend** and draw nothing there.
-2. **Windows** app mode draws them, but ignores the `term::LineStyle` and
-   `term::FillStyle` argument: lines and boxes always come out `Light`, and
-   `fillRect` paints the background rather than a block or shade glyph. Its
-   surface is also a fixed 80 by 25 cells, and `term::drawText` stamps one
-   position per Unicode scalar there rather than per grapheme cluster.
-3. The "does nothing while TUI mode is off" rule below is not enforced by the
+1. **Windows** app mode draws the positioned calls, but ignores the
+   `term::LineStyle` and `term::FillStyle` argument: lines and boxes always come
+   out `Light`, and `fillRect` paints the background rather than a block or shade
+   glyph. Its surface is also a fixed 80 by 25 cells, and `term::drawText` stamps
+   one position per Unicode scalar there rather than per grapheme cluster.
+2. The "does nothing while TUI mode is off" rule below is not enforced by the
    Linux and Windows app backends: after `term::off`, a `term::` call that should
    be inert can still touch the window's surface or state there. Reach
    `term::off` last, as a program should anyway, and the difference does not

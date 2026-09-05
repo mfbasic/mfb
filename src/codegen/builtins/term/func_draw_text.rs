@@ -41,14 +41,13 @@ The call is gated: while TUI mode is off it does nothing and reports no
 error (in a Linux or Windows `mfb build --app` build the gate is
 not enforced — see `mfb man term`).
 
-**Two app-mode gaps apply to this call** (see `mfb man term`). In a **Linux**
-`--app` build it is not implemented and stamps nothing; a Linux terminal is
-unaffected. A **Windows** `--app` build draws it but does not cluster: it
-stamps one grid position per Unicode scalar, so a combining mark or a joined emoji
-takes its own cells there, and it does not apply the "drop a wide cluster that
-would not fit" rule — a double-width scalar in the last column is drawn rather
-than dropped. The console backend on every platform, and macOS app mode, behave
-exactly as described above.
+**One app-mode gap applies to this call** (see `mfb man term`): a **Windows**
+`--app` build draws it but does not cluster — it stamps one grid position per
+Unicode scalar, so a combining mark or a joined emoji takes its own cells there,
+and it does not apply the "drop a wide cluster that would not fit" rule, so a
+double-width scalar in the last column is drawn rather than dropped. The console
+backend on every platform, and macOS and Linux app mode, behave exactly as
+described above.
 
 An overload accepts an `astrings::AttributedString` in the `text` position. It
 stamps the same visible text as the `String` overload but honours the per-scalar

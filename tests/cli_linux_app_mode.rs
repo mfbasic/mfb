@@ -337,3 +337,317 @@ fn linux_console_mode_still_emits_both_flavors() {
         "console mode should emit -glibc.out and -musl.out, got: {written:?}"
     );
 }
+
+// --- bug-539: the positioned `term::` drawing members in GTK app mode ---------
+
+/// A GTK app-mode program that exercises every positioned `term::` member, with a
+/// dash style, a dot style and `Double` so a wrong ordinal→glyph mapping cannot hide
+/// behind `Light` (the whole style table is selected at emit time).
+const TERM_DRAW_SOURCE: &str = "IMPORT io\nIMPORT term\nIMPORT color\n\nSUB main()\n  \
+     term::on()\n  term::setForeground(color::rgb(0, 255, 0))\n  \
+     term::moveTo(2, 4)\n  io::write(\"oracle\")\n  \
+     term::drawHLine(term::LineStyle.LightDash, 5, 1, 12)\n  \
+     term::drawVLine(term::LineStyle.HeavyDot, 6, 3, 10)\n  \
+     term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)\n  \
+     term::fillRect(term::FillStyle.Medium, 8, 4, 10, 16)\n  \
+     term::drawText(9, 6, \"app\")\n  term::drawGlyph(10, 7, 9731)\n  \
+     term::sync()\n  term::off()\nEND SUB\n";
+
+/// Read the `-ncode` plan of a `--app` build as JSON, keyed by function symbol.
+fn app_ncode_functions(name: &str, source: &str) -> serde_json::Map<String, serde_json::Value> {
+    let project = temp_project(name, source);
+    let (ok, stdout, stderr) = run_mfb(&project, &["-app", "-target", TARGET, "-ncode"]);
+    assert!(ok, "build -app -ncode failed:\n{stdout}\n{stderr}");
+    let text = fs::read_to_string(project.join(format!("{name}.ncode"))).expect("read ncode");
+    let plan: serde_json::Value = serde_json::from_str(&text).expect("ncode is JSON");
+    let mut map = serde_json::Map::new();
+    for function in plan["functions"].as_array().expect("functions array") {
+        let symbol = function["symbol"].as_str().expect("symbol").to_string();
+        map.insert(symbol, function["instructions"].clone());
+    }
+    map
+}
+
+/// bug-539: `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/`drawText`
+/// had no GTK arm, so the app dispatcher returned `None` and each member fell through
+/// to the CONSOLE emitter. That emitter opens by loading the console shadow-grid
+/// header out of the arena term-state (slot 48 off the pinned arena register) and
+/// no-ops when it is null — and the only writer of that slot is the *console*
+/// `term::on`, which a GTK app build never runs. All six therefore returned `OK`
+/// having drawn nothing, silently, for the life of the program.
+///
+/// The fix is asserted two ways, because either alone is satisfiable by accident:
+/// each member must CALL its GTK worker helper, and no member may read the arena
+/// register at all — reading it is exactly the console fall-through's first act.
+#[test]
+fn linux_app_mode_positioned_term_members_reach_the_gtk_backend() {
+    let functions = app_ncode_functions("linux_app_term_draw", TERM_DRAW_SOURCE);
+    for helper in [
+        "_mfb_gtkapp_term_stamp",
+        "_mfb_gtkapp_term_run",
+        "_mfb_gtkapp_term_hline",
+        "_mfb_gtkapp_term_vline",
+        "_mfb_gtkapp_term_box",
+        "_mfb_gtkapp_term_fill",
+        "_mfb_gtkapp_term_glyph",
+        "_mfb_gtkapp_term_draw_text",
+    ] {
+        assert!(
+            functions.contains_key(helper),
+            "a term:: app build must emit the worker-side helper {helper}"
+        );
+    }
+    for (member, helper) in [
+        ("drawHLine", "_mfb_gtkapp_term_hline"),
+        ("drawVLine", "_mfb_gtkapp_term_vline"),
+        ("drawBox", "_mfb_gtkapp_term_box"),
+        ("fillRect", "_mfb_gtkapp_term_fill"),
+        ("drawGlyph", "_mfb_gtkapp_term_glyph"),
+        ("drawText", "_mfb_gtkapp_term_draw_text"),
+    ] {
+        let symbol = format!("_mfb_rt_term_term_{member}");
+        let body = functions
+            .get(&symbol)
+            .unwrap_or_else(|| panic!("{symbol} is emitted"))
+            .as_array()
+            .expect("instructions");
+        assert!(
+            body.iter().any(|instruction| {
+                instruction["op"] == "bl" && instruction["target"] == serde_json::json!(helper)
+            }),
+            "term::{member} must call the GTK helper {helper}, not fall through to the \
+             console emitter; body was:\n{body:#?}"
+        );
+        assert!(
+            !body
+                .iter()
+                .any(|instruction| instruction["base"] == serde_json::json!("x19")),
+            "term::{member} must not read the arena term-state: loading the console \
+             shadow-grid header there is the fall-through that silently no-ops in an \
+             app build (bug-539)"
+        );
+    }
+}
+
+/// The positive half of the same change: `term::drawText` is the `io::write` grid
+/// walk under a different edge contract, emitted as a second specialization of ONE
+/// emitter rather than a second hand-written walk. Pin what makes the two different
+/// so a later edit cannot quietly collapse them — and pin that the write path still
+/// does everything it did before, which is the property the specialization risked.
+#[test]
+fn linux_app_mode_draw_text_specializes_the_write_path_without_taking_its_cursor() {
+    let functions = app_ncode_functions("linux_app_term_walk", TERM_DRAW_SOURCE);
+    let write = functions["_mfb_gtkapp_term_write"]
+        .as_array()
+        .expect("write instructions");
+    let draw_text = functions["_mfb_gtkapp_term_draw_text"]
+        .as_array()
+        .expect("draw_text instructions");
+    let calls_scroll = |body: &[serde_json::Value]| {
+        body.iter().any(|instruction| {
+            instruction["op"] == "bl"
+                && instruction["target"] == serde_json::json!("_mfb_gtkapp_term_scroll")
+        })
+    };
+    // `io::write` wraps at the right edge and scrolls at the bottom, and commits the
+    // shadow cursor on the way out. All three are still there.
+    assert!(
+        calls_scroll(write),
+        "the write path must still scroll at the bottom of the grid"
+    );
+    assert!(
+        write
+            .iter()
+            .any(|instruction| instruction["name"] == serde_json::json!("tw_store")),
+        "the write path must still commit the shadow cursor"
+    );
+    // `drawText` places a run at an absolute cell on ONE row: it never scrolls and
+    // never moves the cursor.
+    assert!(
+        !calls_scroll(draw_text),
+        "drawText must not scroll: it is clipped to its row, not wrapped"
+    );
+    assert!(
+        !draw_text
+            .iter()
+            .any(|instruction| instruction["name"] == serde_json::json!("tw_store")),
+        "drawText must leave the shadow cursor where the program left it"
+    );
+    // Both are the same walk: the combining-mark fold and the wide-cell sentinel are
+    // emitted from the one emitter, so neither can drift from the other.
+    for (label, body) in [("write", write), ("drawText", draw_text)] {
+        assert!(
+            body.iter()
+                .any(|instruction| { instruction["value"] == serde_json::json!("4294967295") }),
+            "{label} must stamp the GTK_WIDE_TRAIL sentinel for a wide cluster"
+        );
+    }
+}
+
+/// The other positive pin: a GTK app that never touches `term::` must not grow any
+/// of the new bodies. The helpers are gated on `AppEntrySpec::uses_term`, so the
+/// function set of an ordinary transcript app is exactly what it was.
+#[test]
+fn linux_app_mode_without_term_emits_no_positioned_helpers() {
+    let functions = app_ncode_functions("linux_app_no_term", APP_SOURCE);
+    for helper in [
+        "_mfb_gtkapp_term_stamp",
+        "_mfb_gtkapp_term_run",
+        "_mfb_gtkapp_term_hline",
+        "_mfb_gtkapp_term_vline",
+        "_mfb_gtkapp_term_box",
+        "_mfb_gtkapp_term_fill",
+        "_mfb_gtkapp_term_glyph",
+        "_mfb_gtkapp_term_draw_text",
+    ] {
+        assert!(
+            !functions.contains_key(helper),
+            "a term-free GTK app must not emit {helper}"
+        );
+    }
+}
+
+/// Found while proving bug-539 on 2228: the draw callback computed the snapshot
+/// EGC-pool slot with `state_array(SCRATCH[0], ST_TERM_SNAP_POOL)`. For an offset
+/// past the add immediate that helper stages the offset in `SCRATCH[0]` itself, so
+/// the destination was overwritten with the offset and the following add DOUBLED it
+/// — `2 * ST_TERM_SNAP_POOL`, an absolute low address. The GTK main thread SIGSEGV'd
+/// the first time it rendered a multi-scalar grapheme cluster (verified under gdb on
+/// 2228: deterministic before, clean after).
+///
+/// The emitter now refuses that aliasing, and this pins the whole class: in no GTK
+/// app body may an `adrp` be immediately followed by a `mov_imm` into the same
+/// register, which is precisely the shape that throws a symbol address away.
+#[test]
+fn linux_app_mode_no_symbol_address_is_overwritten_by_the_offset_it_needs() {
+    let functions = app_ncode_functions("linux_app_addr", TERM_DRAW_SOURCE);
+    for (symbol, body) in &functions {
+        let body = body.as_array().expect("instructions");
+        // The address materializes as `adrp` + `add_pageoff` on AArch64 and folds to
+        // the `adrp` alone once x86 selection has run, so accept either shape and
+        // look for the `mov_imm` that lands on the register they just defined.
+        for window in body.windows(3) {
+            let killed = match window[1]["op"].as_str() {
+                Some("add_pageoff") if window[1]["dst"] == window[0]["dst"] => &window[2],
+                _ => &window[1],
+            };
+            if window[0]["op"] == "adrp"
+                && killed["op"] == "mov_imm"
+                && killed["dst"] == window[0]["dst"]
+            {
+                panic!(
+                    "{symbol}: the address `adrp {dst}` materialized is overwritten by \
+                     `mov_imm {dst}` before anything reads it — the symbol is discarded and \
+                     the following add doubles the immediate instead of indexing off the base",
+                    dst = window[0]["dst"]
+                );
+            }
+        }
+    }
+}
+
+/// The GTK app helpers are hand-written machine code emitted below the register
+/// allocator, and `linux-aarch64` GTK app mode cannot be executed from this host or
+/// from CI — so the structural invariants a runtime crash would otherwise surface
+/// are asserted here instead, on the AArch64 plan where the neutral `LOCAL`/`SCRATCH`
+/// tokens realize to physical `x19`–`x28` with hand-tracked liveness rather than
+/// being coloured by the allocator (that only happens on x86-64,
+/// `finalize_x86_app_function`).
+///
+/// Three properties, each of which is a real way a hand-written body goes wrong:
+/// a branch to a label the function does not define (a link-time or silent-fallthrough
+/// bug), a frame that is not released on some return path, and any use of `x19` —
+/// the pinned arena base, which a worker-thread helper must never treat as scratch
+/// without saving it.
+#[test]
+fn linux_app_mode_gtk_term_helpers_are_structurally_sound_on_aarch64() {
+    let functions = app_ncode_functions("linux_app_term_shape", TERM_DRAW_SOURCE);
+    for symbol in [
+        "_mfb_gtkapp_term_stamp",
+        "_mfb_gtkapp_term_run",
+        "_mfb_gtkapp_term_hline",
+        "_mfb_gtkapp_term_vline",
+        "_mfb_gtkapp_term_box",
+        "_mfb_gtkapp_term_fill",
+        "_mfb_gtkapp_term_glyph",
+        "_mfb_gtkapp_term_draw_text",
+    ] {
+        let body = functions[symbol].as_array().expect("instructions");
+        let labels: Vec<&str> = body
+            .iter()
+            .filter(|instruction| instruction["op"] == "label")
+            .filter_map(|instruction| instruction["name"].as_str())
+            .collect();
+        let mut depth: i64 = 0;
+        for instruction in body {
+            let op = instruction["op"].as_str().unwrap_or_default();
+            if let Some(target) = instruction["target"].as_str() {
+                // `bl` targets a symbol, every other branch targets a local label.
+                if op != "bl" {
+                    assert!(
+                        labels.contains(&target),
+                        "{symbol}: branch to '{target}', which the function never defines"
+                    );
+                }
+            }
+            let imm = || {
+                instruction["imm"]
+                    .as_str()
+                    .and_then(|text| text.parse::<i64>().ok())
+                    .expect("stack adjust immediate")
+            };
+            match op {
+                "sub_sp" => depth += imm(),
+                "add_sp" => depth -= imm(),
+                "ret" => assert_eq!(
+                    depth, 0,
+                    "{symbol}: returns with {depth} bytes of frame still carved"
+                ),
+                _ => {}
+            }
+        }
+        // `x19` is the pinned arena base on AArch64. A worker-thread helper may only
+        // borrow it as scratch if it saves and restores it through its own frame —
+        // which is the convention the pre-existing write helper uses for the
+        // code-point byte length, and which `drawText` inherits by being that same
+        // emitter. Borrowing it WITHOUT the save is how the arena pointer disappears
+        // out from under every later allocation on the worker thread.
+        let touches = |predicate: &dyn Fn(&serde_json::Value) -> bool| {
+            body.iter().any(|instruction| predicate(instruction))
+        };
+        let uses_x19 = touches(&|instruction| {
+            instruction
+                .as_object()
+                .expect("instruction object")
+                .iter()
+                .any(|(_, value)| value == &serde_json::json!("x19"))
+        });
+        if uses_x19 {
+            assert!(
+                touches(&|instruction| instruction["op"] == "str_u64"
+                    && instruction["src"] == serde_json::json!("x19"))
+                    && touches(&|instruction| instruction["op"] == "ldr_u64"
+                        && instruction["dst"] == serde_json::json!("x19")),
+                "{symbol}: borrows the pinned arena register x19 without saving and \
+                 restoring it through its own frame"
+            );
+        }
+        assert_eq!(depth, 0, "{symbol}: frame is not balanced at the end");
+        // Every frame this fix introduces is a multiple of 16 so the stack stays
+        // 16-aligned at the calls these helpers make (AAPCS64 and SysV both require
+        // it, and x86 selection brackets these bodies assuming the parity holds).
+        for instruction in body {
+            if instruction["op"] == "sub_sp" {
+                let bytes: i64 = instruction["imm"]
+                    .as_str()
+                    .and_then(|text| text.parse().ok())
+                    .expect("imm");
+                assert_eq!(
+                    bytes % 16,
+                    0,
+                    "{symbol}: frame {bytes} breaks 16-byte alignment"
+                );
+            }
+        }
+    }
+}

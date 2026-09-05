@@ -258,6 +258,32 @@ const TERM_REDRAW_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_redraw_idle";
 const TERM_WRITE_SYMBOL: &str = "_mfb_gtkapp_term_write";
 /// Worker-side grid scroll-up (called from term_write at the bottom edge).
 const TERM_SCROLL_SYMBOL: &str = "_mfb_gtkapp_term_scroll";
+// bug-539: the worker-side positioned-drawing helpers behind `term::drawHLine`/
+// `drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/`drawText`. They stamp the same
+// live grid arrays [`TERM_WRITE_SYMBOL`] writes and, like it, schedule no redraw —
+// a present (`term::sync`/`io::flush`/`term::off`) marshals the frame. Emitted only
+// for a program that uses `term::` (`AppEntrySpec::uses_term`), so a term-free GTK
+// app is byte-identical.
+/// Stamp one cell `(row, col)` with a packed-UTF-8 glyph + display width, bounds-
+/// checked against the ACTIVE grid extent and clearing any wide pair it breaks.
+const TERM_STAMP_SYMBOL: &str = "_mfb_gtkapp_term_stamp";
+/// Stamp a normalised, clamped run of single-width cells (the shared body behind
+/// every line, box edge and fill row).
+const TERM_RUN_SYMBOL: &str = "_mfb_gtkapp_term_run";
+/// `term::drawHLine` / `term::drawVLine` — resolve the `LineStyle` ordinal against
+/// the shared code-point table, then one [`TERM_RUN_SYMBOL`] run.
+const TERM_HLINE_SYMBOL: &str = "_mfb_gtkapp_term_hline";
+const TERM_VLINE_SYMBOL: &str = "_mfb_gtkapp_term_vline";
+/// `term::drawBox` — four clamped edge runs, then the four corner cells on top.
+const TERM_BOX_SYMBOL: &str = "_mfb_gtkapp_term_box";
+/// `term::fillRect` — one clamped horizontal run per row of the clamped region.
+const TERM_FILL_SYMBOL: &str = "_mfb_gtkapp_term_fill";
+/// `term::drawGlyph` — encode the scalar to the cell's packed-UTF-8 form, look up
+/// its display width, stamp it (plus a `GTK_WIDE_TRAIL` for a wide glyph).
+const TERM_GLYPH_SYMBOL: &str = "_mfb_gtkapp_term_glyph";
+/// `term::drawText` — the [`TERM_WRITE_SYMBOL`] cluster walk specialized to the
+/// absolute-position/clip contract (see [`term_draw::TermWriteMode`]).
+const TERM_DRAW_TEXT_SYMBOL: &str = "_mfb_gtkapp_term_draw_text";
 /// Computes grid geometry from font metrics + content size; run once on the main
 /// thread at activate, before the worker can touch the grid.
 const TERM_INIT_SYMBOL: &str = "_mfb_gtkapp_term_init";
@@ -481,6 +507,24 @@ impl Asm {
     /// zero-physical-register guard; realized to the same `x9` in a standalone body.
     fn state_array(&mut self, dst: impl Into<Operand>, offset: usize) {
         let dst = dst.into();
+        // The large-offset form below stages the offset in the scratch temp, so a
+        // `SCRATCH[0]` destination would have the offset written OVER the base it
+        // just materialized and the add would double it — silently yielding
+        // `2 * offset` as an absolute address. That is not hypothetical: it is how
+        // the draw callback computed the snapshot EGC-pool slot, which SIGSEGV'd the
+        // GTK main thread the first time it rendered a multi-scalar grapheme cluster
+        // (found while proving bug-539). Refuse the aliasing instead of documenting
+        // it: `finish` surfaces a recorded error as a plan-level build failure, so a
+        // future caller gets a named diagnostic rather than a crash on a Linux box.
+        if offset >= 4096 && dst.render() == abi::SCRATCH[0] && self.err.is_none() {
+            self.err = Some(format!(
+                "gtk app codegen: state_array({}, {offset}) aliases its own scratch temp \
+                 in '{}' -- pick a destination other than SCRATCH[0] for an offset past \
+                 the add immediate",
+                abi::SCRATCH[0],
+                self.from,
+            ));
+        }
         self.local_address(dst.clone(), STATE_SYMBOL);
         if offset < 4096 {
             self.push(abi::add_immediate(dst.clone(), dst, offset));
@@ -559,11 +603,19 @@ pub(crate) fn emit_app_program_entry(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper(spec.uses_term)?,
+        emit_term_write_helper(spec.uses_term, TermWriteMode::Write)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // bug-539: the positioned drawing helpers, only for a program that uses `term::`
+    // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
+    // `drawText` call instead of falling through to the console emitters, which find
+    // no console shadow grid in an app build and silently no-op. A term-free GTK app
+    // emits none of them and keeps its exact function set.
+    if spec.uses_term {
+        functions.extend(emit_term_positioned_helpers()?);
+    }
     // plan-62-D Phase 2: the runtime setMode reconcile idle callback, only for a
     // program that can change mode (static default `None`) — a `Console`-default
     // program never reconciles and keeps its exact function set.
@@ -625,11 +677,19 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
         emit_term_redraw_idle_helper()?,
-        emit_term_write_helper(spec.uses_term)?,
+        emit_term_write_helper(spec.uses_term, TermWriteMode::Write)?,
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // bug-539: the positioned drawing helpers, only for a program that uses `term::`
+    // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
+    // `drawText` call instead of falling through to the console emitters, which find
+    // no console shadow grid in an app build and silently no-op. A term-free GTK app
+    // emits none of them and keeps its exact function set.
+    if spec.uses_term {
+        functions.extend(emit_term_positioned_helpers()?);
+    }
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
         functions.push(emit_reconcile_build_helper()?);

@@ -1491,7 +1491,7 @@ fn emit_fill_rect(symbol: &str, term_state_offset: usize, instructions: &mut Vec
 /// are scratch. Branches on the four length ranges. Assumes `cp` is a valid scalar
 /// (the caller guards control code points); an out-of-range value still produces a
 /// well-formed 4-byte pack rather than corrupting anything.
-fn emit_encode_utf8(
+pub(crate) fn emit_encode_utf8(
     cp: &str,
     glyph: &str,
     b: &str,

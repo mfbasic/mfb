@@ -280,8 +280,14 @@ attributes and toggle `ST_TERM_ACTIVE` plus the arena term-state
 the child swap; `setForeground`/`setBackground` write the arena (no flags) and the
 app current-color field (with `COLOR_SET`); `setBold`/`setUnderline` mirror the
 flag both places; `moveTo` clamps to the grid; `clear` blanks the backing store
-and homes the cursor. The pinned arena base is `ARENA_REG = "x19"` (term helpers
-run on the worker thread). [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+and homes the cursor; and the six positioned drawing members (`drawHLine`,
+`drawVLine`, `drawBox`, `fillRect`, `drawGlyph`, `drawText`) are the §4.2.1 gate
+plus a call to a worker-side helper that stamps the cell arrays — they read their
+row-before-column arguments straight out of the incoming ABI argument registers,
+so the dispatcher neither restages nor reorders them (bug-539; see
+`mfb spec app term-backend`). The pinned arena base is `ARENA_REG = "x19"` (term
+helpers run on the worker thread).
+[[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
 [[src/target/linux_gtk/mod.rs:ARENA_REG]]
 
 > `term::terminalSize` **is** implemented here (`OK({columns@0, rows@8})` from the

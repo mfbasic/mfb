@@ -32,9 +32,8 @@ The call is gated: while TUI mode is off it does nothing and reports no
 error (in a Linux or Windows `mfb build --app` build the gate is
 not enforced — see `mfb man term`).
 
-**One app-mode gap applies to this call** (see `mfb man term`): in a **Linux**
-`--app` build it is not implemented and stamps nothing. A Linux terminal, macOS
-app mode and Windows app mode all draw it."#;
+A Linux terminal and all three app backends — macOS, Linux and Windows — draw
+this call."#;
 
 const EX: &str = r#"Place a marker character at the centre of the surface:
 
