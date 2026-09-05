@@ -707,7 +707,21 @@ Commit: —
 ### Phase 3 — Ownership on the way out (largest blast radius)
 
 - [ ] The group free path closes each owned resource once, on the worker, before
-      releasing the buffer.
+      releasing the buffer. Per §4.4: split `emit_group_reclaim` into
+      `canvas::nextReclaimableGroup()` (finder, frees nothing), `canvas::retiredItems(slot)`
+      (`emit_group_items` with `CANVAS_GROUP_RETIRED_ITEMS`) and
+      `canvas::reclaimGroupSlot(slot)` (unconditional freer), and drive the `MATCH` from
+      `#canvas_present`.
+      **Each new member needs a row in five tables**, and a missing one fails at link
+      rather than at compile: `src/target/macos_aarch64/mod.rs`,
+      `src/target/linux_common/mod.rs`, `src/target/win_x86_64/mod.rs`,
+      `src/codegen/memory/data/data_objects.rs`, and
+      `src/codegen/engine/analysis/module_analysis.rs`. Measured by
+      `grep -rn 'canvas.groupReclaim' src/ --exclude-dir=builtins` → exactly those five.
+- [ ] Verify §4.4's open check 2: `retiredItems`' copy registers no cleanup of its own.
+      Expected — `is_resource_owning_container(List OF DrawItem)` is false, which is why
+      `groupItems`' copies register none today — but **verify rather than expect**, since
+      if it were true the live scene's copies would be closing resources too.
 - [ ] `setGroup` replacing a live group closes the **old** buffer's resources only.
 - [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
       `.ai/canvas-threading.md` §8 as well:
