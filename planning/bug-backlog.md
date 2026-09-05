@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-04
-Open bugs: **36** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 2 HIGH · 29 MEDIUM · 5 LOW/other** (re-derived from
+Open bugs: **35** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 29 MEDIUM · 5 LOW/other** (re-derived from
 the `Severity:` line of each open bug on 2026-09-05; the previous 45/10/31/4 line
 predated several landings and no longer matched the tree)
 
@@ -47,7 +47,6 @@ are landed and archived; 499, 504 and 510 are the remainder and head this list.
 | 538 | HIGH | medium | `collections::get` of a recursive element aliases storage → append-grow UAF | **memory gate**; pairs with 536 |
 | 536 | HIGH | x-large | scope drop leaks recursive types / return-constructor string temps | **memory gate**; same family as 538 |
 | 514 | HIGH | large | `KeyPair` carries no curve tag (Ed vs X, 32-byte collision) | crypto: wrong-curve use is silent |
-| 532 | HIGH | x-large | regex reports only match starts, so extraction is impossible | API gap, large |
 
 535 is landed (`b93de7ed0`); 539 is landed (`af39f8bbe`) — it also fixed a
 pre-existing GTK draw-callback SIGSEGV on any pooled grapheme cluster, and put the
@@ -56,14 +55,18 @@ Linux GTK app backend under byte-identity coverage for the first time (two new
 share with them: no shared root cause, but 541's expected widening to Linux does
 not happen, and 540's WIN-01/WIN-04 now have a worked in-tree precedent.
 Recommended order: **538 → 536** (one family,
-cheaper together), then **514**. 519 is landed. The two x-large items (532, 536) deserve a dedicated agent
-rather than sharing a slot.
+cheaper together), then **514**. 519 is landed. **532 is landed (`2cf23f5b0`)** —
+`regex::findMatch`/`findAllMatches` now report each match's span, text and
+capture groups through two new exported records, which also **unblocks bug-534's
+`split`** (532 deliberately did not take it; 534 owns the zero-width /
+empty-piece / `limit` decisions). 536 is the remaining x-large item and deserves
+a dedicated agent.
 
 ## Tier 3 — MEDIUM, grouped so a single agent can take a cluster
 
 **Regex/strings semantic divergence** (one coherent agent task):
 529 (empty needle means four things) · 531 (absence: raise vs sentinel) ·
-533 (empty-pattern replace is opposite) · 534 (no split/count/AttributedString) ·
+533 (empty-pattern replace is opposite) · 534 (no split/count/AttributedString — `split` unblocked by 532) ·
 528 (`pad` counts scalars, `displayWidth` counts columns) ·
 530 (`utf8Encode` return overload invisible in signature)
 

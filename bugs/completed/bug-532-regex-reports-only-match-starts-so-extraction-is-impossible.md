@@ -266,7 +266,7 @@ engine change, and Phase 1 exists to answer it before anyone estimates the work.
 
 ---
 
-# Resolution (2026-09-05)
+# Resolution (2026-09-05) — landed in `2cf23f5b0`
 
 ## Phase 1's answer: the engine surrenders everything at the member boundary
 
