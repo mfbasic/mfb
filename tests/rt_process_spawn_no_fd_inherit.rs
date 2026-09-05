@@ -121,7 +121,7 @@ FUNC main AS Integer
   RES secret = fs::openFile("{secret}", "r")
   RES server = tcp::listen("127.0.0.1", 0)
   RES p = process::spawn(["{probe}", "probe"])
-  process::close(p)
+  process::closeInput(p)
   LET report = process::receive(p)
   LET code = process::waitFor(p)
   io::print(report)
@@ -174,7 +174,7 @@ IMPORT io
 FUNC main AS Integer
   RES p = process::spawn(["{probe}", "stdio"])
   process::send(p, "hello")
-  process::close(p)
+  process::closeInput(p)
   LET out = process::receive(p)
   LET err = process::receive(p, process::Stream.StdErr)
   LET code = process::waitFor(p)

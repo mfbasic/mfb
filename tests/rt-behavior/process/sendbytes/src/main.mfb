@@ -8,7 +8,7 @@ FUNC main AS Integer
   ' bytes of "hello\n": h e l l o \n
   LET data AS List OF Byte = [104, 101, 108, 108, 111, 10]
   process::sendBytes(p, data)
-  process::close(p)
+  process::closeInput(p)
   io::print(toString(process::waitFor(p)))
   RETURN 0
 END FUNC

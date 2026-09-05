@@ -7,7 +7,7 @@ IMPORT io
 FUNC main AS Integer
   RES p = process::spawn(["grep", "-q", "hello"])
   process::send(p, "hello there", 1000)
-  process::close(p)
+  process::closeInput(p)
   io::print(toString(process::waitFor(p)))
   RETURN 0
 END FUNC

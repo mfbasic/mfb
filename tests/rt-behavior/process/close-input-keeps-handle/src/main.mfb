@@ -1,0 +1,40 @@
+' bug-524: `process::closeInput` (named `process::close` until the rename) closes
+' the CHILD'S standard input and nothing else. Every other `<pkg>::close` in the
+' language releases the handle it is given, so the old name promised the opposite
+' of what this call does. The behaviour is correct and is pinned here: after the
+' call the handle is still fully usable, only the child's input is gone.
+IMPORT io
+IMPORT process
+
+' `send` after the input is closed raises; TRAP must sit at the bottom of a
+' function, so the attempt lives in its own.
+FUNC sendAfterInputClosed(RES p AS process::Process) AS Integer
+  process::send(p, "cherry") TRAP(e)
+    RETURN e.code
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RES sorter = process::spawn(["sort"])
+  process::send(sorter, "banana")
+  process::send(sorter, "apple")
+  process::closeInput(sorter)
+
+  ' The handle is untouched: the child ran to completion on its EOF and its
+  ' output is still readable through the same handle.
+  io::print(process::receive(sorter))
+  io::print(process::receive(sorter))
+  io::print("pid-live=" & toString(process::pid(sorter) > 0))
+
+  ' Closing the input twice is a no-op on the pipe.
+  process::closeInput(sorter)
+  io::print("second-closeInput=ok")
+
+  ' Only the child's input is gone, so a later `send` raises ErrResourceClosed.
+  io::print("send-after=" & toString(sendAfterInputClosed(sorter)))
+
+  ' And the child is still collectable through the same handle.
+  io::print("exit=" & toString(process::waitFor(sorter)))
+  RETURN 0
+END FUNC

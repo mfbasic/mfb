@@ -7,13 +7,13 @@ IMPORT io
 FUNC main AS Integer
   RES p = process::spawn(["grep", "-q", "hello"])
   process::send(p, "hello world")
-  process::close(p)
+  process::closeInput(p)
   io::print(toString(process::waitFor(p)))
 
   ' A non-matching line -> grep exits 1.
   RES q = process::spawn(["grep", "-q", "hello"])
   process::send(q, "goodbye")
-  process::close(q)
+  process::closeInput(q)
   io::print(toString(process::waitFor(q)))
   RETURN 0
 END FUNC

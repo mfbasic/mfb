@@ -22,7 +22,7 @@ FUNC main AS Integer
   process::send(p, "line", 1000)
   process::sendBytes(p, [toByte(65), toByte(66)])
   process::sendBytes(p, [toByte(67)], 1000)
-  process::close(p)
+  process::closeInput(p)
 
   ' readiness + reads: poll/receive/receiveBytes, stdout and stream-selected.
   LET ready = process::poll(p, 100)

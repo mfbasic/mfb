@@ -1,12 +1,13 @@
-' bug-524 -- `process::close` is the only `<pkg>::close` in the language that
-' does not close its argument. fs::close, tcp::close, tls::close, udp::close and
-' audio::close all release the handle; `process::close` closes the CHILD'S
-' STANDARD INPUT and leaves the Process fully usable.
+' bug-524 (FIXED): the member was spelled `process::close` and was the only
+' `<pkg>::close` in the language that did not close its argument. fs::close,
+' tcp::close, tls::close, udp::close and audio::close all release the handle;
+' this one closes the CHILD'S STANDARD INPUT and leaves the Process fully usable.
 '
-' The man page needs a "does not close the handle" paragraph to say so, and the
-' parameter row still reads "The handle stays open -- you still close it", which
-' is doubly wrong: a Process has no public close at all (its close_function is
-' the internal __drop op; it is released by lexical scope).
+' The behaviour was correct and is unchanged; the NAME was the defect, so the
+' member is now `process::closeInput`. This spike still prints what it always
+' printed -- the handle stays usable -- but the name no longer promises
+' otherwise, and the page needs no "does not close the handle" paragraph.
+' Pinned by tests/rt-behavior/process/close-input-keeps-handle.
 
 IMPORT io
 IMPORT process
@@ -17,14 +18,14 @@ FUNC main AS Integer
   process::send(sorter, "apple")
 
   io::print("before close: isRunning = " & toString(process::isRunning(sorter)))
-  process::close(sorter)
+  process::closeInput(sorter)
   io::print("after  close: isRunning = " & toString(process::isRunning(sorter)))
 
   ' The handle is still fully usable after "close".
   io::print("after  close: receive   = " & process::receive(sorter))
   io::print("after  close: pid       = " & toString(process::pid(sorter)))
   io::print("")
-  io::print("=> `close` closed stdin, not the handle. Compare fs::close,")
+  io::print("=> `closeInput` closed stdin, not the handle. Compare fs::close,")
   io::print("   tcp::close, tls::close, udp::close, audio::close -- all of which")
   io::print("   release the resource and make the handle unusable.")
   RETURN 0

@@ -294,7 +294,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "process.pid",
     "process.isRunning",
     "process.waitFor",
-    "process.close",
+    "process.closeInput",
     "process.send",
     "process.sendTimeout",
     "process.sendBytes",

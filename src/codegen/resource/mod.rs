@@ -206,6 +206,48 @@ mod tests {
         assert!(descriptor("tcp.Listener").close_may_fail);
     }
 
+    /// bug-524: `close` is the language's word for the resource-invalidation
+    /// event that releases a handle (`mfb spec language resource-management`
+    /// §15). A package member spelled `close` that is *not* its resource's
+    /// registered close op says the opposite of what it does: `process::close`
+    /// closed the child's standard input and left the handle open and the child
+    /// running, which needed three qualifying paragraphs on its own page to
+    /// explain. Every member named `close` must therefore be the close op of one
+    /// of its package's resources, counting the `os_aliases` code forms a close
+    /// op may be registered under (`audio.closeInput`/`audio.closeOutput`).
+    #[test]
+    fn a_member_named_close_is_its_packages_resource_close_op() {
+        use crate::codegen::registry::Body;
+        for pkg in registry().packages() {
+            let import = pkg.import_name();
+            let Some(function) = pkg.functions().iter().find(|f| f.name == "close") else {
+                continue;
+            };
+            // Every call form `close` can lower to: the member itself plus each
+            // `os_aliases` overload-split code form.
+            let mut forms = vec![format!("{import}.{}", function.name)];
+            for implementation in function.implementations() {
+                if let Body::AbiFunction { os_aliases, .. } = &implementation.body {
+                    for alias in os_aliases.iter().copied() {
+                        forms.push(format!("{import}.{alias}"));
+                    }
+                }
+            }
+            assert!(
+                pkg.resources()
+                    .iter()
+                    .any(|r| forms.iter().any(|f| f == r.close_function)),
+                "`{import}::close` is not the registered close op of any {import} resource \
+                 ({forms:?} vs {:?}) — a member named `close` that does not close its \
+                 package's handle is bug-524's footgun; name it for what it does",
+                pkg.resources()
+                    .iter()
+                    .map(|r| r.close_function)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
     #[test]
     fn every_builtin_resource_has_a_close_op() {
         // The closed-default (plan-38) relies on every built-in resource being

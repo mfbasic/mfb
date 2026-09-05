@@ -30,7 +30,7 @@ call blocks while the child's input pipe is full, waiting for room.
 
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `sendBytes` raises `ErrResourceClosed`, the same error raised
-when the input was already closed with `process::close` or the handle was dropped or
+when the input was already closed with `process::closeInput` or the handle went out of scope or
 detached.
 
 `timeoutMs` bounds how long the call may wait for pipe space, in milliseconds;
@@ -47,7 +47,7 @@ FUNC main AS Integer
   RES child = process::spawn(["cat"])
   LET data AS List OF Byte = [104, 105, 10]
   process::sendBytes(child, data)
-  process::close(child)
+  process::closeInput(child)
   io::print(process::receive(child))
   RETURN 0
 END FUNC
@@ -92,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "p",
-                    desc: "The child process handle. The handle stays open — you still close it. Also accepts the alternate named-argument spelling `process`.",
+                    desc: "The child process handle. The handle stays open, and closes itself when its binding goes out of scope. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
                     ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,
