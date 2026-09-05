@@ -687,6 +687,61 @@ Commit: `435cdeb89`, `0d3d35c9d`, `d8df01bc9`, `9580fdead`, `19be6a116`, `a81b02
 
 ## Corrections
 
+**H21 (Phase 4) — the box-2228 row is not a formality: it found four defects that no
+macOS run and no canvas harness could, and none of them were in this letter's code.**
+
+It is the first time plan-116-G's canvas tests had ever been executed on x86-64 Linux.
+Four failures, in two families, and **every one was a defect in a test rather than in the
+product** — which is the more dangerous shape, because three of the four had a sibling
+that was failing to guard rather than failing loudly.
+
+**Family 1 — the stack pointer has two spellings.** A codegen-inspection filter written as
+`base != Some("sp")` is blind on x86-64, where the stack pointer prints `rsp`.
+
+`remove_group_clears_the_name_first_and_retires_the_buffer` failed there with a first
+"store" at `+176` — an offset that cannot be a group-slot word, since a slot is
+`CANVAS_GROUP_SLOT_BYTES` = 64 and its words live at 0..56. Proved by emitting the same
+program for `linux-x86_64` and applying both filters:
+
+| filter | first stores |
+|---|---|
+| `sp` only | `[176, 72, 0, 32, …]` — 176 and 72 are `rsp` spills |
+| `sp` + `rsp` | `[0, 32, 16384, 48, …]` — the name, first, as the pin demands |
+
+So the emitter was right on x86-64 all along. A repo sweep then found the same blindness
+in two places where it ran the *other* way, as a **false pass**:
+`rt_fs_error_path_hygiene.rs` (a predicate "some `str_u64` to offset 16 whose base is not
+`sp`" that any x86-64 spill at that offset satisfies, so the CLOSED-before-branch
+assertion could succeed without the store existing) and
+`codegen_net_write_payload_view.rs` (`payload_reg != "sp"`, which would let the header
+bytes be read off the frame). Both still pass once tightened — the behaviour was correct
+and only the guards were not guarding. `is_stack_base` / `is_stack_register` now live in
+`tests/common/mod.rs`.
+
+**Family 2 — two of the three headless flags.** `rt_canvas_rasteriser`'s `render` helper
+sets `MFB_MACAPP_HEADLESS`, `MFB_WINAPP_HEADLESS` **and** `MFB_GTKAPP_HEADLESS`. Three
+other call sites in the same file set only the first two. On macOS that is invisible; on
+Linux the program cannot open a display, exits 1, and the tests report it as something
+else entirely:
+
+```
+exiting_while_a_frame_draws_a_group_is_clean      "did not exit cleanly ... exit Some(1)"
+removing_a_group_mid_frame_lets_the_frame_finish  "a use-after-free ... presents as a signal"
+a_group_cycle_and_an_over_deep_chain_both_raise   "must raise ErrDepthExceeded; got: \"\""
+```
+
+None of which was true; `Gtk-WARNING: Failed to open display` was in the log beside them.
+**This is H12's trap, in the repo's own tests, discovered in the same letter that recorded
+H12 about my own repro loop.** The other four files that set `MACAPP` without `GTKAPP`
+were checked and are all behind `#[cfg(target_os = "macos")]`, so they never run there.
+
+**The lesson for the plan, not just for the code:** a row like "green on box 2228" reads
+like a box to tick, and plan-116-E's **E6** argued for the *debug* row on the same
+grounds. Both are really the same argument — **a platform nobody develops on is where
+assertions quietly stop asserting** — and the evidence is that four defects survived every
+mac run, both GPU harnesses, `test-accept`, and the artifact gate, and were caught the
+first time the suite ran on the other architecture.
+
 **H18 (Phase 4) — the acceptance runs found three defects the phase gates had not, and
 two of them were mine from this letter.**
 
