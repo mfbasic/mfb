@@ -28,6 +28,7 @@
 //! (610/885) for that file. The suites reach their emitters through ordinary
 //! `pub(crate)` paths.
 
+mod abi_inline;
 mod canvas;
 mod collections;
 mod corpus;
