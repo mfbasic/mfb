@@ -1,12 +1,15 @@
 # bug-522: `thread::transfer`'s transferable-type list contradicts the `thread` package intro, and neither says which types *cannot* cross
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `spikes/api-review/bug-522-transfer-list-stale/` promoted to a `tests/` fixture, plus a registry-vs-prose pin
+Status: **FIXED** (`09453380a`) — `thread::transfer`, `thread::accept` and the
+`thread` package intro all state the registry's six, and all three also name the
+five that may NOT cross. No `sendable` bit changed.
+Regression Test: `codegen::resource::tests::every_builtin_resource_sendability_matches_the_documented_set`
+(the registry-vs-expected-list pin) + `spikes/api-review/bug-522-transfer-list-stale/`
 
 Two pages state the transferable set, and they disagree.
 
@@ -246,3 +249,62 @@ The fix is prose plus a test, with no behavior change: the registry has been
 right since bug-464 and the spike proves the capability works. The value is in
 the pin — this exact drift has already happened once silently, and the census
 tables above give the pin something concrete to assert against.
+
+## Resolution (2026-09-05, `09453380a`)
+
+**Which side was wrong: `thread::transfer`'s page.** The registry is the single
+source of truth — `sendable` on each `RegistryResource`, read by
+`is_builtin_sendable_resource_type` and enforced by the IR verifier — and it says
+all six may cross. The task warned that a *stale* list means the truth moved, so
+this does not copy the current behaviour uncritically: the six bits were
+re-derived from the rows, and the capability is proven at runtime in-tree by
+`rt_tls_listener_thread_transfer` and by the spike, which moves a real
+`tcp::Listener` across a thread boundary and gets a worker return.
+
+bug-464 flipped `tcp::Listener`, `tls::Socket` and `tls::Listener` to `true` and
+updated the package intro. `func_transfer.rs`'s `DESC` restates the same set in
+`&'static str` prose the compiler never reads, and was missed — the drift
+`.ai/man-content.md` warns that only rendering the page can catch.
+
+### Phase 1 verdicts
+
+- **`func_accept.rs` did not restate the set.** It said nothing at all about
+  which resources may arrive, so it was not stale — it was silent. It now names
+  the same six and the five that may not.
+- **`grep -rn "may cross\|thread-sendable" .ai/`** finds no restatement in any
+  version-controlled topic doc. Nothing there needed changing.
+- **The 11 `sendable` bits** were re-checked against the report's two tables and
+  match: six `true`, five `false`.
+
+### What changed
+
+1. `func_transfer.rs` states the correct six and gains the may-not table, with
+   the reason for each lifted from the Rust comment beside its `sendable: false`
+   row and reworded out of memory vocabulary ("driven from the thread that
+   opened it", not "its owning thread").
+2. `func_accept.rs` and the package intro gain the same five **by name**, and
+   point at `transfer` for the reasons rather than carrying a third copy of
+   them. The report asked for both pages to list what cannot cross; that is
+   satisfied without triplicating the prose that drifts.
+3. The See-also contradiction dissolves on its own: it is generated from the
+   page's cross-references, and the page now says of every type it links whether
+   that type may cross.
+
+### The pin
+
+`every_builtin_resource_sendability_matches_the_documented_set` asserts every
+built-in resource's bit against an explicit table, comparing the **full set both
+ways** — so a resource added without a verdict fails here rather than being
+silently omitted from three pages. Its failure message names the three files
+whose prose has to move with the bit. It passes today: it is the guard, not the
+RED test, exactly as the report specified.
+
+No `sendable` bit changed. Nothing was flipped back to make the stale sentence
+true — the forbidden fix.
+
+### Open Decisions — resolved
+
+- **Should the reasons be a `RegistryResource` field rather than prose?** They
+  now are: bug-523, landed alongside this, adds `unsendable_reason` and renders
+  it on each resource's own type page. The recommendation was "the field, if a
+  second page ever needs the list", and a second page did.

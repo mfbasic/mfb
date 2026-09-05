@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **32** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 26 MEDIUM · 5 LOW/other** (re-derived from
+Open bugs: **30** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 24 MEDIUM · 5 LOW/other** (re-derived from
 the `Severity:` line of each open bug on 2026-09-05; the previous 45/10/31/4 line
 predated several landings and no longer matched the tree)
 
@@ -72,6 +72,22 @@ a dedicated agent.
 
 **Resource / close contracts** (one agent): the cluster is **complete** — 524,
 525, 526, 522 and 523 are all landed.
+**522 is landed (`09453380a`)** — the `transfer` page's list was stale since
+bug-464; `transfer`, `accept` and the intro now agree with the registry and all
+three name the five resources that may not cross. A pin asserts every `sendable`
+bit against an explicit table.
+**523 is landed (`593d68965`)** — each `types` page states the record-field and
+collection-element shapes once and derives transferability from the `sendable`
+bit (a new `unsendable_reason` carries the per-resource reason); `mfb man
+variable` gained a runnable example of each shape. It also corrected two FALSE
+statements — `process`'s package description and `mfb spec stdlib transports`
+both said a handle may not be a record field, which §15.4 and
+`record-res-field-export-rt` refute.
+
+Follow-ups these left behind, both already-filed bugs rather than new ones:
+`scripts/man-run-examples.sh` reaches package pages only, so `mfb man variable`'s
+new examples were verified by hand (**bug-472**); and `audio::close`'s new
+raise-on-double-close has no runtime proof on any host for want of a device.
 **524 is landed (`be88539c8`)** — `process::close` is now `process::closeInput`;
 the behaviour did not move and zero `.run` goldens changed. It also leaves 523 a
 concrete correction: `process`'s package description claims a handle "cannot be a
