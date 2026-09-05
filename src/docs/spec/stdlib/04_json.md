@@ -71,10 +71,19 @@ See `./mfb spec architecture frontend` for the injection ordering and
 
 ## Parse acceptance grammar
 
-`__json_parse` graphemizes the input, skips leading whitespace, parses one value,
-skips trailing whitespace, and requires the cursor to be exactly at end-of-input;
-any trailing non-whitespace fails. Most failures raise error `77050003`
-("invalid JSON format"). [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
+`__json_parse` takes the input's UTF-8 bytes (`strings::toBytes`), skips leading
+whitespace, parses one value, skips trailing whitespace, and requires the byte
+cursor to be exactly at end-of-input; any trailing non-whitespace fails. Most
+failures raise error `77050003` ("invalid JSON format").
+[[src/codegen/builtins/json/func_parse.rs:__json_parse]]
+
+The scanners index bytes, not grapheme clusters. Every structural character and
+every whitespace character JSON defines is ASCII, so a byte compare is exact and
+the scan never splits a multi-byte scalar: a byte `>= 128` occurs only inside a
+string, where it is copied through verbatim into the accumulated `List OF Byte`
+that becomes the `String` at the closing quote, or inside a number token, where
+the grammar check rejects it. This is also what makes a CR LF pair two whitespace
+bytes rather than one grapheme cluster that matches neither `\r` nor `\n`.
 
 The accepted grammar (RFC-8259-aligned, with the noted deviations):
 
@@ -292,4 +301,4 @@ two-argument form.
 * ./mfb spec architecture monomorphization — instantiation of `List OF Json` / `Map OF String TO Json`
 * ./mfb spec memory arenas — `List` and `Map` backing storage
 * ./mfb spec language types — the union and record model
-* ./mfb spec unicode strings-model — grapheme iteration used by parse and escape
+* ./mfb spec unicode strings-model — the byte/scalar/grapheme layers; parse scans UTF-8 bytes, escape iterates graphemes

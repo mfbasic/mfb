@@ -8,7 +8,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS Integer) AS __json_Node
+r#"' bug-510 (DEC-03/04): the scanners index the document's UTF-8 bytes, not a
+' grapheme list. Every JSON structural character and whitespace is ASCII, so a
+' byte compare is exact; a byte >= 128 only ever occurs inside a string (copied
+' through verbatim) or inside a malformed number token (rejected by the grammar).
+FUNC __json_parseValue(bytes AS List OF Byte, index AS Integer, depth AS Integer) AS __json_Node
   ' bug-422: structural nesting-depth guard. Each nested array/object descends
   ' one native frame group (parseValue -> parseArray/Object -> items -> parseValue)
   ' with no tail-call optimisation, so nesting depth = native stack depth. A ~1 KB
@@ -23,35 +27,35 @@ r#"FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS In
   IF depth > __JSON_DEPTH_LIMIT THEN
     FAIL error(77050024, "invalid JSON format: nested too deeply")
   END IF
-  LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
-  IF nextIndex >= len(chars) THEN
+  LET nextIndex AS Integer = __json_skipWhitespace(bytes, index)
+  IF nextIndex >= len(bytes) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
 
-  LET ch AS String = collections::get(chars, nextIndex)
-  IF ch = "n" THEN
-    LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "null")
+  LET code AS Integer = toInt(collections::get(bytes, nextIndex))
+  IF code = 110 THEN
+    LET endIndex AS Integer = __json_expectLiteral(bytes, nextIndex, "null")
     LET value AS Json = JsonNull[NOTHING]
     RETURN __json_Node[value, endIndex]
-  ELSEIF ch = "t" THEN
-    LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "true")
+  ELSEIF code = 116 THEN
+    LET endIndex AS Integer = __json_expectLiteral(bytes, nextIndex, "true")
     LET value AS Json = JsonBool[TRUE]
     RETURN __json_Node[value, endIndex]
-  ELSEIF ch = "f" THEN
-    LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "false")
+  ELSEIF code = 102 THEN
+    LET endIndex AS Integer = __json_expectLiteral(bytes, nextIndex, "false")
     LET value AS Json = JsonBool[FALSE]
     RETURN __json_Node[value, endIndex]
-  ELSEIF ch = "\"" THEN
-    LET parsed AS __json_StringNode = __json_parseString(chars, nextIndex + 1, "")
+  ELSEIF code = 34 THEN
+    LET parsed AS __json_StringNode = __json_parseString(bytes, nextIndex + 1)
     LET value AS Json = JsonStr[parsed.value]
     RETURN __json_Node[value, parsed.index]
-  ELSEIF ch = "[" THEN
-    RETURN __json_parseArray(chars, nextIndex + 1, depth + 1)
-  ELSEIF ch = "{" THEN
-    RETURN __json_parseObject(chars, nextIndex + 1, depth + 1)
+  ELSEIF code = 91 THEN
+    RETURN __json_parseArray(bytes, nextIndex + 1, depth + 1)
+  ELSEIF code = 123 THEN
+    RETURN __json_parseObject(bytes, nextIndex + 1, depth + 1)
   END IF
 
-  RETURN __json_parseNumber(chars, nextIndex)
+  RETURN __json_parseNumber(bytes, nextIndex)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

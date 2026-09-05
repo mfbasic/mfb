@@ -8,15 +8,15 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __json_StringNode
-  IF index >= len(chars) THEN
+r#"FUNC __json_parseEscape(bytes AS List OF Byte, index AS Integer) AS __json_StringNode
+  IF index >= len(bytes) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET ch AS String = collections::get(chars, index)
-  IF ch = "u" THEN
-    RETURN __json_parseUnicodeEscape(chars, index + 1)
+  LET code AS Integer = toInt(collections::get(bytes, index))
+  IF code = 117 THEN
+    RETURN __json_parseUnicodeEscape(bytes, index + 1)
   END IF
-  RETURN __json_StringNode[__json_decodeEscape(ch), index + 1]
+  RETURN __json_StringNode[__json_decodeEscape(code), index + 1]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

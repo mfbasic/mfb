@@ -8,9 +8,9 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_expectLiteral(chars AS List OF String, index AS Integer, literal AS String) AS Integer
-  LET target AS List OF String = strings::graphemes(literal)
-  RETURN __json_expectLiteralAt(chars, index, target, 0)
+r#"FUNC __json_expectLiteral(bytes AS List OF Byte, index AS Integer, literal AS String) AS Integer
+  LET target AS List OF Byte = strings::toBytes(literal)
+  RETURN __json_expectLiteralAt(bytes, index, target, 0)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -8,8 +8,8 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseNumber(chars AS List OF String, index AS Integer) AS __json_Node
-  LET token AS __json_StringNode = __json_collectNumber(chars, index, "")
+r#"FUNC __json_parseNumber(bytes AS List OF Byte, index AS Integer) AS __json_Node
+  LET token AS __json_StringNode = __json_collectNumber(bytes, index)
   IF __json_validNumber(token.value) = FALSE THEN
     FAIL error(77050003, "invalid JSON format")
   END IF

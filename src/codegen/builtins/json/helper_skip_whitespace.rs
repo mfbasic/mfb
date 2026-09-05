@@ -13,10 +13,14 @@ r#"' bug-302: iterative, not recursive. MFBASIC has no tail-call optimization, s
 ' input character and a long whitespace run overflowed the stack (SIGSEGV) on a
 ' payload well under the HTTP request cap. The array/object parsers were already
 ' rewritten iteratively for exactly this reason; the scalar scanners were missed.
-FUNC __json_skipWhitespace(chars AS List OF String, index AS Integer) AS Integer
+' bug-510 (DEC-04): scans bytes. A CR LF pair is ONE grapheme cluster, so the
+' grapheme scan never saw either half as whitespace and a CRLF-formatted
+' document was rejected; as bytes, 13 and 10 are each skipped.
+FUNC __json_skipWhitespace(bytes AS List OF Byte, index AS Integer) AS Integer
   MUT at AS Integer = index
-  WHILE at < len(chars)
-    IF NOT __json_isWhitespace(collections::get(chars, at)) THEN
+  LET n AS Integer = len(bytes)
+  WHILE at < n
+    IF NOT __json_isWhitespace(toInt(collections::get(bytes, at))) THEN
       RETURN at
     END IF
     at = at + 1

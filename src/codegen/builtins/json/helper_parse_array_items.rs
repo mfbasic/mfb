@@ -8,7 +8,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS List OF Json, depth AS Integer) AS __json_Node
+r#"FUNC __json_parseArrayItems(bytes AS List OF Byte, index AS Integer, items AS List OF Json, depth AS Integer) AS __json_Node
   ' Iterative accumulation so `acc = collections::append(acc, item)` hits the
   ' in-place MUT append (plan-02 Phase 4 fallback): O(n) instead of the O(n^2)
   ' functional `LET next = append(items, ...)` that bound a fresh name every
@@ -18,17 +18,17 @@ r#"FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items 
   MUT finished AS Boolean = FALSE
   MUT endIndex AS Integer = index
   WHILE finished = FALSE
-    LET parsed AS __json_Node = __json_parseValue(chars, idx, depth)
+    LET parsed AS __json_Node = __json_parseValue(bytes, idx, depth)
     LET item AS Json = parsed.value
     acc = collections::append(acc, item)
-    LET nextIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
-    IF nextIndex >= len(chars) THEN
+    LET nextIndex AS Integer = __json_skipWhitespace(bytes, parsed.index)
+    IF nextIndex >= len(bytes) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET ch AS String = collections::get(chars, nextIndex)
-    IF ch = "," THEN
+    LET code AS Integer = toInt(collections::get(bytes, nextIndex))
+    IF code = 44 THEN
       idx = nextIndex + 1
-    ELSEIF ch = "]" THEN
+    ELSEIF code = 93 THEN
       finished = TRUE
       endIndex = nextIndex + 1
     ELSE
