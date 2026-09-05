@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: **FIXED** (2026-09-05). Two of this document's own conclusions were
+Status: **FIXED** (2026-09-05, `6da957747`). Two of this document's own conclusions were
 wrong and are corrected below under "The root cause is one layer up".
 Regression Test: `tests/rt-behavior/native/native-resource-thread-accept-rt`
 (runtime), plus three unit pins in
