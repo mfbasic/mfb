@@ -5,7 +5,7 @@ Effort: medium (1h–2h) to close the hole (decline or deep-copy); large if the 
 Severity: HIGH
 Class: Memory-safety (use-after-free reachable from ordinary MFBASIC; kills the process with an uncatchable SIGSEGV)
 
-Status: **FIXED** (2026-09-04). Fixed by making `collections::get` return the
+Status: **FIXED** (2026-09-04, `42dbe4132`, merged `9ef141ef6`). Fixed by making `collections::get` return the
 independent value `mfb spec language memory-semantics` §14.6 has always required,
 via the per-type runtime deep copy. Reproducing it also exposed a **second,
 pre-existing memory-safety defect** that had to be fixed first — the thread-transfer
