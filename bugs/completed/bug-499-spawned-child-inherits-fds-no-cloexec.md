@@ -5,7 +5,26 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (privilege/secret leak across a process boundary)
 
-Status: Open (found in audit-3, Surface 4 OS-01 + OS-04; OS-01 agent-demonstrated, code-verified by the lead)
+Status: FIXED (1e554b2b3 fix, 8db76a84b goldens)
+
+Verified RED then GREEN against a built compiler: `tests/rt_process_spawn_no_fd_inherit.rs`
+builds a small C probe that `fstat`s every fd from 3 up. Reverting only `src/`
+and rebuilding, the child reports `leaked=3:file,4:socket` (an open file AND a
+TCP listener crossed `execvp`); with the fix it reports `leaked=none`. The
+positive half — the child still receives its intended stdin/stdout/stderr and
+exit code — passes in BOTH builds, which is the pin against a fix that closes
+too much (e.g. setting CLOEXEC on a pipe end after `dup2`ing it onto 0/1/2).
+
+Windows is fixed by a different mechanism, deliberately: `bInheritHandles=FALSE`
+plus a `STARTUPINFOEXA` `PROC_THREAD_ATTRIBUTE_LIST` naming the three stdio
+handles as the only inheritable ones. That is a process-side, exhaustive gate,
+so file and socket creation need no per-handle flag there — which is why the
+windows-x86_64 goldens for fs/tcp/udp/tls/net did NOT move while `process` moved
+on all five targets.
+
+Gates: artifact-gate all 0 diffs (36 goldens re-synced across the nine
+fd-touching fixtures; the other 105 of 141 byte-identical); cargo test
+--no-fail-fast exit 0, 119 test binaries.
 
 Regression Test: an rt fixture that opens a file/socket, spawns a child that lists its own fds, and asserts the fd is absent.
 
