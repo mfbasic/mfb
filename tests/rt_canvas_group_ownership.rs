@@ -93,6 +93,168 @@ fn stats_for(name: &str, source: &str) -> String {
     stats
 }
 
+/// Build and run a canvas scene headless; return `(stdout, every stats line)`.
+///
+/// `MFB_CANVAS_STATS` is appended to once per present, so a multi-present scene leaves
+/// one line per frame and the caller can watch a number move rather than only read its
+/// final value.
+fn run_for(name: &str, source: &str, with_font: bool) -> (String, Vec<String>) {
+    let project = common::temp_project(name, source);
+    if with_font {
+        std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+            .expect("write the font fixture");
+    }
+    let stats_path = project.join("stats.txt");
+    let binary = common::build_app(&project, name);
+    let run = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats_path)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let out = String::from_utf8_lossy(&run.stdout).into_owned();
+    let stats = std::fs::read_to_string(&stats_path).unwrap_or_default();
+    let lines: Vec<String> = stats.lines().map(str::to_string).collect();
+    let _ = std::fs::remove_dir_all(&project);
+    (out, lines)
+}
+
+/// `<field>=` from a stats line, by NAME.
+fn field(stats: &str, name: &str) -> u64 {
+    let prefix = format!("{name}=");
+    stats
+        .split_whitespace()
+        .find_map(|f| f.strip_prefix(prefix.as_str()))
+        .unwrap_or_else(|| panic!("no `{name}=` field in stats: {stats:?}"))
+        .parse()
+        .unwrap_or_else(|_| panic!("`{name}=` is not a number in: {stats:?}"))
+}
+
+/// **J14**: one long-lived font and a group rebuilt each frame. The retired buffer and
+/// the buffer replacing it name the SAME font, so a close-what-the-retired-buffer-named
+/// rule closes it and the text vanishes one frame later — silently, because `fontHandle`
+/// answers `0` for a closed resource and `0` is "no such object".
+///
+/// This is not an exotic program. It is the shape every real canvas application has, and
+/// it is why the free path closes only what no LIVE buffer names.
+const REBUILDS_EACH_FRAME: &str = r#"IMPORT app
+IMPORT canvas
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN 1
+  END TRAP
+  FOR i = 1 TO 6
+    LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
+    canvas::setGroup("panel", [tag])
+    canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 0.0, y := toFloat(i), w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+  NEXT
+  RETURN 0
+END FUNC
+"#;
+
+/// The other direction: a replacement whose items do NOT name the resource must close it,
+/// or the group leaks what it took ownership of.
+///
+/// `install` takes the image as a **`RES` parameter** — an alias, so `setGroup` moves the
+/// callee's local and `main`'s own binding survives to read the verdict. `canvas::getSize`
+/// raises `ErrResourceClosed` on a closed image, which is the only direct observable of a
+/// close there is: `Picture` draws nothing on any backend (**J11**), and an image holds no
+/// file descriptor to watch.
+const REPLACED_THEN_DROPPED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB install(RES img AS canvas::Image)
+  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("panel", [p])
+END SUB
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+  install(img)
+
+  LET before AS canvas::Size = canvas::getSize(img) TRAP(e)
+    io::print("CLOSED-TOO-EARLY")
+    RETURN 2
+  END TRAP
+  io::print("OPEN-AFTER-INSTALL")
+
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0]])
+  canvas::setGroup("panel", [canvas::Rectangle[x := 0.0, y := 0.0, w := 20.0, h := 20.0, paint := canvas::fill(canvas::rgb(0, 200, 0))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 30.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 40.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 50.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+
+  LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
+    io::print("CLOSED-BY-THE-GROUP")
+    RETURN 0
+  END TRAP
+  io::print("STILL-OPEN-LEAKED")
+  RETURN 3
+END FUNC
+"#;
+
+/// A group rebuilt each frame from one font keeps drawing. **J14.**
+#[test]
+fn a_group_rebuilt_each_frame_keeps_its_font() {
+    let (_, stats) = run_for("canvas_group_own_rebuild", REBUILDS_EACH_FRAME, true);
+    assert!(stats.len() >= 4, "expected one stats line per present: {stats:?}");
+    for (i, line) in stats.iter().enumerate() {
+        assert!(
+            field(line, "glyphs") > 0,
+            "frame {i} lost its glyphs — the free path closed a font the replacing \
+             buffer still names, which is what J14 exists to prevent\n{line}",
+        );
+    }
+}
+
+/// …and the buffer it replaces is still freed, so keeping the font is not achieved by
+/// keeping the block. Without this the test above passes against a free path that does
+/// nothing at all.
+#[test]
+fn the_rebuild_still_frees_the_buffers_it_retires() {
+    let (_, stats) = run_for("canvas_group_own_rebuild_bytes", REBUILDS_EACH_FRAME, true);
+    let last = stats.last().expect("at least one present");
+    let first = &stats[0];
+    assert!(
+        field(last, "groupBytes") <= field(first, "groupBytes") * 3,
+        "groupBytes grew across 6 rebuilds, so retired buffers are not being freed\n\
+         first: {first}\nlast:  {last}",
+    );
+}
+
+/// A replacement that drops the resource closes it. The whole point of ownership: the
+/// caller's binding went out of scope at `install`'s return, so if the group does not
+/// close it, nobody does.
+#[test]
+fn a_replacement_that_drops_the_image_closes_it() {
+    let (out, _) = run_for("canvas_group_own_dropped_img", REPLACED_THEN_DROPPED, false);
+    assert!(
+        out.contains("OPEN-AFTER-INSTALL"),
+        "the image must stay open while the group holds it\n{out}",
+    );
+    assert!(
+        out.contains("CLOSED-BY-THE-GROUP"),
+        "the group took ownership and then dropped the image from its items, so the \
+         reclaim must close it — `STILL-OPEN-LEAKED` means the group owns a resource \
+         nothing will ever close\n{out}",
+    );
+}
+
 /// `glyphs=` from a stats line. Asserted by NAME rather than by field position: the
 /// stats line has grown a field per canvas plan and a positional read would silently
 /// start reporting its neighbour.

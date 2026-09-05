@@ -722,18 +722,16 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
 
 ### Phase 3 — Ownership on the way out (largest blast radius)
 
-- [ ] The group free path closes each owned resource once, on the worker, before
-      releasing the buffer. Per §4.4: split `emit_group_reclaim` into
-      `canvas::nextReclaimableGroup()` (finder, frees nothing), `canvas::retiredItems(slot)`
-      (`emit_group_items` with `CANVAS_GROUP_RETIRED_ITEMS`) and
-      `canvas::reclaimGroupSlot(slot)` (unconditional freer), and drive the `MATCH` from
-      `#canvas_present`.
-      **Each new member needs a row in five tables**, and a missing one fails at link
-      rather than at compile: `src/target/macos_aarch64/mod.rs`,
-      `src/target/linux_common/mod.rs`, `src/target/win_x86_64/mod.rs`,
-      `src/codegen/memory/data/data_objects.rs`, and
-      `src/codegen/engine/analysis/module_analysis.rs`. Measured by
-      `grep -rn 'canvas.groupReclaim' src/ --exclude-dir=builtins` → exactly those five.
+- [x] The group free path closes each owned resource once, on the worker, before
+      releasing the buffer. Per §4.4: `emit_group_reclaim` split into
+      `canvas::nextReclaimableGroup()` (finder, frees nothing) and
+      `canvas::groupReclaim(slot)` (unconditional one-slot freer — **the name is kept**,
+      which is why only two rows were added to each table rather than three), with
+      `canvas::retiredItems(slot)` between them; `__canvas_closeRetired` drives the
+      `MATCH` from `#canvas_present`. `emit_group_items` and `emit_retired_items` share
+      one `emit_items_at`, so the "out-of-range and empty read identically" rule has one
+      home. Five tables updated: `macos_aarch64/mod.rs`, `linux_common/mod.rs`,
+      `win_x86_64/mod.rs`, `data_objects.rs`, `module_analysis.rs`.
 - [x] Verify §4.4's open check 2: `retiredItems`' copy registers no cleanup of its own.
       **Measured 2026-09-04, and it does not.** A `SUB draw(RES face AS canvas::Font)`
       that builds a named `LET items AS List OF canvas::DrawItem = [tag]` naming the font,
@@ -743,12 +741,12 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
       (a *named local*, not just a temporary), which is why `groupItems`' copies register
       none today. Worth measuring rather than assuming: if it had been true, the **live**
       scene's copies would have been closing resources on every frame.
-- [ ] `setGroup` replacing a live group closes the old buffer's resources **that the new
-      buffer does not also name** (**J14**). Not "the old buffer's resources": the
-      commonest canvas program there is — one long-lived font, a group rebuilt each frame
-      — names the same font in both, and closing on the plain rule makes its text vanish
-      one frame later. Discriminate by `canvas::fontHandle`/`imageHandle`, which return a
-      comparable `Integer` id and read the closed flag *before* the handle.
+- [x] `setGroup` replacing a live group closes the old buffer's resources **that the new
+      buffer does not also name** (**J14**). `__canvas_closeRetired` compares each retired
+      item's `canvas::imageHandle`/`fontHandle` against the live buffer's, skipping `0` on
+      both sides. Measured both directions: 6 rebuild iterations keep `glyphs=1` and
+      `groupBytes` flat, and a replacement that drops the image prints
+      `OPEN-AFTER-INSTALL` then `CLOSED-BY-THE-GROUP`.
 - [ ] Decide and pin the group-and-live-scene case (**J14**): `present` does not consume,
       so a `Picture` built before a `setGroup` can reach the scene, and the group's free
       would close it out from under the scene. Either extend the "no live buffer names it"
