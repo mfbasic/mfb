@@ -932,7 +932,26 @@ Commit: `dec6c5889` (implementation), `4705cb32c` (the five rows + **R17–R21**
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
 green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` describes
 the lifetime in observable terms with zero memory vocabulary.
-Commit: —
+
+**MET on macOS. Box 2228's scoped row is running** — every number below is from the tree
+**merged with `main`**, not from this branch in isolation.
+
+| gate | result |
+|---|---|
+| `cargo test --release --no-fail-fast` | **133 targets ok.** The one `FAILED` was `artifact_gate_all` at **exit 98 — a refusal, nothing checked** (a peer held the lock); re-run standalone below. **J21.** |
+| `cargo test --bin mfb --no-fail-fast` (DEBUG) | `rc=0`, **3832 passed**, 0 failed |
+| `scripts/test-accept.sh` | **1399 tests ran.** 2 `missing actual` on `rt-behavior/astrings/copy-drop-rt`, a fixture unrelated to this letter, from **build starvation** under three concurrent gates — re-run alone: **passes**. **J21.** |
+| `scripts/artifact-gate.sh target/release/mfb all` | **uncontended: 1377 tests, 1540 builds, 1906 goldens, 0 diffs, `rc=0`.** (A contended run had reported 1 diff — a starved cross-compile of a `vector` golden. **J21.**) |
+| `scripts/regen-ncodesum.sh target/release/mfb` | 141 refreshed, **0 churn**, re-run post-merge. Not evidence — no `canvas` fixture is hashed, measured (§Compatibility). |
+| `scripts/man-run-examples.sh canvas --run` | **25 built, 25 ran, 0 failed** (re-run post-merge) |
+| `scripts/man-census.sh --memory-scope` | **0 unclassified hits** (re-run post-merge) |
+| `mfb man canvas setGroup` | read, not assumed: three new paragraphs in observable terms — *"becomes the group's to close"*, *"stays usable"*, *"unless something still on screen names it too"* |
+| `mfb man canvas --all` | `rc=0`, 2417 lines, **0 mentions** of the surface plan-116-I removed |
+| box 2228 RELEASE, scoped | running |
+
+*Counts moved with the merge: 1377/1906 here against 1358/1878 before it, because `main`
+brought its own fixtures and goldens.*
+Commit: `76d938d02` (docs), `0ddaaeabd` + `5d0ce5bc9` (`.ai/canvas-threading.md`)
 
 ## Validation Plan
 
