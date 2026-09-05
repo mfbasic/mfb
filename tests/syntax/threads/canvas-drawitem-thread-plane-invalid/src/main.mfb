@@ -1,0 +1,35 @@
+' plan-116-I: a `canvas::DrawItem` cannot cross a thread's DATA plane, because two of
+' its variants now carry a resource.
+'
+' This is a DELIBERATE narrowing and the fixture exists to pin it. Before this letter,
+' `Picture.image` and `Text.font` were `ImageRef`/`FontRef` records holding a plain
+' `Integer`, so a list of `DrawItem` slipped across a data plane with nothing to object
+' to -- and what arrived on the other side was an id whose resource the sending thread
+' still owned. The type system could not see that; it can now.
+'
+' The remedy the message names is the right one: move the `Image`/`Font` on the RES
+' plane and build the scene on the receiving side.
+'
+' The message names `RES canvas.Image` rather than the font: `DrawItem` is a union and
+' the cause walk reports the FIRST resource-carrying variant it reaches, which is
+' `Picture.image`. Both variants carry one, and either alone would be enough to refuse
+' the plane -- so do not "fix" this fixture by removing whichever one looks unused.
+IMPORT canvas
+IMPORT io
+IMPORT thread
+
+' The message plane: a data plane, so a resource inside `DrawItem` is a plane mix-up
+' with a nameable remedy.
+FUNC viaMessage(t AS Thread OF List OF canvas::DrawItem TO Integer) AS Integer
+  RETURN 0
+END FUNC
+
+' The output plane is a data plane too, and must report identically.
+FUNC viaOutput(t AS Thread OF Integer TO List OF canvas::DrawItem) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  io::print("unreachable")
+  RETURN 0
+END FUNC

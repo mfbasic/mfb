@@ -30,7 +30,7 @@ ligatures or complex shaping (see `canvas::loadFont`), so the width is exact for
 it will actually draw — measuring and drawing use the same glyph walk, which is the
 property that matters more than absolute typographic fidelity.
 
-A font with no `head` table, or a `canvas::FontRef` naming a released font, measures as all
+A font with no `head` table, or one that has since been closed, measures as all
 zeroes rather than failing: a program that lays out text before its font is ready
 should get an empty box, not an error in the middle of a frame."#;
 

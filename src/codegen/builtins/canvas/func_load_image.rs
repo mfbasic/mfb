@@ -9,8 +9,9 @@ const INTRO: &str = r#"Decode an image file and hold it as an `Image` resource."
 
 const DESC: &str = r#"`loadImage` reads the file at `path`, decodes it to RGBA8, and returns the same
 `Image` resource `canvas::createImage` produces — bound with `RES`, closing by itself
-when it leaves scope, or sooner with `canvas::destroyImage`. A `canvas::Picture` item names
-it through a `canvas::ImageRef`, never directly.
+when it leaves scope, or sooner with `canvas::destroyImage`. A `canvas::Picture` item
+holds the image itself — you still close it, and closing one a scene still draws makes
+that item draw nothing.
 
 **PNG.** All five colour types (greyscale, truecolour, palette, greyscale+alpha,
 truecolour+alpha), bit depths 1 through 16, `tRNS` transparency, and Adam7

@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/threads/canvas-drawitem-thread-plane-invalid
+  21 | ' The message plane: a data plane, so a resource inside `DrawItem` is a plane mix-up
+  22 | ' with a nameable remedy.
+  23 | FUNC viaMessage(t AS Thread OF List OF canvas::DrawItem TO Integer) AS Integer
+     | ^
+tests/syntax/threads/canvas-drawitem-thread-plane-invalid/src/main.mfb:23 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread message type carries resource `RES canvas.Image`; a resource crosses a thread only on the RES plane. Declare `RES canvas.Image` on the thread and move it with `thread::transfer` / `thread::accept`.
+  26 | 
+  27 | ' The output plane is a data plane too, and must report identically.
+  28 | FUNC viaOutput(t AS Thread OF Integer TO List OF canvas::DrawItem) AS Integer
+     | ^
+tests/syntax/threads/canvas-drawitem-thread-plane-invalid/src/main.mfb:28 error[2-203-0138 TYPE_THREAD_RESOURCE_PLANE_REQUIRED]: a resource cannot cross the thread data plane
+               Thread output type carries resource `RES canvas.Image`; a resource crosses a thread only on the RES plane. Declare `RES canvas.Image` on the thread and move it with `thread::transfer` / `thread::accept`.
+[exit 1]

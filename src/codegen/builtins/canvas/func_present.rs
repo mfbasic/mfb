@@ -25,9 +25,10 @@ content against what is already installed and returns without republishing when
 they match, so an animation loop that redraws an unchanged frame costs a
 comparison rather than a re-render.
 
-An item names an image or font through a `canvas::ImageRef`/`canvas::FontRef` — an id, not the
-resource itself — so an installed scene never keeps an image open. Destroying an
-image a scene still names is safe: the scene holds its id, not the image.
+An item that draws an image or text holds the image or font itself. Destroying one a
+scene still names is safe: that item draws nothing, and the frame is unaffected. An
+installed scene does not keep an image open — closing it is still yours to do, and
+still takes effect immediately.
 
 Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
