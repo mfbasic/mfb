@@ -91,7 +91,7 @@ fn spawn_server(tag: &str) -> Server {
         nonce()
     ));
     let _ = std::fs::remove_file(&port_file);
-    let source = SERVER.replace("@PORTFILE@", &port_file.to_string_lossy());
+    let source = SERVER.replace("@PORTFILE@", &common::mfb_path_literal(&port_file));
     let project = common::temp_project(&format!("b506_{tag}"), &source);
     let exe = common::build_project(&project);
     let child = Command::new(&exe)

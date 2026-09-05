@@ -40,6 +40,29 @@ pub fn unique_nonce() -> String {
     )
 }
 
+/// Render `path` as the CONTENTS of an MFB string literal.
+///
+/// **Never interpolate a host path into MFB source raw.** MFB reads `\` in a
+/// string literal as an escape introducer, and a Windows path is nothing but
+/// backslashes, so the literal
+///
+/// ```text
+/// "C:\Users\test\AppData\Local\Temp\f.txt"
+/// ```
+///
+/// compiles to `C:Users<TAB>estAppDataLocalTempf.txt` — `\t` is a TAB and every
+/// other backslash is swallowed. Nothing errors: the program simply writes to a
+/// mangled RELATIVE path while the test waits on the absolute one it asked for.
+/// That is how three `http` suites reported "mfb http server never published its
+/// port" on the Windows CI row while the same programs worked by hand.
+///
+/// Unix never noticed because its paths contain no backslashes.
+pub fn mfb_path_literal(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
 pub fn temp_project(name: &str, source: &str) -> PathBuf {
     let nonce = unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));

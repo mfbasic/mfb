@@ -72,7 +72,7 @@ fn handle_request_writes_the_response_it_built() {
         common::unique_nonce()
     ));
     let _ = std::fs::remove_file(&port_file);
-    let source = SOURCE.replace("@PORTFILE@", &port_file.to_string_lossy());
+    let source = SOURCE.replace("@PORTFILE@", &common::mfb_path_literal(&port_file));
     let project = common::temp_project("b476_handle_request", &source);
     let exe = common::build_project(&project);
 
