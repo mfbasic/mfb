@@ -7,7 +7,7 @@
 //! `lower_net_*_helper` (with any bool/alias discriminant) and finalizes.
 //!
 //! Socket and listener handles share the `File` record layout (`fd` at offset
-//! 0, a `closed` flag at offset 8). Platform `sockaddr` structures are produced
+//! 8, a `closed` flag at offset 16). Platform `sockaddr` structures are produced
 //! by `getaddrinfo` so the helpers never hand-build a `sockaddr_in`; the only
 //! field written directly is `sin_port` at offset 2, which is consistent across
 //! platforms for `AF_INET`.

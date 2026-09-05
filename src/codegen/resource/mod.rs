@@ -540,7 +540,7 @@ mod tests {
         // The closed-default (plan-38) relies on every built-in resource being
         // closeable so scope-drop can no-op a closed-default record. Guard against
         // a new built-in added without a registered close op (which would also
-        // need a closed-flag review at the canonical offset 8).
+        // need a closed-flag review at the canonical offset 16).
         for pkg in registry().packages() {
             for r in pkg.resources() {
                 let name = format!("{}.{}", pkg.import_name(), r.name);

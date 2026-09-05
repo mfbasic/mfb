@@ -319,7 +319,7 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ) {
         push_string_value(&mut values, err_msg("ErrResourceClosed"));
         // `ErrResourceMoved` rides the SAME closed-guard as `ErrResourceClosed`
-        // (both bits live in the offset-8 word, and the guard splits them only at
+        // (both bits live in the offset-16 word, and the guard splits them only at
         // the report), so wherever the closed message is registered the moved one
         // must be too — plan-52-B. Registering the string is what emits its
         // `_mfb_str_error_resource_moved` data object; miss one and the reference

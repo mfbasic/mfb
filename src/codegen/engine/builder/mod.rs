@@ -643,9 +643,9 @@ pub(crate) struct ResourceCleanup {
     /// Whether this resource kind actually uses the per-`File` I/O buffer words
     /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
     ///
-    /// Every resource kind shares the 80-byte record, but ONLY `File`'s open
+    /// Every resource kind shares the 96-byte record, but ONLY `File`'s open
     /// helpers zero the buffer words after the (PRNG-poisoned) arena alloc.
-    /// `net`'s `emit_make_handle` initializes offsets 0/8/16 and leaves 24–72 as
+    /// `net`'s `emit_make_handle` initializes offsets 0/8/16/24 and leaves 32–80 as
     /// poison; the layout comment calls those words "inert" for non-`File`
     /// resources, which was true only because nothing read them. The drop-path
     /// reclaim made them live, so freeing them unconditionally handed

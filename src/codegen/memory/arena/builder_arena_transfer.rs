@@ -738,7 +738,8 @@ impl CodeBuilder<'_> {
         // already-moved record and make the transferred handle unusable.
         //
         // `moved` is bit 1 of the same word `closed` (bit 0) lives in, so this
-        // costs no space and keeps plan-38's offset-8 invariant. Both bits are set:
+        // costs no space and keeps plan-38's canonical closed-flag invariant
+        // (offset 16 since plan-80). Both bits are set:
         // every existing guard is a `!= 0` test, so bit 0 makes a stale alias of a
         // moved handle refuse operations with no new code, while bit 1 lets a guard
         // that cares report `ErrResourceMoved` instead of `ErrResourceClosed`.

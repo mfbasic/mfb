@@ -56,7 +56,7 @@ exactly once — is carried by three layers:
    cleanup whose record pointer equals the value escaping the scope skips both the
    close and the reclaim.
 3. **A closed/moved flag making a second close a defined no-op.** Every resource
-   record carries it at offset 8, and both the built-in helpers and every native
+   record carries it at offset 16, and both the built-in helpers and every native
    `LINK` thunk test it before acting, reporting `ErrResourceClosed` rather than
    acting on a dead handle.
 

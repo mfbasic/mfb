@@ -328,7 +328,7 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — since plan-52-B the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes. Only the
-80-byte record itself survives, deliberately, as the tombstone that carries the
+96-byte record itself survives, deliberately, as the tombstone that carries the
 closed flag. Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
 copied the `STATE` pointer into the receiver's record, so freeing it here would hand
 another thread a dangling payload. (`./mfb spec language resource-management` specifies the

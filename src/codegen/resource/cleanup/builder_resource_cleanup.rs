@@ -9,11 +9,11 @@ use crate::target::shared::runtime;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Whether a resource kind uses the per-`File` output/read buffer words
-    /// (`BUF_PTR` @24 … `READ_AT_EOF` @72) — i.e. whether it is a `File`.
+    /// (`BUF_PTR` @32 … `READ_AT_EOF` @80) — i.e. whether it is a `File`.
     ///
-    /// Every resource kind shares the 80-byte record, but only `File`'s open
+    /// Every resource kind shares the 96-byte record, but only `File`'s open
     /// helpers zero those words after the PRNG-poisoned arena alloc; `net`'s
-    /// `emit_make_handle` writes offsets 0/8/16 and leaves the rest poisoned. So
+    /// `emit_make_handle` writes offsets 0/8/16/24 and leaves the rest poisoned. So
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
     pub(crate) fn resource_uses_io_buffers(type_: &ParameterType) -> bool {
@@ -88,7 +88,7 @@ impl CodeBuilder<'_> {
 
     /// True when `type_`'s base names a resource union (plan-74). A resource union
     /// *value* is a `{ tag @0, resource-record-ptr @8 }` block — **not** the
-    /// 80-byte resource record itself — so its `STATE` payload lives in the active
+    /// 96-byte resource record itself — so its `STATE` payload lives in the active
     /// variant's record reached via a `+8` indirection, whereas a concrete
     /// resource value already *is* that record. The STATE suffix is stripped.
     pub(crate) fn is_resource_union_type(&self, type_: &ParameterType) -> bool {
@@ -434,7 +434,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&reclaim));
         // A close on an already-closed resource returns `ERR_RESOURCE_CLOSED`
         // (File/net's deliberate bug-63 re-close error). On the *drop* path this
-        // is a benign no-op — the handle is already closed (e.g. the offset-8
+        // is a benign no-op — the handle is already closed (e.g. the offset-16
         // closed-default record materialized for a `RES x = <fallible> TRAP`
         // error binding, or a program that already called `close`) — not a real
         // cleanup failure, so it must not be logged in the arena
@@ -466,7 +466,7 @@ impl CodeBuilder<'_> {
 
     /// Reclaim the blocks a resource record points at — its output buffer, its
     /// read buffer, and its `STATE` payload — and null each pointer word as it
-    /// goes (plan-52-B Phase 2). The 80-byte record itself is deliberately NOT
+    /// goes (plan-52-B Phase 2). The 96-byte record itself is deliberately NOT
     /// freed: it is the tombstone holding the closed flag that makes a re-close
     /// idempotent and that every alias reads (res.md §3.1).
     ///
@@ -514,8 +514,8 @@ impl CodeBuilder<'_> {
 
         // The two per-`File` buffers are fixed-capacity blocks (plan-14-B/14-C).
         // Only a `File` may be asked for them: every resource kind shares the
-        // 80-byte record, but only `File`'s open helpers zero these words after
-        // the PRNG-poisoned arena alloc — a socket's record leaves 24..72 as
+        // 96-byte record, but only `File`'s open helpers zero these words after
+        // the PRNG-poisoned arena alloc — a socket's record leaves 32..80 as
         // poison, so a null-guard is not enough to skip them and freeing them
         // handed `arena_free` a poison value (SIGSEGV in every `net::` program's
         // cleanup, caught by acceptance).
