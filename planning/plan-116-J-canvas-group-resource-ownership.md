@@ -1172,7 +1172,16 @@ churn test runs in the same time as its neighbours — and left unoptimised deli
 the obvious fix is a `groupItemCount(slot)` cheap-check before the copy, which is a fourth
 internal member added for speed on a path that runs once per *reclaim*, and correctness
 here was hard enough to get right without a second code path guarding it. Recorded so the
-next person measures rather than rediscovers.
+next person measures rather than rediscovers — **and recorded because nothing would catch
+it**: there is no canvas perf golden (`find tests -name '*perf*'` → nothing; the canvas
+suites assert pixels and `groupBytes=`, not time), so a regression on this path has no
+gate. The bound that makes it acceptable is therefore an argument, not a measurement
+someone else will re-run: the scan is per **reclaim**, not per present, and a present with
+nothing due never enters it.
+
+If it does turn out to matter, the fix is known and small: a `canvas::groupItemCount(slot)`
+that reads the block's count word **without copying**, so the `groupItems` copy happens
+only for slots that actually hold items — typically one to five rather than 256.
 
 `present` already declares `ErrOutOfMemory`, so `groupItems` raising from inside the close
 loop stays inside its documented contract — checked, not assumed.
