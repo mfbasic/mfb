@@ -416,6 +416,32 @@ Prior art: `openssl.rs` tests use `TestPlatform` + `has_label` the same way. Run
 
 Gotcha hit along the way: `cargo fmt --all -- <file>` does NOT scope to that file AND main is not rustfmt-1.9.0-clean, so a tree-wide fmt churns ~90 unrelated files — verify your added block is clean with a scratch-copy `rustfmt --check` instead of running a repo-wide format.
 
+### The compiler's own main-thread stack is 1 MiB on Windows, 8 MiB elsewhere
+
+The front end's depth guards all admit a tree **256 levels deep** (`ast::expr::MAX_EXPR_DEPTH`,
+`ast::stmt`'s block cap, `parse_type_name`'s type cap — matched to `ir::verify::check_value_depth`),
+and every pass after the parser walks that tree recursively. Those caps were calibrated against
+the 8 MiB stack Linux and macOS hand `main`. **Windows reserves 1 MiB**, and 256 levels do not fit
+in it: `mfb build` of a 250-group expression died with `0xC00000FD` ("thread 'main' has overflowed
+its stack") — both on a hostile shape, *before* its `Expression nesting is too deep.` diagnostic
+could print, and on a LEGAL one under the cap. `Test (windows-x86_64)` was the only red row
+(bug-542; the guard itself is bug-501).
+
+Fix: `fn main` (`src/main.rs`) spawns the compile on a thread sized by
+`COMPILER_STACK_BYTES` (64 MiB — what `ast::expr::tests::on_big_stack` has always used) and exits
+101 if it panics, so the compiler runs on a stack *it* chooses rather than whatever the host
+reserved for `main`. A thread stack is reserved address space on every supported host, and
+`pthread_attr_setstacksize`/Windows' thread reserve are both independent of `RLIMIT_STACK`.
+
+**Rule: a recursion cap is only honest if the compiler HAS the stack that cap costs on the
+SMALLEST host stack.** If you raise a depth cap, or add a pass that recurses per tree level, the
+budget to check against is `COMPILER_STACK_BYTES`, not the host default.
+
+Repro without a Windows box (Unix only — the PE reserve is a link-time field with no runtime
+equivalent to lower): `sh -c 'ulimit -s 1024 && exec mfb build <proj>'`. That is exactly what
+`tests/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
+only failure is now reproducible on every Unix row.
+
 ### WASAPI capture carry-over
 
 WASAPI capture requires each `IAudioCaptureClient::GetBuffer` packet be released whole — `ReleaseBuffer(NumFramesRead)` must equal the `GetBuffer` count or 0; you CANNOT partially consume a packet. The `audio::read` loop (`audio/windows_io.rs`, `lower_read`) copies `min(numFrames, framesRemaining)` from the packet then must `ReleaseBuffer(numFrames)` (the whole packet), so on the final packet of any read whose length isn't packet-aligned (the common case) the `numFrames - copyFrames` unconsumed frames are lost → gaps in captured audio. ALSA leaves the remainder in the kernel buffer, macOS in the ring; only Windows dropped it.
