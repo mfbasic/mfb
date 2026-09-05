@@ -16,7 +16,7 @@ Use `canvas::stroke` for the outline-only case and `canvas::fillStroke` for both
 To set blend, transform or clip, update the result:
 
 ```
-LET spun AS Paint = WITH canvas::fill(red) { transform := tilt }
+LET spun AS Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { transform := tilt }
 ```
 
 These constructors exist because MFBASIC named construction requires **every**
@@ -28,10 +28,11 @@ const EX: &str = r#"A solid yellow disc:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET yellow AS canvas::Color = canvas::rgb(255, 255, 0)
+  LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   canvas::present([face])
 END SUB
@@ -44,17 +45,18 @@ what shows if the gradient turns out to have fewer than two stops:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := canvas::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := canvas::rgb(32, 96, 255)]]
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 0.0], endPoint := canvas::Point[x := 360.0, y := 0.0], stops := stops]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(canvas::rgb(255, 64, 32)) { fillGradient := ramp }]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { fillGradient := ramp }]
 
   ' The same stops, radial. `startPoint` is the centre and `endPoint` a point on the
   ' outer circle, so this ramp is circular whatever shape it fills.
   LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 300.0], endPoint := canvas::Point[x := 290.0, y := 300.0], stops := stops]
-  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(canvas::rgb(255, 64, 32)) { fillGradient := glow }]
+  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { fillGradient := glow }]
 
   canvas::present([bar, orb])
 END SUB
@@ -66,7 +68,7 @@ moving the rectangle without moving the gradient slides the shape along the ramp
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_fill(color AS Color) AS Paint
+r#"FUNC __canvas_fill(color AS color::Color) AS Paint
   RETURN __canvas_fillStroke(color, __canvas_transparent(), 0.0)
 END FUNC"#;
 
@@ -81,9 +83,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "color",
-                desc: "The colour to fill the item's interior with.",
+                desc: "The colour to fill the item's interior with. A \
+                       `color::Color` — the program needs `IMPORT color`.",
                 aliases: &[],
-                ty: ParameterType::named("Color"),
+                ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named("Paint"),

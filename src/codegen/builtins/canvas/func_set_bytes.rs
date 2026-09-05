@@ -34,12 +34,13 @@ const EX: &str = r#"Update a tile's contents without re-presenting:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   LET black AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, black)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([tile])
 
   ' The scene is unchanged; only the pixels behind the id are.

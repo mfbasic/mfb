@@ -36,12 +36,13 @@ Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#
 const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   RES logo AS canvas::Image = canvas::loadImage("logo.png")
   LET size AS canvas::Size = canvas::getSize(logo)
-  LET art AS canvas::DrawItem = canvas::Picture[x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := logo, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET art AS canvas::DrawItem = canvas::Picture[x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := logo, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([art])
 END SUB
 ```"#;

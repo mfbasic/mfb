@@ -222,20 +222,36 @@ Commit: —
 
 ### Phase 2 — Descriptor and companion
 
-- [ ] `canvas/mod.rs`: delete the `Color` record (`:183-210`); repoint `Paint.fill`
-      and `Paint.stroke` at `COLOR_TYPE_ID` (`:458`, `:464`) and rewrite their
-      descriptions to say `color::Color`; remove `"Color"` from the
-      `canvas_types_are_builtin_types` list (`:1110`); remove `mod func_rgb;`,
-      `mod func_rgba;`, `mod helper_clamp_byte;` and their `register` calls.
-- [ ] Delete `canvas/func_rgb.rs`, `canvas/func_rgba.rs`, `canvas/helper_clamp_byte.rs`.
-      **Check for an orphaned doc comment** at each deletion site — a deleted item's
-      `///` silently merges onto its neighbour.
-- [ ] `canvas/func_fill.rs`, `func_stroke.rs`, `func_fill_stroke.rs`: param types
+- [x] `canvas/mod.rs`: delete the `Color` record (measured `:197`, not `:183`);
+      repoint `Paint.fill` (`:544`) **and `Paint.stroke` (`:550`) and
+      `GradientStop.color` (`:482`, which §2 missed — C7)** at `COLOR_TYPE_ID` and
+      rewrite their descriptions to say `color::Color`; remove `"Color"` from the
+      `canvas_types_are_builtin_types` list (`:1390`); remove `mod func_rgb;`,
+      `mod func_rgba;` and their `register` calls. **`mod helper_clamp_byte;` is
+      NOT removed — C2.** Also rewrote `MODULE_DESC`, which told the reader
+      `canvas::rgb`/`rgba` were exempt from `Mode.Canvas` and listed `canvas::Color`
+      among the bare-referenced value types.
+- [x] Delete `canvas/func_rgb.rs`, `canvas/func_rgba.rs`. **`helper_clamp_byte.rs`
+      is kept** (C2: `helper_items.rs:68`'s `__canvas_geoByte` calls it on the
+      item-decode path); its doc comment, which explained the file as "the shared
+      component clamp behind `canvas::rgb`/`rgba`", is rewritten to name the caller
+      that actually keeps it alive. Orphaned-doc check: both deletions were bare
+      `mod` lines with no preceding `///`
+      (`git diff -U4 src/codegen/builtins/canvas/mod.rs`).
+- [x] `canvas/func_fill.rs`, `func_stroke.rs`, `func_fill_stroke.rs`: param types
       to `COLOR_TYPE_ID`, bodies to `AS color::Color`.
-- [ ] `canvas/helper_paint_defaults.rs`: `__canvas_transparent()` returns
+- [x] `canvas/helper_paint_defaults.rs`: `__canvas_transparent()` returns
       `color::Color` and constructs `color::Color[...]`.
-- [ ] Rewrite the man examples in those files and in `func_present.rs`,
-      `func_present_layers.rs` to `color::` with an `IMPORT color` line.
+- [x] **Added (C3):** `canvas/helper_color.rs` — `__canvas_gradientStopColor` and
+      `__canvas_gradientColor` return `AS color::Color` and construct
+      `color::Color[...]`; `canvas/helper_items.rs:553` — `LET gc AS color::Color`.
+      These name the type bare, so §2's `canvas::`-token census could not see them.
+- [x] Rewrite the man examples in those files and in `func_present.rs`,
+      `func_present_layers.rs` to `color::` with an `IMPORT color` line. Measured
+      wider than §2 implied: **11 files, 26 name sites, 12 `IMPORT color` lines**
+      (`func_create_image`, `func_did_resize`, `func_get_size`, `func_load_font`,
+      `func_load_image`, `func_present`, `func_present_layers`, `func_remove_group`,
+      `func_set_bytes`, `func_set_group`, and `mod.rs`'s `MODULE_DESC`).
 
 Acceptance: `cargo test --no-fail-fast` green except for the fixtures Phase 3
 updates; `mfb man canvas` shows no `Color`/`rgb`/`rgba` entries and

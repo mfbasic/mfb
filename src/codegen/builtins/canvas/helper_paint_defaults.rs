@@ -9,11 +9,11 @@
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
-/// Fully transparent — the no-op `Color`, and what an unnamed `Paint` channel is.
+/// Fully transparent — the no-op `color::Color`, and what an unnamed `Paint` channel is.
 #[rustfmt::skip]
 const TRANSPARENT: &str =
-r#"FUNC __canvas_transparent() AS Color
-  RETURN Color[red := toByte(0), green := toByte(0), blue := toByte(0), alpha := toByte(0)]
+r#"FUNC __canvas_transparent() AS color::Color
+  RETURN color::Color[red := toByte(0), green := toByte(0), blue := toByte(0), alpha := toByte(0)]
 END FUNC"#;
 
 /// The all-zero `Transform`, which `canvas` defines to mean the identity — see the

@@ -36,11 +36,12 @@ backdrop's geometry untouched:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET sky AS canvas::Color = canvas::rgb(20, 30, 60)
-  LET dot AS canvas::Color = canvas::rgb(255, 200, 0)
+  LET sky AS color::Color = color::rgb(20, 30, 60)
+  LET dot AS color::Color = color::rgb(255, 200, 0)
 
   LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]
   LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot)]

@@ -38,12 +38,13 @@ literal does not span source lines, so the pixels go on one:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(2, 1, px)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::present([tile])
 END SUB
 ```"#;

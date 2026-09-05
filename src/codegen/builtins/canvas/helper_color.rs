@@ -116,11 +116,11 @@ r#"FUNC __canvas_gradientChannel(loSrgb AS Integer, hiSrgb AS Integer, num AS In
   RETURN color::fromLinear(loLin + (hiLin - loLin) * num / den)
 END FUNC
 
-FUNC __canvas_gradientStopColor(at AS Integer) AS Color
-  RETURN Color[red := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 1, 0.0))), green := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 2, 0.0))), blue := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 3, 0.0))), alpha := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 4, 0.0)))]
+FUNC __canvas_gradientStopColor(at AS Integer) AS color::Color
+  RETURN color::Color[red := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 1, 0.0))), green := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 2, 0.0))), blue := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 3, 0.0))), alpha := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 4, 0.0)))]
 END FUNC
 
-FUNC __canvas_gradientColor(base AS Integer, count AS Integer, t AS Float) AS Color
+FUNC __canvas_gradientColor(base AS Integer, count AS Integer, t AS Float) AS color::Color
   IF count < 2 THEN
     RETURN __canvas_transparent()
   END IF
@@ -169,7 +169,7 @@ FUNC __canvas_gradientColor(base AS Integer, count AS Integer, t AS Float) AS Co
   END IF
   LET loA AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 4, 0.0))
   LET hiA AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 4, 0.0))
-  RETURN Color[red := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 1, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 1, 0.0)), num, 4096), green := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 2, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 2, 0.0)), num, 4096), blue := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 3, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 3, 0.0)), num, 4096), alpha := toByte(loA + (hiA - loA) * num / 4096)]
+  RETURN color::Color[red := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 1, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 1, 0.0)), num, 4096), green := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 2, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 2, 0.0)), num, 4096), blue := __canvas_gradientChannel(toInt(collections::getOr(__CANVAS_GEO_DATA, loAt + 3, 0.0)), toInt(collections::getOr(__CANVAS_GEO_DATA, hiAt + 3, 0.0)), num, 4096), alpha := toByte(loA + (hiA - loA) * num / 4096)]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

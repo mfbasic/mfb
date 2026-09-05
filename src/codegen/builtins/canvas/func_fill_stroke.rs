@@ -28,11 +28,12 @@ const EX: &str = r#"A filled circle with a contrasting outline:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET body AS canvas::Color = canvas::rgb(255, 220, 0)
-  LET edge AS canvas::Color = canvas::rgb(80, 60, 0)
+  LET body AS color::Color = color::rgb(255, 220, 0)
+  LET edge AS color::Color = color::rgb(80, 60, 0)
   LET dot AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
   canvas::present([dot])
 END SUB
@@ -46,12 +47,13 @@ apart from the transform, so the difference in the picture is the transform's al
 ```
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT math
 
 SUB main()
   app::setMode(app::Mode.Canvas)
-  LET body AS canvas::Color = canvas::rgb(120, 190, 255)
-  LET edge AS canvas::Color = canvas::rgb(20, 40, 90)
+  LET body AS color::Color = color::rgb(120, 190, 255)
+  LET edge AS color::Color = color::rgb(20, 40, 90)
   LET look AS canvas::Paint = canvas::fillStroke(body, edge, 4.0)
 
   LET turn AS Float = math::pi / 4.0
@@ -71,7 +73,7 @@ want it to stay put."#;
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_fillStroke(fill AS Color, stroke AS Color, width AS Float) AS Paint
+r#"FUNC __canvas_fillStroke(fill AS color::Color, stroke AS color::Color, width AS Float) AS Paint
   RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip(), fillGradient := __canvas_noGradient()]
 END FUNC"#;
 
@@ -87,16 +89,18 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "fill",
-                    desc: "The interior colour.",
+                    desc: "The interior colour. A `color::Color` — the program \
+                           needs `IMPORT color`.",
                     aliases: &[],
-                    ty: ParameterType::named("Color"),
+                    ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "stroke",
-                    desc: "The outline colour.",
+                    desc: "The outline colour. A `color::Color` — the program \
+                           needs `IMPORT color`.",
                     aliases: &[],
-                    ty: ParameterType::named("Color"),
+                    ty: ParameterType::named(crate::codegen::builtins::color::COLOR_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {
