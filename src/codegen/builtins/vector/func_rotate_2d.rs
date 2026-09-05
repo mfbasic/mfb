@@ -109,7 +109,7 @@ r#"FUNC __vector_rotate_2d_integer2(v AS Integer2, ang AS Float) AS Integer2
 END FUNC"#;
 
 /// The `__vector_rotate_2d_<type>` body for one applicable vector type.
-fn body(ty: &str) -> &'static str {
+pub(crate) fn body(ty: &str) -> &'static str {
     match ty {
         "Float2" => BODY_FLOAT2,
         "Fixed2" => BODY_FIXED2,

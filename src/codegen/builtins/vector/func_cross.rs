@@ -166,7 +166,7 @@ r#"FUNC __vector_cross_integer4(a AS Integer4, b AS Integer4, c AS Integer4) AS 
 END FUNC"#;
 
 /// The `__vector_cross_<type>` body for one applicable vector type.
-fn body(ty: &str) -> &'static str {
+pub(crate) fn body(ty: &str) -> &'static str {
     match ty {
         "Float2" => BODY_FLOAT2,
         "Float3" => BODY_FLOAT3,
