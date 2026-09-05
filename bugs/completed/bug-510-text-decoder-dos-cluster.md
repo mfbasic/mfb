@@ -5,7 +5,7 @@ Effort: medium (3h–1d)
 Severity: HIGH
 Class: security (denial of service — CPU/memory exhaustion on untrusted text)
 
-Status: In progress on `worktree-B-510` — see the Fix and Corrections sections at the end (found in audit-3, Surface 5 DEC-01/02/03/05; DEC-03 lead-reproduced, DEC-01/02/05 agent-measured; all four re-reproduced this session)
+Status: Fixed — landed from `worktree-B-510` in 6ab260b0f (regex explicit-stack matcher + call-wide budget; punycode 1024-octet cap + RFC 3492 overflow checks), 3b0dd362b (json scans bytes: DEC-03 string share + DEC-04 CRLF), 6950ef570 (json validates number tokens over bytes), 9fea4f468 (goldens). Gates on the final tree (main merged): `cargo test --no-fail-fast` cargo exit 0, 121 test binaries, 0 failed; `artifact-gate.sh target/release/mfb all` 1898 golden(s) checked, 0 diff(s). Left to bug-536: the per-element leak garbage that still dominates `json::parse` of a large scalar array (772 MB for the 400k-number lead repro, from 1 010 MB) and `csv::parse` (274 MB for 1.2 MB of ordinary rows against an 88 MB output floor). Found and filed separately: bug-536, bug-538.
 
 Regression Test: fixtures asserting a bounded time/memory for a hostile regex pattern+subject, a deeply/widely structured JSON, and a long punycode label.
 
