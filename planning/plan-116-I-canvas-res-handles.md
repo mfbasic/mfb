@@ -523,7 +523,22 @@ Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bi
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs;
 `mfb man canvas picture`-reachable pages describe the new model with zero banned
 vocabulary.
-Commit: —
+
+**Met on macOS; box 2228 is running.**
+
+| gate | result |
+|---|---|
+| mac RELEASE | green — the run reported `rc=101`, and its **only** failing target was `artifact_gate_all`, which refused to start because a peer session held the gate lock. Re-run standalone: 0 diffs. Nothing was checked on the first attempt, so it was never a golden result. |
+| mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed** |
+| `scripts/test-accept.sh` | **1379 tests ran**, passed — one more than before this letter, which is `canvas-drawitem-thread-plane-invalid` |
+| `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs** |
+| banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** |
+| box 2228 RELEASE | running |
+
+The gate's refusal is worth noting rather than glossing: it exits **98** and says
+*"another gate run holds the lock … nothing was checked"*. Read as a failure it would
+have sent someone hunting a golden regression that does not exist.
+Commit: `f7280678d`
 
 ## Validation Plan
 
