@@ -1,0 +1,46 @@
+' plan-116-J: `canvas::setGroup` consumes the resources reachable from its `items`
+' argument, so naming one image in two groups is refused rather than silently wrong.
+'
+' WHY THIS IS A DIAGNOSTIC AND NOT A RUNTIME RULE. A group takes over closing the
+' images and fonts its items name -- that is what lets the caller's binding go out of
+' scope without the group losing its picture. But closing is GLOBAL: a resource record
+' has one `closed` word, so a group closing "its" image closes it for every other
+' holder, and the other holder then draws nothing. `canvas::imageHandle` answers 0 for a
+' closed resource and 0 already means "no such object", so the failure is a silently
+' wrong picture with no error anywhere. The free path cannot detect it either: its
+' safety argument establishes that nobody is reading THIS items block, which is true and
+' irrelevant, because the other holder reads a different block pointing at the same
+' record.
+'
+' There is no refcount to fall back on and deliberately so -- `.ai/canvas-threading.md`
+' section 7: "There is no refcount, and there is nothing to count". So the compiler is
+' the only place this can be caught, and plan-116-I is what made it catchable by giving
+' `Picture.image` a `RES canvas::Image` type the move checker can see.
+'
+' The move is TRANSITIVE and decided at the call, which is the only shape that works.
+' Moving the list catches nothing: the two installs pass different lists (`[a]` and
+' `[b]`) and the binding used twice is `img`, inside two separate constructions. And a
+' consuming CONSTRUCTOR is impossible rather than merely undesirable: `canvas::present`
+' and `canvas::setGroup` take the identical `List OF canvas::DrawItem`, so a `DrawItem`
+' cannot know at construction which it is destined for -- and a fresh `Picture` built
+' from one long-lived image every frame is what every canvas program does.
+'
+' Do not "fix" this fixture by giving the second group its own image. The point is the
+' sharing.
+IMPORT app
+IMPORT canvas
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+
+  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("one", [a])
+
+  ' `img` was moved into the group above. Naming it again is the use-after-move.
+  LET b AS canvas::DrawItem = canvas::Picture[x := 9.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+  canvas::setGroup("two", [b])
+
+  RETURN 0
+END FUNC

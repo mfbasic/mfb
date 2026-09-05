@@ -519,37 +519,48 @@ Commit: —
       choice** — `check_resource_moves` already carries plan-59-E's alias graph and
       closure, and what is missing is a second, *directed* `contains` relation plus a
       consuming-parameter flag. Sites in **J10**.
-- [ ] Implement the transitive move: the `contains` relation in
-      `check_resource_moves` (`src/ir/verify/resources.rs`), `consumed_resource`
-      (`src/ir/verify/link.rs:975` — grep `fn consumed_resource`) returning a set rather
-      than an `Option<String>`, and the consuming-parameter flag on `setGroup`'s `items`.
-      **Containment is directed**: consuming the container moves what it contains;
-      consuming a contained resource must leave the container usable, or the documented
-      *"closing it while a scene still names it draws nothing rather than failing"*
-      becomes a compile error.
+- [x] Implement the transitive move: the `contains` relation in
+      `check_resource_moves` (`src/ir/verify/resources.rs`), a new `consumed_contained`
+      beside `consumed_resource` (`src/ir/verify/link.rs`) returning a set, and the
+      consuming-parameter flag on `setGroup`'s `items`. **Containment is directed**:
+      consuming the container moves what it contains; consuming a contained resource
+      must leave the container usable, or the documented *"closing it while a scene
+      still names it draws nothing rather than failing"* becomes a compile error.
+      Landed in three parts — the registry seam
+      (`pkg.add_consuming_parameter` + `builtin_consuming_parameter_index`), the
+      verifier's directed `contains` relation, and codegen's
+      `deactivate_consumed_cleanups`. **J12** records what the verifier half alone did
+      NOT do, and the three wrong guesses about where an `abi_function` call site
+      arrives.
 - [ ] Correct §Non-goals' *"`setGroup`'s signature is unchanged"* (**J10**): the rendered
       signature is unchanged but its meaning is not, and that belongs on the man page.
-- [ ] `setGroup`'s deep copy routes resource ownership per Phase 1's design instead of
-      copying a handle. **Note (§4.1): the copy already produces an alias** — `List OF
-      DrawItem` is still `type_is_memcpy_copyable` because `flatness_walk`'s `Res(_)` arm
-      returns true — so if §4.3.1 resolves to option 1 or 3 there is nothing to emit here
-      and this box is a comment plus the tests. Do not manufacture an install-side step to
-      make the phase look substantial; mark it moot with that evidence if that is what the
-      measurement shows.
-- [ ] Tests: a program that opens an image, `setGroup`s a `Picture` naming it, drops its
-      own binding, and presents the group — **the image is still open.** Assert it on the
-      resource, not the frame: hold a second binding past the producing scope and call
-      `canvas::getSize` on it, the way `closedRefuses` in
-      `tests/cli_canvas_image_resource.rs` asserts the opposite. *(Was "the image still
+      *(Phase 4 owns the man-page half; this box is the Non-goal text itself.)*
+- [x] ~~`setGroup`'s deep copy routes resource ownership per Phase 1's design instead of
+      copying a handle.~~ **Moot, with the evidence §4.1 predicted.** The copy already
+      produces an alias — `List OF DrawItem` is still `type_is_memcpy_copyable` because
+      `flatness_walk`'s `Res(_)` arm returns true — so nothing new comes into being at
+      install time and there is no ownership to route through `copy_flat_block`. The
+      work this box was reaching for turned out to be the *deactivation* on the caller's
+      side, which is the second half of **J12** and is done. Deliberately not padded
+      with an install-side step to make the phase look substantial.
+- [x] Tests: a program that opens a **font**, `setGroup`s a `Text` naming it, drops its
+      own binding, and presents the group — **the glyphs still draw.**
+      `tests/rt_canvas_group_ownership.rs`, four tests, and the shape matters more than
+      the count: `glyphs=0` is equally consistent with *"the font was closed too early"*
+      and *"group text never renders"*, so the file ships
+      `the_control_draws_with_the_binding_alive` alongside, and it is what makes the
+      ownership assertion mean anything. **Proven RED**: with
+      `deactivate_consumed_cleanups` commented out, the two ownership tests fail
+      (`glyphs=0`) and the control stays green (`glyphs=1`). *(Was "the image still
       draws". **J11**: measured, and the identical program with the binding still alive
       renders an all-black frame too, because `helper_geometry.rs` gives `Picture` the
       `NONE` geometry kind and `canvas::imageHandle` has no caller in any renderer. A
       pixel assertion here would fail for a reason that has nothing to do with this
       letter, and would keep failing after the letter was correct.)*
-- [ ] Tests: the §4.3.1 case itself — one image, two groups — pinned to whatever
-      §4.3.1 resolves to. If option 2, a `tests/syntax/` fixture pinning the diagnostic;
-      if option 1 or 3, a runtime fixture pinning the observable outcome. **A resolution
-      with no test is the hole re-opened.**
+- [x] Tests: the §4.3.1 case itself — one image, two groups — pinned to whatever
+      §4.3.1 resolves to. **Option 2**, so a `tests/syntax/` fixture:
+      `tests/syntax/resources/canvas-setgroup-consumes-items`, whose golden is the
+      `2-203-0055` on the second `Picture`. Green through `scripts/test-accept.sh`.
 
 Acceptance: §4.3.1 has a resolution recorded in Open Decisions **with the probe output
 behind it**, and a test pinning that resolution; **the drop-the-binding case leaves the
@@ -675,6 +686,83 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J12 (2026-09-04, Phase 2 — implemented) — the transitive move needed a second half the
+letter never mentions, and finding where to put it took three wrong guesses.**
+
+**The half that is obvious.** `ir::verify::check_resource_moves` gained a directed
+`contains` relation beside plan-59-E's alias graph, `consumed_contained` in
+`ir::verify::link` resolves a consuming parameter's argument through it, and
+`pkg.add_consuming_parameter("setGroup", "items")` is the registry data behind
+`builtin_consuming_parameter_index`. With that alone the §4.3.1 program is refused:
+
+```
+error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+              Binding `img` was moved and cannot be used again.
+```
+
+**The half that is not, and which the letter's §3 would have let a reader skip.**
+`moved` is a **verification** set. Codegen emits its scope-drop closes from the cleanup
+list and never consults it. So after all of the above, `install()` still closed the font
+at its scope exit, the group went on naming a closed resource, and its `Text` drew
+**zero glyphs** — silently, because a second close is a defined no-op, so nothing
+crashed and nothing raised. Goal bullet 1's *"the caller's bindings may go out of scope
+without closing them"* is a **codegen** statement, and satisfying the verifier does not
+satisfy it.
+
+`deactivate_consumed_cleanups` is the second half, modelled on `RETURN`'s deactivation in
+`builder_exits.rs` because it is the same problem: a value whose ownership leaves this
+scope must not also be closed by it. It needs a `resource_containment` pre-pass, because
+the argument names a **container** — `setGroup("held", [tag])` — and the obligation to
+drop belongs to `face`, whose name appears nowhere in the argument. Without the
+expansion the walk finds only `tag`, whose type is a *union* and therefore not a
+resource-owning container (`record_res_field_types` has no entry for a union), and
+deactivates nothing.
+
+**Three wrong guesses about where a `Body::abi_function` call site arrives, recorded
+because none of them is visible from the code:**
+
+1. Not `lower_value`'s `NirValue::Call` arm. A trace printed every target it saw and
+   never `canvas.setGroup`.
+2. Not its `CallResult` arm either, though `setGroup` *is* fallible
+   (`ErrWrongMode`/`ErrCanvasGroupLimit`/`ErrOutOfMemory`).
+3. Not `emit_call`, the apparent chokepoint: **798 lowered calls** in a program that
+   calls `setGroup`, and not one of them named it.
+
+It is **`NirValue::RuntimeCall`**, a NIR node of its own. `mfb build --nir` is what
+settled it — the dump shows
+`{"kind": "runtimeCall", "helper": "canvas", "target": "canvas.setGroup"}`. The same dump
+also answered a question I would otherwise have guessed at:
+`"resourceOwners": [{"name": "face", "owner": {"kind": "local"}}]`, so the font's
+obligation is a plain `ActiveCleanup::Resource`, not an owned-list drain.
+
+**Measured, with the control that makes it mean something.** `install()` opens a font,
+builds a `Text`, `setGroup`s it and returns, dropping every binding; `main` presents a
+`Group` naming it:
+
+| | `glyphs=` | frame |
+|---|---|---|
+| before | `0` | entirely `(0,0,0,255)` |
+| after | `1` (`glyphBytes=506`) | 646 pink pixels |
+| control (binding stays alive) | `1` (`glyphBytes=506`) | 646 pink pixels |
+
+The control is not decoration. `glyphs=0` is equally consistent with *"the font was
+closed too early"* and *"group text never renders"* — which is exactly the trap the
+`Picture` version of this test falls into (**J11**), and why
+`tests/rt_canvas_group_ownership.rs` ships
+`the_control_draws_with_the_binding_alive` beside the two ownership tests. Proven RED:
+with `deactivate_consumed_cleanups` commented out, both ownership tests fail and the
+control stays green.
+
+**One thing to watch, written down because nothing enforces it.** The containment walk
+now exists **twice** — `held_resources` over `IrValue` in `ir::verify::link`, and
+`collect_consumed_locals` over `NirValue` in `builder_resource_cleanup`. They are two
+lists: the types are distinct, so an arm added to one and not the other compiles. The
+failure modes differ, which is worth knowing before choosing which to fix first — a
+missing arm in the **verifier's** walk silently allows a use-after-close; a missing arm
+in **codegen's** silently leaks, because the scope closes something the callee has taken
+over and the callee's own later close is a no-op. Both walks carry a comment pointing at
+the other.
 
 **J11 (2026-09-04, Phase 2 — measured) — `canvas::Picture` does not draw an image on any
 backend, so two of this letter's acceptance criteria cannot discriminate anything, and one
