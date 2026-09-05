@@ -865,7 +865,7 @@ Commit: `321dfddaf` (boxes), `1d2f1ff3e` (codegen), `49257cfba` (verifier), `1fb
       `a_group_does_not_close_an_image_the_scene_still_names`.
 - [x] Tests, extending plan-116-G Phase 5's race matrix — added to
       `.ai/canvas-threading.md` §8 as **R17–R21**. All five in
-      `tests/rt_canvas_group_ownership.rs`, **10 tests, all green**:
+      `tests/rt_canvas_group_ownership.rs`, **11 tests, all green** (ten at first; **R17b**, the font-flavoured mid-frame row, was added when **J19** found that the image one cannot detect an early unregister):
       - group owning an image → `removeGroup` → graphics mid-frame: the frame completes
         and the image is still open during it —
         `removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes`, printing
@@ -1148,11 +1148,21 @@ frees"* still holds, and the next frame draws the incoming scene, which does not
 font anyway.
 
 That is exactly what a program calling `canvas::destroyFont` mid-frame already gets, so
-this is the group inheriting `destroyFont`'s semantics rather than adding a hazard. It is
-recorded because **R17 pins the image case and not the font case** — the mid-frame test
-uses a `Picture` — so nothing in the suite would tell a reader that the two differ.
-A font-flavoured R17 is the test that would close this, and it is worth writing when
-someone next touches this path.
+this is the group inheriting `destroyFont`'s semantics rather than adding a hazard.
+
+~~It is recorded because **R17 pins the image case and not the font case** … A
+font-flavoured R17 is the test that would close this, and it is worth writing when someone
+next touches this path.~~ **Written, 2026-09-05, rather than left for a next visit — I was
+the one touching this path.** `removing_a_group_mid_frame_keeps_the_font_until_the_frame_completes`
+is R17's font half: it holds the graphics thread with `MFB_CANVAS_FRAME_HOLD_MS=600`,
+`removeGroup`s at 120 ms, and asserts `canvas::measureText` **succeeds** while that frame
+is still in flight and **raises `ErrResourceClosed`** once one has completed past the
+retirement. Green; the file is now 11 tests.
+
+The reason to write it rather than record it: the image-flavoured R17 is *structurally
+unable* to detect this failure, because `destroyImage` has no unregister step to be early
+about. A note saying "the two differ" is a claim; the test is the thing that would go red
+if the drain gate ever stopped covering the difference.
 
 **J18 (2026-09-04) — merging `main` exercised plan-116-I's migration against code written
 after it, and that is worth recording as evidence rather than as merge bookkeeping.**

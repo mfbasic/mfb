@@ -421,6 +421,103 @@ FUNC main AS Integer
 END FUNC
 "#;
 
+/// **R17, the Font half** — the case the image version cannot reach (**J19**).
+///
+/// `destroyImage` sets the closed flag and nothing else; `destroyFont` runs
+/// `emit_unregister_font` **first**, and that clears the font table slot immediately,
+/// behind no frame gate at all. So a font's close is the one that could, in principle,
+/// empty an in-flight frame's text — and the image-flavoured R17 is structurally unable
+/// to detect it.
+///
+/// What keeps it safe is the drain gate plus the live-set check, and this asserts both
+/// ends: the font is **still usable** while the frame that was drawing it is held open,
+/// and **closed** once a frame has completed past the retirement.
+///
+/// `install` takes the font as a `RES` parameter — an alias, so `setGroup` consumes the
+/// callee's local and `main`'s binding survives to ask. `canvas::measureText` raises
+/// `ErrResourceClosed` on a closed font, which is the observable; a font holds no
+/// descriptor to watch either.
+const REMOVE_FONT_MID_FRAME: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+SUB install(RES face AS canvas::Font)
+  LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(canvas::rgb(230, 60, 170))]
+  canvas::setGroup("panel", [tag])
+END SUB
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("LOAD-FAILED")
+    RETURN 1
+  END TRAP
+  install(face)
+
+  LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := "panel"]
+  LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(canvas::rgb(0, 255, 0))]
+  canvas::present([mark, node])
+
+  os::sleep(120)
+  canvas::removeGroup("panel")
+
+  ' The hold is 600ms and 120 have passed, so the frame that was drawing this font is
+  ' still in flight. Unregistering it here would be the hazard.
+  LET during AS canvas::TextMetrics = canvas::measureText(face, 64.0, "AA") TRAP(e)
+    io::print("CLOSED-MID-FRAME")
+    RETURN 2
+  END TRAP
+  io::print("OPEN-MID-FRAME")
+
+  os::sleep(1200)
+  canvas::present([mark])
+  canvas::present([mark, canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(canvas::rgb(1, 1, 1))]])
+
+  LET after AS canvas::TextMetrics = canvas::measureText(face, 64.0, "AA") TRAP(e)
+    io::print("CLOSED-AFTER")
+    RETURN 0
+  END TRAP
+  io::print("STILL-OPEN-AFTER-REMOVE")
+  RETURN 3
+END FUNC
+"#;
+
+/// **R17, Font.** The in-flight frame keeps its font; a completed frame closes it.
+#[test]
+fn removing_a_group_mid_frame_keeps_the_font_until_the_frame_completes() {
+    let project = common::temp_project("canvas_group_own_font_race", REMOVE_FONT_MID_FRAME);
+    std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+        .expect("write the font fixture");
+    let binary = common::build_app(&project, "canvas_group_own_font_race");
+    let run = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let out = String::from_utf8_lossy(&run.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&project);
+    assert!(
+        run.status.success(),
+        "program {}:\n{out}",
+        common::exit_description(&run.status),
+    );
+    assert!(
+        out.contains("OPEN-MID-FRAME"),
+        "a font's close unregisters its table slot IMMEDIATELY, behind no frame gate — so \
+         closing it while the frame that was drawing it is still in flight would empty \
+         that frame's text. The drain gate is what must prevent it\n{out}",
+    );
+    assert!(
+        out.contains("CLOSED-AFTER"),
+        "once a frame has completed past the retirement the group must close the font it \
+         owned; `STILL-OPEN-AFTER-REMOVE` means nothing will ever close it\n{out}",
+    );
+}
+
 /// Row 5: 200 install/remove cycles of a group owning an `Image` leave `groupBytes=` at
 /// its baseline.
 ///

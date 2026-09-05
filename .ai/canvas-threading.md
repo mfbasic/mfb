@@ -257,6 +257,7 @@ row names the rule from above that protects it.
 | R16 | `removeGroup(A)` while a parent group still names A | the parent's node becomes a silent no-op, and the parent's other items still draw | §13 a parent holds a NAME, not a pointer |
 
 | R17 | a group **owning** an image → `removeGroup` → graphics mid-frame | the in-flight frame keeps the image **open**; it is closed only after a frame completes past the retirement | §13 retire-then-drain + plan-116-J's close on the free path |
+| R17b | the same with a **`Font`** | identical outcome, and it is a separate row because `destroyFont` unregisters the table slot **immediately**, behind no frame gate — so only this flavour can catch an early unregister | §13; the drain gate is what covers the asymmetry |
 | R18 | `setGroup` replacing a group whose new items name the **same** resource | **nothing is closed.** This is the ordinary shape — one long-lived font, a group rebuilt each frame — and closing here makes its text vanish one frame later, silently | plan-116-J: close only what nothing live names |
 | R19 | a resource named by a group **and** by the live scene, group then drops it | **nothing is closed.** `present` does not take ownership, so a `Picture` built before the `setGroup` reaches the scene with nothing for the move checker to object to | plan-116-J: the live set includes the incoming scene |
 | R20 | a resource named by **two groups**, one of them reclaimed | **nothing is closed.** Refused at compile time when the compiler can see it (`2-203-0055`, `setGroup` consumes its `items`), and caught at run time when it cannot — a loop body is analysed once, so a rebuild across iterations is a deliberate false negative | plan-116-J: the live set is every group's items |
@@ -739,7 +740,9 @@ once a frame has completed since the retirement, and if the frame now in flight 
 font, the scan sees it. One narrow case survives — an in-flight frame drawing a previous
 scene that names the font **directly**, while the incoming scene and every group do not —
 and it costs that frame's glyphs, not a crash. It is what `destroyFont` mid-frame has
-always done. Note **R17 pins the image case, not the font case.**
+always done. **R17 is pinned in both flavours** — an `Image` and a `Font` — because the
+image one cannot detect an early unregister, `destroyImage` having no unregister step to
+be early about.
 
 The walk is an MFBASIC `MATCH` (`__canvas_closeRetired`), not an open-coded step over the
 `DrawItem` union's layout in codegen: a `MATCH` that a new variant must handle is a
