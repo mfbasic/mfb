@@ -58,7 +58,18 @@ gate_lock_acquire || exit $?
 # so every `mfb` invocation below inherits it.
 MFB_HOME=$(mktemp -d)
 export MFB_HOME
-trap 'rm -rf "$MFB_HOME"' EXIT
+# bug-470: this EXIT trap REPLACES the one `gate_lock_acquire` installed above —
+# `trap` does not chain — so it must release the lock too. Without the second
+# clause a normal, successful run left `tests/.gate.lock` behind (measured: exit
+# 0, `acceptance tests passed`, lock still present with this run's dead pid in
+# `owner`). That mostly self-heals, because the next acquire finds a lock whose
+# holder is gone and reclaims it — but "mostly" is the problem: pids are reused,
+# so an unrelated live process inheriting that number makes `kill -0` succeed,
+# the lock read as HELD, and the tree wedged behind a refusal nobody can explain.
+# The INT/TERM traps were untouched by the clobber, which is why a killed run
+# released correctly and only the SUCCESS path leaked.
+# `tests/gate_release_on_normal_exit.rs` pins both scripts against this.
+trap 'rm -rf "$MFB_HOME"; gate_lock_release' EXIT
 
 # `run_with_watchdog` is built on perl, matching test-macapp.sh/test-appimage.sh.
 # perl ships with macOS, where this suite runs, and `timeout(1)` does not — but a
