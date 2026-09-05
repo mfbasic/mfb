@@ -57,6 +57,13 @@ every digit. An invalid pattern fails with `ErrInvalidFormat`. Pattern
 compilation is checked before `start`, so `ErrInvalidFormat` takes precedence
 when both apply.
 
+`findAll` reports only where each match begins. Because a pattern's match
+*length* is an output and may differ from match to match, those indexes alone
+cannot be sliced. When the matched text, the end indexes, or the capture groups
+are wanted, use `regex::findAllMatches`, which performs this same scan and
+reports the same matches with all of that attached; `findAll` is the cheaper
+call when only the positions are needed.
+
 `findAll` does not mutate `value` or `pattern` and has no side effects."#;
 
 const EX: &str = r#"List the start of every digit (note the doubled backslash in the String literal):

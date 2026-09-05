@@ -1,49 +1,52 @@
-' bug-532 -- the regex package reports WHERE a match starts and nothing else.
-' `find` and `findAll` return start indices. There is no end index, no match
-' text, no capture accessor, no Match record. Extraction is therefore impossible
-' for a general pattern:
+' bug-532 -- FIXED. The regex package used to report WHERE a match starts and
+' nothing else: `find` and `findAll` returned start indices, and there was no end
+' index, no match text and no capture accessor. Extraction was impossible for a
+' general pattern, because a pattern's match LENGTH is an output:
 '
 '   regex::findAll("a1b22c333", "\\d+") -> [1, 3, 6]
 '
-' Those three matches are "1", "22" and "333" -- lengths 1, 2 and 3. Nothing in
-' the package reports the lengths, and you cannot slice without them. The only
-' way out is `regex::replace` with a "$0" template into a side channel the
-' package does not provide, or matching a second time with a hand-written
-' anchored probe per candidate length.
+' Those three matches are "1", "22" and "333" -- lengths 1, 2 and 3. The only
+' routes to them were `regex::replace` with a "$0" template into a side channel
+' the package does not provide, or re-matching an anchored probe at every
+' candidate length, which is O(text * maxlen) work to recover something the
+' engine had already computed.
+'
+' `regex::findMatch` and `regex::findAllMatches` report it directly.
 
 IMPORT io
 IMPORT strings
+IMPORT collections
 IMPORT regex
 
 FUNC main AS Integer
   LET text AS String = "a1b22c333"
   LET pattern AS String = "\\d+"
 
-  LET starts AS List OF Integer = regex::findAll(text, pattern)
   io::print("text    = " & text)
   io::print("pattern = " & pattern)
-  FOR EACH s IN starts
-    io::print("  match starts at scalar " & toString(s) & "  -- length unknown")
+  FOR EACH s IN regex::findAll(text, pattern)
+    io::print("  match starts at scalar " & toString(s))
   NEXT
   io::print("")
 
-  ' What the caller actually wants, and the only route to it today: rebuild the
-  ' spans by re-matching an anchored pattern at every candidate length. This is
-  ' O(text * maxlen) extra work to recover something the engine already knew.
-  io::print("recovering the spans by brute force:")
-  FOR EACH s IN starts
-    MUT n AS Integer = 1
-    MUT best AS Integer = 0
-    WHILE s + n <= len(text)
-      LET candidate AS String = strings::mid(text, s, n)
-      IF regex::match(candidate, "\\A" & pattern & "\\z") THEN
-        best = n
-      END IF
-      n = n + 1
-    END WHILE
-    io::print("  [" & toString(s) & ", " & toString(s + best) & ") = \"" & strings::mid(text, s, best) & "\"")
+  io::print("the spans, reported directly:")
+  FOR EACH m IN regex::findAllMatches(text, pattern)
+    io::print("  [" & toString(m.start) & ", " & toString(m.endIndex) & ") = \"" & m.text & "\"")
   NEXT
   io::print("")
-  io::print("=> the engine computed each end position and then discarded it.")
+
+  ' Captures are readable outside a replacement template too, by number and by
+  ' name, so a caller who wrote (?<year>...) never counts parentheses.
+  LET d AS regex::MatchInfo = regex::findMatch("due 2024-06-24", "(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})")
+  io::print("named captures of " & d.text & ":")
+  io::print("  year  = " & collections::get(d.groups, collections::get(d.names, "year")).text)
+  io::print("  month = " & collections::get(d.groups, collections::get(d.names, "month")).text)
+  io::print("  day   = " & collections::get(d.groups, collections::get(d.names, "day")).text)
+  io::print("")
+
+  ' Rewriting around a match needs the end index, which is why the start alone
+  ' was not enough.
+  LET first AS regex::MatchInfo = regex::findMatch(text, pattern)
+  io::print("rewrite around the first match: " & strings::left(text, first.start) & "[" & first.text & "]" & strings::right(text, len(text) - first.endIndex))
   RETURN 0
 END FUNC

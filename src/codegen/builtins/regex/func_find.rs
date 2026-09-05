@@ -55,6 +55,13 @@ or after `start`, `find` returns `-1` rather than failing. Because every real
 match position is `>= 0`, `-1` is an unambiguous "no match" sentinel. (This
 differs from `strings::find`, which fails with `ErrNotFound` on absence.)
 
+`find` reports only where the match begins. Because a pattern's match *length* is
+an output — the caller cannot know it in advance the way it knows `len(needle)`
+for a literal — a start index alone cannot be sliced. When the matched text, the
+end index, or a capture group is wanted, use `regex::findMatch`, which performs
+this same search and returns all of it; `find` is the cheaper call when only the
+position is needed.
+
 `find` does not mutate `value` or `pattern` and has no side effects."#;
 
 const EX: &str = r#"Find the first occurrence, and the first at or after a start position:

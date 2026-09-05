@@ -9,6 +9,8 @@ use crate::types::ParameterType;
 
 mod func_find;
 mod func_find_all;
+mod func_find_all_matches;
+mod func_find_match;
 mod func_gen_cat;
 mod func_match;
 mod func_replace;
@@ -45,7 +47,9 @@ mod helper_lookup_num;
 mod helper_lookup_ref;
 mod helper_make_class;
 mod helper_make_ctx;
+mod helper_make_match;
 mod helper_match_results;
+mod helper_no_match;
 mod helper_parse_alt;
 mod helper_parse_atom;
 mod helper_parse_class;
@@ -92,11 +96,14 @@ results on every target, never deferring to a host libc, locale, or OS regex
 library. `regex` is a built-in package: `IMPORT regex` needs no manifest
 dependency. For the full pattern language, run `mfb man regex language`.
 
-The package defines no new types. `pattern` and `replacement` are ordinary
-runtime `String` values, so they may be literals, built at run time, or read from
-input; a pattern is compiled at the moment a function is called. An invalid
-pattern fails the call with `ErrInvalidFormat` rather than being silently treated
-as "no match".
+The package defines two value types, `regex::MatchInfo` and `regex::Group`, which are
+how a match reports what it covered; run `mfb man regex types` for their fields.
+(The type is spelled `MatchInfo` because `MATCH` is an MFBASIC keyword and cannot
+be a type name; the function is still called `regex::match`.)
+Everything else is ordinary text: `pattern` and `replacement` are runtime `String`
+values, so they may be literals, built at run time, or read from input; a pattern
+is compiled at the moment a function is called. An invalid pattern fails the call
+with `ErrInvalidFormat` rather than being silently treated as "no match".
 
 **Backslashes in a pattern need doubling, and `\x{...}` is the trap.** A pattern
 is written as an ordinary MFBASIC string, and MFBASIC's own string escapes are
@@ -135,19 +142,33 @@ Unicode version, identical across every target.
 The functions differ only in what they report. `match` returns a `Boolean` for
 whether the pattern matches anywhere; `find` returns the start index of the first
 match at or after `start`, or `-1` when there is none; `findAll` returns a
-`List OF Integer` of the start index of every non-overlapping match; and
-`replace` returns a new `String` with every non-overlapping match rewritten by a
-replacement template. Every search is unanchored and leftmost: the reported match
-is the one beginning at the smallest position where any match exists. `find` and
-`findAll` take an optional `start` (default `0`) restricting only where a match
-may begin — the absolute anchors `\A`, `\z`, and unflagged `^`/`$` are still
-evaluated against the whole value. A zero-length match is valid; iteration
-advances one scalar past an empty match so it always terminates.
+`List OF Integer` of the start index of every non-overlapping match; `findMatch`
+returns a `regex::MatchInfo` for the first match — its span, its text, and its
+capture groups; `findAllMatches` returns a `List OF regex::MatchInfo`, one for every
+non-overlapping match; and `replace` returns a new `String` with every
+non-overlapping match rewritten by a replacement template.
+
+The reporting pairs agree exactly. `findMatch` finds the match `find` locates, so
+`findMatch(value, pattern, start).start` is `find(value, pattern, start)`, and
+`findAllMatches` finds the matches `findAll` locates, in the same order and the
+same number — the index-only members are the cheaper call when the text is not
+wanted, never a different search. Reach for `findMatch` and `findAllMatches`
+whenever the matched text is needed: a pattern's match length is an output, not
+something the caller knows in advance, so a start index alone cannot be sliced.
+
+Every search is unanchored and leftmost: the reported match is the one beginning
+at the smallest position where any match exists. `find`, `findAll`, `findMatch`
+and `findAllMatches` take an optional `start` (default `0`) restricting only
+where a match may begin — the absolute anchors `\A`, `\z`, and unflagged
+`^`/`$` are still evaluated against the whole value. A zero-length match is
+valid; iteration advances one scalar past an empty match so it always
+terminates.
 
 No `regex` function fails on the absence of a match: `match` returns `FALSE`,
-`find` returns `-1`, `findAll` returns an empty list, and `replace` returns
-`value` unchanged. `ErrNotFound` is never raised by this package. None of the
-functions mutate their arguments or have side effects."#;
+`find` returns `-1`, `findAll` returns an empty list, `findMatch` returns a
+`MatchInfo` whose `start` is `-1`, `findAllMatches` returns an empty list, and
+`replace` returns `value` unchanged. `ErrNotFound` is never raised by this
+package. None of the functions mutate their arguments or have side effects."#;
 
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("regex", INTRO, DESC);
@@ -914,6 +935,65 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // bug-532: the package's two PUBLIC value types, and the only exported names
+    // here — everything above is a `__regex_`-prefixed engine internal. `Group` is
+    // declared first because `MatchInfo` holds a list of them.
+    pkg.add_record(RegistryRecord {
+        name: "Group",
+        export: true,
+        description: "What one capturing group of a regular expression matched: where it matched, and the text it covered.",
+        props: vec![
+            RecordProp {
+                name: "start",
+                ty: ParameterType::Integer,
+                description: "The zero-based scalar index of the group's first scalar, or -1 when the group took no part in the match.",
+            },
+            RecordProp {
+                name: "endIndex",
+                ty: ParameterType::Integer,
+                description: "The zero-based scalar index one past the group's last scalar, so endIndex - start is the group's length in scalars. -1 when the group took no part in the match.",
+            },
+            RecordProp {
+                name: "text",
+                ty: ParameterType::String,
+                description: "The text the group matched, which is empty both for a zero-length capture and for a group that took no part in the match.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "MatchInfo",
+        export: true,
+        description: "One regular-expression match: where it matched, the text it covered, and its capturing groups.",
+        props: vec![
+            RecordProp {
+                name: "start",
+                ty: ParameterType::Integer,
+                description: "The zero-based scalar index of the match's first scalar, or -1 when there was no match.",
+            },
+            RecordProp {
+                name: "endIndex",
+                ty: ParameterType::Integer,
+                description: "The zero-based scalar index one past the match's last scalar, so endIndex - start is the match's length in scalars. -1 when there was no match.",
+            },
+            RecordProp {
+                name: "text",
+                ty: ParameterType::String,
+                description: "The text the match covered, the same text $0 inserts in a replacement template. Empty for a zero-length match and when there was no match.",
+            },
+            RecordProp {
+                name: "groups",
+                ty: ParameterType::list_of(ParameterType::named("Group")),
+                description: "One Group per capturing group, indexed by group number; groups[0] restates the whole match, so the length is one more than the number of capturing groups in the pattern. Empty when there was no match.",
+            },
+            RecordProp {
+                name: "names",
+                ty: ParameterType::map_of(ParameterType::String, ParameterType::Integer),
+                description: "Each named group's name mapped to its group number, for indexing groups by name instead of by counting parentheses. Empty when the pattern names no groups and when there was no match.",
+            },
+        ],
+    });
+
     // The shared private `__regex_*` helpers the member bodies call. Each lives in
     // its own `helper_*.rs` and registers via `add_helper`; order preserved from the
     // old `package.mfb` blob so the compiled `.ncode` stays byte-identical.
@@ -985,6 +1065,8 @@ pub(crate) fn register(r: &mut Registry) {
     helper_ascii_class_bitset::register(&mut pkg);
     helper_make_class::register(&mut pkg);
     helper_required_first_cp::register(&mut pkg);
+    helper_no_match::register(&mut pkg);
+    helper_make_match::register(&mut pkg);
 
     // plan-118-B: the general-category and Script *scalar* tables are no longer
     // generated MFBASIC -- `regex::genCat` / `regex::scriptOf` look them up in
@@ -1002,6 +1084,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_find_all::register(&mut pkg);
     func_match::register(&mut pkg);
     func_replace::register(&mut pkg);
+    func_find_match::register(&mut pkg);
+    func_find_all_matches::register(&mut pkg);
 
     r.add_package(pkg);
 }
@@ -1011,7 +1095,8 @@ mod tests {
     use crate::codegen::registry::{self, registry};
 
     /// plan-118-B split the member list in two, so this asserts the split by
-    /// NAME rather than by a bare count: four PUBLIC members, and two
+    /// NAME rather than by a bare count: six PUBLIC members (bug-532 added the
+    /// two span-returning ones), and two
     /// `internal_only` Unicode lookups the companion resolves through but user
     /// source must never reach. A bare count could not tell a new public member
     /// (a language change) from a new internal one (an implementation detail),
@@ -1027,7 +1112,17 @@ mod tests {
             .map(|function| function.name)
             .collect();
         public.sort_unstable();
-        assert_eq!(public, ["find", "findAll", "match", "replace"]);
+        assert_eq!(
+            public,
+            [
+                "find",
+                "findAll",
+                "findAllMatches",
+                "findMatch",
+                "match",
+                "replace"
+            ]
+        );
         let mut internal: Vec<&str> = pkg
             .functions()
             .iter()
@@ -1036,7 +1131,7 @@ mod tests {
             .collect();
         internal.sort_unstable();
         assert_eq!(internal, ["genCat", "scriptOf"]);
-        assert_eq!(pkg.functions().len(), 6);
+        assert_eq!(pkg.functions().len(), 8);
     }
 
     #[test]
@@ -1069,10 +1164,34 @@ mod tests {
                 .as_deref(),
             Some("String")
         );
+        // bug-532: the span-returning members return the package's own record
+        // types, qualified, and mirror `find`/`findAll`'s optional `start`.
+        assert_eq!(
+            registry::rewrite_target("regex.findMatch", &[]),
+            Some("__regex_findMatch")
+        );
+        assert_eq!(
+            registry::rewrite_target("regex.findAllMatches", &[]),
+            Some("__regex_findAllMatches")
+        );
+        assert_eq!(
+            registry::call_return_type_typed("regex.findMatch")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
+            Some("regex.MatchInfo")
+        );
+        assert_eq!(
+            registry::call_return_type_typed("regex.findAllMatches")
+                .map(|t| t.name().into_owned())
+                .as_deref(),
+            Some("List OF regex.MatchInfo")
+        );
         // match takes exactly 2 args; find/findAll's trailing `start` is optional.
         assert_eq!(registry().arity("regex.match"), Some((2, 2)));
         assert_eq!(registry().arity("regex.find"), Some((2, 3)));
         assert_eq!(registry().arity("regex.replace"), Some((3, 3)));
+        assert_eq!(registry().arity("regex.findMatch"), Some((2, 3)));
+        assert_eq!(registry().arity("regex.findAllMatches"), Some((2, 3)));
     }
 
     #[test]
