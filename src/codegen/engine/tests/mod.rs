@@ -10,3 +10,16 @@ pub(crate) mod test_support;
 pub(crate) use test_support::*;
 #[cfg(test)]
 mod tests;
+
+// The per-package builtin codegen suites, declared from HERE rather than from
+// `codegen::builtins::mod` on purpose. A `#[cfg(test)] mod` line makes the file
+// that carries it report far worse than it is: a `cargo llvm-cov` profile merges
+// the executed test binary with the instrumented-but-never-executed plain `mfb`
+// binary, and the two inline differently once such a module appears, so lines
+// that demonstrably run are reported uncovered. Measured, on the same suites:
+// putting the line in `builtins/mod.rs` took that file from 99.51% (610/613) to
+// 68.93% (610/885). This file's own path contains `/tests/`, so
+// `coverage-common.sh` excludes it and the damage lands nowhere.
+#[cfg(test)]
+#[path = "../../builtins/tests/mod.rs"]
+mod builtins_codegen;

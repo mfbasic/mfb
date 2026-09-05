@@ -16,8 +16,8 @@
 
 use std::collections::HashMap;
 
-use super::perf::lower_perf_helper;
 use crate::arch::ops::CodeOp;
+use crate::codegen::builtins::perf::perf::lower_perf_helper;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::tests::test_support::{Stream, TestPlatform};
 use crate::codegen::engine::types::{CodeInstruction, CodegenPlatform};

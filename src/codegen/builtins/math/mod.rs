@@ -80,8 +80,6 @@ pub(crate) mod gen_math;
 pub(crate) use gen_math::*;
 pub(crate) mod gen_pow;
 pub(crate) mod gen_rng_pcg64;
-#[cfg(test)]
-mod tests_codegen;
 pub(crate) use gen_rng_pcg64::*;
 
 const MODULE_INTRO: &str = r#"Numeric functions and constants"#;

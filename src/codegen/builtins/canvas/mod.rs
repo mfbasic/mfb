@@ -85,8 +85,6 @@ mod helper_render;
 mod helper_shapes;
 mod helper_surface;
 mod scene_base;
-#[cfg(test)]
-mod tests_codegen;
 
 /// The `Image` resource's bare type name, and the package-qualified id members
 /// spell in their signatures.

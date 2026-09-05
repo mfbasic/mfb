@@ -223,4 +223,140 @@ impl<'a> Stream<'a> {
             .iter()
             .any(|i| i.get("target").as_deref() == Some(label))
     }
+
+    /// The condition under which control reaches `label`, as `"eq"`/`"ne"`/....
+    ///
+    /// Arch-neutral on purpose. x86-64 and AArch64 keep the comparison and the
+    /// branch apart (`cmp` then `b.eq`), while riscv64 has no flags register and
+    /// fuses them into one `RvBr lhs=a0 rhs=zero cond=eq`. A suite that asserts
+    /// "this branch is a `BranchEq`" therefore passes on four backends and cannot
+    /// even find the instruction on the fifth — which is how a per-target rule
+    /// ends up tested on four targets and assumed on the last one.
+    pub(crate) fn branch_condition_to(&self, label: &str) -> String {
+        let at = self.index_of(&format!("branch to `{label}`"), |i| {
+            i.get("target").as_deref() == Some(label)
+        });
+        let instruction = &self.instructions[at];
+        match instruction.op {
+            CodeOp::BranchEq => "eq".to_string(),
+            CodeOp::BranchNe => "ne".to_string(),
+            CodeOp::BranchLt => "lt".to_string(),
+            CodeOp::BranchLe => "le".to_string(),
+            CodeOp::BranchGt => "gt".to_string(),
+            CodeOp::BranchGe => "ge".to_string(),
+            CodeOp::Branch => "always".to_string(),
+            // riscv64's fused compare-and-branch carries the condition as a field.
+            _ => Self::field(instruction, "cond"),
+        }
+    }
+
+    /// Every `AddImm <dst>, <stack pointer>, <imm>` in the stream, as its
+    /// immediate, in order.
+    ///
+    /// Frame offsets are NOT the constants the emitter wrote: `finalize_frame`
+    /// shifts every sp-relative access up past the callee-saved area, and by a
+    /// different amount per backend. A rule about a struct field's offset has to
+    /// be stated as a DIFFERENCE between two of these, never as an absolute.
+    pub(crate) fn stack_offsets(&self) -> Vec<i64> {
+        let sp = ["sp", "rsp"];
+        self.instructions
+            .iter()
+            .filter(|i| i.op == CodeOp::AddImm && sp.contains(&Self::field(i, "src").as_str()))
+            .filter_map(|i| Self::field(i, "imm").parse().ok())
+            .collect()
+    }
+}
+
+// --- a `CodeBuilder` + `AbiCtx` for a single `abi_inline` emitter -----------
+//
+// The whole-program harness (`testutil::code_for_src_on`) is the right tool when
+// the question is "what does the compiler emit for this program". It cannot ask
+// "what does this emitter do when the platform declares no import for it", or
+// "what does the Windows arm emit", without a program and a plan that produce
+// that situation — and for a `?` propagation arm no program does, because the
+// plan force-declares whatever the body needs.
+//
+// `BuilderHarness` owns the ~10 tables `CodeBuilder::for_synthetic_function`
+// borrows, so a test can build one in two lines and drive an emitter directly.
+// It lives here, outside the coverage denominator, for the same reason `Stream`
+// does.
+
+/// Owned backing storage for a test [`CodeBuilder`].
+///
+/// Every table starts empty; add what the emitter under test reads. The lifetime
+/// is the harness's own — `builder()` borrows `&'a self`, so the harness must
+/// outlive the builder (bind it to a `let` before calling).
+pub(crate) struct BuilderHarness<'a> {
+    pub(crate) function_symbols: HashMap<String, String>,
+    pub(crate) functions: HashMap<String, &'a crate::target::shared::nir::NirFunction>,
+    pub(crate) package_return_types: HashMap<String, crate::types::ParameterType>,
+    /// Symbol -> library, exactly as a `NativePlan`'s platform imports render.
+    /// **Leave it empty to prove a body fails closed** on an undeclared import.
+    pub(crate) platform_imports: HashMap<String, String>,
+    pub(crate) globals: HashMap<String, crate::codegen::engine::builder::GlobalValue>,
+    pub(crate) string_symbols: HashMap<String, String>,
+    pub(crate) build_mode: crate::target::NativeBuildMode,
+    pub(crate) type_model: crate::codegen::engine::builder::TypeModel,
+}
+
+impl Default for BuilderHarness<'_> {
+    fn default() -> Self {
+        Self {
+            function_symbols: HashMap::new(),
+            functions: HashMap::new(),
+            package_return_types: HashMap::new(),
+            platform_imports: HashMap::new(),
+            globals: HashMap::new(),
+            string_symbols: HashMap::new(),
+            build_mode: crate::target::NativeBuildMode::Console,
+            type_model: crate::codegen::engine::builder::TypeModel::empty(),
+        }
+    }
+}
+
+impl<'a> BuilderHarness<'a> {
+    /// A `CodeBuilder` for a synthesized function named `symbol`, lowering for
+    /// `platform`.
+    ///
+    /// Installs the active MIR backend as every real lowering entry point does,
+    /// so register allocation dispatches to the same backend the emitter targets.
+    pub(crate) fn builder(
+        &'a self,
+        symbol: &str,
+        platform: &'a dyn CodegenPlatform,
+    ) -> crate::codegen::engine::builder::CodeBuilder<'a> {
+        crate::codegen::engine::mir::set_backend(platform.backend());
+        crate::codegen::engine::builder::CodeBuilder::for_synthetic_function(
+            symbol,
+            &self.function_symbols,
+            &self.functions,
+            &self.package_return_types,
+            &self.platform_imports,
+            platform,
+            self.build_mode,
+            &self.globals,
+            &self.string_symbols,
+            self.type_model.clone(),
+        )
+    }
+
+    /// The `AbiCtx` an `abi_inline` body receives — the inline path's own
+    /// defaults (empty `module_name`/`call`, no arena offsets, no globals, no
+    /// RNG), so a test is looking at the same context production hands it.
+    pub(crate) fn abi_ctx(
+        &'a self,
+        platform: &'a dyn CodegenPlatform,
+    ) -> crate::codegen::registry::AbiCtx<'a> {
+        crate::codegen::registry::AbiCtx {
+            platform_imports: &self.platform_imports,
+            platform,
+            build_mode: self.build_mode,
+            module_name: "",
+            call: "",
+            term_state_offset: None,
+            presentation_mode_offset: None,
+            arena_global_slots: 0,
+            uses_rng: false,
+        }
+    }
 }

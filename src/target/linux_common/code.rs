@@ -309,6 +309,18 @@ pub(crate) struct Platform<A: LinuxArch> {
 }
 
 impl<A: LinuxArch> Platform<A> {
+    /// A platform for a unit test that drives one emitter directly.
+    ///
+    /// The fields are private and the two `lower_module*` entry points build the
+    /// value inline, so without this a test outside this module cannot get a
+    /// REAL Linux `CodegenPlatform` -- only the `TestPlatform` stub, whose
+    /// `emit_external_call` lowers everything to a plain `bl` and therefore
+    /// cannot show that a body fails closed on an undeclared import.
+    #[cfg(test)]
+    pub(crate) fn for_test(arch: A, flavor: LinuxFlavor) -> Self {
+        Self { arch, flavor }
+    }
+
     /// The C-library soname imports bind to. Deliberately NOT named `libc`:
     /// `CodegenPlatform::libc` is a different question (which libc *world* this
     /// pass emits for, plan-46-C §4.3) and an inherent method of that name would
@@ -1385,31 +1397,19 @@ mod tests {
     use crate::target::linux_x86_64::code::X86_64;
 
     fn aarch64() -> Platform<Aarch64> {
-        Platform {
-            arch: Aarch64,
-            flavor: LinuxFlavor::Glibc,
-        }
+        Platform::for_test(Aarch64, LinuxFlavor::Glibc)
     }
 
     fn riscv64() -> Platform<Riscv64> {
-        Platform {
-            arch: Riscv64,
-            flavor: LinuxFlavor::Glibc,
-        }
+        Platform::for_test(Riscv64, LinuxFlavor::Glibc)
     }
 
     fn x86_64() -> Platform<X86_64> {
-        Platform {
-            arch: X86_64,
-            flavor: LinuxFlavor::Glibc,
-        }
+        Platform::for_test(X86_64, LinuxFlavor::Glibc)
     }
 
     fn x86_64_musl() -> Platform<X86_64> {
-        Platform {
-            arch: X86_64,
-            flavor: LinuxFlavor::Musl,
-        }
+        Platform::for_test(X86_64, LinuxFlavor::Musl)
     }
 
     /// bug-321's Validation Plan names this as the one cheap regression test
