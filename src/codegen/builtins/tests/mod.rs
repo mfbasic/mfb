@@ -34,6 +34,7 @@ mod collections;
 mod corpus;
 mod diagnostics;
 mod entry;
+mod link;
 mod math;
 mod os;
 mod perf;

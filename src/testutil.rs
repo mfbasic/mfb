@@ -233,6 +233,60 @@ pub fn code_for_src_mode(
     target: CodeTarget,
     build_mode: crate::target::NativeBuildMode,
 ) -> crate::codegen::engine::types::NativeCodePlan {
+    code_for_src_with(source, target, build_mode, Default::default())
+}
+
+/// [`code_for_linking_src`], but returning the compiler's message instead of
+/// panicking.
+///
+/// A refusal is a contract in its own right — "this declaration needs more
+/// argument registers than this target has" is the alternative to silently
+/// dropping an argument — and asserting on it by catching a panic would be
+/// asserting on how the harness formats its payload.
+pub fn try_code_for_linking_src(
+    source: &str,
+    target: CodeTarget,
+    libraries: &[&str],
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    let table = link_library_table(target, libraries);
+    let source = source.to_string();
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .name(format!("try_code_for_src({})", target.name()))
+        .spawn(move || {
+            let hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                code_for_src_inner(
+                    &source,
+                    target,
+                    crate::target::NativeBuildMode::Console,
+                    table,
+                )
+            }));
+            std::panic::set_hook(hook);
+            lowered.map_err(|payload| {
+                payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    .unwrap_or_else(|| "lowering panicked with no message".to_string())
+            })
+        })
+        .expect("spawn the lowering thread")
+        .join()
+        .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
+}
+
+/// [`code_for_src_mode`] with an explicit native-library table (see
+/// [`code_for_linking_src`], which is the only caller that needs a non-empty
+/// one).
+pub fn code_for_src_with(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+    libraries: crate::binary_repr::NativeLibraryTable,
+) -> crate::codegen::engine::types::NativeCodePlan {
     // On a big enough stack. libtest gives each case a 2 MiB thread and the
     // unoptimized front end recurses deeply over the injected builtin package
     // sources (a program importing `canvas` monomorphizes several thousand
@@ -244,21 +298,33 @@ pub fn code_for_src_mode(
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .name(format!("code_for_src({})", target.name()))
-        .spawn(move || code_for_src_inner(&source, target, build_mode))
+        .spawn(move || code_for_src_inner(&source, target, build_mode, libraries))
         .expect("spawn the lowering thread")
         .join()
-        .expect("lowering thread must not panic")
+        // Re-panic with the INNER message. `join().expect(..)` would report
+        // `Any { .. }` and throw away the compiler's own error, which is the
+        // only thing that says which program, which target, and why.
+        .unwrap_or_else(|payload| {
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_else(|| "the lowering thread panicked".to_string());
+            panic!("{message}")
+        })
 }
 
 fn code_for_src_inner(
     source: &str,
     target: CodeTarget,
     build_mode: crate::target::NativeBuildMode,
+    libraries: crate::binary_repr::NativeLibraryTable,
 ) -> crate::codegen::engine::types::NativeCodePlan {
     use crate::os::linux::flavor::LinuxFlavor::Glibc;
     use crate::target::shared::lower;
 
-    let ir = lower_src_concrete(source, Some(main_entry()));
+    let mut ir = lower_src_concrete(source, Some(main_entry()));
+    ir.native_libraries = libraries;
     let module = lower::lower_project(&ir, target.name().to_string(), &[], build_mode, None)
         .expect("test source must lower to NIR");
     match target {
@@ -370,6 +436,62 @@ pub fn code_for_fixture(
         target,
         crate::target::NativeBuildMode::Console,
     )
+}
+
+/// [`code_for_src_on`] for a program that declares a native `LINK` block.
+///
+/// A `LINK "sqlite3"` lowers to a `dlopen` of a *resolved* filename, and the
+/// resolution comes from the project's `libraries` manifest section by way of
+/// `IrProject::native_libraries` — not from the logical name. Without a table
+/// entry the whole thunk emitter refuses ("cannot resolve native library"), so
+/// no `LINK` program can be lowered by the plain harness at all, and
+/// `codegen/link/thunk/link_thunk.rs` (2,277 lines) has no in-process coverage.
+///
+/// Each `library` is declared as a `System` locator for every OS, with no arch
+/// or libc constraint, which is exactly what a `"type": "system"` manifest entry
+/// produces and what makes the same program lower for all five backends.
+pub fn code_for_linking_src(
+    source: &str,
+    target: CodeTarget,
+    libraries: &[&str],
+) -> crate::codegen::engine::types::NativeCodePlan {
+    code_for_src_with(
+        source,
+        target,
+        crate::target::NativeBuildMode::Console,
+        link_library_table(target, libraries),
+    )
+}
+
+/// One `System` locator per library, for `target`'s OS and any arch/libc.
+fn link_library_table(
+    target: CodeTarget,
+    libraries: &[&str],
+) -> crate::binary_repr::NativeLibraryTable {
+    use crate::binary_repr::{NativeLibraryEntry, NativeLibraryLocator, NativeLibraryTable};
+    use crate::manifest::libraries::LibType;
+
+    let os = target
+        .name()
+        .split_once('-')
+        .map(|(os, _)| os.to_string())
+        .expect("a target name is `<os>-<arch>`");
+    NativeLibraryTable {
+        entries: libraries
+            .iter()
+            .map(|logical| NativeLibraryEntry {
+                logical: (*logical).to_string(),
+                locators: vec![NativeLibraryLocator {
+                    os: os.clone(),
+                    arch: None,
+                    libc: None,
+                    lib_type: LibType::System,
+                    source: format!("lib{logical}.so"),
+                    hash: None,
+                }],
+            })
+            .collect(),
+    }
 }
 
 /// The lowered function whose `name` matches, panicking with the available names
