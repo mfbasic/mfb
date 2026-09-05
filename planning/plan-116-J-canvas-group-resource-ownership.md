@@ -829,18 +829,31 @@ Commit: —
 
 ## Validation Plan
 
-- **Tests:** `tests/rt_canvas_graphics_thread.rs` (race matrix ×5),
-  `tests/cli_canvas_image_resource.rs` (ownership + double-close),
-  `tests/rt_canvas_present_deep_copy.rs`. Negative cases: closing a group-owned image
-  yourself (defined `ErrResourceClosed`, per plan-59-B); a group owning an already-
-  closed image.
-- **Coverage check:** confirm the close path is in the denominator — a group free that
-  never runs in the suite would leave this entire letter untested while green. The
-  200-cycle loop is what forces it.
-- **Runtime proof:** the 200-cycle install/remove loop with fd and `groupBytes=`
-  measured before and after.
-- **Doc sync:** `src/docs/spec/app/06_canvas.md`, `.ai/canvas-threading.md` §7 and §8,
-  `setGroup`'s description.
+- **Tests:** ~~`tests/rt_canvas_graphics_thread.rs`~~ — the race matrix landed in a file
+  of its own, **`tests/rt_canvas_group_ownership.rs`** (10 tests, §8's **R17–R21**), so
+  the ownership cases sit together rather than being threaded through a file about the
+  graphics thread. `tests/syntax/resources/canvas-setgroup-consumes-items` pins the
+  `2-203-0055`. `tests/cli_canvas_image_resource.rs` and
+  `tests/rt_canvas_present_deep_copy.rs` are unchanged and still green — the second one
+  matters, because it is what would notice if consuming `items` broke the copy.
+- **Every behavioural test ships a CONTROL**, and this is the load-bearing part rather
+  than diligence: the observable here is *"did this resource stay usable"*, and its
+  failure looks identical to *"this never rendered anyway"*. `Picture` draws nothing on
+  any backend (**J11**), so a test built on one is green or red for reasons unrelated to
+  the letter. Hence `the_control_draws_with_the_binding_alive`, and hence a `Font`
+  throughout.
+- **Coverage check:** the close path is in the denominator — the 200-cycle loop and the
+  mid-frame race both reach it. Confirmed the other way too: with
+  `deactivate_consumed_cleanups` commented out, two tests go red and the control stays
+  green (**J12**).
+- **Runtime proof:** the 200-cycle install/remove loop with `groupBytes=` measured across
+  frames. **The fd half is vacuous for an image and is not counted** — `createImage`
+  allocates nothing outside MFB's own resource record (**J11**).
+- **Doc sync:** `src/docs/spec/app/06_canvas.md` (new §"A named group is the
+  exception"), `.ai/canvas-threading.md` §7, §8 (**R3b**, **R17–R21**) and §13 (the
+  ownership subsection, plus two of its existing claims corrected), and `setGroup`'s
+  description — **in `func_set_group.rs`, not `mod.rs`**, which is where the plan's
+  Phase 4 box pointed. `scripts/man-census.sh --memory-scope` → 0 unclassified hits.
 - **Acceptance:** `cargo test --no-fail-fast`, `scripts/test-accept.sh`,
   `scripts/artifact-gate.sh all`, `rustup run 1.96.0 cargo fmt --all &&
   (cd repository && rustup run 1.96.0 cargo fmt)`.
