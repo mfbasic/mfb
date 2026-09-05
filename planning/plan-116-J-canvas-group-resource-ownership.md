@@ -444,15 +444,58 @@ is no "kind word" at offset 64 to switch on.
    through `canvas::groupItems(slot)`, which returns the **live** buffer, and this walk
    needs the **retired** one.
 
-**Recommend 2**, and cost the missing accessor rather than the layout duplication: a
-`MATCH` that a new variant must handle is a guarantee, and a hand-written offset that a
-new variant must not break is a hope. This is the same reasoning `.ai/codegen-invariants.md`
-applies to shape-coupled analyses, and the same failure **J12** already recorded once —
-the containment walk exists twice because two IR types forced it, and it is written down
-as a hazard rather than a design.
+**Resolved: option 2, and the accessor it seemed to need does not exist either.**
 
-Whichever is chosen, the close itself is two instructions per resource with no call and
-no tag to check (§4.2).
+`canvas::groupReclaim()` is already `internal_only: true`, takes no parameters, returns
+`Nothing`, and is called from exactly one place — `func_present.rs`'s MFBASIC body, first
+and unconditional. **Change its return type to `List OF canvas::DrawItem`: the items of
+every buffer it just freed.** Then `#canvas_present` becomes
+
+```basic
+FOR EACH gone AS canvas::DrawItem IN canvas::groupReclaim()
+  MATCH gone
+    CASE Picture(p)
+      canvas::destroyImage(p.image)
+    CASE Text(t)
+      canvas::destroyFont(t.font)
+    …
+  END MATCH
+NEXT
+```
+
+Four properties this buys, none of which the other shapes have:
+
+* **No new surface at all.** §Non-goals is satisfied literally: no new member, and the
+  one whose signature changes is internal-only and has a single call site.
+* **One gate evaluation.** A separate "which slots are due" predicate followed by a
+  separate reclaim would evaluate the gate twice, and a frame completing between the two
+  makes them disagree. Returning what was actually freed cannot disagree with itself.
+* **The layout is the compiler's problem.** A `MATCH` that a new `DrawItem` variant must
+  handle is a compile error; an open-coded tag offset that a new variant must not break is
+  a hope (**J13**).
+* **The handles are readable, which §4.3's "before the buffer is released" existed to
+  guarantee.** `groupReclaim` returns a **copy** — the same copy-out `groupItems` already
+  makes, for the reason its doc comment gives — so the resource pointers survive the block
+  being freed. The resource *records* are separate arena allocations; freeing the items
+  block does not touch them. So the close may now happen strictly **after** the free, and
+  §4.3's ordering constraint is met by holding the copy rather than by ordering.
+
+Two things Phase 3 must check rather than assume:
+
+1. **`canvas::destroyImage(p.image)` must be legal** — reading a `RES` out of a record
+   field and passing it to a consuming (non-`RES`) parameter. plan-114-C's
+   `value_aliases_live_resource` covers `RES g = h.handle` binding a *new* name; passing
+   the field directly is the adjacent case and may or may not be accepted. If it is not,
+   bind it first.
+2. **The returned copy must register no cleanup of its own**, or the helper's scope exit
+   closes the resources a second time and — worse — a `List OF DrawItem` returned from a
+   reclaim that freed nothing would still be walked. Expected fine:
+   `is_resource_owning_container(List OF DrawItem)` is false (it is not a `List OF RES T`,
+   and `record_res_field_types` has no entry for a union), which is the same reason
+   `groupItems`' copies register none today. **Verify it rather than expect it.**
+
+The close itself remains two instructions per resource with no call and no tag to check
+(§4.2).
 
 ### 4.6 The compile-time refusal does not reach this letter's close
 
