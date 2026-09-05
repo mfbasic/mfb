@@ -39,6 +39,11 @@ def main():
     rows = []
     for entry in data["data"][0]["files"]:
         name = entry["filename"]
+        # `repository/src/**` also ends in `/src/...`, and it is NOT comparable
+        # here: `mfb_repository` IS a library, so its integration tests count and
+        # a bins-only run understates it. Match the repository prefix FIRST.
+        if "/repository/src/" in name:
+            continue
         at = name.rfind("/src/")
         if at < 0:
             continue

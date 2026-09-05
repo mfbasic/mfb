@@ -41,6 +41,11 @@ def load(path):
     rows = {}
     for entry in data["data"][0]["files"]:
         name = entry["filename"]
+        # `repository/src/**` also ends in `/src/...` and is deliberately out of
+        # scope here (see the module docstring): match its prefix FIRST, or four
+        # of its files are silently counted as `src/**`.
+        if "/repository/src/" in name:
+            continue
         # The report carries absolute paths and the two runs may come from
         # different worktrees, so key on the repo-relative tail.
         at = name.rfind("/src/")
