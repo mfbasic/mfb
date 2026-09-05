@@ -153,6 +153,24 @@ fn a_bind_that_only_aliases_a_live_resource_still_builds() {
     if let Err(err) = build("b535_alias_only", source) {
         panic!("an alias-only resource bind must keep building:\n{err}");
     }
+
+    // The second aliasing shape the declarer recognizes: reading a resource
+    // element out of a collection yields a pointer to the one resource, never a
+    // transfer (§15.6), so the collection's owning scope closes it.
+    let from_get = "IMPORT io\n\
+                    IMPORT fs\n\
+                    IMPORT collections\n\n\
+                    FUNC pick(files AS List OF RES fs::File) AS Integer\n\
+                   \x20 RES f AS fs::File = collections::get(files, 0)\n\
+                   \x20 RETURN 1\n\
+                    END FUNC\n\n\
+                    FUNC main AS Integer\n\
+                   \x20 io::print(\"started\")\n\
+                   \x20 RETURN 0\n\
+                    END FUNC\n";
+    if let Err(err) = build("b535_alias_get", from_get) {
+        panic!("a collection-element resource bind must keep building:\n{err}");
+    }
 }
 
 #[test]
