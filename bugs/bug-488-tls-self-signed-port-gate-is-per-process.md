@@ -1,6 +1,27 @@
 # bug-488 — `rt_tls_connect_allow_self_signed` is flaky when two `cargo test` runs share a machine
 
-STATUS: OPEN (test-isolation flake; no product defect)
+STATUS: OPEN — gate fixed, symptom unreproduced (test-isolation flake; no product defect)
+
+Fixed so far (`e5f705c13`, restored `0953cd57d`, pinned `7cbf00777`):
+- The gate is now `common::PortGate`, a `flock(2)` on a temp-dir file, so it
+  excludes across PROCESSES. The old `static OnceLock<Mutex<()>>` ordered the
+  four cases inside one binary and definitionally could not do more.
+- The TRAP now prints `result=raised code=<n>` and the raise assertions quote the
+  observed value. Six sightings produced no attribution because the test threw
+  its own error code away; the next one will arrive self-diagnosing.
+- `tests/rt_port_gate_is_cross_process.rs` pins the exclusion property, verified
+  to fail (`IN/IN/IN/IN/OUT`) with the acquire removed.
+
+**Why this is still OPEN.** The symptom would not reproduce. Soaking the pre-fix
+binary in a detached worktree at 2-way and 4-way concurrency (26 runs) gave zero
+failures. All six field sightings were during full `cargo test` runs, where port
+pressure comes from hundreds of unrelated tests — four copies of one test does
+not recreate that. So the fix is justified by mechanism plus the property test,
+NOT by a measured drop in failure rate, and this stays open until a full-suite
+run either shows a seventh occurrence or a long clean period closes it.
+
+A seventh occurrence should now name its own cause via the `code=` token; record
+it here rather than re-deriving.
 FOUND: plan-121-E prerequisite run (2026-09-03)
 SEVERITY: low — the test fails CLOSED (it reports the anomaly); it does not pass silently
 
