@@ -51,7 +51,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// Wall-clock bound on the whole client run. Generous on purpose: this turns a
 /// *hang* into a named failure so a wedged handshake cannot stall `cargo test`.
@@ -65,11 +65,18 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// validated against the IP would be asserting an unsupported path.
 const EXPECT_NAME: &str = "localhost";
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+/// bug-488, the half the port gate does not cover: this file's four cases run
+/// concurrently and each names its scratch root `mfb_bug477_<nonce>`. A
+/// nanosecond timestamp does NOT make that unique — measured on the macOS host,
+/// 698 577 of 800 000 stamps taken from four threads were duplicates — so two
+/// cases can share a root. `write_cert` puts `cert.pem`/`key.pem` at fixed names
+/// inside it, so a colliding pair serves the WRONG IDENTITY and a negative case
+/// reports `result=connected`; and whichever finishes first `remove_dir_all`s
+/// the other's client out from under it (`spawn the mfb tls client: NotFound`,
+/// the macOS CI row). `common::unique_nonce` is a pid + counter, which cannot
+/// repeat.
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {

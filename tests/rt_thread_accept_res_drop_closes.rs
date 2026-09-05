@@ -33,7 +33,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 /// Wall-clock bound on each blocking interaction. Generous on purpose: these
 /// turn a hang into a named failure rather than wedging `cargo test`, and are
@@ -45,10 +45,7 @@ const DEADLINE: Duration = Duration::from_secs(30);
 const WORKER_RESULT: &str = "7";
 
 fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     std::fs::create_dir_all(root.join("src")).expect("create temp project");
     std::fs::write(
@@ -195,9 +192,10 @@ fn an_accepted_resource_is_live_and_its_scope_drop_closes_it() {
     loop {
         match child.try_wait().expect("poll the child") {
             Some(_) => break,
-            None if Instant::now() >= deadline => {
-                fail(&mut child, "the program did not exit after stdin".to_string())
-            }
+            None if Instant::now() >= deadline => fail(
+                &mut child,
+                "the program did not exit after stdin".to_string(),
+            ),
             None => std::thread::sleep(Duration::from_millis(20)),
         }
     }

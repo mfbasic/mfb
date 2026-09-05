@@ -19,17 +19,14 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 const PORT_CHUNKED: u16 = 18475;
 // filler_a (100) + stray "0\r\n\r\n" (5) + filler_b (70000) = 70105 de-chunked bytes.
 const EXPECT_BODY_LEN: usize = 70105;
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_python() -> bool {

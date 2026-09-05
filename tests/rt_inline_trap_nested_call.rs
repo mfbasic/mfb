@@ -24,13 +24,9 @@ mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn unique_root(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_bug457_{name}_{nonce}"));
     fs::create_dir_all(&root).expect("create root");
     root

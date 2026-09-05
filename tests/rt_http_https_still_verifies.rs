@@ -28,13 +28,9 @@ use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn write_project(root: &Path, source: &str) {

@@ -30,7 +30,6 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const TARGETS: &[&str] = &[
     "macos-aarch64",
@@ -43,10 +42,7 @@ const TARGETS: &[&str] = &[
 const SOURCE: &str = "IMPORT fs\nIMPORT strings\n\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"/tmp/x\", \"r\")\n  fs::close(f)\n  fs::createTempFile(\"/tmp\")\n  fs::readBytes(\"/tmp/x\")\n  fs::writeTextAtomic(\"/tmp/x\", \"y\")\n  fs::writeBytesAtomic(\"/tmp/x\", strings::toBytes(\"y\"))\n  RETURN 0\nEND FUNC\n";
 
 fn unique_root(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     std::env::temp_dir().join(format!("mfb_{name}_{nonce}"))
 }
 

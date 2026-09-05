@@ -6,13 +6,42 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+/// A token unique across this process's threads, and across concurrent runs.
+///
+/// **Not a timestamp.** Every scratch path in this suite used to be named
+/// `<prefix>_<SystemTime::now().as_nanos()>`, on the assumption that a
+/// nanosecond stamp cannot repeat. It repeats constantly: the clock is far
+/// coarser than its unit, and libtest starts a binary's cases on every core at
+/// once. Measured on this macOS host — four threads, 200 000 samples each —
+/// **698 577 of the 800 000 stamps were duplicates.**
+///
+/// Two cases that collide get the SAME scratch directory, and then one's
+/// `remove_dir_all` deletes the other's freshly built executable, so the spawn
+/// fails `NotFound`. That is what took the macOS CI row down in
+/// `rt_tls_connect_allow_self_signed`:
+///
+/// ```text
+/// spawn the mfb tls client: Os { code: 2, kind: NotFound }
+/// ```
+///
+/// The quiet half is worse: colliding cases also overwrite each other's fixture
+/// files, and nothing reports it.
+///
+/// A process-wide counter cannot repeat within the process, and the pid
+/// separates concurrent runs on one machine — which the clock never did either.
+pub fn unique_nonce() -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
 
 pub fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(
