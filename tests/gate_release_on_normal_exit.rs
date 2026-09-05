@@ -94,7 +94,11 @@ exit 0
         tree = tree.display(),
         traps = traps,
     );
-    let out = Command::new("bash").arg("-c").arg(&body).output().expect("bash");
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(&body)
+        .output()
+        .expect("bash");
     assert!(
         out.status.success(),
         "harness snippet failed ({}): {}",

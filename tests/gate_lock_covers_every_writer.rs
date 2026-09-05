@@ -51,11 +51,31 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         true,
         "spawns test-accept.sh, then copies goldens; holds across both",
     ),
-    ("regen-ncodesum.sh", true, "rebuilds `$fixturedir/$name.ncode`"),
-    ("regen-outside-ncode.sh", true, "rebuilds `$fixturedir/$name.ncode`"),
-    ("regen-rt-goldens.sh", true, "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}"),
-    ("bug387-gate.sh", true, "rm -f \"$d/$pkg\".ncode, then rebuilds it"),
-    ("ncode-determinism.sh", true, "builds -ncode into $REPO/$td, N times"),
+    (
+        "regen-ncodesum.sh",
+        true,
+        "rebuilds `$fixturedir/$name.ncode`",
+    ),
+    (
+        "regen-outside-ncode.sh",
+        true,
+        "rebuilds `$fixturedir/$name.ncode`",
+    ),
+    (
+        "regen-rt-goldens.sh",
+        true,
+        "rm -f \"$td/$pkg\".{nir,nplan,nobj,ncode,mir}",
+    ),
+    (
+        "bug387-gate.sh",
+        true,
+        "rm -f \"$d/$pkg\".ncode, then rebuilds it",
+    ),
+    (
+        "ncode-determinism.sh",
+        true,
+        "builds -ncode into $REPO/$td, N times",
+    ),
     (
         "ncode-determinism-alltargets.sh",
         true,
@@ -81,7 +101,9 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
 /// A script emits a codegen dump when it passes one of the dump flags to `mfb`.
 /// This decides only WHICH scripts must be classified — not what the answer is.
 fn emits_a_codegen_dump(text: &str) -> bool {
-    const FLAGS: &[&str] = &["-ncode", "-nir", "-nplan", "-nobj", "-mir", "-ast", "$DUMPS"];
+    const FLAGS: &[&str] = &[
+        "-ncode", "-nir", "-nplan", "-nobj", "-mir", "-ast", "$DUMPS",
+    ];
     text.lines()
         .map(str::trim)
         .filter(|l| !l.starts_with('#'))

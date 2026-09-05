@@ -79,7 +79,6 @@ fn make_sibling_tree(name: &str) -> PathBuf {
     dst
 }
 
-
 /// Spawn a LIVE holder process in `tree` and wait until it reports the lock is
 /// held. Returns the child so the caller can kill it.
 ///
