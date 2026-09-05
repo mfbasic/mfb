@@ -181,3 +181,75 @@ fn no_abi_inline_lowering_emits_a_call_the_plan_never_declared() {
          checking"
     );
 }
+
+/// No `abi_inline` lowering SILENTLY accepts the wrong number of arguments.
+///
+/// The dispatcher only ever hands a body the arity its descriptor declares, so
+/// the `if args.len() != 1 { return Err(...) }` at the top of most of them is
+/// unreachable from any program, and rots.
+///
+/// "Refuses" is deliberately not the assertion: 48 of the 175 index `args[0]`
+/// with no arity check and abort instead. That is not a shipped defect -- the
+/// arity is fixed by the descriptor the dispatcher selected -- and an abort is
+/// loud in every profile. What must never happen is the third outcome: a body
+/// that EMITS CODE for a call whose shape it did not understand. So the
+/// assertion is over silent acceptance, which is the only unsafe answer, and
+/// the guards that do exist are exercised on the way.
+#[test]
+fn no_abi_inline_lowering_silently_accepts_the_wrong_argument_count() {
+    let platform = TestPlatform;
+    let mut accepted = Vec::new();
+    let mut panicked = Vec::new();
+    for (member, implementation) in abi_inline_members() {
+        let Body::AbiInline(lower) = implementation.body else {
+            continue;
+        };
+        // TOO FEW, which is the only direction that can make a body read past
+        // the end of the slice. The other direction is deliberately not swept:
+        // an EXTRA argument the dispatcher can never supply is ignored by 16 of
+        // these bodies, and ignoring it emits exactly the same correct code.
+        for count in [0usize] {
+            if count == implementation.params.len() {
+                continue;
+            }
+            let wrong: Vec<ValueResult> = (0..count)
+                .map(|index| ValueResult {
+                    type_: ParameterType::Integer,
+                    location: Operand::from(format!("x{}", 9 + index).as_str()),
+                    text: "extra".to_string(),
+                    origin: None,
+                })
+                .collect();
+            let label = format!("{member} with {count} arg(s)");
+            let hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let harness = BuilderHarness::default();
+                let mut builder = harness.builder("_mfb_abi_inline_probe", &platform);
+                let ctx = harness.abi_ctx(&platform);
+                lower(&mut builder, &wrong, &ctx).is_ok()
+            }));
+            std::panic::set_hook(hook);
+            match outcome {
+                Ok(true) => accepted.push(label),
+                Ok(false) => {}
+                Err(_) => panicked.push(label),
+            }
+        }
+    }
+    assert!(
+        panicked.len() <= 60,
+        "{} abi_inline lowering(s) abort on the wrong argument count rather than \
+         reporting it; 48 did when this was written. That is safe but noisy, and a \
+         jump means a guard was removed:\n  {}",
+        panicked.len(),
+        panicked.join("\n  ")
+    );
+    assert!(
+        accepted.is_empty(),
+        "{} abi_inline lowering(s) EMITTED CODE for a call with the wrong argument \
+         count -- neither reporting it nor aborting:\n  {}",
+        accepted.len(),
+        accepted.join("\n  ")
+    );
+}
