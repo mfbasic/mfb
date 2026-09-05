@@ -166,7 +166,11 @@ fn a_large_string_costs_a_bounded_multiple_of_its_size() {
         "parsing a 3 MB JSON string did not finish",
     );
     let _ = std::fs::remove_dir_all(&project);
-    assert!(status.success(), "{}:\n{stdout}", common::exit_description(&status));
+    assert!(
+        status.success(),
+        "{}:\n{stdout}",
+        common::exit_description(&status)
+    );
     assert_eq!(stdout.trim(), "len=3000000");
     let rss = rss.expect("unix reports ru_maxrss");
     assert!(

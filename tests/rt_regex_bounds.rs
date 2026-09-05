@@ -196,7 +196,11 @@ fn a_large_subject_costs_a_bounded_multiple_of_its_size() {
         "searching a 1.2 MB subject did not finish",
     );
     let _ = std::fs::remove_dir_all(&project);
-    assert!(status.success(), "{}:\n{stdout}", common::exit_description(&status));
+    assert!(
+        status.success(),
+        "{}:\n{stdout}",
+        common::exit_description(&status)
+    );
     assert_eq!(stdout.trim(), "find=-1");
     let rss = rss.expect("unix reports ru_maxrss");
     assert!(

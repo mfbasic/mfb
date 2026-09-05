@@ -1,17 +1,23 @@
 //! PE32+ header + section-table byte writer (plan-47-C Phase 2 / §4).
 //!
 //! Pure layout arithmetic over already-built section blobs (`.text`, `.rdata`,
-//! `.data`, `.idata`) plus the entry-point RVA and the Import/IAT data-directory
-//! entries. Emits a complete, deterministic PE32+ console image. Relocation
-//! patching and `.idata`/thunk construction live in the parent `link` module
-//! (Phase 3); this file never inspects an `EncodedImage`.
+//! `.data`, `.idata`, `.reloc`) plus the entry-point RVA and the Import/IAT/
+//! BaseReloc data-directory entries. Emits a complete, deterministic, ASLR-capable
+//! PE32+ image. Relocation patching and `.idata`/thunk construction live in the
+//! parent `link` module (Phase 3); this file never inspects an `EncodedImage`.
 //!
 //! Every multi-byte field is little-endian. "RVA" = address relative to
 //! `ImageBase`; "file offset" = offset within the emitted file.
 
 // --- Constants (plan-47-C §4) ----------------------------------------------
 
-/// `link.exe`'s default x64 EXE image base (§4.3). Fixed — no `.reloc`/ASLR.
+/// `link.exe`'s default x64 EXE image base (§4.3). This is the *preferred* base:
+/// the image is `DYNAMIC_BASE | HIGH_ENTROPY_VA` with `RELOCS_STRIPPED` clear and
+/// a `.reloc` section (bug-504), so the loader slides it to a random address on
+/// every run. Nothing the linker emits depends on the value — every reference is
+/// RIP-relative (`patch_relocations` knows only `*_pc32` kinds), measured by
+/// linking the fixture corpus at two different bases and diffing every section
+/// body byte-for-byte (0 differences).
 pub(super) const IMAGE_BASE: u64 = 0x0001_4000_0000;
 const SECTION_ALIGNMENT: u32 = 0x1000;
 const FILE_ALIGNMENT: u32 = 0x200;
@@ -22,16 +28,31 @@ const OPTIONAL_HEADER_SIZE: usize = 240; // 0xF0 — asserted by a test
 const SECTION_HEADER_SIZE: usize = 40;
 const NUMBER_OF_DATA_DIRECTORIES: u32 = 16;
 
-// COFF Characteristics (§4.2).
-const IMAGE_FILE_RELOCS_STRIPPED: u16 = 0x0001;
+// COFF Characteristics (§4.2). `IMAGE_FILE_RELOCS_STRIPPED` (0x0001) is
+// deliberately NOT set: the loader treats it as "must load at ImageBase" and
+// ignores `DYNAMIC_BASE` entirely (bug-504).
 const IMAGE_FILE_EXECUTABLE_IMAGE: u16 = 0x0002;
 const IMAGE_FILE_LARGE_ADDRESS_AWARE: u16 = 0x0020;
+
+// DllCharacteristics (§4.3). The image opts into ASLR above 4 GiB (bug-504); the
+// two mitigations already present stay.
+const IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA: u16 = 0x0020;
+const IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE: u16 = 0x0040;
+const IMAGE_DLLCHARACTERISTICS_NX_COMPAT: u16 = 0x0100;
+const IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE: u16 = 0x8000;
+
+// Base relocation entry types (`.reloc`, §4.7 / PE spec "Base Relocation Types").
+const IMAGE_REL_BASED_ABSOLUTE: u16 = 0;
+const IMAGE_REL_BASED_DIR64: u16 = 10;
 
 // Section characteristics (§4.4).
 pub(super) const SCN_TEXT: u32 = 0x6000_0020; // CODE | EXECUTE | READ
 pub(super) const SCN_RDATA: u32 = 0x4000_0040; // INITIALIZED_DATA | READ
 pub(super) const SCN_DATA: u32 = 0xC000_0040; // INITIALIZED_DATA | READ | WRITE
 pub(super) const SCN_IDATA: u32 = 0xC000_0040; // loader writes the IAT
+/// `.reloc`: INITIALIZED_DATA | DISCARDABLE | READ — consumed by the loader while
+/// it slides the image, then dropped (bug-504).
+pub(super) const SCN_RELOC: u32 = 0x4200_0040;
 
 /// A 64-byte real-mode DOS stub printing "This program cannot be run in DOS
 /// mode." — the conventional bytes `link.exe` emits, transcribed so third-party
@@ -71,6 +92,52 @@ pub(super) struct ImportDirectories {
     pub(super) resource: (u32, u32),
     /// `[12]` IAT: (first IAT RVA, total bytes of all IATs).
     pub(super) iat: (u32, u32),
+    /// `[5]` Base relocation table (`.reloc`): (RVA, byte size). bug-504.
+    pub(super) basereloc: (u32, u32),
+}
+
+/// Build the `.reloc` section body: `IMAGE_BASE_RELOCATION` blocks, one per 4 KiB
+/// page that holds a fixup, each `PageRVA u32 | SizeOfBlock u32 | entries u16…`
+/// where an entry is `type << 12 | offset-in-page`, padded to a 4-byte block size
+/// with an `ABSOLUTE` entry (bug-504).
+///
+/// `dir64_rvas` are the RVAs of 64-bit absolute addresses the loader must rebase.
+/// The linker emits none today — every reference it patches is RIP-relative — so
+/// the list is empty and the body is the one padding block the loader (and every
+/// PE tool) expects a relocatable image to carry: the `.text` page with two
+/// `ABSOLUTE` entries. `RELOCS_STRIPPED` clear + `DYNAMIC_BASE` set + this
+/// directory is what makes the image slide; an empty directory would be read by
+/// some loaders as "nothing to relocate, load fixed".
+pub(super) fn build_reloc(dir64_rvas: &[u32], text_rva: u32) -> Vec<u8> {
+    let mut pages: Vec<(u32, Vec<u16>)> = Vec::new();
+    let mut sorted = dir64_rvas.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    for rva in sorted {
+        let page = rva & !0xFFF;
+        let entry = (IMAGE_REL_BASED_DIR64 << 12) | (rva & 0xFFF) as u16;
+        match pages.last_mut() {
+            Some((p, entries)) if *p == page => entries.push(entry),
+            _ => pages.push((page, vec![entry])),
+        }
+    }
+    if pages.is_empty() {
+        let pad = IMAGE_REL_BASED_ABSOLUTE << 12;
+        pages.push((text_rva & !0xFFF, vec![pad, pad]));
+    }
+    let mut out = Vec::new();
+    for (page, mut entries) in pages {
+        if entries.len() % 2 == 1 {
+            entries.push(IMAGE_REL_BASED_ABSOLUTE << 12);
+        }
+        let size = 8 + entries.len() * 2;
+        out.extend_from_slice(&page.to_le_bytes());
+        out.extend_from_slice(&(size as u32).to_le_bytes());
+        for e in entries {
+            out.extend_from_slice(&e.to_le_bytes());
+        }
+    }
+    out
 }
 
 pub(super) fn align_up(value: u32, alignment: u32) -> u32 {
@@ -186,9 +253,8 @@ pub(super) fn write_image(
     w.u32(0); // PointerToSymbolTable
     w.u32(0); // NumberOfSymbols
     w.u16(OPTIONAL_HEADER_SIZE as u16); // SizeOfOptionalHeader = 0xF0
-    w.u16(
-        IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE | IMAGE_FILE_RELOCS_STRIPPED,
-    );
+                                        // bug-504: no RELOCS_STRIPPED — the image is relocatable (see `.reloc`).
+    w.u16(IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE);
 
     // --- PE32+ optional header (§4.3) ---
     let opt_start = w.buf.len();
@@ -218,30 +284,38 @@ pub(super) fn write_image(
               // (plan-66-I). GUI is the only difference — the loader hides the console for
               // subsystem 2, letting the app own its own Win32 window.
     w.u16(if gui { 2 } else { 3 });
-    w.u16(0x0100 | 0x8000); // DllCharacteristics: NX_COMPAT | TERMINAL_SERVER_AWARE (DYNAMIC_BASE clear)
-                            // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
-                            // up front. The commit is a warm-start optimization ONLY — it does not
-                            // license skipping stack probes. This comment used to claim it did ("a
-                            // function with a large frame never skips the stack guard page, so this
-                            // codegen needs no inline __chkstk probe. Real frames are far smaller —
-                            // the largest observed is ~9 KiB in `main`"), and both halves were wrong:
-                            // a >4 KiB frame is ordinary (17 of the 23 `regex` helpers have one, up to
-                            // 19688 bytes in `__regex_parseParen`), and past the committed megabyte the
-                            // OS grows the stack one guard page at a time, so such a frame steps over
-                            // the guard and takes STATUS_ACCESS_VIOLATION. Recursion through those
-                            // frames reached that point quickly — `regex::match` on a deeply nested
-                            // pattern died ~1 MiB in. The probes now live in the prologue, emitted by
-                            // `finalize_frame` under `Backend::stack_probe_page_bytes` (Win64: 4096);
-                            // see `.ai/arch-abi.md`. Raising the commit is NOT an alternative fix: it
-                            // would not help a thread stack, and a frame near the reserve limit would
-                            // still skip the guard.
+    // DllCharacteristics: HIGH_ENTROPY_VA | DYNAMIC_BASE (bug-504: ASLR, 64-bit
+    // range) | NX_COMPAT | TERMINAL_SERVER_AWARE = 0x8160.
+    w.u16(
+        IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+            | IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+            | IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+            | IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE,
+    );
+    // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
+    // up front. The commit is a warm-start optimization ONLY — it does not
+    // license skipping stack probes. This comment used to claim it did ("a
+    // function with a large frame never skips the stack guard page, so this
+    // codegen needs no inline __chkstk probe. Real frames are far smaller —
+    // the largest observed is ~9 KiB in `main`"), and both halves were wrong:
+    // a >4 KiB frame is ordinary (17 of the 23 `regex` helpers have one, up to
+    // 19688 bytes in `__regex_parseParen`), and past the committed megabyte the
+    // OS grows the stack one guard page at a time, so such a frame steps over
+    // the guard and takes STATUS_ACCESS_VIOLATION. Recursion through those
+    // frames reached that point quickly — `regex::match` on a deeply nested
+    // pattern died ~1 MiB in. The probes now live in the prologue, emitted by
+    // `finalize_frame` under `Backend::stack_probe_page_bytes` (Win64: 4096);
+    // see `.ai/arch-abi.md`. Raising the commit is NOT an alternative fix: it
+    // would not help a thread stack, and a frame near the reserve limit would
+    // still skip the guard.
     w.u64(0x0080_0000); // SizeOfStackReserve (8 MiB)
     w.u64(0x0010_0000); // SizeOfStackCommit  (1 MiB)
     w.u64(0x0010_0000); // SizeOfHeapReserve
     w.u64(0x0000_1000); // SizeOfHeapCommit
     w.u32(0); // LoaderFlags
     w.u32(NUMBER_OF_DATA_DIRECTORIES);
-    // 16 data directories; only [1] Import and [12] IAT are non-zero.
+    // 16 data directories; [1] Import, [2] Resource, [5] BaseReloc and [12] IAT
+    // are the populated ones.
     for index in 0..NUMBER_OF_DATA_DIRECTORIES {
         match index {
             1 => {
@@ -251,6 +325,10 @@ pub(super) fn write_image(
             2 => {
                 w.u32(dirs.resource.0);
                 w.u32(dirs.resource.1);
+            }
+            5 => {
+                w.u32(dirs.basereloc.0);
+                w.u32(dirs.basereloc.1);
             }
             12 => {
                 w.u32(dirs.iat.0);
@@ -370,8 +448,15 @@ mod tests {
             0xF0,
             "SizeOfOptionalHeader = 240"
         );
-        // EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE | RELOCS_STRIPPED = 0x0023.
-        assert_eq!(le_u16(&image, coff + 18), 0x0023, "Characteristics");
+        // EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE = 0x0022. This used to pin 0x0023
+        // (RELOCS_STRIPPED set), which described bug-504's defect — an image the
+        // loader may never slide — rather than a contract; the bit stays clear.
+        assert_eq!(le_u16(&image, coff + 18), 0x0022, "Characteristics");
+        assert_eq!(
+            le_u16(&image, coff + 18) & 0x0001,
+            0,
+            "IMAGE_FILE_RELOCS_STRIPPED stays clear (bug-504)"
+        );
     }
 
     #[test]
@@ -394,10 +479,12 @@ mod tests {
         let opt = 0x80 + 4 + 20;
         assert_eq!(le_u16(&image, opt), 0x020B, "Magic = PE32+");
         assert_eq!(le_u16(&image, opt + 68), 2, "Subsystem = WINDOWS_GUI");
+        // HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE. This
+        // used to pin 0x8100 "(no DYNAMIC_BASE)", i.e. bug-504's defect itself.
         assert_eq!(
             le_u16(&image, opt + 70),
-            0x8100,
-            "DllCharacteristics (no DYNAMIC_BASE)"
+            0x8160,
+            "DllCharacteristics: HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT | TSAWARE"
         );
         assert_eq!(le_u32(&image, opt + 108), 16, "NumberOfRvaAndSizes");
     }
@@ -465,6 +552,66 @@ mod tests {
         assert_eq!(le_u32(&image, dd + 8 + 4), 40, "Import[1] size");
         assert_eq!(le_u32(&image, dd + 12 * 8), 0x3100, "IAT[12] RVA");
         assert_eq!(le_u32(&image, dd + 12 * 8 + 4), 16, "IAT[12] size");
+    }
+
+    /// bug-504: data directory `[5]` carries the base-relocation table.
+    #[test]
+    fn basereloc_directory_populates_slot_5() {
+        let text = vec![0x90u8; 16];
+        let headers = size_of_headers(1);
+        let text_rva = align_up(headers, SECTION_ALIGNMENT);
+        let sections = vec![Section {
+            name: section_name(".text"),
+            characteristics: SCN_TEXT,
+            virtual_address: text_rva,
+            virtual_size: text.len() as u32,
+            file_offset: align_up(headers, FILE_ALIGNMENT),
+            bytes: &text,
+        }];
+        let dirs = ImportDirectories {
+            basereloc: (0x5000, 12),
+            ..ImportDirectories::default()
+        };
+        let image = write_image(&sections, text_rva, dirs, false);
+        let dd = 0x80 + 4 + 20 + 112;
+        assert_eq!(le_u32(&image, dd + 5 * 8), 0x5000, "BaseReloc[5] RVA");
+        assert_eq!(le_u32(&image, dd + 5 * 8 + 4), 12, "BaseReloc[5] size");
+    }
+
+    /// bug-504: with no fixups the `.reloc` body is one padding block on the
+    /// `.text` page — two ABSOLUTE entries, SizeOfBlock 12.
+    #[test]
+    fn build_reloc_without_fixups_is_one_padding_block() {
+        let body = build_reloc(&[], 0x1000);
+        assert_eq!(body.len(), 12);
+        assert_eq!(le_u32(&body, 0), 0x1000, "page RVA");
+        assert_eq!(le_u32(&body, 4), 12, "SizeOfBlock");
+        assert_eq!(le_u16(&body, 8) >> 12, 0, "ABSOLUTE padding");
+        assert_eq!(le_u16(&body, 10) >> 12, 0, "ABSOLUTE padding");
+    }
+
+    /// bug-504: fixups group by page, sort, dedupe, and pad odd blocks.
+    #[test]
+    fn build_reloc_groups_dir64_fixups_by_page() {
+        let body = build_reloc(&[0x3010, 0x2FF8, 0x3010, 0x3000], 0x1000);
+        // Page 0x2000: one entry + pad = 12 bytes; page 0x3000: two entries = 12.
+        assert_eq!(body.len(), 24);
+        assert_eq!(le_u32(&body, 0), 0x2000);
+        assert_eq!(le_u32(&body, 4), 12);
+        assert_eq!(
+            le_u16(&body, 8),
+            (10 << 12) | 0xFF8,
+            "DIR64 at page offset 0xFF8"
+        );
+        assert_eq!(le_u16(&body, 10) >> 12, 0, "odd block padded with ABSOLUTE");
+        assert_eq!(le_u32(&body, 12), 0x3000);
+        assert_eq!(le_u32(&body, 16), 12);
+        assert_eq!(le_u16(&body, 20), 10 << 12, "DIR64 at page offset 0");
+        assert_eq!(
+            le_u16(&body, 22),
+            (10 << 12) | 0x010,
+            "deduped DIR64 at 0x10"
+        );
     }
 
     #[test]

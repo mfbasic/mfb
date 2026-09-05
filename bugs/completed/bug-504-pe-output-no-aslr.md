@@ -5,7 +5,44 @@ Effort: medium (3h–1d — needs a `.reloc` section)
 Severity: HIGH
 Class: security (missing exploit mitigation in emitted binaries)
 
-Status: Open (found in audit-3, Surface 7 LNK-13; code-verified by the lead, not executed on Windows)
+Status: FIXED (fde2dece2) — verified on a real emitted binary, NOT executed on Windows
+
+Emitted header facts, read back from a linked `.exe` (`mfb build -target
+windows-x86_64`):
+
+    Characteristics    = 0x0022   RELOCS_STRIPPED clear
+    DllCharacteristics = 0x8160   DYNAMIC_BASE | HIGH_ENTROPY_VA | NX_COMPAT | TSA
+    DIR[5] BASERELOC   = rva 0x9000, size 12
+    sections           = .text .rdata .data .idata .reloc .mfbnote, none W+X
+
+The `.reloc` holds one padding block rather than DIR64 entries because the image
+carries no 64-bit absolute addresses. That was MEASURED, not assumed, and the
+measurement is the load-bearing part of this fix: a DYNAMIC_BASE image with a
+missing fixup is worse than a fixed-base one, since it only breaks once the
+loader actually slides it. Two independent checks agree — `patch_relocations`
+accepts only `*_pc32` kinds (every reference is RIP-relative), and scanning a
+linked image for any 8-byte word inside `[ImageBase, ImageBase+SizeOfImage)`
+finds **zero** across all six sections. The padding block is still required: an
+empty directory is read by some loaders as "nothing to relocate, load fixed".
+
+**The artifact gate is blind to this bug.** It reported 0 diffs, which proves
+nothing here: `.ncodesum` hashes the `-ncode` code plan, and the linker runs
+after codegen, so no PE header or section change can move it. The instruments
+that actually cover this fix are the `os::windows::link` tests (69 pass,
+including `emitted_pe_is_aslr_capable`, `basereloc_directory_populates_slot_5`,
+`build_reloc_without_fixups_is_one_padding_block`,
+`build_reloc_groups_dir64_fixups_by_page`) and the header read-back above.
+
+Three existing tests asserted section COUNTS that `.reloc` legitimately changes
+(2->3, 3->4, 4->5). They counted composition rather than protecting a contract,
+so each now expects the new section, and `minimal_text_only_image_links`
+additionally asserts `.reloc` by name so a regression that drops it fails on the
+thing that matters.
+
+Still open, deliberately out of scope: CFG (`GUARD_CF`) remains absent — it needs
+an `IMAGE_LOAD_CONFIG_DIRECTORY` and a guard function table. Execution on box
+2230 has NOT been done; the claim here is header correctness, not a runtime
+proof.
 
 Regression Test: a PE-header assertion in the Windows link tests that `DllCharacteristics` has `DYNAMIC_BASE|NX_COMPAT|HIGH_ENTROPY_VA` and that `RELOCS_STRIPPED` is clear with a non-empty `BASERELOC` directory.
 

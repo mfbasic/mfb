@@ -1171,7 +1171,11 @@ pub fn run_bounded_with_rss(
             if reaped == pid {
                 let stdout = reader.join().expect("stdout reader");
                 let raw = usage.ru_maxrss as u64;
-                let bytes = if cfg!(target_os = "macos") { raw } else { raw * 1024 };
+                let bytes = if cfg!(target_os = "macos") {
+                    raw
+                } else {
+                    raw * 1024
+                };
                 return (ExitStatus::from_raw(status), stdout, Some(bytes));
             }
             if reaped < 0 {

@@ -877,6 +877,20 @@ impl plan::NativePlanPlatform for Platform {
                         required_by: required_by.clone(),
                     });
                 }
+                // bug-499: Darwin has no SOCK_CLOEXEC/accept4, so every socket-
+                // creating member sets FD_CLOEXEC with a follow-up `fcntl`. The
+                // connect/accept rows already import it (non-blocking connect,
+                // bounded accept); the listen/bind/ping rows need it added.
+                if matches!(
+                    call,
+                    "tcp.listen" | "udp.bind" | "net.ping" | "net.pingAddr"
+                ) {
+                    imports.push(PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: "_fcntl".to_string(),
+                        required_by: required_by.clone(),
+                    });
+                }
                 imports.push(PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
