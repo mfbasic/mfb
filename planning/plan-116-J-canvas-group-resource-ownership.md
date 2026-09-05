@@ -417,11 +417,42 @@ record in the worker's arena and `emit_free_items_block` already runs there.
 pointed at it unchanged, and widening that primitive to carry a close op *per field* is a
 change to shared cleanup code that every other package depends on.
 
-The narrower option, and the one this letter should cost first: emit a **canvas-specific**
-walk that steps the items block by `ITEM_BLOCK_SIZE`, switches on the kind word, and for
-`Picture`/`Text` loads the field's pointer and sets the closed bit inline. Two
-instructions per resource, no call, no tag to check — §4.2. That keeps the change inside
-`gen_group.rs` and out of the shared cleanup path.
+~~The narrower option … steps the items block by `ITEM_BLOCK_SIZE`, switches on the kind
+word …~~ **Wrong, and corrected 2026-09-04 before it was built (J13).**
+`ITEM_BLOCK_SIZE = 208` is the **GPU quad record** — the per-instance `ItemBlock` the
+Vulkan and Metal shaders index, whose stride is pinned against glslang's std430
+reflection by `the_item_block_matches_the_std430_stride`. It has nothing to do with what a
+group stores. A group's buffer is an ordinary MFB collection block of
+`List OF canvas::DrawItem`: `emit_set_group` produces it with `copy_flat_block`, and
+`emit_free_items_block` sizes it with
+`emit_inlined_block_size_from_ptr_slot(list_of(named("DrawItem")), …)`. Its element is a
+**union value**, so the walk steps by the union's size and reads the union **tag** — there
+is no "kind word" at offset 64 to switch on.
+
+**So the shape of the walk is an open Phase 3 decision, not a detail.** Two candidates:
+
+1. **A Rust walk in `gen_group.rs`.** Keeps the change beside the free it hangs off, but
+   means open-coding the `DrawItem` union's layout — tag, payload offset, and each
+   variant's `RES` field offset — in codegen. Every one of those is a constant that
+   already exists somewhere else, and a second copy of a layout is the shape that
+   miscompiles when a variant is added.
+2. **An MFBASIC helper called from the worker.** `MATCH` over the items is exactly the
+   operation, the compiler computes every offset, and adding a variant that carries a
+   resource is then a compile error in the helper rather than a silent miss. `canvas::`
+   already has six such walks (`__canvas_appendDraw`, `__canvas_groupSignature`,
+   `__canvas_memoGroup`, `__canvas_drawGroup`, …). The obstacle is reach: they all go
+   through `canvas::groupItems(slot)`, which returns the **live** buffer, and this walk
+   needs the **retired** one.
+
+**Recommend 2**, and cost the missing accessor rather than the layout duplication: a
+`MATCH` that a new variant must handle is a guarantee, and a hand-written offset that a
+new variant must not break is a hope. This is the same reasoning `.ai/codegen-invariants.md`
+applies to shape-coupled analyses, and the same failure **J12** already recorded once —
+the containment walk exists twice because two IR types forced it, and it is written down
+as a hazard rather than a design.
+
+Whichever is chosen, the close itself is two instructions per resource with no call and
+no tag to check (§4.2).
 
 ### 4.6 The compile-time refusal does not reach this letter's close
 
@@ -704,6 +735,40 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J13 (2026-09-04, Phase 3 preparation) — §4.4's walk was specified against the wrong
+block, and the constant it named belongs to the GPU.**
+
+§4.4, as I wrote it earlier today, said the free-path walk *"steps the items block by
+`ITEM_BLOCK_SIZE`, switches on the kind word"*. Both halves are wrong, and they are wrong
+about the same thing: **`ITEM_BLOCK_SIZE = 208` is not the group's block.** It is the
+per-instance GPU quad record — the `ItemBlock` the Vulkan and Metal shaders index, whose
+208-byte stride is pinned against glslang's std430 reflection
+(`the_item_block_matches_the_std430_stride`), and whose `ITEM_OFFSET_MISC = 64` is the
+"kind word" I reached for.
+
+What a group actually stores is an ordinary MFB collection block of
+`List OF canvas::DrawItem`. `emit_set_group` builds it with `copy_flat_block`, and
+`emit_free_items_block` sizes it with
+`emit_inlined_block_size_from_ptr_slot(list_of(named("DrawItem")), …)` — the plain
+collection path. Its elements are **union values**: the walk steps by the union's size and
+switches on the union **tag**.
+
+**Why this matters more than a wrong constant.** Written as specified, the walk would have
+read 208-byte strides across a block whose elements are a different size, and switched on
+a word that is not a tag — reading arbitrary bytes as resource pointers and storing a
+closed flag through them. That is a wild write on the free path, in a subsystem where the
+same code runs on a worker thread while a graphics thread reads nearby memory. It would
+not have failed at the first fixture; it would have failed somewhere else, later.
+
+Caught by reading `ITEM_BLOCK_SIZE`'s own doc comment before using it, which is the whole
+lesson: the constant is well-named for its real job and badly named for the one I assumed,
+and nothing about `items block` in the plan's prose distinguishes the two.
+
+§4.4 now records the correction and turns the walk's shape into an explicit Phase 3
+decision, recommending an MFBASIC `MATCH` helper over an open-coded Rust layout — a
+`MATCH` that a new `DrawItem` variant must handle is a guarantee; a hand-written offset
+that a new variant must not break is a hope.
 
 **J12 (2026-09-04, Phase 2 — implemented) — the transitive move needed a second half the
 letter never mentions, and finding where to put it took three wrong guesses.**
