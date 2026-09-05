@@ -50,6 +50,21 @@ Indentation is computed as `level * indent_width` spaces (`indent_str`), so the
 formatter never *emits* a tab. A continuation line's preserved leading whitespace
 may still contain one (see above). [[src/fmt.rs:indent_str]]
 
+### Nesting cap
+
+The block stack (and the LINK DSL's own `depth`) may hold at most
+`MAX_NESTING_DEPTH` = 1024 open frames. The line whose opener pushes past that
+makes `format_source` return `FormatError::NestingTooDeep { line }` (1-based)
+instead of output. Without the cap every line cost `depth × indent_width` bytes,
+so a deeply nested or hostile source inflated quadratically (336 KB → 512 MB,
+1.3 MB → 8.2 GB) before being written back over the user's file (bug-502). The
+parser rejects any program past 256 statement blocks, and the formatter counts
+frames the parser does not (`MATCH` + `CASE`, `TESTING`/`TGROUP`/`TCASE`, the
+LINK DSL's nesting), so the cap is four times that and refuses no program that
+builds. Together with the `--indent` bound, a line carries at most
+`1024 × 256` bytes of indentation. [[src/fmt.rs:MAX_NESTING_DEPTH]]
+[[src/fmt.rs:FormatError]]
+
 ### Trailing newline
 
 The joined output always ends in exactly one `\n`: if the last emitted line does
@@ -303,6 +318,17 @@ input set (see `./mfb spec tooling source-selection`). [[src/cli/fmt.rs:format_p
 | `--check` | Print `Not formatted: <path>` per file that would change; write nothing. | `1` if any file differs, else `0` |
 | Argument error | — | `2` (bad flag, bad `--indent`, or >1 location) |
 | I/O / project error | — | `1` (with an `error:` message) |
+| Nesting past the cap | Emit `MFB_PARSE_BLOCK_TOO_DEEP` at the crossing line; the file is not written (in either mode). | `1` (with an `error:` message) |
+
+**Atomic rewrite.** A changed file is never written in place. `replace_contents`
+writes the formatted text in full to a sibling temporary
+(`.<name>.mfb-fmt-<pid>.tmp`), syncs it, copies the original's permission bits,
+and renames it over the original; any failure removes the temporary and leaves
+the original byte-for-byte intact, so an interrupted or out-of-memory run cannot
+truncate the source (bug-502). The path is canonicalized first, so a symlinked
+source keeps write-through semantics, and the original is opened for writing
+(without truncation) before anything is created, so a read-only file fails with
+the same permission error as before. [[src/cli/fmt.rs:replace_contents]]
 
 In `--check` mode, when one or more files would change, the formatter emits the
 general diagnostic **`FMT_CHECK_FAILED`** (code `2-200-0101`, severity Error,

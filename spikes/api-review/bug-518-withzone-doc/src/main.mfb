@@ -1,0 +1,34 @@
+' bug-518 -- `mfb man datetime withZone` contradicts itself.
+'
+' The `zone` parameter row says:
+'   "This reinterprets the same wall-clock reading in a different zone, so it
+'    names a DIFFERENT INSTANT -- use datetime::inZone to keep the instant"
+' The Description says the opposite:
+'   "The underlying point on the UTC timeline is unchanged ... withZone is an
+'    identity on the absolute moment"
+'
+' The implementation settles it: `withZone(dt, z) = inZone(resolve(dt), z)`.
+' This spike prints the instant on both sides.
+
+IMPORT io
+IMPORT datetime
+
+FUNC main AS Integer
+  LET utc AS datetime::DateTime = datetime::parse("2026-06-26 12:00:00", "yyyy-MM-dd HH:mm:ss")
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
+  LET moved AS datetime::DateTime = datetime::withZone(utc, z)
+
+  LET before AS datetime::Instant = datetime::resolve(utc)
+  LET after AS datetime::Instant = datetime::resolve(moved)
+
+  io::print("civil before   = " & datetime::toIso(utc))
+  io::print("civil after    = " & datetime::toIso(moved))
+  io::print("instant before = " & toString(before.seconds))
+  io::print("instant after  = " & toString(after.seconds))
+  IF before.seconds = after.seconds THEN
+    io::print("=> the instant is PRESERVED. The `zone` parameter description is wrong.")
+  ELSE
+    io::print("=> the instant MOVED. The Description paragraph is wrong.")
+  END IF
+  RETURN 0
+END FUNC

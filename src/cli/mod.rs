@@ -27,6 +27,9 @@ pub(crate) enum CommandError {
 /// abort. The single home for what were six byte-identical error-dispatch arms
 /// in `main` (bug-340 B2).
 pub(crate) fn dispatch_command_error(err: CommandError) -> ! {
+    // `pkg` builds the project on the way to packaging it, so its stream can
+    // carry located diagnostics; close it like `build` does (bug-505).
+    crate::rules::report_suppressed_diagnostics();
     match err {
         CommandError::Usage(message) => {
             eprintln!("error: {message}");

@@ -4,16 +4,44 @@ The GUI rendering of the `term::` TUI: a fixed character grid painted on a nativ
 drawing surface that is swapped in as the window content view while TUI mode is
 active. This documents the cell model, the grid-state memory layout, the
 content-view swap, and how the GUI `term::` helpers keep the **same** term-state
-global that the console backend uses — so `term::isOn`, the no-op gates, and
-auto-restore stay backend-uniform. Per-function semantics (`term::on`,
+global that the console backend uses, so `term::isOn` and auto-restore read the
+same flag everywhere. **The inactive no-op gate is NOT uniform**: the console and
+macOS bodies test the shared `active` slot, the GTK bodies test it for every
+member except `term::off`, and the Windows bodies test the live `TUI_MEMDC`
+handle instead — which `emit_term_off` never clears — so after `term::off` a
+Windows `term::` call still reaches the memDC, and `emit_term_size` still answers
+with the fixed grid rather than raising `ErrUnsupported`. Closing that is
+tracked as a gap, not a property this topic can be read as guaranteeing.
+[[src/target/win_x86_64/app/mod.rs:emit_term_off]]
+[[src/target/linux_gtk/app_io.rs:emit_app_term_off]] Per-function semantics (`term::on`,
 `term::moveTo`, …) are owned by `mfb man`; this topic is the rendering/cell-model
 contract a reimplementer rebuilds against.
 
-Two independent backends exist: AppKit `TermView : NSView` (macOS) and a GTK4
-`GtkDrawingArea` + Cairo surface (Linux). They share the *console* term-state
-global and the packed-RGB colour convention, but their per-view grid storage
-differs (heap `TermCell[]` vs. parallel static arrays). Both are described below;
-divergences are flagged.
+Three independent app backends exist: AppKit `TermView : NSView` (macOS), a GTK4
+`GtkDrawingArea` + Cairo surface (Linux), and a GDI off-screen memory DC
+(Windows). All three share the *console* term-state global and the packed-RGB
+colour convention, but their per-surface storage differs: a heap `TermCell[]` on
+macOS, parallel static arrays on Linux, and **no cell grid at all** on Windows,
+which is immediate-mode. All three are described below; divergences are flagged.
+
+**Positioned-drawing coverage is not uniform across the three**, and the gaps are
+normative, not incidental — a reimplementer must know which member each backend
+actually serves:
+
+| Member | console (all platforms) | macOS app | Linux GTK app | Windows app |
+|--------|-------------------------|-----------|---------------|-------------|
+| `moveTo`, `clear`, `sync`, colour/attr/cursor | yes | yes | yes | yes |
+| `terminalSize` | live terminal size | live view size | live view size | **fixed 80x25** (`TUI_COLS`/`TUI_ROWS`) |
+| `didResize` | latches a terminal resize | latches a view resize | latches a view resize | **always `FALSE`** — no dispatcher arm and nothing sets the flag |
+| `drawHLine`, `drawVLine` | yes, per `LineStyle` | yes, per `LineStyle` | **no** | draws, **`LineStyle` ignored** (always Light) |
+| `drawBox` | yes, per `LineStyle` | yes, per `LineStyle` | **no** | draws, **`LineStyle` ignored** |
+| `fillRect` | yes, per `FillStyle` | yes, per `FillStyle` | **no** | draws, **`FillStyle` ignored** (background wash) |
+| `drawText`, `drawGlyph` | yes | yes | **no** | yes |
+
+"**no**" means the GTK dispatcher returns `None` for the call, so it falls through
+to the console emitter — which finds no console grid header in an app build (GTK
+owns `term::on`) and no-ops. [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+[[src/target/win_x86_64/app/mod.rs:emit_term_draw_box]]
 
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is
@@ -24,11 +52,55 @@ the two orders would churn the ANSI path for no visible gain. **A terminal cell 
 no alpha channel**: the setters read only the colour channels and ignore
 `alpha`, and the getters always report `alpha` `255`.
 
+## Coordinate convention (row before column)
+
+The `term::` surface is addressed **only** in whole character cells. There are no
+pixel coordinates and no `x`/`y` axes anywhere in the package: a position is a
+**row** and a **column**, both zero-based from the top-left, so `(0, 0)` is the
+home cell, the last valid row is `rows-1`, and the last valid column is
+`columns-1` (`term::terminalSize` reports both).
+
+**Every `term::` position is written row first, then column**, without exception.
+Members that name a run give its start point row-first and then the far end of the
+run; members that name a region give two opposite corners, each row-first. Because
+the `abi_function` wrapper binds parameters to the incoming ABI argument registers
+in declaration order, this table is also the normative register contract every
+backend emitter reads:
+
+| Member | `ARG[0]` | `ARG[1]` | `ARG[2]` | `ARG[3]` | `ARG[4]` |
+|--------|----------|----------|----------|----------|----------|
+| `term::moveTo` | row | column | — | — | — |
+| `term::drawText` | row | column | text (`String`) | — | — |
+| `term::drawGlyph` | row | column | code point | — | — |
+| `term::drawHLine` | `LineStyle` ordinal | row | columnA | columnB | — |
+| `term::drawVLine` | `LineStyle` ordinal | rowA | column | rowB | — |
+| `term::drawBox` | `LineStyle` ordinal | rowA | columnA | rowB | columnB |
+| `term::fillRect` | `FillStyle` ordinal | rowA | columnA | rowB | columnB |
+
+The two line members share one emitter parameterised by orientation, so each
+backend selects the fixed coordinate's register from that flag: `ARG[1]` for the
+horizontal form, `ARG[2]` for the vertical one. Span endpoints and corner points
+may be given in either order — the emitters normalise them.
+[[src/codegen/term/core/term.rs:emit_draw_line]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_line]] [[src/target/win_x86_64/app/mod.rs:emit_term_draw_line]]
+
+Out-of-range coordinates never raise: `term::moveTo` **clamps** both coordinates
+at both ends; `drawHLine`/`drawVLine`/`drawBox`/`fillRect` **clamp the span or
+region** and draw whatever part is on the grid; `drawText` clips a run at the left
+and right edges and draws nothing when its row is off the grid; `drawGlyph` is
+bounds-checked, not clamped, and draws nothing for an off-grid cell.
+
+The per-backend scratch slots that carry these coordinates to a main-thread
+worker keep their historical `X`/`Y` spellings (`TV_BOX_X1`, `TV_TEXT_Y`, …): `X`
+is always a **column** and `Y` always a **row**. They are private to the emitters
+and never observed by a program.
+
 ## Shared term-state global (console-uniform)
 
 The GUI setters write the same per-program TUI slots the console backend reads.
 These live in the program-entry frame just past the program globals/`LINK` slots,
-reached off the pinned arena-state register `x19` at `term_state_offset + field`.
+reached off the pinned arena-state register — `ARENA_STATE_REGISTER`, which is
+`x19` on AArch64, `r15` on x86-64 and `s11` on riscv64 — at
+`term_state_offset + field`.
 Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/codegen/error/constants/error_constants.rs:TERM_STATE_ACTIVE_OFFSET]]
 
 | Field | Offset | Meaning |
@@ -56,8 +128,9 @@ global) rather than the arena term-state, each app backend implements its own
 slot-56 flag above. In every case the read clears the flag so it latches until
 observed. [[src/codegen/term/core/term.rs:emit_did_resize]]
 
-`store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
-term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
+`store_term_state` is the one-line writer; on macOS AArch64 it renders as
+`mov x9, #value; str x9, [x19, term_state_offset+field]`, with the pinned register
+substituted per architecture. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
 
 ## Retained double-buffered surface + mandatory present
 
@@ -73,14 +146,17 @@ attributes without moving the shadow cursor; `term::drawBox` draws the four edge
 (each a run) then overwrites the four corner cells, dash/dot styles reusing the
 Light or Heavy corners; `term::fillRect` fills every cell of a clamped rectangle
 with a block/shade glyph (the `FillStyle` enum) — one run per row.
-`term::drawText` stamps a string at an absolute cell (one cell per scalar, clipped
-to the row, cursor unmoved) and `term::drawGlyph` stamps a single scalar by code
+`term::drawText` stamps a string at an absolute cell (one grid position per
+grapheme cluster, a double-width cluster taking two columns and being dropped
+rather than split when only one column remains, clipped to the row, cursor
+unmoved; the Windows backend is the exception and walks scalars, not clusters) and `term::drawGlyph` stamps a single scalar by code
 point. `term::drawText` also has an `AttributedString` overload (a source companion,
 `term_astrings_bridge.mfb`, injected only when a program imports both `term` and
 `astrings`): it draws maximal same-style runs through the `String` helper above,
-applying the per-scalar **bold**/**underline** the value carries and ignoring every
-attribute the surface cannot represent (italic/strike/overline/font/size); it needs
-no new backend code. A single builtin, **`term::sync()`**, is the *only*
+applying the per-scalar **bold**, **underline**, **foreground** and **background**
+the value carries (the four the cell model can represent) and ignoring every other
+attribute (italic/strike/overline/font/size); it restores the ambient
+bold/underline/fg/bg afterwards, and it needs no new backend code. A single builtin, **`term::sync()`**, is the *only*
 operation that presents a frame: on the console it diffs the just-drawn back buffer
 against the last-presented front buffer and writes only the changed cells (minimal
 cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame
@@ -96,7 +172,8 @@ A **cell** is the union of what both backends store: `glyph` (u32 unichar; 0 or
 `underline`. The **shadow cursor** `(row, col)` is zero-based from the top-left;
 the **current-attribute set** is exactly the existing fg/bg/bold/underline term-
 state slots (offsets 8/16/24/32) — reused, not duplicated. `moveTo` sets the
-cursor (clamped `>= 0`; app mode also clamps to the last cell); writing a glyph
+cursor (clamped at BOTH ends on every backend — `0 ..= rows-1` and
+`0 ..= columns-1` — so it can never leave the grid); writing a glyph
 stamps the cell at the cursor with the current attributes, advances the cursor,
 wraps at the right edge, and scrolls at the bottom. Writing never emits — it only
 mutates cells. The macOS `TermCell` (16 B) already has this shape; GTK packs the
@@ -221,18 +298,18 @@ never messages. Thirty-nine 8-byte fields = 312 bytes (`TV_STATE_SIZE`). [[src/t
 | `TV_CUR_BOLD` | 80 | i64 | current bold flag |
 | `TV_CUR_UNDERLINE` | 88 | i64 | current underline flag |
 | `TV_DRAW_GLYPH` | 96 | u32 | `drawHLine`/`drawVLine` glyph (unichar, resolved by the worker) |
-| `TV_DRAW_FIXED` | 104 | i64 | fixed line coordinate (raw row or column) |
+| `TV_DRAW_FIXED` | 104 | i64 | fixed line coordinate, raw (row for `drawHLine`, column for `drawVLine`) |
 | `TV_DRAW_LO` | 112 | i64 | span endpoint A (raw, either order) |
 | `TV_DRAW_HI` | 120 | i64 | span endpoint B (raw, either order) |
 | `TV_DRAW_HORIZ` | 128 | i64 | 1 = horizontal, 0 = vertical |
 | `TV_BOX_HG` | 136 | u32 | `drawBox` horizontal edge glyph (unichar) |
 | `TV_BOX_VG` | 144 | u32 | `drawBox` vertical edge glyph |
 | `TV_BOX_CTL`/`CTR`/`CBL`/`CBR` | 152/160/168/176 | u32 | the four corner glyphs |
-| `TV_BOX_X1`/`Y1`/`X2`/`Y2` | 184/192/200/208 | i64 | the two corner points (raw) |
+| `TV_BOX_X1`/`Y1`/`X2`/`Y2` | 184/192/200/208 | i64 | the two corner points, raw (`X` = column, `Y` = row) |
 | `TV_FILL_GLYPH` | 216 | u32 | `fillRect` block/shade glyph (unichar) |
-| `TV_FILL_X1`/`Y1`/`X2`/`Y2` | 224/232/240/248 | i64 | `fillRect` corner points (raw) |
-| `TV_GLYPH_G`/`X`/`Y` | 256/264/272 | u32,i64,i64 | `drawGlyph` code point + cell |
-| `TV_TEXT_X`/`Y` | 280/288 | i64 | `drawText` start cell (text is the object arg) |
+| `TV_FILL_X1`/`Y1`/`X2`/`Y2` | 224/232/240/248 | i64 | `fillRect` corner points, raw (`X` = column, `Y` = row) |
+| `TV_GLYPH_G`/`X`/`Y` | 256/264/272 | u32,i64,i64 | `drawGlyph` code point + cell (`X` = column, `Y` = row) |
+| `TV_TEXT_X`/`Y` | 280/288 | i64 | `drawText` start cell, `X` = column, `Y` = row (text is the object arg) |
 | `TV_POOL` | 296 | `u8*` | TermCell-parallel EGC pool base (heap) |
 | `TV_DID_RESIZE` | 304 | i64 | cached "was resized" flag; set by `setFrameSize:` on a genuine change, read-and-cleared by `term::didResize` |
 
@@ -254,7 +331,8 @@ offset  size  field
   8      4    bg        u32 packed r|g<<8|b<<16
  12      1    bold      u8
  13      1    underline u8
- 14      2    (padding)
+ 14      1    width     u8   display width 0/1/2 (`CELL_WIDTH_OFFSET`, plan-70)
+ 15      1    (padding)
 ```
 
 Cell address: `cells + (row*cols + col) * 16` (`lsl #4`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_draw_rect]]
@@ -553,9 +631,12 @@ the fg word's free bits 27–28 (`WIDTH_SHIFT`); a wide glyph reserves a
 edge. Multi-scalar clusters fold combining marks into a per-cell length-prefixed
 **EGC pool** slot (`ST_TERM_POOL`, 32 B/cell) rebuilt via `pango_layout_set_text`.
 Cell metrics come from `pango_layout_get_pixel_extents`; scroll shifts the pool
-with the char/fg/bg arrays and resize is free (fixed stride). The GTK positioned
-draw helpers (`drawText`/`drawGlyph`/`drawBox`) remain unimplemented for the grid —
-they fall through to the console emit and no-op.
+with the char/fg/bg arrays and resize is free (fixed stride). **All six** GTK
+positioned draw helpers — `drawHLine`, `drawVLine`, `drawBox`, `fillRect`,
+`drawText` and `drawGlyph` — remain unimplemented for the grid: the dispatcher
+returns `None` for each, so they fall through to the console emitter, which finds
+no console grid header in an app build and no-ops. See the coverage table at the
+top of this topic. [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters
@@ -586,6 +667,50 @@ The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/
 `drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp Light
 box-drawing glyphs / positioned text directly into the memDC. The cell is a fixed
 8×16 px grid (Consolas at height 16); a font-linked CJK glyph spans two cells.
+The surface is a fixed **80 columns × 25 rows** (`TUI_COLS`/`TUI_ROWS`); it does
+not follow the client size.
+
+Because there is no grid to index, coordinate normalisation is explicit here
+rather than a consequence of the cell walk, and it is **required for termination,
+not just for fidelity**: every one of these bodies loops one `TextOutW` per cell
+from the low endpoint to the high one, so an unclamped span is an unbounded loop.
+Four shared helpers supply what the console emitter gets from `emit_stamp_run`:
+
+| helper | rule it enforces |
+|--------|------------------|
+| `win_normalize_pair` | the two endpoints of a span, and the two corners of a region, may be written in either order — run it FIRST, the clip below assumes a normalised pair |
+| `win_clip_span` | **the ordered rule that matters**: reject the empty intersection (`hi < 0`, or `lo > max`) BEFORE saturating either endpoint, then clamp both to `0 ..= TUI_COLS-1` / `0 ..= TUI_ROWS-1`. Saturating independently is not a substitute — a span wholly off the grid (`-2 ..= -1`) saturates to `0 ..= 0` and stamps a cell the program never asked for. The clamp is also what bounds the loop |
+| `win_clamp_slot` | the saturation step `win_clip_span` calls once the intersection is known non-empty; not correct on its own |
+| `win_guard_on_grid` | a line whose fixed coordinate is off the grid draws nothing, a `drawBox` corner off the grid is skipped rather than slid onto the rim (so the unclamped corners are kept alongside the clamped loop bounds), and `drawGlyph`'s single cell is bounds-checked |
+
+`term::moveTo` clamps its two incoming registers directly (`win_clamp_register`)
+because it is a leaf that never parks them.
+[[src/target/win_x86_64/app/mod.rs:win_normalize_pair]]
+[[src/target/win_x86_64/app/mod.rs:win_clip_span]]
+[[src/target/win_x86_64/app/mod.rs:win_clamp_slot]]
+[[src/target/win_x86_64/app/mod.rs:win_guard_on_grid]]
+
+`emit_term_draw_glyph_at` additionally skips control code points (`< U+0020`), as
+the console and macOS bodies do.
+
+Three things this backend still does **not** do, each documented as a gap on the
+matching `mfb man term` page rather than silently diverging:
+
+* It does not read the `LineStyle`/`FillStyle` ordinal. `emit_term_draw_line` and
+  `emit_term_draw_box` hard-code the Light glyphs and `emit_term_fill_rect` stamps
+  a space in the current background. The ordinal arrives in `ARG[0]` and is
+  discarded.
+* `emit_term_draw_text_at` walks UTF-16 units (decoding surrogate pairs) rather
+  than extended grapheme clusters, so unlike the console and macOS `drawText` it
+  does not fold combining marks or ZWJ sequences into one position. It also omits
+  the wide-at-the-edge preflight the other two perform — it tests only
+  `CURCOL >= TUI_COLS`, so a width-2 unit starting in the last column is drawn
+  rather than dropped, where `emit_draw_text` drops the cluster and stops the run.
+  Its `io::write` path (`emit_app_io_write`) does extend clusters and does reserve
+  the trailing column; the two have not been unified.
+* It gates on the live `TUI_MEMDC` handle rather than the shared `active` slot,
+  and `emit_term_off` does not clear that handle — see the note at the top of this
+  topic.
 
 ## See Also
 

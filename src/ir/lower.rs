@@ -4416,7 +4416,7 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
-                    // `term::drawText(x, y, AttributedString)` routes to the
+                    // `term::drawText(row, column, AttributedString)` routes to the
                     // `__term_drawTextAttr` source-companion body, which applies the
                     // per-scalar bold/underline attributes over the native `String`
                     // drawText. A `String` third argument stays the native

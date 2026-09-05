@@ -608,11 +608,11 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
   ELSE
     term::setForeground(color::rgb(90, 90, 110))
   END IF
-  term::drawBox(term::LineStyle.Light, 0, 0, w, panelBottom)
+  term::drawBox(term::LineStyle.Light, 0, 0, panelBottom, w)
   resetPen()
   term::setBold(TRUE)
   term::setForeground(color::rgb(150, 200, 255))
-  term::drawText(2, 0, " SESSIONS ")
+  term::drawText(0, 2, " SESSIONS ")
   resetPen()
 
   LET inner AS Integer = w - 1
@@ -628,11 +628,11 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
         term::setBold(TRUE)
         term::setForeground(color::rgb(255, 255, 255))
         term::setBackground(color::rgb(40, 45, 80))
-        term::drawText(1, row, " " & shown)
+        term::drawText(row, 1, " " & shown)
         resetPen()
       ELSE
         term::setForeground(color::rgb(200, 200, 210))
-        term::drawText(1, row, " " & shown)
+        term::drawText(row, 1, " " & shown)
         resetPen()
       END IF
       row = row + 1
@@ -641,7 +641,7 @@ SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS 
 
   ' Hint pinned to the last interior row.
   term::setForeground(color::rgb(110, 110, 130))
-  term::drawText(1, panelBottom - 1, clip(" ^N new  ^X close", inner))
+  term::drawText(panelBottom - 1, 1, clip(" ^N new  ^X close", inner))
   resetPen()
 END SUB
 
@@ -653,12 +653,12 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   ELSE
     term::setForeground(color::rgb(90, 90, 110))
   END IF
-  term::drawBox(term::LineStyle.Light, sidebarW(), 0, x1, panelBottom)
+  term::drawBox(term::LineStyle.Light, 0, sidebarW(), panelBottom, x1)
   resetPen()
 
   term::setBold(TRUE)
   term::setForeground(color::rgb(150, 200, 255))
-  term::drawText(x0 + 1, 0, clip(" " & session.title & " ", max2(1, x1 - x0 - 1)))
+  term::drawText(0, x0 + 1, clip(" " & session.title & " ", max2(1, x1 - x0 - 1)))
   resetPen()
 
   LET innerW AS Integer = x1 - x0 - 1
@@ -677,7 +677,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
     IF r <= height THEN
       LET ln AS Line = collections::get(lines, i)
       setColorFor(ln.kind)
-      term::drawText(x0 + 1, r, ln.text)
+      term::drawText(r, x0 + 1, ln.text)
       r = r + 1
     END IF
   NEXT
@@ -686,7 +686,7 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   ' A small "more above" marker when the view is scrolled up.
   IF scroll > 0 THEN
     term::setForeground(color::rgb(150, 150, 90))
-    term::drawText(x1 - 4, 0, " ^ ")
+    term::drawText(0, x1 - 4, " ^ ")
     resetPen()
   END IF
 
@@ -706,11 +706,11 @@ SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Inte
   term::setForeground(color::rgb(120, 140, 170))
   IF len(dispModel) > 0 THEN
     LET modelMax AS Integer = max2(1, innerW - len(tokStr) - 1)
-    term::drawText(x0 + 1, panelBottom, clip(" " & dispModel & " ", modelMax))
+    term::drawText(panelBottom, x0 + 1, clip(" " & dispModel & " ", modelMax))
   END IF
   IF len(tokStr) > 0 THEN
     LET tx AS Integer = x1 - len(tokStr)
-    IF tx > x0 THEN term::drawText(tx, panelBottom, tokStr)
+    IF tx > x0 THEN term::drawText(panelBottom, tx, tokStr)
   END IF
   resetPen()
 END SUB
@@ -721,22 +721,22 @@ SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTo
   ELSE
     term::setForeground(color::rgb(90, 90, 110))
   END IF
-  term::drawBox(term::LineStyle.Light, 0, inputTop, cols - 1, inputTop + 2)
+  term::drawBox(term::LineStyle.Light, inputTop, 0, inputTop + 2, cols - 1)
   resetPen()
 
   MUT hint AS String = " Enter send   /help for commands   Tab focus   ^C quit "
   IF streaming THEN hint = " Claude is replying...   Tab focus   ^C quit "
   term::setForeground(color::rgb(110, 110, 130))
-  term::drawText(2, inputTop, clip(hint, max2(1, cols - 4)))
+  term::drawText(inputTop, 2, clip(hint, max2(1, cols - 4)))
   resetPen()
 
   LET innerW AS Integer = cols - 4
   LET shown AS String = fitRight(buf, innerW - 2)
   term::setForeground(color::rgb(235, 235, 235))
-  term::drawText(2, inputTop + 1, "> " & shown)
+  term::drawText(inputTop + 1, 2, "> " & shown)
   IF focused THEN
     term::setForeground(color::rgb(255, 255, 0))
-    term::drawText(2 + 2 + len(shown), inputTop + 1, "\u{2588}")
+    term::drawText(inputTop + 1, 2 + 2 + len(shown), "\u{2588}")
   END IF
   resetPen()
 END SUB
@@ -795,14 +795,14 @@ SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS 
   term::setBackground(color::rgb(28, 30, 44))
   term::setForeground(color::rgb(210, 215, 235))
   FOR ry = by TO bottom
-    term::drawText(bx, ry, strings::repeat(" ", w + 1))
+    term::drawText(ry, bx, strings::repeat(" ", w + 1))
   NEXT
 
   term::setForeground(color::rgb(150, 170, 220))
-  term::drawBox(term::LineStyle.Double, bx, by, bx + w, bottom)
+  term::drawBox(term::LineStyle.Double, by, bx, bottom, bx + w)
   term::setBold(TRUE)
   term::setForeground(color::rgb(220, 228, 255))
-  term::drawText(bx + 2, by, " " & title & " ")
+  term::drawText(by, bx + 2, " " & title & " ")
   term::setBold(FALSE)
 
   FOR i = 0 TO nlines - 1
@@ -810,12 +810,12 @@ SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS 
       term::setBold(TRUE)
       term::setForeground(color::rgb(255, 255, 255))
       term::setBackground(color::rgb(60, 70, 110))
-      term::drawText(bx + 1, by + 1 + i, strings::padRight(clip(collections::get(body, i), w - 1), w - 1))
+      term::drawText(by + 1 + i, bx + 1, strings::padRight(clip(collections::get(body, i), w - 1), w - 1))
       term::setBold(FALSE)
       term::setBackground(color::rgb(28, 30, 44))
     ELSE
       term::setForeground(color::rgb(210, 215, 235))
-      term::drawText(bx + 2, by + 1 + i, clip(collections::get(body, i), w - 2))
+      term::drawText(by + 1 + i, bx + 2, clip(collections::get(body, i), w - 2))
     END IF
   NEXT
   resetPen()
@@ -1019,7 +1019,7 @@ FUNC main() AS Integer
       term::clear()
       term::setForeground(color::rgb(255, 255, 255))
       term::drawText(0, 0, "Enlarge the terminal to at least " & toString(minCols()) & "x" & toString(minRows()) & ".")
-      term::drawText(0, 1, "Press ^C to quit.")
+      term::drawText(1, 0, "Press ^C to quit.")
       term::sync()
       IF ready(120) THEN
         IF readKey() = "CTRL_C" THEN running = FALSE

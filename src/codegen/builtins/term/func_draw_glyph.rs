@@ -14,21 +14,27 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Stamp a single glyph at a position by code point"#;
 
 const DESC: &str = r#"`term::drawGlyph` stamps a single Unicode scalar — given by its `codepoint` — into
-the cell at column `x`, row `y`, using the colours and attributes currently in
-effect. Coordinates are **zero-based** from the top-left. It does not move the
-cursor. This is the low-level counterpart to `term::drawText`: use it to
-place one arbitrary character (a marker, a cursor, a sprite cell) at a known
-position.
+the cell at `row`/`column`, using the colours and attributes currently in effect.
+Coordinates are **zero-based** from the top-left and, like every other `term::`
+position, are written **row first, then column**. It does not move the cursor.
+This is the low-level counterpart to `term::drawText`: use it to place one
+arbitrary character (a marker, a cursor, a sprite cell) at a known position.
 
-The cell is **bounds-checked, not clamped**: if `(x, y)` is off the surface the
-call draws nothing and raises no error. It does not fall back to the nearest
+The cell is **bounds-checked, not clamped**: if `(row, column)` is off the surface
+the call draws nothing and raises no error. It does not fall back to the nearest
 edge cell, so an off-by-one in your coordinates loses the glyph silently rather
 than putting it somewhere visible. Control code points (below U+0020) are **skipped**
 — they would corrupt the presented frame — so `codepoint` should be a printable
 scalar (for example `9731` for `☃`, or `65` for `A`). The glyph is shown on the
 next `term::sync`.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`).
+
+**One app-mode gap applies to this call** (see `mfb man term`): in a **Linux**
+`--app` build it is not implemented and stamps nothing. A Linux terminal, macOS
+app mode and Windows app mode all draw it."#;
 
 const EX: &str = r#"Place a marker character at the centre of the surface:
 
@@ -38,7 +44,7 @@ IMPORT term
 SUB main()
   term::on()
   LET size AS term::TermSize = term::terminalSize()
-  term::drawGlyph(size.columns / 2, size.rows / 2, 9731) ' ☃
+  term::drawGlyph(size.rows / 2, size.columns / 2, 9731) ' ☃
   term::sync()
   term::off()
 END SUB
@@ -80,15 +86,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![
                 Parameter {
-                    name: "x",
-                    desc: "Zero-based column. Off-grid cells draw nothing.",
+                    name: "row",
+                    desc: "Zero-based row, counting from 0 at the top. Off-grid cells draw nothing.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "y",
-                    desc: "Zero-based row. Off-grid cells draw nothing.",
+                    name: "column",
+                    desc: "Zero-based column, counting from 0 at the left. Off-grid cells draw nothing.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

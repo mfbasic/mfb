@@ -45,15 +45,19 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "columns" }] }] }, "line": 46 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "rows" }] }] }, "line": 47 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "日本語" }] }, "line": 54 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }, "line": 55 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "string", "value": "👨‍👩‍👧‍👦" }] }, "line": 56 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "26085" }] }, "line": 57 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "8" }, { "kind": "string", "value": "日本" }] }, "line": 58 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "8" }, { "kind": "string", "value": "X" }] }, "line": 59 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 62 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 63 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 66 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 68 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "👨‍👩‍👧‍👦" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawGlyph", "arguments": [{ "kind": "number", "value": "6" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "26085" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "日本" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawText", "arguments": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "1" }, { "kind": "string", "value": "X" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawHLine", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.LineStyle" }, "member": "Light" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "20" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawVLine", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.LineStyle" }, "member": "HeavyDash" }, { "kind": "number", "value": "11" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "15" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.drawBox", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.LineStyle" }, "member": "Double" }, { "kind": "number", "value": "12" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "24" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.fillRect", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "term.FillStyle" }, "member": "Medium" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "15" }, { "kind": "number", "value": "18" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.sync", "arguments": [] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 78 }
       ]
     }
     ]

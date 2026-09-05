@@ -1063,9 +1063,12 @@ fn emit_load_grid(
 /// unallocated — the same gate every writer honours (§4.2.1).
 ///
 /// Arguments arrive in registers as `ARG[0]` = the `LineStyle` ordinal, then the
-/// fixed line and the two span endpoints:
-///   drawHLine(line, row, colA, colB) — fixed `row`, span over columns.
-///   drawVLine(line, col, rowA, rowB) — fixed `col`, span over rows.
+/// coordinates in row-before-column order:
+///   drawHLine(line, row, columnA, columnB) — fixed `row`, span over columns.
+///   drawVLine(line, rowA, column, rowB) — fixed `column`, span over rows.
+/// Both name a start point `(row, column)` and then the far end of the run, so the
+/// fixed coordinate is `ARG[1]` for the horizontal form and `ARG[2]` for the
+/// vertical one.
 /// `is_horizontal` selects, at emit time, the glyph table; the span endpoints may
 /// be given in either order and are clamped to the grid; a fixed coordinate off
 /// the grid, or a span with no on-grid cell, draws nothing.
@@ -1106,11 +1109,16 @@ fn emit_draw_line(
     };
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // Row-before-column argument order (both members name a start point `(row,
+    // column)` and then the far end of the run), so the fixed coordinate is the
+    // FIRST argument for `drawHLine(line, row, columnA, columnB)` and the SECOND
+    // for `drawVLine(line, rowA, column, rowB)`.
+    let (fixed_arg, ea_arg, eb_arg) = if is_horizontal { (1, 2, 3) } else { (2, 1, 3) };
     instructions.extend([
         abi::move_register(ord, abi::c_arg(0)),
-        abi::move_register(fixed, abi::c_arg(1)),
-        abi::move_register(ea, abi::c_arg(2)),
-        abi::move_register(eb, abi::c_arg(3)),
+        abi::move_register(fixed, abi::c_arg(fixed_arg)),
+        abi::move_register(ea, abi::c_arg(ea_arg)),
+        abi::move_register(eb, abi::c_arg(eb_arg)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1156,9 +1164,9 @@ fn emit_draw_line(
     ));
 }
 
-/// `term::drawBox(line, x1, y1, x2, y2)` (console): draw a rectangle in the given
-/// `LineStyle`. The two points are opposite corners (x = column, y = row, either
-/// order). Draws the four edges — top/bottom horizontal runs and left/right
+/// `term::drawBox(line, rowA, columnA, rowB, columnB)` (console): draw a rectangle
+/// in the given `LineStyle`. The two points are opposite corners, each written row
+/// before column, and either corner may be given first. Draws the four edges — top/bottom horizontal runs and left/right
 /// vertical runs, each using this style's own line glyph (so dashed/dotted styles
 /// get dashed/dotted edges) — then overwrites the four corner cells with the
 /// matching corner glyph (`*Dash`/`*Dot` reuse the Light or Heavy corners). Each
@@ -1207,12 +1215,15 @@ fn emit_draw_box(symbol: &str, term_state_offset: usize, instructions: &mut Vec<
     };
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
+    // written row before column — so the column registers are args 2 and 4 and the
+    // row registers args 1 and 3.
     instructions.extend([
         abi::move_register(ord, abi::c_arg(0)),
-        abi::move_register(ax1, abi::c_arg(1)),
-        abi::move_register(ay1, abi::c_arg(2)),
-        abi::move_register(ax2, abi::c_arg(3)),
-        abi::move_register(ay2, abi::c_arg(4)),
+        abi::move_register(ay1, abi::c_arg(1)),
+        abi::move_register(ax1, abi::c_arg(2)),
+        abi::move_register(ay2, abi::c_arg(3)),
+        abi::move_register(ax2, abi::c_arg(4)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1334,8 +1345,9 @@ fn emit_draw_box(symbol: &str, term_state_offset: usize, instructions: &mut Vec<
     ));
 }
 
-/// `term::fillRect(fill, x1, y1, x2, y2)` (console): fill the rectangle between two
-/// opposite points (x = column, y = row, either order) with the `FillStyle` block
+/// `term::fillRect(fill, rowA, columnA, rowB, columnB)` (console): fill the rectangle
+/// between two opposite corners (each written row before column, either order first)
+/// with the `FillStyle` block
 /// or shade glyph, using the current colours/attributes. Implemented as one clamped
 /// horizontal run per row (reusing the line stamper), so the region clamps to the
 /// grid the same way; a fully off-grid rectangle fills nothing. Shown on the next
@@ -1378,12 +1390,15 @@ fn emit_fill_rect(symbol: &str, term_state_offset: usize, instructions: &mut Vec
     };
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
+    // written row before column — so the column registers are args 2 and 4 and the
+    // row registers args 1 and 3.
     instructions.extend([
         abi::move_register(ord, abi::c_arg(0)),
-        abi::move_register(ax1, abi::c_arg(1)),
-        abi::move_register(ay1, abi::c_arg(2)),
-        abi::move_register(ax2, abi::c_arg(3)),
-        abi::move_register(ay2, abi::c_arg(4)),
+        abi::move_register(ay1, abi::c_arg(1)),
+        abi::move_register(ax1, abi::c_arg(2)),
+        abi::move_register(ay2, abi::c_arg(3)),
+        abi::move_register(ax2, abi::c_arg(4)),
     ]);
     emit_load_grid(
         term_state_offset,
@@ -1556,8 +1571,8 @@ fn emit_encode_utf8(
     ]);
 }
 
-/// `term::drawGlyph(x, y, codepoint)` (console): stamp a single Unicode scalar at
-/// column `x`, row `y` with the current attributes; a no-op if the cell is off the
+/// `term::drawGlyph(row, column, codepoint)` (console): stamp a single Unicode scalar
+/// at `row`/`column` with the current attributes; a no-op if the cell is off the
 /// grid or `codepoint` is a control character (< 0x20, which would corrupt the
 /// presented frame). Shown on the next `term::sync`.
 fn emit_draw_glyph(
@@ -1606,9 +1621,10 @@ fn emit_draw_glyph(
     let w_have = format!("{symbol}_dg_whave");
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // `drawGlyph(row, column, codepoint)` — the point is row-first.
     instructions.extend([
-        abi::move_register(x, abi::c_arg(0)),
-        abi::move_register(y, abi::c_arg(1)),
+        abi::move_register(y, abi::c_arg(0)),
+        abi::move_register(x, abi::c_arg(1)),
         abi::move_register(cp, abi::c_arg(2)),
     ]);
     emit_load_grid(
@@ -1700,12 +1716,12 @@ fn emit_draw_glyph(
     ));
 }
 
-/// `term::drawText(x, y, text)` (console): stamp `text` on row `y` starting at
-/// column `x`, one grid cell per Unicode scalar, with the current attributes. It
+/// `term::drawText(row, column, text)` (console): stamp `text` on `row` starting at
+/// `column`, one grid cell per Unicode scalar, with the current attributes. It
 /// does not move the shadow cursor, does not wrap or scroll, and clips at the right
 /// edge (columns before 0 are skipped; the run stops at the last column). Control
-/// characters are skipped (not stamped) but still advance a column. A no-op if `y`
-/// is off the grid or TUI mode is off. Shown on the next `term::sync`.
+/// characters are skipped (not stamped) but still advance a column. A no-op if the
+/// row is off the grid or TUI mode is off. Shown on the next `term::sync`.
 fn emit_draw_text(
     symbol: &str,
     term_state_offset: usize,
@@ -1792,9 +1808,10 @@ fn emit_draw_text(
     let pool_copy_done = format!("{symbol}_dt_pcopydone");
 
     emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // `drawText(row, column, text)` — the point is row-first.
     instructions.extend([
-        abi::move_register(x, abi::c_arg(0)),
-        abi::move_register(y, abi::c_arg(1)),
+        abi::move_register(y, abi::c_arg(0)),
+        abi::move_register(x, abi::c_arg(1)),
         abi::move_register(strobj, abi::c_arg(2)),
     ]);
     emit_load_grid(

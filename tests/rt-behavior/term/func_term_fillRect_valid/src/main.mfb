@@ -8,9 +8,9 @@ IMPORT color
 FUNC main AS Integer
   term::on()
   term::setForeground(color::rgb(0, 200, 255))
-  term::fillRect(term::FillStyle.Filled, 2, 1, 8, 3)        ' 7x3 solid block
-  term::fillRect(term::FillStyle.Medium, 20, 5, 14, 2)      ' reversed points -> cols 14..20, rows 2..5
-  term::fillRect(term::FillStyle.Checker, 30, 0, 60, 2)     ' partly off-grid: clamps to cols 30..
+  term::fillRect(term::FillStyle.Filled, 1, 2, 3, 8)        ' 7x3 solid block
+  term::fillRect(term::FillStyle.Medium, 5, 20, 2, 14)      ' reversed points -> cols 14..20, rows 2..5
+  term::fillRect(term::FillStyle.Checker, 0, 30, 2, 60)     ' partly off-grid: clamps to cols 30..
   term::sync()
   term::off()
   RETURN 0

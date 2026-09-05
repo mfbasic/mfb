@@ -31,7 +31,8 @@ program calls `term::sync`. It also leaves the *current* attributes alone — th
 foreground, background, bold, underline, and cursor-visibility settings that
 subsequent drawing will use are untouched; only the cells are.
 
-The call is gated: while TUI mode is off it does nothing. `term::on` already hands
+The call is gated: while TUI mode is off it does nothing (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`). `term::on` already hands
 back a cleared surface, so an explicit `term::clear` is for blanking again between
 frames — which is exactly what the canonical render loop does."#;
 

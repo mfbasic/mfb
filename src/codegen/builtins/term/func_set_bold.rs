@@ -32,7 +32,9 @@ of underline, so changing it leaves those alone, and the current value can be re
 back with `term::getBold`. Setting the same value twice is harmless — the state is
 a flag, not a toggle.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Draw a bold heading above plain body text:
 

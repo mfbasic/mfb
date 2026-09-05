@@ -448,6 +448,55 @@ So the typed machinery exists and works — it was applied to exactly one vocabu
 
 ---
 
+## Man-page review notes — FILED as bug-514 … bug-535 (2026-09-04)
+
+Everything below this line up to the `term::` section has been verified and
+written up. **Do not re-file from these notes** — work the bug documents, which
+carry the reproduction, the root cause and the decisions. Each has a runnable
+spike in `spikes/api-review/<bug-id>/`.
+
+| note | bug |
+| --- | --- |
+| KeyPair untagged | bug-514 |
+| no memory-hard password KDF | bug-515 |
+| NIST private-key encoding interop | bug-516 |
+| SHA-1 advisory vs HMAC | bug-517 |
+| `withZone` contradiction | bug-518 |
+| `parse` does not validate | bug-519 |
+| named zones / portable `Local` | bug-520 |
+| `toIso` nanoseconds | bug-521 |
+| RES-transfer contradiction | bug-522 |
+| RES shapes missing from type pages | bug-523 |
+| `process::close` naming | bug-524 |
+| tcp/tls close + backlog asymmetry | bug-525 |
+| `tls::poll` signature slip | bug-526 |
+| inclusive range naming, language-wide | bug-527 |
+| pad width vs display width | bug-528 |
+| byte search vs scalar index / empty needle | bug-529 |
+| `utf8Encode` return-type overload | bug-530 |
+| absence: `ErrNotFound` vs `-1` | bug-531 |
+| regex reports where, not what | bug-532 |
+| empty-pattern `replace` | bug-533 |
+| regex `split` / `count` / AttributedString | bug-534 |
+
+Three notes were **wrong or understated** and the bug documents supersede them:
+
+- `parse` does not "carry the out-of-range component into the result" as the man
+  page claims — it silently rolls it over (`2026-13-45` → `2027-02-15`). bug-519.
+- The RES-transfer contradiction resolves in favour of the **package intro**;
+  `thread::transfer`'s list is the stale one. bug-522 carries the 11-resource
+  census.
+- The `strings` empty-needle split is four-way, not two-way: `contains` TRUE,
+  `find` 0, `count` raises, `replace` no-op. bug-529.
+
+One bug was found while verifying the rest and is not a note below: bug-535, a
+`RES` bind off a thread channel failing the build with a bare internal error.
+
+**Still unfiled from this review: the `term::` coordinate-order item at the
+bottom of this file.** It was not part of the batch that was worked up.
+
+---
+
 KeyPair is untagged. A 32-byte pair might be Ed25519 or X25519; a 57-byte pair is Ed448, a 56-byte pair is X448. convert only checks length. encrypt / decrypt take signing keys and convert internally, so a raw X25519 public key of the same length would be run through the Ed→Montgomery map and silently produce garbage (or a box nobody can open). The docs admit this. The type system does not. A Certificate tag on KeyPair, or distinct record types, would make the “no curve tagging” paragraph unnecessary.
 
 Password hashing is the weak spot they already named. The only password KDF is PBKDF2. The docs tell you to prefer Argon2id/scrypt/bcrypt and then do not provide them. For a “software-first” package that already has SHAKE and a bits layer, Argon2id would be the one addition that changes real-world advice from “use this for compatibility” to “use this to store passwords.”
@@ -525,15 +574,4 @@ count. Trivial given findAll, but strings::count exists and people will look for
 
 ---
 
-The coordinate convention is broken, and the overview lies about it. The package intro says the first coordinate is always row, the second column. That is only true of moveTo(row, column). Everything else is Cartesian:
-
-drawText(x, y, …) — column, then row
-drawGlyph(x, y, …)
-drawBox(…, x1, y1, x2, y2)
-fillRect(…, x1, y1, x2, y2)
-drawHLine / drawVLine each invent their own argument order
-
-More term::* to row/column.
-
----
 

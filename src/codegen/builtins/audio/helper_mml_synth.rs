@@ -10,6 +10,17 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' Synthesize events into a list of signed s16 samples.
 FUNC __audio_mmlSynth(events AS List OF __audio_MmlEvent) AS List OF Integer
+  ' Bounded before a frame is rendered (bug-509, DEC-55). Ten minutes at 48 kHz is
+  ' 28.8 million samples, held twice over (synthesised, then encoded), and `play`
+  ' blocks for the tune's real-time length regardless. The token cap alone does not
+  ' bound this: 5,000 whole notes at T32 are ten hours of audio.
+  MUT totalFrames AS Integer = 0
+  FOR EACH ev IN events
+    totalFrames = totalFrames + ev.totalFrames
+  NEXT
+  IF totalFrames > 28800000 THEN
+    FAIL error(77050002, "audio::play: track is longer than the 10 minute limit")
+  END IF
   MUT out AS List OF Integer = []
   FOR EACH ev IN events
     IF ev.freq <= 0.0 THEN

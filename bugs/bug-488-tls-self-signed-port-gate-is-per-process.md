@@ -106,6 +106,16 @@ near-certainty whenever two `cargo test` runs overlap, which is now the normal
 working pattern. Both were kept rather than one being resolved away — the third
 adds frequency evidence, the fourth adds a symptom the port race does not explain.
 
+## Fifth occurrence — a fixed-port sibling, `rt_macos_tls_write_capacity` (2026-09-04, bug-502 landing)
+
+`macos_tls_write_sends_capacity_over_count_byte_list_exactly` (fixed
+`PORT = 18453`, 1 s bind sleep, `openssl s_client` peer) failed once in the
+bug-502 landing suite with `peer did not receive the exact byte payload
+[65, 66, 67, 68, 69]; got []` while a peer session's `cargo test` was running
+the same suite on this box; the branch touched only `src/fmt.rs`/`src/cli/fmt.rs`.
+Re-run alone (`--test-threads=1`) it passed in 2.1 s, and `lsof -i :18453` was
+empty afterwards. Same class: a fixed port shared across processes.
+
 ## Cause
 
 `tests/rt_tls_connect_allow_self_signed.rs` picks a port by binding an ephemeral

@@ -1,0 +1,49 @@
+' bug-532 -- the regex package reports WHERE a match starts and nothing else.
+' `find` and `findAll` return start indices. There is no end index, no match
+' text, no capture accessor, no Match record. Extraction is therefore impossible
+' for a general pattern:
+'
+'   regex::findAll("a1b22c333", "\\d+") -> [1, 3, 6]
+'
+' Those three matches are "1", "22" and "333" -- lengths 1, 2 and 3. Nothing in
+' the package reports the lengths, and you cannot slice without them. The only
+' way out is `regex::replace` with a "$0" template into a side channel the
+' package does not provide, or matching a second time with a hand-written
+' anchored probe per candidate length.
+
+IMPORT io
+IMPORT strings
+IMPORT regex
+
+FUNC main AS Integer
+  LET text AS String = "a1b22c333"
+  LET pattern AS String = "\\d+"
+
+  LET starts AS List OF Integer = regex::findAll(text, pattern)
+  io::print("text    = " & text)
+  io::print("pattern = " & pattern)
+  FOR EACH s IN starts
+    io::print("  match starts at scalar " & toString(s) & "  -- length unknown")
+  NEXT
+  io::print("")
+
+  ' What the caller actually wants, and the only route to it today: rebuild the
+  ' spans by re-matching an anchored pattern at every candidate length. This is
+  ' O(text * maxlen) extra work to recover something the engine already knew.
+  io::print("recovering the spans by brute force:")
+  FOR EACH s IN starts
+    MUT n AS Integer = 1
+    MUT best AS Integer = 0
+    WHILE s + n <= len(text)
+      LET candidate AS String = strings::mid(text, s, n)
+      IF regex::match(candidate, "\\A" & pattern & "\\z") THEN
+        best = n
+      END IF
+      n = n + 1
+    END WHILE
+    io::print("  [" & toString(s) & ", " & toString(s + best) & ") = \"" & strings::mid(text, s, best) & "\"")
+  NEXT
+  io::print("")
+  io::print("=> the engine computed each end position and then discarded it.")
+  RETURN 0
+END FUNC

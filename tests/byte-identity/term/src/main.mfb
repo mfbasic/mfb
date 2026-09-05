@@ -52,11 +52,21 @@ FUNC main() AS Integer
   ' zero-width-joiner emoji family, a positioned wide glyph, and an overwrite that
   ' clears the orphaned half of a wide glyph.
   term::drawText(0, 0, "日本語")
-  term::drawText(0, 2, "cafe" & "́")
-  term::drawText(0, 4, "👨‍👩‍👧‍👦")
-  term::drawGlyph(10, 6, 0x65E5)
-  term::drawText(0, 8, "日本")
-  term::drawText(1, 8, "X")
+  term::drawText(2, 0, "cafe" & "́")
+  term::drawText(4, 0, "👨‍👩‍👧‍👦")
+  term::drawGlyph(6, 10, 0x65E5)
+  term::drawText(8, 0, "日本")
+  term::drawText(8, 1, "X")
+
+  ' The four box/fill drawing members. They were absent from this cover until the
+  ' row/column coordinate migration, so their emitters — the only `term::` bodies
+  ' that read a *pair* of coordinate argument registers per point, and the two
+  ' (drawHLine/drawVLine) that share one emitter parameterised by orientation —
+  ' had no cross-target `.ncode` sentinel at all.
+  term::drawHLine(term::LineStyle.Light, 10, 0, 20)
+  term::drawVLine(term::LineStyle.HeavyDash, 11, 4, 15)
+  term::drawBox(term::LineStyle.Double, 12, 2, 16, 24)
+  term::fillRect(term::FillStyle.Medium, 13, 6, 15, 18)
 
   ' Clear the surface and present the composed frame.
   term::clear()

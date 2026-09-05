@@ -2435,6 +2435,129 @@ pub(super) fn emit_app_term_helper(
     Some(Ok(()))
 }
 
+/// Swap the two stack slots `a_off`/`b_off` when `a > b`, so a caller-supplied
+/// coordinate pair reads low-to-high whichever order the program wrote it in.
+///
+/// Every `term::` span and region is documented to accept its two endpoints in
+/// EITHER order (`mfb man term drawHLine`/`drawBox`/`fillRect`), and the console
+/// and macOS backends normalise. This backend's loops only ever count UP, so
+/// without this a reversed pair drew nothing at all. `tag` names the skip label.
+/// Clobbers ARG[0..1].
+fn win_normalize_pair(ins: &mut Vec<CodeInstruction>, tag: &str, a_off: usize, b_off: usize) {
+    let done = format!("{tag}_ord");
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), a_off));
+    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), b_off));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_le(&done));
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), a_off));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), b_off));
+    ins.push(abi::label(&done));
+}
+
+/// Clamp `reg` in place into `0 ..= max`. The stack-slot form below is the one the
+/// looping emitters use; `term::moveTo` is a leaf that never parks its arguments,
+/// so it clamps the incoming registers directly. Clobbers ARG[2] as scratch.
+fn win_clamp_register(ins: &mut Vec<CodeInstruction>, tag: &str, reg: Operand, max: usize) {
+    let lo = format!("{tag}_clo");
+    let hi = format!("{tag}_chi");
+    ins.push(abi::compare_immediate(reg.clone(), "0"));
+    ins.push(abi::branch_ge(&lo));
+    ins.push(abi::move_immediate(reg.clone(), "Integer", "0"));
+    ins.push(abi::label(&lo));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(2),
+        "Integer",
+        &max.to_string(),
+    ));
+    ins.push(abi::compare_registers(reg.clone(), abi::mfb_arg(2)));
+    ins.push(abi::branch_le(&hi));
+    ins.push(abi::move_register(reg, abi::mfb_arg(2)));
+    ins.push(abi::label(&hi));
+}
+
+/// Clip the already-normalised span `lo_off ..= hi_off` to `0 ..= max`, branching to
+/// `empty` when the span and the grid do not intersect at all.
+///
+/// The intersection test is not optional, and saturating the two endpoints
+/// independently is not a substitute for it: a span wholly left of the grid
+/// (`-2 ..= -1`) saturates to `0 ..= 0` and would stamp column 0 — a cell the
+/// program never asked for. The console backend's `emit_stamp_run` rejects the
+/// empty intersection first, and this is the same order.
+///
+/// The clamp is also what makes the loop FINITE. These emitters loop one
+/// `TextOutW` per cell from the low endpoint to the high one, so an unclamped span
+/// is an unbounded loop: `term::drawHLine(style, 0, 0, 2000000000)` — a legal call
+/// the console backend clamps to the last column — spun two billion calls here.
+///
+/// `tag` names the generated labels. Clobbers ARG[0..1].
+fn win_clip_span(
+    ins: &mut Vec<CodeInstruction>,
+    tag: &str,
+    lo_off: usize,
+    hi_off: usize,
+    max: usize,
+    empty: &str,
+) {
+    // No intersection: hi < 0, or lo > max.
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), hi_off));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_lt(empty));
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), lo_off));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        &max.to_string(),
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_gt(empty));
+    // The intersection is non-empty, so saturating each endpoint is now correct.
+    win_clamp_slot(ins, &format!("{tag}_lo"), lo_off, max);
+    win_clamp_slot(ins, &format!("{tag}_hi"), hi_off, max);
+}
+
+/// Saturate the stack slot `off` into `0 ..= max`. Only ever reached from
+/// [`win_clip_span`], which has already established that the span meets the grid —
+/// on its own this would slide a wholly off-grid endpoint onto the rim.
+/// Clobbers ARG[0..1].
+fn win_clamp_slot(ins: &mut Vec<CodeInstruction>, tag: &str, off: usize, max: usize) {
+    let lo = format!("{tag}_clo");
+    let hi = format!("{tag}_chi");
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_ge(&lo));
+    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
+    ins.push(abi::label(&lo));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        &max.to_string(),
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_le(&hi));
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::label(&hi));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
+}
+
+/// Branch to `skip` unless the stack slot `off` holds a value in `0 ..= max`.
+///
+/// The console backend draws NOTHING for a line whose fixed coordinate is off the
+/// grid, and skips a box corner whose cell is off the grid, rather than sliding
+/// either onto the edge. This is the test that keeps this backend agreeing.
+/// Clobbers ARG[0..1].
+fn win_guard_on_grid(ins: &mut Vec<CodeInstruction>, off: usize, max: usize, skip: &str) {
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), off));
+    ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+    ins.push(abi::branch_lt(skip));
+    ins.push(abi::move_immediate(
+        abi::mfb_arg(1),
+        "Integer",
+        &max.to_string(),
+    ));
+    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+    ins.push(abi::branch_gt(skip));
+}
+
 /// plan-70-F: `SetTextColor`/`SetBkColor` on the memDC (stack slot `memdc_off`) from
 /// the current term state colours.
 fn win_set_colors(
@@ -2527,8 +2650,9 @@ fn win_stamp_bmp(
     call_external(from, "TextOutW", GDI32, ins, rel);
 }
 
-/// plan-70-F: `term::drawGlyph(x, y, codepoint)` — stamp one glyph at the cell,
-/// astral-capable, in the current colours. Args: ARG[0]=x, ARG[1]=y, ARG[2]=cp.
+/// plan-70-F: `term::drawGlyph(row, column, codepoint)` — stamp one glyph at the
+/// cell, astral-capable, in the current colours. Args: ARG[0]=row, ARG[1]=column,
+/// ARG[2]=code point (row before column, like every `term::` position).
 fn emit_term_draw_glyph_at(
     symbol: &str,
     tso: usize,
@@ -2546,9 +2670,19 @@ fn emit_term_draw_glyph_at(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SX));
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SY));
+    // `drawGlyph(row, column, codepoint)` — the point is row-first.
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SY));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), SCP));
+    // Control code points (< U+0020) are skipped, as on the console
+    // (`emit_draw_glyph`) and macOS (`emit_app_draw_glyph`) — `mfb man term
+    // drawGlyph` states it, and handing a C0 byte to `TextOutW` draws whatever the
+    // font maps it to. The cell is bounds-checked, not clamped, so an off-grid
+    // point draws nothing either.
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "32"));
+    ins.push(abi::branch_lt("dg_done"));
+    win_guard_on_grid(&mut ins, SY, TUI_ROWS - 1, "dg_done");
+    win_guard_on_grid(&mut ins, SX, TUI_COLS - 1, "dg_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
@@ -2648,16 +2782,43 @@ fn emit_term_draw_line(
     // slots below; `win_stamp_bmp` stages its TextOutW 5th arg via the outgoing sentinel.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
-    const FIXED: usize = 0x40; // row (H) or col (V)
+    const FIXED: usize = 0x40; // row (H) or column (V)
     const POS: usize = 0x48; // running a..b
     const ENDV: usize = 0x50;
     const GLYPH: usize = 0x58;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), FIXED));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), POS));
-    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), ENDV));
+    // Row-before-column argument order: `drawHLine(line, row, columnA, columnB)` puts
+    // the fixed row in arg 1, `drawVLine(line, rowA, column, rowB)` the fixed column
+    // in arg 2.
+    let (fixed_arg, pos_arg, end_arg) = if horizontal { (1, 2, 3) } else { (2, 1, 3) };
+    ins.push(abi::store_u64(
+        abi::mfb_arg(fixed_arg),
+        abi::stack_pointer(),
+        FIXED,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(pos_arg),
+        abi::stack_pointer(),
+        POS,
+    ));
+    ins.push(abi::store_u64(
+        abi::mfb_arg(end_arg),
+        abi::stack_pointer(),
+        ENDV,
+    ));
+    // The span endpoints may be written in either order, and the span is clamped to
+    // the grid; a fixed coordinate off the grid draws nothing. Same three rules the
+    // console `emit_draw_line` applies — and the clamp is what bounds the loop below.
+    let (fixed_max, span_max) = if horizontal {
+        (TUI_ROWS - 1, TUI_COLS - 1)
+    } else {
+        (TUI_COLS - 1, TUI_ROWS - 1)
+    };
+    win_guard_on_grid(&mut ins, FIXED, fixed_max, "dln_done");
+    win_normalize_pair(&mut ins, "dln", POS, ENDV);
+    win_clip_span(&mut ins, "dln", POS, ENDV, span_max, "dln_done");
     // glyph = ─ (9472) for H, │ (9474) for V.
     ins.push(abi::move_immediate(
         abi::mfb_arg(0),
@@ -2701,9 +2862,16 @@ fn emit_term_draw_line(
     relocations.extend(rel);
 }
 
-/// plan-70-F: `term::drawBox(style, x1, y1, x2, y2)` — Light box: two H edges, two V
-/// edges, four corners. Args ARG[0]=style (ignored), ARG[1]=x1, ARG[2]=y1,
-/// ARG[3]=x2, and y2 is the 5th (incoming stack) arg.
+/// plan-70-F: `term::drawBox(line, rowA, columnA, rowB, columnB)` — two H edges, two
+/// V edges, four corners. Args ARG[0]=`LineStyle` ordinal, ARG[1]=rowA,
+/// ARG[2]=columnA, ARG[3]=rowB, and columnB is the 5th (incoming stack) arg — row
+/// before column, like every `term::` position. The corners may be given in either
+/// order and the region is clamped to the grid (see `win_normalize_pair` /
+/// `win_clamp_slot`).
+///
+/// **This backend still ignores the `LineStyle` ordinal** and always draws the
+/// Light glyphs, unlike the console and macOS backends, which select per style.
+/// The same gap applies to `emit_term_draw_line` and `emit_term_fill_rect`.
 fn emit_term_draw_box(
     symbol: &str,
     tso: usize,
@@ -2711,7 +2879,8 @@ fn emit_term_draw_box(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     // Append shape (plan-101): no own frame — the finalizer builds it. Local scratch
-    // slots below; the 5th incoming arg (y2) is read via the incoming-arg sentinel.
+    // slots below; the 5th incoming arg (columnB) is read via the incoming-arg
+    // sentinel.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
     const X1: usize = 0x40;
@@ -2720,24 +2889,47 @@ fn emit_term_draw_box(
     const Y2: usize = 0x58;
     const POS: usize = 0x60;
     const GLYPH: usize = 0x68;
+    // The corners as the program wrote them (normalised but NOT clamped), kept so
+    // an off-grid corner is skipped rather than drawn on the rim.
+    const CX1: usize = 0x70;
+    const CY1: usize = 0x78;
+    const CX2: usize = 0x80;
+    const CY2: usize = 0x88;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), X1));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), Y1));
-    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), X2));
-    // y2 = 5th incoming (stack) arg — resolved by the finalizer to the caller's
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
+    // written row before column.
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), X1));
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), Y2));
+    // columnB = 5th incoming (stack) arg — resolved by the finalizer to the caller's
     // outgoing tail above this frame.
     ins.push(abi::incoming_stack_arg_load(abi::mfb_arg(0), 0));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), Y2));
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), X2));
+    // Either corner may be given first, so normalise both pairs low-to-high; the
+    // edge loops below then count up. The unclamped corners are kept in
+    // `CX1`..`CY2` because a corner GLYPH is only stamped when its own cell is on
+    // the grid — the console backend clamps each edge but skips an off-grid corner
+    // rather than sliding it onto the rim.
+    win_normalize_pair(&mut ins, "dbx_x", X1, X2);
+    win_normalize_pair(&mut ins, "dbx_y", Y1, Y2);
+    for (raw, keep) in [(X1, CX1), (X2, CX2), (Y1, CY1), (Y2, CY2)] {
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), raw));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), keep));
+    }
+    win_clip_span(&mut ins, "dbx_x", X1, X2, TUI_COLS - 1, "dbx_done");
+    win_clip_span(&mut ins, "dbx_y", Y1, Y2, TUI_ROWS - 1, "dbx_done");
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), MEMDC));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
     ins.push(abi::branch_eq("dbx_done"));
     win_set_colors(&mut ins, &mut rel, from, tso, MEMDC);
-    // Top + bottom edges (─) across x1..x2 at y1 / y2.
-    for (yslot, tag) in [(Y1, "dbx_top"), (Y2, "dbx_bot")] {
+    // Top + bottom edges (─) across x1..x2 at y1 / y2. An edge whose row is off the
+    // grid is skipped entirely (the clamped X range still bounds the loop).
+    for (yslot, cyslot, tag) in [(Y1, CY1, "dbx_top"), (Y2, CY2, "dbx_bot")] {
+        win_guard_on_grid(&mut ins, cyslot, TUI_ROWS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), X1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9472")); // ─
@@ -2754,8 +2946,10 @@ fn emit_term_draw_box(
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Left + right edges (│) down y1..y2 at x1 / x2.
-    for (xslot, tag) in [(X1, "dbx_left"), (X2, "dbx_right")] {
+    // Left + right edges (│) down y1..y2 at x1 / x2. Skipped when the column is off
+    // the grid.
+    for (xslot, cxslot, tag) in [(X1, CX1, "dbx_left"), (X2, CX2, "dbx_right")] {
+        win_guard_on_grid(&mut ins, cxslot, TUI_COLS - 1, &format!("{tag}_done"));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), Y1));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), POS));
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "9474")); // │
@@ -2772,16 +2966,22 @@ fn emit_term_draw_box(
         ins.push(abi::branch(&format!("{tag}_loop")));
         ins.push(abi::label(&format!("{tag}_done")));
     }
-    // Corners: ┌ x1y1, ┐ x2y1, └ x1y2, ┘ x2y2.
-    for (xslot, yslot, cp, _tag) in [
-        (X1, Y1, "9484", "tl"),
-        (X2, Y1, "9488", "tr"),
-        (X1, Y2, "9492", "bl"),
-        (X2, Y2, "9496", "br"),
+    // Corners: ┌ x1y1, ┐ x2y1, └ x1y2, ┘ x2y2 — each stamped only when its own cell
+    // is on the grid, read from the unclamped copies so a corner off the rim is
+    // skipped rather than slid onto it.
+    for (xslot, yslot, cp, tag) in [
+        (CX1, CY1, "9484", "tl"),
+        (CX2, CY1, "9488", "tr"),
+        (CX1, CY2, "9492", "bl"),
+        (CX2, CY2, "9496", "br"),
     ] {
+        let skip = format!("dbx_c{tag}_skip");
+        win_guard_on_grid(&mut ins, xslot, TUI_COLS - 1, &skip);
+        win_guard_on_grid(&mut ins, yslot, TUI_ROWS - 1, &skip);
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", cp));
         ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
         win_stamp_bmp(&mut ins, &mut rel, from, MEMDC, xslot, yslot, GLYPH, WCH);
+        ins.push(abi::label(&skip));
     }
     ins.push(abi::label("dbx_done"));
     invalidate_main(from, &mut ins, &mut rel);
@@ -2795,8 +2995,11 @@ fn emit_term_draw_box(
     relocations.extend(rel);
 }
 
-/// plan-70-F: `term::fillRect(style, x1, y1, x2, y2)` — fill the cell rect with a
-/// space in the current bg (the block glyph would ignore bg). Args as drawBox.
+/// plan-70-F: `term::fillRect(fill, rowA, columnA, rowB, columnB)` — fill the cell
+/// rect with a space in the current bg (the block glyph would ignore bg). Args as
+/// drawBox: row before column, either corner first, region clamped to the grid.
+/// **This backend still ignores the `FillStyle` ordinal**, so every style renders
+/// as the solid background wash rather than the block/shade glyph.
 fn emit_term_fill_rect(
     symbol: &str,
     tso: usize,
@@ -2816,11 +3019,18 @@ fn emit_term_fill_rect(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), X1));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), Y1));
-    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), X2));
-    ins.push(abi::incoming_stack_arg_load(abi::mfb_arg(0), 0)); // y2 (5th incoming arg)
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), Y2));
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — row before column.
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), Y1));
+    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), X1));
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), Y2));
+    ins.push(abi::incoming_stack_arg_load(abi::mfb_arg(0), 0)); // columnB (5th incoming arg)
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), X2));
+    // Either corner may be given first, and the region is clamped to the grid — the
+    // clamp is also what bounds the two nested loops below.
+    win_normalize_pair(&mut ins, "dfr_x", X1, X2);
+    win_normalize_pair(&mut ins, "dfr_y", Y1, Y2);
+    win_clip_span(&mut ins, "dfr_x", X1, X2, TUI_COLS - 1, "dfr_done");
+    win_clip_span(&mut ins, "dfr_y", Y1, Y2, TUI_ROWS - 1, "dfr_done");
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32")); // space (paints bg)
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
@@ -2865,9 +3075,10 @@ fn emit_term_fill_rect(
     relocations.extend(rel);
 }
 
-/// plan-70-F: `term::drawText(x, y, text)` — stamp a UTF-8 string at `(x, y)`, one
-/// grapheme per cell at its display width, no wrap (clips at the right edge). Args:
-/// ARG[0]=x, ARG[1]=y, ARG[2]=text ptr `{len@0, bytes@8}`.
+/// plan-70-F: `term::drawText(row, column, text)` — stamp a UTF-8 string starting at
+/// `(row, column)`, one grapheme per cell at its display width, no wrap (clips at
+/// the right edge). Args: ARG[0]=row, ARG[1]=column, ARG[2]=text ptr
+/// `{len@0, bytes@8}` — row before column, like every `term::` position.
 fn emit_term_draw_text_at(
     symbol: &str,
     tso: usize,
@@ -2878,8 +3089,8 @@ fn emit_term_draw_text_at(
     // slots below (text-ptr scratch at 0x88); MultiByteToWideChar's 5th/6th and
     // TextOutW's 5th args go through the outgoing-arg sentinel.
     const MEMDC: usize = 0x38;
-    const SX: usize = 0x40; // starting column
-    const SY: usize = 0x48; // row
+    const SX: usize = 0x40; // starting column (arg 2)
+    const SY: usize = 0x48; // row (arg 1)
     const WBUF: usize = 0x50;
     const WCC: usize = 0x58; // UTF-16 unit count
     const GI: usize = 0x60; // unit index
@@ -2890,13 +3101,14 @@ fn emit_term_draw_text_at(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SX));
+    // `drawText(row, column, text)` — the point is row-first.
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(
-        abi::mfb_arg(0),
+        abi::mfb_arg(1),
         abi::stack_pointer(),
         CURCOL,
-    )); // running col = x
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SY));
+    )); // running col = column
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SY));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x88)); // text ptr scratch
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -3345,7 +3557,16 @@ fn emit_term_clear(
     relocations.extend(rel);
 }
 
-/// `term::moveTo(row, col)`: set the grid cursor (0-based), no frame/call needed.
+/// `term::moveTo(row, column)`: set the grid cursor (0-based), no frame/call needed.
+///
+/// Both coordinates are clamped to the grid — `row` into `0 ..= TUI_ROWS-1`,
+/// `column` into `0 ..= TUI_COLS-1` — which is the contract every other backend
+/// already honoured (`emit_move_to` on the console, `emit_app_move_to` on macOS,
+/// `emit_app_term_move_to` on GTK) and the one `mfb man term moveTo` states: "Both
+/// coordinates are clamped at both ends, on every backend." This body used to
+/// store the raw incoming registers, so an out-of-range `moveTo` parked the cursor
+/// off the 80x25 surface and the next `io::write` stamped at a negative or
+/// past-the-edge device coordinate.
 fn emit_term_move_to(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -3355,10 +3576,12 @@ fn emit_term_move_to(
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
+    win_clamp_register(&mut ins, "mt_row", abi::mfb_arg(0), TUI_ROWS - 1);
+    win_clamp_register(&mut ins, "mt_col", abi::mfb_arg(1), TUI_COLS - 1);
     load_addr(abi::mfb_arg(2), TUI_ROW_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // row
     load_addr(abi::mfb_arg(2), TUI_COL_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // col
+    ins.push(abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(2), 0)); // column
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -4139,8 +4362,12 @@ mod tests {
             "term.hideCursor",
             "term.sync",
             "term.terminalSize",
-            // Draw helpers: app mode raises a clean ErrUnsupported (guarded, not a
-            // fall-through to the console lowering that would crash).
+            // Positioned draw helpers. plan-70-F replaced the former
+            // `ErrUnsupported` stubs with real memDC emitters, so what this asserts
+            // now is that each still has a Windows arm rather than falling through
+            // to the console lowering (which would find no grid and no-op silently).
+            // The `LineStyle`/`FillStyle` ordinal is deliberately ignored by this
+            // backend — see `emit_term_draw_box` and `mfb spec app term-backend`.
             "term.drawHLine",
             "term.drawVLine",
             "term.drawBox",

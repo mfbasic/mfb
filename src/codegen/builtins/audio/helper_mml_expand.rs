@@ -48,6 +48,19 @@ FUNC __audio_mmlExpand(tokens AS List OF String) AS List OF String
     IF openIdx < 0 THEN
       FAIL error(77050002, "audio::play: '}' without matching '{' in MML")
     END IF
+    ' The expansion is bounded before it is built (bug-509, DEC-55). Repeats nest
+    ' multiplicatively -- `{ { { { C }64 }64 }64 }64` is thirty characters and sixteen
+    ' million notes -- and building that list was 38 GB and a process killed before
+    ' any raise could fire. 65,536 tokens is two hours of sixteenth notes at T120, far
+    ' past any tune a program embeds. The count is refused on its own first, so the
+    ' product below cannot overflow.
+    IF count > 65536 THEN
+      FAIL error(77050002, "audio::play: MML expands past 65536 tokens at '" & closeTk & "'")
+    END IF
+    LET inner AS Integer = closeIdx - openIdx - 1
+    IF (len(work) - inner - 2) + inner * count > 65536 THEN
+      FAIL error(77050002, "audio::play: MML expands past 65536 tokens at '" & closeTk & "'")
+    END IF
     MUT rebuilt AS List OF String = []
     FOR k = 0 TO openIdx - 1
       rebuilt = collections::append(rebuilt, collections::get(work, k))

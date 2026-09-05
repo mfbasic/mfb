@@ -16,6 +16,18 @@ SUB main()
   term::hideCursor()
   term::moveTo(2, 4)
   io::write("term")
+
+  ' The six positioned draw helpers. In app mode these are the ONLY term:: bodies
+  ' the platform backend implements itself (`emit_app_term_helper`), and each reads
+  ' its coordinates straight out of the incoming ABI argument registers in
+  ' row-before-column order — so without them here the app-mode `.ncodesum`
+  ' goldens covered no positioned drawing at all.
+  term::drawHLine(term::LineStyle.Light, 5, 1, 12)
+  term::drawVLine(term::LineStyle.HeavyDash, 6, 3, 10)
+  term::drawBox(term::LineStyle.Double, 7, 2, 11, 20)
+  term::fillRect(term::FillStyle.Medium, 8, 4, 10, 16)
+  term::drawText(9, 6, "app")
+  term::drawGlyph(10, 7, 0x2603)
   LET active AS Boolean = term::isOn()
   LET fg AS color::Color = term::getForeground()
   LET bg AS color::Color = term::getBackground()
