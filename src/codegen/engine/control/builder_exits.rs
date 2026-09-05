@@ -242,7 +242,44 @@ impl CodeBuilder<'_> {
             }
             return Ok((lowered, false));
         }
-        Ok((self.lower_value(value)?, false))
+        let lowered = self.lower_value(value)?;
+        // bug-536 shape A: `RETURN <RecordConstructor>` / `RETURN <call returning
+        // a record or union>` leaked the fresh block, 64 B per call.
+        //
+        // The value is not an aliasing source, so it fell straight through with
+        // `already_standalone = false`. `store_pending_success_result` then read
+        // that as "an alias or an inline payload" and promoted it into a SECOND
+        // arena block with `materialize_inline_value_in_arena` — and the RETURN
+        // statement's `clear_pending_temps_to` discarded the FIRST block's
+        // statement-scope free, on the reasoning that "a returned temp is moved to
+        // the caller". True only while the temp *is* what is returned; after the
+        // re-materialisation it is not, and nothing else ever frees it. Measured on
+        // `FUNC mkLit(i) AS Plain / RETURN Plain[i, i]`: 25 MB at 400 000 calls,
+        // 50 MB at 800 000. `RETURN r` (a local) was immune because
+        // `plan_returned_move` moves the block; `RETURN [list literal]` because a
+        // collection has no inline payload size.
+        //
+        // A registered pending temp is by construction a **fresh standalone arena
+        // block** — `register_pending_temp` requires exactly that
+        // (`!value_needs_owning_copy`, freeable-flat, not runtime-managed, not a
+        // borrowed `get`). So claim it, the way `lower_value_owned` claims one for
+        // a binding, and report it standalone: one block, one owner, and the
+        // re-materialisation copy disappears with the leak because it was always
+        // redundant. This is the same shape as the plan-25-C C1 `move_elided` path
+        // just above, reached for a fresh temp instead of an owned local.
+        //
+        // The tail-entry identity test is `claim_pending_temp`'s own: the outermost
+        // node's temp is the most recently registered, so a match on its location
+        // is precise.
+        if self
+            .pending_temp_frees
+            .last()
+            .is_some_and(|temp| temp.location == lowered.location)
+        {
+            self.claim_pending_temp(&lowered);
+            return Ok((lowered, true));
+        }
+        Ok((lowered, false))
     }
 
     /// Plan a return-value copy elision (plan-25-C C1). A `RETURN <owned-local>`
