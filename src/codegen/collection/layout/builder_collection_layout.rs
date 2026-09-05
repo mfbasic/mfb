@@ -2985,8 +2985,10 @@ pub(crate) fn type_contains_resource(model: &TypeModel, type_: &ParameterType) -
         if !visited.insert(current.clone()) {
             continue;
         }
-        if matches!(current, ParameterType::Res(_) | ParameterType::ThreadHandle { .. })
-            || crate::codegen::builtins::is_resource_type(&current)
+        if matches!(
+            current,
+            ParameterType::Res(_) | ParameterType::ThreadHandle { .. }
+        ) || crate::codegen::builtins::is_resource_type(&current)
         {
             return true;
         }

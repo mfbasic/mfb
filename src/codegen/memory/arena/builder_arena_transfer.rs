@@ -1159,11 +1159,7 @@ impl CodeBuilder<'_> {
         // depend on the source's index being current. Cheap, and it makes the
         // block's validity independent of what the bucket words contain.
         if matches!(type_, ParameterType::MapOf(..) | ParameterType::SetOf(_)) {
-            self.emit(abi::load_u64(
-                &scratch9,
-                abi::stack_pointer(),
-                result_slot,
-            ));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
             self.emit(abi::move_immediate(&scratch10, "Byte", "0"));
             self.emit(abi::store_u8(
                 &scratch10,
