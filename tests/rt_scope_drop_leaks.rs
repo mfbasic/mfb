@@ -25,6 +25,13 @@ mod common;
 use std::time::Duration;
 
 /// Peak RSS of `source` with `{N}` replaced by `count`, in bytes.
+/// The RSS half is Unix-only: peak RSS comes from `wait4`'s `ru_maxrss`
+/// (`common::run_bounded_with_rss`), which has no Windows equivalent here — the
+/// same split `rt_json_bounds` and `rt_regex_bounds` already use. Gating these
+/// three rather than the FILE keeps `every_return_shape_still_produces_the_right_value`
+/// running on Windows, where it passes and is the half that checks the VALUES.
+/// Ungated, they aborted the Windows row with `unix reports ru_maxrss`.
+#[cfg(unix)]
 fn peak_rss(name: &str, source: &str, count: u64) -> u64 {
     let program = source.replace("{N}", &count.to_string());
     let project = common::temp_project(&format!("{name}_{count}"), &program);
@@ -45,6 +52,7 @@ fn peak_rss(name: &str, source: &str, count: u64) -> u64 {
 }
 
 /// Assert the loop's peak RSS does not grow with its iteration count.
+#[cfg(unix)]
 fn assert_flat(name: &str, source: &str, small: u64, large: u64) {
     let a = peak_rss(name, source, small);
     let b = peak_rss(name, source, large);
@@ -112,16 +120,19 @@ SUB main()\n\
   io::print(\"acc=\" & toString(acc))\n\
 END SUB\n";
 
+#[cfg(unix)]
 #[test]
 fn returning_a_record_constructor_runs_at_constant_rss() {
     assert_flat("b536_shape_a_ctor", SHAPE_A_CONSTRUCTOR, 400_000, 800_000);
 }
 
+#[cfg(unix)]
 #[test]
 fn returning_a_fresh_call_result_runs_at_constant_rss() {
     assert_flat("b536_shape_a_call", SHAPE_A_CALL, 400_000, 800_000);
 }
 
+#[cfg(unix)]
 #[test]
 fn returning_an_owned_local_still_runs_at_constant_rss() {
     assert_flat(
