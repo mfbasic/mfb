@@ -114,12 +114,7 @@ END SUB\n";
 
 #[test]
 fn returning_a_record_constructor_runs_at_constant_rss() {
-    assert_flat(
-        "b536_shape_a_ctor",
-        SHAPE_A_CONSTRUCTOR,
-        400_000,
-        800_000,
-    );
+    assert_flat("b536_shape_a_ctor", SHAPE_A_CONSTRUCTOR, 400_000, 800_000);
 }
 
 #[test]
