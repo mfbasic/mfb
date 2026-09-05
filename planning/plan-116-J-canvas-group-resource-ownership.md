@@ -87,8 +87,21 @@ directed it into the series as plan-116-I on 2026-09-01.)
   `CANVAS_GROUP_REFS` is written and decremented and never read as a predicate anywhere.
   Also **J8**: against a **shared** resource record "exactly once" is satisfied by code
   that is still wrong, because the close is global — see §4.3.1.)*
+  **As shipped this bullet is narrower than written, deliberately: the group closes an
+  owned resource when its buffer is freed AND nothing live still names it.** Not a
+  weakening — the unqualified rule is *incorrect*, and makes the commonest canvas program
+  there is lose its text one frame after a rebuild (**J14**). "Live" is the scene about to
+  be published plus every group's live items (**J15**). The consequence to be clear-eyed
+  about: a resource two groups name is closed by **neither** until the last of them drops
+  it, and if a program never drops it, it is never closed. That is the price of having no
+  refcount, and it is the same price `.ai/canvas-threading.md` §7 already pays.
 - A resource owned by a group and still drawn by an in-flight frame is not closed until
-  that frame completes.
+  that frame completes. **Met, and pinned by
+  `removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes`** (matrix row
+  **R17**) — `OPEN-MID-FRAME` under `MFB_CANVAS_FRAME_HOLD_MS=600`, `CLOSED-AFTER` once a
+  frame has completed past the retirement. The ordering needs *both* sides slowed: without
+  the worker's own `os::sleep(120)` the worker reaches the removal before the frame starts,
+  and the test silently becomes a test of the absent-name path instead.
 - 200 install/remove cycles leak neither file descriptors nor backing textures.
   *(**J11**, 2026-09-04: **there are no backing textures yet**, and an image holds no
   descriptor — `canvas::createImage` allocates nothing outside MFB's own resource record,
