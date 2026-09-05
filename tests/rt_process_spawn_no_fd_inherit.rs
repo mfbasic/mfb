@@ -137,7 +137,12 @@ END FUNC
     );
     let project = common::temp_project("bug499_neg", &source);
     let exe = common::build_project(&project);
-    let (status, stdout) = common::run_bounded(
+    // The parent must start with only its stdio, or the probe cannot tell a
+    // descriptor MFBASIC leaked from one this test binary was handed by its own
+    // launcher and passed straight through: the GitHub runners leak two pipes at
+    // fds ~142/145, and the probe reported exactly those (bug-543). The assertion
+    // below is unchanged — this only removes the environment from it.
+    let (status, stdout) = common::run_bounded_without_inherited_fds(
         &exe,
         Duration::from_secs(30),
         "bug-499: the fd-probe spawn did not finish",
