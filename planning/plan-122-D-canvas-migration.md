@@ -352,32 +352,84 @@ exit 0** (up from plan-122-F's 1390 — 2 are this letter's new fixtures, the re
 arrived on main between the two letters). `artifact-gate.sh all`: **1912 goldens,
 0 diffs, exit 0**, first try and uncontended. The golden delta is itemized in C9:
 it is one file.
-Commit: (this commit)
+Commit: `e85143449`
 
 ## Validation Plan
 
-- **Tests:** the 8 Rust canvas suites; the new `tests/syntax/canvas/` removal
-  fixture; every canvas man example via `man-run-examples.sh`.
+Every item below was executed; the result is recorded next to it.
+
+- **Tests:** the ~~8~~ **13** Rust canvas suites (C1, C11); the ~~new
+  `tests/syntax/canvas/` removal fixture~~ **two** removal fixtures; every canvas
+  man example via `man-run-examples.sh`.
+  → **12 suites 161 tests / 0 failures**; both fixtures green under
+  `test-accept.sh`; `man-run-examples.sh canvas --run` **22 built, 22 ran, 0
+  failed**. The 13th suite (`cli_canvas_man_examples_compile`) is fixed and
+  re-verified in the clean full run below.
 - **Coverage check:** confirm the rewritten `canvas/func_fill.rs`,
   `func_stroke.rs`, `func_fill_stroke.rs` and `helper_paint_defaults.rs` are in
   `scripts/coverage.sh --bin mfb`'s denominator.
+  → **In the denominator.** The denominator is defined by one exclusion regex,
+  `IGNORE` in `scripts/coverage-common.sh:26`:
+  `(^|/)(target|tests)/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$`.
+  All four paths (and the three further files this letter rewrote —
+  `helper_color.rs`, `helper_clamp_byte.rs`, `mod.rs`) fail to match it, so none is
+  excluded. Answered from the rule rather than by re-running the instrumented
+  suite, because the rule is what decides it.
 - **Runtime proof:** build and **run** `examples/emoji`; compare the rendered frame
   against the pre-change build. A green test suite is not the proof here — the
   frame is.
-- **Doc sync:** `06_canvas.md` (the exemption sentence), the 3 other docs from the
-  census, and `src/docs/spec/stdlib/18_color.md` (which now owns the constructor
-  documentation).
+  → **Byte-identical, 2,304,000 bytes** (960 x 600 x 4). Method and the exact
+  commands are in C10; the pre-change side is a `git archive main` attribution
+  compiler building main's own `canvas::rgb` source.
+- **Doc sync:** `06_canvas.md` (the exemption sentence), ~~the 3 other docs from the
+  census~~ (moot — C5), and `src/docs/spec/stdlib/18_color.md` (which now owns the
+  constructor documentation).
+  → `06_canvas.md`: the exemption paragraph rewritten (C8 — it keeps three of its
+  five members) and its example moved to `color::rgb`. `18_color.md`: gains a
+  **Cross-package use** table naming every member in the language that speaks
+  `color::Color`, measured with
+  `grep -rn 'COLOR_TYPE_ID' src/codegen/builtins/ | grep -v '/color/'` — `term`
+  (4 members), `astrings` (2), `canvas` (3 members + 3 record fields) — and states
+  that none of them constructs one, so `color`'s constructors are the only way and
+  are gated by nothing.
 - **Acceptance:** `cargo test --no-fail-fast`; `./scripts/test-accept.sh` full;
   `scripts/artifact-gate.sh`; `scripts/build-examples.sh`;
   `cargo check --all-targets` at the end; `cargo fmt`.
+  → Results in the Acceptance ledger below.
+
+## Acceptance ledger
+
+| Gate | Result |
+|---|---|
+| `test-accept.sh` full | **1403 ran, 0 mismatches, 0 behavioral failures**, exit 0 |
+| `artifact-gate.sh all` | **1381 tests, 1546 builds, 1912 goldens, 0 diffs**, exit 0, uncontended |
+| `man-run-examples.sh canvas --run` | **22 examples, 22 built, 22 ran, 0 failed** |
+| `build-examples.sh` | 54 archived; 6 failures, all attributed pre-existing (C-note in Phase 3) |
+| emoji frame vs. pre-change build | **byte-identical**, 2,304,000 bytes |
+| `tests/golden/canvas/` (7 reference PNGs) | **untouched** — `git status --porcelain` empty |
+| `cargo test --release --no-fail-fast` | see below |
+| `cargo check --all-targets` | see below |
+| `cargo fmt --all` + `repository/` | see below |
 
 ## Open Decisions
+
+Both resolved during execution; the recommendation was taken in each case.
 
 - **Whether `canvas::fill`/`stroke`/`fillStroke` should also move to `color`.**
   Recommend no: they build a `canvas::Paint`, which is a canvas concept. They take
   a `color::Color` and stay in canvas. (§2)
+  → **Taken: they stay in `canvas`.** Executing found a second, stronger reason
+  than the ownership argument. These three are the *only* `canvas::` members left
+  in the `Mode.Canvas` exemption (C8), so moving them to `color` would have made
+  every remaining `canvas::` call mode-gated — which is exactly the state the plan
+  wrongly assumed already held, and would have cost the exemption its last
+  legitimate members. `06_canvas.md`'s rewritten paragraph documents them as
+  exempt.
 - **Whether the removal fixture belongs in `tests/syntax/canvas/` or
   `tests/syntax/color/`.** Recommend `canvas/`, since it pins canvas's surface. (Phase 3)
+  → **Taken: `tests/syntax/canvas/`**, a new directory this letter creates (there
+  was no canvas fixture directory before — C9). Two fixtures rather than one, since
+  the compiler stops at the first unresolved name.
 
 ## Corrections
 

@@ -277,6 +277,25 @@ Imports are not transitive and a package cannot re-export another's types, so
 package handed the value over. This is the same rule `net::Address` follows for
 the transports.
 
+Three packages speak it, and after plan-122 they are the *only* colour surfaces in
+the language — there is no second colour type to convert to or from:
+
+| Package | Members | Direction |
+|---|---|---|
+| `term` | `setForeground`, `setBackground` | take a `color::Color` |
+| `term` | `getForeground`, `getBackground` | return one (`alpha` always `255`) |
+| `astrings` | `foreground`, `background` | take one |
+| `canvas` | `fill`, `stroke`, `fillStroke` | take one |
+| `canvas` | `Paint.fill`, `Paint.stroke`, `GradientStop.color` | record fields typed as one |
+
+None of them re-exports the type, so each of these needs `IMPORT color` alongside
+its own import. Note what this table implies about *construction*: none of these
+packages has a colour constructor. `color::rgb`, `color::fromHex`, `color::hsl` and
+the rest are the only way to build one, and `color` is gated by nothing — no app
+mode, no manifest dependency — so a palette can be computed anywhere, including
+before `app::setMode`. `canvas::rgb` and `term::TermColor` used to be the
+exceptions; neither exists.
+
 ## See Also
 
 * ./mfb man color — the per-function API reference
