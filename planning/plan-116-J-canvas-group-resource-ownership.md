@@ -772,8 +772,8 @@ Commit: `2996ef504` (§4 written), `73cac9404` (both tables re-run)
       with an install-side step to make the phase look substantial.
 - [x] Tests: a program that opens a **font**, `setGroup`s a `Text` naming it, drops its
       own binding, and presents the group — **the glyphs still draw.**
-      `tests/rt_canvas_group_ownership.rs`, four tests, and the shape matters more than
-      the count: `glyphs=0` is equally consistent with *"the font was closed too early"*
+      `tests/rt_canvas_group_ownership.rs` — **four tests as this phase left it**, ten
+      once Phase 3 added the race rows — and the shape matters more than the count: `glyphs=0` is equally consistent with *"the font was closed too early"*
       and *"group text never renders"*, so the file ships
       `the_control_draws_with_the_binding_alive` alongside, and it is what makes the
       ownership assertion mean anything. **Proven RED**: with
@@ -802,7 +802,7 @@ a `Picture`'s pixels, because no `Picture` draws an image on any backend yet and
 |---|---|
 | §4.3.1 resolved with probe output | **J9**/**J10**, three probes; Open Decisions records option 2 transitive |
 | test pinning the resolution | `tests/syntax/resources/canvas-setgroup-consumes-items`, green through `scripts/test-accept.sh` |
-| the drop-the-binding case | `tests/rt_canvas_group_ownership.rs`, 4 passed — and **proven RED** with the fix disabled |
+| the drop-the-binding case | `tests/rt_canvas_group_ownership.rs`, 4 passed at this phase (10 after Phase 3) — and **proven RED** with the fix disabled |
 | `cargo test --release --no-fail-fast` | `rc=0`, **114 targets ok, 0 FAILED** |
 | `scripts/artifact-gate.sh target/release/mfb all` | 1358 tests, 1521 builds, **1878 goldens, 0 diffs** |
 
