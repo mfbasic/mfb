@@ -5,7 +5,7 @@ Effort: small (one `pgrep` per guard) — but see "Status of the evidence"
 Severity: MEDIUM (harness integrity; the failure mode is a silent flake, not an error)
 Class: Test-harness race
 
-Status: **FIXED** (2026-09-05)
+Status: **FIXED** (2026-09-05, `fea98e3cb`)
 Regression Test: `tests/gate_mutual_exclusion.rs` — five cases: same-tree
 refusal in BOTH orderings, cross-tree non-interference, stale-holder reclaim,
 and same-process-tree re-entrancy.
