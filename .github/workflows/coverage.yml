@@ -59,7 +59,8 @@ jobs:
 
   # Uninstrumented unit/integration suite across every supported host family.
   # The native GitHub runners cover x86-64/glibc, AArch64/glibc, Win64, and
-  # macOS/AArch64. The x86-64/musl row uses Rust's musl target on the native
+  # macOS/AArch64; riscv64/glibc runs on a RISE-provided bare-metal runner (see
+  # that row). The x86-64/musl row uses Rust's musl target on the native
   # Linux runner. Each matrix row recompiles its test binaries (separate from
   # build's binary) — in release, matching the rest of the pipeline.
   #
@@ -93,6 +94,32 @@ jobs:
             rust_target: native
           - name: macos-aarch64
             runner: macos-15
+            rust_target: native
+          # Native RISC-V, on RISE's free bare-metal runners (Scaleway EM-RV1) —
+          # real silicon, so no QEMU/binfmt and no riscv64 sysroot. Everywhere
+          # else in this pipeline riscv64 is only a CROSS target: the artifact
+          # gate's 28 `*.linux-riscv64.ncodesum` goldens are emitted on x86-64 and
+          # the bytes are never executed. This row is the only place riscv64 is
+          # the HOST — which also makes `tests/golden.rs::artifact_gate_all` sweep
+          # every fixture with `linux-riscv64` as the host target for the first
+          # time, since `artifact-gate.sh` derives that from `uname -m`.
+          #
+          # Needs the `rise-risc-v-runners` GitHub App on the org. Without it the
+          # row queues forever rather than failing fast, which is the first thing
+          # to check if it sits in "Waiting for a runner":
+          # https://riscv-runners.riseproject.dev/
+          #
+          # Expect `mfb build -app` to be refused here:
+          # `linux_riscv64::supports_app_mode` returns a deliberate `false` (the
+          # GTK4 toolkit was never ported to rv64 — bug-117.1), so the nine test
+          # binaries that call `common::build_app` cannot pass —
+          # cli_app_canvas_mode, cli_macos_app_io_input_imports and the seven
+          # rt_canvas_* suites. Left unfiltered on purpose: `fail-fast: false`
+          # above means a red row here hides nothing from the other five, and a
+          # `--skip` list would hide the unknown failures along with the known
+          # one. Read past them rather than assuming everything red is bug-117.1.
+          - name: linux-riscv64-glibc
+            runner: ubuntu-24.04-riscv
             rust_target: native
     steps:
       - uses: actions/checkout@v4
