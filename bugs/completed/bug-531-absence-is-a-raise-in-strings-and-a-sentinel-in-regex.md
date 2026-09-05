@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Fixed — `regex::find` raises `ErrNotFound` on absence. This is a
+Status: **FIXED** (2026-09-05, `5e93d26a3`)
 BREAKING change with no compile-time signal; see the migration note below.
 Regression Test: `tests/rt-behavior/regex/regex-find-absence-rt`
 

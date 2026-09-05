@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Fixed — both `strings::replace` and `regex::replace` refuse an empty
+Status: **FIXED** (2026-09-05, `426660224`)
 needle/pattern with `ErrInvalidArgument` (77050002). BREAKING on the `strings`
 side (a documented no-op became a raise) with no compile-time signal.
 Regression Test: `tests/rt-behavior/regex/replace-empty-pattern-rt`

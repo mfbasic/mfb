@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Fixed — the rule is written down, `count`'s page specifies a result, and
+Status: **FIXED** (2026-09-05, `2860dd7e7`)
 the family is pinned. `strings::replace` was carried as the one recorded
 exception for exactly one commit; bug-533 brought it into line and deleted the
 exception from the page and the spec.
