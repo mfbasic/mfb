@@ -962,6 +962,11 @@ the lifetime in observable terms with zero memory vocabulary.
 
 *Counts moved with the merge: 1377/1906 here against 1358/1878 before it, because `main`
 brought its own fixtures and goldens.*
+
+*One change landed after this table was measured: **R17b**, the font-flavoured mid-frame
+row (**J19**). It is **test-only** — no `src/` file is touched — so the artifact-gate,
+`test-accept` and `regen-ncodesum` figures are unaffected by construction, and the one
+target it does touch was re-run on its own: `rt_canvas_group_ownership` **11 passed**.*
 Commit: `76d938d02` (docs), `0ddaaeabd` + `5d0ce5bc9` (`.ai/canvas-threading.md`)
 
 ## Validation Plan
