@@ -95,6 +95,114 @@ impl CodeBuilder<'_> {
         self.resource_union_cleanup(type_).is_some()
     }
 
+    /// plan-116-J: a call to a **consuming parameter** takes over closing every resource
+    /// reachable from its argument, so this scope must stop closing them.
+    ///
+    /// The analysis twin of this is `ir::verify`'s containment relation, which marks the
+    /// caller's bindings moved so a *later* use is `2-203-0055`. That is a diagnostic and
+    /// nothing more: `moved` is a verification set, and codegen emits its scope-drop
+    /// closes from the cleanup list regardless. Without this deactivation the caller
+    /// still closes the image at scope exit, the group goes on naming a closed resource,
+    /// and the item draws nothing — silently, because a second close is a defined no-op
+    /// so nothing crashes and no error is raised.
+    ///
+    /// Modelled on `RETURN`'s deactivation in `builder_exits.rs`, which is the same
+    /// problem: a value whose ownership leaves this scope must not also be closed by it.
+    /// Two shapes, because a resource's close obligation can sit in either place:
+    ///
+    /// * the resource itself is named in the argument → drop its `ActiveCleanup`;
+    /// * a **container** is named and the resource floats to it (`ResOwner::Float`) →
+    ///   drop the container's owned-list drain. Dropping the whole list is correct
+    ///   rather than over-broad: everything the container holds is reachable from the
+    ///   argument, so the callee takes over all of it.
+    pub(crate) fn deactivate_consumed_cleanups(&mut self, target: &str, args: &[NirValue]) {
+        let Some(index) = crate::codegen::resource::builtin_consuming_parameter_index(target)
+        else {
+            return;
+        };
+        let Some(argument) = args.get(index) else {
+            return;
+        };
+        let mut named = Vec::new();
+        Self::collect_consumed_locals(argument, &mut named);
+        // Expand each named local through what it HOLDS. The argument is normally
+        // `[tag]` — a list naming an item, not the resource — and the close obligation
+        // that has to be dropped belongs to `face`, whose name appears nowhere in the
+        // argument. Without this expansion the walk finds only `tag`, whose type is a
+        // union and therefore not a resource-owning container, and deactivates nothing:
+        // the scope closes the font at exit and the group's text draws no glyphs.
+        // Measured exactly that way before the expansion existed.
+        let mut frontier = named.clone();
+        let mut seen: std::collections::HashSet<String> = named.iter().cloned().collect();
+        while let Some(current) = frontier.pop() {
+            let Some(held) = self.resource_containment.get(&current) else {
+                continue;
+            };
+            for name in held.clone() {
+                if seen.insert(name.clone()) {
+                    named.push(name.clone());
+                    frontier.push(name);
+                }
+            }
+        }
+        for name in named {
+            let Some(local) = self.locals.get(&name) else {
+                continue;
+            };
+            let type_ = local.type_.clone();
+            if crate::codegen::builtins::resource_close_function(&type_).is_some()
+                || self.resource_union_cleanup(&type_).is_some()
+            {
+                self.deactivate_resource_cleanup(&name);
+            }
+            if self.is_resource_owning_container(&type_) {
+                self.deactivate_owned_list(&name);
+            }
+        }
+    }
+
+    /// Every local named structurally inside a consumed argument.
+    ///
+    /// Structural only, and for the same reason the verifier's containment walk is
+    /// (`ir::verify::link`): a constructor or literal *places* its operands into the
+    /// value it builds, and an opaque call does not. Deactivating a cleanup for a local
+    /// that merely fed a call would leave a resource this scope still owns unclosed — a
+    /// leak, where the opposite error is only a redundant close of something the callee
+    /// already closed, which is a defined no-op.
+    pub(crate) fn collect_consumed_locals(value: &NirValue, out: &mut Vec<String>) {
+        match value {
+            NirValue::Local(name) => out.push(name.clone()),
+            NirValue::Constructor { args, .. } => {
+                for arg in args {
+                    Self::collect_consumed_locals(arg, out);
+                }
+            }
+            NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+                for element in values {
+                    Self::collect_consumed_locals(element, out);
+                }
+            }
+            NirValue::MapLiteral { entries, .. } => {
+                for (key, entry) in entries {
+                    Self::collect_consumed_locals(key, out);
+                    Self::collect_consumed_locals(entry, out);
+                }
+            }
+            NirValue::UnionWrap { value, .. } | NirValue::Checked { value, .. } => {
+                Self::collect_consumed_locals(value, out);
+            }
+            NirValue::WithUpdate {
+                target, updates, ..
+            } => {
+                Self::collect_consumed_locals(target, out);
+                for update in updates {
+                    Self::collect_consumed_locals(&update.value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn deactivate_resource_cleanup(&mut self, name: &str) {
         if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
             matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name)
