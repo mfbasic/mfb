@@ -1,7 +1,11 @@
 # plan-116-J: `setGroup` takes ownership of the resources in its list
 
-Last updated: 2026-09-01
-Effort: medium (1h–2h)
+Last updated: 2026-09-04
+Effort: ~~medium (1h–2h)~~ **large**. The estimate was made on the reading that this
+letter *"adds only who closes the resources and when"* — see §Summary for why that was
+wrong. It needed new analysis in `ir::verify`, a codegen deactivation, a registry seam,
+three internal members, and a design correction that only appeared once the ordinary
+rebuild-a-group-each-frame program was probed (**J14**).
 Depends on: plan-116-I (which supplies the `RES` fields; plan-114 A–E landed 2026-09-01)
 
 The feature request specifies that `canvas::setGroup` *"takes ownership of any
@@ -9,7 +13,9 @@ resources in the list (post plan-114, a `Picture` holds a `RES Image`); the grou
 them until it is dropped."*
 
 That behaviour is not implementable until **plan-116-I** lands: plan-114 retired the
-`RES`-record-field ban (2026-09-01; `src/rules/table.rs:1015`, reserved-not-emitted),
+`RES`-record-field ban (2026-09-01; reserved-not-emitted — **the `table.rs:1015`
+citation is dropped**, since a line number is exactly what **J6** found had drifted;
+`grep -rn TYPE_RESOURCE_FIELD_FORBIDDEN src | grep -v rules/table.rs` shows no emit site),
 but `canvas` itself still names its image and font through the plain value handles
 `ImageRef` and `FontRef` until I migrates `Picture`/`Text` to direct
 `RES canvas::Image` / `RES canvas::Font` fields and removes those handles.
@@ -20,9 +26,17 @@ one, once plan-116-I has put the resources into the items.
 
 Behavioral outcome: a program opens an image, puts it in a `Picture` inside a
 `setGroup` list, and lets its own binding go out of scope — and the image stays usable
-for as long as the group is installed, closing exactly once when the group is replaced
-or removed and no frame still draws it. Doing that 200 times in a loop does not exhaust
-file descriptors or leak the backing texture.
+for as long as the group is installed, closing when the group is replaced or removed,
+no frame still draws it, **and nothing else live still names it**. Doing that 200 times
+in a loop returns `groupBytes=` to its baseline.
+
+*(Two corrections to that sentence as originally written, both measured: "closing exactly
+once" is not the rule — a resource another group or the live scene still names is not
+closed at all, and the unqualified rule breaks the commonest canvas program there is
+(**J14**). And "does not exhaust file descriptors or leak the backing texture" cannot be
+observed: an image holds no descriptor and there are no backing textures, because
+`canvas::Picture` draws nothing on any backend yet (**J11**). What is observable is the
+arena bytes, and that is what the loop asserts.)*
 
 References:
 
@@ -34,7 +48,9 @@ References:
 - `.ai/canvas-threading.md` §7 — the closed flag and the deferred texture free, which
   this letter must compose with rather than duplicate.
 - `.ai/resources-packages.md` — the RES resource system.
-- plan-116-G §4.2–4.3 — the group table, the deep copy, and the refcount + drain gate.
+- plan-116-G §4.2–4.3 — the group table, the deep copy, and the ~~refcount +~~ drain
+  gate. *(There is no refcount: `CANVAS_GROUP_REFS` is written and decremented and never
+  read as a predicate — **J4**.)*
 
 ## Prerequisites
 
