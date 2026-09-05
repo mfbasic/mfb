@@ -571,6 +571,37 @@ Commit: `f7280678d`
 
 ## Corrections
 
+**I9 (2026-09-04) — the corrected line numbers **I5** supplied have themselves drifted,
+and the fix is to stop supplying them.**
+
+**I5** caught that this letter's three seam citations were stale and gave the right ones:
+*"`data_objects.rs:252` → **261**, `data_objects.rs:274` → **291**,
+`module_analysis.rs:47` → **58**."* Re-measured today, after plan-116-J added
+`canvas.nextReclaimableGroup`, `canvas.retiredItems` and `canvas.groupSlots` to the same
+tables:
+
+| I5's corrected number | today |
+|---|---|
+| `data_objects.rs:261` | **`:264`** |
+| `data_objects.rs:291` | **`:297`** |
+| `module_analysis.rs:58` | **`:61`** |
+
+Three for three, inside two months, from a sibling letter adding rows *above* them —
+nothing about the rows these citations point at changed at all.
+
+**So the correction is not a fourth set of numbers.** The claim these citations support is
+*"the members are registered in these three seams, and a removal that misses one fails a
+`catalog_is_consistent`-class test"* — and that claim is checked by
+`grep -n 'canvas\.\(image\|font\)Handle' src/codegen/memory/data/data_objects.rs
+src/codegen/engine/analysis/module_analysis.rs`, which returns the seams by name and
+cannot go stale. The **count** (three registrations across two files) is the load-bearing
+part; the offsets never were.
+
+Recorded in both letters — plan-116-J hit the identical failure three times
+(**J1**, **J6**, **J17**) and swept its own citations for the same reason. Four
+independent instances in one series is the argument for the rule rather than for the
+fixes: **cite the symbol and the grep, never the line.**
+
 **I7 (2026-09-04) — the box-2228 row is decomposed and folded into a combined final run;
 recorded here as well as in plan-116-J **J16**, because a reader of this letter alone must
 not conclude the row was skipped.**
