@@ -17,13 +17,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_project(name: &str, out_dir: &Path) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(
@@ -58,13 +54,7 @@ fn mode_bits(path: &Path) -> u32 {
 
 #[test]
 fn file_creating_builtins_create_owner_only_0600() {
-    let out_dir = std::env::temp_dir().join(format!(
-        "mfb_bug184_out_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let out_dir = std::env::temp_dir().join(format!("mfb_bug184_out_{}", common::unique_nonce()));
     fs::create_dir_all(&out_dir).expect("create output dir");
     let project = temp_project("bug184_mode", &out_dir);
 

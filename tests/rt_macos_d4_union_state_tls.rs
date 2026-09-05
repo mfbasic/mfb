@@ -32,18 +32,15 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// The server accumulates these into `state.raw` (one append each) and writes
 /// them back through the MATCH-extracted `tls::Socket` variant.
 const EXPECTED: &[u8] = &[65, 66, 67, 68, 69]; // "ABCDE"
 const PORT: u16 = 18461;
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {

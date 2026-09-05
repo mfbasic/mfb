@@ -23,7 +23,6 @@ mod common;
 
 use std::fs;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Writes box-drawing and accented glyphs while TUI mode is on.
 const TERM_SOURCE: &str = "IMPORT term\nIMPORT io\n\n\
@@ -35,10 +34,7 @@ const TERM_SOURCE: &str = "IMPORT term\nIMPORT io\n\n\
      END SUB\n";
 
 fn build_ncode(name: &str) -> serde_json::Value {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(

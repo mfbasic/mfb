@@ -671,8 +671,7 @@ mod tests {
             vec![RuntimeHelper::Io],
             vec![plain_resource_bind("tcp.Socket", None)],
         );
-        let err =
-            validate_nir(&m).expect_err("an undeclared close helper must still be rejected");
+        let err = validate_nir(&m).expect_err("an undeclared close helper must still be rejected");
         assert!(
             err.contains("requires undeclared helper 'tcp'"),
             "unexpected error: {err}"

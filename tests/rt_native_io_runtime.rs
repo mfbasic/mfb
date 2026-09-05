@@ -4,8 +4,6 @@
 #[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
-use std::time::{SystemTime, UNIX_EPOCH};
-
 mod common;
 use common::*;
 
@@ -97,10 +95,7 @@ END FUNC
 #[cfg(unix)]
 #[test]
 fn native_resource_cleanup_reports_secondary_close_failure_metadata() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_native_resource_cleanup_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     let target_file = root.join("data.txt");
@@ -161,10 +156,7 @@ END FUNC
 #[cfg(unix)]
 #[test]
 fn native_exit_program_runs_caller_resource_cleanup() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_native_exit_program_cleanup_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     let target_file = root.join("data.txt");
@@ -227,10 +219,7 @@ END FUNC
 #[cfg(unix)]
 #[test]
 fn native_loop_exit_and_continue_run_body_resource_cleanup() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_native_loop_cleanup_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     let target_file = root.join("data.txt");
@@ -646,10 +635,7 @@ END FUNC
 
     // fs::writeAll buffered large-chunk path: write to a regular file, read it
     // back, and confirm the whole payload landed.
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let out_path = std::env::temp_dir().join(format!("bug51_fs_{nonce}.bin"));
     let fs_source = format!(
         r#"

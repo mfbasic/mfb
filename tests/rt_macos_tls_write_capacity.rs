@@ -24,7 +24,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// The server writes these exact bytes back after the client's greeting. They
 /// are appended one at a time so the `List OF Byte` ends with `count == 5` and a
@@ -49,11 +49,8 @@ const PORT: u16 = 18453;
 /// `rt_tls_listener_local_address.rs`'s `DEADLINE`.
 const STALL_DEADLINE: Duration = Duration::from_secs(120);
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {

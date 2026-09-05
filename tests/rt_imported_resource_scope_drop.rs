@@ -34,7 +34,6 @@ mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const TARGET: &str = "linux-x86_64";
 
@@ -50,10 +49,7 @@ fn fixture_package() -> PathBuf {
 /// no `source`, which `verify_and_report_packages` treats as local and so
 /// permits unsigned.
 fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::create_dir_all(root.join("packages")).expect("create packages dir");

@@ -6,13 +6,42 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+/// A token unique across this process's threads, and across concurrent runs.
+///
+/// **Not a timestamp.** Every scratch path in this suite used to be named
+/// `<prefix>_<SystemTime::now().as_nanos()>`, on the assumption that a
+/// nanosecond stamp cannot repeat. It repeats constantly: the clock is far
+/// coarser than its unit, and libtest starts a binary's cases on every core at
+/// once. Measured on this macOS host — four threads, 200 000 samples each —
+/// **698 577 of the 800 000 stamps were duplicates.**
+///
+/// Two cases that collide get the SAME scratch directory, and then one's
+/// `remove_dir_all` deletes the other's freshly built executable, so the spawn
+/// fails `NotFound`. That is what took the macOS CI row down in
+/// `rt_tls_connect_allow_self_signed`:
+///
+/// ```text
+/// spawn the mfb tls client: Os { code: 2, kind: NotFound }
+/// ```
+///
+/// The quiet half is worse: colliding cases also overwrite each other's fixture
+/// files, and nothing reports it.
+///
+/// A process-wide counter cannot repeat within the process, and the pid
+/// separates concurrent runs on one machine — which the clock never did either.
+pub fn unique_nonce() -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
 
 pub fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(
@@ -1267,5 +1296,67 @@ pub fn run_bounded_with_rss(
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+    }
+}
+
+// --- Cross-process port gate (bug-488) --------------------------------------
+
+/// Machine-wide gate for the "bind an ephemeral port, release it, hand the
+/// number to a child that binds it" window.
+///
+/// That window is unavoidable when the child is an external program that takes a
+/// port on its command line (`openssl s_server`), and it is a race: between the
+/// release and the child's `bind(2)`, anything on the machine may take the port.
+///
+/// The gate this replaces was a `static OnceLock<Mutex<()>>` — **per-process**.
+/// It serialized the cases inside one test binary and nothing else, so it could
+/// not serialize against another test binary in the same `cargo test`, nor
+/// against a second `cargo test` on the same machine. The latter is routine
+/// here: work runs in several `.claude/worktrees/*` sessions at once, and
+/// `rt_tls_connect_allow_self_signed` produced six false failures that way
+/// during one work pass — in BOTH directions (accepting a peer it should have
+/// refused, and refusing one it should have accepted), which is the signature of
+/// two runs sharing state rather than one stale value leaking.
+///
+/// `flock(2)` fixes exactly that: the lock lives on a file in the temp dir, so
+/// every process on the machine contends for the same one. It also covers
+/// threads within a process — each `acquire` opens its own file description, and
+/// `flock` locks per description, so two threads contend as two processes would.
+///
+/// Held for the whole bind→release→child-listening window; released on drop.
+pub struct PortGate(fs::File);
+
+impl PortGate {
+    /// Blocks until every other holder on this machine releases.
+    pub fn acquire() -> Self {
+        use std::os::unix::io::AsRawFd;
+        let path = std::env::temp_dir().join("mfb-test-port-gate.lock");
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap_or_else(|e| panic!("open the port gate at {}: {e}", path.display()));
+        // EINTR is the only retryable error here; anything else means the gate
+        // is unusable and serializing silently-not-at-all is how this bug
+        // survived six sightings, so fail loudly instead.
+        loop {
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            if rc == 0 {
+                break;
+            }
+            let err = std::io::Error::last_os_error();
+            if err.kind() != std::io::ErrorKind::Interrupted {
+                panic!("flock the port gate: {err}");
+            }
+        }
+        Self(file)
+    }
+}
+
+impl Drop for PortGate {
+    fn drop(&mut self) {
+        use std::os::unix::io::AsRawFd;
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
     }
 }

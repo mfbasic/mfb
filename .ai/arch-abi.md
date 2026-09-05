@@ -442,6 +442,38 @@ equivalent to lower): `sh -c 'ulimit -s 1024 && exec mfb build <proj>'`. That is
 `tests/cli_parse_expression_tree_depth.rs`'s two `*_on_a_1mb_main_stack` tests do, so the Windows-
 only failure is now reproducible on every Unix row.
 
+### A Win64 emitter must write `return_register()` on EVERY path, not just the error one
+
+Win64's MFB result register is **not** the C result register. plan-85-A aligned
+`mfb_return(0)` onto the call-argument bank, so `abi::return_register()` is **`rcx`**
+(`CALL_ARGS_WIN64[0]`, `src/arch/x86_64/select.rs`) while `abi::c_return(0)` is **`rax`**.
+`emit_linux_c_call` stages `rax → rcx` for every seam routed through it — its comment records
+plan-110-D, where the omission had `socket()`/`connect()`/`getsockname()` all checked against
+`rcx`, the third *outgoing* argument.
+
+`win_x86_64::call_external` does NOT stage. Any emitter that calls it directly and whose result a
+shared caller reads through `return_register()` must stage it itself.
+
+**The trap is a PARTIAL write, not a missing one.** bug-544's `emit_mkstemps` did write
+`return_register()` — with `-1`, on the give-up path — and fell through `label(&success)` straight
+to `label(&done)` leaving the real handle in `rax`. Grepping for "does this emitter assign the
+result register" says yes. The question to ask is **"on every path?"** Its neighbour
+`emit_random_bytes` was the plain omission, under a comment asserting the NTSTATUS "is ignored" —
+true of the emitter, false of `gen_temp_file`, which sign-extends it and errors on negative.
+Between them `fs::createTempFile`, `fs::writeTextAtomic` and `fs::writeBytesAtomic` raised
+`7-702-0002 ErrWriteFailed` on Windows unconditionally.
+
+A mechanical sweep needs that per-path question: `emit_path_exists` and `emit_is_terminal` compute
+INTO `return_register()` rather than staging `rax`, so grepping for the staging move reports them
+as false positives.
+
+**And the coverage lesson, which is why it shipped:** a `#![cfg(unix)]` runtime test plus a
+codegen-INSPECTION test look like two tests and are zero Windows runtime coverage.
+`rt_fs_create_mode_0600` is unix-only (it asserts `0600`) and `rt_fs_atomic_int_return` only reads
+the instruction stream, so the whole atomic-write path was verified on Windows as far as
+"it compiles". When a seam is platform-specific, at least one test on it must be
+platform-NEUTRAL and must RUN (`tests/rt_fs_temp_and_atomic_write.rs`).
+
 ### WASAPI capture carry-over
 
 WASAPI capture requires each `IAudioCaptureClient::GetBuffer` packet be released whole — `ReleaseBuffer(NumFramesRead)` must equal the `GetBuffer` count or 0; you CANNOT partially consume a packet. The `audio::read` loop (`audio/windows_io.rs`, `lower_read`) copies `min(numFrames, framesRemaining)` from the packet then must `ReleaseBuffer(numFrames)` (the whole packet), so on the final packet of any read whose length isn't packet-aligned (the common case) the `numFrames - copyFrames` unconsumed frames are lost → gaps in captured audio. ALSA leaves the remainder in the kernel buffer, macOS in the ring; only Windows dropped it.

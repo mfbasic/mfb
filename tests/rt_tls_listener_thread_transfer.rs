@@ -41,7 +41,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// What the worker writes to the accepted peer. Receiving it back through a real
 /// handshake driven entirely on the receiving thread is the proof.
@@ -56,11 +56,8 @@ const PAYLOAD: &str = "transferred-listener-ok";
 /// `ErrTimeout` through the program rather than tripping the harness's outer kill.
 const DEADLINE: Duration = Duration::from_secs(120);
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {
