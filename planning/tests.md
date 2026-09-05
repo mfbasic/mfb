@@ -161,22 +161,50 @@ neither is currently reachable from a unit test without ~60 lines of boilerplate
    the `.ncode` dump path does (`src/target/macos_aarch64/mod.rs:501-522`) minus
    the file write, so it needs no linker and no subprocess.
 
-- [ ] Add the harness to `src/codegen/engine/tests/test_support.rs` and/or
+- [x] Add the harness to `src/codegen/engine/tests/test_support.rs` and/or
       `src/testutil.rs` — both are OUTSIDE the coverage denominator
       (`IGNORE` matches `/tests/` and `/src/testutil.rs`), so the harness cannot
       inflate any file's percentage.
-- [ ] Prove it: one test that lowers a whole program in process and one that
+      `testutil::code_for_src_on`/`app_code_cached`/`code_for_src_cached` (whole
+      program, any of five backends, any build mode) and
+      `test_support::{Stream, BuilderHarness}` (one emitter, real per-family
+      platform). Landed in 188f337de, 764b9d9a8 and c5ff4b1.
+- [x] Prove it: one test that lowers a whole program in process and one that
       drives a single emitter through `CodeBuilder`.
+      `testutil::code_harness_tests::every_backend_lowers_a_program_in_process`
+      and `builtins/tests/os.rs::every_os_body_refuses_an_undeclared_import`.
+- [x] Add the suites' home: `src/codegen/builtins/tests/`, declared from
+      `codegen/engine/tests/mod.rs`. Both paths are excluded, which is
+      load-bearing rather than tidy — see Corrections C3.
 
-Acceptance: both harness entry points are used by at least one passing test, and
-`coverage-check.sh` shows movement on at least one previously-0% file.
+Acceptance: MET. Both entry points are used by passing tests, and the
+previously-0% `gen_present.rs` / `gen_fmod.rs` are at 99.57% / 100.00%.
 
 ## Phase 2 — close the files, worst first, one commit each
 
 The per-file ledger is generated from the Phase 0 baseline; see
 `planning/coverage-ledger.md`. Each row is one commit.
 
-- [ ] Generate `planning/coverage-ledger.md` from the measured baseline.
+- [x] Generate the measured baseline: `planning/coverage-baseline.txt` (416
+      files below the floor across the whole workspace; 401 of them in `src/**`).
+- [x] `canvas/gen_present.rs` 0.00% (0/233) -> 99.57% (232/233) — c97ba9dea
+      (also closed `canvas/scene_base.rs` 0/11 -> 11/11 and
+      `canvas/gen_image.rs` 0/10 -> 10/10, which the same program reaches)
+- [x] `math/gen_fmod.rs` 0.00% (0/157) -> 100.00% (157/157) — 268ef99da
+- [x] `builtins/perf/perf.rs` 1.07% (8/748) -> 98.26% (735/748)
+- [x] `os/func_version.rs` 10.46% (16/153) -> 100.00% (153/153)
+- [x] `os/func_uptime.rs` 13.56% (16/118) -> 99.15% (117/118)
+- [x] `os/func_is_admin.rs` 26.67% (16/60) -> 100.00% (60/60)
+- [x] `canvas/mod.rs` 53.77% (1013/1884) -> 99.22% (1013/1021) — no new test;
+      the gap was the measurement artifact in Corrections C3
+- [x] `math/mod.rs` 57.45% (270/470) -> 100.00% (270/270) — same
+- [x] `runtime/canvas/vulkan.rs` 1.21% (50/4122) -> 98.01% (4040/4122) — reached
+      by the `canvas::present` program; the single largest file in the task
+- [ ] The remaining 382 `src/**` files below the floor, worst first. Regenerate
+      the list with `python3 scripts/coverage-src-delta.py <report.json>`.
+- [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
+      `--bins` (Findings F1) but `repository/src/**` is not, and only the full
+      run measures it.
 
 Acceptance: `sh scripts/coverage-check.sh` prints
 `All non-excepted files >= 98% line coverage.`
@@ -249,4 +277,57 @@ rather than relying on the host.
 
 ## Corrections
 
-_(Empty until something diverges.)_
+### C1 — "the coverage job is the only red job in CI" is false; `fmt` is red too
+
+`.github/workflows/coverage.yml` runs `cargo fmt --all -- --check` under 1.96.0
+as its own job, and on main (80e9895ea) it fails on four files:
+`builtins/process/func_close_input.rs:25`,
+`builtins/regex/func_find_all_matches.rs:16`, `codegen/resource/mod.rs:318`
+and `:366`, `tests/rt_regex_span.rs:197`. Reproduced by restoring all four to
+HEAD and re-running the check, so it does not follow from this branch. Fixed in
+6ae1eca23 (reformatting only).
+
+### C2 — the local baseline is 416 files / 89.34%, not 405 / 89.09%
+
+`sh scripts/coverage.sh` here reports `416` files below the floor and
+`89.34%` overall, against the task's CI-measured `405` and `89.09%`. The
+difference is the host: coverage of a platform-specific emitter follows the
+machine. `tls/gen_macos/timeout.rs` is one of the task's seven 0% files on CI
+and is ABOVE the floor here. See Findings F3; the mitigation is that every test
+for a platform-specific file names its `CodeTarget` explicitly.
+
+### C3 — a `#[cfg(test)] mod` line makes its OWN file report far worse
+
+Not anticipated by the task, and large enough to change what the list means. A
+`cargo llvm-cov` profile merges two copies of the crate — the test binary, which
+runs, and the plain `mfb` binary, which is instrumented and never executed
+(10,954 function records, every one at count 0). Once a `#[cfg(test)]` module
+appears in a file, the two copies inline differently and the never-run copy
+contributes uncovered regions for lines the running copy demonstrably executes.
+
+Measured three ways:
+
+- adding `mod tests_codegen;` to `builtins/os/mod.rs`: `100.00% (131/131)` ->
+  `85.06% (131/154)`. `register` runs (the suite calls it and every member is
+  registered) and `#[inline(never)]` changed nothing; parking the suite restored
+  131/131.
+- the same line in `builtins/mod.rs`: `99.51% (610/613)` -> `68.93% (610/885)`.
+- and the converse: relocating the suites out of `canvas/mod.rs` and
+  `math/mod.rs` took those files from `53.77% (1013/1884)` and `57.45%
+  (270/470)` to `99.22% (1013/1021)` and `100.00% (270/270)` — the same covered
+  lines, ~1,060 fewer phantom ones.
+
+So the suites live in `src/codegen/builtins/tests/` and the one `mod` line lives
+in `codegen/engine/tests/mod.rs`; both paths are excluded by `IGNORE`, so the
+declaration damages nothing. Deleting the never-executed plain binary before
+reporting was also tried and changes `src/**` by exactly nothing (0 files
+moved), so the object list is not the lever — the module placement is.
+
+### C4 — one commit per file, but one suite per program
+
+The task says one commit per file. Where a single program and a single suite
+close several files at once (the three per-platform `os::` emitters; the three
+canvas files behind one `canvas::present` program), splitting the commit would
+mean landing a suite that does not compile, or landing it three times. Those
+land as one commit that names every file it closes with its own before/after.
+Everything else is one file, one commit.
