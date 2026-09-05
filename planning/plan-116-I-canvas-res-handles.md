@@ -484,22 +484,40 @@ Commit: —
 
 ### Phase 4 — Docs, spec, and gates
 
-- [ ] `mod.rs` module comment and every `ImageRef`/`FontRef` mention in it
+- [x] `mod.rs` module comment and every `ImageRef`/`FontRef` mention in it
       (`grep -n 'ImageRef\|FontRef' src/codegen/builtins/canvas/mod.rs`),
       `func_present.rs` DESC, and the load/create/measure/get/set docs: the scene
       draws *through the handle you still own*; destroying afterwards draws
       nothing. **No memory vocabulary** — copy/mutate/value/alias-for-RES only
       (`.ai/man-content.md`); `scripts/man-census.sh --memory-scope` → 0
-      unclassified hits.
-- [ ] `src/docs/spec/app/06_canvas.md` §"Images are named, not embedded" —
-      rewritten for direct `RES` fields, including the thread-plane consequence.
-- [ ] `.ai/canvas-threading.md` §7 last paragraph — the guard moves from
+      unclassified hits. — `0 unclassified hits`. The remaining `ImageRef`/`FontRef`
+      mentions in `mod.rs` are all in the *inverted pin* and the comment recording what
+      used to be declared there — history, not surface. `mfb man canvas --all` mentions
+      neither, which is the check that matters.
+- [x] `src/docs/spec/app/06_canvas.md` §"Images are named, not embedded" —
+      rewritten for direct `RES` fields, including the thread-plane consequence. —
+      Including the rule code (`2-203-0138`) and the remedy, so a reader who hits it
+      finds the section that explains it. Two sentences in the neighbouring
+      "content is orthogonal" subsection also said *"behind the id"* and now say
+      "behind the image".
+- [x] `.ai/canvas-threading.md` §7 last paragraph — the guard moves from
       `imageRef` (which no longer exists) to the render-time closed-read-as-zero
-      rule (§4.2).
-- [ ] `scripts/man-run-examples.sh canvas --run` passes (every example now names
-      resources directly).
-- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
-      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
+      rule (§4.2). — And **row R3 of the race matrix**, which the box does not mention
+      (**I5**): it asserted `ErrResourceClosed` *at `imageRef`*, so it named the
+      mechanism, not just the wording.
+      The replacement is stronger than a moved guard: `destroyImage` consumes its
+      binding, so "name it again" is a compile error. The render-time rule covers what
+      the guard actually protected — a scene built *before* the destroy, which still
+      draws, as nothing.
+- [x] `scripts/man-run-examples.sh canvas --run` passes (every example now names
+      resources directly). — `examples: 25   built: 25   ran: 25   failed: 0`. Two
+      fewer than before this letter, because two members are gone.
+- [x] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
+      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**). —
+      `141 golden(s) refreshed, 0 missing`, no `.ncodesum` file changed. Predicted, and
+      not evidence: this letter changed the canvas registry, the renderer's font read
+      and nine force-emit tables, and none of that is hashed. What the gate proves is
+      the narrow thing — nothing *outside* canvas moved.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 `scripts/test-accept.sh` green; `scripts/artifact-gate.sh all` 0 diffs;
