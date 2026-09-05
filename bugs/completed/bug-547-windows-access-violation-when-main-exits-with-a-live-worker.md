@@ -242,6 +242,12 @@ Post-fix exit-code sequence (75 runs):
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 ```
 
+Re-verified after merging `main` (bug-537 + bug-545 had landed in between, one of
+them in the same `lower_module_for_platform`): full `cargo test --no-fail-fast`
+exit 0, `artifact-gate all` 0 diff(s), and the merged-tree executables back on
+2230 — CI-shape program 0/30 faults under `cdb`, spinning worker 0/30 in the ssh
+loop.
+
 Goldens: `artifact-gate.sh target/release/mfb all` on the branch = **4 diff(s)**,
 all four being (thread-using byte-identity fixture) × (family whose flag flipped) —
 `byte-identity/thread` and `byte-identity/resource-xfer-slots`, each on
