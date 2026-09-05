@@ -730,7 +730,17 @@ Commit: —
       (a *named local*, not just a temporary), which is why `groupItems`' copies register
       none today. Worth measuring rather than assuming: if it had been true, the **live**
       scene's copies would have been closing resources on every frame.
-- [ ] `setGroup` replacing a live group closes the **old** buffer's resources only.
+- [ ] `setGroup` replacing a live group closes the old buffer's resources **that the new
+      buffer does not also name** (**J14**). Not "the old buffer's resources": the
+      commonest canvas program there is — one long-lived font, a group rebuilt each frame
+      — names the same font in both, and closing on the plain rule makes its text vanish
+      one frame later. Discriminate by `canvas::fontHandle`/`imageHandle`, which return a
+      comparable `Integer` id and read the closed flag *before* the handle.
+- [ ] Decide and pin the group-and-live-scene case (**J14**): `present` does not consume,
+      so a `Picture` built before a `setGroup` can reach the scene, and the group's free
+      would close it out from under the scene. Either extend the "no live buffer names it"
+      scan to the published scene, or state the limitation **with a test pinning the
+      observable outcome**. Leaving it implicit is how §3's risk paragraph became **J8**.
 - [ ] Tests, extending plan-116-G Phase 5's race matrix — add the rows to
       `.ai/canvas-threading.md` §8 as well:
       - group owning an image → `removeGroup` → graphics mid-frame: the frame completes
@@ -842,6 +852,65 @@ Commit: —
   rather than failing."*
 
 ## Corrections
+
+**J14 (2026-09-04, Phase 3 preparation — found by probing the ordinary case) — Phase 3's
+close, as §4.3 specifies it, breaks the commonest canvas program there is.**
+
+**The pattern.** One long-lived font, a group rebuilt each frame:
+
+```basic
+RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e) … END TRAP
+FOR i = 1 TO 3
+  LET tag AS canvas::DrawItem = canvas::Text[…, font := face, …]
+  canvas::setGroup("panel", [tag])
+  canvas::present([canvas::Group[name := "panel", …]])
+NEXT
+```
+
+**It compiles** — checked. Phase 2's move does not reject it, because
+`check_resource_moves` is *"conservative straight-line dataflow"* by design: a loop body is
+analysed once, and within that one pass `face` is read (building `tag`) **before** the
+consume. A use-after-move across iterations is a deliberate false negative, and the doc
+comment says why — *"so no valid program is ever rejected"*.
+
+**And under Phase 3 it would be wrong at run time.** Iteration 2's `setGroup` retires
+iteration 1's buffer. A frame completes; the gate opens; the free path closes every
+resource that buffer named — including `face`, which **iteration 2's live buffer also
+names**. The font closes while the group that is on screen is still drawing with it, and
+`fontHandle` then answers `0`, so the text silently disappears. This is §4.3.1's sharing
+hazard, arrived at not through an exotic two-group program but through the shape every
+real canvas program has.
+
+**So "the group closes what its buffer named" is not a correct rule**, and §4.3's
+free-path design needs a discriminator. Three candidates, and only the third survives:
+
+1. *Close only when the slot is emptied by `removeGroup`, never on replacement.* Fixes the
+   rebuild pattern exactly and **leaks**: replacing a group whose items name font A with
+   items naming font B never closes A.
+2. *Refcount.* Ruled out by §Non-goals and by `.ai/canvas-threading.md` §7 — *"there is no
+   refcount, and there is nothing to count"*.
+3. **Close a retired resource only if no *live* buffer names it.** Bounded — the retired
+   buffer's items against the replacing slot's items, both small — and it degenerates to
+   the right answer in both directions: the rebuild pattern closes nothing, and a genuine
+   replacement closes exactly what was dropped.
+
+**Identity is comparable, and plan-116-I is what made it so.** Two aliases of one resource
+cannot be compared as `RES` values, but `canvas::imageHandle`/`canvas::fontHandle` return
+the backend id as an `Integer`, and they were added by plan-116-I as the replacement for
+`imageRef`/`fontRef`. So the discriminator is an integer comparison in the same MFBASIC
+`MATCH` helper §4.4 already calls for. That is a second use for a bridge that
+otherwise has exactly one live caller (`fontHandle`, six sites in `helper_geometry.rs`) —
+and it is why the closed-flag-before-handle read order that `func_handle_bridge.rs`
+documents matters here too: comparing a *stale* non-zero id would keep a resource alive
+that nothing names.
+
+**One case this rule still does not cover, stated rather than hidden.** A resource named
+by a group *and* by the **live scene** — `present` does not consume (§Non-goals), so a
+`Picture` built before the `setGroup` can reach the scene without the move checker
+objecting, and the group's free would then close it out from under the scene. Phase 3 must
+either extend the "no live buffer names it" scan to the published scene or state the
+limitation with a test pinning the observable outcome. **It must not be left implicit** —
+that is exactly how §3's original risk paragraph became **J8**.
 
 **J13 (2026-09-04, Phase 3 preparation) — §4.4's walk was specified against the wrong
 block, and the constant it named belongs to the GPU.**
