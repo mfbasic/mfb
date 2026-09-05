@@ -3482,3 +3482,109 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
         "the split must fall between the two blocks, at bases 0 and 1: {draws}",
     );
 }
+
+/// An image destroyed while a scene still names it: the frame renders, the item
+/// contributes nothing, and nothing raises (plan-116-I Phase 3).
+///
+/// The reachable shape, and the *only* one. `canvas::destroyImage` consumes its
+/// binding, so a program cannot name the image again afterwards — "destroy, then build
+/// a new `Picture` from it" is a compile error (`2-203-0055 TYPE_USE_AFTER_MOVE`), not
+/// a runtime case. What remains expressible is this: build the item while the image is
+/// live, destroy the image, and present the item that already holds it. The scene's
+/// copy outlives the binding, which is exactly the lifetime question this letter opened
+/// by putting a resource in a record field.
+///
+/// Asserted as "a frame came back, black" rather than as "the picture is absent",
+/// because a `Picture` draws nothing today anyway (bug-484). What would fail here is a
+/// raise or a crash reaching through a resource the program has finished with — and
+/// that is the property worth pinning now, before `Picture` learns to draw.
+#[test]
+fn an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise() {
+    let (frame, stats) = render(
+        "canvas_image_destroyed_in_scene",
+        &scene(
+            "  LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255)]\n  \
+             RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n  \
+             EXIT SUB\n  \
+             END TRAP\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 40.0, h := 40.0, \
+             image := img, paint := canvas::fill(canvas::rgb(255, 255, 255))]\n  \
+             canvas::destroyImage(img)\n  \
+             canvas::present([tile])\n",
+        ),
+    );
+    assert!(
+        !frame.is_empty(),
+        "no frame came back at all — presenting a scene that names a destroyed image \
+         must still render: {stats:?}"
+    );
+    assert!(
+        frame.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0),
+        "an item naming a destroyed image contributed ink",
+    );
+}
+
+/// Destroying a font while the graphics thread is mid-frame is benign (plan-116-I
+/// Phase 3, §3's claim — asserted rather than argued).
+///
+/// `MFB_CANVAS_FRAME_HOLD_MS` is what makes this a real test rather than a hopeful one:
+/// it parks the graphics thread inside `__canvas_renderFrame` so the `destroyFont`
+/// below lands *while a frame holding that font is being drawn*, not before or after.
+/// Without it the two never overlap and the run proves nothing.
+///
+/// Placed here rather than in `rt_canvas_graphics_thread.rs`, where plan-116-I Phase 3
+/// names it, because the hold affordance and the two sibling mid-frame race tests live
+/// in this file — a third race test next to them is easier to keep honest than one that
+/// has to re-derive the timing (**I6**).
+///
+/// What would fail: the graphics thread reads the item's resource record to get the
+/// backend id, and the worker frees that record. §3 argues the read is safe because the
+/// record lives in the worker's arena and is retained for the thread's lifetime — this
+/// is that argument, run.
+#[test]
+fn destroying_a_font_mid_frame_is_clean() {
+    let project = common::temp_project(
+        "canvas_font_destroy_race",
+        &scene(
+            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n  \
+             EXIT SUB\n  \
+             END TRAP\n  \
+             LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := \"AA\", \
+             font := face, size := 90.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]\n  \
+             LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, \
+             paint := canvas::fill(canvas::rgb(0, 255, 0))]\n  \
+             canvas::present([mark, label])\n  \
+             os::sleep(120)\n  \
+             canvas::destroyFont(face)\n  \
+             os::sleep(1200)\n",
+        )
+        .replace("IMPORT collections", "IMPORT collections\nIMPORT os"),
+    );
+    std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+        .expect("write the font fixture");
+    let frame_path = project.join("frame.rgba");
+    let binary = common::build_app(&project, "canvas_font_destroy_race");
+    let run = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame_path)
+        .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "destroying a font while a frame holding it was mid-render did not exit \
+         cleanly. The graphics thread reads the item's resource record for the backend \
+         id; if the worker can free that record out from under it, this is where it \
+         shows. exit {:?}\n{}\n{}",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    assert!(
+        frame_path.exists(),
+        "no frame was written, so the race never actually ran",
+    );
+}

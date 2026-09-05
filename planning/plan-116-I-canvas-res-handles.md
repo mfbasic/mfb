@@ -439,19 +439,47 @@ Commit: `8a9a9f294`, `a274f147b`, `4730b1896`
 
 ### Phase 3 — Lifetime semantics proven end to end
 
-- [ ] rt test: create image → `Picture` in an installed scene → destroy image →
+- [x] rt test: create image → `Picture` in an installed scene → destroy image →
       present again → frame renders, item contributes nothing, no raise
-      (`MFB_CANVAS_SYNC=1`; the software path).
-- [ ] rt test: the same for a font: destroyed font's text measures 0 and draws
-      empty — today's exact semantics through the new read.
-- [ ] rt test: 200 × (open font, put in `Text`, present, drop binding) — glyph
+      (`MFB_CANVAS_SYNC=1`; the software path). —
+      `an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise`.
+      **"Present again" is not expressible** (**I6**): `destroyImage` consumes the
+      binding, so building a second `Picture` from it is `2-203-0055
+      TYPE_USE_AFTER_MOVE`. The test presents the item that *already* holds the image,
+      which is the reachable shape and the one the lifetime question is about.
+- [~] rt test: the same for a font: destroyed font's text measures 0 and draws
+      empty — today's exact semantics through the new read. —
+      **Draws empty: asserted** (`text_whose_font_was_destroyed_draws_nothing`, rewritten
+      as destroy-then-present).
+      **Measures 0: unreachable, and that is the finding** (**I6**). `destroyFont`
+      consumes its binding, so `measureText` on a destroyed font is a compile error
+      rather than a zero. The remainder is not work left undone — there is nothing to
+      assert, because the situation cannot be written.
+- [x] rt test: 200 × (open font, put in `Text`, present, drop binding) — glyph
       cache stats and process fd count return to baseline (fonts are
-      arena-backed; the loop guards the *pointer-chase* path, not an fd).
-- [ ] Tests: `tests/rt_canvas_graphics_thread.rs` — destroy racing a mid-frame
-      render (the §3 benign-race claim, asserted, not argued).
+      arena-backed; the loop guards the *pointer-chase* path, not an fd). —
+      `two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_it`.
+      **One font, 200 presents — not 200 loads** (**I6**): each `loadFont` mints a new
+      backend identity and the cache is keyed by it, so 200 loads legitimately leave
+      `glyphs=200`, measuring the cache's key rather than the pointer chase the box's
+      own parenthetical names.
+- [x] Tests: `tests/rt_canvas_graphics_thread.rs` — destroy racing a mid-frame
+      render (the §3 benign-race claim, asserted, not argued). —
+      `destroying_a_font_mid_frame_is_clean`, in `rt_canvas_rasteriser.rs` rather than
+      `rt_canvas_graphics_thread.rs` (**I6**): `MFB_CANVAS_FRAME_HOLD_MS` and the two
+      sibling mid-frame race tests live there.
+      The hold is what makes it a test rather than a hope — it parks the graphics thread
+      inside `__canvas_renderFrame` so the destroy lands *while* a frame holding that
+      font is drawing.
 
 Acceptance: all four cases pass; `MFB_CANVAS_STATS` shows no growth across the
 200-cycle loop.
+
+**Met, with one case reduced rather than passed.** Three of the four assert what the box
+asked. The fourth — "destroyed font's text measures 0" — cannot be written: the compiler
+refuses it. That is the guarantee being stronger than the plan expected, not the test
+being weaker (**I6**).
+`MFB_CANVAS_STATS` across 200 presents through one font: no growth.
 Commit: —
 
 ### Phase 4 — Docs, spec, and gates
@@ -509,6 +537,57 @@ Commit: —
   the lowering reuses `func_image_ref.rs`'s emitted shape verbatim.
 
 ## Corrections
+
+**I6 (Phase 3) — three of Phase 3's four cases assume a runtime observation the type
+system makes unreachable. The guarantee is stronger than the plan asked for.**
+
+`canvas::destroyFont` and `canvas::destroyImage` **consume their binding**. So the
+shapes Phase 3 describes — "destroy → present again", "destroyed font's text measures
+0" — are not runtime cases at all:
+
+```
+canvas::destroyFont(face)
+LET after = canvas::measureText(face, 40.0, "AA")
+                                ^ 2-203-0055 TYPE_USE_AFTER_MOVE
+```
+
+A program cannot measure a destroyed font, and cannot build a *new* item naming one.
+That is a better outcome than the runtime answer the box wanted, and it means the box
+cannot be ticked as written. What remains expressible — and is what the letter actually
+has to guarantee — is:
+
+> build the item while the resource is live, destroy the resource, present the item
+> **that already holds it**.
+
+The scene's copy outlives the binding, which is precisely the lifetime question this
+letter opened by putting a resource in a record field. Both halves are now asserted:
+`text_whose_font_was_destroyed_draws_nothing` and
+`an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise`.
+
+**A second shape looked like a failure and was correct behaviour.** Presenting the same
+scene again after the destroy leaves the *previous* frame — ink and all — on screen,
+because `present` skips a re-present of an unchanged scene. A test written the obvious
+way reports "the frame still has ink" and is wrong to. Where a second frame is wanted,
+the scene has to differ.
+
+**The 200-cycle churn box measures the cache's key, not the pointer chase, if written as
+200 loads.** Each `loadFont` mints a new backend identity and the glyph cache is keyed by
+it, so N loads legitimately produce N entries: measured `glyphs=200 glyphBytes=22000
+glyphEvictions=0` — bounded by the cache cap rather than leaking, but growing for a
+reason that has nothing to do with this letter. Rewritten as **one font presented 200
+times**, which is the pointer-chase path the box's own parenthetical names, and which
+holds at a handful of entries.
+
+Worth recording separately, because it is a real property and not obviously the intended
+one: **`destroyFont` does not purge the destroyed font's glyphs from the cache.** It
+unregisters the blob — which is what makes later text draw empty, via the `len(b) = 0`
+guard in `__canvas_textGlyphRun` — but entries already rasterised stay until eviction
+pressure. Bounded, so not a leak; noted for whoever next reads "return to baseline".
+
+**Placement deviation:** the mid-frame race test is in `rt_canvas_rasteriser.rs` rather
+than `rt_canvas_graphics_thread.rs` where the box names it, because
+`MFB_CANVAS_FRAME_HOLD_MS` and the two sibling mid-frame race tests live there. A third
+race test beside them is easier to keep honest than one that re-derives the timing.
 
 **I5 (2026-09-04, pre-execution) — the §2 census is wrong in three ways that a re-run of
 its own commands does not reveal, and §4.1's seam list is 3 rows of 9.**

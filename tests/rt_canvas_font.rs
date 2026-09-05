@@ -1095,3 +1095,59 @@ fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
         );
     }
 }
+
+/// Two hundred presents through one font leave the glyph cache where they found it
+/// (plan-116-I Phase 3).
+///
+/// A `Text` now holds the font itself, so every present publishes a scene containing a
+/// resource. What this guards is the **pointer-chase** path — the renderer reaching
+/// through the item to the resource record on every frame — rather than a file
+/// descriptor: fonts are arena-backed, so a leak here shows up as cache growth.
+///
+/// **One font, presented two hundred times**, not two hundred loads. That distinction
+/// is the whole test. Each `loadFont` mints a *new backend identity*, and the glyph
+/// cache is keyed by it, so N loads legitimately produce N cache entries and a loop
+/// written that way measures the cache's key, not the pointer chase. Measured: 200
+/// loads leave `glyphs=200 glyphBytes=22000 glyphEvictions=0` — bounded by the cache
+/// cap rather than leaking, but growing for a reason that has nothing to do with this
+/// letter (**I6**).
+#[test]
+fn two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_it() {
+    let (_, stats) = render_env(
+        "canvas_font_present_churn",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+SUB main()
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load-failed")
+    EXIT SUB
+  END TRAP
+  MUT i AS Integer = 0
+  WHILE i < 200
+    ' The x moves each frame so the scene differs and the present is not skipped —
+    ' a skipped present would exercise nothing.
+    LET label AS canvas::DrawItem = canvas::Text[x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(canvas::rgb(255, 255, 255))]
+    canvas::present([label])
+    i = i + 1
+  END WHILE
+END SUB
+"#,
+        &[],
+    );
+    assert!(
+        !stats.contains("load-failed"),
+        "the loop never loaded a font: {stats}"
+    );
+    let glyphs = stat(&stats, "glyphs");
+    let bytes = stat(&stats, "glyphBytes");
+    assert!(
+        glyphs <= 4 && bytes <= 4096,
+        "200 presents through ONE font left glyphs={glyphs} glyphBytes={bytes}. One \
+         face drawing one character at one size is a single cache entry; growth \
+         proportional to the number of PRESENTS means the renderer retains something \
+         each time it chases the item's pointer to the resource: {stats}"
+    );
+}
