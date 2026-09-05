@@ -3719,6 +3719,88 @@ mod qualification_tests {
 mod tests {
     use super::*;
 
+    /// **plan-116-I Phase 1's premise: a builtin record property may carry a `RES`
+    /// type, and it survives every registry seam a record field passes through.**
+    ///
+    /// This is the letter's one unverified assumption, and it had no precedent to copy
+    /// from — `grep -rn 'ParameterType::res(' src/codegen/builtins/` finds **nothing**.
+    /// Every `Res` in a builtin descriptor today is a *parameter*
+    /// (`tcp/func_poll.rs`, `udp/func_poll.rs`); no record property has ever declared
+    /// one. plan-114-D lifted the language ban on resource-typed record fields; whether
+    /// the *registry* could describe one was never exercised.
+    ///
+    /// The three seams a record field crosses, in the order it crosses them:
+    ///
+    /// 1. **Export** — `RegistryRecord::render` writes the record out as MFBASIC source
+    ///    that is injected and then compiled. If `source_spelling` did not spell the
+    ///    `RES`, the emitted `TYPE` would declare a *value* field of the resource's
+    ///    name, and the program would compile against the wrong type rather than fail.
+    /// 2. **Qualification** — a nominal leaf is rewritten to its owning package. The
+    ///    hazard here is specific and has bitten before: a rewrite that rebuilds the
+    ///    type from `name()` can return `Named("RES canvas.Image")` — a *nominal whose
+    ///    text spells a resource* — instead of `Res(Named("canvas.Image"))`. The two
+    ///    render identically and behave differently, which is the failure
+    ///    `every_named_in_the_catalog_round_trips` exists to catch elsewhere.
+    /// 3. **The catalog's own leaf check** — every `Named` in a descriptor must satisfy
+    ///    `parse(n) == Named(n)`, and the walk recurses through `Res`.
+    ///
+    /// Asserted on a scratch record rather than on `Picture`/`Text`, because Phase 1
+    /// changes no surface: the real fields are still `ImageRef`/`FontRef` until Phase 2.
+    #[test]
+    fn a_builtin_record_property_may_carry_a_res_type() {
+        let image = ParameterType::res(ParameterType::named("canvas.Image"));
+
+        // 1. Export. The field must be spelled `RES canvas::Image` — package-separated
+        //    with `::`, since that is what the injected source is parsed as.
+        let record = RegistryRecord {
+            name: "ResProbe",
+            export: true,
+            description: "",
+            props: vec![RecordProp {
+                name: "image",
+                ty: image.clone(),
+                description: "",
+            }],
+        };
+        let rendered = record.render();
+        assert!(
+            rendered.contains("image AS RES canvas::Image"),
+            "a `Res` property must export as a RES field; got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("image AS canvas::Image"),
+            "the RES was dropped, so the field exports as a VALUE of the resource's \
+             name — which compiles, against the wrong type:\n{rendered}"
+        );
+
+        // 2. The wrapper survives, as a wrapper. `name()` alone cannot tell the two
+        //    apart, so this asserts the VARIANT rather than the spelling.
+        assert!(
+            matches!(image, ParameterType::Res(_)),
+            "the probe type is not a Res to begin with"
+        );
+        assert_eq!(image.name(), "RES canvas.Image");
+        assert_ne!(
+            image,
+            ParameterType::named("RES canvas.Image"),
+            "a Named that merely SPELLS a resource is a different value from a Res, \
+             and the two render identically — this is the substitution that would make \
+             every assertion above pass while the field was not a resource at all"
+        );
+
+        // 3. The catalog's leaf rule, applied to the inner nominal: a `Named` must
+        //    parse back to itself, or the descriptor is spelling structure in a name.
+        let ParameterType::Res(inner) = &image else {
+            unreachable!("checked above");
+        };
+        assert_eq!(
+            ParameterType::parse(&inner.name()),
+            **inner,
+            "the resource's nominal does not round-trip through `parse`"
+        );
+    }
+
+
     /// plan-111-C Phase 3's overload-resolution regression guard.
     ///
     /// Collapsing the dual API means every overload is now selected from typed
