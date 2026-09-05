@@ -135,6 +135,32 @@ to bind** (it exits, so `lost = true` and it retries). It cannot catch the
 converse: our port being handed to someone else's listener in the release window,
 after which the client under test reaches a stranger.
 
+## Sixth occurrence — `still_rejects_a_name_mismatch`, single run (2026-09-04)
+
+A full `cargo test --release --workspace --no-fail-fast`, during the bug-542
+Windows-stack fix. The third of the four cases, in the connected direction:
+
+```
+still_rejects_a_name_mismatch ... FAILED
+  left:  "result=connected"
+  right: "result=raised"
+test result: FAILED. 3 passed; 1 failed
+```
+
+Re-run in isolation immediately after: `4 passed; 0 failed`. The same suite had
+run fully green (124 binaries, 4694 passed, 0 failed) forty minutes earlier on
+the same machine with the same binary, so this is the documented race, not a
+regression — nothing in that session touched TLS.
+
+New data point: **this run was not racing another `cargo test`.** The two earlier
+sightings both had a second full suite on the machine; this one did not, which
+narrows the window to the plain in-run one `start_peer` already documents — the
+readiness probe checks `try_wait()` *before* `connect()`, so a child that is
+alive but has not yet reached its failing `bind(2)` passes both checks and the
+probe then connects to the winner's server. A cross-process gate alone would not
+have caught this one; closing the release window (or verifying the served
+certificate is this case's own) would.
+
 ## Why it matters even though the test failed correctly
 
 The assertion did its job. But the file's own header says the negatives are the
