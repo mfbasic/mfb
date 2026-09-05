@@ -60,6 +60,7 @@ impl TypeEnv {
         owners: &HashMap<String, crate::ir::resource_escape::ResOwner>,
         non_owning: &HashSet<String>,
         aliases: &mut HashMap<String, HashSet<String>>,
+        contains: &mut HashMap<String, HashSet<String>>,
     ) {
         /// plan-59-E: every binding that may denote the same resource as `name`,
         /// transitively. `moved` is keyed by binding NAME, so once two names can
@@ -83,6 +84,36 @@ impl TypeEnv {
             seen.remove(name);
             seen
         }
+        /// plan-116-J: every resource a binding **holds inside it**, transitively.
+        ///
+        /// Deliberately NOT merged into `aliases`, and the difference is the whole
+        /// point. Aliasing is symmetric — a consume through either name marks both —
+        /// and containment is directed: consuming the container consumes what it holds,
+        /// but closing a held resource must leave the container usable. `Picture.image`
+        /// promises exactly that (*"closing it while a scene still names it draws
+        /// nothing rather than failing"*), and
+        /// `tests/cli_canvas_image_resource.rs` compiles the program that relies on it.
+        /// Widening `aliases` to cover containment would reject that program.
+        fn contains_closure(
+            name: &str,
+            contains: &HashMap<String, HashSet<String>>,
+        ) -> HashSet<String> {
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut out: HashSet<String> = HashSet::new();
+            let mut stack = vec![name.to_string()];
+            while let Some(current) = stack.pop() {
+                if !seen.insert(current.clone()) {
+                    continue;
+                }
+                if let Some(next) = contains.get(&current) {
+                    for held in next {
+                        out.insert(held.clone());
+                        stack.push(held.clone());
+                    }
+                }
+            }
+            out
+        }
         // A branch that always leaves the function never reaches the join, so
         // its moves must not leak past it (the former source checker merges only fall-through
         // branches). Top-level test is enough: a mid-block Return makes the
@@ -101,13 +132,19 @@ impl TypeEnv {
         let run_branch = |body: &[IrOp],
                           locals: &HashMap<String, ParameterType>,
                           moved: &mut HashSet<String>,
-                          aliases: &mut HashMap<String, HashSet<String>>| {
+                          aliases: &mut HashMap<String, HashSet<String>>,
+                          contains: &mut HashMap<String, HashSet<String>>| {
             let mut branch_moved = moved.clone();
             // Aliases discovered inside a branch merge back the same way moves do:
             // "may alias on *some* fall-through path" is still may-alias after the
             // join, and treating it otherwise would lose the relation exactly where
             // it is needed.
             let mut branch_aliases = aliases.clone();
+            // Containment merges the same way, and for the same reason: a relation
+            // established on *some* fall-through path is still a may-hold after the
+            // join, and dropping it there would lose it exactly where a later consume
+            // needs it.
+            let mut branch_contains = contains.clone();
             self.check_resource_moves(
                 body,
                 &mut locals.clone(),
@@ -115,6 +152,7 @@ impl TypeEnv {
                 owners,
                 non_owning,
                 &mut branch_aliases,
+                &mut branch_contains,
             );
             if !diverges(body) {
                 for name in branch_moved {
@@ -132,6 +170,17 @@ impl TypeEnv {
                             .collect();
                         if !kept.is_empty() {
                             aliases.entry(name).or_default().extend(kept);
+                        }
+                    }
+                }
+                for (name, held) in branch_contains {
+                    if locals.contains_key(&name) {
+                        let kept: HashSet<String> = held
+                            .into_iter()
+                            .filter(|t| locals.contains_key(t))
+                            .collect();
+                        if !kept.is_empty() {
+                            contains.entry(name).or_default().extend(kept);
                         }
                     }
                 }
@@ -175,6 +224,41 @@ impl TypeEnv {
                     moved.insert(alias);
                 }
                 moved.insert(consumed);
+            }
+            // plan-116-J: a CONSUMING PARAMETER consumes every resource reachable from
+            // its argument. `canvas::setGroup(name, items)` is the first: the group
+            // outlives the `present` that draws it, so it takes over closing the images
+            // and fonts its items name — and it can only do that if the caller's
+            // bindings stop owning them. Without this, scope-drop closes them at the
+            // producing scope and the group draws nothing, which is silent.
+            //
+            // Ordered AFTER the read check above deliberately: the consuming call reads
+            // the container, and the container is not what gets moved, so there is no
+            // self-report to avoid. It is ordered after `consumed_resource` for the same
+            // reason a close is — a SECOND install of the same resource must see the
+            // first one's move.
+            for held in self.consumed_contained(op, locals, contains) {
+                // The argument may hold the resource directly or through nested
+                // containers (`[Picture[image := img]]` is a list holding a record
+                // holding the resource), so the closure walks the whole chain.
+                for name in contains_closure(&held, contains) {
+                    for alias in alias_closure(&name, aliases) {
+                        moved.insert(alias);
+                    }
+                    moved.insert(name);
+                }
+                // …and the argument itself, when a resource was passed where a
+                // container was expected — nothing does that today, but a `Local` that
+                // IS the resource is the degenerate case of "reachable from".
+                if locals
+                    .get(&held)
+                    .is_some_and(|t| self.close_op_for(&resource_base_type(t)).is_some())
+                {
+                    for alias in alias_closure(&held, aliases) {
+                        moved.insert(alias);
+                    }
+                    moved.insert(held);
+                }
             }
             match op {
                 IrOp::Bind {
@@ -256,6 +340,22 @@ impl TypeEnv {
                             }
                         }
                     }
+                    // plan-116-J: what this binding HOLDS. Structural only — a
+                    // constructor, a literal, a union wrap — never through an opaque
+                    // call, because a callee's return value does not in general hold its
+                    // arguments and recording that it might would move bindings the
+                    // program still owns. An over-approximation here is a false
+                    // `TYPE_USE_AFTER_MOVE` on correct code, which is the unsafe
+                    // direction for THIS relation (it is the safe direction for
+                    // `aliases`, where a missed edge is a silent use-after-close — the
+                    // two relations approximate opposite ways and that is not an
+                    // inconsistency).
+                    if let Some(value) = value {
+                        let held = self.held_resources(value, locals, contains);
+                        if !held.is_empty() {
+                            contains.insert(name.clone(), held);
+                        }
+                    }
                     locals.insert(name.clone(), type_.clone());
                 }
                 IrOp::If {
@@ -263,12 +363,12 @@ impl TypeEnv {
                     else_body,
                     ..
                 } => {
-                    run_branch(then_body, locals, moved, aliases);
-                    run_branch(else_body, locals, moved, aliases);
+                    run_branch(then_body, locals, moved, aliases, contains);
+                    run_branch(else_body, locals, moved, aliases, contains);
                 }
                 IrOp::Match { cases, .. } => {
                     for case in cases {
-                        run_branch(&case.body, locals, moved, aliases);
+                        run_branch(&case.body, locals, moved, aliases, contains);
                     }
                 }
                 IrOp::ForEach {
@@ -281,6 +381,7 @@ impl TypeEnv {
                     fe_non_owning.insert(name.clone());
                     let mut branch_moved = moved.clone();
                     let mut fe_aliases = aliases.clone();
+                    let mut fe_contains = contains.clone();
                     self.check_resource_moves(
                         body,
                         &mut fe_locals,
@@ -288,6 +389,7 @@ impl TypeEnv {
                         owners,
                         &fe_non_owning,
                         &mut fe_aliases,
+                        &mut fe_contains,
                     );
                     for n in branch_moved {
                         if locals.contains_key(&n) {
@@ -299,7 +401,7 @@ impl TypeEnv {
                 | IrOp::For { body, .. }
                 | IrOp::DoUntil { body, .. }
                 | IrOp::Trap { body, .. } => {
-                    run_branch(body, locals, moved, aliases);
+                    run_branch(body, locals, moved, aliases, contains);
                 }
                 _ => {}
             }
