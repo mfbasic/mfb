@@ -121,11 +121,17 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
                 let response =
                     mfb_repository::client::link_fetch(&repo_url, &paths()?, owner, code.trim())
                         .map_err(RepoCommandError::Failed)?;
+                // bug-489: every field here is server-authored.
                 println!(
                     "Linked machine for owner {} with auth fingerprint {} and ident fingerprint {}",
-                    response.owner, response.auth_fingerprint, response.ident_fingerprint
+                    crate::terminal_safe::safe(&response.owner),
+                    crate::terminal_safe::safe(&response.auth_fingerprint),
+                    crate::terminal_safe::safe(&response.ident_fingerprint)
                 );
-                println!("Run `mfb repo auth {}` to open this machine's session.", response.owner);
+                println!(
+                    "Run `mfb repo auth {}` to open this machine's session.",
+                    crate::terminal_safe::safe(&response.owner)
+                );
                 Ok(())
             }
             _ => Err(RepoCommandError::Usage(
@@ -261,7 +267,13 @@ pub(crate) fn run_org_command(args: &[String]) -> Result<(), RepoCommandError> {
             let response =
                 mfb_repository::client::set_org_member(&repo_url, &paths, org, &grantor, member, role, false)
                     .map_err(RepoCommandError::Failed)?;
-            println!("Granted {} the {} role in org {}", response.member, response.role, response.org);
+            // bug-489: server-authored.
+            println!(
+                "Granted {} the {} role in org {}",
+                crate::terminal_safe::safe(&response.member),
+                crate::terminal_safe::safe(&response.role),
+                crate::terminal_safe::safe(&response.org)
+            );
             Ok(())
         }
         [command, org, member] if command == "remove" => {
@@ -269,7 +281,12 @@ pub(crate) fn run_org_command(args: &[String]) -> Result<(), RepoCommandError> {
             let response =
                 mfb_repository::client::set_org_member(&repo_url, &paths, org, &grantor, member, "", true)
                     .map_err(RepoCommandError::Failed)?;
-            println!("Removed {} from org {}", response.member, response.org);
+            // bug-489: server-authored.
+            println!(
+                "Removed {} from org {}",
+                crate::terminal_safe::safe(&response.member),
+                crate::terminal_safe::safe(&response.org)
+            );
             Ok(())
         }
         _ => Err(RepoCommandError::Usage(

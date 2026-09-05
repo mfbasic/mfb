@@ -1263,10 +1263,12 @@ pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
             .unwrap_or_else(|_| b"repository request failed".to_vec());
         let text = String::from_utf8_lossy(&body);
         if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
-            return Err(error.error);
+            // bug-489: server-authored; sanitize at the trust boundary.
+            return Err(sanitize_server_text(&error.error));
         }
         return Err(format!(
-            "repository request failed with status {status}: {text}"
+            "repository request failed with status {status}: {}",
+            sanitize_server_text(&text)
         ));
     }
     let bytes = read_body_capped(response, MAX_BLOB_BYTES, "blob body")?;
@@ -1330,10 +1332,13 @@ pub fn put_blob(
         .text()
         .unwrap_or_else(|_| "repository request failed".to_string());
     if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
-        return Err(error.error);
+        // bug-489: the server authored this string. Sanitize it HERE, at the
+        // trust boundary, not at the terminal — see `sanitize_server_text`.
+        return Err(sanitize_server_text(&error.error));
     }
     Err(format!(
-        "repository PUT /blob request failed with status {status}: {text}"
+        "repository PUT /blob request failed with status {status}: {}",
+        sanitize_server_text(&text)
     ))
 }
 
@@ -1468,11 +1473,40 @@ fn read_json_response<T: DeserializeOwned>(
     }
     let text = String::from_utf8_lossy(&body);
     if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
-        return Err(error.error);
+        // bug-489: the server authored this string. Sanitize it HERE, at the
+        // trust boundary, not at the terminal — see `sanitize_server_text`.
+        return Err(sanitize_server_text(&error.error));
     }
     Err(format!(
-        "repository request failed with status {status}: {text}"
+        "repository request failed with status {status}: {}",
+        sanitize_server_text(&text)
     ))
+}
+
+/// Sanitize a string the SERVER authored before it becomes an error a caller
+/// will show a human (bug-489).
+///
+/// Done here, at the trust boundary, rather than at the terminal. Two reasons,
+/// and the second is what makes the placement load-bearing:
+///
+/// * **The print sites cannot tell trusted from untrusted.** `mfb`'s
+///   `dispatch_command_error` renders every `CommandError`, and 19 of those carry
+///   deliberate newlines (multi-line usage hints like `mfb repo …\n\n<hint>`).
+///   `terminal_safe::safe` escapes `\n` — correctly, since a server-authored
+///   newline forges whole rows — so wrapping the printer would render every one
+///   of those hints as a single `\u{000a}`-littered line. Only the source knows
+///   which strings are untrusted.
+/// * **There are 6 of these and 53 callers.** Every `mfb` site that consumes a
+///   client result would otherwise have to remember; a 54th would silently
+///   reopen the hole. That is the failure mode this fix exists to close, so the
+///   fix must not reproduce it one layer up.
+///
+/// Errors are display-only by construction, so escaping them costs nothing. Data
+/// fields that a caller may COMPARE or store (`version.state`, a package name)
+/// are deliberately NOT sanitized here — escaping those would change program
+/// logic, so they are sanitized at their print sites instead.
+fn sanitize_server_text(text: &str) -> String {
+    crate::terminal_safe::safe(text).into_owned()
 }
 
 #[cfg(test)]
@@ -1481,6 +1515,66 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    /// bug-489: a registry-authored error string reaches the operator's terminal,
+    /// so it is sanitized where it is created.
+    ///
+    /// The attack this blocks, measured end to end before the fix: a registry
+    /// answering `GET /ident` with
+    /// `{"error":"\x1b[2K\rok: uses toolbox - [Verified]  \u{202e}EVIL"}` printed
+    /// as `error: ^[[2K^Mok: uses toolbox - [Verified] …` — ESC-`[2K` erases the
+    /// line and CR returns to column 0, wiping the `error: ` prefix, so the
+    /// operator sees a forged `[Verified]` success. U+202E then reorders the
+    /// tail. Every one of those is escaped now.
+    #[test]
+    fn a_server_authored_error_is_escaped_at_the_boundary() {
+        let hostile = "\u{1b}[2K\rok: uses toolbox - [Verified]  \u{202e}EVIL";
+        let rendered = sanitize_server_text(hostile);
+        assert_eq!(
+            rendered,
+            "\\u{001b}[2K\\u{000d}ok: uses toolbox - [Verified]  \\u{202e}EVIL"
+        );
+        // The three primitives the forgery needs are each inert.
+        for needle in ["\u{1b}", "\r", "\u{202e}"] {
+            assert!(
+                !rendered.contains(needle),
+                "{needle:?} still reaches the terminal verbatim"
+            );
+        }
+    }
+
+    /// A newline is escaped too, and deliberately: a server-authored `\n` forges
+    /// whole rows, which is the same forgery one line down. This is pinned
+    /// because it is exactly what makes sanitizing at the PRINT site wrong — see
+    /// `sanitize_server_text`'s note and
+    /// `tests/cli_multiline_errors_keep_newlines.rs`.
+    #[test]
+    fn a_server_authored_newline_is_escaped() {
+        assert_eq!(
+            sanitize_server_text("first\nerror: forged second"),
+            "first\\u{000a}error: forged second"
+        );
+    }
+
+    /// The positive pin. An ordinary server error must survive verbatim —
+    /// including non-ASCII text, which is not dangerous and must not be mangled.
+    /// A sanitizer that escapes valid input is its own defect (and this one is
+    /// on the path of every failed registry call).
+    #[test]
+    fn an_ordinary_server_error_is_unchanged() {
+        for ordinary in [
+            "package 'alice#toolbox' not found",
+            "version 2.1.0 is already published",
+            "insufficient scope: publisher required",
+            "paquete no encontrado: café-naïve 日本語",
+        ] {
+            assert_eq!(
+                sanitize_server_text(ordinary),
+                ordinary,
+                "an ordinary error must not be escaped"
+            );
+        }
+    }
 
     /// An inclusion proof must be bound to the package being verified (bug-273).
     ///

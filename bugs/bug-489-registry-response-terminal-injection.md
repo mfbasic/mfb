@@ -5,9 +5,12 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: security (terminal spoofing / trust-decision forgery)
 
-Status: Open (found in audit-3, Surface 9 SUP-02; `planning/completed/audit-3-supply-chain.md`)
+Status: **FIXED** (2026-09-05)
 
-Regression Test: none yet — add one asserting a registry error carrying ESC/CR/U+202E renders `\u{XXXX}`-escaped.
+Regression Test: `repository/src/client.rs` — `a_server_authored_error_is_escaped_at_the_boundary`,
+`a_server_authored_newline_is_escaped`, `an_ordinary_server_error_is_unchanged`;
+and `tests/cli_untrusted_registry_text_is_escaped.rs`, which pins the half of the
+design that is easy to undo.
 
 ## Summary
 
@@ -75,15 +78,65 @@ The registry answers `GET /ident` with
 - **Expected:** every control byte rendered `\u{XXXX}`, as `mfb pkg info`
   already renders the same bytes from a `.mfp` header.
 
-## Best fix
+## Best fix — as proposed here it BREAKS 19 messages; corrected below
 
-Route every externally-sourced string through `terminal_safe::safe` **at the
-print site** so the sanitizer stays the single choke point: wrap `message` in
-`dispatch_command_error` (`src/cli/mod.rs:32,36`), `detailed_message` in
-`show_general_diagnostic` (`src/rules/mod.rs:104`), and the registry-sourced
-operands at `src/cli/pkg.rs:1874` and `src/cli/resolve.rs:436-437`. Add a test
-asserting an ESC/`\u{202e}`-bearing registry error renders escaped so the census
-does not silently regress again.
+**The print-site fix in this section is wrong, and it was tried.** Wrapping
+`message` in `dispatch_command_error` mangles the compiler's own output:
+
+    $ mfb org        # with the print-site wrap applied
+    error: mfb org grant <org> <member> <owner|admin|publisher> [--as <grantor>]\u{000a}       mfb org remove <org> <member> [--as <grantor>]
+
+`terminal_safe::safe` escapes `\n` — **correctly**, because a server-authored
+newline forges whole rows, which is the same forgery this bug is about one line
+down. But 19 `CommandError` messages carry deliberate newlines:
+
+    $ grep -rn 'CommandError::\(Failed\|Usage\)' -A3 src/ | grep -c '\\n'
+    19
+
+They are the multi-line usage hints (`mfb repo …\n\n<hint>`, the `org`/`token`
+two-line synopses). Every one of them would ship as a single
+`\u{000a}`-littered line.
+
+**The print site cannot tell trusted from untrusted** — that is the whole
+problem, and no cleverness at the printer fixes it. A `\n` from the compiler is
+legitimate; a `\n` from a registry is an attack. Only the source knows which.
+
+### What was done instead
+
+Sanitize at the **trust boundary**, and split on a property that is actually
+decidable there:
+
+* **Error strings are display-only by construction**, so they are sanitized where
+  they are created — the six places in `mfb_repository::client` where a
+  server-authored string becomes an `Err(String)`: three `ErrorResponse.error`
+  returns and three `"…failed with status {status}: {text}"` fallbacks, which
+  interpolate the raw response body and were not in this document's list.
+  `sanitize_server_text` carries the reasoning. This protects all **53** `mfb`
+  sites that consume a client result, including ones added later — sanitizing at
+  each of those instead is the same "two lists that must agree" failure the fix
+  exists to close.
+* **Data fields may be COMPARED or stored**, so escaping them at the source would
+  change program logic rather than display. Those are sanitized at their print
+  sites: `pkg.rs` `Release State`, `resolve.rs`'s `Installed`/`+`/`~`/` `/`-`
+  lines, `repo.rs`'s link/grant/remove confirmations, and `pkg.rs`'s
+  `ident:`/`version:` pair.
+
+`terminal_safe` itself moved to `mfb_repository::terminal_safe` (`mfb` re-exports
+it) because the client is now a caller and `mfb_repository` cannot depend on
+`mfb`. One implementation, one set of tests — a sanitizer that escaped different
+sets on each side of the crate boundary would be worse than either alone.
+
+### The census is bounded — say so rather than claim completeness
+
+The print sites above were found by grepping `src/cli/` for `println!`/`eprintln!`
+interpolating a response field. That grep cannot see a field reached through a
+local binding or a helper, so **this is not a proof of completeness**, and it
+found more sites than this document originally listed (`repo.rs` and
+`resolve.rs`'s summary lines, `pkg.rs:1465`). The durable fix for the remaining
+tail is structural rather than another census: give the client's display-only
+fields a `ServerText` newtype whose `Display` sanitizes, so a raw `{}` cannot
+compile. That is a wider refactor across the response structs and is not done
+here.
 
 ## Non-goals
 
