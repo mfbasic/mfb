@@ -30,6 +30,7 @@
 
 mod canvas;
 mod collections;
+mod corpus;
 mod math;
 mod os;
 mod perf;
