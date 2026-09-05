@@ -14,6 +14,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::emit_data_address;
 use crate::codegen::memory::marshal::push_write_payload_view;
+use crate::codegen::os::socket::shared::{emit_accept_call, emit_socket_type_cloexec};
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
@@ -169,12 +170,13 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
-        // socket(ai_family, ai_socktype, ai_protocol)
+        // socket(ai_family, ai_socktype | SOCK_CLOEXEC, ai_protocol) (bug-499)
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), &v9, 4),
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
+    emit_socket_type_cloexec(platform, &mut instructions);
     platform.emit_external_call(
         "socket",
         symbol,
@@ -1202,12 +1204,13 @@ pub(crate) fn lower_tls_listen_openssl(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
-        // socket(ai_family, ai_socktype, ai_protocol)
+        // socket(ai_family, ai_socktype | SOCK_CLOEXEC, ai_protocol) (bug-499)
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), &v9, 4),
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
+    emit_socket_type_cloexec(platform, &mut instructions);
     platform.emit_external_call(
         "socket",
         symbol,
@@ -1720,13 +1723,13 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::branch_lt(&accept_fail),
         abi::branch_eq(&accept_timeout),
         abi::label(&no_timeout),
-        // accept(fd, NULL, NULL)
+        // accept4(fd, NULL, NULL, SOCK_CLOEXEC) (bug-499)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_external_call(
-        "accept",
+    emit_accept_call(
+        platform,
         symbol,
         platform_imports,
         &mut instructions,

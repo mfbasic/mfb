@@ -25,9 +25,10 @@ use std::collections::HashMap;
 // The Win64 twin of `gen_unix.rs`'s `emit_spawn_tail`. Every Windows helper that
 // creates a child (`spawn`, `shell`, `spawnEnv`) differs only in how it builds a
 // command line, an environment block and a working directory; everything after
-// that — three inheritable pipes, a `STARTUPINFOA` wired to the child ends,
-// `CreateProcessA`, handle hygiene, the tag-10 record — is identical, and lives
-// here once.
+// that — three inheritable pipes, a `STARTUPINFOEXA` wired to the child ends
+// and carrying the handle list that names them as the ONLY handles the child
+// inherits (bug-499), `CreateProcessA`, handle hygiene, the tag-10 record — is
+// identical, and lives here once.
 //
 // The frame below is the one the shipped one-argument spawn used, extended with
 // the three input slots. It is `sp`-relative at **stack-adjust depth 1**: the
@@ -40,44 +41,64 @@ use std::collections::HashMap;
 //
 //   [0x00..0x20)  shadow space for callees
 //   [0x20..0x50)  CreateProcessA stack args 5..10
-//   [SI..SI+104)  STARTUPINFOA (dwFlags@60, hStdInput@80/hStdOutput@88/hStdError@96)
+//   [SI..SI+112)  STARTUPINFOEXA (dwFlags@60, hStdInput@80/hStdOutput@88/hStdError@96,
+//                 lpAttributeList@104)
 //   [PI..PI+24)   PROCESS_INFORMATION (hProcess@0, hThread@8, dwProcessId@16)
 //   [SA..SA+24)   SECURITY_ATTRIBUTES (nLength@0, lpSD@8, bInheritHandle@16)
 //   IN_R/IN_W/OUT_R/OUT_W/ERR_R/ERR_W  CreatePipe out-handle slots
 //   REC           the allocated resource record
 //   CMD/ENV/CWD   the caller's three inputs (see `emit_win_spawn_tail`)
+//   ATTR_SIZE     SIZE_T the attribute-list size query fills (bug-499)
+//   HANDLES       HANDLE[3] the child may inherit: IN_R, OUT_W, ERR_W (bug-499)
+//   ATTR_LIST     the opaque PROC_THREAD_ATTRIBUTE_LIST buffer (bug-499)
+//   CP_RESULT     CreateProcessA's BOOL, kept across the list's deletion (bug-499)
 // ---------------------------------------------------------------------------
 
-/// `STARTUPINFOA` (104 bytes).
+/// `STARTUPINFOEXA` (112 bytes: the 104-byte `STARTUPINFOA` followed by
+/// `lpAttributeList`, bug-499).
 pub(crate) const WIN_SPAWN_SI: usize = 0x50;
 /// `PROCESS_INFORMATION` (24 bytes).
-pub(crate) const WIN_SPAWN_PI: usize = 0xB8;
+pub(crate) const WIN_SPAWN_PI: usize = 0xC0;
 /// `SECURITY_ATTRIBUTES` (24 bytes).
-pub(crate) const WIN_SPAWN_SA: usize = 0xD0;
+pub(crate) const WIN_SPAWN_SA: usize = 0xD8;
 /// Child stdin read end (the child inherits it).
-pub(crate) const WIN_SPAWN_IN_R: usize = 0xE8;
+pub(crate) const WIN_SPAWN_IN_R: usize = 0xF0;
 /// Parent stdin write end (kept in the record).
-pub(crate) const WIN_SPAWN_IN_W: usize = 0xF0;
+pub(crate) const WIN_SPAWN_IN_W: usize = 0xF8;
 /// Parent stdout read end (kept in the record).
-pub(crate) const WIN_SPAWN_OUT_R: usize = 0xF8;
+pub(crate) const WIN_SPAWN_OUT_R: usize = 0x100;
 /// Child stdout write end (the child inherits it).
-pub(crate) const WIN_SPAWN_OUT_W: usize = 0x100;
+pub(crate) const WIN_SPAWN_OUT_W: usize = 0x108;
 /// Parent stderr read end (kept in the record).
-pub(crate) const WIN_SPAWN_ERR_R: usize = 0x108;
+pub(crate) const WIN_SPAWN_ERR_R: usize = 0x110;
 /// Child stderr write end (the child inherits it).
-pub(crate) const WIN_SPAWN_ERR_W: usize = 0x110;
+pub(crate) const WIN_SPAWN_ERR_W: usize = 0x118;
 /// The allocated `Process` record.
-pub(crate) const WIN_SPAWN_REC: usize = 0x118;
+pub(crate) const WIN_SPAWN_REC: usize = 0x120;
 /// **Caller input**: the NUL-terminated `lpCommandLine`. Never NULL.
-pub(crate) const WIN_SPAWN_CMD: usize = 0x120;
+pub(crate) const WIN_SPAWN_CMD: usize = 0x128;
 /// **Caller input**: `lpEnvironment` — an ANSI `name=value\0…\0\0` block, or 0
 /// to inherit the parent's environment.
-pub(crate) const WIN_SPAWN_ENV: usize = 0x128;
+pub(crate) const WIN_SPAWN_ENV: usize = 0x130;
 /// **Caller input**: `lpCurrentDirectory` — a NUL-terminated path, or 0 to
 /// inherit the parent's working directory.
-pub(crate) const WIN_SPAWN_CWD: usize = 0x130;
+pub(crate) const WIN_SPAWN_CWD: usize = 0x138;
+/// bug-499: the `SIZE_T` `InitializeProcThreadAttributeList`'s size query fills.
+const WIN_SPAWN_ATTR_SIZE: usize = 0x140;
+/// bug-499: `HANDLE[3]` — the only handles the child inherits (IN_R, OUT_W, ERR_W).
+const WIN_SPAWN_HANDLES: usize = 0x148;
+/// bug-499: the opaque `PROC_THREAD_ATTRIBUTE_LIST` buffer, 16-aligned.
+const WIN_SPAWN_ATTR_LIST: usize = 0x160;
+/// Capacity of that buffer. The list is opaque, so the size query's answer is
+/// checked against this before the list is initialized in place: a Windows that
+/// ever needs more fails the spawn (`ErrSpawnFailed`) instead of overrunning the
+/// frame.
+const WIN_SPAWN_ATTR_LIST_CAP: &str = "128";
+/// bug-499: `CreateProcessA`'s BOOL, kept across `DeleteProcThreadAttributeList`
+/// (which clobbers the C return register) so the failure branch reads the truth.
+const WIN_SPAWN_CP_RESULT: usize = 0x1E0;
 /// First offset a caller may use for its own scratch slots.
-pub(crate) const WIN_SPAWN_SCRATCH: usize = 0x138;
+pub(crate) const WIN_SPAWN_SCRATCH: usize = 0x1E8;
 
 // --- the command-line builder's own scratch, immediately above the tail's ---
 
@@ -926,6 +947,16 @@ const SI_HSTDOUT: usize = 88;
 const SI_HSTDERR: usize = 96;
 const HANDLE_FLAG_INHERIT: &str = "1";
 const STARTF_USESTDHANDLES: &str = "256"; // 0x100
+/// bug-499: `STARTUPINFOEXA.lpAttributeList` follows the 104-byte `STARTUPINFOA`.
+const SI_LPATTRIBUTELIST: usize = 104;
+/// bug-499: `sizeof(STARTUPINFOEXA)` — what `cb` must carry for the EX struct.
+const STARTUPINFOEXA_SIZE: usize = 112;
+/// bug-499: `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` = `ProcThreadAttributeValue(2, FALSE, TRUE, FALSE)`
+/// = `2 | 0x20000` = 0x20002.
+const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: &str = "131074";
+/// bug-499: `EXTENDED_STARTUPINFO_PRESENT` (0x00080000) in `dwCreationFlags`
+/// tells `CreateProcessA` that `lpStartupInfo` is a `STARTUPINFOEXA`.
+const EXTENDED_STARTUPINFO_PRESENT: &str = "524288";
 
 /// Emit everything a Windows child needs once its command line is built.
 ///
@@ -1005,13 +1036,97 @@ pub(crate) fn emit_win_spawn_tail(
             relocations,
         )?;
     }
-    // Zero STARTUPINFOA (104 bytes), set cb = 104, dwFlags = STARTF_USESTDHANDLES,
-    // and the three child-end handles.
-    for off in (0..104).step_by(8) {
+    // bug-499: build the PROC_THREAD_ATTRIBUTE_HANDLE_LIST naming the ONLY handles
+    // the child may inherit — its three stdio pipe ends. `bInheritHandles` stays
+    // TRUE: the list is honoured only then, and the listed handles must themselves
+    // be inheritable (the SECURITY_ATTRIBUTES above made them so). Every other
+    // inheritable handle in this process — every Winsock socket is one by
+    // default, and so is a pipe end a concurrent spawn on another thread has just
+    // created — is withheld from the child. Before this, `bInheritHandles = TRUE`
+    // with no list handed the child all of them.
+    //
+    // 1. Size query: InitializeProcThreadAttributeList(NULL, 1, 0, &size) fails by
+    //    design (ERROR_INSUFFICIENT_BUFFER) and writes the byte count. The list is
+    //    opaque, so the count is checked against the frame buffer's capacity.
+    let attr_fail = format!("{symbol}_attr_fail");
+    instructions.extend([
+        abi::store_u64(abi::ZERO, sp, WIN_SPAWN_ATTR_SIZE),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "0"), // lpAttributeList = NULL
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"), // dwAttributeCount
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // dwFlags (reserved)
+        abi::add_immediate(abi::mfb_arg(3), sp, WIN_SPAWN_ATTR_SIZE), // lpSize
+    ]);
+    platform.emit_external_call(
+        "InitializeProcThreadAttributeList",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_SIZE),
+        abi::compare_immediate(abi::mfb_arg(0), WIN_SPAWN_ATTR_LIST_CAP),
+        abi::branch_gt(spawn_fail),
+        // 2. Initialize the list in the frame buffer: InitializeProcThreadAttributeList(
+        //    &list, 1, 0, &size); FALSE → spawn_fail (nothing to delete yet).
+        abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
+        abi::add_immediate(abi::mfb_arg(3), sp, WIN_SPAWN_ATTR_SIZE),
+    ]);
+    platform.emit_external_call(
+        "InitializeProcThreadAttributeList",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(spawn_fail),
+        // 3. HANDLE[3] = { IN_R, OUT_W, ERR_W }; UpdateProcThreadAttribute(&list, 0,
+        //    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles, 3 * sizeof(HANDLE), NULL,
+        //    NULL). Its stack args 5..7 use the same sp+0x20.. slots CreateProcessA's
+        //    take — those are stored later, after this call has returned.
+        abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_IN_R),
+        abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_HANDLES),
+        abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_OUT_W),
+        abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_HANDLES + 8),
+        abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_ERR_W),
+        abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_HANDLES + 16),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "24"),
+        abi::store_u64(abi::mfb_arg(0), sp, 0x20), // 5th cbSize = 3 * sizeof(HANDLE)
+        abi::store_u64(abi::ZERO, sp, 0x28),       // 6th lpPreviousValue = NULL
+        abi::store_u64(abi::ZERO, sp, 0x30),       // 7th lpReturnSize = NULL
+        abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
+        abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // dwFlags (reserved)
+        abi::move_immediate(
+            abi::mfb_arg(2),
+            "Integer",
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        ),
+        abi::add_immediate(abi::mfb_arg(3), sp, WIN_SPAWN_HANDLES), // lpValue
+    ]);
+    platform.emit_external_call(
+        "UpdateProcThreadAttribute",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::branch_eq(&attr_fail),
+    ]);
+    // Zero STARTUPINFOEXA (112 bytes), set cb = 112, dwFlags = STARTF_USESTDHANDLES,
+    // the three child-end handles, and lpAttributeList.
+    for off in (0..STARTUPINFOEXA_SIZE).step_by(8) {
         instructions.push(abi::store_u64(abi::ZERO, sp, WIN_SPAWN_SI + off));
     }
     instructions.extend([
-        abi::move_immediate(abi::mfb_arg(0), "Integer", "104"),
+        abi::move_immediate(abi::mfb_arg(0), "Integer", "112"),
         abi::store_u32(abi::mfb_arg(0), sp, WIN_SPAWN_SI),
         abi::move_immediate(abi::mfb_arg(0), "Integer", STARTF_USESTDHANDLES),
         abi::store_u32(abi::mfb_arg(0), sp, WIN_SPAWN_SI + SI_DWFLAGS),
@@ -1021,12 +1136,16 @@ pub(crate) fn emit_win_spawn_tail(
         abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_SI + SI_HSTDOUT),
         abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_ERR_W),
         abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_SI + SI_HSTDERR),
-        // CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, env, cwd, &si, &pi).
+        abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
+        abi::store_u64(abi::mfb_arg(0), sp, WIN_SPAWN_SI + SI_LPATTRIBUTELIST),
+        // CreateProcessA(NULL, cmd, NULL, NULL, TRUE, EXTENDED_STARTUPINFO_PRESENT,
+        // env, cwd, &siex, &pi).
         // Win64: register args 0..3 in mfb_arg (rcx/rdx/r8/r9); stack args 5..10
         // stored directly at sp+0x20.. (after the 32-byte shadow).
         abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
-        abi::store_u64(abi::mfb_arg(0), sp, 0x20), // 5th bInheritHandles = TRUE
-        abi::store_u64(abi::ZERO, sp, 0x28),       // 6th dwCreationFlags
+        abi::store_u64(abi::mfb_arg(0), sp, 0x20), // 5th bInheritHandles = TRUE (the list needs it)
+        abi::move_immediate(abi::mfb_arg(0), "Integer", EXTENDED_STARTUPINFO_PRESENT),
+        abi::store_u64(abi::mfb_arg(0), sp, 0x28), // 6th dwCreationFlags
         abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_ENV),
         abi::store_u64(abi::mfb_arg(0), sp, 0x30), // 7th lpEnvironment
         abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_CWD),
@@ -1050,9 +1169,24 @@ pub(crate) fn emit_win_spawn_tail(
         instructions,
         relocations,
     )?;
+    // bug-499: the attribute list is deleted on BOTH outcomes. Its BOOL is parked
+    // in the frame first because DeleteProcThreadAttributeList clobbers the C
+    // return register.
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
-        abi::compare_immediate(abi::c_return(0), "0"),
+        abi::store_u64(abi::c_return(0), sp, WIN_SPAWN_CP_RESULT),
+        abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
+    ]);
+    platform.emit_external_call(
+        "DeleteProcThreadAttributeList",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), sp, WIN_SPAWN_CP_RESULT),
+        abi::compare_immediate(abi::mfb_arg(0), "0"),
         abi::branch_eq(spawn_fail),
     ]);
     // Close the child-end handles the parent no longer needs + the thread handle.
@@ -1101,7 +1235,19 @@ pub(crate) fn emit_win_spawn_tail(
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_arg(0)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
+        // bug-499: UpdateProcThreadAttribute failed after the list was initialized —
+        // delete it, then report the spawn failure.
+        abi::label(&attr_fail),
+        abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
     ]);
+    platform.emit_external_call(
+        "DeleteProcThreadAttributeList",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.push(abi::branch(spawn_fail));
     Ok(())
 }
 
@@ -1365,4 +1511,128 @@ pub(crate) fn lower_process_drop_helper(
     ]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
+}
+
+#[cfg(test)]
+mod tests {
+    // bug-499: emit-inspection guards for the Windows spawn tail. Runtime proof is
+    // Windows-only (box 2230, `scripts/test-winprocess.sh`); these lower the three
+    // helpers that share `emit_win_spawn_tail` with the real Win64 platform and pin
+    // the handle-inheritance contract in the neutral instruction stream.
+    use super::*;
+    use crate::arch::ops::CodeOp;
+    use crate::codegen::builtins::process::func_shell::lower_process_shell_helper_win;
+    use crate::codegen::builtins::process::func_spawn::lower_process_spawn_helper_win;
+    use crate::codegen::engine::mir;
+
+    fn kernel32_imports() -> HashMap<String, String> {
+        [
+            "CreateProcessA",
+            "CreatePipe",
+            "SetHandleInformation",
+            "WriteFile",
+            "ReadFile",
+            "PeekNamedPipe",
+            "SetNamedPipeHandleState",
+            "GetTickCount64",
+            "Sleep",
+            "WaitForSingleObject",
+            "GetExitCodeProcess",
+            "TerminateProcess",
+            "CloseHandle",
+            "GetLastError",
+            "GetEnvironmentStringsA",
+            "FreeEnvironmentStringsA",
+            "InitializeProcThreadAttributeList",
+            "UpdateProcThreadAttribute",
+            "DeleteProcThreadAttributeList",
+        ]
+        .iter()
+        .map(|s| (s.to_string(), "kernel32".to_string()))
+        .collect()
+    }
+
+    fn calls(ins: &[CodeInstruction], target: &str) -> usize {
+        ins.iter()
+            .filter(|i| i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some(target))
+            .count()
+    }
+
+    fn has_immediate(ins: &[CodeInstruction], value: &str) -> bool {
+        ins.iter().any(|i| i.get("value").as_deref() == Some(value))
+    }
+
+    /// Every Windows child-creating helper (`spawn`, `spawnEnv`, `shell`) lowered
+    /// with the real Win64 platform.
+    fn lowered_tails() -> Vec<(&'static str, Vec<CodeInstruction>)> {
+        let platform = crate::target::win_x86_64::code::Platform;
+        mir::set_backend(platform.backend());
+        let imports = kernel32_imports();
+        let mut out = Vec::new();
+        for call in ["process.spawn", "process.spawnEnv"] {
+            let (ins, _, _) = lower_process_spawn_helper_win(call, "#t_spawn", &imports, &platform)
+                .unwrap_or_else(|e| panic!("{call} lowers on Windows: {e}"));
+            out.push((call, ins));
+        }
+        let (ins, _, _) =
+            lower_process_shell_helper_win("process.shell", "#t_shell", &imports, &platform)
+                .expect("process.shell lowers on Windows");
+        out.push(("process.shell", ins));
+        out
+    }
+
+    /// bug-499: a Windows child must receive ONLY its three stdio handles. The
+    /// tail hands `CreateProcessA` an explicit `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`
+    /// (0x20002) through a `STARTUPINFOEXA` (`EXTENDED_STARTUPINFO_PRESENT` =
+    /// 0x80000 in `dwCreationFlags`), so an unrelated inheritable handle the
+    /// parent holds — every Winsock socket is one by default — never crosses.
+    /// Before the fix the tail passed `bInheritHandles = TRUE` with no list.
+    #[test]
+    fn spawn_tail_limits_inheritance_to_the_stdio_handle_list() {
+        for (call, ins) in lowered_tails() {
+            assert_eq!(
+                calls(&ins, "InitializeProcThreadAttributeList"),
+                2,
+                "{call}: size query + initialization of the attribute list"
+            );
+            assert_eq!(
+                calls(&ins, "UpdateProcThreadAttribute"),
+                1,
+                "{call}: the handle list is installed once"
+            );
+            assert!(
+                has_immediate(&ins, "131074"),
+                "{call}: PROC_THREAD_ATTRIBUTE_HANDLE_LIST (0x20002) is the attribute installed"
+            );
+            assert!(
+                has_immediate(&ins, "524288"),
+                "{call}: EXTENDED_STARTUPINFO_PRESENT (0x80000) tells CreateProcessA to read the EX struct"
+            );
+            assert!(
+                calls(&ins, "DeleteProcThreadAttributeList") >= 2,
+                "{call}: the list is deleted on the success path AND the failure path"
+            );
+            assert_eq!(
+                calls(&ins, "CreateProcessA"),
+                1,
+                "{call}: one CreateProcessA"
+            );
+        }
+    }
+
+    /// The pre-existing contract this fix must not disturb: the three child ends
+    /// are still created inheritable (one SECURITY_ATTRIBUTES with
+    /// bInheritHandle = TRUE per pipe) and the three parent ends are still
+    /// stripped of inheritance, so a child cannot hold its own pipes open.
+    #[test]
+    fn spawn_tail_still_pipes_the_intended_stdio() {
+        for (call, ins) in lowered_tails() {
+            assert_eq!(calls(&ins, "CreatePipe"), 3, "{call}: three stdio pipes");
+            assert_eq!(
+                calls(&ins, "SetHandleInformation"),
+                3,
+                "{call}: the three parent-held ends are stripped of HANDLE_FLAG_INHERIT"
+            );
+        }
+    }
 }

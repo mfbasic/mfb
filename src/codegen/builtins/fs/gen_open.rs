@@ -23,23 +23,34 @@ pub(crate) fn open_flag_set(family: PlatformFamily, no_follow: bool) -> OpenFlag
     // found"; append 521 → EINVAL "invalid argument"), breaking openFile "w" /
     // appendText / createTempFile. Match the OS, not the arch.
     match (family, no_follow) {
+        // bug-499: every word carries `O_CLOEXEC` (Linux 0x80000 = 524288 on
+        // x86-64/AArch64/RISC-V alike; macOS 0x1000000 = 16777216), so a file the
+        // program holds open never crosses `execvp` into a `process::spawn` child.
+        // The child's own stdio is `dup2`'d onto 0/1/2 by the spawn (dup2 clears
+        // the flag on the new descriptor), so this changes nothing the child is
+        // meant to see. Linux: read = O_CLOEXEC; write = O_WRONLY|O_CREAT|O_TRUNC|
+        // O_CLOEXEC; rw = O_RDWR|O_CREAT|O_CLOEXEC; append = O_WRONLY|O_CREAT|
+        // O_APPEND|O_CLOEXEC.
         (PlatformFamily::Linux, false) => OpenFlagSet {
-            read: "0",
-            write: "577",
-            read_write: "66",
-            append: "1089",
+            read: "524288",
+            write: "524865",
+            read_write: "524354",
+            append: "525377",
         },
+        // Linux + O_NOFOLLOW (0x8000) + O_CLOEXEC.
         (PlatformFamily::Linux, true) => OpenFlagSet {
-            read: "32768",
-            write: "33345",
-            read_write: "32834",
-            append: "33857",
+            read: "557056",
+            write: "557633",
+            read_write: "557122",
+            append: "558145",
         },
+        // macOS: read = O_CLOEXEC; write = O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC;
+        // rw = O_RDWR|O_CREAT|O_CLOEXEC; append = O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC.
         (PlatformFamily::MacOS, false) => OpenFlagSet {
-            read: "0",
-            write: "1537",
-            read_write: "514",
-            append: "521",
+            read: "16777216",
+            write: "16778753",
+            read_write: "16777730",
+            append: "16777737",
         },
         // macOS no-follow: `O_NOFOLLOW_ANY` (0x2000_0000 = 536870912) instead of
         // `O_NOFOLLOW` (0x100). O_NOFOLLOW guards only the terminal component;
@@ -47,11 +58,12 @@ pub(crate) fn open_flag_set(family: PlatformFamily, no_follow: bool) -> OpenFlag
         // encountered at *any* path component, closing the intermediate-symlink
         // gap in one open() with no component walk. The base
         // read/write/rw/append flags are unchanged.
+        // (Each word also carries `O_CLOEXEC` = 0x1000000, bug-499.)
         (PlatformFamily::MacOS, true) => OpenFlagSet {
-            read: "536870912",
-            write: "536872449",
-            read_write: "536871426",
-            append: "536871433",
+            read: "553648128",
+            write: "553649665",
+            read_write: "553648642",
+            append: "553648649",
         },
         // Windows `CreateFileW` takes three separate parameters where POSIX packs
         // one `O_*` bitmask (plan-47-F §3.1): `dwDesiredAccess` +
@@ -70,6 +82,21 @@ pub(crate) fn open_flag_set(family: PlatformFamily, no_follow: bool) -> OpenFlag
             read_write: "20401094656", // (4 << 32) | 0xC0000000
             append: "17179869188",     // (4 << 32) | 0x00000004
         },
+    }
+}
+
+/// The bare `O_CLOEXEC` bit for `family`, as the immediate an `open(2)` flag word
+/// takes (bug-499): Linux `0x80000`, macOS `0x1000000`. Windows has no such flag —
+/// `CreateFileW` handles are non-inheritable unless asked, and `process::spawn`
+/// hands the child an explicit handle list — so it contributes nothing there. For
+/// the open sites that pass a literal flag word instead of an [`OpenFlagSet`]
+/// member (the directory `fsync` open in `atomicWrite`, the PEM read in the
+/// macOS TLS server).
+pub(crate) fn o_cloexec(family: PlatformFamily) -> &'static str {
+    match family {
+        PlatformFamily::Linux => "524288",
+        PlatformFamily::MacOS => "16777216",
+        PlatformFamily::Windows => "0",
     }
 }
 
