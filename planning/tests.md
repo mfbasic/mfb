@@ -222,10 +222,39 @@ The per-file ledger is generated from the Phase 0 baseline; see
 - [x] `entry.rs` 70.58% -> above the top six: `accepts_args` is read off the
       source instead of hardcoded `false`.
 - [x] The whole `os::` surface (eighteen of nineteen members) on five backends.
-- [ ] The remaining 231 `src/**` files below the floor, worst first. Regenerate
+- [x] The per-argument type sweep: poisoning EVERY argument only ever reached a
+      body's first guard, so the second and third stayed dead. One position at a
+      time, fourteen more files.
+- [x] `engine/types/types.rs`: the data-object blob layout, which runs below
+      `code::lower_module` on the object-writing path and had never run at all.
+- [x] `ir/shape.rs` 89.46% -> 90.49% and `ir/lower.rs` 93.20% -> 93.99%: the
+      imported-`.mfp`-type door, which every in-process caller had left shut by
+      passing an empty table.
+- [x] The canvas and term surfaces in `-app` mode on every backend.
+      `runtime/canvas/metal.rs` 39.29% -> 96.43%.
+- [ ] The remaining 207 `src/**` files below the floor, worst first. Regenerate
       the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
       which sorts by LINES SHORT rather than by percentage, and
       `scripts/coverage-src-delta.py` to diff two reports.
+
+### What the remaining 7,126 lines ARE
+
+Classified by the shape of the uncovered line, so the next session picks a
+lever rather than a file:
+
+| shape | lines | files |
+|---|---|---|
+| ordinary code (a branch or statement no program reaches) | ~4,300 | 180 |
+| `?` propagation on a call that cannot fail in practice | ~2,400 | 145 |
+| a `panic!`/`unreachable!` arm | ~113 | 57 |
+
+The first group is the real remaining work and needs programs: each is a shape
+the 421-fixture corpus does not contain. The second is the hard residue — a `?`
+whose error arm is unreachable because the callee cannot fail for the inputs the
+type checker permits. The registry sweeps closed every instance of it that goes
+through a *platform* hook (an empty import list forces the failure); what is
+left goes through *builder* methods, whose failure needs a malformed input the
+front end cannot produce.
 - [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
       `--bins` (Findings F1) but `repository/src/**` is not, and only the full
       run measures it.
@@ -246,7 +275,9 @@ these files, and is not for `repository/src/**`).
 | after the whole-program + diagnostic corpora | 348 | 11,166 |
 | after the three registry sweeps | 253 | 10,648 |
 | after the near-miss batch | 246 | 10,717 |
-| after the LINK / corpus / optimizer-level suites | **231** | **7,747** |
+| after the LINK / corpus / optimizer-level suites | 231 | 7,747 |
+| after the per-argument sweep and the script fix | 212 | 7,316 |
+| after the data-layout, imported-type and app-surface suites | **207** | **7,126** |
 
 The uncovered-line count moves less than the file count in the later rows, and
 that is the shape of the remaining work rather than a stall: the sweeps closed
