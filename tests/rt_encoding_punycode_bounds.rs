@@ -72,7 +72,16 @@ fn python_decode(label: &str) -> String {
     let payload = label.strip_prefix("xn--").expect("an xn-- label");
     let out = Command::new(common::python_exe())
         .arg("-c")
-        .arg("import sys, codecs; sys.stdout.write(codecs.decode(sys.argv[1].encode('ascii'), 'punycode'))")
+        // Write UTF-8 BYTES, not a `str`: `sys.stdout.write` encodes with the
+        // locale encoding, which on Windows is the ANSI code page (cp1252 on the
+        // CI runner). Every label here decodes to non-Latin-1 text, so that
+        // either raised `UnicodeEncodeError` or — for `u-umlaut`, which cp1252
+        // does have — silently handed back 0xFC bytes that are not UTF-8. The
+        // oracle is the codec; its transport must not re-encode.
+        .arg(
+            "import sys, codecs; sys.stdout.buffer.write(\
+             codecs.decode(sys.argv[1].encode('ascii'), 'punycode').encode('utf-8'))",
+        )
         .arg(payload)
         .output()
         .expect("run python");
@@ -88,7 +97,13 @@ fn python_decode(label: &str) -> String {
 fn python_encode(text: &str) -> String {
     let out = Command::new(common::python_exe())
         .arg("-c")
-        .arg("import sys, codecs; sys.stdout.write('xn--' + codecs.encode(sys.argv[1], 'punycode').decode('ascii'))")
+        // Bytes here too, for the same reason as `python_decode`. This one's
+        // output is ASCII, so the locale encoding happens to survive it — but the
+        // two helpers are one oracle and drift between them is what hides a bug.
+        .arg(
+            "import sys, codecs; sys.stdout.buffer.write(\
+             ('xn--' + codecs.encode(sys.argv[1], 'punycode').decode('ascii')).encode('utf-8'))",
+        )
         .arg(text)
         .output()
         .expect("run python");

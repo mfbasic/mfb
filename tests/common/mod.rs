@@ -249,6 +249,63 @@ pub fn run_bounded(
     if let Some(dir) = executable.parent() {
         command.current_dir(dir);
     }
+    run_bounded_command(command, executable, timeout, hang_context)
+}
+
+/// [`run_bounded`], but the program starts with ONLY stdin/stdout/stderr open.
+///
+/// A test that asserts something about the program's own file descriptors has to
+/// control what it inherits, and this process does not: a descriptor its own
+/// launcher left inheritable (no `FD_CLOEXEC`) is passed down the whole chain —
+/// runner → shell → cargo → this test binary → the program under test. On the
+/// GitHub Actions Linux and macOS runners two such pipes arrive at fds ~142/145,
+/// which is exactly what made `rt_process_spawn_no_fd_inherit`'s probe report
+/// `leaked=142:fifo,145:fifo` there while it reported `leaked=none` everywhere
+/// else (bug-543).
+///
+/// So drop them, in the forked child, before `exec`: every descriptor above 2
+/// that is NOT already close-on-exec is ambient contamination — nothing this
+/// process opened deliberately is inheritable, and `std`'s own spawn machinery
+/// (the pipe ends, the exec error pipe) sets `FD_CLOEXEC` on everything it makes.
+/// Closing only the non-CLOEXEC ones therefore removes the environment's leak and
+/// touches none of `std`'s. `fcntl`/`close` are async-signal-safe, which is what
+/// a `pre_exec` closure is allowed to call.
+///
+/// This narrows the child's inherited set; it does not relax any assertion.
+#[cfg(unix)]
+pub fn run_bounded_without_inherited_fds(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
+    use std::os::unix::process::CommandExt;
+
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    // SAFETY: the closure calls only `fcntl` and `close`, both async-signal-safe,
+    // and allocates nothing.
+    unsafe {
+        command.pre_exec(|| {
+            for fd in 3..1024 {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+                    libc::close(fd);
+                }
+            }
+            Ok(())
+        });
+    }
+    run_bounded_command(command, executable, timeout, hang_context)
+}
+
+fn run_bounded_command(
+    mut command: Command,
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
