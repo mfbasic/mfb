@@ -528,10 +528,10 @@ vocabulary.
 
 | gate | result |
 |---|---|
-| mac RELEASE | green — the run reported `rc=101`, and its **only** failing target was `artifact_gate_all`, which refused to start because a peer session held the gate lock. Re-run standalone: 0 diffs. Nothing was checked on the first attempt, so it was never a golden result. |
-| mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed** |
-| `scripts/test-accept.sh` | **1379 tests ran**, passed — one more than before this letter, which is `canvas-drawitem-thread-plane-invalid` |
-| `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs** |
+| mac RELEASE | green — the run reported `rc=101`, and its **only** failing target was `artifact_gate_all`, which refused to start because a peer session held the gate lock. Re-run standalone: 0 diffs. Nothing was checked on the first attempt, so it was never a golden result. **Re-run on the merged tree: 133 targets ok** (same refusal, same resolution — plan-116-J **J21**). |
+| mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed**. **Merged tree: 3832 passed**, 0 failed. |
+| `scripts/test-accept.sh` | **1379 tests ran**, passed — one more than before this letter, which is `canvas-drawitem-thread-plane-invalid`. **Merged tree: 1399 ran**, the growth being `main`'s own fixtures plus plan-116-J's `canvas-setgroup-consumes-items`. |
+| `scripts/artifact-gate.sh all` | 1357 tests, 1520 builds, **1878 goldens, 0 diffs**. **Merged tree, uncontended: 1377 / 1540 / 1906 goldens, 0 diffs.** |
 | banned vocabulary | `man-census.sh --memory-scope` → **0 unclassified hits** (re-run 2026-09-04 on the merged tree: still 0) |
 | removed surface absent from `mfb man` | `mfb man canvas --all` → `rc=0`, **2417 lines, 0 mentions** of `imageRef`/`fontRef`/`ImageRef`/`FontRef` (re-run 2026-09-04 on the tree merged with `main`, which had added canvas doc text this letter never saw) |
 | box 2228 RELEASE | **folded into the combined final row** (**J16**) — stopped at 2h37m with 0 test targets completed; see that correction for the measurement and the decomposition |
