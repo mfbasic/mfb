@@ -111,3 +111,116 @@ pub(crate) fn has_label(ins: &[CodeInstruction], name: &str) -> bool {
     ins.iter()
         .any(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
 }
+
+// --- codegen-stream inspection (the per-file `tests_codegen.rs` suites) ------
+//
+// This vocabulary lives HERE rather than beside the suites that use it because
+// `scripts/coverage-common.sh`'s IGNORE regex excludes `/tests/`, and every one
+// of these helpers carries a diagnostic `panic!` for the "not found" case. Such
+// an arm is by construction never taken on a green run, so a file full of them
+// sits several points below the per-file floor no matter how well the code
+// under test is covered — and the only ways out are to drop the diagnostics
+// (turning a precise failure into an `unwrap`) or to weaken the assertions.
+// Neither is a trade worth making, so the helpers sit outside the denominator
+// and the suites keep both their messages and their coverage.
+
+/// A lowered function's instruction stream, with the lookups a codegen
+/// assertion needs.
+pub(crate) struct Stream<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) instructions: &'a [CodeInstruction],
+}
+
+impl<'a> Stream<'a> {
+    pub(crate) fn of(function: &'a CodeFunction) -> Self {
+        Self {
+            name: &function.name,
+            instructions: &function.instructions,
+        }
+    }
+
+    /// A named operand field's rendered value, or the empty string.
+    ///
+    /// Empty-for-absent rather than `Option` because every caller compares
+    /// against a concrete register/offset/symbol, and no field renders empty.
+    pub(crate) fn field(instruction: &CodeInstruction, name: &str) -> String {
+        instruction.get(name).unwrap_or_default()
+    }
+
+    /// Every label this function defines, as `(index, name)`.
+    pub(crate) fn labels(&self) -> Vec<(usize, String)> {
+        self.instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.op == CodeOp::Label)
+            .filter_map(|(n, i)| i.get("name").map(|name| (n, name)))
+            .collect()
+    }
+
+    /// The index of the first instruction satisfying `predicate`.
+    ///
+    /// `what` is the human description that appears if there is none — "the
+    /// arena allocation", not a rendered predicate.
+    pub(crate) fn index_of(
+        &self,
+        what: &str,
+        predicate: impl Fn(&CodeInstruction) -> bool,
+    ) -> usize {
+        self.instructions
+            .iter()
+            .position(predicate)
+            .unwrap_or_else(|| panic!("{}: no {what} in the emitted stream", self.name))
+    }
+
+    /// The index of the first instruction at or after `from` satisfying
+    /// `predicate`.
+    pub(crate) fn index_after(
+        &self,
+        from: usize,
+        what: &str,
+        predicate: impl Fn(&CodeInstruction) -> bool,
+    ) -> usize {
+        self.instructions[from..]
+            .iter()
+            .position(predicate)
+            .map(|n| from + n)
+            .unwrap_or_else(|| panic!("{}: no {what} at or after index {from}", self.name))
+    }
+
+    /// The index of the label named `name`.
+    pub(crate) fn label_at(&self, name: &str) -> usize {
+        self.index_of(&format!("label `{name}`"), |i| {
+            i.op == CodeOp::Label && i.get("name").as_deref() == Some(name)
+        })
+    }
+
+    /// The first label whose name begins with `prefix`.
+    ///
+    /// Labels carry `CodeBuilder::label`'s per-function counter, which renumbers
+    /// whenever an earlier label is added or removed — so a suite that spells a
+    /// full label name goes red for an edit that changed nothing it tests.
+    pub(crate) fn label_starting(&self, prefix: &str) -> String {
+        self.labels()
+            .into_iter()
+            .map(|(_, name)| name)
+            .find(|name| name.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{}: no `{prefix}*` label", self.name))
+    }
+
+    /// The call targets between two instruction indices (`<indirect>` for a
+    /// call through a register).
+    pub(crate) fn calls_between(&self, from: usize, to: usize) -> Vec<String> {
+        self.instructions[from..to]
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink || i.op == CodeOp::BranchLinkRegister)
+            .map(|i| i.get("target").unwrap_or_else(|| "<indirect>".to_string()))
+            .collect()
+    }
+
+    /// Whether anything in this function branches to `label`.
+    pub(crate) fn branches_to(&self, label: &str) -> bool {
+        self.instructions
+            .iter()
+            .any(|i| i.get("target").as_deref() == Some(label))
+    }
+}

@@ -6,11 +6,12 @@
 //! `tests/` canvas suites cannot stand in for this: they shell out to a
 //! separately built `target/release/mfb`, so nothing they run is observable from
 //! the test process, and the publish body's ordering rules are exactly the kind
-//! that a passing end-to-end run does not notice — a reader that observes a
-//! bumped revision beside a half-written scene renders a torn frame *sometimes*.
+//! a passing end-to-end run does not notice — a reader that observes a bumped
+//! revision beside a half-written scene renders a torn frame *sometimes*.
 
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::types::{CodeFunction, CodeInstruction, NativeCodePlan};
+use crate::codegen::engine::tests::test_support::Stream;
+use crate::codegen::engine::types::{CodeFunction, NativeCodePlan};
 use crate::codegen::error::constants::*;
 use crate::testutil::{app_code_cached, code_function, CodeTarget};
 
@@ -54,8 +55,19 @@ fn publish_layers() -> &'static CodeFunction {
     code_function(program(), "runtime.canvas.publishLayers")
 }
 
-fn field(i: &CodeInstruction, name: &str) -> String {
-    i.get(name).unwrap_or_default()
+/// Both publish bodies, since every rule below holds for each.
+fn both() -> [&'static CodeFunction; 2] {
+    [publish_scene(), publish_layers()]
+}
+
+/// This body's `<tag>_<kind>_<n>` label.
+fn tagged_label(f: &CodeFunction, kind: &str) -> String {
+    let tag = if f.name.contains("Layers") {
+        format!("canvas_present_layers_{kind}")
+    } else {
+        format!("canvas_present_{kind}")
+    };
+    Stream::of(f).label_starting(&tag)
 }
 
 /// The stack slot the scene base is parked in.
@@ -63,23 +75,22 @@ fn field(i: &CodeInstruction, name: &str) -> String {
 /// `scene_base` materializes the process-global with an `adrp`/`add` pair naming
 /// [`CANVAS_SCENE_SYMBOL`] and the register allocator spills the result; every
 /// later scene access reloads it from that one slot. Finding the slot from the
-/// symbol (rather than hardcoding an offset) is what keeps these tests from
-/// going stale the moment a frame grows — a hardcoded slot number turns a
-/// harmless layout change into a red test that says nothing.
+/// symbol rather than hardcoding an offset is what keeps these tests from going
+/// stale the moment a frame grows — a hardcoded slot number turns a harmless
+/// layout change into a red test that says nothing.
 fn scene_slot(f: &CodeFunction) -> String {
-    let mut holder: Option<String> = None;
-    for i in &f.instructions {
-        if i.op == CodeOp::AddPageOff && field(i, "symbol") == CANVAS_SCENE_SYMBOL {
-            holder = Some(field(i, "dst"));
-        }
-        if i.op == CodeOp::StrU64 && holder.as_deref() == Some(field(i, "src").as_str()) {
-            return field(i, "offset");
-        }
-    }
-    panic!(
-        "no spill of the `{CANVAS_SCENE_SYMBOL}` address found in {}",
-        f.name
-    )
+    let stream = Stream::of(f);
+    let materialized = stream.index_of(
+        &format!("`add` completing the `{CANVAS_SCENE_SYMBOL}` address"),
+        |i| i.op == CodeOp::AddPageOff && Stream::field(i, "symbol") == CANVAS_SCENE_SYMBOL,
+    );
+    let holder = Stream::field(&f.instructions[materialized], "dst");
+    let spill = stream.index_after(
+        materialized,
+        &format!("spill of the scene base (`{holder}`)"),
+        |i| i.op == CodeOp::StrU64 && Stream::field(i, "src") == holder,
+    );
+    Stream::field(&f.instructions[spill], "offset")
 }
 
 /// Every store **into the scene region**, in emission order, as scene offsets.
@@ -87,7 +98,7 @@ fn scene_slot(f: &CodeFunction) -> String {
 /// A store is attributed to the scene when its base register was last loaded
 /// from the scene's own spill slot. Filtering by offset alone cannot work: the
 /// frame's own slots are numbered from 0 as well, so `str [rsp+16]` and
-/// `str [scene+16]` are indistinguishable without tracking the base.
+/// `str [scene+16]` are otherwise indistinguishable.
 fn scene_stores(f: &CodeFunction) -> Vec<(usize, String)> {
     let slot = scene_slot(f);
     let mut holders: Vec<String> = Vec::new();
@@ -95,19 +106,21 @@ fn scene_stores(f: &CodeFunction) -> Vec<(usize, String)> {
     for i in &f.instructions {
         match i.op {
             CodeOp::LdrU64 => {
-                let dst = field(i, "dst");
+                let dst = Stream::field(i, "dst");
                 holders.retain(|r| *r != dst);
-                if field(i, "base") == "rsp" && field(i, "offset") == slot {
+                if Stream::field(i, "base") == "rsp" && Stream::field(i, "offset") == slot {
                     holders.push(dst);
                 }
             }
-            CodeOp::StrU64 if holders.contains(&field(i, "base")) => {
-                let offset: usize = field(i, "offset").parse().expect("numeric store offset");
-                out.push((offset, field(i, "src")));
+            CodeOp::StrU64 if holders.contains(&Stream::field(i, "base")) => {
+                let offset: usize = Stream::field(i, "offset")
+                    .parse()
+                    .expect("a store offset is numeric");
+                out.push((offset, Stream::field(i, "src")));
             }
             // Any other definition of a register invalidates it as a scene base.
             _ => {
-                let dst = field(i, "dst");
+                let dst = Stream::field(i, "dst");
                 if !dst.is_empty() {
                     holders.retain(|r| *r != dst);
                 }
@@ -117,11 +130,9 @@ fn scene_stores(f: &CodeFunction) -> Vec<(usize, String)> {
     out
 }
 
-fn label_index(f: &CodeFunction, name: &str) -> usize {
-    f.instructions
-        .iter()
-        .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
-        .unwrap_or_else(|| panic!("no label `{name}` in {}", f.name))
+/// The scene offsets written, in order.
+fn scene_store_offsets(f: &CodeFunction) -> Vec<usize> {
+    scene_stores(f).into_iter().map(|(o, _)| o).collect()
 }
 
 // --- scene_base.rs --------------------------------------------------------
@@ -136,7 +147,7 @@ fn label_index(f: &CodeFunction, name: &str) -> usize {
 /// goes through a relocation against the global symbol.
 #[test]
 fn the_scene_is_addressed_through_the_process_global_symbol() {
-    for f in [publish_scene(), publish_layers()] {
+    for f in both() {
         let addressed = f
             .relocations
             .iter()
@@ -165,22 +176,20 @@ fn the_scene_is_addressed_through_the_process_global_symbol() {
 /// torn frame is deterministic, so only the store order proves it.
 #[test]
 fn the_revision_is_the_final_scene_store() {
-    for f in [publish_scene(), publish_layers()] {
-        let stores = scene_stores(f);
-        let (last_offset, _) = *stores.last().expect("the publish writes the scene");
+    for f in both() {
+        let offsets = scene_store_offsets(f);
         assert_eq!(
-            last_offset,
-            CANVAS_SCENE_REVISION_OFFSET,
+            offsets.last().copied(),
+            Some(CANVAS_SCENE_REVISION_OFFSET),
             "{}: the revision (offset {CANVAS_SCENE_REVISION_OFFSET}) must be the LAST \
              scene store, or a reader can see a bumped revision beside a half-written \
-             scene. Order was {:?}",
-            f.name,
-            stores.iter().map(|(o, _)| *o).collect::<Vec<_>>()
+             scene. Order was {offsets:?}",
+            f.name
         );
         assert_eq!(
-            stores
+            offsets
                 .iter()
-                .filter(|(o, _)| *o == CANVAS_SCENE_REVISION_OFFSET)
+                .filter(|o| **o == CANVAS_SCENE_REVISION_OFFSET)
                 .count(),
             1,
             "{}: the revision is bumped exactly once per publish",
@@ -196,21 +205,14 @@ fn the_revision_is_the_final_scene_store() {
 /// shape's block — freed or not — instead of the scene just published.
 #[test]
 fn publishing_one_shape_zeroes_the_other_shapes_pair() {
-    let cases = [
-        (
-            publish_scene(),
-            (CANVAS_SCENE_ITEMS_OFFSET, CANVAS_SCENE_COUNT_OFFSET),
-            (CANVAS_SCENE_LAYERS_OFFSET, CANVAS_SCENE_LAYER_COUNT_OFFSET),
-        ),
-        (
-            publish_layers(),
-            (CANVAS_SCENE_LAYERS_OFFSET, CANVAS_SCENE_LAYER_COUNT_OFFSET),
-            (CANVAS_SCENE_ITEMS_OFFSET, CANVAS_SCENE_COUNT_OFFSET),
-        ),
-    ];
-    for (f, (live_ptr, live_count), (dead_ptr, dead_count)) in cases {
+    let flat = (CANVAS_SCENE_ITEMS_OFFSET, CANVAS_SCENE_COUNT_OFFSET);
+    let layered = (CANVAS_SCENE_LAYERS_OFFSET, CANVAS_SCENE_LAYER_COUNT_OFFSET);
+    for (f, (live_ptr, live_count), (dead_ptr, dead_count)) in [
+        (publish_scene(), flat, layered),
+        (publish_layers(), layered, flat),
+    ] {
         let stores = scene_stores(f);
-        let value_at = |offset: usize| -> Vec<&str> {
+        let written = |offset: usize| -> Vec<&str> {
             stores
                 .iter()
                 .filter(|(o, _)| *o == offset)
@@ -218,18 +220,18 @@ fn publishing_one_shape_zeroes_the_other_shapes_pair() {
                 .collect()
         };
         for offset in [dead_ptr, dead_count] {
-            let written = value_at(offset);
+            let sources = written(offset);
             assert!(
-                !written.is_empty() && written.iter().all(|src| *src == "xzr"),
+                !sources.is_empty() && sources.iter().all(|src| *src == "xzr"),
                 "{}: offset {offset} (the other shape's pair) must be zeroed on every \
-                 publish; it was written with {written:?}",
+                 publish; it was written with {sources:?}",
                 f.name
             );
         }
         for offset in [live_ptr, live_count] {
-            let written = value_at(offset);
+            let sources = written(offset);
             assert!(
-                written.iter().any(|src| *src != "xzr"),
+                sources.iter().any(|src| *src != "xzr"),
                 "{}: offset {offset} must receive the published block, not zero",
                 f.name
             );
@@ -237,39 +239,15 @@ fn publishing_one_shape_zeroes_the_other_shapes_pair() {
     }
 }
 
-/// This body's `<tag>_<kind>_<n>` label.
-///
-/// The trailing number is `CodeBuilder::label`'s per-function counter, so it is
-/// not stable across an edit to any earlier label in the same body — matching on
-/// the prefix is what keeps these tests from going red for a renumbering.
-fn tagged_label(f: &CodeFunction, kind: &str) -> String {
-    let tag = if f.name.contains("Layers") {
-        format!("canvas_present_layers_{kind}")
-    } else {
-        format!("canvas_present_{kind}")
-    };
-    f.instructions
-        .iter()
-        .filter(|i| i.op == CodeOp::Label)
-        .filter_map(|i| i.get("name"))
-        .find(|n| n.starts_with(&tag))
-        .unwrap_or_else(|| panic!("no `{tag}*` label in {}", f.name))
-}
-
-/// This body's publish label.
-fn publish_label(f: &CodeFunction) -> String {
-    tagged_label(f, "publish")
-}
-
 /// The two bodies tag their labels apart, so a program using both assembles.
 ///
 /// `SceneShape::tag` exists only for this; a shared prefix would emit two
-/// definitions of the same label in one program and fail at assembly time — but
-/// only for a program that calls *both* calls, which is why it needs its own test.
+/// definitions of the same label in one program — but only for a program that
+/// calls *both* calls, which is why it needs its own test.
 #[test]
 fn the_two_publish_bodies_do_not_share_label_names() {
-    let flat: Vec<String> = body_labels(publish_scene());
-    let layered: Vec<String> = body_labels(publish_layers());
+    let flat = body_labels(publish_scene());
+    let layered = body_labels(publish_layers());
     let shared: Vec<&String> = flat.iter().filter(|l| layered.contains(l)).collect();
     assert!(
         shared.is_empty(),
@@ -279,10 +257,10 @@ fn the_two_publish_bodies_do_not_share_label_names() {
 }
 
 fn body_labels(f: &CodeFunction) -> Vec<String> {
-    f.instructions
-        .iter()
-        .filter(|i| i.op == CodeOp::Label)
-        .filter_map(|i| i.get("name"))
+    Stream::of(f)
+        .labels()
+        .into_iter()
+        .map(|(_, name)| name)
         .filter(|n| n.starts_with("canvas_present"))
         .collect()
 }
@@ -293,16 +271,17 @@ fn body_labels(f: &CodeFunction) -> Vec<String> {
 /// frame and skips every changed one.
 #[test]
 fn the_skip_reports_false_and_the_publish_reports_true() {
-    for f in [publish_scene(), publish_layers()] {
-        let skip = label_index(f, &tagged_label(f, "skip"));
-        let publish = label_index(f, &publish_label(f));
+    for f in both() {
+        let stream = Stream::of(f);
+        let skip = stream.label_at(&tagged_label(f, "skip"));
+        let publish = stream.label_at(&tagged_label(f, "publish"));
         assert!(
             skip < publish,
             "{}: the skip exit precedes the publish",
             f.name
         );
-        let (skip_reg, skip_value) = result_value_after(f, skip);
-        let (publish_reg, publish_value) = result_value_after(f, publish);
+        let (skip_reg, skip_value) = exit_result(f, skip);
+        let (publish_reg, publish_value) = exit_result(f, publish);
         // The same register in both exits, so the pair cannot pass by having one
         // exit set the *tag* register to the value this test wants to see.
         assert_eq!(
@@ -331,30 +310,26 @@ fn the_skip_reports_false_and_the_publish_reports_true() {
 /// constant is a neutral role token (`abi::mfb_return(1)`) and the stream under
 /// test is post-register-allocation, where it has already been realized to the
 /// backend's physical register. An exit sets the value register and then the tag
-/// register as the last thing it does before its epilogue, so the pair is the
-/// final two immediates ahead of the `Ret` this label reaches — not the first
-/// two after the label, which for the publish exit are the reclaim's constants.
-fn result_value_after(f: &CodeFunction, from: usize) -> (String, String) {
-    let ret = f.instructions[from..]
-        .iter()
-        .position(|i| i.op == CodeOp::Ret)
-        .map(|n| from + n)
-        .unwrap_or_else(|| panic!("no `ret` after index {from} in {}", f.name));
-    let mut immediates: Vec<&CodeInstruction> = f.instructions[from..ret]
+/// register as the last thing before its epilogue, so the pair is the final two
+/// immediates ahead of the `ret` this label reaches — not the first two after
+/// the label, which for the publish exit are the reclaim's constants.
+fn exit_result(f: &CodeFunction, from: usize) -> (String, String) {
+    let stream = Stream::of(f);
+    let ret = stream.index_after(from, "`ret` closing this exit", |i| i.op == CodeOp::Ret);
+    let mut immediates: Vec<&_> = f.instructions[from..ret]
         .iter()
         .filter(|i| i.op == CodeOp::MovImm)
         .collect();
     let tag = immediates.pop();
-    let value = immediates
-        .pop()
-        .unwrap_or_else(|| panic!("exit at {from} in {} sets no result pair", f.name));
+    let value = immediates.pop();
     assert_eq!(
-        tag.map(|i| field(i, "value")),
+        tag.map(|i| Stream::field(i, "value")),
         Some(RESULT_OK_TAG.to_string()),
         "{}: the exit at {from} must return the OK tag",
         f.name
     );
-    (field(value, "dst"), field(value, "value"))
+    let value = value.expect("an exit sets a result value before its tag");
+    (Stream::field(value, "dst"), Stream::field(value, "value"))
 }
 
 /// The wrong-mode gate runs before anything is allocated.
@@ -364,21 +339,14 @@ fn result_value_after(f: &CodeFunction, from: usize) -> (String, String) {
 /// anywhere else leaks one deep copy of the scene per wrong-mode call.
 #[test]
 fn the_wrong_mode_gate_precedes_the_scene_copys_allocation() {
-    for f in [publish_scene(), publish_layers()] {
-        let alloc = f
-            .instructions
-            .iter()
-            .position(|i| {
-                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("_mfb_arena_alloc")
-            })
-            .unwrap_or_else(|| panic!("{} must allocate the scene copy", f.name));
-        let gate = f
-            .instructions
-            .iter()
-            .position(|i| {
-                i.op == CodeOp::Label && i.get("name").is_some_and(|n| n.ends_with("_mode_ok"))
-            })
-            .unwrap_or_else(|| panic!("{} must carry a wrong-mode gate", f.name));
+    for f in both() {
+        let stream = Stream::of(f);
+        let alloc = stream.index_of("call to the arena allocator", |i| {
+            i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("_mfb_arena_alloc")
+        });
+        let gate = stream.index_of("wrong-mode gate (a `*_mode_ok` label)", |i| {
+            i.op == CodeOp::Label && i.get("name").is_some_and(|n| n.ends_with("_mode_ok"))
+        });
         assert!(
             gate < alloc,
             "{}: the wrong-mode gate must be spliced in above the allocation \
@@ -392,45 +360,38 @@ fn the_wrong_mode_gate_precedes_the_scene_copys_allocation() {
 /// Retired blocks are freed only once a frame has completed since retirement.
 ///
 /// The gate is `frame_now > retired_frame`, emitted as "branch away when
-/// `frame_now <= retired_frame`". Relaxing it by one — `branch away when <` —
-/// frees a block the graphics thread may still be reading this very frame, which
-/// is a use-after-free that only shows up under load.
+/// `frame_now <= retired_frame`". Relaxing it by one — branch away only when
+/// strictly less — frees a block the graphics thread may still be reading this
+/// very frame, a use-after-free that only shows up under load.
 #[test]
 fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
-    for f in [publish_scene(), publish_layers()] {
-        let done = f
-            .instructions
-            .iter()
-            .enumerate()
-            .find(|(_, i)| {
+    for f in both() {
+        let stream = Stream::of(f);
+        let gate = stream.index_of(
+            "reclaim gate (an unsigned lower-or-same branch to `canvas_reclaim_done*`)",
+            |i| {
                 i.op == CodeOp::BranchLs
                     && i.get("target")
                         .is_some_and(|t| t.starts_with("canvas_reclaim_done"))
-            })
-            .map(|(n, _)| n)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: the reclaim must skip on `frame_now <= retired_frame` \
-                     (an unsigned lower-or-same branch)",
-                    f.name
-                )
-            });
-        let frees_after = f.instructions[done..]
-            .iter()
-            .filter(|i| {
-                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("_mfb_arena_free")
-            })
-            .count();
+            },
+        );
+        let frees = |from: usize, to: usize| {
+            stream
+                .calls_between(from, to)
+                .into_iter()
+                .filter(|t| t == "_mfb_arena_free")
+                .count()
+        };
         assert_eq!(
-            frees_after, 3,
+            frees(gate, f.instructions.len()),
+            3,
             "{}: all three retired blocks (items, hashes, layers) must be freed \
              behind the frame gate",
             f.name
         );
-        assert!(
-            !f.instructions[..done].iter().any(|i| {
-                i.op == CodeOp::BranchLink && i.get("target").as_deref() == Some("_mfb_arena_free")
-            }),
+        assert_eq!(
+            frees(0, gate),
+            0,
             "{}: nothing may be freed before the frame gate — the graphics thread \
              may still be reading it",
             f.name
@@ -445,8 +406,8 @@ fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
 /// fires immediately (use-after-free).
 #[test]
 fn every_publish_retires_the_displaced_blocks_and_stamps_the_frame() {
-    for f in [publish_scene(), publish_layers()] {
-        let offsets: Vec<usize> = scene_stores(f).into_iter().map(|(o, _)| o).collect();
+    for f in both() {
+        let offsets = scene_store_offsets(f);
         for retired in [
             CANVAS_SCENE_RETIRED_ITEMS_OFFSET,
             CANVAS_SCENE_RETIRED_HASHES_OFFSET,
@@ -461,16 +422,14 @@ fn every_publish_retires_the_displaced_blocks_and_stamps_the_frame() {
         }
         let stamp = offsets
             .iter()
-            .position(|o| *o == CANVAS_SCENE_RETIRED_FRAME_OFFSET)
-            .expect("the frame stamp");
-        let live = offsets
+            .position(|o| *o == CANVAS_SCENE_RETIRED_FRAME_OFFSET);
+        let revision = offsets
             .iter()
-            .position(|o| *o == CANVAS_SCENE_REVISION_OFFSET)
-            .expect("the revision");
+            .position(|o| *o == CANVAS_SCENE_REVISION_OFFSET);
         assert!(
-            stamp < live,
+            stamp < revision,
             "{}: the displaced blocks are retired and stamped BEFORE the new scene \
-             is published",
+             is published (stamp at {stamp:?}, revision at {revision:?})",
             f.name
         );
     }
