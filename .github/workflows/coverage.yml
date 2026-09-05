@@ -149,14 +149,28 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libgtk-4-1
+      # `--no-fail-fast`, or a row reports ONE failure per push. Without it cargo
+      # stops at the first test binary that fails, so everything alphabetically
+      # after it is never run and never reported — and since the binaries are a
+      # different set per platform, each round of fixes just uncovers the next
+      # one. Measured across three consecutive runs of this workflow: the macOS
+      # row attempted 102 binaries, then 116; the Windows row 67, then 76. Each
+      # push bought exactly one more failure's worth of information about a row
+      # that a single `--no-fail-fast` run would have enumerated in full.
+      #
+      # A red row therefore now costs its full wall-clock rather than stopping
+      # early. That is the trade being made deliberately: the runs are parallel
+      # across six rows (`fail-fast: false` above already says a red row must not
+      # hide the others), and the scarce resource here is round trips, not runner
+      # minutes.
       - name: Cargo test (native)
         if: matrix.rust_target == 'native'
-        run: cargo test --release --workspace
+        run: cargo test --release --workspace --no-fail-fast
       - name: Cargo test (x86-64 musl)
         if: matrix.rust_target == 'x86_64-unknown-linux-musl'
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-        run: cargo test --release --workspace --target x86_64-unknown-linux-musl
+        run: cargo test --release --workspace --target x86_64-unknown-linux-musl --no-fail-fast
   # Acceptance: reuses the compiled binary (no recompile). test-accept.sh uses
   # bash arrays + process substitution, so it must run under bash (not sh).
   acceptance:

@@ -50,7 +50,7 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Wall-clock bound on the whole client run. Generous on purpose: this turns a
@@ -346,14 +346,10 @@ fn assert_expired_cert_shape(cert: &Path) {
 /// cases in this file run concurrently — so without this gate two of them can be
 /// handed the same ephemeral port inside that window. See `start_peer` for why that
 /// is not merely a flake.
-// bug-488: the gate is `common::PortGate`, a `flock(2)` on a file in the temp
-// dir, so it serializes every process on the machine — not just this binary.
-// The `static OnceLock<Mutex<()>>` that used to live here was per-PROCESS: it
-// ordered the four cases in this file and nothing else, so a second `cargo test`
-// (routine, with work running in several worktrees at once) could take our port
-// inside the release window. Six false failures came from that, in BOTH
-// directions — a verdict that flips either way is two runs sharing state, not
-// one stale value leaking.
+fn port_gate() -> &'static Mutex<()> {
+    static GATE: OnceLock<Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(()))
+}
 
 /// A port nothing is listening on yet. `s_server` is then told to bind it.
 ///
@@ -388,7 +384,7 @@ fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
     let (cert, key) = write_cert(root, peer);
     let log = root.join("s_server.err");
     for _ in 0..10 {
-        let guard = common::PortGate::acquire();
+        let guard = port_gate().lock().expect("the port gate is not poisoned");
         let port = free_port();
         let port_arg = port.to_string();
         let args = [
@@ -496,8 +492,8 @@ fn build_client(root: &Path, port: u16, allow: Option<bool>) -> PathBuf {
         "IMPORT io\n\
          IMPORT tls\n\n\
          FUNC main AS Integer\n\
-        \x20 RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"{EXPECT_NAME}\"{arg}) TRAP(e)\n\
-        \x20   io::print(\"result=raised code=\" & toString(e.code))\n\
+        \x20 RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"{EXPECT_NAME}\"{arg}) TRAP\n\
+        \x20   io::print(\"result=raised\")\n\
         \x20   RETURN 0\n\
         \x20 END TRAP\n\
         \x20 io::print(\"result=connected\")\n\
@@ -590,15 +586,13 @@ fn still_rejects_a_name_mismatch() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    {
-        let got = outcome(Peer::NameMismatch, Some(true));
-        assert!(
-            got.starts_with("result=raised"),
-            "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — a \
+    assert_eq!(
+        outcome(Peer::NameMismatch, Some(true)),
+        "result=raised",
+        "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — a \
          certificate whose name does not match the expected server name must still \
-         raise, or the flag is a blanket verification bypass; observed: {got}"
-        );
-    }
+         raise, or the flag is a blanket verification bypass"
+    );
 }
 
 #[test]
@@ -607,15 +601,13 @@ fn still_rejects_an_expired_certificate() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    {
-        let got = outcome(Peer::Expired, Some(true));
-        assert!(
-            got.starts_with("result=raised"),
-            "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — an \
+    assert_eq!(
+        outcome(Peer::Expired, Some(true)),
+        "result=raised",
+        "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — an \
          expired certificate must still raise, or the flag is a blanket \
-         verification bypass; observed: {got}"
-        );
-    }
+         verification bypass"
+    );
 }
 
 #[test]
@@ -624,14 +616,12 @@ fn defaults_to_rejecting_a_self_signed_peer() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    {
-        let got = outcome(Peer::Good, None);
-        assert!(
-            got.starts_with("result=raised"),
-            "bug-477 non-goal: omitting `allowSelfSigned` must be exactly today's \
+    assert_eq!(
+        outcome(Peer::Good, None),
+        "result=raised",
+        "bug-477 non-goal: omitting `allowSelfSigned` must be exactly today's \
          handshake. `http::`'s HTTPS path reaches tls::connect with this argument \
          padded, so a padded default of anything but FALSE silently turns every \
-         HTTPS client in the language into a MITM target; observed: {got}"
-        );
-    }
+         HTTPS client in the language into a MITM target"
+    );
 }
