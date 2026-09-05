@@ -410,6 +410,37 @@ Every item below was executed; the result is recorded next to it.
 | `cargo test --release --no-fail-fast` | see below |
 | `cargo check --all-targets` | see below |
 | `cargo fmt --all` + `repository/` | see below |
+| removal census (below) | **no live reference to the retired surface** |
+
+### Closing removal census
+
+The mirror of Phase 1: after the change, every remaining mention of the retired
+surface must be deliberate. Run over `src`, `tests`, `examples`, `.ai/`, `README.md`
+and `docs/`:
+
+```
+$ grep -rn 'canvas::rgb(\|canvas::rgba(' src tests examples
+$ grep -rn 'canvas::Color' src tests examples
+$ grep -rn 'named("Color")' src/codegen/builtins/
+$ grep -rn 'canvas::rgb\|canvas::Color\|canvas\.Color' .ai/ README.md docs/
+```
+
+Result: **zero live references.** `named("Color")` in `src/codegen/builtins/`
+returns nothing, and `.ai/`, `README.md` and `docs/` return nothing at all — so
+this letter left no doc-sync gap outside the two files it edited. Every surviving
+hit is one of exactly three deliberate kinds:
+
+1. **The two removal fixtures and their goldens** — naming the dead spelling is
+   the entire point of `canvas_color_surface_removed_invalid` and
+   `canvas_color_type_removed_invalid`.
+2. **Historical prose**, in the past tense: `18_color.md:11` and
+   `color/mod.rs:5` both say *"Before this package MFBASIC had three unrelated
+   notions of a colour… `canvas::Color`…"*, which is a true statement about what
+   the language used to be and is the reason `color` exists.
+3. **One orientation comment**, `canvas/mod.rs:202`, marking where the record was
+   deleted from.
+
+Nothing resolves; nothing is reachable from a program.
 
 ## Open Decisions
 
