@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **29** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 25 MEDIUM · 3 LOW/other** (re-derived from
+Open bugs: **28** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 24 MEDIUM · 3 LOW/other** (re-derived from
 each open bug's `Severity:` line on 2026-09-05; several rows carry a
 parenthetical qualifier after the word, so grep for the leading word, not the
 whole line)
@@ -157,7 +157,6 @@ recorded in `.ai/resources-packages.md`.
 | Bug | Sev | Effort | Title |
 |---|---|---|---|
 | 488 | LOW | small | `rt_tls_connect_allow_self_signed` port gate is per-process |
-| 470 | MED | small | artifact-gate and test-accept do not lock against each other |
 | 456 | LOW | small | `mfb opt` sweep level-variant ncode goldens |
 | 472 | MED | small | man examples are never compiled |
 
@@ -166,11 +165,18 @@ produced false reds on four separate suite runs during the audit-3 fix pass,
 every time two `cargo test` runs shared the machine — which is exactly the
 agent-plus-lead setup this backlog prescribes.
 
-**470 cost real time again on 2026-09-05**: a full-suite run's `artifact_gate_all`
-came back FAILED with "another gate run holds the lock — this is NOT a golden
-regression, nothing was checked", purely because the concurrent agent was running
-its own gate. That is a false red on the lead's landing gate, and it recurs every
-time the prescribed agent-plus-lead setup does what it is supposed to. There is
-prior work on branch `worktree-B-470` (three commits, stale base) — evaluate it
-before starting fresh. Each of these is <1h and each removes a recurring
-misdiagnosis risk from every later bug.
+**470 is landed (`fea98e3cb`)** — and it turned out to be three fixes, not one.
+The prior branch's per-tree `mkdir` lock was the right mechanism; what was
+missing was everything around it. Both halves of the defect were REPRODUCED
+(the doc had said "inferred, not reproduced"): pre-fix, an `artifact-gate` ran
+to completion in the same tree as a live `test-accept`, and a `test-accept` in
+one worktree refused one in another. The fix itself leaked the lock on
+`test-accept.sh`'s SUCCESS path (`trap` replaces, it does not chain — only
+INT/TERM survived, so a killed run released correctly and only success leaked).
+And the lock covered 3 of the **11** scripts that rewrite fixture dumps in-tree;
+regenerate-then-gate is a normal workflow, so the `regen-*` scripts mattered.
+The transferable lesson is in `tests/gate_lock_covers_every_writer.rs`: a
+recogniser for "which scripts contend" was written three times and
+under-reported every time, so it is now an exhaustive classification with a
+blindness guard. 488, 456 and 472 remain; each is <1h and each removes a
+recurring misdiagnosis risk from every later bug.
