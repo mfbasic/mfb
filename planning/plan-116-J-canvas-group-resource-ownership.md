@@ -100,14 +100,27 @@ directed it into the series as plan-116-I on 2026-09-01.)
 
 ### Non-goals (explicit constraints)
 
-- **`present` does not take ownership.** A published scene retaining resources would
-  reverse `mod.rs`'s "keeps the scene from retaining anything" comment's design and `func_present.rs`'s documented promise that
-  *"an installed scene never keeps an image open"*. Only `setGroup` owns, because only
-  a group has a lifetime longer than one `present`.
+- **`present` does not take ownership.** Only `setGroup` owns, because only a group has
+  a lifetime longer than one `present`. *(Citations corrected 2026-09-04, **J4**: the two
+  strings this quoted — `mod.rs`'s *"keeps the scene from retaining anything"* and
+  `func_present.rs`'s *"an installed scene never keeps an image open"* — **no longer
+  exist in the tree**. The nearest survivor is `src/docs/spec/app/06_canvas.md`'s *"Naming
+  a resource in a scene does not keep it alive"*, which plan-116-I wrote. The Non-goal
+  itself stands and is now **enforced by a test**:
+  `set_group_items_is_the_consuming_parameter` asserts
+  `builtin_consuming_parameter_index("canvas.present")` is `None`.)*
 - **No change to `canvas::destroyImage` / `destroyFont` semantics.** Closing a resource
   a group owns follows the existing closed-flag model (`.ai/canvas-threading.md` §7);
   this letter adds *who closes it*, not *when the backing is freed*.
-- **No new `canvas::` surface.** `setGroup`'s signature is unchanged.
+- **No new `canvas::` surface** — no new members, and no change to any member's rendered
+  signature. *(Corrected 2026-09-04, **J10**. This said *"`setGroup`'s signature is
+  unchanged"*, which is true of what `mfb man canvas setGroup` prints and **false of what
+  the signature means**: passing an item list now consumes the resources inside it, so a
+  second install naming the same image is `2-203-0055` where it used to compile. That is
+  a semantic change to a public builtin, it is the change this letter exists to make, and
+  a Non-goal phrased to forbid it would have been read as forbidding the letter. What is
+  actually ruled out is new surface — and the man-page half of the correction is Phase
+  4's.)*
 - **No change to group storage, lifetime accounting, resolution or GPU rendering** —
   plan-116-G and -H.
 
@@ -532,9 +545,14 @@ Commit: —
       `deactivate_consumed_cleanups`. **J12** records what the verifier half alone did
       NOT do, and the three wrong guesses about where an `abi_function` call site
       arrives.
-- [ ] Correct §Non-goals' *"`setGroup`'s signature is unchanged"* (**J10**): the rendered
+- [x] Correct §Non-goals' *"`setGroup`'s signature is unchanged"* (**J10**): the rendered
       signature is unchanged but its meaning is not, and that belongs on the man page.
-      *(Phase 4 owns the man-page half; this box is the Non-goal text itself.)*
+      Done — the Non-goal now reads *"no new members, and no change to any member's
+      rendered signature"*, with the reason spelled out. Phase 4 owns the man-page half.
+      The `present` Non-goal beside it also had its two citations corrected (**J4**:
+      neither string exists any more) and is now **enforced by a test** rather than by
+      prose, `set_group_items_is_the_consuming_parameter` asserting
+      `builtin_consuming_parameter_index("canvas.present")` is `None`.
 - [x] ~~`setGroup`'s deep copy routes resource ownership per Phase 1's design instead of
       copying a handle.~~ **Moot, with the evidence §4.1 predicted.** The copy already
       produces an alias — `List OF DrawItem` is still `type_is_memcpy_copyable` because
