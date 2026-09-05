@@ -89,10 +89,11 @@ fn emit_read_whole_file(
         ctx.relocations,
         vregs,
     );
-    // fd = open(path, O_RDONLY)
+    // fd = open(path, O_RDONLY | O_CLOEXEC) — Darwin O_CLOEXEC = 0x1000000; the PEM
+    // fd must not cross into a concurrent `process::spawn` child (bug-499).
     ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), cstr_off),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "16777216"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_open_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;

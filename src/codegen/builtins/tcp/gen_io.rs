@@ -249,15 +249,16 @@ pub(crate) fn lower_net_accept_helper(
         abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&accept_poll_retry),
         abi::branch(&accept_fail),
-        // accept(fd, NULL, NULL); accept_retry reloads fd from the stack so an
-        // EINTR retry re-issues the identical call (bug-115).
+        // accept(fd, NULL, NULL) — Linux `accept4(..., SOCK_CLOEXEC)` (bug-499);
+        // accept_retry reloads fd from the stack so an EINTR retry re-issues the
+        // identical call (bug-115).
         abi::label(&accept_retry),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_external_call(
-        net_symbol(platform, NetSymbol::Accept),
+    emit_accept_call(
+        platform,
         symbol,
         platform_imports,
         &mut instructions,
@@ -272,6 +273,15 @@ pub(crate) fn lower_net_accept_helper(
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
+    // macOS: the accepted socket gets FD_CLOEXEC here (no accept4) (bug-499).
+    emit_fd_cloexec_fallback(
+        platform,
+        symbol,
+        FD_OFFSET,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // The ACCEPTED socket must be blocking, whichever accept form produced it.
     //
     // The bounded path above put the LISTENER into non-blocking mode (bug-314 H2),

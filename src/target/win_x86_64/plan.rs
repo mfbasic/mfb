@@ -619,6 +619,11 @@ impl NativePlanPlatform for Platform {
                     import("CreateProcessA", KERNEL32, required_by),
                     import("CreatePipe", KERNEL32, required_by),
                     import("SetHandleInformation", KERNEL32, required_by),
+                    // bug-499: the STARTUPINFOEXA handle list that limits what the
+                    // child inherits to its three stdio pipe ends.
+                    import("InitializeProcThreadAttributeList", KERNEL32, required_by),
+                    import("UpdateProcThreadAttribute", KERNEL32, required_by),
+                    import("DeleteProcThreadAttributeList", KERNEL32, required_by),
                     import("WriteFile", KERNEL32, required_by),
                     import("ReadFile", KERNEL32, required_by),
                     import("PeekNamedPipe", KERNEL32, required_by),

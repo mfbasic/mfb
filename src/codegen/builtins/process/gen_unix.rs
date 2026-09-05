@@ -464,7 +464,7 @@ pub(crate) fn emit_child_apply_env(
 }
 
 /// Shared spawn tail: given a fully-built NUL-terminated C `argv` (in the `argv`
-/// vreg), create the three stdio pipes + an O_CLOEXEC self-pipe, fork, and
+/// vreg), create the three stdio pipes + the self-pipe (all O_CLOEXEC), fork, and
 /// `execvp` in the child (reporting an exec failure to the parent over the
 /// self-pipe), then in the parent allocate + stamp the `Process` record. Branches
 /// to `fork_fail` on a pipe/fork failure, `alloc_fail` on OOM, `done` on success.
@@ -491,36 +491,66 @@ pub(crate) fn emit_spawn_tail(
 ) -> Result<(), String> {
     const F_SETFD: &str = "2";
     const FD_CLOEXEC: &str = "1";
+    /// Linux `O_CLOEXEC` (0x80000; same on x86-64/AArch64/RISC-V) for `pipe2`.
+    const LINUX_O_CLOEXEC: &str = "524288";
     let pid = v.next();
     let rec = v.next();
     let tmp = v.next();
     let errno = v.next();
     let child = format!("{symbol}_child");
     let spawn_fail = format!("{symbol}_spawn_fail");
-    // Create the three stdio pipes and the self-pipe.
+    // Create the three stdio pipes and the self-pipe, every end close-on-exec
+    // (bug-499): Linux `pipe2(fds, O_CLOEXEC)` sets it atomically; macOS has no
+    // pipe2, so each end gets `fcntl(F_SETFD, FD_CLOEXEC)` right after `pipe`.
+    // The child's `dup2` onto 0/1/2 below clears the flag on the descriptors it
+    // is meant to keep, so this changes nothing the child sees — it stops the
+    // parent-held ends (and a concurrent spawn's ends) leaking into any exec.
+    // The self-pipe write end in particular MUST be O_CLOEXEC: a successful exec
+    // closes it so the parent's read returns EOF; on exec failure it stays open
+    // to carry errno.
+    let linux = platform.family() == PlatformFamily::Linux;
     for off in [STDIN_P, STDOUT_P, STDERR_P, ERR_P] {
         instructions.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), off));
-        platform.emit_external_call("pipe", symbol, platform_imports, instructions, relocations)?;
+        if linux {
+            instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", LINUX_O_CLOEXEC));
+            platform.emit_external_call(
+                "pipe2",
+                symbol,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+        } else {
+            platform.emit_external_call(
+                "pipe",
+                symbol,
+                platform_imports,
+                instructions,
+                relocations,
+            )?;
+        }
         instructions.extend([
             abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
             abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_lt(fork_fail),
         ]);
+        if !linux {
+            for end in [off, off + 4] {
+                instructions.extend([
+                    abi::load_u32(abi::c_arg(0), abi::stack_pointer(), end),
+                    abi::move_immediate(abi::c_arg(1), "Integer", F_SETFD),
+                    abi::move_immediate(abi::c_arg(2), "Integer", FD_CLOEXEC),
+                ]);
+                platform.emit_variadic_external_call(
+                    "fcntl",
+                    symbol,
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )?;
+            }
+        }
     }
-    // Self-pipe write end O_CLOEXEC: closed automatically on a successful exec, so
-    // the parent's read returns EOF; left open on exec failure to carry errno.
-    instructions.extend([
-        abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P + 4),
-        abi::move_immediate(abi::c_arg(1), "Integer", F_SETFD),
-        abi::move_immediate(abi::c_arg(2), "Integer", FD_CLOEXEC),
-    ]);
-    platform.emit_variadic_external_call(
-        "fcntl",
-        symbol,
-        platform_imports,
-        instructions,
-        relocations,
-    )?;
     // fork()
     platform.emit_external_call("fork", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
