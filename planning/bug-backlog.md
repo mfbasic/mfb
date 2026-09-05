@@ -134,7 +134,14 @@ three landed siblings). 518, 519 and 521 are landed.
 491 (`pkg install` not bound to the lock)
 
 **Older carryover**: 453 (riscv64 jal range) · 454 (win64 `os::resourcePath`) ·
-479 (inline TRAP on thread start — **memory gate**) · 483 (tls write error code
+479 (inline TRAP on thread start — **memory gate**; **three of its four defects
+are landed** in `a4a9d59dc`, and it is now ONE decision: the `TRAP` error path
+has no safe default `Thread` value. A resource gets a CLOSED record so operations
+short-circuit; `simple_thread_handle_helper` `pthread_mutex_lock`s the queue
+pointer off the handle with no null guard, so a null handle AND a zeroed block
+both fault, and `THREAD_STATE_CLOSED` cannot help because the lock precedes the
+state read. Answering it means a runtime contract across every `thread` member
+with a user-visible error code — a product decision, not a codegen arm) · 483 (tls write error code
 per backend) · 484 (`picture::drawItem` never renders) · 487 (state-mutating
 operand UAF — **memory gate**) · 527 (range parameter naming, large)
 
