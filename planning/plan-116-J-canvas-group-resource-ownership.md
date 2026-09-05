@@ -260,13 +260,67 @@ Putting it in the helper rather than at the two call sites is not tidiness: a cl
 only at the reclaim site leaves the second-`setGroup`-in-one-frame path silently
 unclosed, and that path has no test today.
 
-**The ungated site needs its own argument.** Closing there could close a resource an
-in-flight frame is still drawing. plan-116-G's justification for the ungated free is that
-the block being freed was retired by an *earlier* `setGroup` in the same frame and was
-therefore never published to the graphics thread — if that is exact, the resources in it
-were never drawn either and closing is safe. **Phase 2 must verify that claim against the
-publish path rather than inherit it**, because it was written about a block, and this
-letter extends it to the resources the block points at.
+**The ungated site turns out not to need a new argument, and the reason is worth stating
+exactly, because the obvious version of it is wrong.** plan-116-G's justification, in
+`emit_retire_current_items`'s own doc comment, is *"the drain gate runs at the top of every
+`present`, so a still-occupied retired word means no frame has completed since it was
+retired, which means no render can have started reading it"* — an argument about **frames**,
+not about publication. Adding a close there inherits it rather than needing a new one, and
+by a margin: **the close is strictly weaker than the free that already happens on that
+line.** Anything that could observe the close would first have to read the block, and the
+free already asserts nothing can. Closing is also `store_u64(1, …)` with no OS-side effect
+at all (§4.2) — §7's *"close never frees … safe at any instant, from the worker, with no
+knowledge of what the graphics thread is doing."*
+
+So the ungated site is safe **for the group's own reachability**. What it is not safe
+against is §4.3.1.
+
+#### 4.3.1 Two groups can name the same image, and closing is global
+
+This is the hole in "the group owns its items", and it is not reachable from the free
+path's own reasoning, because it is not about reachability at all.
+
+`canvas::Image` is a handle. Nothing stops a program from building two `Picture`s from one
+image and installing them in two different groups — or one in a group and one in the live
+scene. The resource record is **shared**: there is one `closed` word, and a close from any
+holder closes it for every holder. So a group that "owns" its items and closes them on free
+does not free *its* image; it closes *the* image, and the other group's `Picture` silently
+starts drawing nothing.
+
+The free path cannot detect this. Its argument establishes that nobody is reading **this
+block** — which is true, and irrelevant, because the other holder is reading a different
+block that points at the same record.
+
+**There is no refcount to reach for.** `.ai/canvas-threading.md` §7 is explicit — *"There
+is no refcount, and there is nothing to count"* — and `CANVAS_GROUP_REFS` is written and
+decremented but never read as a predicate (**J4**), so it is not a latent one either.
+Introducing resource refcounting is a change to the RES model, far outside this letter, and
+§Non-goals rules it out.
+
+Three ways out, and Phase 2 must pick one **before** writing the walk, because the walk is
+the same code in all three and only the surrounding contract differs:
+
+1. **Ownership is the documented contract, and sharing is the program's error.** `setGroup`
+   states that the group closes the images and fonts its items name, so naming one image in
+   two groups is a use-after-close the program authored. Cheapest, and consistent with
+   `destroyImage` moving its binding for a *direct* call — but §4.6 is exactly why that
+   analogy does not carry: the compiler cannot see this one, so the failure is silent and
+   at render time, which is the worst shape a diagnostic can have.
+2. **`setGroup` moves the resource out of the caller's binding**, the way `destroyImage`
+   does, making the second install a compile error. This is the only option where the
+   compiler catches it. It requires the items list to reach `setGroup` as something the
+   move checker can attribute to a binding, and a `List OF DrawItem` built inline may not
+   be — that is the thing to measure first.
+3. **Drop ownership for shared-by-construction resources** and keep this letter to the
+   case it can defend.
+
+Option 2 is the one to cost first: it is the only one that converts a silent render-time
+wrong-picture into a compile error, and this letter's whole premise is that plan-116-I made
+resources visible to the type system.
+
+**This is a Phase 2 decision with a Phase 3 consequence, and it is recorded as an Open
+Decision rather than settled here** — settling it needs the measurement in option 2, which
+is implementation work, not document work.
 
 ### 4.4 The walk this letter has to write
 
@@ -394,13 +448,31 @@ Commit: —
 
 ### Phase 2 — Ownership on the way in
 
+- [ ] **First: settle §4.3.1 by measurement.** Two groups can name one image, and closing
+      is global, so a group that closes "its" image closes it for every holder. Measure
+      whether option 2 is reachable — does a `List OF DrawItem` built inline arrive at
+      `setGroup` as something the move checker can attribute to a binding, so that a
+      second install is `2-203-0055` rather than a silent render-time wrong picture?
+      Write a probe first (a two-group program naming one image) and read the diagnostic,
+      the way **J7**'s probe read `destroyImage`'s. Record the answer in Open Decisions
+      and pick one of §4.3.1's three.
 - [ ] `setGroup`'s deep copy routes resource ownership per Phase 1's design instead of
-      copying a handle.
+      copying a handle. **Note (§4.1): the copy already produces an alias** — `List OF
+      DrawItem` is still `type_is_memcpy_copyable` because `flatness_walk`'s `Res(_)` arm
+      returns true — so if §4.3.1 resolves to option 1 or 3 there is nothing to emit here
+      and this box is a comment plus the tests. Do not manufacture an install-side step to
+      make the phase look substantial; mark it moot with that evidence if that is what the
+      measurement shows.
 - [ ] Tests: a program that opens an image, `setGroup`s a `Picture` naming it, drops its
       own binding, and presents the group — the image still draws.
+- [ ] Tests: the §4.3.1 case itself — one image, two groups — pinned to whatever
+      §4.3.1 resolves to. If option 2, a `tests/syntax/` fixture pinning the diagnostic;
+      if option 1 or 3, a runtime fixture pinning the observable outcome. **A resolution
+      with no test is the hole re-opened.**
 
-Acceptance: the drop-the-binding case draws the image; `cargo test --no-fail-fast`
-green; every canvas golden byte-identical.
+Acceptance: §4.3.1 has a resolution recorded in Open Decisions **with the probe output
+behind it**, and a test pinning that resolution; the drop-the-binding case draws the
+image; `cargo test --no-fail-fast` green; every canvas golden byte-identical.
 Commit: —
 
 ### Phase 3 — Ownership on the way out (largest blast radius)
@@ -471,16 +543,81 @@ Commit: —
   and this one, and this letter's prerequisites gate on it. This letter stays
   medium, written on the assumption the migration is not in it — which is now a
   guarantee rather than an assumption.
-- **Is a group-owned resource a "transfer"?** Genuinely open; Phase 1 answers it with
-  an audit. Recommend assuming **yes** until the audit says otherwise, because the
-  buffer is process-global and read by a second thread, which is the shape `sendable`
-  exists to govern.
-- **What happens when a scene draws an image a group owns and the group is removed?**
-  Phase 1 re-derives it. Recommend preserving today's observable outcome — the item
-  draws nothing rather than raising — because that is what
-  `.ai/canvas-threading.md` §7 documents and what a program can already encounter.
+- **~~Is a group-owned resource a "transfer"?~~ RESOLVED (2026-09-04, Phase 1): no.**
+  The recommendation here was to assume **yes**, and it was wrong — the shape `sendable`
+  governs is a resource record **changing arena**, which a `thread::transfer` does and an
+  install does not. The group stores a pointer to a block whose `Picture` slot stores a
+  pointer to a record that never moves, and the graphics thread only reads it, exactly as
+  it already reads every published scene. `live_slots` and `sendable` are unchanged.
+  Audit and reasoning in **J5**; consequence for the design in §4.1.
+- **~~What happens when a scene draws an image a group owns and the group is removed?~~
+  RESOLVED (2026-09-04, Phase 1): the item draws nothing, and it is now the *only*
+  possible outcome rather than the preferred one.** The recommendation was to preserve
+  today's observable behaviour, and the mechanism plan-116-I left behind enforces it:
+  the renderer reads the backend id through `canvas::imageHandle`/`fontHandle`, whose
+  descriptors carry `errors: vec![]` — they **cannot** raise — and which return `0` for a
+  closed resource, `0` already meaning "no such object". Verified in
+  `func_handle_bridge.rs`: `emit_closed_guard` runs before the handle load, so the answer
+  cannot be a stale non-zero id from a concurrent destroy.
+- **NEW, and the one this letter now turns on — what happens when two groups name the
+  same image?** Raised by §4.3.1, 2026-09-04. Closing is **global**: one `closed` word per
+  record, so a group closing "its" image closes it for every other holder, which then
+  silently draws nothing. The free path's safety argument cannot see this, because it
+  reasons about who can read *this block* and the other holder reads a different one.
+  There is no refcount and §Non-goals rules out adding one. **Recommend option 2 of
+  §4.3.1** — `setGroup` moves the resource out of the caller's binding, the way a direct
+  `destroyImage` does — because it is the only one of the three that turns a silent
+  render-time wrong picture into a compile error, and this letter exists because
+  plan-116-I made these resources visible to the type system in the first place. Settling
+  it needs a measurement (whether a `List OF DrawItem` built inline reaches `setGroup` as
+  something the move checker can attribute to a binding), so it is **Phase 2's first
+  task**, not a document decision.
 
 ## Corrections
+
+**J8 (2026-09-04, Phase 1) — §4.3 as I first wrote it attributed an argument to
+plan-116-G that plan-116-G does not make; following the real one to the end found a hole
+the letter's premise does not survive unpatched.**
+
+**The mis-attribution.** §4.3 said plan-116-G justifies the ungated free at
+`emit_retire_current_items` on the grounds that *the block was never published to the
+graphics thread*. It does not. Its doc comment argues from **frames**: *"the drain gate
+runs at the top of every `present`, so a still-occupied retired word means no frame has
+completed since it was retired, which means no render can have started reading it."* I had
+reconstructed a plausible argument instead of reading the one that is there — the failure
+mode `.ai/…` line-citation decay produces, arrived at from the other direction.
+
+Reading the real one made the concern evaporate rather than sharpen: **the close is
+strictly weaker than the free already on that line.** Anything that could observe the close
+must first read the block, and the free already asserts nothing can. §4.3 now says that,
+and no longer hands Phase 2 a verification task that was an artifact of my own paraphrase.
+
+**The hole, which is the part that matters.** That argument covers the group's own
+reachability and nothing else, and *reachability is the wrong axis*. `canvas::Image` is a
+handle to a **shared** record with one `closed` word. Two groups can hold `Picture`s built
+from the same image; so can a group and the live scene. A group that "owns" its items and
+closes them on free does not free *its* image — it closes *the* image, and every other
+holder silently starts drawing nothing, because `imageHandle` answers `0` and `0` is "no
+such object". The free path cannot detect it: it proves nobody is reading **this block**,
+which is true and irrelevant, since the other holder reads a different block pointing at
+the same record.
+
+There is no refcount to fall back on and no latent one — §7 says *"there is nothing to
+count"*, and `CANVAS_GROUP_REFS` is written and decremented but never read as a predicate
+(**J4**). §Non-goals rules out adding one.
+
+Recorded as §4.3.1 with three ways out, as a new Open Decision recommending the second
+(`setGroup` moves the resource out of the caller's binding, as a direct `destroyImage`
+does), and as two new Phase 2 boxes — the measurement that decides it, and a test pinning
+whatever it decides. It is deliberately **not** settled in this document: option 2 turns on
+whether a `List OF DrawItem` built inline reaches `setGroup` as something the move checker
+can attribute to a binding, and that is measured, not reasoned.
+
+**Why this is a Phase 1 finding and not a Phase 3 surprise.** Phase 3's box says *"the
+group free path closes each owned resource once"*. Written as stated, against a shared
+record, "once" is satisfied and the program is still wrong — the count is right and the
+close is global. A phase whose acceptance criterion can be met by broken code is the shape
+this correction exists to catch.
 
 **J7 (2026-09-04, Phase 1) — verifying `.ai/canvas-threading.md` §7 against landed code
 found one true claim stated too broadly, and disproved a constraint I had just written
