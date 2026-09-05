@@ -375,21 +375,67 @@ Commit: `5a1dd63d1`, `509b72a22`
 
 ### Phase 2 — The breaking swap, in one commit
 
-- [ ] Field types swapped; records/members deleted; seams cleaned
-      (`data_objects.rs`, `module_analysis.rs`); pinning test replaced (§4.1).
-- [ ] `helper_geometry.rs`'s **six** reads of `t.font.id` → `canvas::fontHandle(t.font)` (§4.2). Six, not five — §2's table was corrected by **I1** and this task was not (**I3**); re-count at Phase 1 anyway.
-- [ ] Every construction site updated per §4.3 (re-censused list).
-- [ ] Census: no in-tree program sends a `DrawItem` across a thread plane
-      (`grep` canvas + `thread::` co-use); record the result here.
-- [ ] Tests: `tests/cli_canvas_package.rs` constructs `Picture`/`Text` with real
+- [x] Field types swapped; records/members deleted; seams cleaned
+      (`data_objects.rs`, `module_analysis.rs`); pinning test replaced (§4.1). —
+      **Nine seam rows, not the two this box names** (**I5**): `data_objects.rs` ×2,
+      `module_analysis.rs`, and a per-target force-emit list in
+      `macos_aarch64/mod.rs`, `win_x86_64/mod.rs` and `linux_common/mod.rs`, ×2 each.
+      Missing one force-emits a symbol that no longer exists.
+      The pin is **inverted rather than replaced** and renamed
+      `the_resource_naming_variants_hold_the_resource_itself`: it asserts the *variant*,
+      because `Named("canvas.Image")` renders identically to
+      `Res(Named("canvas.Image"))` and is a value field that copies the record. It also
+      asserts the records and members are **gone**, not merely unused.
+- [x] `helper_geometry.rs`'s **six** reads of `t.font.id` → `canvas::fontHandle(t.font)` (§4.2). Six, not five — §2's table was corrected by **I1** and this task was not (**I3**); re-count at Phase 1 anyway. — Re-counted at Phase 1: six, at `:660, 694, 715, 987, 995, 1111`. All six replaced.
+- [x] Every construction site updated per §4.3 (re-censused list). — 21 mechanical
+      `canvas::imageRef(x)`/`fontRef(x)` → `x`, plus five fabricated handles that could
+      not be substituted and were rewritten to what each was asserting: two zero handles
+      became a real `createImage`/`loadFont`, the stale-id case became
+      **destroy-then-present** (§4.3), and two fixtures now thread a real font through
+      their scene helpers.
+      Two `.id` reads were **assertions about** a handle rather than constructions with
+      one, so no construction census could see them; both were checking that the *mint*
+      succeeded, and there is no mint step, so both were reduced rather than translated
+      — see the commit for why a `measureText` substitute was tried and rejected.
+- [x] Census: no in-tree program sends a `DrawItem` across a thread plane
+      (`grep` canvas + `thread::` co-use); record the result here. — **Result: none.**
+      No `.mfb` file and no MFBASIC source string in `tests/` or `src/` co-uses `canvas`
+      and `thread::`. The narrowing this letter introduces therefore breaks no existing
+      program. (The naive grep matches ~30 *compiler* sources that mention both words;
+      the census has to be scoped to MFBASIC programs or it answers a different
+      question.)
+- [x] Tests: `tests/cli_canvas_package.rs` constructs `Picture`/`Text` with real
       resources; `tests/rt_canvas_font.rs` all green including the
       destroy-then-present rewrite; a new negative case pins `2-203-0138` for a
-      `DrawItem` on a thread plane.
+      `DrawItem` on a thread plane. — `cli_canvas_package` 7 passed (its builder now
+      writes `fixture.ttf` beside every project, and `run_headless` runs from the
+      project directory so `loadFont` can find it); `rt_canvas_font` 13 passed;
+      `tests/syntax/threads/canvas-drawitem-thread-plane-invalid` reports `2-203-0138`
+      on **both** the message and the output plane.
+      That fixture names `RES canvas.Image`, not the font: `DrawItem` is a union and the
+      cause walk reports the first resource-carrying variant it reaches. Its comment
+      says so, and says not to remove whichever variant looks unused — either alone
+      would refuse the plane.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and box 2228 RELEASE** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here);
 every canvas golden byte-identical on disk; `mfb man canvas --all | grep -ci
 'imageRef\|fontRef\|ImageRef\|FontRef'` → 0.
-Commit: —
+
+**Met on macOS; the box-2228 row is queued behind plan-116-H's own Linux run on that
+one-core machine.**
+
+| gate | result |
+|---|---|
+| mac RELEASE | `rc=0` |
+| mac DEBUG (`--bin mfb`) | `rc=0`, **3790 passed** |
+| canvas goldens byte-identical | `git status tests/golden/canvas/` is empty |
+| `mfb man canvas --all \| grep -ci …` | **0** |
+| box 2228 RELEASE | pending |
+
+`man-run-examples.sh canvas --run`: **25 examples, 25 built, 25 ran, 0 failed** — two
+fewer than before because two members are gone, and every remaining example now
+constructs with the resource directly.
+Commit: `8a9a9f294`, `a274f147b`, `4730b1896`
 
 ### Phase 3 — Lifetime semantics proven end to end
 
