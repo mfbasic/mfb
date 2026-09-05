@@ -340,6 +340,89 @@ Commit: —
 
 ## Corrections
 
+**J4 (2026-09-05, pre-execution) — §1's description of the gate is wrong in two ways,
+J2's central claim is wrong, and the slot this letter needs room in is full.**
+
+Measured before starting, after plan-116-I landed.
+
+**1. There is no `refs == 0` term in the gate, and there never was.** §1 says the free
+*"already gates on `refs == 0 AND retiredFrame < lastCompletedFrame`"*. The actual gate,
+`gen_group.rs` in `emit_group_reclaim`:
+
+```rust
+builder.emit(abi::load_u64(&retired, &slot, CANVAS_GROUP_RETIRED_ITEMS));
+builder.emit(abi::compare_immediate(&retired, "0"));
+builder.emit(abi::branch_eq(&next));          // discriminator: RETIRED_ITEMS != 0
+...
+builder.emit(abi::compare_registers(&frame_now, &stamped));
+builder.emit(abi::branch_ls(&next));           // frame_now >= stamped
+```
+
+`CANVAS_GROUP_REFS` is **written `1` and decremented, and never read as a predicate
+anywhere** — five references in the whole tree, none of them a test. That is deliberate:
+`.ai/canvas-threading.md` says *"There is no refcount, and there is nothing to count …
+the lifetime rule is the drain gate alone."* And the frame term is `frame_now >= stamped`
+against the frames-**completed** counter, not `retiredFrame < lastCompletedFrame`. A
+letter that hangs resource-closing off "when refs hits zero" would be building on a
+counter nothing reads.
+
+**2. There are TWO free sites, and the obvious one is not the dangerous one.**
+`emit_group_reclaim` frees through the gate. But `emit_retire_current_items` **also**
+frees — a prior retired block, deliberately bypassing the gate — so a second `setGroup`
+in one frame goes down that path. A close step added only at the reclaim site leaves
+those resources unclosed. Both funnel through `emit_free_items_block`, which is therefore
+the chokepoint: a walk-and-close inserted before its `arena_free` covers both.
+
+**3. J2's claim that `copy_flat_block` becomes illegal is wrong.** `List OF DrawItem` is
+**still** `type_is_memcpy_copyable` after plan-116-I: `flatness_walk`'s `ParameterType::Res(_)`
+arm returns true, because the slot holds one 8-byte pointer to the resource record and a
+memcpy of that pointer is a correct **alias** (§15.6). The test J2 quotes,
+`a_res_collection_does_not_diverge`, is about `List OF RES fs.File`, where the element
+type *strips* the `RES` marker — the opposite case. So the copy at `emit_set_group` stays
+legal, and that is the problem rather than the solution: the group gets an alias, and
+`arena_free` on the list block then drops the last reference to records nothing closes.
+
+**4. The group slot is full.** `error_constants.rs` says so in as many words: *"Both spare
+words are now used: `RETIRED_ITEMS` and `RETIRED_NAME`. plan-116-J will need to grow the
+slot to 128 (still a power of two, still a shift) rather than find room here."* Any new
+word must also be added to `the_group_slot_size_is_a_power_of_two_matching_its_shift`,
+which takes the max over a hardcoded list of the eight words.
+
+**5. Nothing walks a group's STORED items.** Every existing walk goes through
+`canvas::groupItems(slot)`, which returns a **copy**, and runs on the graphics thread —
+`__canvas_appendDraw`, `__canvas_groupSignature`, `__canvas_memoGroup`,
+`__canvas_drawGroup`. None visits `Picture.image` or `Text.font`; the only code that reads
+a resource out of an item is `helper_geometry.rs`'s six `canvas::fontHandle` sites. This
+letter has to write that walk, and it has to run on the **worker**.
+
+**6. The existing owned-container machinery does not cover this case.** An owned list
+carries **one** `OwnedListDrop`, and `builder_resource_cleanup.rs` explicitly refuses *"a
+record with two `RES` fields of differing resource types"*. A `DrawItem` list holds both
+an `Image` (via `Picture`) and a `Font` (via `Text`) — two close ops — so
+`emit_owned_list_drain` cannot be pointed at it unchanged.
+
+**Cheap, at least:** closing one resource is two instructions —
+`move_immediate(flag, 1)` then `store_u64(flag, record, RESOURCE_OFFSET_CLOSED)`. There is
+no runtime call; the OS-side free is already deferred behind the backend's own
+`closed AND lastUsedFrame < lastCompletedFrame` gate. `destroyFont` adds one step
+(`emit_unregister_font` before the flag, so a renderer never finds a published block whose
+resource is closed). The cost of this letter is the walk, not the close.
+
+**Stale citations, corrected.** `Picture.image` is now `RES canvas::Image` and `Text.font`
+`RES canvas::Font`; the two `pkg.add_resource` calls moved to `mod.rs:981` and `:1002`
+(J2 and J3 both give older numbers — G1's lesson repeating twice in one document). Two
+strings §Non-goals quotes as documented promises **no longer exist** in the tree: *"an
+installed scene never keeps an image open"* and *"keeps the scene from retaining
+anything"*. The nearest survivor is `src/docs/spec/app/06_canvas.md`'s *"Naming a
+resource in a scene does not keep it alive"*, which plan-116-I wrote. The Non-goal itself
+still stands — `present` must not own — but it needs to cite something that exists.
+
+**Also stale, in the source rather than the plan:** `gen_present.rs`'s comment still
+claims a collection is *"a self-contained flat block … so `copy_flat_block` is already
+the transitive deep copy"*, and `gen_image.rs` still calls `handle@8` *"the only thing a
+scene ever carries (through an `ImageRef`)"*. Both are now wrong in the same way, and
+both are load-bearing prose for exactly the question this letter asks.
+
 **J3 (pre-execution, 2026-09-04) — re-measured §2; the counts hold, but one row's
 command over-counts by 2× and would have been read as drift.**
 `grep -c add_resource src/codegen/builtins/canvas/mod.rs` returns **4**, against a
