@@ -482,11 +482,18 @@ Four properties this buys, none of which the other shapes have:
 
 Two things Phase 3 must check rather than assume:
 
-1. **`canvas::destroyImage(p.image)` must be legal** — reading a `RES` out of a record
-   field and passing it to a consuming (non-`RES`) parameter. plan-114-C's
-   `value_aliases_live_resource` covers `RES g = h.handle` binding a *new* name; passing
-   the field directly is the adjacent case and may or may not be accepted. If it is not,
-   bind it first.
+1. ~~**`canvas::destroyImage(p.image)` must be legal**~~ — **checked 2026-09-04: it is.**
+   A `MATCH` over a `canvas::DrawItem` whose `CASE canvas::Picture(p)` arm calls
+   `canvas::destroyImage(p.image)` compiles clean, so a `RES` read straight out of a
+   record field may be passed to a consuming (non-`RES`) parameter. plan-114-C's
+   `value_aliases_live_resource` covers the adjacent `RES g = h.handle` shape; this one
+   needs no intermediate binding.
+
+   *(Noted in passing, because it will bite whoever writes the probe rather than the
+   helper: from a **user** program the variant must be written `CASE canvas::Picture(p)`.
+   Unqualified `CASE Picture(p)` is `2-201-0015 SYMBOL_UNKNOWN_TYPE`. Inside the package's
+   own injected source — which is where this helper goes — the unqualified form is the one
+   that works, as `helper_render.rs`'s `CASE Group(g)` shows.)*
 2. **The returned copy must register no cleanup of its own**, or the helper's scope exit
    closes the resources a second time and — worse — a `List OF DrawItem` returned from a
    reclaim that freed nothing would still be walked. Expected fine:
