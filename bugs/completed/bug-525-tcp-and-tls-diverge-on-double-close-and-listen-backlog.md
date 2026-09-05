@@ -1,12 +1,19 @@
 # bug-525: `tcp` and `tls` disagree on double-close and on the `listen` backlog default, and the docs ratify the split
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: `tests/` — the existing tcp/tls close and listen fixtures, extended with a cross-transport pin
+Status: **FIXED** (`9053e5eb0`) — every built-in `close` refuses an already-closed
+handle with `ErrResourceClosed`, and both `listen` members default `backlog` to
+`128`. The divergence was not a decision waiting to be made: `mfb spec language
+resource-management` §15 had already made it, and `tls`/`audio` were the
+non-conforming side.
+Regression Test: `tests/rt_double_close_is_refused.rs` (runtime, cross-transport)
++ `codegen::resource::tests::every_builtin_close_refuses_an_already_closed_handle`
+(lowering, all six backends) +
+`codegen::resource::tests::both_listen_members_default_the_same_backlog`
 
 `tcp` and `tls` are documented as drop-in mirrors of each other — same member
 names, same shapes, same argument order — and they diverge in two places.
@@ -248,3 +255,150 @@ Phase 1 finds a meaningful population of deliberate double-closers, in which
 case the recommended direction flips — which is exactly why the count comes
 before the change. Nothing here is urgent; what makes it worth doing is that
 the deferral is currently permanent by default.
+
+## Resolution (2026-09-05, `9053e5eb0`)
+
+**Which side was wrong: the code, on the `tls` and `audio` side.** The report
+framed this as a decision nobody had made. It had been made — by the language
+spec, before either package diverged from it.
+
+`mfb spec language resource-management` §15 (`15_resource-management.md:22`):
+
+> A resource is still closed **exactly once**. What changed is *who* may close
+> it, never *how many times*: an already-closed record is flagged, and a second
+> close is a defined no-op reported as `ErrResourceClosed` rather than an
+> operation on a dead handle.
+
+That is the `fs`/`tcp`/`udp` behaviour verbatim. `tls::close` and `audio::close`
+set the closed flag once and then returned OK forever after, so they were the
+non-conforming side rather than a second defensible policy — and
+`src/docs/spec/stdlib/17_transports.md:54` ratifying the split ("`tls::close`
+differs deliberately") was the **stdlib** spec contradicting the **language**
+spec. That sentence is corrected here.
+
+### Phase 1 — the measured table
+
+Taken from a program, not from the pages: open a handle, close it through a
+`RES` parameter, close it again the same way, print the second call's code.
+
+| member | double-close before | after |
+| --- | --- | --- |
+| `fs::close` | `ErrResourceClosed` (77030004) | unchanged |
+| `tcp::close` | `ErrResourceClosed` | unchanged |
+| `udp::close` | `ErrResourceClosed` | unchanged |
+| `tls::close` (Socket **and** Listener) | **success** | `ErrResourceClosed` |
+| `audio::close` (Input **and** Output) | **success** (lowering; no device on any host) | `ErrResourceClosed` |
+| `process::close` | a different operation; renamed `process::closeInput` by bug-524 | — |
+
+### Phase 1 — the count that was the veto
+
+**Zero.** A literal double close does not compile:
+
+```
+tcp::close(l)
+tcp::close(l)
+   ^ error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+```
+
+so the only reachable shape is a close through a `RES` parameter or another
+alias — §15's "any holder may close it". None of the 219 `*::close` call sites
+under `examples/`, `benchmark/`, `repository/`, `tests/` and `packages/` does
+that, and the three `tls::close` sites in `examples/` already wrap the call in
+`TRAP … RECOVER`. So the recommended direction (raise everywhere) stands
+un-vetoed, and it is also the direction the spec already required.
+
+### The decisions, written down
+
+1. **A second close raises `ErrResourceClosed`, in every built-in package.** Not
+   a per-package choice: `close` is not an exception to "using a closed handle
+   is a mistake", which is what every *other* member of these packages already
+   says. The recommended idiom is unaffected — close once, or let the scope do
+   it — because a drop-close discards its failure (§15).
+2. **`listen`'s `backlog` defaults to `128` on both transports.** `tcp`'s
+   explicit, portable default wins over `tls`'s "host default"; there is now one
+   constant, `builtins::net::DEFAULT_LISTEN_BACKLOG`, read by the code-layer
+   padding and by the `tls::listen` descriptor. Raising a backlog can only make
+   the kernel queue *more* pending connections, so no program that worked stops
+   working, and macOS ignores the argument entirely.
+
+### The trap in the emitters
+
+Ten close emitters. **Three had the SUCCESS path falling through into the
+`already` label** and sharing its OK tag (`gen_schannel_read_close`, both audio
+macOS closes, ALSA, WASAPI). Turning that label into a refusal without first
+inserting `abi::branch(&done)` makes the *first* close fail. That is what the
+positive pin below exists to catch, and it is recorded in `.ai/net-tls.md`.
+
+### Tests
+
+- **RED, runtime, cross-transport** — `tests/rt_double_close_is_refused.rs`.
+  `tls::Listener` printed `second=0` before the fix; `fs`, `tcp` and `udp`
+  printed `77030004` before *and* after, so they are positive pins rather than
+  three more copies of the same assertion.
+- **RED, lowering, cross-backend** —
+  `codegen::resource::tests::every_builtin_close_refuses_an_already_closed_handle`
+  lowers all ten emitters and asserts each relocates
+  `_mfb_str_error_resource_closed`. It is the only instrument that reaches
+  Schannel and WASAPI from a Mac, and the only one that reaches `audio` at all.
+- **POSITIVE pin** — `closing_once_and_letting_the_scope_end_is_unchanged`:
+  open a `tcp::Listener` and a `tls::Listener`, use each, close each **once**,
+  then rebind the released port. The rebind is what proves the handle is still
+  closed exactly once; `main` returning 0 with both still in scope is what
+  proves a drop-close still discards its failure.
+- **Backlog pin** — `both_listen_members_default_the_same_backlog`.
+
+### Per-backend runtime proof
+
+Matched before/after runs of the same program, built by the pre-fix and post-fix
+compilers. Lowering is not runtime proof for a per-backend change:
+
+| backend | `tls::Listener` | `tls::Socket` |
+| --- | --- | --- |
+| macOS / Network.framework | `0` → `77030004` | `0` → `77030004` |
+| Linux / OpenSSL (box 2228) | `0` → `77030004` | `0` → `77030004` |
+| Windows / Schannel (box 2230) | `0` → `77030004` | `0` → `77030004` |
+
+`fs`, `tcp` and `udp` printed `77030004` on every box both before and after. The
+`tls::Socket` runs complete a real handshake — against `openssl s_server` on
+macOS and Linux, and against the program's own listener on a worker thread on
+Windows, where there is no `openssl` CLI. **`audio` has no runtime proof on any
+host** (no device on the Mac or on the boxes); its instrument is the lowering
+pin, and that gap is stated rather than implied.
+
+### Golden delta
+
+The padded backlog constant `0` → `128` in four `.ir` goldens
+(`byte-identity/tls`, `syntax/tls/{accept,close,listen}_valid`), and the
+`.ncodesum` of exactly the four fixtures that embed a changed emitter:
+`byte-identity/{tls,audio,http,resource-xfer-slots}`. **Zero `.run` goldens
+moved and no `build.log` moved** — the behaviour change is only reachable
+through a shape no fixture had.
+
+### Also fixed, in scope
+
+Every built-in `close` now declares its raisable errors, so the derived Errors
+table states the rule the pages describe: `fs::close` (`ErrResourceClosed`,
+`ErrResourceMoved`, `ErrCloseFailed`, `ErrWriteFailed`), `tcp`/`udp::close`
+(the first three), `tls::close` (`ErrResourceClosed`, `ErrTlsFailed`),
+`audio::close` (`ErrResourceClosed`, `ErrAudioUnavailable`). All five declared
+`errors: vec![]` before, so none rendered an Errors table at all. The sets are
+taken from each emitter's `emit_fail` calls, not from its prose.
+
+### Open Decisions — resolved
+
+- **Idempotent vs. raising** → raising, as recommended. The call-site count that
+  was the veto is zero, and §15 had already settled the direction.
+- **Whether `fs::close` is in scope** → yes; it already conformed, and it is the
+  precedent that a raising close is safe against the drop path. Its pre-close
+  drain needed no extra sentence: the drain runs before the closed-flag guard is
+  ever reached a second time.
+
+### Non-goals honoured
+
+`tcp::close`'s `ErrResourceMoved` for a transferred handle and its
+`ErrCloseFailed`-exactly-once rule are untouched — a moved `tls` handle still
+reports `ErrResourceClosed` rather than `ErrResourceMoved`, which the report
+listed as orthogonal and out of scope. The recommended close-once idiom is
+unchanged. macOS's ignored `tls::listen` backlog is still ignored. No page was
+edited to match the other package's behaviour: the divergence was in the code,
+and the code is what moved.

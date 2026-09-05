@@ -1,8 +1,8 @@
 # Open bug backlog — triage and work order
 
 Last updated: 2026-09-05
-Open bugs: **34** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
-Severity split: **0 CRITICAL · 1 HIGH · 28 MEDIUM · 5 LOW/other** (re-derived from
+Open bugs: **33** (`find bugs -maxdepth 1 -name 'bug-*.md' | wc -l`)
+Severity split: **0 CRITICAL · 1 HIGH · 27 MEDIUM · 5 LOW/other** (re-derived from
 the `Severity:` line of each open bug on 2026-09-05; the previous 45/10/31/4 line
 predated several landings and no longer matched the tree)
 
@@ -71,13 +71,20 @@ a dedicated agent.
 530 (`utf8Encode` return overload invisible in signature)
 
 **Resource / close contracts** (one agent):
-525 (tcp/tls diverge on double-close and backlog) ·
 522 (stale transferable list) · 523 (RES type pages omit shapes) ·
 526 (`tls::poll` list overload renders without RES).
 **524 is landed (`be88539c8`)** — `process::close` is now `process::closeInput`;
 the behaviour did not move and zero `.run` goldens changed. It also leaves 523 a
 concrete correction: `process`'s package description claims a handle "cannot be a
 field of a record", which is false.
+**525 is landed (`9053e5eb0`)** — every built-in `close` now refuses an
+already-closed handle with `ErrResourceClosed`, and both `listen` members default
+`backlog` to `128`. It was never a decision waiting to be made: `mfb spec language
+resource-management` §15 already required the raise, so `tls` and `audio` were the
+non-conforming side and `src/docs/spec/stdlib/17_transports.md` was the stdlib spec
+contradicting the language spec. Proven before/after on all three TLS backends
+(macOS Network.framework, box 2228 OpenSSL, box 2230 Schannel); `audio` has no
+runtime proof anywhere (no device) and rides a lowering pin.
 
 **App backends** (one agent): 540 (Win app term reduced) ·
 541 (backends do not enforce the inactive-term gate)
