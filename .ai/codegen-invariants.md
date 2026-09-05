@@ -495,8 +495,9 @@ arena". Four live instances, plus two the tree already recorded:
 **So the variant dispatch in these classifiers is a `match` with no `_` arm.**
 `cargo build` is the enforcement, not review: adding a 25th variant fails to
 compile until someone decides what it is. Measured — a probe variant breaks
-three sites now (`flatness_walk`, `default_payload_alignment`, and `types.rs`'s
-renderer); before the change it broke only the renderer.
+**four** sites now (`flatness_walk`, `default_payload_alignment`,
+`record_field_is_pointer`, and `types.rs`'s renderer); before the change it broke
+only the renderer.
 
 Three things to know before extending this:
 
@@ -516,6 +517,16 @@ Three things to know before extending this:
   its last arm returns an `Err` — so it produced a build error
   (`native collection packed payload does not support type 'Db'`) instead of a
   mis-strided collection. Same missing information, two very different outcomes.
+
+**Two ways to convert, and they are not equally safe.** `flatness_walk` and
+`collection_payload_alignment` delegate their whole tail to a helper verbatim, so
+they are behavior-identical *by construction* and the gate merely confirms it.
+`record_field_is_pointer` instead asserts answers in its structural arms
+(`Res(_)`/`ThreadHandle` are plain 8-byte slots; scalars occupy their slot by
+value; collections and `ResultOf` are pointers). Those are claims, so the gate is
+doing real work there — it came back 1918 golden(s) / 0 diff(s), which is what
+makes them safe to keep. Prefer the delegate form unless the structural answer is
+worth stating; if you assert, gate it.
 
 `#[deny(clippy::wildcard_enum_match_arm)]` is on each converted classifier as a
 secondary guard against a `_` coming back. **Note it is local-only: clippy is not

@@ -2755,9 +2755,49 @@ pub(crate) fn is_pointer_string_record(type_: &ParameterType) -> bool {
 /// pointer to its record; a slot stores a copy of that pointer exactly like any
 /// other pointer payload (§15.6)". A resource *union* IS a pointer composite and
 /// is caught by the `union_names` arm.
+///
+/// EXHAUSTIVE BY CONSTRUCTION — do not add a `_` arm. Its default answer is
+/// "a plain 8-byte value slot", so a variant nobody classified gets laid out as
+/// a scalar; see the fall-through note in `.ai/codegen-invariants.md`.
+#[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
-    typed_is_collection_type(field_type)
-        || model.record_fields.contains_key(field_type)
+    match field_type {
+        // A collection field is a pointer to its own block.
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_) => true,
+        ParameterType::ResultOf(_) => true,
+        // A resource handle — bare, `RES`-marked, or a thread handle — is a
+        // plain 8-byte slot holding the pointer, NOT a pointer composite
+        // (plan-114-B). `is_pointer_collection_payload_type` applies the same
+        // rule to a collection slot.
+        ParameterType::Res(_) | ParameterType::ThreadHandle { .. } => false,
+        // Scalars occupy their slot by value.
+        ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing
+        | ParameterType::String => false,
+        // Everything left is a NOMINAL (or a shape only the model can place), so
+        // the answer is a model lookup rather than a property of the variant.
+        ParameterType::Named(_)
+        | ParameterType::UserOf(..)
+        | ParameterType::Stateful { .. }
+        | ParameterType::MapEntryOf(..)
+        | ParameterType::AttributeString
+        | ParameterType::C(_)
+        | ParameterType::Func(..)
+        | ParameterType::Var(_)
+        | ParameterType::Arg(_)
+        | ParameterType::Unknown => named_field_is_pointer(model, field_type),
+    }
+}
+
+/// The model half of [`record_field_is_pointer`] — the part exhaustiveness
+/// cannot reach, because a nominal's answer depends on its NAME.
+fn named_field_is_pointer(model: &TypeModel, field_type: &ParameterType) -> bool {
+    model.record_fields.contains_key(field_type)
         // A resource union is a pointer composite (its value is a pointer to a
         // `{tag, ptr}` block), never a flat block. A transferred stateful union
         // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
@@ -2767,7 +2807,6 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         || model
             .union_names
             .contains(&base_resource_type(field_type))
-        || matches!(field_type, ParameterType::ResultOf(_))
         || field_type.is_named("Error")
 }
 
