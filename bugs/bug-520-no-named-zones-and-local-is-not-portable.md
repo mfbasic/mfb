@@ -1,6 +1,6 @@
 # bug-520: `datetime::Zone` has no named zones, and a `Local` zone cannot be serialized portably
 
-Last updated: 2026-09-04
+Last updated: 2026-09-04 (519/521/518 interaction notes added; still Open, not started)
 Effort: huge (>3d)
 Severity: MEDIUM
 Class: Correctness
@@ -233,10 +233,52 @@ Commit: —
   separate `toIso` overload** rather than changing the existing one, and
   resolving it together with bug-521's nanosecond overload — they are the same
   question asked twice.
+  **Resolved on the 521 side (2026-09-04, `6ab026ea4`), and NOT the same
+  question after all.** 521 landed `datetime::toIso(dt, digits AS Integer)` with
+  `digits` in `{0, 3, 6, 9}`. Precision and zone identity turned out to be
+  independent axes: `digits` names a fractional width and nothing else, so a
+  later RFC 9557 zone-name flag must arrive as its own parameter or its own
+  member, **not** by overloading that integer. Two constraints this bug now
+  inherits:
+  1. The arity slots `toIso(DateTime)` and `toIso(DateTime, Integer)` are both
+     taken. A zone-suffix form needs a third shape — `toIso(dt, digits,
+     zoneName AS Boolean)` is the cheap one, and it keeps `digits` meaning what
+     it means today.
+  2. `toIso`'s page now states, and
+     `tests/rt-behavior/datetime/datetime-iso-nanos-rt` pins, that
+     `parseIso(toIso(dt, 9))` recovers `dt`'s `nanos` exactly. Whatever this bug
+     does to the ISO writer must keep that round trip true, and a `[Zone/Name]`
+     suffix means `parseIso` has to learn to skip or read it.
 - Whether `Local` should be *deprecated* in favour of resolving the host's zone
   to a name at `datetime::local()` time. **Recommend yes if the host lookup is
   reliable** — it turns the one non-portable value into a portable one — but
   it depends on the rule source, so it belongs in the plan.
+
+### Interaction with the landed datetime fixes (2026-09-04)
+
+Three sibling bugs landed while this one stayed open. None of them starts it,
+and none of them is blocked by it, but each leaves a constraint here:
+
+- **bug-519** (`250df247e`) — `parse` and `parseIso` now range-check their
+  decoded *calendar* fields via `__datetime_checkFields`. The bound is on
+  calendar fields only and says nothing about zone identity, so a named-zone
+  `Zone` does not interact with it. What it does establish is a rule to keep:
+  the package now has exactly **three input boundaries** (`date`, `time`, and
+  the two parse readers) and all three enforce the same ranges, which is why
+  `civil` is safe to leave trusting its arguments. A named-zone constructor
+  (`datetime::zone("America/New_York")`) becomes a **fourth** boundary and owes
+  the same treatment: an unknown zone name must raise, not fall back to UTC or
+  to `Local`.
+- **bug-521** (`6ab026ea4`) — see the `toIso` Open Decision above.
+- **bug-518** (this pass) — `withZone`'s `zone` parameter row now states that
+  the instant is preserved and names `datetime::civil(dt.date, dt.time, zone)`
+  as the operation that keeps the wall-clock reading instead. Both sentences
+  are about `Zone` *values*, so if this bug adds a `Named` `ZoneKind` they must
+  stay true for it: `withZone` into a named zone must still preserve the
+  instant, and `civil` into a named zone must resolve that zone's own DST rules
+  rather than the host's. `tests/rt-behavior/datetime/datetime-withzone-instant-rt`
+  pins the first of those across every existing `ZoneKind`; a `Named` variant
+  should be added to that fixture's list rather than getting a new one.
 
 ## Summary
 

@@ -186,6 +186,15 @@ it probes the offset one day on each side to bracket the transition, then
 applies the §"DST policy" below. `withZone(dt, z)` re-projects through
 `resolve` then `inZone`. [[src/codegen/builtins/datetime/mod.rs:__datetime_resolveLocal]]
 
+The two are the package's opposite zone operations and are easy to confuse
+(bug-518 was `withZone`'s own parameter row asserting the wrong one).
+`withZone(dt, z)` **preserves the instant** and re-derives the civil fields:
+`resolve(withZone(dt, z)) = resolve(dt)` for every `z`. `civil(dt.date, dt.time,
+z)` **preserves the civil fields** and therefore names a different instant. The
+`withZone` identity is pinned by
+`tests/rt-behavior/datetime/datetime-withzone-instant-rt`, because prose cannot
+be gated but the property it describes can.
+
 **DST policy** (`resolveLocal`): with no transition in the bracket, use the
 common offset. Across a transition: an unambiguous time uses the bracketing
 offset; a **fall-back overlap** (the wall time occurs twice) takes the *earlier*

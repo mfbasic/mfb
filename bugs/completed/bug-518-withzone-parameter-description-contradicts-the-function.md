@@ -5,8 +5,9 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: `spikes/api-review/bug-518-withzone-doc/` promoted to a `tests/` fixture
+Status: **FIXED** — the `zone` parameter row now states that the instant is
+preserved and names the operation that does the opposite.
+Regression Test: `tests/rt-behavior/datetime/datetime-withzone-instant-rt`
 
 `mfb man datetime withZone` contains two statements that cannot both be true.
 
@@ -192,3 +193,102 @@ Commit: —
 Trivial to fix and easy to fix *wrongly*: the sentence describes a plausible
 operation, so the risk is someone changing the code to match it. The pin added
 in Phase 1 is the guard against that. One `&'static str`, one new test.
+
+
+## Resolution
+
+### Which side was wrong, from evidence
+
+The behaviour was right; the prose was wrong. Four independent pieces of
+evidence, none of them "the code is easier to leave alone":
+
+1. The `BODY` is one line — `RETURN __datetime_inZone(__datetime_resolve(dt), z)`
+   — which collapses to the instant and re-projects it.
+2. The spike measures it: instant `1782475200` before and after.
+3. Every *other* sentence on the page already agrees with the body: the `intro`
+   ("preserving the absolute instant"), the Description ("the underlying point
+   on the UTC timeline is unchanged … an identity on the absolute moment"), the
+   "exactly the composition of `resolve` and `inZone`" paragraph, and both
+   examples. One sentence disagreed with five.
+4. The wrong sentence's own advice does not typecheck: it said to "use
+   `datetime::inZone` to keep the instant", but `inZone` takes an `Instant`, not
+   a `DateTime`, so it is not a substitution — and it is the *second half of
+   what `withZone` already does*.
+
+Changing the code to match the row would have moved every existing caller's
+instant and made the other five statements wrong instead. The prose was the
+defect, exactly as the bug's Non-goals said.
+
+### Sibling verdicts (Phase 1)
+
+`grep -rn "reinterpret\|different instant\|names a different"` over
+`src/codegen/builtins/datetime/` and `src/docs/spec/stdlib/02_datetime.md`:
+
+- `func_in_zone.rs` — **clean.** Its `at` row says "the instant itself does not
+  change; only the zone it is read in does". No mirrored copy.
+- `func_to_utc.rs` — **clean** ("The instant to read in UTC.").
+- `func_to_local.rs` — **clean** ("The instant to read in the host's local zone.").
+- `func_civil.rs:97` — a hit, but **correct**: "the same date and time in two
+  zones are two different instants" is true of `civil`, which is precisely the
+  operation the `withZone` row was describing by mistake.
+- `src/docs/spec/**` — no restatement of the wrong claim; the spec's one
+  `withZone` sentence was already right, and now also draws the contrast.
+
+That last verdict is what improved the fix over the one the bug proposed. The
+bug recommended saying "the package has no such operation". It has one:
+`datetime::civil(dt.date, dt.time, zone)`, confirmed at runtime —
+
+```
+dt    = 2026-06-26T12:00:00.000Z        inst=1782475200
+withZone(dt, +05:30) = 2026-06-26T17:30:00.000+05:30  inst=1782475200   ' instant kept
+civil(dt.date, dt.time, +05:30) = 2026-06-26T12:00:00.000+05:30  inst=1782455400  ' reading kept
+```
+
+so the row names it instead of leaving the reader with a dead end. The
+`replaceZone` feature the Open Decision floats is therefore **not needed** —
+that was the deferral's premise, and it is now a documented one-liner.
+
+### The change
+
+- `func_with_zone.rs` — the `zone` `desc`, plus a module-doc note recording why
+  the code must not be "fixed" to match the old sentence.
+- `src/docs/spec/stdlib/02_datetime.md` — the projection section now states the
+  `resolve(withZone(dt, z)) = resolve(dt)` identity, names `civil` as the
+  opposite operation, and cites the pin.
+- `spikes/api-review/bug-518-withzone-doc` — extended to print the contrast.
+
+### The pin
+
+`tests/rt-behavior/datetime/datetime-withzone-instant-rt` asserts
+`resolve(withZone(dt, z)) == resolve(dt)` for **every** `ZoneKind` — UTC, a
+positive and a negative fixed offset, and the host's `Local` zone — plus a
+re-projection back to UTC, and that `nanos` and the carried `zone.kind` survive.
+Its assertions are invariants (`TRUE`), not host-zone-dependent values, so the
+golden is portable. It also pins the *contrast*: `civil(dt.date, dt.time, z)`
+keeps the reading and moves the instant by 19800 s.
+
+This is a pin, not a red test — the red artefact was the man page, which no
+harness can assert on. What the pin buys is that a future change to `withZone`
+that would make the old sentence true breaks a test.
+
+### Gates
+
+- `scripts/test-accept.sh` (full, 1396 tests): **passed, 0 mismatches.** Worth
+  recording: a `Parameter.desc` is man-page-only prose and drifted no `.ir`
+  golden, unlike a `RegistryFunction.desc`/`intro` edit — both sides were
+  checked, not assumed.
+- `scripts/regen-ncodesum.sh`: 141 refreshed, **0 changed**.
+- `scripts/artifact-gate.sh target/release/mfb all`: 1906 goldens, **0 diffs**.
+- `cargo test --no-fail-fast`: exit 0, 4711 passed / 0 failed.
+  `cargo check --all-targets`: no warnings.
+- `scripts/man-run-examples.sh datetime --run`: 114 built, 114 ran, 0 failed.
+- `scripts/man-census.sh --memory-scope`: **0 unclassified** memory-vocabulary
+  hits; datetime's 15 are the pre-existing arithmetic-borrow carve-out.
+
+### Open Decision, answered
+
+Add a `replaceZone`? **No.** The gap the Open Decision named — "constructing
+'9am in Tokyo' from a `DateTime` currently requires going out through `civil`" —
+is one call, `civil(dt.date, dt.time, zone)`, and the page now says so. A new
+member for it would be a third spelling of an operation the package already
+has. See bug-520 for the constraint this places on a future `Named` zone kind.

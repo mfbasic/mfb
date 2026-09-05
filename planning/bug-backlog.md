@@ -69,8 +69,8 @@ rather than sharing a slot.
 **App backends** (one agent): 540 (Win app term reduced) ·
 541 (backends do not enforce the inactive-term gate)
 
-**datetime**: 518 (withZone description contradicts the function) ·
-520 (no named zones — huge). 521 is landed.
+**datetime**: 520 (no named zones — huge; carries interaction notes from the
+three landed siblings). 518, 519 and 521 are landed.
 
 **crypto**: 515 (no memory-hard password KDF) ·
 517 (SHA-1 advisory cannot tell hashing from HMAC) ·

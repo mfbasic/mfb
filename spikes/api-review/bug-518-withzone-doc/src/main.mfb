@@ -9,6 +9,12 @@
 '
 ' The implementation settles it: `withZone(dt, z) = inZone(resolve(dt), z)`.
 ' This spike prints the instant on both sides.
+'
+' FIXED: the parameter row now states that the instant is preserved, and points
+' at `datetime::civil(dt.date, dt.time, zone)` -- which really is the operation
+' the wrong sentence described -- instead of at `datetime::inZone`, which takes
+' an Instant and does the same thing withZone does. The last two lines below
+' show the contrast.
 
 IMPORT io
 IMPORT datetime
@@ -26,9 +32,14 @@ FUNC main AS Integer
   io::print("instant before = " & toString(before.seconds))
   io::print("instant after  = " & toString(after.seconds))
   IF before.seconds = after.seconds THEN
-    io::print("=> the instant is PRESERVED. The `zone` parameter description is wrong.")
+    io::print("=> the instant is PRESERVED, as the parameter row now says.")
   ELSE
     io::print("=> the instant MOVED. The Description paragraph is wrong.")
   END IF
+
+  ' The operation the OLD sentence described, which the row now names:
+  LET kept AS datetime::DateTime = datetime::civil(utc.date, utc.time, z)
+  io::print("civil kept     = " & datetime::toIso(kept))
+  io::print("instant kept   = " & toString(datetime::resolve(kept).seconds) & "  (moved by " & toString(before.seconds - datetime::resolve(kept).seconds) & "s)")
   RETURN 0
 END FUNC
