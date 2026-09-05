@@ -1,0 +1,17 @@
+' plan-122-A Phase 1, bug-484: `color.Color` is seeded into
+' `resolver::BUILTIN_TYPES` PACKAGE-QUALIFIED, never as the bare leaf.
+'
+' A bare-leaf entry in that list makes the name resolvable from ANY file with no
+' `pkg::` prefix — silently, because resolution simply succeeds. Six entries
+' (`Address`, `Datagram`, `TermColor`, `TermSize`, `AudioDevice`, `Json`) once were
+' bare, which is why `AS Address` compiled from a consumer while the sibling
+' `AS Url` was correctly refused. This fixture is the partner assertion to
+' `func_color_rgba_valid`, which proves the qualified `AS color::Color` DOES
+' resolve: together they pin that exactly one of the two spellings works.
+
+IMPORT color
+
+FUNC main AS Integer
+  LET bareLeaf AS Color = color::rgba(1, 2, 3, 4)
+  RETURN 0
+END FUNC

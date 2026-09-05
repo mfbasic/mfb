@@ -1,8 +1,22 @@
+REM plan-122-F: term::setBackground takes ONE color::Color, not three Bytes.
+REM
+REM Each line is a distinct rejection class for the new signature. The old fixture
+REM passed three channels; mechanically wrapping those in color::rgb(...) would have
+REM moved the type error inside color::rgb and stopped testing term::setBackground
+REM at all, so the cases are restated against the signature that now exists.
+
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
+  REM No arguments at all.
   term::setBackground()
-  term::setBackground("a", 0, 0)
-  term::setBackground(0, 0, 0, 0)
+  REM The pre-plan-122-F three-channel form: now an arity error, and the diagnostic
+  REM should name term.setBackground rather than silently accepting it.
+  term::setBackground(1, 2, 3)
+  REM One argument, but not a colour.
+  term::setBackground(255)
+  REM Too many, even with a correct first argument.
+  term::setBackground(color::rgb(1, 2, 3), 4)
   RETURN 0
 END FUNC

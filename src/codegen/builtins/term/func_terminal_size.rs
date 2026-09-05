@@ -44,7 +44,12 @@ producing its result.
 
 In app mode (`mfb build --app`) the size comes from the application's terminal
 view rather than from the console, and the same `ErrUnsupported` is raised when TUI mode
-is off or no view is attached."#;
+is off or no view is attached. **A Windows `--app` build is the exception on both
+counts**: its surface is a fixed **80 columns by 25 rows** that does not follow the
+window, so this call always reports that size, `term::didResize` always reads
+`FALSE`, and — unlike every other backend — it reports the size rather than
+raising `ErrUnsupported` when TUI mode is off. A program that must work on every
+backend should treat `ErrUnsupported` as possible and not depend on getting it."#;
 
 const EX: &str = r#"Report the surface dimensions:
 

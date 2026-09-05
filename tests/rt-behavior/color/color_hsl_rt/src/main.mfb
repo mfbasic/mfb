@@ -1,0 +1,86 @@
+' plan-122-B Phase 4: the HSL model and its three manipulators.
+'
+' HSL is computed on the sRGB channels, NOT on linear light -- a deliberate
+' asymmetry with brighten/darken/mix. That is what CSS hsl() and every design tool
+' mean, so the numbers here match what a designer's tool shows for the same hex.
+' The six primary hues landing exactly on #ff0000 / #ffff00 / #00ff00 / #00ffff /
+' #0000ff / #ff00ff is what pins that: computed in linear light they would not.
+
+IMPORT color
+IMPORT io
+
+' Build from HSL, decompose, rebuild -- the round trip must be exact.
+SUB rt(label AS String, h AS Float, s AS Float, l AS Float)
+  LET c AS color::Color = color::hsl(h, s, l)
+  LET p AS color::Hsl = color::toHsl(c)
+  LET back AS color::Color = color::hsl(p.hue, p.saturation, p.lightness)
+  io::print(label & " hex=" & color::toHex(c) & " h=" & toString(p.hue) & " s=" & toString(p.saturation) & " l=" & toString(p.lightness) & " roundTrip=" & toString(color::toHex(c) = color::toHex(back)))
+END SUB
+
+FUNC main AS Integer
+  ' --- the six primary hues, 60 degrees apart ------------------------------
+  rt("red", 0.0, 1.0, 0.5)
+  rt("yellow", 60.0, 1.0, 0.5)
+  rt("green", 120.0, 1.0, 0.5)
+  rt("cyan", 180.0, 1.0, 0.5)
+  rt("blue", 240.0, 1.0, 0.5)
+  rt("magenta", 300.0, 1.0, 0.5)
+
+  ' --- the greys, where hue is undefined -----------------------------------
+  ' A fully unsaturated colour has no meaningful hue: toHsl reports 0.0, and the
+  ' round trip is STILL exact because hsl ignores hue when saturation is 0.
+  rt("black", 0.0, 0.0, 0.0)
+  rt("midGrey", 0.0, 0.0, 0.5)
+  rt("white", 0.0, 0.0, 1.0)
+
+  ' --- hue WRAPS, saturation/lightness CLAMP -------------------------------
+  LET b AS color::Color = color::fromHex("#3366cc")
+  io::print("wrap400=" & color::toHex(color::rotateHue(b, 400.0)))
+  io::print("wrap40=" & color::toHex(color::rotateHue(b, 40.0)))
+  io::print("wrapNeg320=" & color::toHex(color::rotateHue(b, -320.0)))
+  ' A full turn is the identity.
+  io::print("wrap360=" & color::toHex(color::rotateHue(b, 360.0)) & " base=" & color::toHex(b))
+  ' Saturation and lightness clamp instead of wrapping.
+  io::print("satClampHigh=" & color::toHex(color::hsl(210.0, 9.0, 0.5)))
+  io::print("satClampLow=" & color::toHex(color::hsl(210.0, -9.0, 0.5)))
+  io::print("lightClampHigh=" & color::toHex(color::hsl(210.0, 1.0, 9.0)))
+  io::print("lightClampLow=" & color::toHex(color::hsl(210.0, 1.0, -9.0)))
+
+  ' --- saturate / desaturate endpoints and clamping ------------------------
+  io::print("sat0=" & color::toHex(color::saturate(b, 0.0)) & " base=" & color::toHex(b))
+  io::print("sat1=" & color::toHex(color::saturate(b, 1.0)))
+  io::print("satClamped=" & color::toHex(color::saturate(b, 9.0)))
+  io::print("desat0=" & color::toHex(color::desaturate(b, 0.0)))
+  io::print("desat1=" & color::toHex(color::desaturate(b, 1.0)))
+  io::print("desatClamped=" & color::toHex(color::desaturate(b, -9.0)))
+
+  ' --- the two surprising rules, pinned so neither can drift silently ------
+  ' 1. rotateHue on a grey is the identity: there is no hue to turn.
+  LET g AS color::Color = color::gray(128)
+  io::print("greyRotate=" & color::toHex(color::rotateHue(g, 90.0)) & " grey=" & color::toHex(g))
+  ' 2. saturate on a grey is NOT the identity. toHsl reports hue 0.0, and 0 degrees
+  '    is red, so a saturated grey goes red -- the HSL model's own answer, and what
+  '    CSS and Sass saturate() do. Deliberately not special-cased: doing so would
+  '    make the function discontinuous at saturation 0.
+  io::print("greySaturate=" & color::toHex(color::saturate(g, 1.0)))
+  io::print("greySaturation=" & toString(color::toHsl(g).saturation))
+
+  ' --- desaturate(1.0) is NOT grayscale ------------------------------------
+  ' Both remove the colour; they disagree, because one preserves HSL lightness and
+  ' the other preserves perceived brightness.
+  LET blue AS color::Color = color::rgb(0, 0, 255)
+  io::print("desatBlue=" & color::toHex(color::desaturate(blue, 1.0)))
+  io::print("grayBlue=" & color::toHex(color::grayscale(blue)))
+
+  ' --- alpha rides through every HSL operation ------------------------------
+  LET wash AS color::Color = color::rgba(51, 102, 204, 128)
+  io::print("satAlpha=" & toString(color::saturate(wash, 0.5).alpha))
+  io::print("desatAlpha=" & toString(color::desaturate(wash, 0.5).alpha))
+  io::print("rotateAlpha=" & toString(color::rotateHue(wash, 90.0).alpha))
+  io::print("hslaAlpha=" & color::toHexAlpha(color::hsla(210.0, 0.6, 0.5, 128)))
+  ' hsl fixes alpha opaque; hsla with 255 must agree with it exactly.
+  io::print("hslOpaque=" & color::toHexAlpha(color::hsl(210.0, 0.6, 0.5)))
+  io::print("hslaOpaque=" & color::toHexAlpha(color::hsla(210.0, 0.6, 0.5, 255)))
+
+  RETURN 0
+END FUNC

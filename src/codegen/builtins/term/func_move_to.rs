@@ -16,8 +16,10 @@ const INTRO: &str = r#"Move the cursor to a row and column of the surface"#;
 const DESC: &str = r#"`term::moveTo` sets the position at which the next text drawn through the
 `term::` surface — including `io::print` and `io::write` — will start. Coordinates
 are **zero-based** and measured from the top-left corner: row 0 is the topmost
-line, column 0 is the leftmost column, and (0, 0) is the home position. The first
-argument is always the row (vertical) and the second the column (horizontal).
+line, column 0 is the leftmost column, and `(0, 0)` is the home position. Like
+every other `term::` position, the arguments are written **row first, then
+column** — the surface is a grid of character cells, never pixels, so there are no
+`x`/`y` coordinates anywhere in this package.
 
 **Both coordinates are clamped at both ends**, on every backend. A negative value
 becomes 0, and a value at or past the edge becomes the last valid cell — `rows-1`
@@ -38,7 +40,9 @@ the next row, a carriage return moves to column 0 of the same row, and
 `io::print`'s trailing newline advances a row as well. `term::clear` homes the
 cursor to (0, 0).
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Draw at the top-left corner:
 

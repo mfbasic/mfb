@@ -286,9 +286,17 @@ END FUNC"#;
 /// could not decode. An empty result is unambiguous here because every caller in this
 /// package is decoding image data, which is never legitimately zero bytes — and the
 /// caller turns it into `ErrBadImageFile` rather than into an image of nothing.
+///
+/// `limit` is the most output the caller can use, and a stream that would produce more
+/// is refused at the byte that crosses it (bug-509, DEC-51). It is a refusal, not a
+/// truncation: a PNG fixes its filtered size exactly, so a stream carrying more is
+/// malformed, and an inflate with no ceiling turned 389 KB of file into 25 GB of
+/// output before reporting a 1x1 image. Every one of the three places output grows —
+/// a stored block, a literal, a back-reference — checks before it appends, so the
+/// output never holds more than `limit` bytes.
 #[rustfmt::skip]
 const INFLATE: &str =
-r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer) AS List OF Byte
+r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer, limit AS Integer) AS List OF Byte
   MUT out AS List OF Byte = []
   MUT pos AS Integer = start * 8
   LET bits AS Integer = len(data) * 8
@@ -312,6 +320,9 @@ r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer) AS List OF Byte
         RETURN []
       END IF
       IF at + 4 + count > len(data) THEN
+        RETURN []
+      END IF
+      IF len(out) + count > limit THEN
         RETURN []
       END IF
       MUT i AS Integer = 0
@@ -372,6 +383,9 @@ r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer) AS List OF Byte
           RETURN []
         END IF
         IF symbol < 256 THEN
+          IF len(out) >= limit THEN
+            RETURN []
+          END IF
           out = collections::append(out, toByte(symbol))
         ELSEIF symbol = 256 THEN
           running = FALSE
@@ -394,6 +408,9 @@ r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer) AS List OF Byte
           IF from < 0 THEN
             RETURN []
           END IF
+          IF len(out) + length > limit THEN
+            RETURN []
+          END IF
           ' Byte at a time, deliberately. A match may overlap its own output -- that is
           ' how DEFLATE spells a run -- so each byte must be able to read one this loop
           ' has already appended.
@@ -409,7 +426,7 @@ r#"FUNC __canvas_inflate(data AS List OF Byte, start AS Integer) AS List OF Byte
   RETURN out
 END FUNC
 
-FUNC __canvas_zlibInflate(data AS List OF Byte) AS List OF Byte
+FUNC __canvas_zlibInflate(data AS List OF Byte, limit AS Integer) AS List OF Byte
   IF len(data) < 6 THEN
     RETURN []
   END IF
@@ -428,7 +445,7 @@ FUNC __canvas_zlibInflate(data AS List OF Byte) AS List OF Byte
   IF (flg / 32) MOD 2 <> 0 THEN
     RETURN []
   END IF
-  RETURN __canvas_inflate(data, 2)
+  RETURN __canvas_inflate(data, 2, limit)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

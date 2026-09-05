@@ -1,0 +1,37 @@
+' bug-531 -- absence has two different shapes in two search packages.
+'
+'   strings::find("abc", "z")  raises ErrNotFound  (77050004)
+'   regex::find("abc", "z")    returns -1
+'
+' Both are defensible in isolation. Together they mean that swapping a literal
+' search for a pattern search silently turns a raising call into one that
+' returns a sentinel -- and a caller who did not re-read the man page gets -1
+' flowing into an index expression instead of a TRAP.
+
+IMPORT io
+IMPORT strings
+IMPORT regex
+
+FUNC findGuard(hay AS String, needle AS String) AS String
+  RETURN "returned " & toString(strings::find(hay, needle))
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("present:")
+  io::print("  strings::find(\"abc\", \"b\") -> " & findGuard("abc", "b"))
+  io::print("  regex::find(\"abc\", \"b\")   -> returned " & toString(regex::find("abc", "b")))
+  io::print("")
+  io::print("absent:")
+  io::print("  strings::find(\"abc\", \"z\") -> " & findGuard("abc", "z"))
+  io::print("  regex::find(\"abc\", \"z\")   -> returned " & toString(regex::find("abc", "z")))
+  io::print("")
+  io::print("=> the same failure, reported two incompatible ways.")
+
+  ' The trap: this reads as ordinary code and is wrong for the regex form.
+  LET i AS Integer = regex::find("abc", "z")
+  io::print("mid(\"abc\", regex::find(...), 1) with no guard would slice at " & toString(i))
+  RETURN 0
+END FUNC

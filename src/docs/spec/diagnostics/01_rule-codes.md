@@ -129,15 +129,38 @@ A located diagnostic (a rule name, a detail message, a file, a line, and
 1-based start/end columns) renders a source-context window, a caret underline,
 the header line, and a detail line. [[src/rules/mod.rs:show_diagnostic]]
 
-**Source-context window.** The file is re-read and up to three lines of context
-are printed, ending at the offending line. The displayed line is clamped into
-the file's line range; the window starts two lines earlier (clamped at line 1).
-Each context line is printed with a right-aligned 4-column line number and a
-` | ` gutter:
+**Source-context window.** Up to three lines of context are printed, ending at
+the offending line. The displayed line is clamped into the file's line range;
+the window starts two lines earlier (clamped at line 1). Each context line is
+printed with a right-aligned 4-column line number and a ` | ` gutter:
 
 ```text
 NNNN | source line text
 ```
+
+The source file is read and line-indexed **once** per process (`cached_source`,
+re-read only if its length or mtime changes) rather than once per diagnostic,
+so rendering costs O(diagnostics), not O(diagnostics × file size) (bug-505).
+The echoed text is untrusted source: every terminal-unsafe code point in it —
+C0/C1 controls such as ESC/CSI, BEL and `\r`, and the bidi/format overrides —
+is escaped as `\u{XXXX}` by `terminal_safe::safe`, so a hostile line cannot
+recolor, erase, or visually reorder the diagnostic that reports it (audit-3
+FE-04). A tab is kept verbatim. [[src/rules/mod.rs:safe_source_line]]
+[[src/rules/mod.rs:cached_source]]
+
+**Rendering cap.** At most `MAX_RENDERED_DIAGNOSTICS` (100) located
+diagnostics are rendered per process; the rest are counted, and when the
+command's diagnostic stream is complete the CLI prints the withheld total once
+(bug-505): [[src/rules/mod.rs:MAX_RENDERED_DIAGNOSTICS]]
+[[src/rules/mod.rs:report_suppressed_diagnostics]] [[src/cli/dispatch.rs:exit_after_diagnostics]]
+
+```text
+... and N more diagnostics not shown (only the first 100 are rendered)
+```
+
+The cap bounds only what is *printed*; every diagnostic is still collected, and
+a build with any error-severity diagnostic still fails. Unlocated diagnostics
+are not counted against it.
 
 **Caret underline.** When the start column is positive and the clamped display
 line equals the requested line, an underline row is printed under the gutter:

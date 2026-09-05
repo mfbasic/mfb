@@ -74,13 +74,13 @@ Two rules from it that are easy to get wrong:
   | **`removeAt`** | **compacts the data region — relocates surviving payloads** |
 
   Relocating a payload is safe only while nothing refers into it, and for a
-  **recursive** element type something does. `type_participates_in_cycle`
-  (`collection/layout/builder_collection_layout.rs`) marks exactly that class:
+  **recursive** element type something used to. `type_participates_in_cycle`
+  (`collection/layout/builder_collection_layout.rs`) marks that class:
   such a value is a *pointer-linked graph* that inline copy codegen cannot
-  reproduce, so it needs a per-type runtime copy function — and an ordinary
-  `collections::get` of one is therefore **not** the independent deep copy a
-  `String`, record or nested-list element gets. Read an element, remove one in
-  place, and the value you read follows moved bytes.
+  reproduce, so it needs a per-type runtime copy function. Until bug-538 an
+  ordinary `collections::get` of one was therefore **not** the independent deep
+  copy a `String`, record or nested-list element gets. Read an element, remove one
+  in place, and the value you read followed moved bytes.
 
   `try_inplace_remove_at_assign` declines on that predicate (gate `G24`).
   **Any future arm that relocates existing payloads inherits it** — including a
@@ -89,6 +89,71 @@ Two rules from it that are easy to get wrong:
   byte-identical to the pre-change compiler. The failure signature is worth
   recognising: every element wrong except the last, because at `count == 1` the
   shift length is zero.
+
+  **`append`'s GROW arm was the hole in that table, and the alias — not the
+  relocation — was the actual defect (bug-538).** The row above says `append`
+  "writes only past the live data", which is true of the in-capacity arm and false
+  of the grow arm: `lower_list_append_in_place` reallocs the data region and
+  `emit_free_pre_grow_buffer`s the old block, so it does not merely relocate a
+  payload, it **frees** it. A value fetched before the growth then dangled and the
+  next read of its recursive field was an uncatchable SIGSEGV. Widening `G24` to
+  `append` would have been the wrong fix twice over: it treats the symptom, and it
+  would have depended on bug-536's leak (a copying reassignment leaves the old
+  storage alive only because recursive values were never freed).
+
+  The fix removes the ALIAS instead, which is what
+  `mfb spec language memory-semantics` §14.6 has always required — *"Reads produce
+  owned values, not aliases into the buffer"* — and what
+  `materialize_owned_element` exists to provide (plan-02 Phase 8). It now routes
+  the class through the per-type runtime deep copy (`copy_value_to_current_arena`
+  → bug-391's `thread_copy_symbol`, which is emitted for every recursive type in
+  the module whether or not the program has a thread in it).
+
+  Two details worth carrying forward:
+
+  * The copy gate is **`type_reaches_cycle`, not `type_participates_in_cycle`** —
+    a record like `TYPE Rep { child AS Tree, lo AS Integer }` over a recursive
+    `Tree` owns a pointer to a `Tree` graph without being a cycle member itself,
+    so the narrower predicate does not describe it. `G24` still uses the narrow
+    one, which was a second latent hole (`List OF Rep` + `get` + in-place
+    `removeAt`); the `get` copy closes it at the source, because after the copy
+    nothing refers into the payload at all.
+  * A value with a **resource** anywhere inside it is excluded
+    (`type_contains_resource`). A handle is move-only — §14.6's own carve-out for
+    a `List` element holding a resource pointer — so an alias is both the existing
+    and the correct behaviour there.
+
+  Blast radius, measured with `artifact-gate all`: 1900 goldens checked, 10
+  diffs — `byte-identity/json` and `byte-identity/regex` on all five targets, the
+  only two cover fixtures that `get` an element of a cycle-reaching type
+  (`json::Json`, `__regex_Node`). Every other fixture byte-identical.
+* **Every collection ALLOCATION must reserve the bucket region, and only one
+  function knows the formula.** `emit_inlined_block_size_from_ptr_slot`
+  (`collection/layout/builder_collection_layout.rs`) is the single authority for
+  "how big is this block": `HEADER + capacity*entryStride + dataCapacity`, plus
+  `capacity << 4` **for a `Map` or a `Set`**. Every allocator either calls it or
+  calls `emit_reserve_map_buckets` (`map_mutate`, `gen_mutate`, `func_merge`,
+  `copy_collection_tight`).
+
+  Exactly one did neither: `copy_collection_to_current_arena`
+  (`memory/arena/builder_arena_transfer.rs`), the **thread-transfer deep copy for
+  a non-flat collection**, computed the size inline and left the bucket region
+  out — then byte-copied the source block over it, so the destination inherited
+  `BUCKETS_READY = 1` while owning no bucket region. The first probe read past the
+  block; the lazy `build_buckets` rebuild WROTE past it. That is bug-02's exact
+  failure mode (`regex prog.names` corrupting the arena free list), and it sat
+  latent because only a **non-flat** map reaches this path — a flat one goes
+  through `copy_flat_block` → `copy_collection_tight`, which reserves and marks
+  not-ready. Found reproducing bug-538: `thread::waitFor` of a `json::Json` parsed
+  from `{"u":{"n":"A"}}` stringified correctly and then answered `{}` for
+  `json::get(v, ["u"])`. Pinned by `tests/rt_recursive_map_transfer.rs`.
+
+  Two rules fall out. **Size a collection block through the authority, never by
+  hand** — the hand-rolled copy also hardcoded `COLLECTION_ENTRY_SIZE` where the
+  authority picks the stride by element type. And **a copy must clear
+  `BUCKETS_READY`**: the index is rebuilt on first probe, so no copy can ever
+  depend on the source's being current, and the block's validity stops depending
+  on what the bucket words happen to contain.
 * **A fixed-width list is entry-FREE, and the two are the same predicate.**
   `list_entry_stride` returns 0 for exactly `list_element_is_fixed_width`
   (`collection/layout/builder_collection_layout.rs`), so inside any

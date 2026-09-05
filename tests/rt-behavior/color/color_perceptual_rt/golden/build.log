@@ -1,0 +1,45 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_perceptual_rt
+Wrote AST to tests/rt-behavior/color/color_perceptual_rt/color_perceptual_rt.ast
+Wrote IR to tests/rt-behavior/color/color_perceptual_rt/color_perceptual_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_perceptual_rt
+Wrote executable to tests/rt-behavior/color/color_perceptual_rt/build/color_perceptual_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_perceptual_rt/build/color_perceptual_rt.out
+lin0=0
+lin128=14146
+lin255=65535
+fromLin0=0
+fromLin65535=255
+fromLinNeg=0
+fromLinBig=255
+rt200=200
+rt1=1
+br0=#3366cc80 want #3366cc80 equal TRUE
+br1=#ffffff80 want #ffffff80 equal TRUE
+dk0=#3366cc80 want #3366cc80 equal TRUE
+dk1=#00000080 want #00000080 equal TRUE
+brNeg=#3366cc80 want #3366cc80 equal TRUE
+brBig=#ffffff80 want #ffffff80 equal TRUE
+dkNeg=#3366cc80 want #3366cc80 equal TRUE
+dkBig=#00000080 want #00000080 equal TRUE
+brHalf=#bec6e780
+dkHalf=#23499580
+mx0=#0a141e28 want #0a141e28 equal TRUE
+mx1=#c8d2dce6 want #c8d2dce6 equal TRUE
+mxmid=#bcbcbc
+mxAlphaHalf=135
+lumBlack=0.00
+lumWhite=1.00
+lumGreen=0.72
+lumBlue=0.07
+crWB=21.00
+crBW=21.00
+crSame=1.00
+gsGreen=#dcdcdc
+gsBlue=#4c4c4c
+gsAlpha=128
+darkBlue=TRUE
+darkYellow=FALSE
+complement=TRUE
+[exit 0]

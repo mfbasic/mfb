@@ -1,0 +1,60 @@
+' bug-518: `mfb man datetime withZone`'s `zone` parameter row said the function
+' "reinterprets the same wall-clock reading in a different zone, so it names a
+' DIFFERENT INSTANT" -- the opposite of the Description, the "exactly the
+' composition of" paragraph, both examples, and the one-line body
+' `inZone(resolve(dt), z)`. It also sent the reader to `datetime::inZone`, which
+' takes an Instant and not a DateTime, so the advice did not even typecheck as a
+' substitution.
+'
+' The prose was the defect. This fixture is the PIN, not a red test: it pins the
+' property the corrected row now asserts, so a future change to `withZone` that
+' would make the OLD sentence true breaks a test instead of passing quietly.
+'
+' It also pins the contrast the corrected row points at:
+' `civil(dt.date, dt.time, z)` is the operation that keeps the wall-clock
+' reading and moves the instant.
+IMPORT io
+IMPORT datetime
+
+FUNC pin(label AS String, dt AS datetime::DateTime, z AS datetime::Zone) AS Integer
+  LET w AS datetime::DateTime = datetime::withZone(dt, z)
+  LET before AS datetime::Instant = datetime::resolve(dt)
+  LET after AS datetime::Instant = datetime::resolve(w)
+  io::print(label & " instant_preserved=" & toString(datetime::equals(before, after)))
+  io::print(label & " nanos_preserved=" & toString(w.time.nanos = dt.time.nanos))
+  io::print(label & " zone_carried=" & toString(w.zone.kind = z.kind))
+  IF datetime::equals(before, after) THEN
+    RETURN 0
+  END IF
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  LET t AS datetime::Time = datetime::time(12, 0, 0, 123456789)
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
+
+  ' Every zone kind: UTC, fixed-offset (both signs), and the host's local zone.
+  MUT broken AS Integer = 0
+  broken = broken + pin("utc", dt, datetime::utc())
+  broken = broken + pin("plus0530", dt, datetime::fixedOffset(5, 30))
+  broken = broken + pin("minus0800", dt, datetime::fixedOffset(-8, 0))
+  broken = broken + pin("local", dt, datetime::local())
+  ' Round trip: out to a fixed offset and back to UTC.
+  broken = broken + pin("back", datetime::withZone(dt, datetime::fixedOffset(5, 30)), datetime::utc())
+  io::print("all_preserved=" & toString(broken = 0))
+
+  ' The civil fields ARE re-derived -- withZone is not a no-op on presentation.
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
+  LET w AS datetime::DateTime = datetime::withZone(dt, z)
+  io::print("civil_before=" & datetime::toIso(dt))
+  io::print("civil_after =" & datetime::toIso(w))
+  io::print("civil_moved=" & toString(w.time.hour <> dt.time.hour))
+
+  ' The CONTRAST the corrected parameter row names: `civil` keeps the wall-clock
+  ' reading and therefore lands on a different instant.
+  LET r AS datetime::DateTime = datetime::civil(dt.date, dt.time, z)
+  io::print("civil_same_reading=" & toString(r.time.hour = dt.time.hour AND r.time.minute = dt.time.minute))
+  io::print("civil_instant_moved=" & toString(NOT datetime::equals(datetime::resolve(r), datetime::resolve(dt))))
+  io::print("civil_delta_seconds=" & toString(datetime::resolve(dt).seconds - datetime::resolve(r).seconds))
+  RETURN broken
+END FUNC

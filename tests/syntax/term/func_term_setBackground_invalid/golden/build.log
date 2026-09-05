@@ -1,20 +1,26 @@
 $ mfb build -ast -ir tests/syntax/term/func_term_setBackground_invalid
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   term::setBackground()
+  11 | FUNC main AS Integer
+  12 |   REM No arguments at all.
+  13 |   term::setBackground()
      | ^
-tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.setBackground` has 0 argument(s), expected 3.
-   3 | FUNC main AS Integer
-   4 |   term::setBackground()
-   5 |   term::setBackground("a", 0, 0)
+tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `term.setBackground` has 0 argument(s), expected 1.
+  14 |   REM The pre-plan-122-F three-channel form: now an arity error, and the diagnostic
+  15 |   REM should name term.setBackground rather than silently accepting it.
+  16 |   term::setBackground(1, 2, 3)
      | ^
-tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `term.setBackground` has argument type(s) (String, Integer, Integer), expected Byte, Byte, Byte.
-   4 |   term::setBackground()
-   5 |   term::setBackground("a", 0, 0)
-   6 |   term::setBackground(0, 0, 0, 0)
+tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `term.setBackground` has 3 argument(s), expected 1.
+  16 |   term::setBackground(1, 2, 3)
+  17 |   REM One argument, but not a colour.
+  18 |   term::setBackground(255)
      | ^
-tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.setBackground` has 4 argument(s), expected 3.
+tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `term.setBackground` has argument type(s) (Integer), expected color::Color.
+  18 |   term::setBackground(255)
+  19 |   REM Too many, even with a correct first argument.
+  20 |   term::setBackground(color::rgb(1, 2, 3), 4)
+     | ^
+tests/syntax/term/func_term_setBackground_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `term.setBackground` has 2 argument(s), expected 1.
 [exit 1]

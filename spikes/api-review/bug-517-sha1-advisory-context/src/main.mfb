@@ -1,0 +1,31 @@
+' bug-517 -- `CRYPTO_SHA1_INSECURE` fires on the ENUM MEMBER `crypto::Hash.SHA1`,
+' not on the operation it selects, so all four call sites below get the same
+' warning with the same text: "SHA-1 is not collision-resistant".
+'
+' That reason is true and decisive for `crypto::hash`. It is irrelevant for
+' `crypto::hmac`, `crypto::hkdf` and `crypto::pbkdf2` -- HMAC's security proof
+' does not rest on collision resistance, and HMAC-SHA1 remains the required
+' construction for RFC 6238 TOTP, RFC 8018 / WPA2 PBKDF2, and TLS-era interop.
+'
+' Build this and read the four warnings: `mfb build spikes/api-review/bug-517-sha1-advisory-context`
+
+IMPORT io
+IMPORT crypto
+IMPORT strings
+
+FUNC main AS Integer
+  LET msg AS List OF Byte = strings::toBytes("hello")
+  LET key AS List OF Byte = strings::toBytes("k")
+
+  ' Genuinely unsafe: a digest whose security IS collision resistance.
+  LET d AS List OF Byte = crypto::hash(crypto::Hash.SHA1, msg)
+
+  ' Sound: HMAC-SHA1 is not broken by SHA-1 collisions.
+  LET m AS List OF Byte = crypto::hmac(crypto::Hash.SHA1, key, msg)
+
+  ' Sound: HKDF-SHA1 is built on HMAC-SHA1.
+  LET k AS List OF Byte = crypto::hkdf(crypto::Hash.SHA1, msg, key, msg, 16)
+
+  io::print(toString(len(d)) & " " & toString(len(m)) & " " & toString(len(k)))
+  RETURN 0
+END FUNC

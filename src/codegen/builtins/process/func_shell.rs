@@ -277,7 +277,7 @@ pub(crate) fn lower_process_shell_helper_win(
     const LEN: usize = WIN_SPAWN_SCRATCH + 0x08;
     /// Write cursor into the command line.
     const DP: usize = WIN_SPAWN_SCRATCH + 0x10;
-    const FRAME: usize = 0x150; // covers SRC..DP, 16-aligned
+    const FRAME: usize = 0x200; // covers SRC..DP, 16-aligned
     const _: () = assert!(FRAME >= WIN_SPAWN_SCRATCH + 0x18 && FRAME % 16 == 0);
     let sp = abi::stack_pointer();
 

@@ -25,6 +25,10 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// split at any byte boundary, so concatenating first is not an optimisation but the
 /// only correct reading. `PLTE` and `tRNS` are kept whole and interpreted by the pixel
 /// conversion, which is where the colour type decides what they mean.
+///
+/// `__canvas_pngSlice` is for a *fresh* slice — a pass block, a row. It is not how the
+/// chunk walk accumulates: passing a growing list through it copies the list per call
+/// (bug-509, DEC-52), so `__canvas_pngDecode` appends to its accumulators itself.
 #[rustfmt::skip]
 const PNG_CHUNKS: &str =
 r#"FUNC __canvas_isPng(bytes AS List OF Byte) AS Boolean
@@ -304,6 +308,25 @@ FUNC __canvas_pngPassBytes(header AS List OF Integer, passWidth AS Integer, pass
   RETURN passHeight * ((passWidth * bitsPerPixel + 7) / 8 + 1)
 END FUNC
 
+FUNC __canvas_pngRawBytes(header AS List OF Integer) AS Integer
+  ' The filtered rows the header commits the stream to -- a number a PNG fixes
+  ' exactly, which is what makes the inflate cap below a cap and not a guess.
+  LET width AS Integer = collections::getOr(header, 0, 0)
+  LET height AS Integer = collections::getOr(header, 1, 0)
+  IF collections::getOr(header, 4, 0) = 0 THEN
+    RETURN __canvas_pngPassBytes(header, width, height)
+  END IF
+  MUT total AS Integer = 0
+  MUT pass AS Integer = 0
+  WHILE pass < 7
+    LET passWidth AS Integer = __canvas_adam7Count(width, __canvas_adam7XOrigin(pass), __canvas_adam7XStep(pass))
+    LET passHeight AS Integer = __canvas_adam7Count(height, __canvas_adam7YOrigin(pass), __canvas_adam7YStep(pass))
+    total = total + __canvas_pngPassBytes(header, passWidth, passHeight)
+    pass = pass + 1
+  END WHILE
+  RETURN total
+END FUNC
+
 FUNC __canvas_pngHeader(bytes AS List OF Byte, at AS Integer) AS List OF Integer
   LET width AS Integer = __canvas_beU32(bytes, at)
   LET height AS Integer = __canvas_beU32(bytes, at + 4)
@@ -313,6 +336,18 @@ FUNC __canvas_pngHeader(bytes AS List OF Byte, at AS Integer) AS List OF Integer
   LET filter AS Integer = toInt(collections::getOr(bytes, at + 11, toByte(0)))
   LET interlace AS Integer = toInt(collections::getOr(bytes, at + 12, toByte(0)))
   IF width <= 0 OR height <= 0 THEN
+    RETURN []
+  END IF
+  ' What a header may claim, checked before anything is sized from it (bug-509).
+  ' 16384 a side is the largest texture the GPU backends upload, and 2^24 pixels --
+  ' 4096x4096, 64 MiB decoded -- is far past any asset a canvas program draws. Without
+  ' the caps an 80-byte file naming 40000x40000 cost the decode 6.4 GB before it read
+  ' a byte of pixel data. The sides are checked first: the product of two raw u32s
+  ' overflows an Integer.
+  IF width > 16384 OR height > 16384 THEN
+    RETURN []
+  END IF
+  IF width * height > 16777216 THEN
     RETURN []
   END IF
   IF compression <> 0 OR filter <> 0 OR interlace > 1 THEN
@@ -362,11 +397,29 @@ FUNC __canvas_pngDecode(bytes AS List OF Byte) AS List OF Byte
         RETURN []
       END IF
     ELSEIF __canvas_pngChunkIs(bytes, at + 4, [80, 76, 84, 69]) THEN
-      palette = __canvas_pngSlice(bytes, body, length, palette)
+      ' The three accumulators grow IN PLACE, appended to by this function rather
+      ' than through `__canvas_pngSlice`. That helper takes the list by value and
+      ' returns it, so handing it the accumulator copied everything gathered so far
+      ' once per chunk -- quadratic in the chunk count, with every intermediate copy
+      ' left in the arena: 20,000 eight-byte IDATs cost 2.47 GB (bug-509, DEC-52).
+      ' `append` mutates in place only for a local of the function doing the write.
+      MUT p AS Integer = 0
+      WHILE p < length
+        palette = collections::append(palette, collections::getOr(bytes, body + p, toByte(0)))
+        p = p + 1
+      END WHILE
     ELSEIF __canvas_pngChunkIs(bytes, at + 4, [116, 82, 78, 83]) THEN
-      alphas = __canvas_pngSlice(bytes, body, length, alphas)
+      MUT t AS Integer = 0
+      WHILE t < length
+        alphas = collections::append(alphas, collections::getOr(bytes, body + t, toByte(0)))
+        t = t + 1
+      END WHILE
     ELSEIF __canvas_pngChunkIs(bytes, at + 4, [73, 68, 65, 84]) THEN
-      idat = __canvas_pngSlice(bytes, body, length, idat)
+      MUT d AS Integer = 0
+      WHILE d < length
+        idat = collections::append(idat, collections::getOr(bytes, body + d, toByte(0)))
+        d = d + 1
+      END WHILE
     ELSEIF __canvas_pngChunkIs(bytes, at + 4, [73, 69, 78, 68]) THEN
       seenEnd = TRUE
     END IF
@@ -384,8 +437,20 @@ FUNC __canvas_pngDecode(bytes AS List OF Byte) AS List OF Byte
     RETURN []
   END IF
 
-  LET raw AS List OF Byte = __canvas_zlibInflate(idat)
-  IF len(raw) = 0 THEN
+  ' Three bounds hang off the row count the header fixes (bug-509). The ratio first:
+  ' DEFLATE cannot expand its input past 1032:1 (a 258-byte match costs at least two
+  ' bits), so a stream too short to ever produce the rows is refused before a byte of
+  ' it is inflated -- an 80-byte file claiming 4000x4000 is refused here, in O(1),
+  ' where it used to cost 4.98 GB of pixel buffer first. Then the inflate is told the
+  ' count and refuses to pass it, so a 1x1 image whose IDAT would inflate to 400 MB
+  ' is refused at its fifth byte instead of reported as a pixel. Last, the pixel
+  ' buffer is allocated only once the rows are known to be there.
+  LET expected AS Integer = __canvas_pngRawBytes(header)
+  IF expected > len(idat) * 1032 THEN
+    RETURN []
+  END IF
+  LET raw AS List OF Byte = __canvas_zlibInflate(idat, expected)
+  IF len(raw) < expected THEN
     RETURN []
   END IF
 

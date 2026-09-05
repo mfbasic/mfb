@@ -88,6 +88,11 @@ fn read_binary_repr_package_without_optional_sections_still_decodes() {
 fn primitive_type_name_covers_handle_and_term_types() {
     assert_eq!(primitive_type_name(TYPE_BYTE), Some("Byte"));
     assert_eq!(primitive_type_name(TYPE_ERROR), Some("Error"));
+    // `TermColor` the TYPE is retired (plan-122-F), but this row deliberately
+    // survives it: the reader must still name `TYPE_TERM_COLOR` so a `.mfp`
+    // published before the retirement decodes to something recognizable instead of
+    // failing opaquely. The encoder side — that nothing produces the id any more —
+    // is `no_encoder_emits_the_retired_term_color_id`.
     assert_eq!(primitive_type_name(TYPE_TERM_COLOR), Some("TermColor"));
     assert_eq!(primitive_type_name(TYPE_TERM_SIZE), Some("TermSize"));
     assert_eq!(primitive_type_name(TYPE_SOCKET_HANDLE), Some("tcp.Socket"));

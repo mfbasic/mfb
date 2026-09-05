@@ -32,7 +32,6 @@ mod common;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const TARGET: &str = "linux-x86_64";
 
@@ -62,10 +61,7 @@ fn program(body: &str) -> String {
 }
 
 fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(

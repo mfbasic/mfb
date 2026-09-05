@@ -14,7 +14,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Draw a horizontal box-drawing line across a row of the surface"#;
 
 const DESC: &str = r#"`term::drawHLine` stamps a horizontal run of a box-drawing glyph into the retained
-surface: on row `row`, it fills every column from `colA` to `colB` with the
+surface: on `row`, it fills every column from `columnA` to `columnB` with the
 horizontal form of the chosen `term::LineStyle`. The glyph is drawn with the colours and
 attributes currently in effect (`term::setForeground`/`setBackground`/`setBold`/
 `setUnderline`), exactly as `io::write` stamps text, and — like every drawing call
@@ -22,9 +22,11 @@ on this surface — it updates the surface only and appears on the next
 `term::sync`.
 
 Coordinates are **zero-based** and measured from the top-left corner: row 0 is the
-topmost line and column 0 is the leftmost column. The two column endpoints may be
-given in **either order** — `colA` and `colB` are normalised so the lower one
-starts the run — and the run is **inclusive of both ends**. The span is then
+topmost line and column 0 is the leftmost column. Like every `term::` position, the
+run's start is written **row first, then column** (`row`, `columnA`), and
+`columnB` is the far end of the run. The two column endpoints may be given in
+**either order** — `columnA` and `columnB` are normalised so the lower one starts
+the run — and the run is **inclusive of both ends**. The span is then
 **clamped to the surface**: a negative start becomes 0 and an end past the right
 edge becomes `columns-1`. If `row` is outside `0 .. rows-1`, or the clamped span
 covers no on-grid cell, the call draws nothing rather than clamping the line onto
@@ -39,10 +41,17 @@ forms.
 Drawing a line does not move the cursor and does not change the current
 colours or attributes; it overwrites only the cells in the run, so a later draw
 over the same cell (for example a crossing vertical line) wins. The same surface
-is rendered on the console backend and in windowed app mode, so the line looks the
-same on both.
+is rendered on the console backend and in windowed app mode.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+**Two app-mode gaps apply to this call** (see `mfb man term`). In a **Linux**
+`--app` build it is not implemented and draws nothing; a Linux terminal is
+unaffected. In a **Windows** `--app` build it draws, but ignores `line` and always
+uses the `Light` glyph. The console backend on every platform, and macOS app mode,
+honour the style.
+
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Draw a heavy horizontal rule across the top of the surface:
 
@@ -68,7 +77,7 @@ SUB main()
   term::drawHLine(term::LineStyle.Light, 0, 0, 20)
   term::drawHLine(term::LineStyle.Light, 10, 0, 20)
   term::drawVLine(term::LineStyle.Light, 0, 0, 10)
-  term::drawVLine(term::LineStyle.Light, 20, 0, 10)
+  term::drawVLine(term::LineStyle.Light, 0, 20, 10)
   term::sync()
   term::off()
 END SUB
@@ -124,14 +133,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "colA",
-                    desc: "One end of the column span (inclusive); may be greater or less than `colB`. Clamped to the surface.",
+                    name: "columnA",
+                    desc: "One end of the column span (inclusive); may be greater or less than `columnB`. Clamped to the surface.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "colB",
+                    name: "columnB",
                     desc: "The other end of the column span (inclusive). Clamped to the surface.",
                     aliases: &[],
                     ty: ParameterType::Integer,

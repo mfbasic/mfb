@@ -32,7 +32,9 @@ colours and of bold, so changing it leaves those alone, and the current value ca
 be read back with `term::getUnderline`. Setting the same value twice is harmless —
 the state is a flag, not a toggle.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Underline one label, then continue normally:
 

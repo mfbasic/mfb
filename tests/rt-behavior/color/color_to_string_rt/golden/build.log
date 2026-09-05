@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_to_string_rt
+Wrote AST to tests/rt-behavior/color/color_to_string_rt/color_to_string_rt.ast
+Wrote IR to tests/rt-behavior/color/color_to_string_rt/color_to_string_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_to_string_rt
+Wrote executable to tests/rt-behavior/color/color_to_string_rt/build/color_to_string_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_to_string_rt/build/color_to_string_rt.out
+#ff000080
+#01020304
+#00000000
+#ffffffff
+#3366ccff
+agreesWithToHexAlpha=TRUE
+differsFromToHex=TRUE
+42
+TRUE
+plain
+[exit 0]

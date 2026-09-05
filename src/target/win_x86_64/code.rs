@@ -2457,6 +2457,23 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
             abi::branch(&done),
             abi::label(&success),
+            // Stage the handle from the C result into the MFB result, exactly as
+            // `emit_linux_c_call` does for every other Windows OS seam. `call_external`
+            // above does NOT do it, and the two registers are not the same on Win64:
+            // `c_return(0)` is `rax`, while `return_register()` is `mfb_return(0)` =
+            // the call-argument bank's first slot, `rcx` (plan-85-A aligned the MFB
+            // result onto the argument bank; `CALL_ARGS_WIN64[0] == "rcx"`).
+            //
+            // Without this the giveup path wrote -1 into `rcx` and the SUCCESS path
+            // wrote nothing there at all, so `gen_atomic_write`'s shared caller — which
+            // reads the fd through `return_register()` — sign-extended whatever
+            // `CreateFileW` happened to leave in `rcx` and used it as a descriptor.
+            // Measured on box 2230: `fs::createTempFile`, and therefore
+            // `fs::writeTextAtomic`/`fs::writeBytesAtomic`, raised
+            // `7-702-0002 ErrWriteFailed` on every call. Same class as plan-110-D,
+            // which found `socket()`/`connect()`/`getsockname()` all checked against
+            // `rcx` for the same reason.
+            abi::move_register(abi::return_register(), abi::c_return(0)),
             abi::label(&done),
             abi::add_stack(0x60),
         ]);
@@ -2474,9 +2491,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // `x0` and the length in `x1`. BCryptGenRandom(hAlgorithm, pbBuffer,
         // cbBuffer, dwFlags) takes 4 Win64 args (rcx/rdx/r8/r9), so shuffle:
         // hAlgorithm=NULL, pbBuffer=buf, cbBuffer=len,
-        // dwFlags=BCRYPT_USE_SYSTEM_PREFERRED_RNG (0x02). The shared caller only
-        // reads the buffer afterward, so the NTSTATUS return is ignored (the seed
-        // scratch was pre-filled with the arena address as a fallback).
+        // dwFlags=BCRYPT_USE_SYSTEM_PREFERRED_RNG (0x02). The NTSTATUS is staged into
+        // the MFB result register below, because the shared callers check it.
         const BCRYPT: &str = "bcrypt.dll";
         const BCRYPT_USE_SYSTEM_PREFERRED_RNG: &str = "2";
         // **The frame is the whole point of this emitter.** Win64 makes the CALLER
@@ -2510,6 +2526,19 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::move_immediate(abi::c_arg(3), "Integer", BCRYPT_USE_SYSTEM_PREFERRED_RNG),
         ]);
         call_external(from, "BCryptGenRandom", BCRYPT, instructions, relocations);
+        // Stage the NTSTATUS into the MFB result. `call_external` does not, and on
+        // Win64 `c_return(0)` is `rax` while `return_register()` is `rcx` — so
+        // without this the shared callers read whatever `BCryptGenRandom` left in
+        // `rcx`. They DO read it: `gen_temp_file`'s `fs::createTempFile` sign-extends
+        // it and takes the error path on a negative value, so a garbage `rcx` decided
+        // at random whether the call "failed". Measured on box 2230:
+        // `fs::createTempFile` raised `7-702-0002 ErrWriteFailed` every time.
+        //
+        // The comment that used to sit here — "the NTSTATUS return is ignored" — was
+        // true of this emitter and false of its callers. An NTSTATUS is negative on
+        // failure and `>= 0` on success, which is exactly the convention the shared
+        // check applies, so staging it needs no translation.
+        instructions.push(abi::move_register(abi::return_register(), abi::c_return(0)));
         instructions.push(abi::add_stack(SHADOW_FRAME));
         Ok(())
     }

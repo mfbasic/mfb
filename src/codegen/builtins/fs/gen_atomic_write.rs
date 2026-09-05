@@ -1,6 +1,6 @@
 //! Path-addressed `fs` write/read code generation (writeAll/writeText/writeBytes[+atomic], readText/readBytes).
 
-use super::gen_open::open_flag_set;
+use super::gen_open::{o_cloexec, open_flag_set};
 use super::gen_shared::*;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
@@ -370,9 +370,10 @@ pub(crate) fn lower_fs_atomic_write_helper(
         abi::store_u8(&byte, &c_final, 0),
         abi::store_u8(abi::ZERO, &c_final, 1),
         abi::label(&dir_open),
-        // open(dir, O_RDONLY, 0)
+        // open(dir, O_RDONLY | O_CLOEXEC, 0) — close-on-exec so a concurrent
+        // `process::spawn` child cannot inherit the directory fd (bug-499).
         abi::move_register(abi::return_register(), &c_final),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(1), "Integer", o_cloexec(platform.family())),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
     platform.emit_open_file(

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/color/color_type_bare_leaf_invalid
+  13 | 
+  14 | FUNC main AS Integer
+  15 |   LET bareLeaf AS Color = color::rgba(1, 2, 3, 4)
+     | ^
+tests/syntax/color/color_type_bare_leaf_invalid/src/main.mfb:15 error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+               Type `Color` is not a built-in or top-level project type.
+[exit 1]

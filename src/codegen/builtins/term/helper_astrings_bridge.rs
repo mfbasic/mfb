@@ -17,7 +17,7 @@ use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' ===========================================================================
-' term ↔ astrings bridge: term::drawText(x, y, text AS AttributedString)
+' term ↔ astrings bridge: term::drawText(row, column, text AS AttributedString)
 '
 ' The native drawing callables know nothing of the `astrings` attribute overlay,
 ' so the AttributedString overload of `term::drawText` is a source-companion body
@@ -25,7 +25,7 @@ r#"' ===========================================================================
 ' `term` and `astrings` (see `term::bridge_uses_package`), so a plain `IMPORT term`
 ' program never drags in the `astrings`/`strings` companions this file needs.
 '
-' `__term_drawTextAttr` stamps the visible text at (x, y) exactly as the String
+' `__term_drawTextAttr` stamps the visible text at (row, column) exactly as the String
 ' overload, but honours the per-scalar styling the AttributedString carries. Only
 ' the attributes the terminal surface can represent are applied — bold, underline,
 ' foreground color and background color; every other attribute (italic, strike,
@@ -44,13 +44,14 @@ IMPORT term
 IMPORT astrings
 IMPORT strings
 IMPORT bits
+IMPORT color
 
 ' The renderable subset of an AttributedString's per-scalar styling: the attributes
-' the terminal surface can represent — bold, underline, and packed 0xRRGGBB
+' the terminal surface can represent — bold, underline, and packed 0xAARRGGBB
 ' foreground/background colors (-1 = unset, unambiguous because a packed color is
-' always in 0..0xFFFFFF). Compared by value to find maximal same-style runs. Named
-' with the internal `__` sigil so the injected type cannot collide with a user's
-' own `TermStyle`.
+' always in 0..0xFFFFFFFF, which is positive). Compared by value to find maximal
+' same-style runs. Named with the internal `__` sigil so the injected type cannot
+' collide with a user's own `TermStyle`.
 TYPE __TermStyle
   bold AS Boolean
   underline AS Boolean
@@ -92,47 +93,46 @@ FUNC __term_styleAt(value AS AttributedString, index AS Integer) AS __TermStyle
   RETURN __TermStyle[bold, underline, fg, bg]
 END FUNC
 
-' Unpack the r / g / b channel from a packed `0xRRGGBB` color (r high, b low).
-FUNC __term_colorR(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(bits::sr(packed, 16), 255))
-END FUNC
-
-FUNC __term_colorG(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(bits::sr(packed, 8), 255))
-END FUNC
-
-FUNC __term_colorB(packed AS Integer) AS Byte
-  RETURN toByte(bits::band(packed, 255))
-END FUNC
-
 ' Apply the run's foreground: a packed color when set, else fall back to the pen
 ' the drawText call inherited (`saved`), so an unset run draws in the ambient
 ' foreground rather than whatever the previous run left. Background is symmetric.
-SUB __term_applyFg(packed AS Integer, saved AS term::TermColor)
+'
+' plan-122-E replaced three hand-rolled __term_colorR/G/B shift-and-mask helpers
+' with `color::fromPacked`; plan-122-F then made `term::setForeground` itself take a
+' `color::Color`, so both arms are now a single call with no channel unpacking on
+' either side. One unpacker for the whole language is the point — the hand-rolled
+' trio was the drift these two letters remove.
+'
+' THE TERMINAL HAS NO ALPHA AND IGNORES IT, deliberately: `term::setForeground`
+' reads only the colour channels, so a half-transparent foreground draws exactly the
+' cells an opaque one draws. Synthesizing a blend against the cell's current
+' background would disagree with what a canvas surface draws for the same colour, so
+' the attribute keeps the alpha and the terminal simply does not use it.
+SUB __term_applyFg(packed AS Integer, saved AS color::Color)
   IF packed = -1 THEN
-    term::setForeground(saved.r, saved.g, saved.b)
+    term::setForeground(saved)
   ELSE
-    term::setForeground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+    term::setForeground(color::fromPacked(packed))
   END IF
 END SUB
 
-SUB __term_applyBg(packed AS Integer, saved AS term::TermColor)
+SUB __term_applyBg(packed AS Integer, saved AS color::Color)
   IF packed = -1 THEN
-    term::setBackground(saved.r, saved.g, saved.b)
+    term::setBackground(saved)
   ELSE
-    term::setBackground(__term_colorR(packed), __term_colorG(packed), __term_colorB(packed))
+    term::setBackground(color::fromPacked(packed))
   END IF
 END SUB
 
-SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
+SUB __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedString)
   IF term::isOn() THEN
     LET text AS String = toString(value)
     LET n AS Integer = len(strings::toScalars(value))
     LET saveBold AS Boolean = term::getBold()
     LET saveUnderline AS Boolean = term::getUnderline()
-    LET saveFg AS term::TermColor = term::getForeground()
-    LET saveBg AS term::TermColor = term::getBackground()
-    MUT col AS Integer = x
+    LET saveFg AS color::Color = term::getForeground()
+    LET saveBg AS color::Color = term::getBackground()
+    MUT col AS Integer = column
     MUT i AS Integer = 0
     WHILE i < n
       LET st AS __TermStyle = __term_styleAt(value, i)
@@ -145,14 +145,14 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
       term::setUnderline(st.underline)
       __term_applyFg(st.fg, saveFg)
       __term_applyBg(st.bg, saveBg)
-      term::drawText(col, y, seg)
+      term::drawText(row, col, seg)
       col = col + strings::displayWidth(seg)
       i = j
     END WHILE
     term::setBold(saveBold)
     term::setUnderline(saveUnderline)
-    term::setForeground(saveFg.r, saveFg.g, saveFg.b)
-    term::setBackground(saveBg.r, saveBg.g, saveBg.b)
+    term::setForeground(saveFg)
+    term::setBackground(saveBg)
   END IF
 END SUB"#;
 

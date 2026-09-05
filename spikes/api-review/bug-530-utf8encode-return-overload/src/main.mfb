@@ -1,0 +1,33 @@
+' bug-530 -- `encoding::utf8Encode` is the language's only return-type overload,
+' and `mfb man encoding utf8Encode` renders it as if it had one signature:
+'
+'   Declaration
+'   ───────────
+'   `encoding::utf8Encode(value AS String) AS List OF Byte`
+'
+' There is no Overloads block, so the `List OF Integer` form is invisible in the
+' signature -- it exists only in a sentence further down the page. Meanwhile a
+' call with no expected type is a compile ERROR, which is a property no other
+' built-in has and which the Declaration block gives no hint of.
+'
+' Restore the last line to see it: TYPE_OVERLOAD_AMBIGUOUS.
+
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  ' Both forms work -- when, and only when, an annotation selects one.
+  LET asBytes AS List OF Byte = encoding::utf8Encode("hi")
+  LET asInts AS List OF Integer = encoding::utf8Encode("hi")
+  io::print("List OF Byte    : " & toString(len(asBytes)))
+  io::print("List OF Integer : " & toString(len(asInts)))
+
+  ' `strings::toBytes` is the unambiguous byte path and needs no context.
+  io::print("strings::toBytes: unambiguous, one signature")
+
+  ' No expected type -> compile error, not a runtime failure:
+  '   io::print(toString(len(encoding::utf8Encode("hi"))))
+  '   error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be
+  '   resolved without an expected type
+  RETURN 0
+END FUNC

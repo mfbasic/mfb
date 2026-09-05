@@ -31,7 +31,6 @@ use common::build_ncode;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A program that instantiates every fs/io helper the fix touches: the buffered
 /// `writeAll`/`writeAllBytes` (drain + reconcile + write loop), whole-file
@@ -111,10 +110,7 @@ const DRAINS: &[&str] = &["_mfb_rt_fs_file_drain", "_mfb_rt_io_stdout_drain"];
 const RECONCILE_HELPERS: &[&str] = &["_mfb_rt_fs_fs_writeAll", "_mfb_rt_fs_fs_writeAllBytes"];
 
 fn temp_project(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     fs::write(

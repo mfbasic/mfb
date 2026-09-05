@@ -20,8 +20,10 @@ very next call reports `FALSE` unless another resize has happened in between.
 
 A resize is noticed in both places a surface can live. In a terminal,
 `term::sync` re-reads the size on each frame, so a change is picked up the next
-time you present. In an `--app` build, the window reports its own size changes,
-so live window resizes are reported the same way.
+time you present. In a macOS or Linux `--app` build, the window reports its own
+size changes, so live window resizes are reported the same way. **A Windows
+`--app` build is the exception**: its surface is a fixed 80 by 25 cells that does
+not follow the window, so this call always reads `FALSE` there.
 
 Like `term::isOn`, this query is **not gated**: it reads state only and touches
 neither the terminal nor the surface. Before any `term::on` — or on a

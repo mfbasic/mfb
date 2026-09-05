@@ -32,9 +32,14 @@ The reconstructed code points are re-encoded to a UTF-8 `String` on return.
 
 The input is expected to be well-formed Punycode. Malformed input — a basic
 (pre-delimiter) byte at or above `128`, a variable-length integer that is
-truncated before it terminates, a byte that is not a valid base-36 digit, or a
-decoded scalar value outside the Unicode range — raises a runtime error rather
-than producing a partial result."#;
+truncated before it terminates or that would overflow, a byte that is not a
+valid base-36 digit, a decoded scalar value outside the Unicode range, or an
+encoded label longer than 1024 octets — raises `ErrInvalidFormat` rather than
+producing a partial result. The length bound exists because RFC 3492's insertion
+is quadratic in the label's length; 1024 octets is sixteen times the 63-octet DNS
+label limit (RFC 1034 §3.1, RFC 5890 §2.3.1) and well past the RFC's own sample
+strings, so no host label or round trip through `punycodeEncode` of ordinary
+text can reach it."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_punycodeDecode(asciiDomain AS String) AS String
@@ -96,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(BODY, "__encoding_punycodeDecode"),
         }],
     });

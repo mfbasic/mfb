@@ -75,8 +75,9 @@ inline length, and trailing dots), `R` (a rest of the current length) and
 (default length), `T32`–`T255` (tempo), `V0`–`V10` (volume), `I <name>`
 (instrument — `square`/`triangle`/`sine`/`saw`/`noise`, the name a separate token),
 `( … )` legato and `[ … ]` staccato (neither may nest), and `{ … }<count>` repeat
-(count `>= 1`, attached to the closing brace, may nest). `O4` is the octave of
-A440. Like `render`, `play` and the sequencer live in the MFBASIC source companion.
+(count `>= 1`, attached to the closing brace, may nest). A track is refused with
+`ErrInvalidArgument` when its repeats expand past 65,536 tokens, or when it would
+play for longer than ten minutes. `O4` is the octave of A440. Like `render`, `play` and the sequencer live in the MFBASIC source companion.
 
 ## `available` and `poll`
 

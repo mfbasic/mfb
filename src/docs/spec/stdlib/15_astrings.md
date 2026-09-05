@@ -29,17 +29,31 @@ and a union:
   flag with no value.
 - `AttrTypeText` — `Font`; a String-valued attribute.
 - `AttrTypeNumber` — `FontSize`, `Foreground`, `Background`; an Integer-valued
-  attribute. `Foreground`/`Background` carry a packed `0xRRGGBB` color (`r` in the
-  high byte, `b` in the low byte).
+  attribute. `Foreground`/`Background` carry a packed `0xAARRGGBB` color — alpha in
+  the high byte, `b` in the low one, which is exactly `color::toPacked`'s order, so
+  `color::fromPacked` reads the value back as a whole `color::Color`.
 - `AttrFlag { kind }`, `AttrText { kind, value }`, `AttrNumber { kind, value }`.
 - `UNION Attribute` over the three wrappers.
 
 Convenience constructors return an `Attribute`: `bold()`, `italic()`,
 `underline()`, `strike()`, `overline()`, `font(name)`, `fontSize(size)`,
-`foreground(r, g, b)`, `background(r, g, b)`. The color constructors take three
-`Byte` channels and pack them into the numeric attribute's `0xRRGGBB` value;
-`term::drawText` renders them as truecolor foreground/background, while
-`toMarkdown` (which has no color notation) ignores them.
+`foreground(base)`, `background(base)`. The color constructors take a single
+`color::Color` and pack it into the numeric attribute's `0xAARRGGBB` value, so a
+colour round-trips through an attribute exactly, **alpha included**. A program that
+names a `color::Color` must `IMPORT color` as well as `astrings`: imports are not
+transitive and a package cannot re-export another's types.
+
+`term::drawText` renders the colours as truecolor foreground/background, and
+`toMarkdown` (which has no color notation) ignores them entirely.
+
+**The terminal has no alpha, and the bridge ignores it.** A half-transparent
+foreground draws exactly the cells an opaque one draws: `term::drawText` reads only
+the red, green and blue channels, so the emitted escape is byte-identical whatever
+the alpha was. The alpha is kept in the attribute rather than discarded at
+construction, so a renderer that *can* model transparency still receives the whole
+colour; synthesizing a blend against the cell's current background would disagree
+with what a canvas surface draws for the same colour, which is why the terminal
+does not attempt one.
 
 ## Ranges and storage
 

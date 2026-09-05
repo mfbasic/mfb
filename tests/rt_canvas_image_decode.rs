@@ -233,8 +233,7 @@ fn adam7_rgba(px: &[[u8; 4]], w: usize, h: usize) -> Vec<u8> {
 
 /// Build a `--app` program that loads `fixture.png` and prints its pixels, run it
 /// headless, and return the decoded RGBA bytes — or `Err` with the raised message.
-fn decode(name: &str, file: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
-    const SOURCE: &str = r#"IMPORT app
+const DECODER: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT collections
 IMPORT io
@@ -256,7 +255,9 @@ SUB main()
   io::print(out)
 END SUB
 "#;
-    let project = common::temp_project(name, SOURCE);
+
+fn decode(name: &str, file: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
+    let project = common::temp_project(name, DECODER);
     std::fs::write(project.join("fixture.png"), file).expect("write the fixture");
     let binary = common::build_app(&project, name);
     let run = Command::new(&binary)
@@ -276,6 +277,11 @@ END SUB
     );
     let stdout = String::from_utf8_lossy(&run.stdout).to_string();
     let _ = std::fs::remove_dir_all(&project);
+    parse_decoder_line(name, &stdout)
+}
+
+/// The decoder program's last line: `failed:<message>`, or `w,h,byte,byte,...`.
+fn parse_decoder_line(name: &str, stdout: &str) -> Result<(usize, usize, Vec<u8>), String> {
     let line = stdout
         .lines()
         .next_back()
@@ -508,9 +514,20 @@ fn fixed_and_dynamic_huffman_blocks_both_inflate() {
     );
 
     let (bw, bh) = (64usize, 48usize);
-    let big: Vec<[u8; 4]> = (0..bh)
+    assert_decodes(
+        "canvas_png_dynamic_huffman",
+        &unhex(DYNAMIC_HUFFMAN_PNG),
+        bw,
+        bh,
+        &flat(&dynamic_fixture_truth()),
+    );
+}
+
+/// The 64x48 picture inside `DYNAMIC_HUFFMAN_PNG`, from the generator that made it.
+fn dynamic_fixture_truth() -> Vec<[u8; 4]> {
+    (0..48usize)
         .flat_map(|y| {
-            (0..bw).map(move |x| {
+            (0..64usize).map(move |x| {
                 [
                     ((x * 3) % 256) as u8,
                     ((y * 5) % 256) as u8,
@@ -519,14 +536,7 @@ fn fixed_and_dynamic_huffman_blocks_both_inflate() {
                 ]
             })
         })
-        .collect();
-    assert_decodes(
-        "canvas_png_dynamic_huffman",
-        &unhex(DYNAMIC_HUFFMAN_PNG),
-        bw,
-        bh,
-        &flat(&big),
-    );
+        .collect()
 }
 
 #[test]
@@ -576,4 +586,278 @@ fn a_header_no_png_could_have_is_refused_before_any_decoding() {
             "wrong message: {message}",
         ),
     }
+}
+
+// --- decompression bombs (bug-509, DEC-50/51/52) ---------------------------------------
+//
+// Every size the decoder derives from the file is capped before it is allocated or
+// scanned: the IHDR dimensions and pixel count, the inflated byte count (which a PNG
+// header fixes exactly), the compressed-to-raw ratio (DEFLATE cannot expand past
+// 1032:1), and the IDAT accumulator, which grows in place instead of being copied per
+// chunk. A bomb's failure mode is "still running", so these runs carry a deadline and
+// the deadline is the failure — `Command::output` would wait as long as the bomb lasts.
+
+use std::io::Read;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+/// `decode`, with a deadline. Stdout is read after exit, so this is only for programs
+/// whose whole output is one short line — a rejection, or a 1x1 pixel. A real pixel
+/// dump would fill the pipe while the poll loop waited, and never finish.
+fn decode_bounded(
+    name: &str,
+    file: &[u8],
+    timeout: Duration,
+) -> Result<(usize, usize, Vec<u8>), String> {
+    let project = common::temp_project(name, DECODER);
+    std::fs::write(project.join("fixture.png"), file).expect("write the fixture");
+    let binary = common::build_app(&project, name);
+    let mut child = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            break status;
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_dir_all(&project);
+            panic!(
+                "{name}: still decoding after {timeout:?} — a decompression bomb the \
+                 decoder did not refuse"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout).ok();
+    }
+    let _ = std::fs::remove_dir_all(&project);
+    assert!(
+        status.success(),
+        "{name}: program {}:\n{stdout}",
+        common::exit_description(&status),
+    );
+    parse_decoder_line(name, &stdout)
+}
+
+fn ihdr(w: u32, h: u32, colour: u8, depth: u8) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&w.to_be_bytes());
+    out.extend_from_slice(&h.to_be_bytes());
+    out.extend_from_slice(&[depth, colour, 0, 0, 0]);
+    out
+}
+
+const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+/// A PNG that is nothing but a header: an IHDR claiming `w`x`h` truecolour and an
+/// IDAT holding 64 zero bytes. About 80 bytes, whatever it claims — the DEC-50 shape.
+fn header_only_png(w: u32, h: u32) -> Vec<u8> {
+    let mut out = SIGNATURE.to_vec();
+    out.extend_from_slice(&chunk(b"IHDR", &ihdr(w, h, 2, 8)));
+    out.extend_from_slice(&chunk(b"IDAT", &zlib_stored(&[0u8; 64])));
+    out.extend_from_slice(&chunk(b"IEND", &[]));
+    out
+}
+
+/// A zlib stream of `1 + 258 * k` zero bytes as one fixed-Huffman block: literal 0,
+/// then (length 258, distance 1) `k` times. Thirteen bits of stream per 258 bytes of
+/// output — the ~1000:1 ratio a decompression bomb lives on, and the same shape
+/// Python's `zlib.compress` produces for a zero run.
+fn zlib_zero_bomb(k: usize) -> Vec<u8> {
+    struct Bits {
+        out: Vec<u8>,
+        acc: u64,
+        filled: u32,
+    }
+    impl Bits {
+        // DEFLATE packs header fields and extra bits LSB-first ...
+        fn push(&mut self, value: u32, count: u32) {
+            self.acc |= (value as u64) << self.filled;
+            self.filled += count;
+            while self.filled >= 8 {
+                self.out.push(self.acc as u8);
+                self.acc >>= 8;
+                self.filled -= 8;
+            }
+        }
+        // ... and Huffman codes MSB-first, so a code is bit-reversed before packing.
+        fn code(&mut self, code: u32, len: u32) {
+            let mut reversed = 0;
+            for i in 0..len {
+                if code & (1 << i) != 0 {
+                    reversed |= 1 << (len - 1 - i);
+                }
+            }
+            self.push(reversed, len);
+        }
+    }
+    let mut bits = Bits {
+        out: vec![0x78, 0x01],
+        acc: 0,
+        filled: 0,
+    };
+    bits.push(1, 1); // BFINAL
+    bits.push(1, 2); // BTYPE 01: fixed Huffman
+    bits.code(0x30, 8); // literal 0
+    for _ in 0..k {
+        bits.code(0xC5, 8); // length symbol 285: 258 bytes, no extra bits
+        bits.code(0, 5); // distance code 0: one byte back, no extra bits
+    }
+    bits.code(0, 7); // end of block
+    if bits.filled > 0 {
+        bits.out.push(bits.acc as u8);
+    }
+    let mut out = bits.out;
+    // Adler-32 of n zero bytes: a stays 1, b counts the bytes.
+    let n = 1 + 258 * k;
+    let adler = (((n % 65521) as u32) << 16) | 1;
+    out.extend_from_slice(&adler.to_be_bytes());
+    out
+}
+
+/// A 1x1 truecolour PNG whose IDAT inflates to `1 + 258 * k` bytes — the DEC-51 shape.
+fn one_pixel_bomb_png(k: usize) -> Vec<u8> {
+    let mut out = SIGNATURE.to_vec();
+    out.extend_from_slice(&chunk(b"IHDR", &ihdr(1, 1, 2, 8)));
+    out.extend_from_slice(&chunk(b"IDAT", &zlib_zero_bomb(k)));
+    out.extend_from_slice(&chunk(b"IEND", &[]));
+    out
+}
+
+/// A valid 1x1 truecolour PNG followed by `junk` eight-byte IDAT chunks of `0xAB`. The
+/// real stream ends with a final block, so the junk is never inflated — it only has to
+/// be *accumulated*, which is exactly the DEC-52 cost.
+fn many_idat_png(junk: usize) -> Vec<u8> {
+    let mut out = SIGNATURE.to_vec();
+    out.extend_from_slice(&chunk(b"IHDR", &ihdr(1, 1, 2, 8)));
+    out.extend_from_slice(&chunk(b"IDAT", &zlib_stored(&[0, 0, 0, 0])));
+    let filler = chunk(b"IDAT", &[0xAB; 8]);
+    for _ in 0..junk {
+        out.extend_from_slice(&filler);
+    }
+    out.extend_from_slice(&chunk(b"IEND", &[]));
+    out
+}
+
+/// `png`, re-chunked: the same file with its IDAT payload re-split into `piece`-byte
+/// chunks, in place of the first IDAT. A stream split at arbitrary byte boundaries,
+/// taken to the extreme.
+fn rechunk_idat(png: &[u8], piece: usize) -> Vec<u8> {
+    let mut out = png[..8].to_vec();
+    let mut idat = Vec::new();
+    let mut at = 8;
+    while at + 12 <= png.len() {
+        let len = u32::from_be_bytes(png[at..at + 4].try_into().unwrap()) as usize;
+        let tag = &png[at + 4..at + 8];
+        if tag == b"IDAT" {
+            idat.extend_from_slice(&png[at + 8..at + 8 + len]);
+        } else {
+            for part in idat.chunks(piece) {
+                out.extend_from_slice(&chunk(b"IDAT", part));
+            }
+            idat.clear();
+            out.extend_from_slice(&png[at..at + 12 + len]);
+        }
+        at += 12 + len;
+    }
+    out
+}
+
+#[test]
+fn an_ihdr_declaring_more_pixels_than_any_image_may_have_is_refused_before_allocating() {
+    // DEC-50. 40000x40000 truecolour in ~80 bytes. Before the cap the decoder
+    // allocated width*height*4 — 6.4 GB — from the header alone, and only then
+    // noticed the file carried 64 bytes of pixel data. Past 16384 a side or 2^24
+    // pixels it is refused as a header, before a byte of the body is read.
+    let file = header_only_png(40_000, 40_000);
+    match decode_bounded("canvas_png_bomb_dims", &file, Duration::from_secs(20)) {
+        Ok((w, h, _)) => panic!("an 80-byte file decoded as a {w}x{h} image"),
+        Err(message) => assert!(
+            message.contains("not an image this build can decode"),
+            "wrong message: {message}",
+        ),
+    }
+}
+
+#[test]
+fn a_header_the_file_is_too_small_to_fill_is_refused_without_reading_the_pixels() {
+    // DEC-50, inside the absolute caps. 4000x4000 truecolour needs 48 MB of filtered
+    // rows, and DEFLATE cannot expand past 1032:1, so a 75-byte IDAT can never hold
+    // it. Measured 4.98 GB and 3.9 s before the check; a headless start-up after.
+    let file = header_only_png(4000, 4000);
+    match decode_bounded("canvas_png_bomb_ratio", &file, Duration::from_secs(20)) {
+        Ok((w, h, _)) => panic!("an 80-byte file decoded as a {w}x{h} image"),
+        Err(message) => assert!(message.contains("malformed"), "wrong message: {message}"),
+    }
+}
+
+#[test]
+fn an_idat_that_inflates_past_what_the_image_needs_is_refused() {
+    // DEC-51. A 1x1 truecolour image needs exactly four filtered bytes; this IDAT
+    // inflates to 4,000,033 from a 25 KB stream. Before the cap the decoder inflated
+    // all of it, converted the first four bytes, and reported success — a zlib bomb
+    // read as a pixel, at 25 GB for the 400 MB version.
+    let file = one_pixel_bomb_png(15_504);
+    match decode_bounded("canvas_png_bomb_inflate", &file, Duration::from_secs(60)) {
+        Ok((w, h, _)) => panic!("a 4 MB zlib bomb decoded as a {w}x{h} image"),
+        Err(message) => assert!(message.contains("malformed"), "wrong message: {message}"),
+    }
+}
+
+#[test]
+fn idat_accumulation_is_linear_in_the_chunk_count() {
+    // DEC-52. 60,000 eight-byte IDAT chunks after a complete stream. The slice helper
+    // took the accumulator by value and returned it, so every chunk copied everything
+    // gathered so far — quadratic, with each intermediate copy left in the arena.
+    // Measured 2.47 GB and 5 s at 20,000 chunks; this is nine times that work.
+    let file = many_idat_png(60_000);
+    match decode_bounded("canvas_png_many_idat", &file, Duration::from_secs(20)) {
+        Ok(decoded) => assert_eq!(decoded, (1, 1, vec![0, 0, 0, 255])),
+        Err(message) => panic!("a valid stream followed by junk IDATs was refused: {message}"),
+    }
+}
+
+#[test]
+fn a_stream_split_into_single_byte_idat_chunks_decodes_to_the_same_pixels() {
+    // The accumulator must change how the IDAT is gathered, not what is gathered:
+    // the dynamic-Huffman fixture re-chunked into one-byte IDATs is the same stream.
+    assert_decodes(
+        "canvas_png_rechunked",
+        &rechunk_idat(&unhex(DYNAMIC_HUFFMAN_PNG), 1),
+        64,
+        48,
+        &flat(&dynamic_fixture_truth()),
+    );
+}
+
+#[test]
+fn a_large_ordinary_image_is_well_inside_the_caps() {
+    // 1024x256 greyscale in stored blocks: a quarter-megapixel image whose IDAT is
+    // larger than its pixels — the opposite end of the ratio from a bomb. The caps
+    // exist to refuse bombs; this pins that they are nowhere near a real asset.
+    let (w, h) = (1024usize, 256usize);
+    let values: Vec<u32> = (0..w * h)
+        .map(|i| (((i % w) * 7 + (i / w) * 13) % 256) as u32)
+        .collect();
+    let rows: Vec<Vec<u8>> = (0..h)
+        .map(|y| pack_row(&values[y * w..(y + 1) * w], 8))
+        .collect();
+    let file = png(w, h, 0, 8, &unfiltered(&rows), None, None, 0);
+    let expected: Vec<u8> = values
+        .iter()
+        .flat_map(|g| [*g as u8, *g as u8, *g as u8, 255])
+        .collect();
+    assert_decodes("canvas_png_large", &file, w, h, &expected);
 }

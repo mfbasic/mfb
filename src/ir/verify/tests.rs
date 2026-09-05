@@ -8852,8 +8852,6 @@ fn read_only_records_are_refused_under_either_spelling() {
         "net.Address",
         "AudioDevice",
         "audio.AudioDevice",
-        "TermColor",
-        "term.TermColor",
         "TermSize",
         "term.TermSize",
     ] {
@@ -8866,4 +8864,16 @@ fn read_only_records_are_refused_under_either_spelling() {
     assert!(!super::read_only_record_type(&ParameterType::declared(
         "net.Url"
     )));
+    // plan-122-F: `term::TermColor` was a read-only compiler-owned record and is
+    // retired; `term::getForeground`/`getBackground` return a `color::Color`, which
+    // is an ORDINARY VALUE RECORD a program may build and `WITH`-update. Asserting
+    // both spellings are constructible is what keeps the retirement real — a future
+    // change that re-added `color.Color` to the read-only set would silently take
+    // away a capability this letter deliberately granted.
+    for name in ["Color", "color.Color"] {
+        assert!(
+            !super::read_only_record_type(&ParameterType::declared(name)),
+            "`{name}` is an ordinary value record and must stay constructible"
+        );
+    }
 }

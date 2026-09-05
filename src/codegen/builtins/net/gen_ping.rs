@@ -51,8 +51,9 @@ use std::collections::HashMap;
 use crate::target::shared::abi;
 
 use crate::codegen::os::socket::shared::{
-    emit_address_from_sockaddr, emit_cstring, emit_hints, emit_pollfd_events, net_symbol,
-    NetBodyParts, NetSymbol, AF_INET, SOCKADDR_STORAGE_SIZE, SOCK_DGRAM,
+    emit_address_from_sockaddr, emit_cstring, emit_fd_cloexec_fallback, emit_hints,
+    emit_pollfd_events, emit_socket_type_cloexec, net_symbol, NetBodyParts, NetSymbol, AF_INET,
+    SOCKADDR_STORAGE_SIZE, SOCK_DGRAM,
 };
 
 /// `IPPROTO_ICMP` — 1 on every supported platform (measured).
@@ -333,6 +334,8 @@ fn lower_ping_posix(
         abi::move_immediate(abi::c_arg(1), "Integer", SOCK_DGRAM),
         abi::move_immediate(abi::c_arg(2), "Integer", IPPROTO_ICMP),
     ]);
+    // ... | SOCK_CLOEXEC on Linux; macOS sets FD_CLOEXEC just below (bug-499).
+    emit_socket_type_cloexec(platform, &mut instructions);
     platform.emit_external_call(
         net_symbol(platform, NetSymbol::Socket),
         symbol,
@@ -347,6 +350,14 @@ fn lower_ping_posix(
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
+    emit_fd_cloexec_fallback(
+        platform,
+        symbol,
+        FD_OFFSET,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Raise the receive buffer BEFORE sending: with macOS's default, a reply at the
     // documented maximum payload is dropped by the socket layer and the call reports
     // a bogus `Timeout` (see PING_RECV_BUFFER).

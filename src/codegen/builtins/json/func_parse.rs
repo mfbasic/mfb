@@ -21,9 +21,12 @@ rather than parsing the first and ignoring the rest.
 Whitespace means exactly the four characters JSON allows: space, tab, carriage
 return, and line feed. No other character is skippable, anywhere.
 
-The input is scanned as a grapheme sequence, so the text is interpreted as
-Unicode rather than bytes. Each JSON form maps to one variant of the `json::Json`
-union:
+The input is scanned byte by byte over its UTF-8 encoding. Every JSON structural
+character and every whitespace character is ASCII, so the scan never splits a
+multi-byte scalar: text inside a string, including combining marks and characters
+outside the Basic Multilingual Plane, is copied through exactly as written, and a
+carriage return followed by a line feed is two whitespace characters, as JSON
+defines them. Each JSON form maps to one variant of the `json::Json` union:
 
 - `null` becomes `json::JsonNull[NOTHING]`.
 - `true` and `false` become `json::JsonBool`.
@@ -208,12 +211,16 @@ END SUB
 #[rustfmt::skip]
 const FUNC_BODY: &str =
 r#"FUNC __json_parse(value AS String) AS Json
-  LET chars AS List OF String = strings::graphemes(value)
+  ' bug-510 (DEC-03/04): tokenise the UTF-8 bytes, not a grapheme list. The
+  ' list is one tight byte per byte; every structural character and whitespace
+  ' is ASCII, so byte compares are exact and a CR LF pair is two whitespace
+  ' bytes rather than one opaque cluster. Indices below are byte offsets.
+  LET bytes AS List OF Byte = strings::toBytes(value)
   ' bug-422: depth 0 seeds the structural nesting-depth guard threaded through
   ' the value/array/object parsers below.
-  LET parsed AS __json_Node = __json_parseValue(chars, __json_skipWhitespace(chars, 0), 0)
-  LET endIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
-  IF endIndex <> len(chars) THEN
+  LET parsed AS __json_Node = __json_parseValue(bytes, __json_skipWhitespace(bytes, 0), 0)
+  LET endIndex AS Integer = __json_skipWhitespace(bytes, parsed.index)
+  IF endIndex <> len(bytes) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
   RETURN parsed.value

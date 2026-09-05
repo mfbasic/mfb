@@ -972,9 +972,12 @@ fn emit_app_draw_line(
 ) {
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
-    // The four incoming args (ordinal/fixed/lo/hi) are read only AFTER the tv/state
-    // objc fetches, so each lives in a vreg; v_tv/v_state/v_sel are held across the
-    // objc calls too.
+    // The four incoming args (ordinal + the run's coordinates) are read only AFTER
+    // the tv/state objc fetches, so each lives in a vreg; v_tv/v_state/v_sel are held
+    // across the objc calls too. Both members name a start point `(row, column)` then
+    // the far end of the run — `drawHLine(line, row, columnA, columnB)` and
+    // `drawVLine(line, rowA, column, rowB)` — so the fixed coordinate is arg 1 for the
+    // horizontal form and arg 2 for the vertical one.
     let v_ord = vregs.next();
     let v_fixed = vregs.next();
     let v_lo = vregs.next();
@@ -983,10 +986,11 @@ fn emit_app_draw_line(
     let v_state = vregs.next();
     let v_sel = vregs.next();
     let done = format!("{symbol}_done");
+    let (fixed_arg, lo_arg, hi_arg) = if is_horizontal { (1, 2, 3) } else { (2, 1, 3) };
     asm.push(abi::move_register(&v_ord, abi::mfb_arg(0))); // ordinal
-    asm.push(abi::move_register(&v_fixed, abi::mfb_arg(1))); // fixed
-    asm.push(abi::move_register(&v_lo, abi::mfb_arg(2))); // lo endpoint
-    asm.push(abi::move_register(&v_hi, abi::mfb_arg(3))); // hi endpoint
+    asm.push(abi::move_register(&v_fixed, abi::mfb_arg(fixed_arg))); // fixed row/column
+    asm.push(abi::move_register(&v_lo, abi::mfb_arg(lo_arg))); // start of the run
+    asm.push(abi::move_register(&v_hi, abi::mfb_arg(hi_arg))); // far end of the run
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
     asm.external_data(&v_tv, CLASS_NS_APPLICATION, LIB_APPKIT);
@@ -1114,11 +1118,13 @@ fn emit_app_draw_box(
     let done = format!("{symbol}_done");
     let ord = abi::SCRATCH[0];
     let dst = abi::SCRATCH[1];
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
+    // written row before column — so the rows are args 1/3 and the columns args 2/4.
     asm.push(abi::move_register(&v_ord, abi::mfb_arg(0))); // ordinal
-    asm.push(abi::move_register(&v_x1, abi::mfb_arg(1))); // x1
-    asm.push(abi::move_register(&v_y1, abi::mfb_arg(2))); // y1
-    asm.push(abi::move_register(&v_x2, abi::mfb_arg(3))); // x2
-    asm.push(abi::move_register(&v_y2, abi::mfb_arg(4))); // y2
+    asm.push(abi::move_register(&v_y1, abi::mfb_arg(1))); // rowA
+    asm.push(abi::move_register(&v_x1, abi::mfb_arg(2))); // columnA
+    asm.push(abi::move_register(&v_y2, abi::mfb_arg(3))); // rowB
+    asm.push(abi::move_register(&v_x2, abi::mfb_arg(4))); // columnB
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
     asm.external_data(&v_tv, CLASS_NS_APPLICATION, LIB_APPKIT);
@@ -1223,11 +1229,13 @@ fn emit_app_fill_rect(
     let done = format!("{symbol}_done");
     let ord = abi::SCRATCH[0];
     let dst = abi::SCRATCH[1];
+    // Corners arrive as `(rowA, columnA, rowB, columnB)` — every `term::` point is
+    // written row before column — so the rows are args 1/3 and the columns args 2/4.
     asm.push(abi::move_register(&v_ord, abi::mfb_arg(0))); // ordinal
-    asm.push(abi::move_register(&v_x1, abi::mfb_arg(1))); // x1
-    asm.push(abi::move_register(&v_y1, abi::mfb_arg(2))); // y1
-    asm.push(abi::move_register(&v_x2, abi::mfb_arg(3))); // x2
-    asm.push(abi::move_register(&v_y2, abi::mfb_arg(4))); // y2
+    asm.push(abi::move_register(&v_y1, abi::mfb_arg(1))); // rowA
+    asm.push(abi::move_register(&v_x1, abi::mfb_arg(2))); // columnA
+    asm.push(abi::move_register(&v_y2, abi::mfb_arg(3))); // rowB
+    asm.push(abi::move_register(&v_x2, abi::mfb_arg(4))); // columnB
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     asm.external_data(&v_tv, CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
@@ -1286,8 +1294,9 @@ fn emit_app_draw_glyph(
 ) {
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
-    // x/y/codepoint are read AFTER the tv/state objc fetches, so each lives in a
-    // vreg; v_tv/v_state/v_sel are held across the objc calls too.
+    // `drawGlyph(row, column, codepoint)`: the point is row-first. All three are read
+    // AFTER the tv/state objc fetches, so each lives in a vreg; v_tv/v_state/v_sel are
+    // held across the objc calls too.
     let v_x = vregs.next();
     let v_y = vregs.next();
     let v_cp = vregs.next();
@@ -1295,8 +1304,8 @@ fn emit_app_draw_glyph(
     let v_state = vregs.next();
     let v_sel = vregs.next();
     let done = format!("{symbol}_done");
-    asm.push(abi::move_register(&v_x, abi::mfb_arg(0))); // x
-    asm.push(abi::move_register(&v_y, abi::mfb_arg(1))); // y
+    asm.push(abi::move_register(&v_y, abi::mfb_arg(0))); // row
+    asm.push(abi::move_register(&v_x, abi::mfb_arg(1))); // column
     asm.push(abi::move_register(&v_cp, abi::mfb_arg(2))); // codepoint
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     // Skip control code points.
@@ -1347,8 +1356,9 @@ fn emit_app_draw_text(
 ) {
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
-    // x/y/strobj are read AFTER the tv/state objc fetches, so each lives in a vreg;
-    // v_tv/v_nsstr/v_sel are held across the objc calls too.
+    // `drawText(row, column, text)`: the point is row-first. All three are read AFTER
+    // the tv/state objc fetches, so each lives in a vreg; v_tv/v_nsstr/v_sel are held
+    // across the objc calls too.
     let v_x = vregs.next();
     let v_y = vregs.next();
     let v_strobj = vregs.next();
@@ -1357,8 +1367,8 @@ fn emit_app_draw_text(
     let v_nsstr = vregs.next();
     let v_sel = vregs.next();
     let done = format!("{symbol}_done");
-    asm.push(abi::move_register(&v_x, abi::mfb_arg(0))); // x
-    asm.push(abi::move_register(&v_y, abi::mfb_arg(1))); // y
+    asm.push(abi::move_register(&v_y, abi::mfb_arg(0))); // row
+    asm.push(abi::move_register(&v_x, abi::mfb_arg(1))); // column
     asm.push(abi::move_register(&v_strobj, abi::mfb_arg(2))); // strobj (mfb String)
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     asm.external_data(&v_tv, CLASS_NS_APPLICATION, LIB_APPKIT);

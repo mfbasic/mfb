@@ -74,6 +74,65 @@ pub(super) fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
     Collector { types }.visit_ops(ops);
 }
 
+/// Collect the declared type of every `Bind` that **owns** the resource it
+/// binds — i.e. every bind whose scope exit emits the registered close op.
+///
+/// bug-535: a plain built-in resource `Bind` drops through a codegen-emitted
+/// close, never through an NIR call, so `validate_nir`'s `used_helpers` set
+/// could not see it and a module whose only reference to a package was such a
+/// bind (`RES s AS tcp::Socket = thread::accept(t, 1000)` in a worker) was
+/// rejected with "NIR declares unused runtime helper". This is the collector
+/// for the arm that fixes it, and it is deliberately the twin of
+/// `runtime::usage::push_op_helpers`, the code that DECLARES those helpers:
+/// the two sets are compared against each other, so any divergence turns one
+/// arm of that comparison into a false error.
+///
+/// Hence the aliasing gate, mirroring `runtime::usage::value_aliases_live_resource`
+/// (bug-375, §15.6): a bind whose initializer only names an already-live
+/// resource emits no close, the declarer adds no helper for it, and counting one
+/// as used here would trip the opposite arm, "NIR runtime call requires
+/// undeclared helper".
+pub(super) fn collect_owning_resource_bind_types(ops: &[NirOp], types: &mut Vec<ParameterType>) {
+    use super::super::nir::visit::{walk_op, NirVisitor};
+    struct Collector<'a> {
+        types: &'a mut Vec<ParameterType>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Bind { type_, value, .. } = op {
+                if !value.as_ref().is_some_and(value_aliases_live_resource)
+                    && !self.types.contains(type_)
+                {
+                    self.types.push(type_.clone());
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    Collector { types }.visit_ops(ops);
+}
+
+/// The NIR twin of `runtime::usage::value_aliases_live_resource`: whether a
+/// `RES` bind's initializer merely names an already-live resource instead of
+/// producing one (bug-375).
+///
+/// Kept deliberately identical to the IR-level rule the helper DECLARER uses,
+/// rather than to `CodeBuilder::value_aliases_live_resource`, which recognizes
+/// three further shapes. Validation compares the used set against the declared
+/// one; matching the declarer means this arm can only ever add a helper the
+/// declarer also added, so it can never manufacture an "undeclared helper"
+/// error. Recognizing MORE shapes than the declarer would.
+fn value_aliases_live_resource(value: &NirValue) -> bool {
+    match value {
+        NirValue::Local(_) => true,
+        NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => matches!(
+            crate::codegen::registry::native_bare_target(target),
+            Some("get" | "getOr")
+        ),
+        _ => false,
+    }
+}
+
 pub(super) fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {
     let mut constants = HashMap::new();
     collect_runtime_calls_from_ops_with_constants(ops, calls, &mut constants);

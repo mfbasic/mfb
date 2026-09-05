@@ -1,0 +1,114 @@
+' bug-519: `datetime::parse`/`datetime::parseIso` decoded a calendar field with
+' no range check and handed it to the *total* civil-days arithmetic, which
+' normalizes: "2026-13-45 25:70:99" silently became 2027-02-15T02:11:39Z, a date
+' the caller never wrote. `datetime::date(2026, 13, 45)` refused the very same
+' fields, so the package held two positions on what a date is, and the one fed
+' by untrusted text was the permissive one.
+'
+' Both readers now apply the same bounds `datetime::date`/`datetime::time` do
+' and raise ErrInvalidFormat (77050003) -- the code `parse` already raises for a
+' shape mismatch, so a caller still catches one code for bad text.
+'
+' The POSITIVE half is load-bearing: a range guard that rejects valid input is
+' the failure mode this fixture exists to catch, so every accepted form is
+' pinned to its exact decoded fields, including the boundaries (Feb 29 in a leap
+' year, 23:59:59, 999999999 ns) and the 12-hour fold.
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+FUNC rejects(label AS String, value AS String, pattern AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parse(value, pattern)
+  io::print(label & "=ACCEPTED " & datetime::toIso(dt))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC rejectsIso(label AS String, value AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parseIso(value)
+  io::print(label & "=ACCEPTED " & datetime::toIso(dt))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC accepts(label AS String, value AS String, pattern AS String, want AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parse(value, pattern)
+  LET got AS String = datetime::toIso(dt)
+  io::print(label & "=" & toString(got = want) & " " & got)
+  RETURN 1
+  TRAP(err)
+    io::print(label & "=REJECTED " & toString(err.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC acceptsIso(label AS String, value AS String, want AS String) AS Integer
+  LET dt AS datetime::DateTime = datetime::parseIso(value)
+  LET got AS String = datetime::toIso(datetime::toUtc(datetime::resolve(dt)))
+  io::print(label & "=" & toString(got = want) & " " & got)
+  RETURN 1
+  TRAP(err)
+    io::print(label & "=REJECTED " & toString(err.code))
+    RETURN 0
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' ---- out of range: every field, both readers ----
+  MUT bad AS Integer = 0
+  bad = bad + rejects("month13", "2026-13-01 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("month0", "2026-00-01 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("day45", "2026-06-45 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("day0", "2026-06-00 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("day32", "2026-01-32 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("feb30", "2026-02-30 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("feb29common", "2026-02-29 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("apr31", "2026-04-31 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("hour25", "2026-06-26 25:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("hour24", "2026-06-26 24:00:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("minute70", "2026-06-26 00:70:00", "yyyy-MM-dd HH:mm:ss")
+  bad = bad + rejects("second99", "2026-06-26 00:00:99", "yyyy-MM-dd HH:mm:ss")
+  ' The original report, all fields wrong at once.
+  bad = bad + rejects("allbad", "2026-13-45 25:70:99", "yyyy-MM-dd HH:mm:ss")
+  ' The bound is applied to the FOLDED hour, so the 12-hour path is covered too.
+  bad = bad + rejects("pm25", "2026-06-26 25:00:00 PM", "yyyy-MM-dd hh:mm:ss a")
+  bad = bad + rejectsIso("isoMonth13", "2026-13-01T00:00:00Z")
+  bad = bad + rejectsIso("isoFeb30", "2026-02-30T00:00:00Z")
+  bad = bad + rejectsIso("isoHour24", "2026-06-26T24:00:00Z")
+  bad = bad + rejectsIso("isoMinute70", "2026-06-26T00:70:00Z")
+  bad = bad + rejectsIso("isoSecond99", "2026-06-26T00:00:99Z")
+  io::print("rejected_all=" & toString(bad = 19))
+
+  ' ---- POSITIVE PIN: ordinary and boundary values still parse unchanged ----
+  MUT ok AS Integer = 0
+  ok = ok + accepts("plain", "2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss", "2026-06-26T09:30:00.000Z")
+  ok = ok + accepts("jan1", "2026-01-01 00:00:00", "yyyy-MM-dd HH:mm:ss", "2026-01-01T00:00:00.000Z")
+  ok = ok + accepts("dec31", "2026-12-31 23:59:59", "yyyy-MM-dd HH:mm:ss", "2026-12-31T23:59:59.000Z")
+  ok = ok + accepts("leapfeb29", "2024-02-29 12:00:00", "yyyy-MM-dd HH:mm:ss", "2024-02-29T12:00:00.000Z")
+  ok = ok + accepts("apr30", "2026-04-30 00:00:00", "yyyy-MM-dd HH:mm:ss", "2026-04-30T00:00:00.000Z")
+  ok = ok + accepts("maxnanos", "2026-06-26 00:00:00.999999999", "yyyy-MM-dd HH:mm:ss.fffffffff", "2026-06-26T00:00:00.999Z")
+  ok = ok + accepts("noTimeToken", "2026-06-26", "yyyy-MM-dd", "2026-06-26T00:00:00.000Z")
+  ok = ok + accepts("monthName", "Jun 25 2026 2:30 PM", "MMM d yyyy h:mm a", "2026-06-25T14:30:00.000Z")
+  ok = ok + accepts("midnight12am", "2026-01-02 12:05 AM", "yyyy-MM-dd hh:mm a", "2026-01-02T00:05:00.000Z")
+  ok = ok + accepts("noon12pm", "2026-01-02 12:05 PM", "yyyy-MM-dd hh:mm a", "2026-01-02T12:05:00.000Z")
+  ok = ok + accepts("eve11pm", "2026-01-02 11:05 PM", "yyyy-MM-dd hh:mm a", "2026-01-02T23:05:00.000Z")
+  ok = ok + accepts("weekday", "Fri 2026-06-26", "EEE yyyy-MM-dd", "2026-06-26T00:00:00.000Z")
+  ok = ok + accepts("defaults", "", "", "1970-01-01T00:00:00.000Z")
+  ok = ok + acceptsIso("isoPlain", "1969-07-20T20:17:00Z", "1969-07-20T20:17:00.000Z")
+  ok = ok + acceptsIso("isoOffset", "2026-06-25T14:30:00.250+05:30", "2026-06-25T09:00:00.250Z")
+  ok = ok + acceptsIso("isoLeap", "2024-02-29T23:59:59Z", "2024-02-29T23:59:59.000Z")
+  ok = ok + acceptsIso("isoSpaceSep", "2026-06-26 09:30:00-08:00", "2026-06-26T17:30:00.000Z")
+  io::print("accepted_all=" & toString(ok = 17))
+
+  ' ---- addDays/addMonths keep their rollover: the fix is in the READERS ----
+  LET base AS datetime::DateTime = datetime::parse("2026-01-31 00:00:00", "yyyy-MM-dd HH:mm:ss")
+  io::print("addMonths=" & datetime::toIso(datetime::addMonths(base, 1)))
+  io::print("addDays=" & datetime::toIso(datetime::addDays(base, 1)))
+  RETURN 0
+END FUNC

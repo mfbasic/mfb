@@ -1,0 +1,61 @@
+' plan-122-A Phase 3: the `0xAARRGGBB` packed-integer bridge.
+'
+' The byte order is pinned with the expected constant written LITERALLY rather
+' than recomputed from the channels. Recomputing it here would make the test
+' agree with whatever shift direction the implementation happens to use, so a
+' swapped `sl`/`sr` or a transposed channel pair would pass. Written as a
+' literal, only the documented layout passes.
+
+IMPORT color
+IMPORT io
+
+SUB show(label AS String, c AS color::Color)
+  io::print(label & "=" & toString(c.red) & "," & toString(c.green) & "," & toString(c.blue) & "," & toString(c.alpha))
+END SUB
+
+SUB roundTrip(label AS String, c AS color::Color)
+  ' fromPacked(toPacked(c)) = c is the contract; print both sides so a failure
+  ' says WHICH channel moved rather than just "not equal".
+  show(label & ".in", c)
+  show(label & ".out", color::fromPacked(color::toPacked(c)))
+END SUB
+
+FUNC main AS Integer
+  ' --- byte order, pinned literally ---------------------------------------
+  ' red 0x12, green 0x34, blue 0x56, alpha 0x78 packs alpha-high to 0x78123456.
+  io::print("order=" & toString(color::toPacked(color::rgba(0x12, 0x34, 0x56, 0x78))))
+  io::print("orderExpected=" & toString(0x78123456))
+
+  ' One channel at a time, so a channel packed into a neighbour's byte shows up
+  ' as a wrong power of 256 rather than hiding inside a combined value.
+  io::print("redOnly=" & toString(color::toPacked(color::rgba(255, 0, 0, 0))))
+  io::print("greenOnly=" & toString(color::toPacked(color::rgba(0, 255, 0, 0))))
+  io::print("blueOnly=" & toString(color::toPacked(color::rgba(0, 0, 255, 0))))
+  io::print("alphaOnly=" & toString(color::toPacked(color::rgba(0, 0, 0, 255))))
+
+  ' --- the stated range: always 0 .. 0xFFFFFFFF, never negative -----------
+  io::print("zero=" & toString(color::toPacked(color::rgba(0, 0, 0, 0))))
+  io::print("full=" & toString(color::toPacked(color::rgba(255, 255, 255, 255))))
+
+  ' --- round trips over the corners ---------------------------------------
+  roundTrip("allZero", color::rgba(0, 0, 0, 0))
+  roundTrip("allFull", color::rgba(255, 255, 255, 255))
+  roundTrip("mixed", color::rgba(0x12, 0x34, 0x56, 0x78))
+  roundTrip("red", color::rgba(255, 0, 0, 0))
+  roundTrip("green", color::rgba(0, 255, 0, 0))
+  roundTrip("blue", color::rgba(0, 0, 255, 0))
+  roundTrip("alpha", color::rgba(0, 0, 0, 255))
+
+  ' --- fromPacked reads the LOW 32 BITS ONLY ------------------------------
+  ' Anything above bit 31 is ignored rather than leaking into alpha, so a value
+  ' that arrived with high bits set -- or a negative one -- still yields a
+  ' colour. Without the mask on the alpha shift, `-1` would not be white.
+  show("fromNegOne", color::fromPacked(-1))
+  show("fromHighBits", color::fromPacked(0x7FFFFFFF00000000))
+
+  ' A 24-bit RGB value has a zero top byte, so it unpacks FULLY TRANSPARENT.
+  ' This is the documented trap on `fromPacked`'s man page.
+  show("rgb24", color::fromPacked(0x3366CC))
+
+  RETURN 0
+END FUNC

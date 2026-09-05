@@ -1,0 +1,134 @@
+{
+  "project": "recursive_get_then_grow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Leaf",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "v", "type": "Integer", "line": 20 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Node2",
+      "line": 23,
+      "fields": [
+      { "visibility": null, "name": "left", "type": "Tree", "line": 24 },
+      { "visibility": null, "name": "right", "type": "Tree", "line": 25 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Tree",
+      "line": 28,
+      "includes": [],
+      "variants": [
+      { "name": "Leaf", "line": 29 },
+      { "name": "Node2", "line": 30 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rep",
+      "line": 33,
+      "fields": [
+      { "visibility": null, "name": "child", "type": "Tree", "line": 34 },
+      { "visibility": null, "name": "lo", "type": "Integer", "line": 35 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 38,
+      "params": [
+      { "name": "t", "type": "Tree", "default": null, "line": 38 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "t" },
+        "line": 39,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Leaf", "binding": "l" },
+          "guard": null,
+          "line": 40,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Leaf(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "v" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 41 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Node2", "binding": "n" },
+          "guard": null,
+          "line": 42,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Node2(" }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "n" }, "member": "left" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "n" }, "member": "right" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 43 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 47,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "reps", "type": "List OF Rep", "value": { "kind": "list", "values": [] }, "line": 48 },
+      { "kind": "assignment", "name": "reps", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "constructor", "type": "Rep", "arguments": [{ "kind": "named", "name": "child", "value": { "kind": "constructor", "type": "Node2", "arguments": [{ "kind": "named", "name": "left", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "named", "name": "v", "value": { "kind": "number", "value": "1" } }] } }, { "kind": "named", "name": "right", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "named", "name": "v", "value": { "kind": "number", "value": "2" } }] } }] } }, { "kind": "named", "name": "lo", "value": { "kind": "number", "value": "3" } }] }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "Rep", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "number", "value": "0" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "before growth: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "back" }, "member": "child" }] } }] }, "line": 51 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 52 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "50" } },
+        "line": 53,
+        "body": [
+        { "kind": "assignment", "name": "reps", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "constructor", "type": "Rep", "arguments": [{ "kind": "named", "name": "child", "value": { "kind": "constructor", "type": "Leaf", "arguments": [{ "kind": "named", "name": "v", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "identifier", "value": "i" } } }] } }, { "kind": "named", "name": "lo", "value": { "kind": "identifier", "value": "i" } }] }] }, "line": 54 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 55 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after 50 appends: list has " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "reps" }] }] } }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fetched-before-growth value now reads: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "back" }, "member": "child" }] } }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "refetched element 0: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "number", "value": "0" }] }, "member": "child" }] } }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "element 10 lo: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "number", "value": "10" }] }, "member": "lo" }] } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "last: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reps" }, { "kind": "number", "value": "50" }] }, "member": "child" }] } }] }, "line": 65 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 66 },
+      {
+        "kind": "forEach",
+        "name": "r",
+        "iterable": { "kind": "identifier", "value": "reps" },
+        "line": 67,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "lo" } }, "line": 68 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sum of lo: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "still: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "back" }, "member": "child" }] } }] }, "line": 73 }
+      ]
+    }
+    ]
+  }
+  ]
+}

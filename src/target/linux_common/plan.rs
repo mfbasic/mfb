@@ -583,9 +583,10 @@ impl LinuxPlan<'_> {
                 // the leading underscore macOS uses.
                 // The process helpers call libc `write` directly (the exec-failure
                 // self-pipe report), so `write` is NOT filtered here the way the
-                // raw-syscall net write path filters it.
+                // raw-syscall net write path filters it. `pipe2` (not `pipe`): the
+                // stdio pipes are created O_CLOEXEC (bug-499).
                 let mut imports = [
-                    "pipe", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
+                    "pipe2", "fork", "dup2", "execvp", "close", "waitpid", "kill", "read", "write",
                     "fcntl", "poll", "signal", "_exit", "chdir", "setenv", "unsetenv",
                 ]
                 .iter()
@@ -621,9 +622,13 @@ impl LinuxPlan<'_> {
                 // it would leave an unreferenced dynsym entry. The shared symbol
                 // list is right for the libc-`write` backends, so filter here
                 // rather than there.
+                // bug-499: Linux accepts with `accept4(..., SOCK_CLOEXEC)`, so the
+                // shared list's `accept` is rewritten to the symbol actually
+                // referenced (macOS keeps `accept` + an fcntl fallback).
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
                     .filter(|base| !(self.abi.raw_write && **base == "write"))
+                    .map(|base| if *base == "accept" { "accept4" } else { base })
                     .map(|base| self.libc_import(base, required_by))
                     .collect::<Vec<_>>();
                 if let Some(receive) = plan::net_ping_receive_symbol(call, false) {
@@ -715,9 +720,9 @@ impl LinuxPlan<'_> {
                     }
                 }
                 if call == "tls.accept" {
-                    // accept the inbound connection; poll bounds the wait when
-                    // timeoutMs > 0.
-                    for base in ["accept", "poll"] {
+                    // accept4(SOCK_CLOEXEC) the inbound connection (bug-499); poll
+                    // bounds the wait when timeoutMs > 0.
+                    for base in ["accept4", "poll"] {
                         imports.push(self.libc_import(base, required_by));
                     }
                 }

@@ -15,13 +15,49 @@
 //! Everything else — intra-line spacing, string contents, comments, and `DOC`
 //! block bodies — is preserved byte-for-byte.
 
+use std::fmt;
+
 use crate::lexer::{self, Keyword};
 
+/// Maximum block-nesting depth the formatter will re-indent. Every line costs
+/// `depth × indent_width` bytes of indentation, so with no ceiling a deeply
+/// nested (or deliberately hostile) source inflated quadratically on the way
+/// out — 336 KB in became 512 MB out, 1.3 MB became 8.2 GB — and the result was
+/// then written back over the user's file (audit-3 FE-02 / bug-502). The parser
+/// rejects any program nested past `MAX_STMT_DEPTH` (256) statement blocks; the
+/// formatter counts frames the parser does not (`MATCH` + `CASE`,
+/// `TESTING`/`TGROUP`/`TCASE`, the LINK DSL's own `FUNC`/`CSTRUCT`/`BIND`
+/// nesting), so the cap sits at four times that. Every program the parser admits
+/// still formats, and a line can never carry more than
+/// `MAX_NESTING_DEPTH × MAX_INDENT` bytes of indentation.
+pub const MAX_NESTING_DEPTH: usize = 1024;
+
+/// Why `format_source` refused an input. The formatter is lexical and otherwise
+/// never rejects source (a malformed line is re-emitted as written), so the one
+/// refusal is the nesting cap; `line` is the 1-based physical line whose block
+/// opener crossed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatError {
+    NestingTooDeep { line: usize },
+}
+
+impl fmt::Display for FormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FormatError::NestingTooDeep { line } => write!(
+                f,
+                "line {line} nests more than {MAX_NESTING_DEPTH} blocks deep"
+            ),
+        }
+    }
+}
+
 /// Format an entire source file. Pure and deterministic: same input and indent
-/// width always produce the same output.
-pub fn format_source(source: &str, indent_width: usize) -> String {
+/// width always produce the same output. The only refusal is
+/// [`FormatError::NestingTooDeep`], past [`MAX_NESTING_DEPTH`] open blocks.
+pub fn format_source(source: &str, indent_width: usize) -> Result<String, FormatError> {
     if source.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
 
     let lines: Vec<&str> = source.split('\n').collect();
@@ -57,12 +93,13 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
         // indent from that nesting, preserving text and casing so a contextual
         // word such as `return` in an `ABI` line is never recased.
         if is_link_start(trimmed) {
-            format_link_block(&lines, &mut i, n, stack.len(), indent_width, &mut out);
+            format_link_block(&lines, &mut i, n, stack.len(), indent_width, &mut out)?;
             continue;
         }
 
         // Gather a logical line: a leading physical line plus any continuation
         // lines (each previous physical line ending in a trailing `_`).
+        let first_physical_line = i + 1;
         let mut cased_lines: Vec<String> = Vec::new();
         let mut sig: Vec<Sig> = Vec::new();
         loop {
@@ -90,6 +127,11 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
             }
         }
         let line_indent = apply_ops(&ops, &mut stack, first_structural, level);
+        if stack.len() > MAX_NESTING_DEPTH {
+            return Err(FormatError::NestingTooDeep {
+                line: first_physical_line,
+            });
+        }
         let indent = indent_str(line_indent, indent_width);
 
         for (j, cased) in cased_lines.iter().enumerate() {
@@ -112,7 +154,7 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
     if !result.ends_with('\n') {
         result.push('\n');
     }
-    result
+    Ok(result)
 }
 
 fn strip_cr(line: &str) -> &str {
@@ -653,7 +695,9 @@ fn doc_header(trimmed: &str) -> String {
 
 /// Re-indent a whole `LINK … END LINK` block from its `FUNC`/`FREE` nesting. `i`
 /// enters pointing at the `LINK` line and leaves pointing past `END LINK`. Text
-/// and casing are preserved; only leading indentation changes.
+/// and casing are preserved; only leading indentation changes. The DSL's own
+/// nesting is charged against the same [`MAX_NESTING_DEPTH`] as the block stack
+/// outside it (bug-502).
 fn format_link_block(
     lines: &[&str],
     i: &mut usize,
@@ -661,7 +705,7 @@ fn format_link_block(
     level: usize,
     indent_width: usize,
     out: &mut Vec<String>,
-) {
+) -> Result<(), FormatError> {
     out.push(format!(
         "{}{}",
         indent_str(level, indent_width),
@@ -694,7 +738,7 @@ fn format_link_block(
         if first.eq_ignore_ascii_case("END") && second.eq_ignore_ascii_case("LINK") {
             out.push(format!("{}END LINK", indent_str(level, indent_width)));
             *i += 1;
-            return;
+            return Ok(());
         } else if text.is_empty() {
             out.push(String::new());
         } else if is_closer {
@@ -703,11 +747,15 @@ fn format_link_block(
         } else if is_opener {
             out.push(format!("{}{}", indent_str(depth, indent_width), text));
             depth += 1;
+            if depth > MAX_NESTING_DEPTH {
+                return Err(FormatError::NestingTooDeep { line: *i + 1 });
+            }
         } else {
             out.push(format!("{}{}", indent_str(depth, indent_width), text));
         }
         *i += 1;
     }
+    Ok(())
 }
 
 /// Whether a trimmed line begins a native `LINK "lib" AS alias` block. The
@@ -726,7 +774,79 @@ mod tests {
     use super::*;
 
     fn fmt(source: &str) -> String {
-        format_source(source, 2)
+        format_source(source, 2).expect("well-nested source formats")
+    }
+
+    // ---- Nesting cap (audit-3 FE-02 / bug-502) ----
+
+    /// `SUB main()` plus `opens` nested `IF TRUE THEN` lines (unterminated on
+    /// purpose: the cap must trip on the way IN, before any output is built).
+    fn nested_ifs(opens: usize) -> String {
+        let mut source = String::from("SUB main()\n");
+        for _ in 0..opens {
+            source.push_str("IF TRUE THEN\n");
+        }
+        source
+    }
+
+    #[test]
+    fn nesting_at_the_cap_still_formats() {
+        // `SUB` is frame 1, so MAX_NESTING_DEPTH - 1 `IF`s fill the stack exactly.
+        let source = nested_ifs(MAX_NESTING_DEPTH - 1);
+        let formatted = format_source(&source, 2).expect("a stack exactly at the cap formats");
+        // Bounded output: at most depth × width bytes of indentation per line.
+        assert!(formatted.len() <= source.len() + MAX_NESTING_DEPTH * MAX_NESTING_DEPTH * 2);
+    }
+
+    #[test]
+    fn nesting_past_the_cap_is_refused_at_the_crossing_line() {
+        // The IF on line MAX_NESTING_DEPTH + 1 opens frame MAX_NESTING_DEPTH + 1.
+        let source = nested_ifs(MAX_NESTING_DEPTH);
+        assert_eq!(
+            format_source(&source, 2),
+            Err(FormatError::NestingTooDeep {
+                line: MAX_NESTING_DEPTH + 1
+            })
+        );
+        // A 2 000-deep tower (the 40 KB → 8 MB shape) is refused just the same,
+        // at the same line, having built nothing past it.
+        assert_eq!(
+            format_source(&nested_ifs(2000), 2),
+            Err(FormatError::NestingTooDeep {
+                line: MAX_NESTING_DEPTH + 1
+            })
+        );
+    }
+
+    #[test]
+    fn link_block_nesting_past_the_cap_is_refused() {
+        // Inside `LINK` the depth starts at 1 and every `FUNC` opener adds one,
+        // so the FUNC on line MAX_NESTING_DEPTH + 1 crosses the cap.
+        let mut source = String::from("LINK \"c\" AS c\n");
+        for _ in 0..MAX_NESTING_DEPTH {
+            source.push_str("FUNC f\n");
+        }
+        assert_eq!(
+            format_source(&source, 2),
+            Err(FormatError::NestingTooDeep {
+                line: MAX_NESTING_DEPTH + 1
+            })
+        );
+        let mut at_cap = String::from("LINK \"c\" AS c\n");
+        for _ in 0..MAX_NESTING_DEPTH - 1 {
+            at_cap.push_str("FUNC f\n");
+        }
+        assert!(format_source(&at_cap, 2).is_ok());
+    }
+
+    #[test]
+    fn format_error_display_names_the_line_and_cap() {
+        let message = FormatError::NestingTooDeep { line: 7 }.to_string();
+        assert!(message.contains("line 7"), "{message}");
+        assert!(
+            message.contains(&MAX_NESTING_DEPTH.to_string()),
+            "{message}"
+        );
     }
 
     #[test]
@@ -848,7 +968,7 @@ mod tests {
     fn custom_indent_width() {
         let input = "FUNC f()\nx\nEND FUNC\n";
         let expected = "FUNC f()\n    x\nEND FUNC\n";
-        assert_eq!(format_source(input, 4), expected);
+        assert_eq!(format_source(input, 4).as_deref(), Ok(expected));
     }
 
     #[test]
@@ -1043,7 +1163,7 @@ mod tests {
 
     #[test]
     fn empty_source_stays_empty() {
-        assert_eq!(format_source("", 2), "");
+        assert_eq!(format_source("", 2).as_deref(), Ok(""));
     }
 
     #[test]

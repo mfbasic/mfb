@@ -173,6 +173,21 @@ r#"FUNC __canvas_glyphEntry(b AS List OF Byte, fontId AS Integer, gid AS Integer
     y0 = toInt(__canvas_floorF(minY)) - 1
     w = toInt(__canvas_floorF(maxX)) + 2 - x0
     h = toInt(__canvas_floorF(maxY)) + 2 - y0
+    ' The bitmap is sized by the outline, and the outline is the file's: int16
+    ' coordinates over the smallest legal `unitsPerEm` put one glyph 375,000 px a side
+    ' at size 200 (bug-509, DEC-53). 8192 a side and 2^24 bytes -- sixteen times the
+    ' whole cache budget, and larger than any glyph a 4K display shows whole -- is the
+    ' most one entry may cost. Past it the entry is recorded empty and the glyph draws
+    ' nothing. It cannot raise: this runs on the graphics thread, where a raise is a
+    ' hang (Correction 13). The sides are checked before their product for the same
+    ' overflow reason as the image caps.
+    IF w > 8192 OR h > 8192 THEN
+      w = 0
+      h = 0
+    ELSEIF w * h > 16777216 THEN
+      w = 0
+      h = 0
+    END IF
     MUT cov AS List OF Byte = __CANVAS_GLYPH_COV
     MUT row AS Integer = 0
     WHILE row < h

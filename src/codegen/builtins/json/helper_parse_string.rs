@@ -8,44 +8,64 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Iterative string scan (plan-25-D §D3): accumulate each literal grapheme /
-' decoded escape into a MUT chunk list and `strings::join` once at the end,
-' replacing the former per-character `current & ch` recursion. The old form was
-' O(n^2) (a fresh string of length k built at every step) and recursed one frame
-' per character; this is O(n) with the in-place MUT append fast path. `current`
-' seeds the builder so the observable result is byte-identical for any caller.
-FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS String) AS __json_StringNode
-  MUT chunks AS List OF String = []
-  IF current <> "" THEN
-    chunks = collections::append(chunks, current)
-  END IF
+r#"' Iterative string scan (plan-25-D §D3), over bytes since bug-510 (DEC-03). The
+' grapheme list it replaced cost ~42 bytes per character plus a one-character
+' String per chunk -- over 400 MB for a 3 MB string.
+'
+' It accumulates by RUN, not by element. A per-byte `out = append(out, b)` into a
+' `MUT List OF Byte` was measured at ~65 bytes of peak RSS per element (195 MB
+' for 3 000 000 bytes, and identically for a `List OF Integer`, so it is the
+' growth churn and not the element width): a list built by repeated append is the
+' wrong accumulator at document scale. A run of unescaped bytes is instead copied
+' out in ONE `collections::mid` and concatenated onto a `MUT String`, which takes
+' the in-place concat fast path. A string with no escapes therefore costs one
+' slice and one concat however long it is, and one with escapes costs a bounded
+' amount per escape.
+'
+' Cutting the run at `"` or `\` -- both ASCII -- never splits a UTF-8 scalar, and
+' the source is a String, so every run is well-formed UTF-8 by construction.
+FUNC __json_parseString(bytes AS List OF Byte, index AS Integer) AS __json_StringNode
+  MUT acc AS String = ""
+  MUT runStart AS Integer = index
   MUT idx AS Integer = index
   MUT finished AS Boolean = FALSE
   MUT endIndex AS Integer = index
+  MUT code AS Integer = 0
+  LET n AS Integer = len(bytes)
   WHILE finished = FALSE
-    IF idx >= len(chars) THEN
+    IF idx >= n THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET ch AS String = collections::get(chars, idx)
-    IF ch = "\"" THEN
+    code = toInt(collections::get(bytes, idx))
+    IF code = 34 THEN
+      IF idx > runStart THEN
+        LET run AS String = encoding::utf8Decode(collections::mid(bytes, runStart, idx - runStart))
+        acc = acc & run
+      END IF
       finished = TRUE
       endIndex = idx + 1
-    ELSEIF ch = "\\" THEN
-      IF idx + 1 >= len(chars) THEN
+    ELSEIF code = 92 THEN
+      IF idx + 1 >= n THEN
         FAIL error(77050003, "invalid JSON format")
       END IF
-      LET escapeState AS __json_StringNode = __json_parseEscape(chars, idx + 1)
-      chunks = collections::append(chunks, escapeState.value)
+      IF idx > runStart THEN
+        LET run AS String = encoding::utf8Decode(collections::mid(bytes, runStart, idx - runStart))
+        acc = acc & run
+      END IF
+      LET escapeState AS __json_StringNode = __json_parseEscape(bytes, idx + 1)
+      LET decoded AS String = escapeState.value
+      acc = acc & decoded
       idx = escapeState.index
-    ELSEIF __json_isRawControlChar(ch) THEN
+      runStart = idx
+    ELSEIF code < 32 THEN
+      ' A raw control character is a single Unicode scalar below 32, which is one
+      ' ASCII byte -- so the byte test is exactly the scalar test JSON requires.
       FAIL error(77050003, "invalid JSON format")
     ELSE
-      chunks = collections::append(chunks, ch)
       idx = idx + 1
     END IF
   END WHILE
-  LET result AS String = strings::join(chunks, "")
-  RETURN __json_StringNode[result, endIndex]
+  RETURN __json_StringNode[acc, endIndex]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

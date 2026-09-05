@@ -186,6 +186,15 @@ it probes the offset one day on each side to bracket the transition, then
 applies the §"DST policy" below. `withZone(dt, z)` re-projects through
 `resolve` then `inZone`. [[src/codegen/builtins/datetime/mod.rs:__datetime_resolveLocal]]
 
+The two are the package's opposite zone operations and are easy to confuse
+(bug-518 was `withZone`'s own parameter row asserting the wrong one).
+`withZone(dt, z)` **preserves the instant** and re-derives the civil fields:
+`resolve(withZone(dt, z)) = resolve(dt)` for every `z`. `civil(dt.date, dt.time,
+z)` **preserves the civil fields** and therefore names a different instant. The
+`withZone` identity is pinned by
+`tests/rt-behavior/datetime/datetime-withzone-instant-rt`, because prose cannot
+be gated but the property it describes can.
+
 **DST policy** (`resolveLocal`): with no transition in the bracket, use the
 common offset. Across a transition: an unambiguous time uses the bracketing
 offset; a **fall-back overlap** (the wall time occurs twice) takes the *earlier*
@@ -223,7 +232,14 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 | `E` | weekday name | `EEEE`+ = full, shorter = abbreviated |
 | `Z` | zone offset | `Z` = `Z` if offset 0 else `±HH:MM`; `ZZ` = always `±HH:MM`; `ZZZ`+ = `±HHMM` (compact) |
 
-`toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. `formatDuration(d)`
+`toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. It is arity-split: the
+two-argument `toIso(dt, digits)` selects the fractional width from `{0, 3, 6, 9}`
+(`0` omits the fractional field; any other value is `ErrInvalidArgument`,
+`77050002`), and the one-argument form is defined as `toIso(dt, 3)`, so the
+default output is millisecond-fixed by construction. Because a `DateTime` carries
+nanoseconds, **only `digits = 9` round-trips through `parseIso` losslessly**
+(bug-521: the page previously promised a round trip and truncated); every
+narrower width truncates toward zero. `formatDuration(d)`
 renders a signed span as `[Nd ]HH:MM:SS.mmm` (millisecond resolution, leading
 day part only when non-zero). [[src/codegen/builtins/datetime/func_to_iso.rs:__datetime_toIso]]
 
@@ -258,14 +274,41 @@ is read then scaled (extra digits beyond 9 are skipped), and a trailing offset
 (`Z`/`z`/`±HH:MM`/`±HHMM`) is required. It always yields a fixed-offset `DateTime`.
 [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]]
 
+### Decoded fields are range-checked
+
+Both readers bound the decoded calendar fields before assembling them, against
+exactly the ranges the `date`/`time` constructors enforce (see §"Validation").
+`parse` checks in `buildFromFields`, after the 12-hour/AM-PM fold and before the
+`Date`/`Time` record literals; `parseIso` checks after the offset read, at the
+same point. A field out of range fails `ErrInvalidFormat` (`77050003`) — the
+structural-mismatch code, not the constructors' `ErrInvalidArgument`, because
+the argument is a well-formed `String` and it is the *text* that is malformed.
+[[src/codegen/builtins/datetime/helper_check_fields.rs:__datetime_checkFields]]
+
+This bound is what keeps the readers separate from the calendar arithmetic. The
+civil-days conversion is deliberately *total* — month 13 is "twelve months plus
+one", day 45 is "day 1 plus 44 days" — because `addMonths`/`addDays` need
+exactly that rollover. Reached with no prior bound (bug-519), that totality
+laundered invalid text into a valid-looking date: `parse("2026-13-45 25:70:99",
+"yyyy-MM-dd HH:mm:ss")` returned `2027-02-15T02:11:39Z` with no error, while
+`date(2026, 13, 45)` refused the identical fields. The arithmetic is unchanged;
+the readers no longer reach it with input the constructors would reject.
+
 ## Validation
 
 `date(y, m, d)` rejects `month` outside `1..12` and `day` outside
 `1..daysInMonth`; `time(h, mi, s, ns)` rejects `hour` outside `0..23`,
 `minute`/`second` outside `0..59`, `nanos` outside `0..999_999_999`. All raise `ErrInvalidArgument` (`77050002`). Note
 that the bare `Instant`/`Time`/`Date` *record literals* used internally by the
-projection helpers do **not** re-validate — validation lives in the named
-constructors. [[src/codegen/builtins/datetime/func_date.rs:__datetime_date]]
+projection helpers do **not** re-validate — validation lives at the package's
+input boundary. [[src/codegen/builtins/datetime/func_date.rs:__datetime_date]]
+
+There are exactly three such boundaries, and all three enforce the same ranges:
+the two constructors above, and the parse readers (`__datetime_checkFields`,
+above), which raise `ErrInvalidFormat` (`77050003`) instead because their input
+is text. An out-of-range `Date`/`Time` is therefore not constructible from
+outside the package, which is why `civil` trusts its arguments rather than
+re-checking them.
 
 ## See Also
 

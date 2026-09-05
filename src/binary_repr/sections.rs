@@ -162,20 +162,19 @@ impl TypeTable {
                 strings.intern("message");
                 TYPE_ERROR
             }
-            // Both spellings (bug-483). `term`'s registry rows state the contract
-            // these two arms implement — "their wire ids stay the reserved
-            // high-band `TYPE_TERM_COLOR`/`TYPE_TERM_SIZE`, name-keyed in
-            // `binary_repr::sections`" — and bug-480 Phase 4b started delivering
-            // `term.TermColor` from every member signature. Matching the bare leaf
-            // alone dropped those through to the opaque zero-field fallback below,
-            // so a package exporting a `term::TermColor` encoded a record with no
-            // `r`/`g`/`b` at all.
-            t if t.is_builtin_named("term", "TermColor") => {
-                strings.intern("r");
-                strings.intern("g");
-                strings.intern("b");
-                TYPE_TERM_COLOR
-            }
+            // Both spellings (bug-483). `term`'s registry row states the contract
+            // this arm implements — "its wire id stays the reserved high-band
+            // `TYPE_TERM_SIZE`, name-keyed in `binary_repr::sections`" — and
+            // bug-480 Phase 4b started delivering `term.TermSize` from every member
+            // signature. Matching the bare leaf alone dropped those through to the
+            // opaque zero-field fallback below, so a package exporting a
+            // `term::TermSize` encoded a record with no `columns`/`rows` at all.
+            //
+            // plan-122-F deleted the sibling `TermColor` arm along with the type.
+            // `TYPE_TERM_COLOR` is RETIRED, not recycled: nothing encodes it any
+            // more, but `binary_repr::reader` still decodes it so a `.mfp` published
+            // before this change reports a recognizable type rather than failing
+            // opaquely. `no_encoder_emits_the_retired_term_color_id` pins that.
             t if t.is_builtin_named("term", "TermSize") => {
                 strings.intern("columns");
                 strings.intern("rows");

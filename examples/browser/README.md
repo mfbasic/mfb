@@ -241,7 +241,7 @@ are a link, `<b>`/`<strong>`, `<u>`/`<ins>`); `paint` maps those spans through t
 word-wrap it draws and records them on the output rows, so each row is an
 `AttributedString` with per-column **bold**, **underline**, and a **foreground colour**
 (links render in blue and underlined). The app draws every content row with
-`term::drawText(0 - hscroll, row, attributedRow)` — its negative-column skip and
+`term::drawText(row, 0 - hscroll, attributedRow)` — its negative-column skip and
 right-edge clip window the row horizontally without slicing the opaque AttributedString,
 and it honours the run's bold/underline/colour. (Mapping assumes one grapheme ≈ one
 column, true for the Latin text styling appears on; a wide glyph may shift an attribute a

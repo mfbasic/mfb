@@ -140,6 +140,95 @@ pub(crate) fn emit_pollfd_events_for(
 pub(crate) const AF_INET: &str = "2";
 pub(crate) const SOCK_STREAM: &str = "1";
 pub(crate) const SOCK_DGRAM: &str = "2";
+/// Linux `SOCK_CLOEXEC` (== `O_CLOEXEC`, 0x80000 — the same bit on x86-64,
+/// AArch64 and RISC-V), bug-499. Also the flag `accept4(2)` takes.
+pub(crate) const LINUX_SOCK_CLOEXEC: &str = "524288";
+
+/// bug-499: make the socket about to be created close-on-exec, so a
+/// `process::spawn` child never inherits it. Call with the `socket(2)` arguments
+/// already staged (`type` in `c_arg(1)`): on Linux this ORs `SOCK_CLOEXEC` into
+/// the type, setting the flag atomically with creation (`c_arg(3)`, unused by the
+/// three-argument call, is the scratch). macOS has no `SOCK_CLOEXEC`, so this emits
+/// nothing there and [`emit_fd_cloexec_fallback`] sets `FD_CLOEXEC` right after
+/// the call. Windows emits nothing: a SOCKET is a handle, and the Windows spawn
+/// hands the child an explicit handle list carrying only its stdio.
+pub(crate) fn emit_socket_type_cloexec(
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    if platform.family() == PlatformFamily::Linux {
+        instructions.extend([
+            abi::move_immediate(abi::c_arg(3), "Integer", LINUX_SOCK_CLOEXEC),
+            abi::or_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(3)),
+        ]);
+    }
+}
+
+/// bug-499: the macOS half of close-on-exec for a descriptor whose creating call
+/// cannot set it atomically — `fcntl(fd, F_SETFD, FD_CLOEXEC)` on the fd stored at
+/// `sp + fd_slot`. Emits nothing on Linux (`SOCK_CLOEXEC` / `accept4` already set
+/// it) or Windows (handle list). Clobbers the C argument/return registers; every
+/// caller reloads the fd from its slot afterwards, as the sites already do.
+pub(crate) fn emit_fd_cloexec_fallback(
+    platform: &dyn CodegenPlatform,
+    symbol: &str,
+    fd_slot: usize,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    if platform.family() != PlatformFamily::MacOS {
+        return Ok(());
+    }
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_slot),
+        abi::move_immediate(abi::c_arg(1), "Integer", "2"), // F_SETFD
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"), // FD_CLOEXEC
+    ]);
+    platform.emit_variadic_external_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )
+}
+
+/// bug-499: emit the accept call for a listener fd already staged as the first
+/// argument with NULL address arguments: Linux `accept4(fd, NULL, NULL,
+/// SOCK_CLOEXEC)` so the accepted socket is close-on-exec from birth; every other
+/// platform the plain `accept(fd, NULL, NULL)` (macOS follows up with
+/// [`emit_fd_cloexec_fallback`] once the fd is stored; Windows relies on the
+/// spawn's handle list). The C `int` result is left where `accept` leaves it.
+pub(crate) fn emit_accept_call(
+    platform: &dyn CodegenPlatform,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    if platform.family() == PlatformFamily::Linux {
+        instructions.push(abi::move_immediate(
+            abi::c_arg(3),
+            "Integer",
+            LINUX_SOCK_CLOEXEC,
+        ));
+        return platform.emit_external_call(
+            "accept4",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        );
+    }
+    platform.emit_external_call(
+        net_symbol(platform, NetSymbol::Accept),
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )
+}
 // hints `u64` at offset 0 packs `ai_flags` (low 32) and `ai_family` (high 32).
 // `AF_INET (2) << 32`.
 const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_flags = 0
@@ -703,12 +792,13 @@ fn lower_net_endpoint_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
-        // socket(ai_family, ai_socktype, ai_protocol)
+        // socket(ai_family, ai_socktype | SOCK_CLOEXEC, ai_protocol) (bug-499)
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), &v9, 4),
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
+    emit_socket_type_cloexec(platform, &mut instructions);
     platform.emit_external_call(
         net_symbol(platform, NetSymbol::Socket),
         symbol,
@@ -723,6 +813,16 @@ fn lower_net_endpoint_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+    ]);
+    emit_fd_cloexec_fallback(
+        platform,
+        symbol,
+        FD_OFFSET,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         // Overwrite sin_port at ai_addr + 2/3 with the requested port (network
         // byte order).
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),

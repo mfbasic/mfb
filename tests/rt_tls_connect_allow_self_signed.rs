@@ -50,8 +50,8 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::mpsc;
+use std::time::Duration;
 
 /// Wall-clock bound on the whole client run. Generous on purpose: this turns a
 /// *hang* into a named failure so a wedged handshake cannot stall `cargo test`.
@@ -65,26 +65,18 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// validated against the IP would be asserting an unsupported path.
 const EXPECT_NAME: &str = "localhost";
 
-/// A scratch-directory name no other case in this file can be handed.
-///
-/// The clock alone was not enough, and the failure it produced was not a flaky-looking
-/// one. The four cases start together, `SystemTime::now()` is not guaranteed to advance
-/// between two reads on the same machine, and two cases sharing a root share
-/// `cert.pem` — so `still_rejects_an_expired_certificate` would read the *in-date*
-/// peer's 397-day certificate and report "the certificate meant to be expired is still
-/// valid". A test asserting a security property, failing for a reason with nothing to
-/// do with security.
-///
-/// The counter is what makes it unique rather than merely unlikely; the clock stays so
-/// that a leftover directory from an earlier run cannot be reused either.
-fn nonce() -> u128 {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    now * 1_000 + seq
+/// bug-488, the half the port gate does not cover: this file's four cases run
+/// concurrently and each names its scratch root `mfb_bug477_<nonce>`. A
+/// nanosecond timestamp does NOT make that unique — measured on the macOS host,
+/// 698 577 of 800 000 stamps taken from four threads were duplicates — so two
+/// cases can share a root. `write_cert` puts `cert.pem`/`key.pem` at fixed names
+/// inside it, so a colliding pair serves the WRONG IDENTITY and a negative case
+/// reports `result=connected`; and whichever finishes first `remove_dir_all`s
+/// the other's client out from under it (`spawn the mfb tls client: NotFound`,
+/// the macOS CI row). `common::unique_nonce` is a pid + counter, which cannot
+/// repeat.
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {
@@ -374,10 +366,14 @@ fn assert_expired_cert_shape(cert: &Path) {
 /// cases in this file run concurrently — so without this gate two of them can be
 /// handed the same ephemeral port inside that window. See `start_peer` for why that
 /// is not merely a flake.
-fn port_gate() -> &'static Mutex<()> {
-    static GATE: OnceLock<Mutex<()>> = OnceLock::new();
-    GATE.get_or_init(|| Mutex::new(()))
-}
+// bug-488: the gate is `common::PortGate`, a `flock(2)` on a file in the temp
+// dir, so it serializes every process on the machine — not just this binary.
+// The `static OnceLock<Mutex<()>>` that used to live here was per-PROCESS: it
+// ordered the four cases in this file and nothing else, so a second `cargo test`
+// (routine, with work running in several worktrees at once) could take our port
+// inside the release window. Six false failures came from that, in BOTH
+// directions — a verdict that flips either way is two runs sharing state, not
+// one stale value leaking.
 
 /// A port nothing is listening on yet. `s_server` is then told to bind it.
 ///
@@ -412,7 +408,7 @@ fn start_peer(root: &Path, peer: Peer) -> (Child, u16) {
     let (cert, key) = write_cert(root, peer);
     let log = root.join("s_server.err");
     for _ in 0..10 {
-        let guard = port_gate().lock().expect("the port gate is not poisoned");
+        let guard = common::PortGate::acquire();
         let port = free_port();
         let port_arg = port.to_string();
         let args = [
@@ -579,8 +575,8 @@ fn build_client(root: &Path, port: u16, allow: Option<bool>) -> PathBuf {
         "IMPORT io\n\
          IMPORT tls\n\n\
          FUNC main AS Integer\n\
-        \x20 RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"{EXPECT_NAME}\"{arg}) TRAP\n\
-        \x20   io::print(\"result=raised\")\n\
+        \x20 RES conn = tls::connect(\"127.0.0.1\", {port}, 5000, \"{EXPECT_NAME}\"{arg}) TRAP(e)\n\
+        \x20   io::print(\"result=raised code=\" & toString(e.code))\n\
         \x20   RETURN 0\n\
         \x20 END TRAP\n\
         \x20 io::print(\"result=connected\")\n\
@@ -673,13 +669,15 @@ fn still_rejects_a_name_mismatch() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    assert_eq!(
-        outcome(Peer::NameMismatch, Some(true)),
-        "result=raised",
-        "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — a \
+    {
+        let got = outcome(Peer::NameMismatch, Some(true));
+        assert!(
+            got.starts_with("result=raised"),
+            "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — a \
          certificate whose name does not match the expected server name must still \
-         raise, or the flag is a blanket verification bypass"
-    );
+         raise, or the flag is a blanket verification bypass; observed: {got}"
+        );
+    }
 }
 
 #[test]
@@ -688,13 +686,15 @@ fn still_rejects_an_expired_certificate() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    assert_eq!(
-        outcome(Peer::Expired, Some(true)),
-        "result=raised",
-        "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — an \
+    {
+        let got = outcome(Peer::Expired, Some(true));
+        assert!(
+            got.starts_with("result=raised"),
+            "bug-477: `allowSelfSigned` relaxes the trust anchor and NOTHING else — an \
          expired certificate must still raise, or the flag is a blanket \
-         verification bypass"
-    );
+         verification bypass; observed: {got}"
+        );
+    }
 }
 
 #[test]
@@ -703,12 +703,14 @@ fn defaults_to_rejecting_a_self_signed_peer() {
         eprintln!("skipping: openssl CLI not available");
         return;
     }
-    assert_eq!(
-        outcome(Peer::Good, None),
-        "result=raised",
-        "bug-477 non-goal: omitting `allowSelfSigned` must be exactly today's \
+    {
+        let got = outcome(Peer::Good, None);
+        assert!(
+            got.starts_with("result=raised"),
+            "bug-477 non-goal: omitting `allowSelfSigned` must be exactly today's \
          handshake. `http::`'s HTTPS path reaches tls::connect with this argument \
          padded, so a padded default of anything but FALSE silently turns every \
-         HTTPS client in the language into a MITM target"
-    );
+         HTTPS client in the language into a MITM target; observed: {got}"
+        );
+    }
 }

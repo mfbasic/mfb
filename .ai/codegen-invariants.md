@@ -271,12 +271,12 @@ Workaround: factor the trap-bound read out of the MATCH into a top-level helper 
 
 ## Regex parser depth cap must be lower than the matcher's
 
-The mfbasic regex/json engines have TWO independent stack-overflow guards, and they need DIFFERENT limits — do not reuse one for the other.
+The mfbasic regex/json engines have independent stack-overflow guards, and they need DIFFERENT limits — do not reuse one for the other.
 
-- The matcher (`__regex_matchNode`) uses `__REGEX_DEPTH_LIMIT = 600`: it recurses ~1 native frame per depth unit, native stack exhausts around 800–1000 frames.
+- The regex matcher no longer has one (bug-510): `__regex_run` is an explicit-stack backtracker — a linked chain of `__regex_Choice` records, each holding the choice below it, the same shape the continuations use — so a group repetition costs heap, not native frames. Its bounds are the step budgets and `__REGEX_PENDING_LIMIT`. (The first version kept the choice points in a growable `List OF` with append-only side tables and died of bug-538: `collections::get` of a recursive-type element aliases the list's storage, and the next growing `append` frees it. A choice record is never appended to anything.) Before bug-510 it was CPS recursion guarded by `__REGEX_DEPTH_LIMIT = 600` (~10 frames of ~300 stack slots per group repetition), which made `^(ab)*$` fail on a 200-character input; a "charge by input position" accounting would have been unsound because a frame is a frame whether or not it consumed a character.
 - The parser (`__regex_parseAlt → parseConcat → parseParen → parseAlt`) recurses 3 native frames per group-nesting level. Measured on the produced executable (macOS-aarch64): `(`×N compiles cleanly for N≤300 but SIGSEGVs (exit 139) for N≥400 — the crash threshold is ~350 nesting levels ≈ ~1050 frames.
 
-So a depth-600 check in the parser would NEVER fire before the ~350-level crash. Reusing `__REGEX_DEPTH_LIMIT` was wrong. The fix added a parser-specific `__REGEX_PARSE_DEPTH_LIMIT = 200` (same ~600-frame budget ÷ 3 frames/level). Verified at the boundary: N=200 balanced groups compile, N=201 fails cleanly, N=800/2000 fail cleanly — no crash at any depth.
+So a depth-600 check in the parser would NEVER fire before the ~350-level crash. Reusing the matcher's then-`__REGEX_DEPTH_LIMIT` was wrong. The fix added a parser-specific `__REGEX_PARSE_DEPTH_LIMIT = 200` (same ~600-frame budget ÷ 3 frames/level). Verified at the boundary: N=200 balanced groups compile, N=201 fails cleanly, N=800/2000 fail cleanly — no crash at any depth.
 
 General rule: when capping recursion depth to prevent an uncatchable native SIGSEGV, calibrate the limit to native FRAMES consumed, not to the logical construct — count how many native frames one unit of the recursion cycle actually costs, and set the limit against the measured crash threshold of the produced binary.
 

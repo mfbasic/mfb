@@ -3,6 +3,10 @@
 //! Registered via `add_helper`; renders in the helper section of the assembled
 //! source, in the order `mod.rs` calls the helpers. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
+//!
+//! bug-519: the bound runs on the FOLDED `hour`, after the 12-hour/AM-PM
+//! resolution, so `hh`+`a` is checked as the hour actually stored — and before
+//! either exit builds the `Date`/`Time` record literals, which do not validate.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
@@ -17,6 +21,7 @@ r#"FUNC __datetime_buildFromFields(f AS __datetime_Fields, zone AS Zone) AS Date
       hour = 0
     END IF
   END IF
+  __datetime_checkFields(f.year, f.month, f.day, hour, f.minute, f.second, f.nanos)
   LET d AS Date = Date[f.year, f.month, f.day]
   LET t AS Time = Time[hour, f.minute, f.second, f.nanos]
   IF f.hasOff THEN

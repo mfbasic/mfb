@@ -11,49 +11,158 @@
 
 use super::*;
 
+/// What `parse_pipeline` must know about a right-hand side before it splices
+/// the left operand in for each `_`: how many placeholders there are (none is
+/// an error; more than one COPIES the operand) and the depths that decide how
+/// deep the spliced result is (bug-501).
+pub(super) struct PlaceholderShape {
+    /// Number of `_` leaves.
+    pub(super) count: usize,
+    /// Tree depth of the right-hand side itself (0 for a lone `_`).
+    pub(super) depth: usize,
+    /// Depth of the deepest `_` leaf (0 when there is none). The operand's root
+    /// lands there, so the spliced tree is
+    /// `max(depth, placeholder_depth + operand depth)` deep.
+    pub(super) placeholder_depth: usize,
+}
+
+/// Test-only convenience over [`placeholder_shape`] for the arm-coverage tests
+/// below; the parser reads the full shape.
+#[cfg(test)]
 pub(super) fn contains_placeholder(expression: &Expression) -> bool {
+    placeholder_shape(expression).count > 0
+}
+
+pub(super) fn placeholder_shape(expression: &Expression) -> PlaceholderShape {
+    shape_at(expression, 0)
+}
+
+/// Shape of the subtree rooted at `expression`, which sits `at` levels below
+/// the right-hand side's root. Recursing here is safe: every subtree reaching
+/// this walk was depth-checked as the parser built it.
+fn shape_at(expression: &Expression, at: usize) -> PlaceholderShape {
+    if let Expression::Identifier(value) = expression {
+        let is_placeholder = value == "_";
+        return PlaceholderShape {
+            count: usize::from(is_placeholder),
+            depth: at,
+            placeholder_depth: if is_placeholder { at } else { 0 },
+        };
+    }
+    let mut shape = PlaceholderShape {
+        count: 0,
+        depth: at,
+        placeholder_depth: 0,
+    };
+    let mut visit = |child: &Expression| {
+        let inner = shape_at(child, at + 1);
+        shape.count += inner.count;
+        shape.depth = shape.depth.max(inner.depth);
+        shape.placeholder_depth = shape.placeholder_depth.max(inner.placeholder_depth);
+    };
     match expression {
-        Expression::Identifier(value) => value == "_",
         Expression::Binary { left, right, .. } => {
-            contains_placeholder(left) || contains_placeholder(right)
+            visit(left);
+            visit(right);
         }
-        Expression::Unary { operand, .. } => contains_placeholder(operand),
-        Expression::Call { arguments, .. } => arguments.iter().any(call_arg_contains_placeholder),
+        Expression::Unary { operand, .. } => visit(operand),
+        Expression::Call { arguments, .. } => {
+            for argument in arguments {
+                visit(call_arg_value(argument));
+            }
+        }
         Expression::Constructor { arguments, .. } => {
-            arguments.iter().any(constructor_arg_contains_placeholder)
+            for argument in arguments {
+                visit(constructor_arg_value(argument));
+            }
         }
-        Expression::Lambda { body, .. } => contains_placeholder(body),
-        Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
-        Expression::SetLiteral { elements, .. } => elements.iter().any(contains_placeholder),
-        Expression::MapLiteral { entries, .. } => entries
-            .iter()
-            .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
-        Expression::MemberAccess { target, .. } => contains_placeholder(target),
-        Expression::Trapped { expression, .. } => contains_placeholder(expression),
+        Expression::Lambda { body, .. } => visit(body),
+        Expression::ListLiteral(values) => {
+            for value in values {
+                visit(value);
+            }
+        }
+        Expression::SetLiteral { elements, .. } => {
+            for element in elements {
+                visit(element);
+            }
+        }
+        Expression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                visit(key);
+                visit(value);
+            }
+        }
+        Expression::MemberAccess { target, .. } => visit(target),
+        // The handler holds statements (never the pipeline input); only the
+        // trapped subexpression can carry a placeholder (bug-171 finding C).
+        Expression::Trapped { expression, .. } => visit(expression),
         Expression::WithUpdate { target, updates } => {
-            contains_placeholder(target)
-                || updates
-                    .iter()
-                    .any(|update| contains_placeholder(&update.value))
+            visit(target);
+            for update in updates {
+                visit(&update.value);
+            }
         }
-        Expression::String(_)
+        Expression::Identifier(_)
+        | Expression::String(_)
         | Expression::Number(_)
         | Expression::Scalar(_)
-        | Expression::Boolean(_) => false,
+        | Expression::Boolean(_) => {}
+    }
+    shape
+}
+
+/// Number of expression nodes in `expression`. `parse_pipeline` charges this
+/// once per placeholder beyond the first, since each extra `_` receives its own
+/// copy of the whole operand (bug-501 B). A `Trapped` handler holds statements,
+/// not expressions, and is not counted: a postfix trap wraps a whole statement's
+/// expression, so one can never be a pipeline operand.
+pub(super) fn node_count(expression: &Expression) -> usize {
+    let children: usize = match expression {
+        Expression::Binary { left, right, .. } => node_count(left) + node_count(right),
+        Expression::Unary { operand, .. } => node_count(operand),
+        Expression::Call { arguments, .. } => arguments
+            .iter()
+            .map(|argument| node_count(call_arg_value(argument)))
+            .sum(),
+        Expression::Constructor { arguments, .. } => arguments
+            .iter()
+            .map(|argument| node_count(constructor_arg_value(argument)))
+            .sum(),
+        Expression::Lambda { body, .. } => node_count(body),
+        Expression::ListLiteral(values) => values.iter().map(node_count).sum(),
+        Expression::SetLiteral { elements, .. } => elements.iter().map(node_count).sum(),
+        Expression::MapLiteral { entries, .. } => entries
+            .iter()
+            .map(|(key, value)| node_count(key) + node_count(value))
+            .sum(),
+        Expression::MemberAccess { target, .. } => node_count(target),
+        Expression::Trapped { expression, .. } => node_count(expression),
+        Expression::WithUpdate { target, updates } => {
+            node_count(target)
+                + updates
+                    .iter()
+                    .map(|update| node_count(&update.value))
+                    .sum::<usize>()
+        }
+        Expression::Identifier(_)
+        | Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_) => 0,
+    };
+    children + 1
+}
+
+fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+    match argument {
+        ConstructorArg::Positional(value) | ConstructorArg::Named { value, .. } => value,
     }
 }
 
-fn constructor_arg_contains_placeholder(argument: &ConstructorArg) -> bool {
+fn call_arg_value(argument: &CallArg) -> &Expression {
     match argument {
-        ConstructorArg::Positional(value) => contains_placeholder(value),
-        ConstructorArg::Named { value, .. } => contains_placeholder(value),
-    }
-}
-
-fn call_arg_contains_placeholder(argument: &CallArg) -> bool {
-    match argument {
-        CallArg::Positional(value) => contains_placeholder(value),
-        CallArg::Named { value, .. } => contains_placeholder(value),
+        CallArg::Positional(value) | CallArg::Named { value, .. } => value,
     }
 }
 

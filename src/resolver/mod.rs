@@ -38,7 +38,8 @@ const BUILTIN_TYPES: &[&str] = &[
     // `TermSize`, `AudioDevice`, `Json`), which is why `AS Address` compiled from
     // a consumer while the sibling `AS Url` — same package, same kind, but absent
     // from this list — was correctly refused.
-    crate::codegen::builtins::term::TERM_COLOR_TYPE_ID,
+    crate::codegen::builtins::color::COLOR_TYPE_ID,
+    crate::codegen::builtins::color::HSL_TYPE_ID,
     crate::codegen::builtins::term::TERM_SIZE_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE_ID,
     // plan-110-B/C: the transport types moved out of `net`. `DatagramText` is gone
@@ -189,6 +190,11 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // helper (plan-99 PART B) — before this `encoding` late pass, so
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
+    // `color` after the generic pass, for the same reason `net` follows `http`:
+    // canvas's injected companion carries `IMPORT color` and calls
+    // `color::toLinear`/`fromLinear`, and the generic pass over the pre-injection
+    // AST cannot see that transitive import (plan-122-B).
+    let augmented = crate::codegen::builtins::color::augmented_project(&augmented)?;
     Ok(augmented)
 }
 
@@ -208,6 +214,7 @@ pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
     let augmented = crate::codegen::builtins::http::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::color::augmented_hir_project(&augmented)?;
     Ok(augmented)
 }
 

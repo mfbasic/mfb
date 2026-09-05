@@ -1,6 +1,139 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
+
+/// How many located diagnostics `show_diagnostic` renders in full before the
+/// rest are only counted. Every rendered diagnostic echoes up to three source
+/// lines, so with no ceiling a source provoking one error per line turned
+/// 240 KB of input into 10 GB of stderr (audit-3 FE-03 / bug-505). No golden
+/// in the tree records more than 22; a developer reads far fewer than 100.
+/// `report_suppressed_diagnostics` prints the withheld count once the stream is
+/// complete.
+pub const MAX_RENDERED_DIAGNOSTICS: usize = 100;
+
+/// Located diagnostics handed to `show_diagnostic` so far in this process.
+static SEEN: AtomicUsize = AtomicUsize::new(0);
+
+/// One source file, read once and indexed by line for every diagnostic that
+/// points into it. `show_diagnostic` used to re-read the whole file per
+/// diagnostic, which is what made the cost O(errors × filesize) (bug-505); now
+/// each render is one `stat` (to notice a rewritten file, which in-process
+/// tests do) plus an indexed slice.
+struct CachedSource {
+    stamp: SourceStamp,
+    contents: String,
+    /// `(start, end)` byte range of each line, exactly as `str::lines` yields
+    /// them (no terminator; a trailing newline starts no line).
+    line_ranges: Vec<(usize, usize)>,
+}
+
+type SourceStamp = (u64, Option<SystemTime>);
+
+impl CachedSource {
+    fn load(path: &Path) -> Option<Self> {
+        let stamp = source_stamp(path)?;
+        let contents = fs::read_to_string(path).ok()?;
+        let base = contents.as_ptr() as usize;
+        let line_ranges = contents
+            .lines()
+            .map(|line| {
+                let start = line.as_ptr() as usize - base;
+                (start, start + line.len())
+            })
+            .collect();
+        Some(Self {
+            stamp,
+            contents,
+            line_ranges,
+        })
+    }
+
+    fn line_count(&self) -> usize {
+        self.line_ranges.len()
+    }
+
+    /// The `index`th (0-based) line, as `str::lines` would yield it.
+    fn line(&self, index: usize) -> Option<&str> {
+        let (start, end) = *self.line_ranges.get(index)?;
+        Some(&self.contents[start..end])
+    }
+}
+
+fn source_stamp(path: &Path) -> Option<SourceStamp> {
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()))
+}
+
+fn source_cache() -> &'static Mutex<HashMap<PathBuf, Arc<CachedSource>>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<CachedSource>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The indexed contents of `path`, read from disk only the first time (or
+/// after its length/mtime changes). `None` when the file cannot be read, which
+/// renders the diagnostic without source context exactly as before.
+fn cached_source(path: &Path) -> Option<Arc<CachedSource>> {
+    let stamp = source_stamp(path)?;
+    let mut cache = source_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cached) = cache.get(path) {
+        if cached.stamp == stamp {
+            return Some(Arc::clone(cached));
+        }
+    }
+    let loaded = Arc::new(CachedSource::load(path)?);
+    cache.insert(path.to_path_buf(), Arc::clone(&loaded));
+    Some(loaded)
+}
+
+/// An echoed source line, made safe for the developer's terminal. The line is
+/// untrusted input: an ESC/CSI sequence, BEL, `\r`, or a bidi override in it
+/// would otherwise recolor, erase, or visually reorder the very diagnostic that
+/// reports it (audit-3 FE-04). Every terminal-unsafe code point is escaped as
+/// `\u{XXXX}` by `terminal_safe::safe`; a tab — legitimate indentation, and
+/// harmless — is kept verbatim so tab-indented code echoes as written.
+fn safe_source_line(line: &str) -> Cow<'_, str> {
+    if !line
+        .chars()
+        .any(|ch| ch != '\t' && crate::terminal_safe::is_terminal_unsafe(ch))
+    {
+        return Cow::Borrowed(line);
+    }
+    let mut escaped = String::with_capacity(line.len());
+    for (index, segment) in line.split('\t').enumerate() {
+        if index > 0 {
+            escaped.push('\t');
+        }
+        escaped.push_str(&crate::terminal_safe::safe(segment));
+    }
+    Cow::Owned(escaped)
+}
+
+/// Print, once, how many located diagnostics were withheld past
+/// `MAX_RENDERED_DIAGNOSTICS`. Called by the CLI when a command's diagnostic
+/// stream is complete (`cli::dispatch`), so the count is exact.
+pub fn report_suppressed_diagnostics() {
+    let seen = SEEN.load(Ordering::Relaxed);
+    let suppressed = seen.saturating_sub(MAX_RENDERED_DIAGNOSTICS);
+    if suppressed == 0 {
+        return;
+    }
+    let noun = if suppressed == 1 {
+        "diagnostic"
+    } else {
+        "diagnostics"
+    };
+    eprintln!(
+        "... and {suppressed} more {noun} not shown (only the first \
+         {MAX_RENDERED_DIAGNOSTICS} are rendered)"
+    );
+}
 
 /// A rejection collected but not yet rendered. The source-path passes
 /// (`ir::shape` over the concrete HIR, `ir::verify` over the lowered IR) each
@@ -61,14 +194,19 @@ pub fn show_diagnostic(
 ) {
     let rule = rule_for(rule_name);
 
-    if let Ok(contents) = fs::read_to_string(filename) {
-        let lines: Vec<&str> = contents.lines().collect();
-        let display_line = line.min(lines.len()).max(1);
-        if !lines.is_empty() {
+    // bug-505: past the cap, count instead of render. The `SEEN` total is what
+    // `report_suppressed_diagnostics` reports at the end of the stream.
+    if SEEN.fetch_add(1, Ordering::Relaxed) >= MAX_RENDERED_DIAGNOSTICS {
+        return;
+    }
+
+    if let Some(source) = cached_source(filename) {
+        let display_line = line.min(source.line_count()).max(1);
+        if source.line_count() > 0 {
             let first_context_line = display_line.saturating_sub(2).max(1);
             for context_line in first_context_line..=display_line {
-                if let Some(source_line) = lines.get(context_line - 1) {
-                    eprintln!("{:>4} | {}", context_line, source_line);
+                if let Some(source_line) = source.line(context_line - 1) {
+                    eprintln!("{:>4} | {}", context_line, safe_source_line(source_line));
                 }
             }
 
@@ -312,5 +450,76 @@ mod tests {
             let expected = matches!(rule.severity, Severity::Error);
             assert_eq!(is_error(rule.name), expected, "is_error for {}", rule.name);
         }
+    }
+
+    // ---- bug-505: read-once source cache; FE-04: terminal-safe echo ----
+    // These drive the helpers directly rather than `show_diagnostic`: the
+    // rendering cap is process-wide, and the thousands of parses this test
+    // binary runs have long since crossed it.
+
+    #[test]
+    fn cached_source_reads_a_file_once_and_indexes_its_lines() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("src.mfb");
+        std::fs::write(&file, "line one\r\nline two\n\nline four").expect("write");
+        let first = cached_source(&file).expect("readable");
+        let again = cached_source(&file).expect("readable");
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "a second diagnostic must reuse the indexed file, not re-read it"
+        );
+        // Exactly `str::lines` semantics: `\r\n` stripped, empty line kept, no
+        // phantom line after a missing trailing newline.
+        assert_eq!(first.line_count(), 4);
+        assert_eq!(first.line(0), Some("line one"));
+        assert_eq!(first.line(1), Some("line two"));
+        assert_eq!(first.line(2), Some(""));
+        assert_eq!(first.line(3), Some("line four"));
+        assert_eq!(first.line(4), None);
+    }
+
+    #[test]
+    fn cached_source_notices_a_rewritten_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("src.mfb");
+        std::fs::write(&file, "before\n").expect("write");
+        let before = cached_source(&file).expect("readable");
+        // A different length is a different stamp even within mtime granularity.
+        std::fs::write(&file, "after, longer\n").expect("rewrite");
+        let after = cached_source(&file).expect("readable");
+        assert_eq!(before.line(0), Some("before"));
+        assert_eq!(after.line(0), Some("after, longer"));
+    }
+
+    #[test]
+    fn cached_source_is_none_for_a_missing_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(cached_source(&dir.path().join("nope.mfb")).is_none());
+    }
+
+    #[test]
+    fn safe_source_line_escapes_controls_and_bidi_but_keeps_tabs() {
+        // Plain text (including a tab) passes through unallocated.
+        assert!(matches!(
+            safe_source_line("\tLET x = 1"),
+            Cow::Borrowed("\tLET x = 1")
+        ));
+        // ESC/CSI, BEL, CR and RLO are escaped; the tab survives verbatim.
+        assert_eq!(
+            safe_source_line("\tLET s = \"\u{1b}[31mred\u{7}\r\u{202e}\""),
+            "\tLET s = \"\\u{001b}[31mred\\u{0007}\\u{000d}\\u{202e}\""
+        );
+    }
+
+    #[test]
+    fn suppressed_count_is_seen_minus_the_cap() {
+        // Only the arithmetic is asserted here (the printer writes to stderr);
+        // the end-to-end shape is pinned by tests/cli_diagnostic_stream.rs.
+        assert_eq!(0usize.saturating_sub(MAX_RENDERED_DIAGNOSTICS), 0);
+        assert_eq!(
+            (MAX_RENDERED_DIAGNOSTICS + 51).saturating_sub(MAX_RENDERED_DIAGNOSTICS),
+            51
+        );
+        report_suppressed_diagnostics();
     }
 }

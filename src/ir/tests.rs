@@ -6231,21 +6231,37 @@ END FUNC
 
     #[test]
     fn lowers_member_access_on_builtin_record_type() {
-        // Accessing a field of a builtin record type (TermColor's r/g/b) exercises
+        // Accessing a field of a builtin record type exercises
         // TypeIndex::record_field_type's builtin-type-fields branch.
+        //
+        // plan-122-F re-pointed this from `term::TermColor` (retired) to
+        // `color::Color`, which `term::getForeground` now returns. The property under
+        // test is unchanged and still true — only the type used to exercise it moved.
+        // The old assertion was `contains("TermColor") || contains("memberAccess")`;
+        // the first disjunct can no longer hold, and an `||` whose left side is dead
+        // is a test that has quietly halved. Asserts the member accesses directly.
         let ir = lower_src(
             "builtin_fields",
             r#"
 IMPORT term
+IMPORT color
 FUNC main AS Integer
-  LET c AS term::TermColor = term::getForeground()
-  LET red = c.r
-  LET green = c.g
+  LET c AS color::Color = term::getForeground()
+  LET red = c.red
+  LET green = c.green
   RETURN 0
 END FUNC
 "#,
         );
-        assert!(json_of(&ir).contains("TermColor") || json_of(&ir).contains("memberAccess"));
+        let json = json_of(&ir);
+        assert!(
+            json.contains("memberAccess"),
+            "field access on a builtin record must lower to a memberAccess"
+        );
+        assert!(
+            json.contains("color.Color"),
+            "the builtin record's qualified type must reach the IR"
+        );
     }
 
     #[test]

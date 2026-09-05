@@ -1,0 +1,49 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-parse-range-rt
+Wrote AST to tests/rt-behavior/datetime/datetime-parse-range-rt/datetime-parse-range-rt.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-parse-range-rt/datetime-parse-range-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-parse-range-rt
+Wrote executable to tests/rt-behavior/datetime/datetime-parse-range-rt/build/datetime-parse-range-rt.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-parse-range-rt/build/datetime-parse-range-rt.out
+month13=TRUE
+month0=TRUE
+day45=TRUE
+day0=TRUE
+day32=TRUE
+feb30=TRUE
+feb29common=TRUE
+apr31=TRUE
+hour25=TRUE
+hour24=TRUE
+minute70=TRUE
+second99=TRUE
+allbad=TRUE
+pm25=TRUE
+isoMonth13=TRUE
+isoFeb30=TRUE
+isoHour24=TRUE
+isoMinute70=TRUE
+isoSecond99=TRUE
+rejected_all=TRUE
+plain=TRUE 2026-06-26T09:30:00.000Z
+jan1=TRUE 2026-01-01T00:00:00.000Z
+dec31=TRUE 2026-12-31T23:59:59.000Z
+leapfeb29=TRUE 2024-02-29T12:00:00.000Z
+apr30=TRUE 2026-04-30T00:00:00.000Z
+maxnanos=TRUE 2026-06-26T00:00:00.999Z
+noTimeToken=TRUE 2026-06-26T00:00:00.000Z
+monthName=TRUE 2026-06-25T14:30:00.000Z
+midnight12am=TRUE 2026-01-02T00:05:00.000Z
+noon12pm=TRUE 2026-01-02T12:05:00.000Z
+eve11pm=TRUE 2026-01-02T23:05:00.000Z
+weekday=TRUE 2026-06-26T00:00:00.000Z
+defaults=TRUE 1970-01-01T00:00:00.000Z
+isoPlain=TRUE 1969-07-20T20:17:00.000Z
+isoOffset=TRUE 2026-06-25T09:00:00.250Z
+isoLeap=TRUE 2024-02-29T23:59:59.000Z
+isoSpaceSep=TRUE 2026-06-26T17:30:00.000Z
+accepted_all=TRUE
+addMonths=2026-02-28T00:00:00.000Z
+addDays=2026-02-01T00:00:00.000Z
+[exit 0]

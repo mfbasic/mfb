@@ -33,7 +33,7 @@
 mod common;
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+
 use std::{env, fs};
 
 /// A thread entry must be a package-level `ISOLATED FUNC` (the resolver only
@@ -62,10 +62,7 @@ FUNC main AS Integer\n\
 END FUNC\n";
 
 fn thread_project(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project src");
     fs::create_dir_all(root.join("packages")).expect("create packages dir");

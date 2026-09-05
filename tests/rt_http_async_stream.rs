@@ -23,7 +23,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const PORT_ASYNC: u16 = 18473;
 const PORT_BLOCKING: u16 = 18474;
@@ -31,11 +31,8 @@ const EXPECT_BODY: &str = "hello-async-stream-BODY";
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 static DRIVE_LOCK: Mutex<()> = Mutex::new(());
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_python() -> bool {

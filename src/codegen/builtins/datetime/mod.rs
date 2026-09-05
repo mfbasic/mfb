@@ -337,6 +337,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_skip_weekday_name::register(&mut pkg);
     helper_read_offset::register(&mut pkg);
     helper_parse_fields::register(&mut pkg);
+    helper_check_fields::register(&mut pkg);
     helper_build_from_fields::register(&mut pkg);
     helper_expect::register(&mut pkg);
     helper_iso_zone::register(&mut pkg);
@@ -568,6 +569,7 @@ mod func_weekday;
 mod func_with_zone;
 
 mod helper_build_from_fields;
+mod helper_check_fields;
 mod helper_civil_from_days;
 mod helper_days_from_civil;
 mod helper_expect;

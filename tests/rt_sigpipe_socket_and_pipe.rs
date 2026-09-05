@@ -32,16 +32,12 @@ use std::io::Read;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// SIGPIPE. 13 on Linux, macOS and every other POSIX host this compiler targets.
 const SIGPIPE: i32 = 13;
 
 fn build_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
+    let nonce = common::unique_nonce();
     let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
     std::fs::create_dir_all(root.join("src")).expect("create temp project");
     std::fs::write(

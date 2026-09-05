@@ -1,0 +1,31 @@
+' bug-524 -- `process::close` is the only `<pkg>::close` in the language that
+' does not close its argument. fs::close, tcp::close, tls::close, udp::close and
+' audio::close all release the handle; `process::close` closes the CHILD'S
+' STANDARD INPUT and leaves the Process fully usable.
+'
+' The man page needs a "does not close the handle" paragraph to say so, and the
+' parameter row still reads "The handle stays open -- you still close it", which
+' is doubly wrong: a Process has no public close at all (its close_function is
+' the internal __drop op; it is released by lexical scope).
+
+IMPORT io
+IMPORT process
+
+FUNC main AS Integer
+  RES sorter = process::spawn(["sort"])
+  process::send(sorter, "banana")
+  process::send(sorter, "apple")
+
+  io::print("before close: isRunning = " & toString(process::isRunning(sorter)))
+  process::close(sorter)
+  io::print("after  close: isRunning = " & toString(process::isRunning(sorter)))
+
+  ' The handle is still fully usable after "close".
+  io::print("after  close: receive   = " & process::receive(sorter))
+  io::print("after  close: pid       = " & toString(process::pid(sorter)))
+  io::print("")
+  io::print("=> `close` closed stdin, not the handle. Compare fs::close,")
+  io::print("   tcp::close, tls::close, udp::close, audio::close -- all of which")
+  io::print("   release the resource and make the handle unusable.")
+  RETURN 0
+END FUNC

@@ -99,7 +99,7 @@ pub(crate) fn run() {
             };
 
             if let Err(()) = build_project(&build_options) {
-                process::exit(1);
+                exit_after_diagnostics(1);
             }
         }
         Some("test") => {
@@ -117,7 +117,7 @@ pub(crate) fn run() {
             };
 
             if let Err(()) = build_project(&test_options) {
-                process::exit(1);
+                exit_after_diagnostics(1);
             }
         }
         Some("pkg") => {
@@ -193,7 +193,7 @@ pub(crate) fn run() {
                     process::exit(2);
                 }
             };
-            process::exit(audit::run(&options));
+            exit_after_diagnostics(audit::run(&options));
         }
         Some("man") => {
             // Registry-driven man page: renders any package/function from its
@@ -229,7 +229,7 @@ pub(crate) fn run() {
                 println!("{DOC_HELP}");
                 return;
             }
-            process::exit(run_doc_command(&doc_args));
+            exit_after_diagnostics(run_doc_command(&doc_args));
         }
         Some("fmt") => {
             let fmt_args = args.collect::<Vec<_>>();
@@ -237,11 +237,23 @@ pub(crate) fn run() {
                 println!("{FMT_HELP}");
                 return;
             }
-            process::exit(run_fmt_command(&fmt_args));
+            exit_after_diagnostics(run_fmt_command(&fmt_args));
         }
         Some(command) => {
             eprintln!("error: unknown command '{command}'\n\n{USAGE}");
             process::exit(2);
         }
     }
+    // A command that completed normally may still have crossed the rendering
+    // cap (warnings render too); close its stream the same way.
+    crate::rules::report_suppressed_diagnostics();
+}
+
+/// Exit once a command's diagnostic stream is complete: first print how many
+/// located diagnostics were withheld past `rules::MAX_RENDERED_DIAGNOSTICS`
+/// (bug-505), so the developer knows the rendered set is a prefix, then exit
+/// with `code`.
+fn exit_after_diagnostics(code: i32) -> ! {
+    crate::rules::report_suppressed_diagnostics();
+    process::exit(code)
 }

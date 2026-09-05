@@ -1,0 +1,9 @@
+{
+  "name": "func_term_color_roundtrip_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "kind": "executable",
+  "targets": ["native"]
+}

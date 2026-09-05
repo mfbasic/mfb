@@ -2,6 +2,17 @@
 //!
 //! Per-member file (planning/migrate.md): the descriptor, the authored docs,
 //! and the member's MFBASIC source body (`Body::mfb`).
+//!
+//! bug-518: the `zone` parameter's `desc` used to claim the opposite of the
+//! `BODY` two screens below — that `withZone` "reinterprets the same wall-clock
+//! reading … so it names a different instant" — and sent the reader to
+//! `datetime::inZone`, which takes an `Instant`, not a `DateTime`, so the advice
+//! did not even typecheck as a substitution. `inZone(resolve(dt), z)` preserves
+//! the instant; the Description, the composition paragraph and both examples all
+//! said so. The prose was the defect, and the operation the wrong sentence
+//! described is `datetime::civil(dt.date, dt.time, zone)`, which the row now
+//! names. `datetime-withzone-instant-rt` pins the property so a future change to
+//! the BODY breaks a test rather than quietly making the old prose true.
 
 const INTRO: &str = r#"Re-project a `datetime::DateTime` into a different `datetime::Zone`, preserving the absolute instant."#;
 const DESC: &str = r#"`datetime::withZone` returns the civil `datetime::DateTime` that an observer in `zone`
@@ -80,7 +91,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 super::Parameter {
                     name: "zone",
-                    desc: "The new zone. This **reinterprets** the same wall-clock reading in a different zone, so it names a different instant — use `datetime::inZone` to keep the instant and change only how it is displayed.",
+                    desc: "The zone to read the same moment in. The instant is **preserved**: the civil fields and the offset are re-derived for this zone, so the wall-clock reading changes but the point on the UTC timeline does not. To do the opposite — keep `dt`'s wall-clock reading and let it name a different instant in this zone — use `datetime::civil(dt.date, dt.time, zone)`.",
                     aliases: &[],
                     ty: super::ParameterType::named("Zone"),
                     default: super::DefaultValue::None,

@@ -1,0 +1,68 @@
+' bug-514 -- `crypto::KeyPair` carries no curve tag, so a 32-byte X25519 pair is
+' indistinguishable from a 32-byte Ed25519 pair. `crypto::convert` and
+' `crypto::encrypt` check only the LENGTH, so the wrong curve's key is accepted
+' and mapped, and nothing reports it.
+'
+' Expected (a fix): handing X25519 key material to an `Ed25519*` operation is
+' rejected at compile time, or at worst raises `ErrInvalidArgument`.
+' Observed today: both calls succeed. `encrypt` produces a well-formed 62-byte
+' box that NO private key can ever open.
+
+IMPORT io
+IMPORT crypto
+
+FUNC firstBytes(b AS List OF Byte) AS String
+  MUT s AS String = ""
+  MUT i AS Integer = 0
+  FOR EACH v IN b
+    IF i < 8 THEN
+      s = s & toString(v) & " "
+    END IF
+    i = i + 1
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC decryptGuard(label AS String, sk AS List OF Byte, box AS List OF Byte) AS String
+  LET clear AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, sk, box)
+  RETURN label & ": OPENED " & toString(len(clear)) & " bytes"
+TRAP(err)
+  RETURN label & ": RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC convertGuard(label AS String, kp AS crypto::KeyPair) AS String
+  LET out AS crypto::KeyPair = crypto::convert(crypto::KeyConvert.Ed25519ToX25519, kp)
+  RETURN label & ": CONVERTED, pub starts " & firstBytes(out.publicKey)
+TRAP(err)
+  RETURN label & ": RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET ed AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
+  LET x AS crypto::KeyPair = crypto::generate(crypto::Certificate.X25519)
+  io::print("Ed25519 public key is " & toString(len(ed.publicKey)) & " bytes; X25519 public key is " & toString(len(x.publicKey)) & " bytes -- the same length.")
+  io::print("")
+
+  ' 1. convert(): the length check passes for BOTH, so the X25519 pair is run
+  '    through the Ed25519 -> Montgomery birational map and silently mangled.
+  io::print(convertGuard("convert, real Ed25519 pair", ed))
+  io::print(convertGuard("convert, an X25519 pair   ", x))
+  io::print("")
+
+  ' 2. encrypt(): the recipient key is a bare `List OF Byte`, so an X25519
+  '    public key is accepted under an Ed25519_* suite and converted again.
+  LET good AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, ed.publicKey, "attack at dawn")
+  io::print("encrypt to the Ed25519 public key: " & toString(len(good)) & "-byte box")
+  io::print("  " & decryptGuard("with the matching Ed25519 private key", ed.privateKey, good))
+  io::print("")
+
+  LET wrong AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, x.publicKey, "attack at dawn")
+  io::print("encrypt to the X25519 public key : " & toString(len(wrong)) & "-byte box -- accepted, no error")
+  io::print("  " & decryptGuard("with the X25519 private key ", x.privateKey, wrong))
+  io::print("  " & decryptGuard("with the Ed25519 private key", ed.privateKey, wrong))
+  io::print("")
+  io::print("The second box is unopenable by anyone. The sender was told nothing.")
+  RETURN 0
+END FUNC

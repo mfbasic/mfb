@@ -95,7 +95,7 @@ errors.[[src/codegen/builtins/regex/helper_parse_paren.rs:__regex_parseParen]][[
 
 | Node | Fields | Meaning |
 |------|--------|---------|
-| `__regex_Lit` | `ch`, `fold` | single literal scalar; `fold` = case-insensitive |
+| `__regex_Lit` | `ch`, `fold`, `cp` | single literal scalar; `fold` = case-insensitive |
 | `__regex_Any` | `dotall` | `.`; matches `\n` only when `dotall` |
 | `__regex_Class` | `neg`, `fold`, `items` | character class; `items: List OF __regex_ClassItem` |
 | `__regex_Anchor` | `kind`, `ml` | zero-width assertion (kind 1..6, see below) |
@@ -111,12 +111,16 @@ Class items are a separate `UNION __regex_ClassItem`: `__regex_Range` (`lo`,`hi`
 Anchor `kind` encoding: `1` = `^`, `2` = `$` (both honor `ml`); `3` = `\A`, `4` = `\z`
 (absolute); `5` = `\b`, `6` = `\B` (word boundary).[[src/codegen/builtins/regex/helper_anchor_match.rs:__regex_anchorMatch]]
 
-## CPS Backtracking Matcher
+## Explicit-Stack Backtracking Matcher
 
-The matcher is continuation-passing. `__regex_matchNode(node, pos, caps, cont, ctx)`
-attempts `node` at `pos`; on success it invokes the continuation `cont` rather than
-returning, threading the new position and capture list forward. A continuation
-(`__regex_Cont`, a `UNION` of four) encodes "what to match after this":[[src/codegen/builtins/regex/mod.rs:__regex_Cont]]
+The matcher is `__regex_run(root, start, caps, ctx)`: one loop over a *task* — either
+"match `node` at `pos`, then run `cont`" or "run `cont` at `pos`" — with an explicit
+backtrack stack of pending choice points. Before bug-510 it was continuation-passing
+recursion, one native frame per node visit, continuation step and repeat iteration; a
+group repetition cost about ten frames, so a depth guard needed to keep the process from
+overflowing its stack fired at sixty repetitions and `^(ab)*$` failed on a 200-character
+input. The recursion is gone and the guard with it. A continuation (`__regex_Cont`, a
+`UNION` of four) still encodes "what to match after this":[[src/codegen/builtins/regex/mod.rs:__regex_Cont]]
 
 | Cont | Role |
 |------|------|
@@ -125,29 +129,52 @@ returning, threading the new position and capture list forward. A continuation
 | `__regex_ContCap` | close capture `slot` (write end index `2*slot+1`), then `nxt` |
 | `__regex_ContRep` | resume a `__regex_Repeat` after one iteration |
 
-Consuming nodes (`Lit`, `Any`, `Class`) advance `pos` by one scalar and call the
-continuation; anchors assert and call the continuation at the same `pos`. A `Group`
-records the start index (`2*slot`) immediately, then matches its child under a
-`ContCap` continuation that records the end index when the child succeeds.[[src/codegen/builtins/regex/helper_match_node.rs:__regex_matchNode]]
+Consuming nodes (`Lit`, `Any`, `Class`) advance `pos` by one scalar and hand the task to
+the continuation; anchors assert and hand it on at the same `pos`. A `Group` records the
+start index (`2*slot`) immediately, then matches its child under a `ContCap` continuation
+that records the end index when the child succeeds.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 
-Backtracking is implemented by ordinary return values and sequential trial: every
-alternative/iteration choice tries its preferred branch first and, on failure (an
-`ok = FALSE` result), falls through to the next. There is no explicit backtrack stack;
-the call stack and the continuation chain carry the state.[[src/codegen/builtins/regex/helper_match_alt.rs:__regex_matchAlt]]
+Backtracking is an explicit stack. Every point where the recursive engine "tried the
+preferred branch first and fell through on failure" now pushes the *other* branch as a
+choice point and runs the preferred one; a failure pops the most recent choice point and
+resumes it. Four kinds exist: the next alternative of an `Alt`, "stop repeating and run
+the continuation" (greedy), "one more iteration" (lazy), and "give back one scalar" (a
+greedy repeat over a one-scalar child). A choice point is a `__regex_Choice` record —
+kind, the `Alt` node or `Repeat` record it resumes, the continuation, position and
+capture list to restore, three per-kind counters — whose `nxt` is the choice below it:
+a linked list built the way the continuations are, never a growable `List OF`, because
+`collections::get` of a recursive-type element aliases the list's storage and a growing
+`append` frees it (bug-538). The number of pending choice points is capped by
+`__REGEX_PENDING_LIMIT` (500 000), the matcher's memory bound.[[src/codegen/builtins/regex/mod.rs:__regex_Choice]]
 
 ### Preference Ordering (leftmost-first, greedy by default)
 
-- **Alternation**: `__regex_matchAlt` tries `opts` in source order, returning the first
-  branch whose full continuation succeeds. This is leftmost-first (PCRE-style ordered
-  choice), not leftmost-longest.[[src/codegen/builtins/regex/helper_match_alt.rs:__regex_matchAlt]]
-- **Greedy repeat**: when `greedy`, `__regex_matchRep` first tries to consume **one more**
-  iteration (recursing through `ContRep`), and only if that whole path fails does it try
-  the continuation at the current position — provided the minimum `lo` is already met.[[src/codegen/builtins/regex/helper_match_rep.rs:__regex_matchRep]]
-- **Lazy repeat**: when not greedy, the order inverts — try the continuation first
-  (if `lo` is satisfied), then try one more iteration.[[src/codegen/builtins/regex/helper_match_rep.rs:__regex_matchRep]]
+The order is exactly the recursive engine's, because the stack is LIFO and the preferred
+branch always runs first:
+
+- **Alternation**: `opts` are tried in source order; the first branch whose full
+  continuation succeeds wins. This is leftmost-first (PCRE-style ordered choice), not
+  leftmost-longest.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+- **Greedy repeat**: when `greedy`, the engine first tries to consume **one more**
+  iteration (through `ContRep`), having pushed "stop here and run the continuation" as
+  the alternative — provided the minimum `lo` is already met. A greedy repeat over a
+  one-scalar child consumes as far as it can in a loop and gives back one scalar at a
+  time, longest first.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+- **Lazy repeat**: when not greedy, the order inverts — the continuation runs first (if
+  `lo` is satisfied) with "one more iteration" pushed as the alternative.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 - **Empty-iteration guard**: `ContRep` compares the post-iteration position to the
   iteration start; if the child matched empty, it stops iterating and proceeds to `nxt`,
-  preventing infinite loops on e.g. `(a*)*`.[[src/codegen/builtins/regex/helper_match_cont.rs:__regex_matchCont]]
+  preventing infinite loops on e.g. `(a*)*`.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+
+### Cost Budgets
+
+Every node visit is one step. A search may spend at most `__REGEX_STEP_BUDGET`
+(2 000 000) steps, and — since bug-510 — a whole public call (`match`, `find`,
+`findAll`, `replace`) may spend at most that plus one hundred steps per scalar of
+subject; `__regex_makeCtx` arms the call-wide budget, so `findAll`/`replace` cannot spend
+a fresh search budget on every match. Exceeding either, or the pending-choice cap,
+raises `ErrInvalidFormat` ("pattern too complex for this
+input").[[src/codegen/builtins/regex/helper_make_ctx.rs:__regex_makeCtx]]
 
 ### Search and Captures
 

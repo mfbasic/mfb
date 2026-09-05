@@ -8,24 +8,24 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseUnicodeEscape(chars AS List OF String, index AS Integer) AS __json_StringNode
+r#"FUNC __json_parseUnicodeEscape(bytes AS List OF Byte, index AS Integer) AS __json_StringNode
   ' plan-120-A: an unpaired surrogate is 77050025 ErrInvalidSurrogate, not the
   ' generic 77050003. The document's grammar is fine -- `\uD800` is a well-formed
   ' escape -- but MFB strings are Unicode text, so a half of a surrogate pair has
   ' no scalar to decode to. Naming it separately lets a caller tell "this JSON is
   ' malformed" apart from "this JSON carries a lone surrogate".
-  LET first AS Integer = __json_parseHexQuad(chars, index)
+  LET first AS Integer = __json_parseHexQuad(bytes, index)
   IF __json_isHighSurrogate(first) THEN
-    IF index + 10 >= len(chars) THEN
+    IF index + 10 >= len(bytes) THEN
       FAIL error(77050025, "invalid JSON string: high surrogate escape is not followed by a low surrogate escape")
     END IF
-    IF collections::get(chars, index + 4) <> "\\" THEN
+    IF toInt(collections::get(bytes, index + 4)) <> 92 THEN
       FAIL error(77050025, "invalid JSON string: high surrogate escape is not followed by a low surrogate escape")
     END IF
-    IF collections::get(chars, index + 5) <> "u" THEN
+    IF toInt(collections::get(bytes, index + 5)) <> 117 THEN
       FAIL error(77050025, "invalid JSON string: high surrogate escape is not followed by a low surrogate escape")
     END IF
-    LET second AS Integer = __json_parseHexQuad(chars, index + 6)
+    LET second AS Integer = __json_parseHexQuad(bytes, index + 6)
     IF __json_isLowSurrogate(second) = FALSE THEN
       FAIL error(77050025, "invalid JSON string: high surrogate escape is not followed by a low surrogate escape")
     END IF

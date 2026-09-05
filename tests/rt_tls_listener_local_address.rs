@@ -47,7 +47,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// What the server writes to the accepted peer. Receiving it back through a real
 /// handshake is what proves the reported port is the listener's.
@@ -71,11 +71,8 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// tripping the harness's outer kill.
 const ACCEPT_MS: u64 = 90_000;
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn have_openssl() -> bool {

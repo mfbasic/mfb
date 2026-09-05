@@ -1,0 +1,56 @@
+' bug-519 -- `datetime::parse` accepts an out-of-range calendar field and
+' silently ROLLS IT OVER into a different, valid date.
+'
+' `datetime::date(2026, 13, 45)` correctly raises ErrInvalidArgument. Parsing
+' the same fields out of text succeeds and yields 2027-02-15T02:11:39Z -- a
+' date the caller never wrote, with no error and no warning.
+'
+' The man page is also wrong about its own behavior. It says an out-of-range
+' component "is CARRIED INTO the resulting DateTime rather than rejected",
+' which would leave month = 13. It does not: it is normalized away.
+'
+' FIXED: `parse` and `parseIso` now apply the constructors' bounds and raise
+' ErrInvalidFormat (77050003). Before the fix this printed
+'   datetime::parse  -> year=2027 month=2 day=15 ... 2027-02-15T02:11:39.000Z
+' Rebuild and run to see the two readers agree with `datetime::date`.
+
+IMPORT io
+IMPORT datetime
+
+FUNC dateGuard(y AS Integer, m AS Integer, d AS Integer) AS String
+  LET dd AS datetime::Date = datetime::date(y, m, d)
+  RETURN "ACCEPTED month=" & toString(dd.month) & " day=" & toString(dd.day)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC parseGuard(text AS String, pattern AS String) AS String
+  LET dt AS datetime::DateTime = datetime::parse(text, pattern)
+  RETURN "ACCEPTED " & datetime::toIso(dt)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code) & " " & err.message
+END TRAP
+END FUNC
+
+FUNC isoGuard(text AS String) AS String
+  LET dt AS datetime::DateTime = datetime::parseIso(text)
+  RETURN "ACCEPTED " & datetime::toIso(dt)
+TRAP(err)
+  RETURN "REJECTED code=" & toString(err.code) & " " & err.message
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET text AS String = "2026-13-45 25:70:99"
+  io::print("input text: " & text)
+  io::print("")
+
+  io::print("datetime::parse  -> " & parseGuard(text, "yyyy-MM-dd HH:mm:ss"))
+  io::print("datetime::parseIso -> " & isoGuard("2026-13-45T25:70:99Z"))
+  io::print("datetime::date(2026, 13, 45) -> " & dateGuard(2026, 13, 45))
+  io::print("")
+  io::print("All three refuse the same fields, so nothing downstream is handed")
+  io::print("a date the caller never wrote.")
+  RETURN 0
+END FUNC

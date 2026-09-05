@@ -446,3 +446,132 @@ Here is the enumerated census of what is still a string after the AST.
 
 So the typed machinery exists and works — it was applied to exactly one vocabulary. No changes made.
 
+---
+
+## Man-page review notes — FILED as bug-514 … bug-535 (2026-09-04)
+
+Everything below this line up to the `term::` section has been verified and
+written up. **Do not re-file from these notes** — work the bug documents, which
+carry the reproduction, the root cause and the decisions. Each has a runnable
+spike in `spikes/api-review/<bug-id>/`.
+
+| note | bug |
+| --- | --- |
+| KeyPair untagged | bug-514 |
+| no memory-hard password KDF | bug-515 |
+| NIST private-key encoding interop | bug-516 |
+| SHA-1 advisory vs HMAC | bug-517 |
+| `withZone` contradiction | bug-518 |
+| `parse` does not validate | bug-519 |
+| named zones / portable `Local` | bug-520 |
+| `toIso` nanoseconds | bug-521 |
+| RES-transfer contradiction | bug-522 |
+| RES shapes missing from type pages | bug-523 |
+| `process::close` naming | bug-524 |
+| tcp/tls close + backlog asymmetry | bug-525 |
+| `tls::poll` signature slip | bug-526 |
+| inclusive range naming, language-wide | bug-527 |
+| pad width vs display width | bug-528 |
+| byte search vs scalar index / empty needle | bug-529 |
+| `utf8Encode` return-type overload | bug-530 |
+| absence: `ErrNotFound` vs `-1` | bug-531 |
+| regex reports where, not what | bug-532 |
+| empty-pattern `replace` | bug-533 |
+| regex `split` / `count` / AttributedString | bug-534 |
+
+Three notes were **wrong or understated** and the bug documents supersede them:
+
+- `parse` does not "carry the out-of-range component into the result" as the man
+  page claims — it silently rolls it over (`2026-13-45` → `2027-02-15`). bug-519.
+- The RES-transfer contradiction resolves in favour of the **package intro**;
+  `thread::transfer`'s list is the stale one. bug-522 carries the 11-resource
+  census.
+- The `strings` empty-needle split is four-way, not two-way: `contains` TRUE,
+  `find` 0, `count` raises, `replace` no-op. bug-529.
+
+One bug was found while verifying the rest and is not a note below: bug-535, a
+`RES` bind off a thread channel failing the build with a bare internal error.
+
+**Still unfiled from this review: the `term::` coordinate-order item at the
+bottom of this file.** It was not part of the batch that was worked up.
+
+---
+
+KeyPair is untagged. A 32-byte pair might be Ed25519 or X25519; a 57-byte pair is Ed448, a 56-byte pair is X448. convert only checks length. encrypt / decrypt take signing keys and convert internally, so a raw X25519 public key of the same length would be run through the Ed→Montgomery map and silently produce garbage (or a box nobody can open). The docs admit this. The type system does not. A Certificate tag on KeyPair, or distinct record types, would make the “no curve tagging” paragraph unnecessary.
+
+Password hashing is the weak spot they already named. The only password KDF is PBKDF2. The docs tell you to prefer Argon2id/scrypt/bcrypt and then do not provide them. For a “software-first” package that already has SHAKE and a bits layer, Argon2id would be the one addition that changes real-world advice from “use this for compatibility” to “use this to store passwords.”
+
+NIST private-key encoding is bespoke. 0x04‖X‖Y‖d is neither raw d nor PKCS#8. Wire-compatible across this package’s platforms, yes; drop-in with OpenSSL PEM/DER, no. That belongs in a migration note next to the size table.
+
+SHA-1 as a hard warning (build still works) is the right severity. HMAC-SHA1 is still fine; hashing with SHA-1 is not. The advisory does not distinguish those, which will annoy people doing HMAC-SHA1 for TLS-era interop.
+
+---
+
+If this is heading toward a v2, I would (1) fix the withZone contradiction, (2) make parse validate or return a distinct unchecked type, (3) add named zones or at least a way to serialize “local at this offset on this host” portably, and (4) give toIso an overload that keeps nanoseconds.
+
+If you want a deeper pass, the highest-value follow-ups are a DST worked example for civil/addDays, or a critique of the format mini-language versus strftime / Temporal.
+
+---
+
+review all man pages - RES can be a a record, RES can be in a collection, RES can transfer threads.
+review all RES types - in the thread::transfer | thread::accept man list any that **can't** be transfered and why.
+
+The package intro says every built-in socket and listener may cross:
+
+fs::File, tcp::Socket, udp::Socket, tcp::Listener, tls::Socket and tls::Listener
+
+thread::transfer says the opposite:
+
+fs::File, tcp::Socket and udp::Socket may; listeners and tls::Socket may not
+
+Those cannot both be true. The intro is also the one that motivates “accept on one thread, hand each connection to a worker,” which is exactly the listener/TLS case. Either the intro is aspirational and transfer is current, or transfer is stale. Pick one and make See also match (transfer currently links tls::Socket after forbidding it).
+
+---
+
+process::close is named wrong. It closes the child’s stdin. The docs have to say “does not close the handle” in three places, and the parameter tables still say “you still close it.” In a language where drop is close, this will be the first support question. closeInput / endInput would have been cheaper than the entire “despite the name” paragraph.
+
+---
+
+The documented inconsistencies are more interesting than the APIs. tcp::close errors on double-close; tls::close does not. tcp::listen backlog defaults to 128; tls::listen defaults to 0 (host default). Those are called out as not going to be papered over because each side already has callers. That is rare. Most libraries would “fix” one and break the other quietly.
+
+List-form tls::poll is documented as List OF tls::Socket in one place and List OF RES tls::Socket in another. The RES rule is the real one; the signature table looks like a slip.
+
+---
+
+Inclusive [start, endIndex] ranges plus end being reserved is a BASIC-language scar... Maybe we should do something lanuage wide for all builtins? start/stop, startIdx/endIdx, startIndex/endIndex...
+
+---
+
+displayWidth vs pad width. Padding is in scalars, display is in columns. padLeft("x", 3, "😀") is "😀😀x" — three scalars, five columns. Anyone building a table will hit this. Either that is intentional (pad is a string operation, alignment is the caller’s problem) or there is a missing padToDisplayWidth.
+Byte search vs scalar index. contains/count/replace scan bytes; find returns a scalar index. Fine because UTF-8 is self-synchronizing, but count advancing “one byte on mismatch” is an implementation detail leaking into the man page. For well-formed UTF-8 it cannot land mid-scalar, so it is safe — just a bit of C showing through the BASIC.
+utf8Encode as a return-type overload. Needing contextual type to pick List OF Byte vs List OF Integer is the sharpest language-level edge in the whole set. strings::toBytes exists as the unambiguous byte path; I would default to that in new code.
+
+---
+
+Absence is the one place it breaks the strings package’s religion. strings::find raises ErrNotFound. regex::find returns -1. The man page even points at the difference. Both are defensible:
+
+literal search: absence is exceptional if you already contains-guarded
+regex search: absence is the common case, and -1 is unambiguous because every real index is >= 0
+
+---
+
+The API reports where, almost never what. find/findAll return start indices only. No end index, no match text, no capture list, no Match record. Extraction is replace with $N, or you take the start and re-slice yourself — except you cannot slice without the end. That is the hole. With only starts, findAll("a1b2c3", "\\d+") tells you where digits begin, not how long they are. For a fixed pattern you can reconstruct; for a general one you cannot without matching again or using replace as a poor man’s extractor ("$0" into a side channel you do not have).
+
+---
+
+Empty-pattern replace is the opposite of strings::replace. Documented clearly:
+
+strings::replace("hi", "", "x") → "hi" (empty needle never matches)
+regex::replace("abc", "", "-") → "-a-b-c-" (zero-width match at every position, plus the end)
+
+---
+
+Match span (start and end), or the matched substring. Without this, find is half a locator.
+Capture access that is not replace. Named groups in the replacement template imply the engine already has them.
+split. strings::split is literal-only; regex split is how you tokenize. You can fake it with findAll if you have ends.
+AttributedString overloads. Every strings::* query has one. Regex does not. Visible-text search would be the obvious analog; rewrite-with-span-remap is harder and maybe correctly omitted.
+count. Trivial given findAll, but strings::count exists and people will look for it.
+
+---
+
+

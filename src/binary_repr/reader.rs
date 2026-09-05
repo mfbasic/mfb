@@ -887,6 +887,8 @@ pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_STRING => Some("String"),
         TYPE_BYTE => Some("Byte"),
         TYPE_ERROR => Some("Error"),
+        // Retired by plan-122-F; kept so a package published before that change
+        // decodes to a name instead of an opaque failure. Nothing encodes it.
         TYPE_TERM_COLOR => Some("TermColor"),
         TYPE_TERM_SIZE => Some("TermSize"),
         TYPE_FILE_HANDLE => Some("fs.File"),

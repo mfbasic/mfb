@@ -8,12 +8,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? Such
-' a child consumes exactly one scalar, sets no captures and needs no continuation,
-' so a greedy repeat over it can be consumed with a LOOP instead of one native
-' stack frame per iteration. That recursion is what made `^a*$` SIGSEGV somewhere
-' between 800 and 1000 scalars.
-' bug-315: a global backtracking budget. The matcher is a pure backtracker with
+r#"' bug-315: a global backtracking budget. The matcher is a pure backtracker with
 ' no memoization, so a nested/ambiguous quantifier such as `^(a+)+$` explores
 ' exponentially many input partitions -- `aaaa...X` at 24 scalars already ran for
 ' minutes. The engine accepts untrusted patterns AND untrusted text, so that is a
@@ -22,7 +17,14 @@ r#"' bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? S
 ' A budget cannot be threaded through the immutable continuation state: a failed
 ' branch's work would be forgotten on backtrack, which is precisely the work that
 ' needs counting. It has to be module-level and monotonic, reset once per search.
-MUT __regex_steps AS Integer = 0"#;
+MUT __regex_steps AS Integer = 0
+' bug-510 (DEC-02): the same count for the whole public call. `__regex_steps` is
+' reset per search, and `findAll`/`replace` run one search per match, so a pattern
+' that stayed just under the per-search budget on every match cost matches x budget
+' -- 368 bytes of subject bought 17 s. `__regex_makeCtx` arms the call-wide budget
+' from the subject length; `__regex_run` charges every node visit to both.
+MUT __regex_callSteps AS Integer = 0
+MUT __regex_callBudget AS Integer = 0"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_steps", BODY));

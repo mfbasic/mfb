@@ -1,0 +1,39 @@
+$ mfb build -ast -ir tests/rt-behavior/color/color_hex_rt
+Wrote AST to tests/rt-behavior/color/color_hex_rt/color_hex_rt.ast
+Wrote IR to tests/rt-behavior/color/color_hex_rt/color_hex_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/color/color_hex_rt
+Wrote executable to tests/rt-behavior/color/color_hex_rt/build/color_hex_rt.out
+[exit 0]
+$ tests/rt-behavior/color/color_hex_rt/build/color_hex_rt.out
+h3=255,0,170,255
+h4=255,0,170,136
+h6=51,102,204,255
+h8=51,102,204,128
+b3=255,0,170,255
+b4=255,0,170,136
+b6=51,102,204,255
+b8=51,102,204,128
+shortOpaque=0,0,0,255
+longOpaque=0,0,0,255
+badLen5=invalidFormat TRUE
+badLen2=invalidFormat TRUE
+badLen7=invalidFormat TRUE
+badLen9=invalidFormat TRUE
+empty=invalidFormat TRUE
+justHash=invalidFormat TRUE
+doubleHash=invalidFormat TRUE
+nonHex3=invalidFormat TRUE
+nonHex6=invalidFormat TRUE
+space=invalidFormat TRUE
+toHex=#3366cc
+toHexAlpha=#3366cc80
+pad=#01020304
+black=#00000000
+white=#ffffffff
+case=#abcdef
+rtBlack=#00000000 expected #00000000
+rtWhite=#ffffffff expected #ffffffff
+rtMixed=#3366cc40 expected #3366cc40
+rtLowChannels=#01020304 expected #01020304
+[exit 0]

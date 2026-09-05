@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/recursive-get-then-grow-rt
+Wrote AST to tests/rt-behavior/collections/recursive-get-then-grow-rt/recursive_get_then_grow_rt.ast
+Wrote IR to tests/rt-behavior/collections/recursive-get-then-grow-rt/recursive_get_then_grow_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/recursive-get-then-grow-rt
+Wrote executable to tests/rt-behavior/collections/recursive-get-then-grow-rt/build/recursive_get_then_grow_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/recursive-get-then-grow-rt/build/recursive_get_then_grow_rt.out
+before growth: Node2(Leaf(1),Leaf(2))
+after 50 appends: list has 51
+fetched-before-growth value now reads: Node2(Leaf(1),Leaf(2))
+refetched element 0: Node2(Leaf(1),Leaf(2))
+element 10 lo: 9
+last: Leaf(149)
+sum of lo: 1228
+still: Node2(Leaf(1),Leaf(2))
+[exit 0]

@@ -13,7 +13,7 @@ mfb man types [topic]
 `types` is a documentation topic, not an importable package. The primitive,
 record, error, container, and concurrency types described here are compiler-owned
 and always understood by the language, so no `IMPORT` is needed. A few package
-types (such as `TermColor`) become available when their package is imported.
+types (such as `TermSize`) become available when their package is imported.
 
 ## Description
 
@@ -106,9 +106,13 @@ user code. See `mfb man errors`.
 
 ## Package types
 
-- **`TermColor`** — the `term` record returned by `term::getForeground` and
-  `term::getBackground`, with `r`, `g`, and `b` (`Byte`) fields for the current
-  24-bit color components. [[src/codegen/builtins/term/mod.rs:TERM_COLOR_TYPE]]
+- **`color::Color`** — the colour type every package speaks, returned by
+  `term::getForeground`/`term::getBackground` and taken by
+  `term::setForeground`/`term::setBackground`. Unlike the other entries here it is
+  an **ordinary value record**, not a compiler-owned read-only one: a program may
+  build one and `WITH`-update it. A terminal has no alpha channel, so the getters
+  always report `alpha` `255` and the setters ignore it.
+  [[src/codegen/builtins/color/mod.rs:COLOR_TYPE_ID]]
 - **`TermSize`** — the `term` record returned by `term::terminalSize`, with
   `columns` and `rows` (`Integer`) fields for terminal width and height in
   character cells. [[src/codegen/builtins/term/mod.rs:TERM_SIZE_TYPE]]

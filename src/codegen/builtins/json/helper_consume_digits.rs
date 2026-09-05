@@ -10,10 +10,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' bug-302: iterative (see __json_skipWhitespace) — a long digit run recursed once
 ' per digit and overflowed the native stack.
-FUNC __json_consumeDigits(chars AS List OF String, index AS Integer) AS Integer
+' bug-510: over the token's bytes (48..57 are the ASCII digits), bounded by the
+' token's end rather than the document's.
+FUNC __json_consumeDigits(bytes AS List OF Byte, index AS Integer, endIndex AS Integer) AS Integer
   MUT at AS Integer = index
-  WHILE at < len(chars)
-    IF NOT __json_isDigit(collections::get(chars, at)) THEN
+  WHILE at < endIndex
+    LET code AS Integer = toInt(collections::get(bytes, at))
+    IF code < 48 OR code > 57 THEN
       RETURN at
     END IF
     at = at + 1

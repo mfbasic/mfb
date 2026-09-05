@@ -71,10 +71,19 @@ See `./mfb spec architecture frontend` for the injection ordering and
 
 ## Parse acceptance grammar
 
-`__json_parse` graphemizes the input, skips leading whitespace, parses one value,
-skips trailing whitespace, and requires the cursor to be exactly at end-of-input;
-any trailing non-whitespace fails. Most failures raise error `77050003`
-("invalid JSON format"). [[src/codegen/builtins/json/func_parse.rs:__json_parse]]
+`__json_parse` takes the input's UTF-8 bytes (`strings::toBytes`), skips leading
+whitespace, parses one value, skips trailing whitespace, and requires the byte
+cursor to be exactly at end-of-input; any trailing non-whitespace fails. Most
+failures raise error `77050003` ("invalid JSON format").
+[[src/codegen/builtins/json/func_parse.rs:__json_parse]]
+
+The scanners index bytes, not grapheme clusters. Every structural character and
+every whitespace character JSON defines is ASCII, so a byte compare is exact and
+the scan never splits a multi-byte scalar: a byte `>= 128` occurs only inside a
+string, where it is copied through verbatim into the accumulated `List OF Byte`
+that becomes the `String` at the closing quote, or inside a number token, where
+the grammar check rejects it. This is also what makes a CR LF pair two whitespace
+bytes rather than one grapheme cluster that matches neither `\r` nor `\n`.
 
 The accepted grammar (RFC-8259-aligned, with the noted deviations):
 
@@ -100,9 +109,12 @@ everything else to the number lexer. [[src/codegen/builtins/json/func_parse.rs:_
 
 Notable parse rules and deviations:
 
-- **Numbers**: a number token is collected greedily up to the next `,`, `]`, `}`,
-  or whitespace, then validated by `__json_validNumber` against the grammar above
-  *before* `toFloat` conversion. The exponent marker accepts both `e` and `E`; a
+- **Numbers**: a number token extends greedily up to the next `,`, `]`, `}`,
+  or whitespace (`__json_numberEnd`), is validated in place over its bytes by
+  `__json_validNumber` against the grammar above, and only then is sliced and
+  decoded to a `String` for `toFloat` conversion — so an invalid token is never
+  materialised and a valid one costs one slice (bug-510). The exponent marker
+  accepts both `e` and `E`; a
   leading `0` may not be followed by more integer digits; a fraction requires at
   least one digit after `.`; an exponent requires at least one digit.
   [[src/codegen/builtins/json/helper_valid_number.rs:__json_validNumber]]
@@ -292,4 +304,4 @@ two-argument form.
 * ./mfb spec architecture monomorphization — instantiation of `List OF Json` / `Map OF String TO Json`
 * ./mfb spec memory arenas — `List` and `Map` backing storage
 * ./mfb spec language types — the union and record model
-* ./mfb spec unicode strings-model — grapheme iteration used by parse and escape
+* ./mfb spec unicode strings-model — the byte/scalar/grapheme layers; parse scans UTF-8 bytes, escape iterates graphemes

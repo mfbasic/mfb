@@ -26,7 +26,8 @@ change visibility. Calling `term::showCursor` when the cursor is already visible
 is harmless — it is a flag, not a toggle.
 
 The flag persists until `term::hideCursor` or the next `term::on`, which resets
-the cursor to visible. The call is gated: while TUI mode is off it does nothing
+the cursor to visible. The call is gated: while TUI mode is off it does nothing (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)
 and reports no error."#;
 
 const EX: &str = r#"Hide the cursor while a frame is drawn, then show it again for input:

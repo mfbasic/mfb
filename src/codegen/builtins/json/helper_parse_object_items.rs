@@ -8,7 +8,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields AS Map OF String TO Json, depth AS Integer) AS __json_Node
+r#"FUNC __json_parseObjectItems(bytes AS List OF Byte, index AS Integer, fields AS Map OF String TO Json, depth AS Integer) AS __json_Node
   ' Iterative accumulation, mirroring the array parser. `acc = set(acc, key, val)`
   ' uses the in-place MUT map set once Phase 3 lands; today it is the rebuild path
   ' (no regression). Eliminating the recursion also avoids deep call stacks on
@@ -18,35 +18,35 @@ r#"FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, field
   MUT finished AS Boolean = FALSE
   MUT endIndex AS Integer = index
   WHILE finished = FALSE
-    LET nextIndex AS Integer = __json_skipWhitespace(chars, idx)
-    IF nextIndex >= len(chars) THEN
+    LET nextIndex AS Integer = __json_skipWhitespace(bytes, idx)
+    IF nextIndex >= len(bytes) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET quote AS String = collections::get(chars, nextIndex)
-    IF quote <> "\"" THEN
+    LET quote AS Integer = toInt(collections::get(bytes, nextIndex))
+    IF quote <> 34 THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET keyState AS __json_StringNode = __json_parseString(chars, nextIndex + 1, "")
-    LET colonIndex AS Integer = __json_skipWhitespace(chars, keyState.index)
-    IF colonIndex >= len(chars) THEN
+    LET keyState AS __json_StringNode = __json_parseString(bytes, nextIndex + 1)
+    LET colonIndex AS Integer = __json_skipWhitespace(bytes, keyState.index)
+    IF colonIndex >= len(bytes) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET colon AS String = collections::get(chars, colonIndex)
-    IF colon <> ":" THEN
+    LET colon AS Integer = toInt(collections::get(bytes, colonIndex))
+    IF colon <> 58 THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET valueState AS __json_Node = __json_parseValue(chars, colonIndex + 1, depth)
+    LET valueState AS __json_Node = __json_parseValue(bytes, colonIndex + 1, depth)
     LET key AS String = keyState.value
     LET val AS Json = valueState.value
     acc = collections::set(acc, key, val)
-    LET afterValue AS Integer = __json_skipWhitespace(chars, valueState.index)
-    IF afterValue >= len(chars) THEN
+    LET afterValue AS Integer = __json_skipWhitespace(bytes, valueState.index)
+    IF afterValue >= len(bytes) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET ch AS String = collections::get(chars, afterValue)
-    IF ch = "," THEN
+    LET code AS Integer = toInt(collections::get(bytes, afterValue))
+    IF code = 44 THEN
       idx = afterValue + 1
-    ELSEIF ch = "}" THEN
+    ELSEIF code = 125 THEN
       finished = TRUE
       endIndex = afterValue + 1
     ELSE

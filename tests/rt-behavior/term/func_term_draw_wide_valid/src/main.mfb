@@ -9,14 +9,14 @@ IMPORT io
 FUNC main AS Integer
   term::on()
   term::drawText(0, 0, "日本語|")
-  term::drawText(0, 2, "cafe" & "́" & "|")
-  term::drawText(0, 4, "👨‍👩‍👧‍👦|")
-  term::drawGlyph(10, 6, 0x65E5)
+  term::drawText(2, 0, "cafe" & "́" & "|")
+  term::drawText(4, 0, "👨‍👩‍👧‍👦|")
+  term::drawGlyph(6, 10, 0x65E5)
 
   ' Paired-clear: draw two wide glyphs, then overwrite the trailing half of the
   ' first — its orphaned primary half must be blanked, leaving one clean marker.
-  term::drawText(0, 8, "日本")
-  term::drawText(1, 8, "X")
+  term::drawText(8, 0, "日本")
+  term::drawText(8, 1, "X")
 
   term::sync()
   term::off()

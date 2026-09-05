@@ -11,15 +11,15 @@ const BODY: &str =
 r#"' bug-302: iterative (see __json_skipWhitespace). Bounded by the literal's length
 ' (`true`/`false`/`null`), so this one could not overflow either; converted for the
 ' same consistency reason.
-FUNC __json_expectLiteralAt(chars AS List OF String, index AS Integer, literal AS List OF String, offset AS Integer) AS Integer
+FUNC __json_expectLiteralAt(bytes AS List OF Byte, index AS Integer, literal AS List OF Byte, offset AS Integer) AS Integer
   MUT at AS Integer = index
   MUT off AS Integer = offset
   WHILE off < len(literal)
-    IF at >= len(chars) THEN
+    IF at >= len(bytes) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    LET actual AS String = collections::get(chars, at)
-    LET expected AS String = collections::get(literal, off)
+    LET actual AS Integer = toInt(collections::get(bytes, at))
+    LET expected AS Integer = toInt(collections::get(literal, off))
     IF actual <> expected THEN
       FAIL error(77050003, "invalid JSON format")
     END IF

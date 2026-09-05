@@ -19,7 +19,7 @@ r#"FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __r
     IF pos = 0 THEN
       RETURN TRUE
     END IF
-    IF anchor.ml AND collections::get(ctx.text, pos - 1) = "\n" THEN
+    IF anchor.ml AND collections::get(ctx.cps, pos - 1) = 10 THEN
       RETURN TRUE
     END IF
     RETURN FALSE
@@ -28,7 +28,7 @@ r#"FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __r
     IF pos = ctx.n THEN
       RETURN TRUE
     END IF
-    IF anchor.ml AND collections::get(ctx.text, pos) = "\n" THEN
+    IF anchor.ml AND collections::get(ctx.cps, pos) = 10 THEN
       RETURN TRUE
     END IF
     RETURN FALSE

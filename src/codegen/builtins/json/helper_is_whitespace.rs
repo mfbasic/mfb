@@ -8,17 +8,19 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __json_isWhitespace(ch AS String) AS Boolean
-  IF ch = " " THEN
+r#"' JSON whitespace is exactly space, tab, line feed and carriage return -- four
+' ASCII bytes, so `code` is the byte under the scanner (bug-510).
+FUNC __json_isWhitespace(code AS Integer) AS Boolean
+  IF code = 32 THEN
     RETURN TRUE
   END IF
-  IF ch = "\t" THEN
+  IF code = 9 THEN
     RETURN TRUE
   END IF
-  IF ch = "\n" THEN
+  IF code = 10 THEN
     RETURN TRUE
   END IF
-  IF ch = "\r" THEN
+  IF code = 13 THEN
     RETURN TRUE
   END IF
   RETURN FALSE

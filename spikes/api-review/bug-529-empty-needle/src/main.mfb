@@ -1,0 +1,42 @@
+' bug-529 -- the empty needle gets three different answers from three members
+' of the same package that all do the same byte scan:
+'
+'   strings::contains(value, "")  -> TRUE
+'   strings::find(value, "")      -> 0
+'   strings::count(value, "")     -> raises ErrInvalidArgument
+'
+' `mfb man strings count` names the split ("note that this differs from
+' strings::contains and strings::find, which both accept an empty needle") but
+' the split itself is unexplained: if the empty needle occurs at position 0 for
+' `find`, it has an occurrence count, and `contains` already commits to one.
+'
+' The same page also leaks the scan's implementation into the contract -- "on a
+' mismatch the cursor advances by a single byte" -- which is a statement about
+' bytes in a member whose siblings report scalar indices.
+
+IMPORT io
+IMPORT strings
+
+FUNC countGuard(hay AS String, needle AS String) AS String
+  RETURN "count=" & toString(strings::count(hay, needle))
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC findGuard(hay AS String, needle AS String) AS String
+  RETURN "index=" & toString(strings::find(hay, needle))
+TRAP(err)
+  RETURN "RAISED code=" & toString(err.code)
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("strings::contains(\"hi\", \"\") = " & toString(strings::contains("hi", "")))
+  io::print("strings::find(\"hi\", \"\")     -> " & findGuard("hi", ""))
+  io::print("strings::count(\"hi\", \"\")    -> " & countGuard("hi", ""))
+  io::print("strings::replace(\"hi\", \"\", \"x\") = \"" & strings::replace("hi", "", "x") & "\"")
+  io::print("")
+  io::print("=> four members, four different readings of the same empty needle.")
+  RETURN 0
+END FUNC

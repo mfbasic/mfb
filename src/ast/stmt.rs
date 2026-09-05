@@ -429,7 +429,11 @@ impl<'a> FileParser<'a> {
             return Some(subject);
         }
 
+        // The handler's statements parse expressions of their own, so take the
+        // subject's tree depth now (bug-501).
+        let subject_depth = self.expr_tree_depth;
         let token = self.advance().clone();
+        let trap_at = self.current - 1;
         // Parse the optional `(ident)`; a bare `TRAP` synthesizes the reserved
         // name so the caught error stays internally bound (PROPAGATE works) with
         // no name exposed to the user.
@@ -469,6 +473,9 @@ impl<'a> FileParser<'a> {
         }
         self.leave_stmt();
         if !self.consume_end_block(Keyword::Trap, "TRAP block must end with END TRAP.") {
+            return None;
+        }
+        if !self.note_expr_tree_depth(subject_depth + 1, trap_at) {
             return None;
         }
         Some(Expression::Trapped {

@@ -1,0 +1,30 @@
+' bug-535 -- a legal program fails to build with a bare internal error.
+'
+'   error: NIR declares unused runtime helper 'tcp'
+'
+' No error code, no source location, no diagnostic frame -- just a sentence
+' about the compiler's own intermediate representation. The program below is
+' valid MFBASIC: it accepts a tcp::Socket off a thread's resource channel and
+' lets the RES binding drop. The drop's close op is emitted by codegen, not by
+' an NIR call, so the target validator's `used_helpers` set never counts it --
+' while the module still DECLARES the `tcp` helper. Declared minus used is
+' non-empty, and the "unused" arm fires.
+'
+' Swap `tcp` for `tls`, `udp` or `fs` and the same thing happens. Adding any
+' other call into the package (e.g. `tcp::listen`) makes it build again, which
+' is what hides it: almost every real program has one.
+
+IMPORT io
+IMPORT thread
+IMPORT tcp
+
+ISOLATED FUNC worker(t AS ThreadWorker OF RES tcp::Socket TO Integer, n AS Integer) AS Integer
+  RES s AS tcp::Socket = thread::accept(t, 1000)
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Thread OF RES tcp::Socket TO Integer = thread::start(worker, 0)
+  io::print("started")
+  RETURN 0
+END FUNC

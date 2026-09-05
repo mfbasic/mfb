@@ -22,7 +22,7 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const SOURCE: &str = r#"IMPORT http
 IMPORT tcp
@@ -69,13 +69,10 @@ fn handle_request_writes_the_response_it_built() {
     let port_file = std::env::temp_dir().join(format!(
         "mfb_b476_port_{}_{}",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock before epoch")
-            .as_nanos()
+        common::unique_nonce()
     ));
     let _ = std::fs::remove_file(&port_file);
-    let source = SOURCE.replace("@PORTFILE@", &port_file.to_string_lossy());
+    let source = SOURCE.replace("@PORTFILE@", &common::mfb_path_literal(&port_file));
     let project = common::temp_project("b476_handle_request", &source);
     let exe = common::build_project(&project);
 

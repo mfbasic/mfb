@@ -29,7 +29,10 @@ saved.
 **What this build reads.** TrueType outlines: an sfnt whose version is `0x00010000`
 or the tag `true`. It refuses CFF/OpenType-PostScript outlines, font collections
 (`ttcf`) and WOFF with `ErrBadFontFile` — a different mistake from `ErrNotFound`,
-which is a path that does not exist, and it needs a different fix.
+which is a path that does not exist, and it needs a different fix. A TrueType file
+whose `head` table puts `unitsPerEm` outside the 16..16384 the format allows is
+refused the same way. When text is drawn, a glyph whose bitmap at the requested size
+would exceed 8192 pixels a side or 16,777,216 pixels draws nothing.
 
 There is no font *discovery*: `path` names a file. A program that wants a system
 font names its path, which keeps the rendering reproducible — the same file produces
@@ -63,6 +66,18 @@ r#"FUNC __canvas_loadFont(path AS String) AS canvas::Font
     ' the injected builtin source does not IMPORT errorCode -- every other builtin
     ' body spells its codes the same way (crypto's helper_aes256_gcm_seal, and so on).
     FAIL error(77050022, "not a TrueType font: " & path)
+  END IF
+  ' `head.unitsPerEm` divides into every scale the renderer computes, and the format
+  ' allows 16..16384 for it; FreeType refuses a file outside that range, and so does
+  ' this (bug-509, DEC-53). At 1, a 300-unit glyph at size 100 is 30,000 px a side --
+  ' one letter cost 62 s and 7.6 GB. A file with no `head` is left alone: it has no
+  ' scale to poison, and its text measures and draws as nothing, as it always has.
+  LET head AS Integer = __canvas_fontTable(bytes, "head")
+  IF head >= 0 THEN
+    LET upem AS Integer = __canvas_beU16(bytes, head + 18)
+    IF upem < 16 OR upem > 16384 THEN
+      FAIL error(77050022, "font unitsPerEm is outside 16..16384: " & path)
+    END IF
   END IF
   RETURN canvas::fontFromBytes(bytes)
 END FUNC"#;

@@ -1,0 +1,40 @@
+' bug-523 -- three things a RES handle can do that no resource type page says
+' it can do.
+'
+' Every one of the 11 built-in resource pages (`mfb man <pkg> types`) is one
+' sentence: what the handle is, and that it closes at scope exit. None of them
+' mentions that a RES value may be a field of a record, an element of a
+' collection, or handed to another thread -- so a reader looking at
+' `mfb man fs types` has no way to learn any of it.
+'
+' This program does the first two. The third is bug-522's spike.
+
+IMPORT io
+IMPORT fs
+
+TYPE Holder
+  name AS String
+  handle AS RES fs::File
+END TYPE
+
+FUNC main AS Integer
+  ' 1. A RES handle as a record field. Note the construction form is the
+  '    bracket-positional `Holder[...]`; the named-argument form does not
+  '    typecheck for a record with a resource field.
+  RES f = fs::open("/tmp/bug-523-a.txt", "write")
+  LET h = Holder["log", f]
+  fs::writeAll(h.handle, "written through a record field")
+  io::print("1. RES as a record field: works, and nothing in `mfb man fs types` says so")
+
+  ' 2. RES handles as collection elements. The element type must be marked
+  '    `RES`; a bare `List OF fs::File` is TYPE_RESOURCE_REQUIRES_RES.
+  RES a = fs::open("/tmp/bug-523-b.txt", "write")
+  RES b = fs::open("/tmp/bug-523-c.txt", "write")
+  LET files AS List OF RES fs::File = [a, b]
+  io::print("2. RES in a collection: " & toString(len(files)) & " handles in one List")
+
+  ' 3. Crossing a thread: see spikes/api-review/bug-522-transfer-list-stale/,
+  '    where the two pages that do discuss it disagree with each other.
+  io::print("3. RES across a thread: see the bug-522 spike -- documented twice, incompatibly")
+  RETURN 0
+END FUNC

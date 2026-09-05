@@ -3,10 +3,11 @@
 ' grid, and an off-grid row draws nothing. Present renders it on term::sync. Runs
 ' under the non-tty harness (24x80 fallback), so the escape stream is deterministic.
 IMPORT term
+IMPORT color
 
 FUNC main AS Integer
   term::on()
-  term::setForeground(0, 255, 0)
+  term::setForeground(color::rgb(0, 255, 0))
   term::drawHLine(term::LineStyle.Heavy, 1, 2, 10)      ' heavy, cols 2..10
   term::drawHLine(term::LineStyle.Double, 3, 10, 2)     ' reversed endpoints -> cols 2..10
   term::drawHLine(term::LineStyle.LightDash, 5, -3, 4)  ' clamp low -> cols 0..4

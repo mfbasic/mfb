@@ -1,0 +1,76 @@
+{
+  "project": "color_packed_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "color", "line": 9 },
+    { "module": "io", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 12,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 12 },
+      { "name": "c", "type": "color.Color", "default": null, "line": 12 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "red" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "green" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "blue" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "alpha" }] } }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundTrip",
+      "line": 16,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 16 },
+      { "name": "c", "type": "color.Color", "default": null, "line": 16 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ".in" } }, { "kind": "identifier", "value": "c" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ".out" } }, { "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "order=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "18" }, { "kind": "number", "value": "52" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "120" }] }] }] } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "orderExpected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2014458966" }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "redOnly=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "greenOnly=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blueOnly=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "alphaOnly=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }] }] }] } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zero=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "full=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "color.toPacked", "arguments": [{ "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }] }] }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "allZero" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "allFull" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "mixed" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "18" }, { "kind": "number", "value": "52" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "120" }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "red" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "green" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "blue" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "alpha" }, { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "fromNegOne" }, { "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "fromHighBits" }, { "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "number", "value": "9223372032559808512" }] }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "rgb24" }, { "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "number", "value": "3368652" }] }] }, "line": 58 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 60 }
+      ]
+    }
+    ]
+  }
+  ]
+}

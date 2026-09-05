@@ -121,12 +121,13 @@ pub(crate) fn lower_net_bind_udp_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
-        // socket(ai_family, ai_socktype, ai_protocol)
+        // socket(ai_family, ai_socktype | SOCK_CLOEXEC, ai_protocol) (bug-499)
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::load_u32(abi::return_register(), &v9, 4),
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
+    emit_socket_type_cloexec(platform, &mut instructions);
     platform.emit_external_call(
         net_symbol(platform, NetSymbol::Socket),
         symbol,
@@ -141,6 +142,16 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+    ]);
+    emit_fd_cloexec_fallback(
+        platform,
+        symbol,
+        FD_OFFSET,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         // Overwrite sin_port at ai_addr + 2/3 with the requested port.
         abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
         abi::load_u64(&v9, &v9, platform.addrinfo_addr_offset()),

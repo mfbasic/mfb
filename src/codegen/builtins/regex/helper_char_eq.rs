@@ -8,11 +8,16 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
-  IF fold THEN
-    RETURN strings::caseFold(a) = strings::caseFold(b)
+r#"' bug-510: compares a literal to the scalar at the cursor. Without folding the two
+' code points are compared directly. With folding both sides are case-folded as
+' Strings, exactly as before -- `strings::caseFold` can expand a scalar (U+00DF to
+' "ss"), so a code-point compare would not be the same relation; `__regex_chr(cp)`
+' is precisely the one-character String the old `ctx.text` list held.
+FUNC __regex_charEq(lit AS __regex_Lit, cp AS Integer) AS Boolean
+  IF lit.fold THEN
+    RETURN strings::caseFold(lit.ch) = strings::caseFold(__regex_chr(cp))
   END IF
-  RETURN a = b
+  RETURN lit.cp = cp
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

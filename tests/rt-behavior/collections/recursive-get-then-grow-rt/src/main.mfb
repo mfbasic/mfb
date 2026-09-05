@@ -1,0 +1,74 @@
+IMPORT io
+IMPORT collections
+
+' bug-538: `collections::get` of an element whose type participates in a type
+' cycle used to hand back an ALIAS into the list's own data region rather than an
+' independent value. `.ai/collections.md` records the sibling case: plan-121's
+' gate G24 declines an in-place `removeAt` for exactly this class because the
+' compaction moves the bytes a fetched value points into. `append` was never
+' declined -- and its GROW path is a relocation too: it reallocates the data
+' region and frees the old block (`emit_free_pre_grow_buffer`). A value fetched
+' before the growth then pointed into freed memory, and the next read of its
+' recursive field was a use-after-free (exit 139).
+'
+' The contract this pins is the one every non-recursive element type already
+' honours (plan-02 Phase 8, `materialize_owned_element`): a value returned by
+' `collections::get` is an OWNED, independent value that stays valid whatever is
+' done to the container afterwards.
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Node2
+  left AS Tree
+  right AS Tree
+END TYPE
+
+UNION Tree
+  Leaf
+  Node2
+END UNION
+
+TYPE Rep
+  child AS Tree
+  lo AS Integer
+END TYPE
+
+FUNC describe(t AS Tree) AS String
+  MATCH t
+    CASE Leaf(l)
+      RETURN "Leaf(" & toString(l.v) & ")"
+    CASE Node2(n)
+      RETURN "Node2(" & describe(n.left) & "," & describe(n.right) & ")"
+  END MATCH
+END FUNC
+
+SUB main()
+  MUT reps AS List OF Rep = []
+  reps = collections::append(reps, Rep[child := Node2[left := Leaf[v := 1], right := Leaf[v := 2]], lo := 3])
+  LET back AS Rep = collections::get(reps, 0)
+  io::print("before growth: " & describe(back.child))
+  MUT i AS Integer = 0
+  WHILE i < 50
+    reps = collections::append(reps, Rep[child := Leaf[v := 100 + i], lo := i])
+    i = i + 1
+  END WHILE
+  io::print("after 50 appends: list has " & toString(len(reps)))
+  io::print("fetched-before-growth value now reads: " & describe(back.child))
+
+  ' POSITIVE pin -- ordinary recursive-type use must keep working, unchanged:
+  ' construction, read-back, in-place append, re-fetch after the growth, and
+  ' iteration all still see the right values, and the list itself is intact.
+  io::print("refetched element 0: " & describe(collections::get(reps, 0).child))
+  io::print("element 10 lo: " & toString(collections::get(reps, 10).lo))
+  io::print("last: " & describe(collections::get(reps, 50).child))
+  MUT total AS Integer = 0
+  FOR EACH r IN reps
+    total = total + r.lo
+  NEXT
+  io::print("sum of lo: " & toString(total))
+  ' The fetched value is INDEPENDENT: mutating a copy of it must not disturb the
+  ' container, and the container must not disturb it.
+  io::print("still: " & describe(back.child))
+END SUB

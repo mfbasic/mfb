@@ -1,0 +1,78 @@
+' bug-521: `mfb man datetime toIso` claimed "the output is round-trippable:
+' datetime::parseIso parses a string produced by toIso back into an EQUIVALENT
+' DateTime" three sentences after admitting "the nanos of dt are truncated to
+' milliseconds". Both cannot hold: a DateTime carries nanoseconds, so the round
+' trip lost up to 999999 ns silently, and there was no toIso form that did not.
+'
+' `toIso(dt, digits)` with digits in {0, 3, 6, 9} closes the gap; 9 is lossless.
+'
+' The POSITIVE half is the whole risk of this change: the ONE-argument form's
+' output must not move, because every acceptance golden carrying a timestamp
+' reads it. Each `default=` line below is pinned against the pre-fix value.
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+FUNC roundTrip(label AS String, nanos AS Integer) AS Integer
+  LET t AS datetime::Time = datetime::time(1, 2, 3, nanos)
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
+  LET nine AS String = datetime::toIso(dt, 9)
+  LET back AS datetime::DateTime = datetime::parseIso(nine)
+  io::print(label & " iso9=" & nine & " lossless=" & toString(back.time.nanos = nanos))
+  ' The default form is millisecond-exact, and says so on the page.
+  LET three AS datetime::DateTime = datetime::parseIso(datetime::toIso(dt))
+  io::print(label & " default=" & datetime::toIso(dt) & " ms_nanos=" & toString(three.time.nanos))
+  RETURN 0
+END FUNC
+
+FUNC badDigits(label AS String, digits AS Integer) AS Integer
+  LET t AS datetime::Time = datetime::time(1, 2, 3, 500)
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 26), t, datetime::utc())
+  io::print(label & "=ACCEPTED " & datetime::toIso(dt, digits))
+  RETURN 0
+  TRAP(err)
+    io::print(label & "=" & toString(err.code = errorCode::ErrInvalidArgument))
+    RETURN 1
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' ---- the round trip, at the four nanos values the bug names ----
+  LET a AS Integer = roundTrip("n123456789", 123456789)
+  LET b AS Integer = roundTrip("n1", 1)
+  LET c AS Integer = roundTrip("n999999999", 999999999)
+  LET d AS Integer = roundTrip("n0", 0)
+
+  ' ---- every allowed width, and that each is READ BACK by parseIso ----
+  LET t AS datetime::Time = datetime::time(14, 30, 0, 123456789)
+  LET z AS datetime::Zone = datetime::fixedOffset(5, 30)
+  LET dt AS datetime::DateTime = datetime::civil(datetime::date(2026, 6, 25), t, z)
+  io::print("w0=" & datetime::toIso(dt, 0))
+  io::print("w3=" & datetime::toIso(dt, 3))
+  io::print("w6=" & datetime::toIso(dt, 6))
+  io::print("w9=" & datetime::toIso(dt, 9))
+  io::print("read0=" & toString(datetime::parseIso(datetime::toIso(dt, 0)).time.nanos))
+  io::print("read3=" & toString(datetime::parseIso(datetime::toIso(dt, 3)).time.nanos))
+  io::print("read6=" & toString(datetime::parseIso(datetime::toIso(dt, 6)).time.nanos))
+  io::print("read9=" & toString(datetime::parseIso(datetime::toIso(dt, 9)).time.nanos))
+
+  ' ---- POSITIVE PIN: the one-argument form is unchanged, offset forms included ----
+  io::print("pin_utc=" & datetime::toIso(datetime::civil(datetime::date(2026, 6, 25), datetime::time(14, 30, 0), datetime::utc())))
+  io::print("pin_off=" & datetime::toIso(dt))
+  io::print("pin_eq3=" & toString(datetime::toIso(dt) = datetime::toIso(dt, 3)))
+  io::print("pin_neg=" & datetime::toIso(datetime::civil(datetime::date(1969, 7, 20), datetime::time(20, 17, 0), datetime::utc())))
+  io::print("pin_yr4=" & datetime::toIso(datetime::civil(datetime::date(7, 1, 2), datetime::time(3, 4, 5), datetime::utc())))
+  ' `format` with the matching pattern still agrees with the default form.
+  io::print("pin_fmt=" & toString(datetime::toIso(dt) = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")))
+
+  ' ---- a width outside {0,3,6,9} is refused, not silently rounded ----
+  MUT bad AS Integer = 0
+  bad = bad + badDigits("neg1", -1)
+  bad = bad + badDigits("one", 1)
+  bad = bad + badDigits("two", 2)
+  bad = bad + badDigits("four", 4)
+  bad = bad + badDigits("seven", 7)
+  bad = bad + badDigits("ten", 10)
+  io::print("rejected_all=" & toString(bad = 6))
+  RETURN a + b + c + d
+END FUNC

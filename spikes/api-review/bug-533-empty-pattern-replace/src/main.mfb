@@ -1,0 +1,26 @@
+' bug-533 -- the empty needle/pattern is the exact opposite in the two replace
+' members, and both behaviors are documented as intended:
+'
+'   strings::replace("hi", "", "x")  -> "hi"       (empty needle never matches)
+'   regex::replace("abc", "", "-")   -> "-a-b-c-"  (zero-width match everywhere)
+'
+' Each is right for its own model. The hazard is that they share a name, a
+' shape and an argument order, so a search string that arrives empty at run
+' time -- from a config file, a form field, a CLI flag -- is a no-op through one
+' and a whole-string rewrite through the other.
+
+IMPORT io
+IMPORT strings
+IMPORT regex
+
+FUNC main AS Integer
+  ' A needle that is empty because the user left the field blank.
+  LET needle AS String = ""
+
+  io::print("strings::replace(\"abc\", needle, \"-\") = \"" & strings::replace("abc", needle, "-") & "\"")
+  io::print("regex::replace(\"abc\", needle, \"-\")   = \"" & regex::replace("abc", needle, "-") & "\"")
+  io::print("")
+  io::print("same call shape, same empty input, opposite results:")
+  io::print("  one leaves the text untouched, the other rewrites every position.")
+  RETURN 0
+END FUNC

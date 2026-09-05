@@ -1,0 +1,161 @@
+{
+  "project": "color_payload_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "astrings", "line": 12 },
+    { "module": "color", "line": 13 },
+    { "module": "io", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "payload",
+      "line": 16,
+      "params": [
+      { "name": "attrs", "type": "List OF astrings.Attribute", "default": null, "line": 16 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "a",
+        "iterable": { "kind": "identifier", "value": "attrs" },
+        "line": 17,
+        "body": [
+        {
+          "kind": "match",
+          "expression": { "kind": "identifier", "value": "a" },
+          "line": 18,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "astrings.AttrNumber", "binding": "nm" },
+            "guard": null,
+            "line": 19,
+            "body": [
+            {
+              "kind": "match",
+              "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "nm" }, "member": "kind" },
+              "line": 20,
+              "cases": [
+              {
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeNumber" }, "member": "Foreground" } },
+                "guard": null,
+                "line": 21,
+                "body": [
+                { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "nm" }, "member": "value" }, "line": 22 }
+                ]
+              },
+              {
+                "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "astrings.AttrTypeNumber" }, "member": "Background" } },
+                "guard": null,
+                "line": 23,
+                "body": [
+                { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "nm" }, "member": "value" }, "line": 24 }
+                ]
+              },
+              {
+                "pattern": { "kind": "else" },
+                "guard": null,
+                "line": 25,
+                "body": [
+                ]
+              }
+              ]
+            }
+            ]
+          },
+          {
+            "pattern": { "kind": "else" },
+            "guard": null,
+            "line": 27,
+            "body": [
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fgOf",
+      "line": 34,
+      "params": [
+      { "name": "c", "type": "color.Color", "default": null, "line": 34 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 35 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "call", "callee": "astrings.foreground", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "call", "callee": "payload", "arguments": [{ "kind": "call", "callee": "astrings.getAttributes", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }] }] }, "line": 37 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 40,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fg=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fgExpected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "4294934528" }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "t", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 46 },
+      { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "astrings.addAttribute", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "call", "callee": "astrings.background", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "18" }, { "kind": "number", "value": "52" }, { "kind": "number", "value": "86" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bg=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "payload", "arguments": [{ "kind": "call", "callee": "astrings.getAttributes", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bgExpected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "4279383126" }] } }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "black=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }] }] } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blackExpected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "4278190080" }] } }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "positive=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "0" }] }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "half", "type": "color.Color", "value": { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "128" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfPacked=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "half" }] }] } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfExpected=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2164228096" }] } }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfRoundTrip=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "half" }] }] }] } }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfSource=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "half" }] } }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "halfEqual=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "half" }] }] }] }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "half" }] } }] } }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "clear", "type": "color.Color", "value": { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "clearPacked=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "clear" }] }] } }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "clearIsNotUnset=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "clear" }] }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } } }] } }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "ghost", "type": "color.Color", "value": { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "51" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "204" }, { "kind": "number", "value": "0" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ghostRoundTrip=" }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "ghost" }] }] }] } }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ghostEqual=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "ghost" }] }] }] }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "ghost" }] } }] } }] }, "line": 79 },
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 82 },
+      { "kind": "binding", "mutable": true, "name": "allEqual", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 83 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "255" } },
+        "line": 84,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "c", "type": "color.Color", "value": { "kind": "call", "callee": "color.rgba", "arguments": [{ "kind": "number", "value": "51" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "204" }, { "kind": "identifier", "value": "a" }] }, "line": 85 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "call", "callee": "color.fromPacked", "arguments": [{ "kind": "call", "callee": "fgOf", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] }, "right": { "kind": "call", "callee": "color.toHexAlpha", "arguments": [{ "kind": "identifier", "value": "c" }] } },
+          "line": 86,
+          "then": [
+          { "kind": "assignment", "name": "allEqual", "value": { "kind": "boolean", "value": false }, "line": 87 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "a", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "1" } }, "line": 89 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "everyAlphaRoundTrips=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "allEqual" }] } }] }, "line": 91 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 93 }
+      ]
+    }
+    ]
+  }
+  ]
+}

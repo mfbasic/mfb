@@ -19,7 +19,7 @@ FUNC __regex_requiredFirstCp(node AS __regex_Node) AS Integer
       IF lit.fold THEN
         RETURN -1
       END IF
-      RETURN __regex_scalarToCp(lit.ch)
+      RETURN lit.cp
     CASE __regex_Concat(cat)
       IF len(cat.parts) = 0 THEN
         RETURN -1

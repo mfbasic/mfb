@@ -16,7 +16,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 const SERVER: &str = r#"IMPORT http
 IMPORT tcp
@@ -59,11 +59,8 @@ impl Drop for Server {
     }
 }
 
-fn nonce() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos()
+fn nonce() -> String {
+    common::unique_nonce()
 }
 
 fn spawn_server(tag: &str) -> Server {
@@ -73,7 +70,7 @@ fn spawn_server(tag: &str) -> Server {
         nonce()
     ));
     let _ = std::fs::remove_file(&port_file);
-    let source = SERVER.replace("@PORTFILE@", &port_file.to_string_lossy());
+    let source = SERVER.replace("@PORTFILE@", &common::mfb_path_literal(&port_file));
     let project = common::temp_project(&format!("b507_{tag}"), &source);
     let exe = common::build_project(&project);
     let child = Command::new(&exe)
