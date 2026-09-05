@@ -673,9 +673,17 @@ Fixed before plan-114 landed, and still true:
   **What did change is what the rendered signature MEANS**: passing an item list now
   consumes the resources inside it. That is on the man page.
 - ~~**`.ncodesum` churn.**~~ **None.** `scripts/regen-ncodesum.sh target/release/mfb`
-  refreshed 141 goldens and `git status --short tests/byte-identity/` is empty. **Not read
-  as evidence**: no `canvas` fixture is hashed (plan-116-F **F11**), so this gate could not
-  have moved whatever this letter did.
+  refreshed 141 goldens and the byte-identity tree came back unchanged. **Not read
+  as evidence**, and the reason is measured rather than inherited from plan-116-F **F11**:
+  `grep -rln canvas tests/byte-identity/` and `ls tests/rt-behavior/ | grep -i canvas` both
+  return **nothing**. There is no `canvas` fixture in either gated corpus, so this gate
+  could not have moved whatever this letter did.
+  **So where the new members' lowering IS covered is worth naming**, since the usual
+  answer — a `codegen_cover` fixture — does not exist here: `canvas::nextReclaimableGroup`,
+  `retiredItems` and `groupSlots` are called from `#canvas_present`, which every canvas
+  program runs, so every `rt_canvas_*` target exercises their lowering by **building and
+  running a real binary**. That is stronger coverage than a byte-identity hash, and it is
+  the only coverage they have.
 - **New registry data, and one new concept other packages can use.**
   `pkg.add_consuming_parameter(function, parameter)` is now part of the registry
   vocabulary, with `builtin_consuming_parameter_index` beside
