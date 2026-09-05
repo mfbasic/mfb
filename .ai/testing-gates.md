@@ -356,6 +356,34 @@ On this SHARED machine other agents run their own `test-accept.sh` concurrently 
 
 **How to apply:** before trusting an acceptance failure, (1) check the failing fixture actually exercises your change (`grep` it); (2) re-run JUST that fixture into a **private** actual dir: `scripts/test-accept.sh <exe> /tmp/accept-check <glob>` — a pass there proves it was a concurrent-clobber false failure, not a regression. Also: `pgrep -fl test-accept` to see if a foreign run is live, and wait on YOUR specific PID (`until ! kill -0 <pid>`) not `grep -q test-accept` (which matches foreign runs and never fires).
 
+### …and a PRIVATE actual dir does not save you: build contention makes the same symptom
+
+The remedy above — run into your own `/tmp/accept-check` — fixes the *clobber*. It does
+not fix the other cause of an identical `missing actual …/x.ast` line: the fixture's
+**build was starved**, so the artifact was never written in the first place.
+
+Measured, plan-116-J. A full `test-accept.sh` into a private scratch dir, run alongside a
+`cargo test --release` and an `artifact-gate.sh`, reported
+`acceptance tests failed: 2 mismatch(es) (1399 test(s) ran)` — both
+`missing actual rt-behavior/astrings/copy-drop-rt/copy_drop_rt.{ast,ir}`, a fixture with
+no connection to the change under test. Re-run alone, into a fresh scratch dir:
+**passes**. The same session's `artifact-gate.sh` produced the twin symptom on its own
+side — `MISSING byte-identity/vector/vector_codegen_cover_rt.linux-aarch64.ncode`, one
+cross-compile of seven for a fixture equally unrelated — and `MISSING` counts as a diff,
+so the gate reported `1 diff(s)` and exited 1.
+
+**How to tell the two apart, and why it matters.** The clobber needs a *foreign* run
+sharing your actual dir; starvation needs only enough concurrent compilation. So
+`pgrep -fl test-accept` can come back empty and the failure still be phantom. The
+discriminator is the same either way and it is cheap: **re-run the named fixture alone**.
+What it is worth is that the two have different preventions — a private dir prevents the
+clobber and does nothing for starvation, for which the prevention is simply not running
+three build-heavy gates at once.
+
+**The tell:** a `missing actual` / `MISSING` on a fixture that has nothing to do with your
+change, and where the *golden* exists but the *actual* does not. A real regression changes
+an artifact; it does not fail to produce one.
+
 ## The `.run` golden is an empty marker
 
 When hand-validating a fixture's runtime output, do NOT diff against `golden/<pkg>.run` — that file is a **zero-byte marker** whose mere presence tells `test-accept.sh` to build, run, and capture. The **expected program stdout is in `golden/build.log`**, between the bare `$ .../build/<pkg>.out` run line and its following `[exit N]`. Extract it with:
