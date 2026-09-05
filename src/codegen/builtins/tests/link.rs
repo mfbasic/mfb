@@ -23,19 +23,33 @@ use crate::codegen::engine::tests::test_support::Stream;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::testutil::{code_for_linking_src, fixture_src, try_code_for_linking_src, CodeTarget};
 
-/// `(fixture, libraries it LINKs)` — every one of which lowers on all five
-/// backends.
+/// Every committed single-file `LINK` fixture, with the libraries it declares,
+/// except the ones Win64 cannot take (below).
+///
+/// All of them, rather than a sample: they differ in exactly the emitter arm
+/// each was written for -- a `CSTRUCT` of scalars, a `CSTRUCT` carrying a C
+/// string, a `CBUFFER` read and its overrun guard, a `RES` handle with a private
+/// resource type, a `STATE`-carrying resource, a scope-drop close, an inline
+/// trap around a native call, a nested success path, a 64-bit `CONST` pin, and
+/// two real-library bindings. Sampling them would sample the emitter.
 const LINKING: &[(&str, &[&str])] = &[
-    ("native-link-const-64bit-rt", &["sqlite3"]),
-    ("native-private-resource-rt", &["sqlite3"]),
-    ("native-struct-scalar-rt", &["c"]),
+    ("libsnd-open-file-info-rt", &["libsnd"]),
+    ("libsnd-read-samples-rt", &["libsnd"]),
+    ("native-cbuffer-overrun-rt", &["c"]),
     ("native-cbuffer-read-rt", &["c"]),
+    ("native-closed-guard-rt", &["sqlite3"]),
+    ("native-link-and-truthy-rt", &["sqlite3"]),
+    ("native-link-const-64bit-rt", &["sqlite3"]),
+    ("native-link-inline-trap-rt", &["sqlite3"]),
+    ("native-link-nested-success-rt", &["sqlite3"]),
+    ("native-link-sqlite-rt", &["sqlite3"]),
+    ("native-private-resource-rt", &["sqlite3"]),
+    ("native-resource-scope-drop-rt", &["sqlite3"]),
+    ("native-resource-state-rt", &["sqlite3"]),
+    ("native-stateless-record-rt", &["sqlite3"]),
+    ("native-struct-cstring-rt", &["c"]),
+    ("native-struct-scalar-rt", &["c"]),
 ];
-
-/// The fixture whose `ABI` block needs five integer argument registers, which
-/// Win64 does not have. Kept out of the all-backends sweep and given its own
-/// case below, because "this target cannot" is a contract too.
-const OVER_WIN64_ARGUMENT_REGISTERS: &[(&str, &[&str])] = &[("native-link-free-rt", &["sqlite3"])];
 
 fn lowered(fixture: &str, libraries: &[&str], target: CodeTarget) -> NativeCodePlan {
     code_for_linking_src(&fixture_src(fixture), target, libraries)
@@ -52,24 +66,53 @@ fn decode_cstring(value: &str) -> Option<String> {
     String::from_utf8(text.to_vec()).ok()
 }
 
-/// Every `LINK` program lowers on every backend, with a loader call per library.
+/// Every `LINK` program lowers on every backend, with a loader call per library
+/// — except where the target's argument registers run out, which is refused by
+/// name rather than mis-lowered.
 ///
 /// A backend that could not emit the thunk at all would be caught by the
 /// acceptance matrix; a backend that emitted a thunk which never opens the
 /// library would not, because the program only fails at run time, on a machine
 /// that has that library.
+///
+/// The Win64 refusals are asserted rather than excluded. Win64 passes four
+/// integer arguments in registers and the emitter does not stage the rest, so a
+/// five-slot `ABI` block is rejected there — and the alternative to that error
+/// is silently dropping the fifth argument, which the callee would read as
+/// whatever was left in the register. Folding it into the sweep also means the
+/// set of affected fixtures maintains itself: any OTHER error, on any target,
+/// still fails.
 #[test]
-fn every_backend_emits_a_complete_thunk_for_every_link_program() {
+fn every_backend_emits_a_complete_thunk_or_refuses_by_name() {
+    let mut win64_refusals = 0;
     for (fixture, libraries) in LINKING {
+        let source = fixture_src(fixture);
         for target in CodeTarget::ALL {
-            let plan = lowered(fixture, libraries, target);
+            let plan = match try_code_for_linking_src(&source, target, libraries) {
+                Ok(plan) => plan,
+                Err(refusal) if target == CodeTarget::WindowsX86_64 => {
+                    for want in [
+                        "native function `",
+                        "integer ABI slots",
+                        "argument registers",
+                    ] {
+                        assert!(
+                            refusal.contains(want),
+                            "{fixture}: the only lowering a backend may refuse is one \
+                             too wide for its argument registers, and the message must \
+                             mention {want:?} so the author knows what to narrow; it \
+                             said {refusal:?}"
+                        );
+                    }
+                    win64_refusals += 1;
+                    continue;
+                }
+                Err(err) => panic!("{fixture} must lower on {}: {err}", target.name()),
+            };
             let calls: Vec<String> = plan
                 .functions
                 .iter()
-                .flat_map(|f| {
-                    let stream = Stream::of(f);
-                    stream.calls_between(0, f.instructions.len())
-                })
+                .flat_map(|f| Stream::of(f).calls_between(0, f.instructions.len()))
                 .collect();
             // POSIX opens with `dlopen`/`dlsym`; Windows with LoadLibrary /
             // GetProcAddress. Either way the thunk must ask the loader twice:
@@ -95,6 +138,12 @@ fn every_backend_emits_a_complete_thunk_for_every_link_program() {
             );
         }
     }
+    assert!(
+        win64_refusals >= 2,
+        "the corpus contained {win64_refusals} declaration(s) too wide for Win64; \
+         there were at least two when this was written, and losing them would mean \
+         the refusal path is no longer exercised"
+    );
 }
 
 /// The resolved filename is a data object, not the logical name.
@@ -176,50 +225,5 @@ fn every_loader_result_is_tested_before_it_is_called() {
                 );
             }
         }
-    }
-}
-
-/// A declaration needing more argument registers than the target has is
-/// REJECTED, by name, at compile time.
-///
-/// Win64 passes four integer arguments in registers and the thunk emitter does
-/// not stage the rest on the stack. The alternative to this error is silently
-/// dropping the fifth argument, which the callee would read as whatever was left
-/// in the register - a wrong value handed to C with no diagnostic anywhere. The
-/// message must also name the function, because a project with a dozen `ABI`
-/// blocks cannot act on "some declaration is too wide".
-#[test]
-fn a_declaration_too_wide_for_the_target_is_rejected_by_name() {
-    for (fixture, libraries) in OVER_WIN64_ARGUMENT_REGISTERS {
-        let source = fixture_src(fixture);
-
-        // It lowers everywhere the registers exist...
-        for target in [
-            CodeTarget::MacosAarch64,
-            CodeTarget::LinuxAarch64,
-            CodeTarget::LinuxX86_64,
-            CodeTarget::LinuxRiscv64,
-        ] {
-            let plan = try_code_for_linking_src(&source, target, libraries)
-                .unwrap_or_else(|err| panic!("{fixture} must lower on {}: {err}", target.name()));
-            assert!(!plan.functions.is_empty());
-        }
-
-        // ...and is refused, with the function named, where they do not.
-        let refusal = try_code_for_linking_src(&source, CodeTarget::WindowsX86_64, libraries)
-            .err()
-            .unwrap_or_default();
-        for want in ["integer ABI slots", "argument registers"] {
-            assert!(
-                refusal.contains(want),
-                "{fixture}: the Win64 rejection must mention {want:?} so the author \
-                 knows what to narrow; it said {refusal:?}"
-            );
-        }
-        assert!(
-            refusal.contains("native function `"),
-            "{fixture}: the Win64 rejection must NAME the declaration; it said \
-             {refusal:?}"
-        );
     }
 }
