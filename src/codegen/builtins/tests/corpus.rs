@@ -67,10 +67,12 @@ const CROSS_BACKEND: &[&str] = &[
 
 /// Every committed single-file fixture this harness can lower, four per family.
 ///
-/// Four rather than all of them (729 lower) because the yield is in the SHAPES,
-/// not the count: a fifth `crypto-*` fixture exercises the same lowering as the
-/// first four. Four rather than one because a family's fixtures usually differ
-/// in exactly the branch that family's bugs live in. The list is generated once
+/// Four per family for most, and ALL of them for the nineteen families whose
+/// lowering shapes carry the remaining gaps -- collection mutation, the
+/// RES/arena transfer paths, generics, traps, threads, and the error corpora.
+/// Four is right where the yield is in the SHAPES (a fifth `crypto-*` fixture
+/// exercises the same lowering as the first four); it is wrong where a family's
+/// fixtures differ in exactly the branch that family's bugs live in. The list is generated once
 /// and committed -- not discovered at run time -- so a fixture that stops
 /// lowering fails this test instead of quietly dropping out of it.
 const CORPUS: &[&str] = &[
@@ -123,6 +125,35 @@ const CORPUS: &[&str] = &[
     "hof-string-item-lifetime-rt",
     "inplace-grow-free",
     "list-ops-codegen-rt",
+    "list-order-invariant-rt",
+    "list-payload-order-rt",
+    "list-unordered-data",
+    "map-removekey-inplace-rt",
+    "map-set-grow-rt",
+    "merge-native-rt",
+    "mut-append-grow",
+    "nested-fixed-list-rt",
+    "p121b-fixedwidth-splice-order-rt",
+    "p121b-removeat-insert-aliasing-rt",
+    "p121b-removeat-recursive-union-rt",
+    "p121c-record-field-add-grow-rt",
+    "p121c-record-field-remove-rt",
+    "p121c-record-field-removekey-rt",
+    "p121c-record-field-set-rt",
+    "p121c-record-field-splice-rt",
+    "p121f-string-set-readback-rt",
+    "p121g-reduce-accumulator-rt",
+    "partition-native-trap-rt",
+    "recursive-get-then-grow-rt",
+    "reduce-accumulator-reclaim-rt",
+    "return-param-borrow-rt",
+    "set-algebra-rt",
+    "set-behavior-rt",
+    "set-inplace-add-rt",
+    "sort-string-gather-rt",
+    "sortby-string-gather-rt",
+    "window-string-native-rt",
+    "zip-string-native-rt",
     // rt-behavior/color
     "color_constructors_rt",
     "color_hex_rt",
@@ -133,11 +164,14 @@ const CORPUS: &[&str] = &[
     "bug140_string_match_content",
     "bug361_match_oneof_literals",
     "control-flow-behavior",
+    "control-flow-if",
     // rt-behavior/conversions
     "bug144_toint_base10_overflow",
     "bug358_tostring_default_precision",
     "bug366_money_float_invalid_format",
     "bug366_record_field_exact_conversion",
+    "bug91_fixed_sub_ulp_literal",
+    "tofloat-correct-rounding-corpus-rt",
     // rt-behavior/crypto
     "crypto-aead-invalid",
     "crypto-curve-attribution-valid",
@@ -278,6 +312,26 @@ const CORPUS: &[&str] = &[
     "record-res-field-state-write-rt",
     "res-rebind-alias-runtime",
     "resource-collection-floats-runtime",
+    "resource-collection-map-value-runtime",
+    "resource-collection-transfer-runtime",
+    "resource-exit-path-cleanup-rt",
+    "resource-pointer-across-ops-valid",
+    "resource-reclaim-loop-valid",
+    "resource-res-binding-valid",
+    "resource-return-collection-order-rt",
+    "resource-return-identity-rt",
+    "resource-return-ownership-valid",
+    "resource-state-bare-param-valid",
+    "resource-state-drop-valid",
+    "resource-state-field-assign-valid",
+    "resource-state-mutation-valid",
+    "resource-state-return-rt",
+    "resource-state-valid",
+    "resource-union-drop-valid",
+    "resource-union-foreach-valid",
+    "resource-union-state-access-valid",
+    "resource-union-state-drop-valid",
+    "resource-union-valid",
     // rt-behavior/security
     "allocator-01-quick-bins",
     "allocator-02-size-overflow",
@@ -355,6 +409,14 @@ const CORPUS: &[&str] = &[
     "arithmetic-division-invalid-rt",
     "arithmetic-exp-mod-invalid-rt",
     "arithmetic-fixed-invalid-rt",
+    "arithmetic-float-domain-rt",
+    "arithmetic-float-fma-observed-rt",
+    "arithmetic-float-mod-invalid-rt",
+    "arithmetic-float-nan-rt",
+    "arithmetic-float-overflow-rt",
+    "arithmetic-multiplication-invalid-rt",
+    "arithmetic-order-of-operations-invalid-rt",
+    "bug137-fixed-pow-underflow-overflow-rt",
     // rt-error/astrings
     "attribute-bounds-rt",
     // rt-error/audio
@@ -436,6 +498,7 @@ const CORPUS: &[&str] = &[
     "types-map-key-comparable-valid",
     "types-records",
     "types-union",
+    "types-with-update-owned",
     // rt-error/vector
     "angle_zero_rt",
     "clamp_length_negative_rt",
@@ -593,8 +656,8 @@ fn every_backend_lowers_the_corpus_to_the_same_program() {
 #[test]
 fn no_corpus_function_lowers_to_an_empty_body() {
     assert!(
-        CORPUS.len() >= 350,
-        "the corpus is {} fixtures; it was generated at 360 across 88 families, \
+        CORPUS.len() >= 410,
+        "the corpus is {} fixtures; it was generated at 421 across 88 families, \
          and a list that shrinks silently is a gate that stops measuring",
         CORPUS.len()
     );
