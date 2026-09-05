@@ -1,11 +1,14 @@
 # bug-517: `CRYPTO_SHA1_INSECURE` fires on the enum member, so it cannot tell a broken use of SHA-1 from a sound one
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
+Status: BLOCKED — needs an owner decision. The behaviour reproduces exactly as
+reported, but it is not a defect: the code, the spec, the man pages and a
+completed plan all agree with each other, and the change this bug asks for
+reverses a recorded design decision. See "Verdict" below.
 Regression Test: `src/ir/tests.rs` — the existing `CRYPTO_SHA1_INSECURE` filter test, extended
 
 `crypto::Hash.SHA1` carries a compile-time advisory that fires wherever the enum
@@ -76,6 +79,142 @@ can be context-sensitive.
 | macOS | aarch64, release | fails ✗ |
 | Linux / Windows | — | front-end diagnostic, target-independent; expected identical |
 
+## Verdict (2026-09-05) — reproduced, root-caused, and BLOCKED on a product decision
+
+**Reproduced verbatim**, at `31df7f872`, release, macOS aarch64:
+
+```
+$ ./target/release/mfb build spikes/api-review/bug-517-sha1-advisory-context
+```
+
+emits exactly three `warn[2-203-0136 CRYPTO_SHA1_INSECURE]` — one each on lines
+21 (`crypto::hash`), 24 (`crypto::hmac`) and 27 (`crypto::hkdf`) — with
+byte-identical message and detail lines, and exits 0 with an executable written.
+(The spike's own header comment says "read the four warnings"; the spike has
+three SHA-1 call sites, not four. `crypto::pbkdf2` is named in the table above
+but is not exercised by the spike.)
+
+So the *description* of the behaviour is accurate. What is not accurate is the
+Root Cause section's framing of it as an emitter limitation.
+
+### The behaviour is a recorded decision, not an oversight
+
+`check_enum_member_advisory` does not fail to see the call context by accident.
+Four independent, mutually consistent sources say the advisory is scoped to the
+**value**, deliberately:
+
+1. **The plan that built it.** `planning/completed/plan-109-A-hash-api-sha1-warning.md`
+   §3 "Design Overview", last sentence of the SHA-1 implementation paragraph:
+
+   > Extend the generic digest/block/output helpers so HMAC/HKDF/PBKDF2 accept
+   > SHA-1 consistently (20-byte output, 64-byte block); **the warning applies
+   > regardless of which public function consumes the selector.**
+
+   That sentence answers precisely the question this bug re-opens, in the
+   opposite direction. `grep -n "regardless of which public function" planning/completed/plan-109-A-hash-api-sha1-warning.md`
+
+2. **The spec, twice.**
+   - `src/docs/spec/diagnostics/01_rule-codes.md:283-287` — "`CRYPTO_SHA1_INSECURE`
+     is the registry's enum-value advisory: a builtin enum variant may carry an
+     `EnumVariant::advisory`, and **every user-source occurrence of that value** —
+     an expression or a `MATCH` literal — reports it once, while the program still
+     compiles and runs."
+   - `src/docs/spec/stdlib/10_crypto.md:68-73` — "**Every user-source occurrence
+     of `Hash.SHA1`** (an expression or a `MATCH` literal) reports the non-fatal
+     `CRYPTO_SHA1_INSECURE` warning."
+
+   The spec is not silent here, and it does not contradict the code: it
+   specifies the code.
+
+3. **The registry prose**, `src/codegen/builtins/crypto/mod.rs:188-190` and the
+   `SHA1` variant `description` — "every source use reports the
+   `CRYPTO_SHA1_INSECURE` warning".
+
+4. **The man pages the bug calls "apologies".** They are not apologies; they are
+   the two-part statement a correct page has to make. `func_hmac.rs:27-30` says
+   *both* that HMAC-SHA1 is sound *and* what to prefer for a new design:
+   "HMAC-SHA1 remains cryptographically sound — HMAC does not rely on collision
+   resistance — but `crypto::Hash.SHA1` still reports the `CRYPTO_SHA1_INSECURE`
+   advisory; **prefer `SHA2_256` unless a peer requires SHA-1**." `func_hkdf.rs:21`
+   and `func_pbkdf2.rs:22-24` say the same thing for their profiles. Every one of
+   those sentences is true as written.
+
+### The advisory's text is not false at an HMAC call site
+
+This is the load-bearing point, and the bug's table overstates it. The advisory
+makes two claims:
+
+- *"SHA-1 is not collision-resistant"* (rule message, `src/rules/table.rs:757-762`)
+  — unconditionally true, independent of the construction it is used in.
+- *"Keep it only for legacy interoperability; use `crypto::Hash.SHA2_256` or
+  stronger for new designs"* (`EnumAdvisory::detail`) — for a *new* design,
+  HMAC-SHA2-256 is preferable to HMAC-SHA1, HKDF-SHA2-256 to HKDF-SHA1, and
+  PBKDF2-HMAC-SHA2-256 to PBKDF2-HMAC-SHA1. The advice is right at all four
+  sites.
+
+Nowhere does the advisory claim that HMAC-SHA1 is broken. The bug's table
+column, "is SHA-1 actually a problem here?", conflates *"not catastrophically
+broken"* with *"not worth flagging"*. The first is a cryptographic fact — and
+the package's own pages already state it. The second is a policy judgement about
+how loud a deprecated-algorithm signal should be, and it is the whole of the
+question here.
+
+### What the change would actually cost
+
+Design A (call-site suppression) is not a bounded one-function change. Landing it
+means editing, in the same commit:
+
+- two spec paragraphs that currently say "every user-source occurrence"
+  (`01_rule-codes.md`, `10_crypto.md`);
+- the `SHA1` variant `description` in `crypto/mod.rs`;
+- three man-page descriptions (`func_hmac.rs`, `func_hkdf.rs`, `func_pbkdf2.rs`);
+- and re-baselining committed **behavioural** goldens that pin the current
+  counts:
+  `tests/rt-behavior/crypto/crypto-kdf-invalid/golden/build.log` (6 warnings on
+  HKDF/PBKDF2 lines 55-57 and 60-62), `crypto-kat-valid/golden/build.log`
+  (8 warnings), and `crypto-sha1-advisory-valid/golden/build.log`.
+  `grep -rln "CRYPTO_SHA1_INSECURE" tests/`
+
+### Applying AGENTS.md's four-question gate to those goldens
+
+1. **When/why written** — plan-109-A Phase 1/2, 2026-08-29;
+   `crypto-sha1-advisory-valid` was created specifically to pin "exactly one
+   named warning per user-authored occurrence, non-fatal".
+2. **Behaviour protected** — every user-source occurrence of `crypto::Hash.SHA1`
+   reports `CRYPTO_SHA1_INSECURE` once, and the program still builds and runs.
+3. **Who depends** — the two spec paragraphs above, the four man pages that cite
+   the rule code, `src/ir/tests.rs`'s advisory tests, and
+   `registry::enum_variant_advisory`'s unit tests.
+4. **Proof it is wrong** — **not met.** The bug supplies a correct cryptographic
+   observation (HMAC's security proof does not rest on collision resistance) that
+   the repo already documents, but no evidence that any sentence the compiler
+   prints is untrue at the site it prints it.
+
+Three of four. Under AGENTS.md "Not all 4 → test wins, STOP", this fix does not
+proceed without an owner decision.
+
+### What is needed to unblock
+
+A one-line ruling on the policy question, which is genuinely open and genuinely
+two-sided:
+
+> Is `CRYPTO_SHA1_INSECURE` an **algorithm-hygiene** signal ("you selected
+> SHA-1 — confirm the peer requires it"), which is what it is today and what
+> plan-109-A decided; or a **defect** signal ("this construction is broken"),
+> which is what this bug argues it should be?
+
+- **Keep as-is (hygiene).** Costs the noise this bug describes. Defended by
+  plan-109-A, both spec paragraphs, and the fact that every sentence emitted is
+  true. Close this bug as working-as-designed and delete the "advisory"
+  sentences from the three KDF pages only if they are judged redundant.
+- **Adopt Design A (defect signal).** Then the doc sync is mandatory and is
+  larger than the code change: two spec paragraphs, the variant `description`,
+  three man pages, and three behavioural `build.log` goldens re-baselined with
+  this bug cited as the proof.
+
+Recording the analysis rather than guessing, per the repo's rule that a
+behavioural golden wins until proven wrong.
+
 ## Root Cause
 
 `src/ir/verify/values.rs:check_enum_member_advisory` is reached from the
@@ -93,7 +232,16 @@ them.
 
 The comment at `values.rs:631` states the design intent — "report it once per
 user-authored occurrence" — which is a faithful implementation of a
-value-scoped advisory. The defect is that SHA-1's danger is call-scoped.
+value-scoped advisory.
+
+**Correction (2026-09-05).** The original last sentence of this section read
+"The defect is that SHA-1's danger is call-scoped." That is the bug's
+conclusion, not its root cause, and it is asserted rather than shown. The
+mechanism is value-scoped *by decision* (plan-109-A §3, quoted in Verdict
+above), not because the checker was unable to be otherwise — the same function
+already proves it can be context-sensitive via its `builtins/` exemption. There
+is no implementation defect here to root-cause; there is a policy question. See
+Verdict.
 
 ## Goal
 
@@ -181,9 +329,17 @@ signal.
       Confirm it fails at 3-or-4 today. Per the diagnostic-harness rule, the
       test must record the exit status and any unlocated errors, so a failure
       cannot read as "same".
-- [ ] `grep -rn "advisory:" src/codegen/builtins/` — enumerate every
+- [x] `grep -rn "advisory:" src/codegen/builtins/` — enumerate every
       `EnumVariant::advisory` row and write the list into Blast Radius. This
       decides whether the mechanism may change shape.
+      **ANSWERED 2026-09-05:** `grep -rn "advisory: Some" src/codegen/builtins/
+      src/codegen/registry/mod.rs` returns exactly two hits —
+      `crypto/mod.rs:198` (`Hash.SHA1`, the production row) and
+      `registry/mod.rs:5136` (a synthetic row inside
+      `enum_variant_advisory_is_keyed_by_package_enum_and_member`). `Hash.SHA1`
+      is the **only** production advisory in the tree, so the mechanism is free
+      to change shape; no other variant constrains it. Every other of the 57
+      `advisory:` sites is `advisory: None`.
 
 Acceptance: the new test fails with the observed 3 warnings; the advisory-row
 census is complete.
@@ -226,6 +382,10 @@ Commit: —
 
 ## Open Decisions
 
+**The primary decision is the one stated in Verdict above** — hygiene signal or
+defect signal — and everything below is subordinate to it. Nothing here is
+actionable until that is answered.
+
 - Whether `crypto::pbkdf2` belongs on the allow-list. PBKDF2-HMAC-SHA1 is sound
   *as a KDF*, and it is the WPA2/RFC 8018 profile — but it is also what someone
   reaches for when storing passwords, where the real advice is bug-515's
@@ -233,6 +393,10 @@ Commit: —
   PBKDF2 is), and letting bug-515 own the password-storage advice.
 
 ## Summary
+
+**As of 2026-09-05 this bug is blocked on the Verdict section's single
+question, not on any of the below.** The paragraph that follows describes the
+risk profile *if* Design A is chosen.
 
 The risk is in the allow-list, not the mechanism: every member added to it is a
 claim that SHA-1 is sound in that construction, and a wrong entry silences a
