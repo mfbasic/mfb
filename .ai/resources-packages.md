@@ -391,6 +391,23 @@ available as `CodeBuilder` methods:
     is_resource_nominal(model, t)           // builtin ∪ model.resource_names
     is_sendable_resource_nominal(model, t)  // builtin ∪ model.sendable_resource_names
 
+**The same fall-through default bites a THREAD handle (bug-479).** `flatness_walk`
+had no `ParameterType::ThreadHandle` arm either, so a thread handle answered
+`true` for both modes — "a copyable flat block that may be relocated into another
+arena" — when it is a pointer to a 120-byte `THREAD_BLOCK_SIZE` block holding
+pointers to four queues. `ir::verify`'s `is_copyable` has said
+`ThreadHandle { .. } => false` since forever; codegen simply never agreed. The
+lesson generalizes past resources: **in `flatness_walk` the `else` arm is a
+DEFAULT, and its default is "flat"** — so any nominal the walk does not name
+explicitly is silently claimed as copyable and relocatable. Add the arm when you
+add the type.
+
+bug-479 also shows the second-order cost: with a wrong-but-flat classification,
+`thread_runtime_return_type` could return the wrong HANDLE KIND
+(`ThreadWorker` where `thread::start` returns the parent `Thread`) and nothing
+noticed, because no type-directed question was ever asked of the result until an
+inline `TRAP` asked one.
+
 **One predicate, several consumers — census before you conclude the fix is local.**
 bug-546 found a second consumer with the same blind spot after fixing the first:
 `builder_thread_cleanup.rs`'s `defer_resource_flag` (bug-425's deferral of the

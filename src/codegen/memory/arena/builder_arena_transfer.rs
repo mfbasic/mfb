@@ -433,6 +433,23 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
+            // bug-479: a thread handle is carried by POINTER, exactly like the
+            // non-sendable resource arm below and for the same reasons. It is a
+            // 120-byte block holding pointers to its two message queues and two
+            // resource queues, so a deep copy would duplicate the block while the
+            // queues stayed behind — every send into the copy would be lost.
+            //
+            // Carrying the pointer is sound here because the only materialization
+            // that reaches this arm is a SAME-ARENA one: an inline `TRAP` wrapping
+            // `thread::start`'s result in `Result OF Thread OF …`. A thread handle
+            // can never cross a thread boundary — `ir::verify`'s `is_copyable`
+            // answers `false` for `ThreadHandle`, and the frontend rejects sending
+            // one — so there is no cross-arena caller to strand a pointer for.
+            other if matches!(other, ParameterType::ThreadHandle { .. }) => {
+                let result = self.allocate_register();
+                self.emit(abi::move_register(&result, source));
+                Ok(result)
+            }
             // bug-546: likewise model-aware. A user-declared resource WITHOUT
             // `THREAD_SENDABLE` belongs here and not on the arm above — the
             // frontend forbids transferring it, so the only materialization that

@@ -2820,6 +2820,27 @@ fn flatness_walk(
         // the wrong answer for the transfer path. bug-483 is what that class of
         // accident costs when the default happens to be wrong.
         mode == Flatness::MemcpyCopyable
+    } else if matches!(type_, ParameterType::ThreadHandle { .. }) {
+        // bug-479: a thread handle is flat in NEITHER mode, for the same reason a
+        // bare resource nominal is not (the arm below) — and, like it, this used
+        // to be decided by accident. There was no `ThreadHandle` arm, and
+        // `record_field_is_pointer` in the `else` has none either, so the walk
+        // answered `true` for both modes.
+        //
+        // It is emphatically not flat. The value is a pointer to a 120-byte
+        // `THREAD_BLOCK_SIZE` block that itself holds POINTERS — to the inbound
+        // and outbound message queues and to both resource queues
+        // (`THREAD_OFFSET_RESOURCE_INBOUND_QUEUE` = 104,
+        // `THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE` = 112). "Memcpy-copyable" sent
+        // an inline-TRAP'd `thread::start` result to `copy_flat_block`, which then
+        // asked for an inlined field size for a handle — the reported build
+        // failure. "Arena-transferable" would be worse and silent: it is the gate
+        // on relocating a block into another thread's arena, and a copied block
+        // would carry the queue pointers while the queues stayed behind.
+        //
+        // `ir::verify`'s `is_copyable` has said `ThreadHandle { .. } => false`
+        // all along; this arm is codegen finally agreeing with it.
+        false
     } else if let ParameterType::ResultOf(payload) = type_ {
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
@@ -3722,6 +3743,58 @@ mod res_field_record_layout_tests {
         assert!(
             is_sendable_resource_nominal(&sendable, &db),
             "a RESOURCE declared THREAD_SENDABLE is"
+        );
+    }
+
+    /// bug-479: a thread handle is flat in NEITHER mode, and used to be flat in
+    /// BOTH by the same accident as a user-declared resource — no arm matched it,
+    /// and `record_field_is_pointer` in the `else` has no arm either.
+    ///
+    /// The value is a pointer to a 120-byte `THREAD_BLOCK_SIZE` block that itself
+    /// holds pointers to four queues, so "memcpy-copyable" is wrong (it sent an
+    /// inline-TRAP'd `thread::start` result to `copy_flat_block`, the reported
+    /// build failure) and "arena-transferable" is wrong AND silent — that
+    /// predicate gates relocating a block into another thread's arena, and the
+    /// copy would carry the queue pointers while the queues stayed behind.
+    ///
+    /// `ir::verify`'s `is_copyable` has answered `ThreadHandle { .. } => false`
+    /// all along; this is codegen agreeing with it.
+    #[test]
+    fn a_thread_handle_is_flat_in_neither_mode() {
+        let model = TypeModel::empty();
+        for spelling in [
+            "Thread OF String TO Integer",
+            "ThreadWorker OF String TO Integer",
+            "Thread OF String RES fs.File TO Integer",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert!(
+                matches!(type_, ParameterType::ThreadHandle { .. }),
+                "`{spelling}` must parse to a ThreadHandle for this test to mean \
+                 anything"
+            );
+            assert!(
+                !type_is_memcpy_copyable(&model, &type_),
+                "`{spelling}` is a handle to a block full of queue pointers, not a \
+                 copyable flat block"
+            );
+            assert!(
+                !type_is_arena_transferable(&model, &type_),
+                "`{spelling}` may never be relocated into another arena"
+            );
+        }
+    }
+
+    /// And the propagation: a `Result OF Thread …` is what an inline `TRAP` on
+    /// `thread::start` actually binds, so the payload's answer has to reach it.
+    #[test]
+    fn a_result_wrapping_a_thread_handle_is_flat_in_neither_mode() {
+        let model = TypeModel::empty();
+        let type_ = ParameterType::parse("Result OF Thread OF String TO Integer");
+        assert!(
+            !type_is_memcpy_copyable(&model, &type_) && !type_is_arena_transferable(&model, &type_),
+            "the ResultOf arm walks its payload, so a thread payload makes the \
+             whole Result non-flat"
         );
     }
 
