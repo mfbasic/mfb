@@ -63,3 +63,10 @@ examples/**/*.lock
 # plan-118-B: `gen_unicode_script_table.py` imports `gen_regex_scripts` for its
 # runs, so running a generator (or `check-generated.sh`) byte-compiles it here.
 __pycache__/
+
+# bug-470: the per-tree gate lock (`scripts/gate-lock.sh`). Released by an EXIT
+# trap, so it is normally absent — but a SIGKILLed run leaves the directory
+# behind (that is the case the stale-PID reclaim exists for), and an untracked
+# directory under `tests/` is exactly what a blanket `git add -A tests/` sweeps
+# into a branch.
+tests/.gate.lock/

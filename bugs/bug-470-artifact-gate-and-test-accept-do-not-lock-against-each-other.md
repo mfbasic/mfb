@@ -5,21 +5,48 @@ Effort: small (one `pgrep` per guard) — but see "Status of the evidence"
 Severity: MEDIUM (harness integrity; the failure mode is a silent flake, not an error)
 Class: Test-harness race
 
-Status: Open
-Regression Test: — (a guard test would assert each script refuses while the
-other is live; see "What a fix must produce")
+Status: **FIXED** (2026-09-05)
+Regression Test: `tests/gate_mutual_exclusion.rs` — five cases: same-tree
+refusal in BOTH orderings, cross-tree non-interference, stale-holder reclaim,
+and same-process-tree re-entrancy.
 
-## Status of the evidence: INFERRED, NOT REPRODUCED
+## Status of the evidence: BOTH HALVES NOW REPRODUCED (2026-09-05)
 
-This is a **code reading**, not an observed corruption. Two mutual-exclusion
-guards were read and found not to cover each other, and the paths they write and
-delete were read and found to overlap. Nobody has yet watched a run corrupt
-another. Whoever picks this up should decide whether to chase a repro first — the
-mitigation is small enough that proving the race may cost more than closing it.
+This section previously read "INFERRED, NOT REPRODUCED" — a code reading, with
+the note that the race might cost more to reproduce than to close. That caution
+was right to record and is now superseded: both halves were observed end to end
+against the pre-fix scripts, in about two minutes, using `byte-identity/bits` to
+keep each run short.
 
-Recording that distinction deliberately: a bug doc that says "reproduced" when it
-means "inferred from two greps" is the same error class as a golden that says
-"verified" when it means "regenerated".
+**Half 1 — too narrow (the filed bug).** In ONE tree at `527eca202`, with
+`test-accept.sh` live, `artifact-gate.sh` ran to completion:
+
+    $ bash scripts/test-accept.sh target/release/mfb /tmp/scratch 'byte-identity/bits*' &
+    $ bash scripts/artifact-gate.sh target/release/mfb bits
+    artifact-gate [bits]: 1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)
+    GATE_EXIT=0
+
+Neither guard fired. Both runs were regenerating and deleting the same fixture
+dumps in the same tree.
+
+**Half 2 — too broad.** With that same `test-accept.sh` live in `/tmp/gate-red`,
+a `test-accept.sh` in the SEPARATE worktree `/tmp/wt-546` was refused:
+
+    OTHER_TREE_EXIT=98
+    Another test-accept (pid 60169) is running.
+
+Two trees with entirely separate `tests/` directories, refused for no reason.
+
+**After the fix, both answers invert**, verified with the real scripts:
+
+    A. same tree, other script  -> EXIT=98
+       "Refusing to run: test-accept.sh (pid 64395) holds
+        /tmp/wt-470/tests/.gate.lock"
+    B. different tree, same script -> EXIT=0, gate completed normally
+
+So the fix does not merely add exclusion; it moves the guard's axis from the
+script's NAME to the TREE it mutates, which is the one dimension both old
+answers were missing.
 
 ## The two guards each match only their own script
 
@@ -96,7 +123,9 @@ rather than a tidy hypothesis.
 
 ## Failing reproduction
 
-None yet — see "Status of the evidence". A candidate shape, untested:
+**Reproduced 2026-09-05 — see "Status of the evidence" above for the observed
+output of both halves.** The candidate shape below was written before that and
+is exactly what worked, so it is kept as the recipe:
 
 1. In one worktree, start `bash scripts/artifact-gate.sh target/release/mfb all`.
 2. Immediately start `bash scripts/test-accept.sh target/release/mfb /tmp/scratch`.
@@ -106,10 +135,13 @@ None yet — see "Status of the evidence". A candidate shape, untested:
 Note step 2 must not pass a real directory as the second argument — it is an
 `rm -rf` scratch path.
 
-**A failed repro attempt proves nothing here.** The race needs two runs to touch
-one dump file within the window between the other's build and its compare, in a
-tree you are deliberately corrupting; missing that window is the expected
-outcome, not evidence of safety. Set against that, the mitigation is a one-line
+**A failed repro attempt proves nothing here** — and note what WAS and was not
+shown. The observation above is that **neither guard fires**, which is a
+deterministic property of the guards and reproduces every time. It is NOT an
+observation of an actual corrupted artifact: that still needs two runs to touch
+one dump file inside the window between the other's build and its compare, and
+missing that window is the expected outcome, not evidence of safety. The
+distinction matters, because the guard gap is what the fix closes. Set against that, the mitigation is a one-line
 `pgrep` widening in each guard, reusing filtering both scripts already have. That
 asymmetry — an unfalsifiable-in-practice repro against a near-free fix — is the
 argument for closing this without a reproduction, and nobody picking it up should
