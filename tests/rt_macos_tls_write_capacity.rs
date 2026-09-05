@@ -30,6 +30,7 @@ use std::time::Duration;
 /// are appended one at a time so the `List OF Byte` ends with `count == 5` and a
 /// grown capacity (spare slots), reproducing the mis-addressing condition.
 const EXPECTED: &[u8] = &[65, 66, 67, 68, 69]; // "ABCDE"
+
 // bug-537: there is deliberately no PORT constant. A hardcoded 18453 is a
 // machine-wide singleton: two copies of this test — routine, with work running in
 // several worktrees at once — collide, and the loser either fails to bind or
