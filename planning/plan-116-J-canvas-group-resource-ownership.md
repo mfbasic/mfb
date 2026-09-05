@@ -340,6 +340,50 @@ Commit: —
 
 ## Corrections
 
+**J5 (2026-09-05, pre-execution) — §2's open transfer question, answered, with the tail
+audit behind it.**
+
+The question: *does installing a resource into a process-global, graphics-thread-readable
+group buffer constitute a transfer under plan-114's rules?*
+
+**No.** A transfer is a move across a thread **plane** — `thread::transfer` /
+`thread::accept` — which relocates the resource record between arenas and is why
+`live_slots` exists: the copy must carry every live word past the canonical header.
+Installing into the group table relocates nothing:
+
+* the table stores a **pointer** to the items block;
+* the block's `Picture`/`Text` slot holds a **pointer** to the resource record, which
+  stays where the worker allocated it (`flatness_walk`'s `Res(_)` arm — the copy is an
+  alias, **J4**);
+* the graphics thread **reads** that record, which is the pattern already established for
+  every published scene: those blocks are worker-arena memory the graphics thread reads
+  (`.ai/canvas-threading.md` §3). Ownership adds no new cross-thread class.
+
+So `live_slots` need not change and `sendable` need not be flipped. **This letter is not
+a transfer; it is a lifetime extension within one arena.**
+
+**The audit the box asks for, done anyway, because "if yes" is not the only reason to
+know:**
+
+| resource | tail past the header | live across a hypothetical transfer? |
+|---|---|---|
+| `Image` | `WIDTH` 32, `HEIGHT` 40, `PIXELS` 48, `DIRTY` 56, `LAST_USED_FRAME` 64 | **`PIXELS` is the source of truth** the backend re-uploads from, and `WIDTH`/`HEIGHT` describe it. A transfer declaring no slots would truncate all three. |
+| `Font` | `BYTES` 32 | **the whole file.** Same conclusion, more starkly. |
+
+Both are declared `live_slots: &[]`, and **that is not a landmine** — the source says so
+in as many words: *"Not audited for transfer (bug-464 left canvas out of scope). Empty
+here is only consistent with `sendable: false`; opting an image in means auditing its
+record tail first, not just flipping the bit."* The `Font` twin adds *"which holds the
+whole file"*. The declarations are honest placeholders, and the audit above is what a
+future `sendable: true` would need — recorded here so it is not re-derived.
+
+**One consequence for this letter's own design.** Because the group holds an *alias*
+rather than a copy, "taking ownership" cannot mean "the group now has its own resource".
+It can only mean **the group becomes responsible for closing the one that exists**. That
+is why the close has to hang off the free path (**J4**: `emit_free_items_block`, the
+chokepoint both free sites funnel through) and not off anything at install time — at
+install there is nothing new to own.
+
 **J4 (2026-09-05, pre-execution) — §1's description of the gate is wrong in two ways,
 J2's central claim is wrong, and the slot this letter needs room in is full.**
 
