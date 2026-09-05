@@ -150,6 +150,34 @@ fn a_bind_that_only_aliases_a_live_resource_still_builds() {
         panic!("an alias-only resource bind must keep building:\n{err}");
     }
 
+    // bug-545: the same aliasing shape on a socket. `fs::File` passed only by
+    // accident — its package drags in the whole standard error-message set, so
+    // `_mfb_str_error_resource_closed` happened to exist. `tcp`/`udp` link no
+    // `_mfb_rt_fs_*`/`_mfb_rt_thread_*` symbol and no member on the name list, so
+    // the guard's relocation dangled and the build died on a compiler-internal
+    // symbol with no code and no location:
+    //   error: native code data relocation target
+    //          '_mfb_str_error_resource_closed' is not a data object or defined symbol
+    // Adding any other `tcp::` call "fixed" it, for the same accidental reason —
+    // which is why both sockets are pinned here without one.
+    for (package, type_) in [("tcp", "tcp::Socket"), ("udp", "udp::Socket")] {
+        let source = format!(
+            "IMPORT io\n\
+             IMPORT {package}\n\n\
+             FUNC take(RES s AS {type_}) AS Integer\n\
+            \x20 RES b AS {type_} = s\n\
+            \x20 RETURN 1\n\
+             END FUNC\n\n\
+             FUNC main AS Integer\n\
+            \x20 io::print(\"started\")\n\
+            \x20 RETURN 0\n\
+             END FUNC\n"
+        );
+        if let Err(err) = build(&format!("b545_alias_{package}"), &source) {
+            panic!("an alias-only `{type_}` rebind must build (bug-545):\n{err}");
+        }
+    }
+
     // The second aliasing shape the declarer recognizes: reading a resource
     // element out of a collection yields a pointer to the one resource, never a
     // transfer (§15.6), so the collection's owning scope closes it.

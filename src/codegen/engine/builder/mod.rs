@@ -2359,6 +2359,47 @@ pub(crate) fn lower_module_for_platform(
         data_objects.extend(unicode_runtime_data_objects(None));
     }
 
+    // bug-545: the fixed `_mfb_str_error_*` messages, emitted iff some generated
+    // function actually relocates against one — the same ground-truth scan the
+    // unicode tables above use, and for the same reason.
+    //
+    // The gates that register these run BEFORE codegen and predict the emission
+    // instead of observing it: one fires on a planned `_mfb_rt_fs_*`/
+    // `_mfb_rt_thread_*` runtime symbol, the other on a list of call names
+    // (`thread.cancel`, `thread.send`, …). Neither describes "this module emits a
+    // resource closed guard", so an aliasing `RES` rebind of a `tcp`/`udp`
+    // socket — §15.6's documented shape, with no other call into the package —
+    // emitted the guard, referenced `_mfb_str_error_resource_closed`, and failed
+    // the build with a message about a compiler-internal symbol. `fs::File` was
+    // fine only because its package drags in the whole standard set, and adding
+    // any `tcp::` call "fixed" it for the same accidental reason. That is the
+    // bug-256 class, patched twice before by adding one more name to the list;
+    // this closes it by construction, because the emitter and the registrar stop
+    // being two lists that have to be kept in step by hand.
+    //
+    // Additive only: a symbol is emitted here just when a function relocates
+    // against it AND it is not already present. Every program that links today
+    // already carries every string it references, so nothing is added to it and
+    // its data section stays byte-identical — the delta is confined to the
+    // programs that fail today.
+    let referenced_error_strings: std::collections::HashSet<&str> = code_functions
+        .iter()
+        .flat_map(|function| function.relocations.iter())
+        .filter(|relocation| {
+            relocation.binding == "data" && relocation.to.starts_with("_mfb_str_error_")
+        })
+        .map(|relocation| relocation.to.as_str())
+        .collect();
+    if !referenced_error_strings.is_empty() {
+        for (_, message, symbol) in standard_error_messages() {
+            if referenced_error_strings.contains(symbol)
+                && !data_objects.iter().any(|object| object.symbol == *symbol)
+            {
+                data_objects.push(string_data_object(symbol, message.to_string()));
+            }
+        }
+    }
+
     // plan-120-F: the powers-of-ten table `_mfb_rt_string_to_float` indexes by a
     // runtime decimal exponent. Same relocation gate as the unicode tables, and
     // for the same reason — it is 10 KiB, and a program that never converts text

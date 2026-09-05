@@ -21,7 +21,7 @@
 mod common;
 
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -30,7 +30,11 @@ use std::time::Duration;
 /// are appended one at a time so the `List OF Byte` ends with `count == 5` and a
 /// grown capacity (spare slots), reproducing the mis-addressing condition.
 const EXPECTED: &[u8] = &[65, 66, 67, 68, 69]; // "ABCDE"
-const PORT: u16 = 18453;
+// bug-537: there is deliberately no PORT constant. A hardcoded 18453 is a
+// machine-wide singleton: two copies of this test — routine, with work running in
+// several worktrees at once — collide, and the loser either fails to bind or
+// talks to the winner's server. The program now binds port 0 and PRINTS the port
+// the OS gave it, which removes the shared namespace entirely.
 
 /// Wall-clock bound on the peer exchange, guarding bug-386's
 /// `dispatch_semaphore_wait(FOREVER)` stall so a regression fails this test
@@ -102,7 +106,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     .expect("write project.json");
     // Build the byte list via append so CAPACITY > COUNT (the bug condition).
     let source = format!(
-        "IMPORT collections\nIMPORT encoding\nIMPORT tls\n\n\
+        "IMPORT collections\nIMPORT encoding\nIMPORT tls\nIMPORT net\nIMPORT io\n\n\
          FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
         \x20 RES client = tls::accept(listener)\n\
         \x20 LET greeting = encoding::utf8Decode(tls::read(client, 16))\n\
@@ -116,7 +120,9 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 RETURN len(greeting)\n\
          END FUNC\n\n\
          FUNC main AS Integer\n\
-        \x20 RES s = tls::listen(\"127.0.0.1\", {PORT}, \"{cert}\", \"{key}\")\n\
+        \x20 RES s = tls::listen(\"127.0.0.1\", 0, \"{cert}\", \"{key}\")\n\
+        \x20 LET at AS net::Address = tls::localAddress(s)\n\
+        \x20 io::print(\"port=\" & toString(at.port))\n\
         \x20 LET n AS Integer = serveOnce(s)\n\
         \x20 tls::close(s)\n\
         \x20 RETURN 0\n\
@@ -156,20 +162,43 @@ fn macos_tls_write_sends_capacity_over_count_byte_list_exactly() {
     let (cert, key) = write_cert(&root);
     let exe = build_project(&root, &cert, &key);
 
-    // Start the mfb TLS server; give it a moment to bind and listen.
+    // bug-537: read the port the server actually bound instead of sleeping.
+    // The old shape slept 1s and hoped the listener was up — a guess that fails
+    // exactly when the machine is loaded, which is when this test runs alongside
+    // other suites. The `port=` line cannot appear before `tls::listen` has
+    // returned, so reading it IS the readiness signal: no sleep, no window, and
+    // no assumption about how slow the box is.
     let mut server = Command::new(&exe)
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn mfb tls server");
-    std::thread::sleep(Duration::from_millis(1000));
+    let port = {
+        let stdout = server.stdout.take().expect("server stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("read the server's port line");
+        let port: u16 = line
+            .trim()
+            .strip_prefix("port=")
+            .unwrap_or_else(|| {
+                panic!("expected the server to announce `port=<n>` first; got {line:?}")
+            })
+            .parse()
+            .unwrap_or_else(|e| panic!("unparsable port line {line:?}: {e}"));
+        // Put the reader's remaining buffer out of scope; nothing else reads the
+        // server's stdout, and the child keeps running.
+        port
+    };
 
     // Connect as the peer, send a greeting, capture whatever the server writes.
     let mut client = Command::new("openssl")
         .args([
             "s_client",
             "-connect",
-            &format!("127.0.0.1:{PORT}"),
+            &format!("127.0.0.1:{port}"),
             "-quiet",
         ])
         .stdin(Stdio::piped())

@@ -64,7 +64,64 @@ The same shape with any BUILT-IN sendable resource (`tcp::Socket`,
 `tcp::Listener`, `tls::Socket`, `tls::Listener`, `udp::Socket`, `fs::File`)
 builds since bug-535 — so this is specific to a user-declared resource.
 
-## Root Cause (not yet confirmed)
+## Root Cause (CONFIRMED 2026-09-05)
+
+Reproduced on `c61133282` with a `LINK "c"` scaffold (`fopen`/`fclose`):
+
+    error: native inlined field size not available for type 'Db' while lowering bind d AS Db
+
+The classification predicates are **built-in only**:
+
+    is_resource_type(t)                 -> resource::is_builtin_resource_type(t)
+    is_thread_sendable_resource_type(t) -> resource::is_builtin_sendable_resource_type(t)
+    (src/codegen/builtins/mod.rs:141-147)
+
+`copy_value_to_current_arena`'s dispatch
+(`src/codegen/memory/arena/builder_arena_transfer.rs:415-434`) has three arms —
+collection, *sendable* resource (deep copy), *any* resource (carry the pointer,
+move-only) — and a user-declared `RESOURCE Db THREAD_SENDABLE` matches **none**
+of them, because it is not a builtin. It therefore falls through to the flat /
+record path, which asks for an inlined field size for a type that is really an
+8-byte handle. That is the same shape the registry already documents for
+`audio.AudioOutput` (`registry/mod.rs:2242`): "a bare resource spelling is
+invisible to the resource classification", so a handle gets flat-copied.
+
+The module's own resources ARE known to codegen — `TypeModel::resource_names`
+(`engine/builder/mod.rs:751`), keyed by the bare declared type, which is what
+bug-535's fix used. So the missing ingredient is not information, it is that the
+two predicates consult only the builtin table.
+
+## The design question a fix must answer first (do not skip to the predicate)
+
+Widening the predicates is a two-line change and is **not obviously safe**, so it
+must not be made without answering this:
+
+- The **sendable** arm deep-copies the record via `copy_resource_to_current_arena`.
+  Its sibling arm's comment warns a deep clone "would both duplicate the OS handle
+  and assume the fixed `File` layout, which audio's larger `AudioHandle` does not
+  share". A user-declared resource's record comes from its `LINK` block; whether
+  it matches the canonical layout the copier assumes is unverified.
+- The **pointer** arm is move-only and layout-agnostic, but a cross-thread accept
+  that merely carries a pointer publishes a reference into the *sender's* arena —
+  and arena state is per-thread. That is exactly bug-498's class (fixed there by
+  copying in the sender's arena), so choosing this arm without checking would
+  risk reintroducing a use-after-free rather than fixing a build error.
+
+So the two candidate one-line fixes lead to a duplicated OS handle and a
+cross-arena dangle respectively, unless the record layout question is settled
+first. The bug's own fallback — reject `THREAD_SENDABLE` on a user-declared
+resource with a rule code and a location — remains available and is strictly
+better than today's unlocated lowering error, but it removes a documented
+capability (`mfb man thread`), so it is a product decision rather than a
+mechanical fix.
+
+**Recommended next step:** determine empirically what record a user-declared
+`RESOURCE` allocates (canonical `RESOURCE_RECORD_SIZE` with the closed flag at
++16, or something the `LINK` block shapes), then pick the arm that follows from
+it. Until that is answered this is not a 1-2h fix, and the effort estimate above
+is optimistic.
+
+## Original hypothesis (now superseded by the section above)
 
 `thread::accept`'s return type is the resource's declared type. The "native
 inlined field size not available" message comes from the field-size lookup that
