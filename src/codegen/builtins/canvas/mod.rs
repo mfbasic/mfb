@@ -1000,6 +1000,7 @@ pub(crate) fn register(r: &mut Registry) {
         live_slots: &[],
         // `destroyImage` sets the closed flag and returns; the backend frees the real
         // object later, on its own schedule, so there is nothing here that can fail.
+        unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
@@ -1022,6 +1023,7 @@ pub(crate) fn register(r: &mut Registry) {
         // `destroyFont` sets the closed flag and returns. The font's bytes are
         // arena-owned, so unlike a file there is no OS handle to hand back and nothing
         // here that can fail.
+        unsendable_reason: Some("it belongs to the drawing surface's thread"),
         close_may_fail: false,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

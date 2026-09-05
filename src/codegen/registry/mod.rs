@@ -866,6 +866,16 @@ pub(crate) struct RegistryResource {
     /// and a cache that a move intentionally resets, so it declares no slots and
     /// keeps the zeroing behaviour it has always had.
     pub(crate) live_slots: &'static [ResourceLiveSlot],
+    /// Why this handle stays on the thread that opened it, when
+    /// [`sendable`](Self::sendable) is `false` — one clause, rendered onto the
+    /// type page after the derived "stays on the thread that opened it" line.
+    ///
+    /// `None` for a sendable resource, where there is nothing to explain. The
+    /// **transferability itself is derived from the bit**, never restated in
+    /// prose: that is the drift bug-522 recorded, where `thread::transfer`'s
+    /// page denied a capability the registry had granted a year earlier. Only
+    /// the reason is prose, because only the reason is per-resource.
+    pub(crate) unsendable_reason: Option<&'static str>,
     /// Whether the close op can fail (mirrors
     /// the drop-time cleanup derives the same fact from the close wrapper's
     /// `SUCCESS ON`).
@@ -4235,6 +4245,7 @@ mod tests {
             close_function,
             sendable: true,
             live_slots: &[],
+            unsendable_reason: None,
             close_may_fail: true,
             kind: crate::codegen::resource::ResourceKind::Builtin,
         }

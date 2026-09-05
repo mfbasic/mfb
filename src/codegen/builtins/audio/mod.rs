@@ -400,7 +400,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_resource(RegistryResource {
         name: AUDIO_INPUT_TYPE,
         export: true,
-        description: "An opaque, move-only PCM capture stream from `audio::openInput`, closed \
+        description: "An opaque PCM capture stream from `audio::openInput`, closed \
                       automatically when its binding goes out of scope.",
         close_function: CLOSE_INPUT,
         // A capture stream is driven from its owning thread (blocking read / OS
@@ -413,13 +413,16 @@ pub(crate) fn register(r: &mut Registry) {
         // slots here would imply an audit that has not happened -- opting one in
         // means doing that audit and filling this list, not flipping the bit.
         live_slots: &[],
+        unsendable_reason: Some(
+            "a capture stream is driven from the thread that opened it",
+        ),
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });
     pkg.add_resource(RegistryResource {
         name: AUDIO_OUTPUT_TYPE,
         export: true,
-        description: "An opaque, move-only PCM playback stream from `audio::openOutput`, closed \
+        description: "An opaque PCM playback stream from `audio::openOutput`, closed \
                       automatically when its binding goes out of scope.",
         close_function: CLOSE_OUTPUT,
         // A playback stream blocks on write from its owning thread; not
@@ -428,6 +431,9 @@ pub(crate) fn register(r: &mut Registry) {
         // As the capture stream above: live tail state, deliberately unaudited
         // and out of bug-464's scope.
         live_slots: &[],
+        unsendable_reason: Some(
+            "a playback stream waits for room from the thread that opened it",
+        ),
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

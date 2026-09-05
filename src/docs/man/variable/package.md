@@ -233,6 +233,71 @@ after the scope ended: scope test
 Nothing closed the file explicitly. Call `close` only when you want the handle
 released *earlier* than the end of its scope.
 
+## Where a handle can live
+
+A handle is not only a local binding. It can be a **field of a record** and an
+**element of a collection**, and it can be handed to **another thread** — and
+the rules above hold in every one of those places: the handle is still an alias,
+and it is still closed once, when the scope that holds it ends.
+
+A record with a `RES` field is built the same way as any other record, with the
+positional `Type[...]` form:
+
+```basic
+IMPORT io
+IMPORT fs
+
+TYPE LogFile
+  name AS String
+  handle AS RES fs::File
+END TYPE
+
+SUB main()
+  RES f AS fs::File = fs::open("/tmp/variable-holder.txt", "write")
+  LET log AS LogFile = LogFile["app", f]
+
+  fs::writeAll(log.handle, "written through a record field\n")
+  io::print("wrote through " & log.name)
+END SUB
+```
+
+```
+wrote through app
+```
+
+`log.handle` and `f` are two names for one open file, exactly as a parameter and
+its argument are.
+
+A collection of handles is written **`List OF RES fs::File`** — the `RES` marker
+on the element is required, and a bare `List OF fs::File` is refused:
+
+```basic
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+SUB main()
+  RES a AS fs::File = fs::open("/tmp/variable-a.txt", "write")
+  RES b AS fs::File = fs::open("/tmp/variable-b.txt", "write")
+
+  MUT files AS List OF RES fs::File = []
+  files = collections::append(files, a)
+  files = collections::append(files, b)
+
+  io::print("holding " & toString(len(files)) & " handles")
+END SUB
+```
+
+```
+holding 2 handles
+```
+
+The list closes each of them once, at the end of the scope that holds the list.
+
+Crossing a thread is the one shape that is not available to every handle. Each
+resource type page says which it is — `mfb man fs types`, `mfb man tcp types`
+and so on — and `mfb man thread` describes the resource channel that carries it.
+
 ## What goes away, and when
 
 A value lasts as long as the name that holds it. When the scope ends, it is

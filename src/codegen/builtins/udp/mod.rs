@@ -173,6 +173,7 @@ pub(crate) fn register(r: &mut Registry) {
         // deadlines are kernel-side (`SO_RCVTIMEO`/`SO_SNDTIMEO`), so they ride
         // the fd across a move for free.
         live_slots: &[],
+        unsendable_reason: None,
         close_may_fail: true,
         kind: crate::codegen::resource::ResourceKind::Builtin,
     });

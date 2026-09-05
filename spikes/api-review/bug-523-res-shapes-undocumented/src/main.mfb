@@ -1,13 +1,21 @@
-' bug-523 -- three things a RES handle can do that no resource type page says
-' it can do.
+' bug-523 (FIXED) -- three things a RES handle can do that no resource type page
+' said it could do.
 '
-' Every one of the 11 built-in resource pages (`mfb man <pkg> types`) is one
-' sentence: what the handle is, and that it closes at scope exit. None of them
-' mentions that a RES value may be a field of a record, an element of a
-' collection, or handed to another thread -- so a reader looking at
-' `mfb man fs types` has no way to learn any of it.
+' Every one of the 11 built-in resource pages (`mfb man <pkg> types`) was one
+' sentence: what the handle is, and that it closes at scope exit. None mentioned
+' that a RES value may be a field of a record, an element of a collection, or be
+' handed to another thread.
 '
-' This program does the first two. The third is bug-522's spike.
+' All three are stated now, and the split is deliberate: the two that are true
+' of ALL eleven are written ONCE, in the `## Resources` preamble each page
+' renders, and the third is DERIVED from each resource's `sendable` bit rather
+' than restated -- which is the drift bug-522 recorded. `mfb man variable` gained
+' a "Where a handle can live" section with a runnable example of each shape.
+'
+' Two false statements went with it: `process`'s package description said a
+' handle "cannot be a field of a record", and `mfb spec stdlib transports` said
+' "No transport handle may be stored in a record field". Both are refuted below
+' and by tests/rt-behavior/resources/record-res-field-export-rt.
 
 IMPORT io
 IMPORT fs
@@ -18,13 +26,14 @@ TYPE Holder
 END TYPE
 
 FUNC main AS Integer
-  ' 1. A RES handle as a record field. Note the construction form is the
-  '    bracket-positional `Holder[...]`; the named-argument form does not
-  '    typecheck for a record with a resource field.
+  ' 1. A RES handle as a record field. The construction form is the
+  '    bracket-positional `Holder[...]` -- which is not a resource limitation:
+  '    MFBASIC record literals are positional for every record, resource-free
+  '    ones included, so there is no named-argument form to be missing.
   RES f = fs::open("/tmp/bug-523-a.txt", "write")
   LET h = Holder["log", f]
   fs::writeAll(h.handle, "written through a record field")
-  io::print("1. RES as a record field: works, and nothing in `mfb man fs types` says so")
+  io::print("1. RES as a record field: works, and `mfb man fs types` says so now")
 
   ' 2. RES handles as collection elements. The element type must be marked
   '    `RES`; a bare `List OF fs::File` is TYPE_RESOURCE_REQUIRES_RES.
@@ -35,6 +44,6 @@ FUNC main AS Integer
 
   ' 3. Crossing a thread: see spikes/api-review/bug-522-transfer-list-stale/,
   '    where the two pages that do discuss it disagree with each other.
-  io::print("3. RES across a thread: see the bug-522 spike -- documented twice, incompatibly")
+  io::print("3. RES across a thread: each type page now derives the answer from `sendable`")
   RETURN 0
 END FUNC
