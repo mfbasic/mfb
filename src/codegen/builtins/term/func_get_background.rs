@@ -28,6 +28,10 @@ the background to black — it is (0, 0, 0); after a `term::setBackground` call 
 is exactly the colour that was set, until the next `term::setBackground` or the next
 `term::on`.
 
+Unlike most of the module, this call does not simply do nothing while TUI mode is
+off: it returns the **inert default**, black, (0, 0, 0). A program cannot tell "off" from "on
+with that background set" by this call alone — use `term::isOn` for that.
+
 This is the *current attribute*, not the colour of anything on screen. Each cell
 of the grid carries the attributes that were current when its glyph was written,
 so this call says what the next drawing will use, not what the cell under the

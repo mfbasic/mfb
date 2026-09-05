@@ -7,8 +7,8 @@ IMPORT color
 FUNC main AS Integer
   term::on()
   term::setForeground(color::rgb(255, 255, 0))
-  term::drawText(3, 2, "Hello, TUI!")
-  term::drawText(-2, 4, "clip-left")      ' first two scalars fall off the left edge
+  term::drawText(2, 3, "Hello, TUI!")
+  term::drawText(4, -2, "clip-left")      ' first two scalars fall off the left edge
   term::drawGlyph(0, 0, 9731)             ' also exercise drawGlyph (snowman U+2603)
   term::sync()
   term::off()

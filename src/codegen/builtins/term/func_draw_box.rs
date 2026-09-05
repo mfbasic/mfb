@@ -14,9 +14,10 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Draw a rectangular box in a box-drawing style"#;
 
 const DESC: &str = r#"`term::drawBox` draws a rectangle into the retained surface in the chosen
-`term::LineStyle`. The two points `(x1, y1)` and `(x2, y2)` are **opposite corners** —
-`x` is the column and `y` is the row, both **zero-based** from the top-left — and
-they may be given in any order. The box is drawn as the four edges followed by the
+`term::LineStyle`. The two points `(rowA, columnA)` and `(rowB, columnB)` are
+**opposite corners**. Like every `term::` position they are written **row first,
+then column**, both **zero-based** from the top-left, and the two corners may be
+given in any order. The box is drawn as the four edges followed by the
 four corners: the top and bottom rows are horizontal runs and the left and right
 columns are vertical runs, each using this style's own line glyph, and then the
 four corner cells are overwritten with the matching corner glyph. Everything is
@@ -34,10 +35,17 @@ Each edge and each corner is **clamped to the surface independently**, so a box
 that runs off one side still draws the parts that are on-screen (including the
 edges along the visible sides), and a box entirely off the surface draws nothing.
 No error is raised for an out-of-range request. A one-cell-wide or one-cell-tall
-box collapses to a line or a single cell, with the corners drawn last. The same
-surface renders identically on the console and in windowed app mode.
+box collapses to a line or a single cell, with the corners drawn last.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+**Two app-mode gaps apply to this call** (see `mfb man term`). In a **Linux**
+`--app` build it is not implemented and draws nothing; a Linux terminal is
+unaffected. In a **Windows** `--app` build it draws, but ignores `line` and always
+uses the `Light` glyphs. The console backend on every platform, and macOS app
+mode, honour the style.
+
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Draw a light box near the top-left corner:
 
@@ -46,7 +54,7 @@ IMPORT term
 
 SUB main()
   term::on()
-  term::drawBox(term::LineStyle.Light, 2, 1, 20, 8)
+  term::drawBox(term::LineStyle.Light, 1, 2, 8, 20)
   term::sync()
   term::off()
 END SUB
@@ -60,7 +68,7 @@ IMPORT term
 SUB main()
   term::on()
   LET size AS term::TermSize = term::terminalSize()
-  term::drawBox(term::LineStyle.Double, 0, 0, size.columns - 1, size.rows - 1)
+  term::drawBox(term::LineStyle.Double, 0, 0, size.rows - 1, size.columns - 1)
   term::sync()
   term::off()
 END SUB
@@ -109,29 +117,29 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "x1",
-                    desc: "Column of the first corner (zero-based). Clamped to the surface.",
+                    name: "rowA",
+                    desc: "Row of the first corner (zero-based, counting from 0 at the top). Clamped to the surface.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "y1",
-                    desc: "Row of the first corner (zero-based). Clamped to the surface.",
+                    name: "columnA",
+                    desc: "Column of the first corner (zero-based, counting from 0 at the left). Clamped to the surface.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "x2",
-                    desc: "Column of the opposite corner; may be less or greater than `x1`.",
+                    name: "rowB",
+                    desc: "Row of the opposite corner; may be less or greater than `rowA`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
-                    name: "y2",
-                    desc: "Row of the opposite corner; may be less or greater than `y1`.",
+                    name: "columnB",
+                    desc: "Column of the opposite corner; may be less or greater than `columnA`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

@@ -12,8 +12,9 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Enter TUI mode: take over the screen and reset all `term::` state"#;
 
 const DESC: &str = r#"`term::on` is the gate for the whole module. Every other `term::` call except
-`term::isOn` short-circuits to a no-op (or, for the getters, to an inert default)
-while TUI mode is off, so nothing a program draws takes effect until `term::on`
+`term::isOn` and `term::didResize` short-circuits while TUI mode is off — to a
+no-op, or to an inert default for the getters, or to `ErrUnsupported` for
+`term::terminalSize` — so nothing a program draws takes effect until `term::on`
 has returned. It takes no arguments.
 
 The call does four things, in this order.
@@ -42,8 +43,8 @@ Drawing is **buffered**: from here on, every drawing call — including
 only `term::sync` puts a frame on screen. **A program that draws without
 calling `term::sync` displays nothing.**
 
-`term::on` is one of the two calls that are not gated, so calling it while TUI
-mode is already on runs the whole sequence again: a fresh surface sized to the
+`term::on` is one of the calls that are not gated, so calling it while TUI mode is
+already on runs the whole sequence again: a fresh surface sized to the
 terminal, defaults restored, and the previously drawn frame discarded. Guard with
 `term::isOn` if that is not wanted."#;
 

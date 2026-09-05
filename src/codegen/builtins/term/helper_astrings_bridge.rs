@@ -17,7 +17,7 @@ use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"' ===========================================================================
-' term ↔ astrings bridge: term::drawText(x, y, text AS AttributedString)
+' term ↔ astrings bridge: term::drawText(row, column, text AS AttributedString)
 '
 ' The native drawing callables know nothing of the `astrings` attribute overlay,
 ' so the AttributedString overload of `term::drawText` is a source-companion body
@@ -25,7 +25,7 @@ r#"' ===========================================================================
 ' `term` and `astrings` (see `term::bridge_uses_package`), so a plain `IMPORT term`
 ' program never drags in the `astrings`/`strings` companions this file needs.
 '
-' `__term_drawTextAttr` stamps the visible text at (x, y) exactly as the String
+' `__term_drawTextAttr` stamps the visible text at (row, column) exactly as the String
 ' overload, but honours the per-scalar styling the AttributedString carries. Only
 ' the attributes the terminal surface can represent are applied — bold, underline,
 ' foreground color and background color; every other attribute (italic, strike,
@@ -124,7 +124,7 @@ SUB __term_applyBg(packed AS Integer, saved AS color::Color)
   END IF
 END SUB
 
-SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
+SUB __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedString)
   IF term::isOn() THEN
     LET text AS String = toString(value)
     LET n AS Integer = len(strings::toScalars(value))
@@ -132,7 +132,7 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
     LET saveUnderline AS Boolean = term::getUnderline()
     LET saveFg AS color::Color = term::getForeground()
     LET saveBg AS color::Color = term::getBackground()
-    MUT col AS Integer = x
+    MUT col AS Integer = column
     MUT i AS Integer = 0
     WHILE i < n
       LET st AS __TermStyle = __term_styleAt(value, i)
@@ -145,7 +145,7 @@ SUB __term_drawTextAttr(x AS Integer, y AS Integer, value AS AttributedString)
       term::setUnderline(st.underline)
       __term_applyFg(st.fg, saveFg)
       __term_applyBg(st.bg, saveBg)
-      term::drawText(col, y, seg)
+      term::drawText(row, col, seg)
       col = col + strings::displayWidth(seg)
       i = j
     END WHILE

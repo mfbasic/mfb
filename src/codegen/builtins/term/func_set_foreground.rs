@@ -39,7 +39,9 @@ which resets the foreground to white (255, 255, 255). The background colour and 
 attributes are independent and are left untouched; the current value can be read
 back with `term::getForeground`.
 
-The call is gated: while TUI mode is off it does nothing and reports no error."#;
+The call is gated: while TUI mode is off it does nothing and reports no
+error (in a Linux or Windows `mfb build --app` build the gate is
+not enforced — see `mfb man term`)."#;
 
 const EX: &str = r#"Draw coloured text and present the frame:
 

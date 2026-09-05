@@ -12,9 +12,9 @@ FUNC main AS Integer
   a = astrings::addAttribute(a, 8, 10, astrings::underline())  ' "Und"
   a = astrings::addAttribute(a, 0, 1, astrings::italic())      ' ignored
   a = astrings::addAttribute(a, 0, 10, astrings::font("Serif")) ' ignored
-  term::drawText(2, 1, a)
+  term::drawText(1, 2, a)
   ' The String overload is unaffected and still lowers natively.
-  term::drawText(2, 3, "plain")
+  term::drawText(3, 2, "plain")
   term::sync()
   term::off()
   RETURN 0

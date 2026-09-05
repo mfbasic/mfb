@@ -123,8 +123,26 @@ background colors and the bold and underline attributes, clears the screen,
 shows or hides the cursor, reports the surface size, and reports whether the
 surface was resized (`term::didResize`). The same surface is
 rendered on the console backend (using the terminal's alternate screen and ANSI
-sequences) and in windowed app mode (`mfb build --app`), so a program draws the
-same way on both.
+sequences) and in windowed app mode (`mfb build --app`), so the same program
+source drives both.
+
+**Three app-mode gaps are worth knowing before you rely on them**, all of them
+about `mfb build --app` only — a program run in a terminal behaves the same
+everywhere.
+
+1. The positioned drawing calls — `term::drawHLine`, `drawVLine`, `drawBox`,
+   `fillRect`, `drawText` and `drawGlyph` — are **not implemented by the Linux app
+   backend** and draw nothing there.
+2. **Windows** app mode draws them, but ignores the `term::LineStyle` and
+   `term::FillStyle` argument: lines and boxes always come out `Light`, and
+   `fillRect` paints the background rather than a block or shade glyph. Its
+   surface is also a fixed 80 by 25 cells, and `term::drawText` stamps one
+   position per Unicode scalar there rather than per grapheme cluster.
+3. The "does nothing while TUI mode is off" rule below is not enforced by the
+   Linux and Windows app backends: after `term::off`, a `term::` call that should
+   be inert can still touch the window's surface or state there. Reach
+   `term::off` last, as a program should anyway, and the difference does not
+   arise.
 
 `term::on` is the gate for the whole module. It switches the terminal into TUI
 mode and resets all `term::` state to its defaults (white foreground, black
@@ -132,9 +150,12 @@ background, bold and underline off, cursor visible, screen cleared, cursor at
 the home position). While TUI mode is off, nearly every other `term::` call is a
 no-op, so a program must call `term::on` before any cursor, color, attribute, or
 clear call takes effect, and `term::off` later leaves TUI mode and restores the
-user's previous screen. There are two exceptions to the no-op rule:
-`term::isOn`, which answers either way, and **`term::terminalSize`, which raises
-`ErrUnsupported`** rather than returning a meaningless size.
+user's previous screen. Three calls are exceptions to the no-op rule.
+`term::isOn` and `term::didResize` are **not gated at all** and answer either way
+— `term::isOn` reports whether TUI mode is on, and `term::didResize` reports (and
+clears) a pending resize, reading `FALSE` before any `term::on`. `term::terminalSize` is
+the third: it **raises** `ErrUnsupported` rather than returning a meaningless
+size.
 
 While TUI mode is on the surface is **retained** and drawing is **buffered**:
 drawing calls (including `io::print`/`io::write`) update the surface rather
@@ -148,12 +169,28 @@ always shown. A program that draws without a following `term::sync` displays
 nothing - the canonical shape is to compose a whole frame, call `term::sync`
 once, then read input.
 
-Coordinates are zero-based and measured from the top-left corner of the surface:
-row 0 is the topmost line and column 0 is the leftmost column, so (0, 0) is the
-home position. The first coordinate is always the row (vertical) and the second
-the column (horizontal). Negative coordinates are clamped to 0; in app mode they
-are also clamped at the high end to the last valid cell. Colors are 24-bit RGB
-triples of three `Byte` channels (red, green, blue), each 0 to 255. Color and
+The surface is measured in whole character cells — never pixels — and every
+position on it is a **row and a column**. Coordinates are zero-based and measured
+from the top-left corner: row 0 is the topmost line and column 0 is the leftmost
+column, so `(0, 0)` is the home position. **Every `term::` position is written row
+first, then column**, without exception: `term::moveTo(row, column)`,
+`term::drawText(row, column, text)`, `term::drawGlyph(row, column, codepoint)`, the
+two opposite corners of `term::drawBox`/`term::fillRect`
+(`rowA, columnA, rowB, columnB`), and the start of a run in
+`term::drawHLine(line, row, columnA, columnB)` and
+`term::drawVLine(line, rowA, column, rowB)` — each of which names its start point
+row-first and then the far end of the run.
+
+Out-of-range coordinates are handled per call, and the rule differs by kind:
+`term::moveTo` **clamps** at both ends, so the cursor always lands on a real cell;
+`term::drawHLine`/`drawVLine`/`drawBox`/`fillRect` **clamp the span** and draw
+whatever part of it is on the surface (nothing, if none of it is); and
+`term::drawText` **clips its run** — a row off the surface draws nothing, and a run
+that starts left of column 0 or runs past the right edge keeps only the on-screen
+part; and `term::drawGlyph` is **bounds-checked, not clamped** — its single cell
+either is on the surface or nothing is drawn. No `term::` drawing call raises an
+error for an out-of-range coordinate. Colors are `color::Color` values whose channels are
+`Byte`s, each 0 to 255. Color and
 attribute changes take effect immediately for subsequently drawn text and do not
 alter text already on the screen; each setting is independent, so changing one
 leaves the others untouched, and the matching get function reads the current

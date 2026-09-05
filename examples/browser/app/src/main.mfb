@@ -620,7 +620,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
     ' Clear the row, then stamp the styled content shifted left by `hscroll`:
     ' term::drawText skips negative columns and clips at the right edge, so it
     ' windows the row horizontally without slicing the (opaque) AttributedString.
-    term::drawText(0, 2 + r, blank)
+    term::drawText(2 + r, 0, blank)
     IF idx >= 0 AND idx < len(wrapped) THEN
       MUT rowA AS AttributedString = collections::get(wrapped, idx)
       FOR EACH rc IN focusRects
@@ -628,7 +628,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
           rowA = highlightRow(rowA, rc.c0, rc.c1)
         END IF
       NEXT
-      term::drawText(0 - hscroll, 2 + r, rowA)
+      term::drawText(2 + r, 0 - hscroll, rowA)
       ' Stamp any edited field box over the row it lands on. drawText places each
       ' cell absolutely, skipping negative columns and clipping at the right edge,
       ' so the same horizontal window as the row applies.
@@ -638,7 +638,7 @@ SUB drawContent(size AS term::TermSize, wrapped AS List OF AttributedString, scr
           IF pa.focused AND len(pa.text) > 0 THEN
             boxA = astrings::addAttribute(boxA, 0, len(pa.text) - 1, astrings::background(color::rgb(60, 90, 150)))
           END IF
-          term::drawText(pa.rect.c0 - hscroll, 2 + r, boxA)
+          term::drawText(2 + r, pa.rect.c0 - hscroll, boxA)
         END IF
       NEXT
     END IF

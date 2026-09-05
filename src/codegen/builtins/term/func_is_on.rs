@@ -15,11 +15,12 @@ const DESC: &str = r#"`term::isOn` returns `TRUE` while the `term::` surface is 
 `term::on` and before the matching `term::off` — and `FALSE` otherwise, including
 before any `term::on` call. It takes no arguments.
 
-`term::isOn` and `term::on` are the only two calls in the module that are **not
-gated**. Every other `term::` call short-circuits while TUI mode is off: the
-setters and `term::clear`, `term::moveTo`, and `term::sync` do nothing,
-`term::getForeground`/`getBackground`/`getBold`/`getUnderline` return inert
-defaults rather than live state, and `term::terminalSize` raises
+`term::on`, `term::isOn` and `term::didResize` are the three calls in the module
+that are **not gated**. Every other `term::` call short-circuits while TUI mode is
+off: the setters, `term::clear`, `term::moveTo`, `term::sync` and all six drawing
+calls (`drawHLine`, `drawVLine`, `drawBox`, `fillRect`, `drawText`, `drawGlyph`)
+do nothing, `term::getForeground`/`getBackground`/`getBold`/`getUnderline` return
+inert defaults rather than live state, and `term::terminalSize` raises
 `ErrUnsupported`. That is what makes this query useful: it is the way to find out
 whether the rest of the surface will actually do anything.
 

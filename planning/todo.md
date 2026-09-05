@@ -525,15 +525,4 @@ count. Trivial given findAll, but strings::count exists and people will look for
 
 ---
 
-The coordinate convention is broken, and the overview lies about it. The package intro says the first coordinate is always row, the second column. That is only true of moveTo(row, column). Everything else is Cartesian:
-
-drawText(x, y, …) — column, then row
-drawGlyph(x, y, …)
-drawBox(…, x1, y1, x2, y2)
-fillRect(…, x1, y1, x2, y2)
-drawHLine / drawVLine each invent their own argument order
-
-More term::* to row/column.
-
----
 

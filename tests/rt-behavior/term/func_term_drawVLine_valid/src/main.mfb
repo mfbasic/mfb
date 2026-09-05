@@ -8,10 +8,10 @@ IMPORT color
 FUNC main AS Integer
   term::on()
   term::setForeground(color::rgb(0, 128, 255))
-  term::drawVLine(term::LineStyle.Heavy, 2, 1, 6)       ' heavy, rows 1..6
-  term::drawVLine(term::LineStyle.Double, 4, 6, 1)      ' reversed endpoints -> rows 1..6
-  term::drawVLine(term::LineStyle.HeavyDot, 6, -2, 3)   ' clamp low -> rows 0..3
-  term::drawVLine(term::LineStyle.Light, 200, 0, 5)     ' off-grid column -> nothing
+  term::drawVLine(term::LineStyle.Heavy, 1, 2, 6)       ' heavy, rows 1..6
+  term::drawVLine(term::LineStyle.Double, 6, 4, 1)      ' reversed endpoints -> rows 1..6
+  term::drawVLine(term::LineStyle.HeavyDot, -2, 6, 3)   ' clamp low -> rows 0..3
+  term::drawVLine(term::LineStyle.Light, 0, 200, 5)     ' off-grid column -> nothing
   term::sync()
   term::off()
   RETURN 0

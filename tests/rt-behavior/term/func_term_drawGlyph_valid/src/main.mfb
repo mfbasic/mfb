@@ -7,10 +7,10 @@ FUNC main AS Integer
   term::on()
   term::setForeground(color::rgb(0, 255, 128))
   term::drawGlyph(1, 1, 65)          ' 'A'
-  term::drawGlyph(3, 1, 9731)        ' snowman U+2603 (3-byte)
-  term::drawGlyph(5, 1, 128512)      ' emoji U+1F600 (4-byte, astral)
-  term::drawGlyph(200, 5, 66)        ' off-grid column -> nothing
-  term::drawGlyph(7, 1, 10)          ' control (newline) -> skipped
+  term::drawGlyph(1, 3, 9731)        ' snowman U+2603 (3-byte)
+  term::drawGlyph(1, 5, 128512)      ' emoji U+1F600 (4-byte, astral)
+  term::drawGlyph(5, 200, 66)        ' off-grid column -> nothing
+  term::drawGlyph(1, 7, 10)          ' control (newline) -> skipped
   term::sync()
   term::off()
   RETURN 0
