@@ -35,8 +35,16 @@ Stated once in plan-122-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-122-C complete | `ls planning/completed/plan-122-C-*` → one match | NOT MET |
-| canvas already imports `color` (landed in B) | `grep -n 'add_imports' -A 8 src/codegen/builtins/canvas/mod.rs` shows `"color"` | NOT MET |
+| plan-122-C complete | `ls planning/completed/plan-122-C-*` → one match | **MET** (2026-09-05) — `planning/completed/plan-122-C-color-names.md`, one match |
+| canvas already imports `color` (landed in B) | `grep -n 'add_imports' -A 8 src/codegen/builtins/canvas/mod.rs` shows `"color"` | **MET** (2026-09-05) — `canvas/mod.rs:187` carries `"color"`, added by plan-122-B when the sRGB table moved. **This letter adds no new import.** |
+
+Shared rows from plan-122-A, re-measured 2026-09-05: release binary built
+(33,665,040 bytes); `git status --porcelain` empty; `qualify_value_type_references`
+present (`src/codegen/registry/mod.rs:1733`).
+
+D is the last unrun letter — A, B, C, E and F are all archived in
+`planning/completed/`. It runs **after** E and F rather than before them, which is
+the reverse of the authored order; nothing in D depended on that order (§Corrections).
 
 If plan-122-C is not complete, this sub-plan cannot start, full stop.
 
@@ -193,16 +201,23 @@ every rendered pixel.
 Land nothing; produce the work list the remaining phases execute against, so no
 site is discovered late.
 
-- [ ] Enumerate every site with `grep -rn 'canvas::rgb(\|canvas::rgba(\|canvas::Color\|ParameterType::named("Color")' src tests examples src/docs`
+- [x] Enumerate every site with `grep -rn 'canvas::rgb(\|canvas::rgba(\|canvas::Color\|ParameterType::named("Color")' src tests examples src/docs`
       and write the file list into this document's Corrections section, grouped by
       phase. **Do not census by call name alone** — a `Paint[fill := c]` with `c`
       built elsewhere has no `canvas::` token on it at all, so also grep for
       `paint.fill`/`paint.stroke` readers and for `AS Color` in embedded programs.
-- [ ] Record the pre-change canvas `.ncodesum` set so Phase 4's drift is
+- [x] Record the pre-change canvas `.ncodesum` set so Phase 4's drift is
       attributable: `find tests/byte-identity -name '*.ncodesum' | wc -l` → 133 today.
+      **Measured 133** — agrees.
 
 Acceptance: a written file list in Corrections whose counts match the §2 table. A
 count that disagrees is a census bug — reconcile it before Phase 2.
+
+**Met, by reconciliation.** Seven of the nine counts disagreed with §2 and the
+census additionally found four sites §2 does not list at all. Each disagreement is
+reconciled in Corrections C1–C7 with the command that measured it, and the phase
+work lists below are rewritten against the measured population, not §2's. Nothing
+is carried forward unreconciled.
 Commit: —
 
 ### Phase 2 — Descriptor and companion
@@ -289,7 +304,160 @@ Commit: —
 
 ## Corrections
 
-_(filled in during execution — Phase 1's census file list goes here)_
+### C1 — every §2 population count was low; the measured census (2026-09-05)
+
+§2's counts do not reproduce. Re-measured on the worktree base with the plan's own
+commands:
+
+| What | §2 said | Measured | Command |
+|---|---|---|---|
+| `canvas::rgb(` in `src` | 19 | **29** (28 code + 1 doc) | `grep -rn 'canvas::rgb(' src \| wc -l` |
+| `canvas::rgb(` in `tests` | 110 | **281** | `grep -rn 'canvas::rgb(' tests \| wc -l` |
+| `canvas::rgb(` in `examples` | 8 | **9** | `grep -rn 'canvas::rgb(' examples \| wc -l` |
+| `canvas::rgba(` in `src` / `tests` | 2 / 11 | **2 / 11** (agrees) | `grep -rn 'canvas::rgba(' src\|tests \| wc -l` |
+| `canvas::Color` in `src` / `tests` / `examples` | 24 / 27 / 5 | **28 / 34 / 5** | `for d in src tests examples; do grep -rn 'canvas::Color' $d \| wc -l; done` |
+| Rust test files naming the surface | 8 | **12** | `grep -rln 'canvas::rgb\|canvas::Color' tests/*.rs` |
+| example `.mfb` files | 1 | **1** (agrees) | `grep -rl 'canvas::rgb\|canvas::Color' --include='*.mfb' examples/` |
+| docs naming the surface | 4 | **2** | `grep -rln 'canvas::rgb\|canvas::Color' src/docs/` |
+| `tests/byte-identity` `.ncodesum` | 133 | **133** (agrees) | `find tests/byte-identity -name '*.ncodesum' \| wc -l` |
+
+The scope is roughly **2.4x** the plan's estimate on call sites and **1.5x** on Rust
+test files. No phase is re-split: it is the same work, more of it.
+
+### C2 — `__canvas_clampByte` has a live caller; §2's "delete" is wrong
+
+§2 says *"`canvas/helper_clamp_byte.rs` (whole file) — delete — it moved to `color`
+in plan-122-A Phase 1 and **has no other caller**."* That last clause is false:
+
+```
+$ grep -rn '__canvas_clampByte' src tests
+src/codegen/builtins/canvas/helper_clamp_byte.rs:1:  (declaration)
+src/codegen/builtins/canvas/helper_clamp_byte.rs:12: (declaration)
+src/codegen/builtins/canvas/func_rgba.rs:56:         (goes away with func_rgba)
+src/codegen/builtins/color/helper_clamp_byte.rs:16:  (a doc comment, not a call)
+src/codegen/builtins/canvas/helper_items.rs:68:      RETURN __canvas_clampByte(toInt(__canvas_geoAt(offset, slot)))
+```
+
+`helper_items.rs:68` is a live call on the item-decode path, unrelated to `rgb`/
+`rgba`. **`helper_clamp_byte.rs` is KEPT.** Deleting it as §2 instructed would have
+failed to build. Phase 2's box is amended in place rather than marked moot, because
+the decision changed, not the task.
+
+### C3 — four canvas-internal `AS Color` / `Color[…]` sites §2 does not list
+
+§2 claims the only canvas internals touching the record are
+`helper_geometry.rs:188-195` and `helper_items.rs:51`, and that both are unchanged
+because the field names match. True for those two — but the census found four more
+sites that name the **type**, not a field, and so *do* change:
+
+- `canvas/helper_color.rs:119` — `FUNC __canvas_gradientStopColor(at AS Integer) AS Color`
+- `canvas/helper_color.rs:120` — `RETURN Color[red := …]`
+- `canvas/helper_color.rs:123` — `FUNC __canvas_gradientColor(base, count, t) AS Color`
+- `canvas/helper_color.rs:172` — `RETURN Color[red := …]`
+- `canvas/helper_items.rs:553` — `LET gc AS Color = __canvas_gradientColor(…)`
+
+Found with `grep -rn 'AS Color\b\|Color\[' src/codegen/builtins/canvas/*.rs`, which
+is the grep §2 should have run — its census was by `canvas::` token, and a
+companion body names the type **bare** (`AS Color`), with no `canvas::` on it. These
+are added to Phase 2.
+
+### C4 — `src/ir/shape.rs:4301` is not a canvas site
+
+The Phase-1 grep matches `ParameterType::named("Color")` at `src/ir/shape.rs:4301`.
+It is not canvas: the enclosing test `package_type_validation_arms`
+(`src/ir/shape.rs:4262`) builds a fake package from the source at `:4262`, which
+declares its own `ENUM Color\n  Red, Green\nEND ENUM`. The assertion is that a
+*declared* nominal walks silently. **Untouched.**
+
+### C5 — Phase 4's "other 3 docs" are plan-122-F's list, not D's
+
+Phase 4 names `src/docs/man/types/package.md`,
+`src/docs/spec/architecture/02_frontend.md`, `:09_modules.md` and
+`src/docs/spec/package/04_type-table.md`. None of them mentions the canvas colour
+surface:
+
+```
+$ for f in src/docs/man/types/package.md src/docs/spec/architecture/02_frontend.md \
+           src/docs/spec/architecture/09_modules.md src/docs/spec/package/04_type-table.md; do
+    printf '%s: ' "$f"; grep -c 'canvas::rgb\|canvas::Color\|canvas\.Color' "$f"; done
+src/docs/man/types/package.md: 0
+src/docs/spec/architecture/02_frontend.md: 0
+src/docs/spec/architecture/09_modules.md: 0
+src/docs/spec/package/04_type-table.md: 0
+```
+
+That is `TermColor`'s doc list, which **plan-122-F already rewrote** (its Phase 5
+names exactly these four). Phase 4's box is resolved against Phase 1's list, as the
+box itself instructs.
+
+`src/docs/spec/stdlib/18_color.md:11` names `canvas::Color` in a sentence about what
+existed *before* the package ("Before this package MFBASIC had three unrelated
+notions…"). It is a historical statement and stays correct; **untouched**.
+
+### C7 — `canvas::GradientStop.color` is a fifth descriptor site §2 misses
+
+§2's table lists exactly two `ParameterType::named("Color")` descriptor sites,
+`Paint.fill` and `Paint.stroke`. There are three:
+
+```
+$ grep -n 'named("Color")' src/codegen/builtins/canvas/mod.rs
+482:                ty: ParameterType::named("Color"),   <- GradientStop.color
+544:                ty: ParameterType::named("Color"),   <- Paint.fill
+550:                ty: ParameterType::named("Color"),   <- Paint.stroke
+```
+
+`GradientStop.color` (`canvas/mod.rs:480-484`) is the colour at one gradient offset.
+It repoints to `COLOR_TYPE_ID` exactly like the other two. Missing it would have
+left a record prop typed by a leaf whose record no longer exists — and because
+`qualify_type_leaves_for_source` rewrites record field types for rendering
+(§3 seam 2), the failure would have surfaced as an unresolved type in every
+importer's companion, not as a compile error in `canvas/mod.rs`.
+
+§2's stated line numbers are also stale throughout (`:183`/`:458`/`:464`/`:1110`
+vs. the measured `:197`/`:544`/`:550`/`:1390`); the census table above carries the
+measured ones.
+
+### C6 — letter order: D ran last, not third
+
+D was authored to run before E and F. It ran after them (E and F landed
+2026-09-04, D started 2026-09-05). Nothing depended on the authored order: D cites
+no term or astrings symbol, and E/F cite no canvas file. §Prerequisites records the
+re-measurement.
+
+### The census, grouped by the phase that executes it
+
+**Phase 2 — `src/codegen/builtins/canvas/` (16 files)**
+
+| File | Why |
+|---|---|
+| `mod.rs` | `Color` record decl (`:197`); **`GradientStop.color` `:482`** (C7); `Paint.fill` `:544` and `Paint.stroke` `:550`; the `"Color"` entry in `canvas_types_are_builtin_types` (`:1390`); `mod func_rgb;`/`mod func_rgba;` (`:61-62`) and their `register` calls (`:1029-1030`); the three prop descriptions that say `canvas::Color` |
+| `func_rgb.rs` | delete |
+| `func_rgba.rs` | delete |
+| `helper_clamp_byte.rs` | **KEEP** (C2) |
+| `func_fill.rs` | param type `:86`, body `:69`, man example |
+| `func_stroke.rs` | param type `:60`, body `:42`, man example |
+| `func_fill_stroke.rs` | param types `:92`,`:99`, body `:74`, man example |
+| `helper_paint_defaults.rs` | `:15-16` return type + construction |
+| `helper_color.rs` | `:119`,`:120`,`:123`,`:172` (C3) |
+| `helper_items.rs` | `:553` (C3). `:51` and `:68` unchanged |
+| `func_present.rs`, `func_present_layers.rs`, `func_set_group.rs`, `func_remove_group.rs`, `func_set_bytes.rs`, `func_load_image.rs`, `func_load_font.rs`, `func_get_size.rs`, `func_did_resize.rs`, `func_create_image.rs` | man examples calling `canvas::rgb` — each needs `IMPORT color` |
+
+**Phase 3 — tests and examples (15 paths)**
+
+12 Rust files carrying MFBASIC as string literals, with their `canvas::rgb(` counts:
+`rt_canvas_rasteriser.rs` (115), `rt_canvas_golden.rs` (59), `rt_canvas_metal.rs`
+(35), `rt_canvas_group_ownership.rs` (25), `rt_canvas_font.rs` (12),
+`rt_canvas_damage.rs` (10), `rt_canvas_graphics_thread.rs` (8),
+`cli_canvas_package.rs` (8), `rt_canvas_present_deep_copy.rs` (2),
+`cli_app_canvas_mode.rs` (2), `codegen_canvas_thread_entry_saves_rbp.rs` (1),
+`cli_canvas_image_resource.rs` (1). Plus `examples/emoji/src/main.mfb` (9 `rgb`, 5
+`Color`), the fixture `tests/syntax/resources/canvas-setgroup-consumes-items/`
+(`src/main.mfb` 2 hits, `golden/build.log` 1), and the new removal fixture.
+
+**Phase 4 — docs (1 file)**
+
+`src/docs/spec/app/06_canvas.md`: `:372` (an example calling `canvas::rgb`) and
+`:425` (the "value constructors are exempt" sentence). Nothing else — see C5.
 
 ## Summary
 
