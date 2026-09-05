@@ -36,6 +36,7 @@ mod diagnostics;
 mod entry;
 mod link;
 mod math;
+mod optimizer;
 mod os;
 mod perf;
 mod registry_bodies;

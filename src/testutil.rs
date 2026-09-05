@@ -311,6 +311,46 @@ fn try_code_for_src_with(
         .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
 }
 
+/// [`code_for_src_mode`] at an explicit optimization level.
+///
+/// The dial (`optimizer::active_opt_level`) is a THREAD-local under `cfg(test)`,
+/// and this harness lowers on a thread it spawns — so a level pushed by the test
+/// thread is invisible to the lowering. Pushing it inside the spawned thread is
+/// the only way a test can reach the optimizer at all, and without it every
+/// program here lowers at the default `-O1` and the `-O2`/`-O3` catalog rows
+/// (`src/optimizer/opt1/plans/**`, `src/optimizer/opt2/**`) are unreachable.
+pub fn code_for_src_at(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+    level: u8,
+) -> Result<crate::codegen::engine::types::NativeCodePlan, String> {
+    let source = source.to_string();
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .name(format!("code_for_src(-O{level})"))
+        .spawn(move || {
+            let hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let lowered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+                    code_for_src_inner(&source, target, build_mode, Default::default())
+                })
+            }));
+            std::panic::set_hook(hook);
+            lowered.map_err(|payload| {
+                payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    .unwrap_or_else(|| "lowering panicked with no message".to_string())
+            })
+        })
+        .expect("spawn the lowering thread")
+        .join()
+        .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
+}
+
 /// [`code_for_src_mode`] with an explicit native-library table (see
 /// [`code_for_linking_src`], which is the only caller that needs a non-empty
 /// one).
