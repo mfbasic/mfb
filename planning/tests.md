@@ -200,14 +200,51 @@ The per-file ledger is generated from the Phase 0 baseline; see
 - [x] `math/mod.rs` 57.45% (270/470) -> 100.00% (270/270) — same
 - [x] `runtime/canvas/vulkan.rs` 1.21% (50/4122) -> 98.01% (4040/4122) — reached
       by the `canvas::present` program; the single largest file in the task
-- [ ] The remaining 382 `src/**` files below the floor, worst first. Regenerate
-      the list with `python3 scripts/coverage-src-delta.py <report.json>`.
+- [x] `collections/func_group_by.rs` 13.32% (59/443) -> 98.19% (435/443)
+- [x] The whole-program corpus: 360 committed fixtures x 1 backend, 16 x 5.
+      No single file, but it is what reaches the shared codegen no per-file
+      suite can: `list_mutate.rs` 70.40% -> 88.78%, `builder_inplace_assign.rs`
+      36.92% -> 67.93%, `ir/lower.rs` 87.69% -> 92.44%.
+- [x] The diagnostic corpus: 417 committed `tests/syntax/**` goldens reproduced
+      in process. `ir/shape.rs` 85.93% -> 89.46%.
+- [x] The registry sweeps — the single largest lever in the task, because the
+      same two guards are dead in ~90 files at once:
+      `abi_inline` type + import + arity (348 <- 371 <- 293 <- 272),
+      `abi_function` + `Mfb` fast paths, and the 19 `vector::` selectors.
+- [x] `os/func_arch.rs`, `os/func_name.rs`, `os/func_pid.rs`,
+      `io/func_is_buffered.rs`, `manifest/url.rs`, `intern.rs`,
+      `cli/version.rs` — seven near-miss files, one to three lines each.
+- [ ] The remaining 246 `src/**` files below the floor, worst first. Regenerate
+      the ranking with `python3 scripts/coverage-src-gaps.py <report.json>`,
+      which sorts by LINES SHORT rather than by percentage.
 - [ ] Re-run the FULL `sh scripts/coverage.sh` at the end: `src/**` is settled by
       `--bins` (Findings F1) but `repository/src/**` is not, and only the full
       run measures it.
 
 Acceptance: `sh scripts/coverage-check.sh` prints
 `All non-excepted files >= 98% line coverage.`
+
+### Where the count stands
+
+Measured with `scripts/coverage-bins.sh` + `scripts/coverage-src-gaps.py`,
+`src/**` only (Findings F1: that is the same measurement as the full run for
+these files, and is not for `repository/src/**`).
+
+| point | files below 98% | uncovered lines |
+|---|---|---|
+| baseline (full run, before any work) | 401 | — |
+| after the canvas/fmod/perf/os per-file suites | 371 | 11,498 |
+| after the whole-program + diagnostic corpora | 348 | 11,166 |
+| after the three registry sweeps | 253 | 10,648 |
+| after the near-miss batch | **246** | **10,717** |
+
+The uncovered-line count moves less than the file count in the later rows, and
+that is the shape of the remaining work rather than a stall: the sweeps closed
+files that were one or two lines short, so the lines they recovered were few and
+the files many. What is left is 25 files that are more than 100 lines short and
+59 more between 31 and 100 — real gaps in `link_thunk.rs`,
+`builder_inplace_assign.rs`, `builder_values.rs` and their neighbours, which
+need programs that exercise shapes the corpus does not yet contain.
 
 ## Findings
 
@@ -322,6 +359,21 @@ in `codegen/engine/tests/mod.rs`; both paths are excluded by `IGNORE`, so the
 declaration damages nothing. Deleting the never-executed plain binary before
 reporting was also tried and changes `src/**` by exactly nothing (0 files
 moved), so the object list is not the lever — the module placement is.
+
+### C5 — the largest single lever was not per-file work
+
+The task's shape is "work it file by file", and for the first ten that was
+right. It stopped being right around the 119 files that were one to three lines
+short: every one of them was the same two guards — a type check on a builtin
+lowering's arguments and a `?` on the platform emitter that resolves its libc
+import — and both are unreachable from any source program, so they were dead in
+coverage terms in ~90 files simultaneously.
+
+Three sweeps over the REGISTRY (not over a list of files) took the count from
+371 to 253 in about an hour, and each runs in 0.02s. Per-file work would have
+been ~90 commits for the same result, with 90 copies of the same assertion.
+The task's "one file per commit" rule still holds for a real gap; it does not
+hold for a gap that is one defect replicated by a code pattern.
 
 ### C4 — one commit per file, but one suite per program
 
