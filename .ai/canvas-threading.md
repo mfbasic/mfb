@@ -730,6 +730,17 @@ values. This is the second reason their read order matters: they test the closed
 **before** loading the handle (§7), so a concurrent destroy cannot yield a stale non-zero
 id that keeps alive a resource nothing names.
 
+**A `Font`'s close is not symmetric with an `Image`'s.** `destroyImage` sets the closed
+flag and nothing else; `destroyFont` runs `emit_unregister_font` **first**, which clears
+the table slot immediately and is not deferred behind any frame gate — *"so that text
+still naming a released font draws empty rather than reading a block the program has
+finished with"*. The live-set check is what keeps that safe here: the close only fires
+once a frame has completed since the retirement, and if the frame now in flight names the
+font, the scan sees it. One narrow case survives — an in-flight frame drawing a previous
+scene that names the font **directly**, while the incoming scene and every group do not —
+and it costs that frame's glyphs, not a crash. It is what `destroyFont` mid-frame has
+always done. Note **R17 pins the image case, not the font case.**
+
 The walk is an MFBASIC `MATCH` (`__canvas_closeRetired`), not an open-coded step over the
 `DrawItem` union's layout in codegen: a `MATCH` that a new variant must handle is a
 compile error, and a hand-written tag offset that a new variant must not break is a hope.
