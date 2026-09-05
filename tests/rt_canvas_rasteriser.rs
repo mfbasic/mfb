@@ -87,6 +87,11 @@ fn render_stdout(name: &str, source: &str) -> (String, String) {
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
+        // The GTK one too. Omitting it is invisible on the macOS dev host, where the
+        // MACAPP flag is the one that matters; on a Linux box the program tries to open
+        // a display, fails, and exits 1 -- which these tests then report as a
+        // use-after-free or a missing raise. `render` above has always set all three.
+        .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -3067,6 +3072,11 @@ fn removing_a_group_mid_frame_lets_the_frame_finish() {
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
+        // The GTK one too. Omitting it is invisible on the macOS dev host, where the
+        // MACAPP flag is the one that matters; on a Linux box the program tries to open
+        // a display, fails, and exits 1 -- which these tests then report as a
+        // use-after-free or a missing raise. `render` above has always set all three.
+        .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame_path)
         .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
         .output()
@@ -3129,6 +3139,11 @@ fn exiting_while_a_frame_draws_a_group_is_clean() {
     let run = Command::new(&binary)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
+        // The GTK one too. Omitting it is invisible on the macOS dev host, where the
+        // MACAPP flag is the one that matters; on a Linux box the program tries to open
+        // a display, fails, and exits 1 -- which these tests then report as a
+        // use-after-free or a missing raise. `render` above has always set all three.
+        .env("MFB_GTKAPP_HEADLESS", "1")
         .env("MFB_CANVAS_FRAME_HOLD_MS", "400")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
