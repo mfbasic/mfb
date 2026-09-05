@@ -5,8 +5,15 @@ Effort: medium (1h–2h) to close the hole (decline or deep-copy); large if the 
 Severity: HIGH
 Class: Memory-safety (use-after-free reachable from ordinary MFBASIC; kills the process with an uncatchable SIGSEGV)
 
-Status: Open (found implementing bug-510's regex matcher; reproduced with the minimal program below on main `aa2121518`)
-Regression Test: `tests/rt-behavior/collections/recursive_get_then_grow_rt` (to add) — the program below must print three lines and exit 0
+Status: **FIXED** (2026-09-04). Fixed by making `collections::get` return the
+independent value `mfb spec language memory-semantics` §14.6 has always required,
+via the per-type runtime deep copy. Reproducing it also exposed a **second,
+pre-existing memory-safety defect** that had to be fixed first — the thread-transfer
+deep copy of a non-flat `Map`/`Set` never reserved the hash-bucket region (see
+"Second defect" below).
+Regression Test: `tests/rt-behavior/collections/recursive-get-then-grow-rt`
+(acceptance) + `tests/rt_recursive_get_alias.rs` (cargo, negative + positive) +
+`tests/rt_recursive_map_transfer.rs` (cargo, the second defect)
 
 A value read out of a `List OF T` with `collections::get`, where `T` participates in a
 type cycle (a record holding a recursive union, or the union itself — `json::Json`,
@@ -88,6 +95,129 @@ after the growth reads fine. The dangling value need not be used directly: stori
 inside another value (a union constructor) and reading that later fails the same way,
 which is how bug-510 met it.
 
+## Fix (landed 2026-09-04)
+
+**Option 2 of the Fix Design** — `get` returns a real, independent copy — for the
+reason the doc gave: it is sound on its own, it does not depend on bug-536's leak,
+and it is the right end state. Option 1 (decline the in-place `append`) was
+rejected: it treats the symptom, it leaves the alias in place for every other
+relocating arm, and its soundness rested on recursive values never being freed.
+
+### The change
+
+`materialize_owned_element` (`src/codegen/memory/owned.rs`) gains one arm, ahead
+of the existing flat-copy arm and *after* the plan-86 E borrow early-return:
+
+```
+if !is_freeable_flat_value(t) && type_reaches_cycle(t) && !type_contains_resource(t)
+    -> copy_value_to_current_arena(t, element)
+```
+
+`copy_value_to_current_arena` already routes a cycle-participating type to
+bug-391's per-type runtime deep copy (`thread_copy_symbol`), which is emitted for
+every recursive type in the module whether or not the program has a thread in it —
+so nothing new is emitted, only called.
+
+Two new predicates in `collection/layout/builder_collection_layout.rs`:
+
+- **`type_reaches_cycle`** — `type_` itself participates in a cycle, or some type
+  reachable from it does. Strictly wider than `type_participates_in_cycle`, and the
+  width is load-bearing: in the reproduction `Tree` and `Node2` participate but
+  `Rep` does not, yet a `Rep` still owns a pointer to a `Tree` graph and was
+  exactly as alias-prone. (Gate `G24` still uses the narrow predicate; that was a
+  second latent hole — `List OF Rep` + `get` + in-place `removeAt` — which the
+  `get` copy closes at the source, because after the copy nothing refers into the
+  payload at all. The positive test covers that path.)
+- **`type_contains_resource`** — excluded deliberately. A handle is move-only, so
+  an alias is both the existing and the correct behaviour there (§14.6's own
+  carve-out for a `List` element holding a resource pointer).
+
+### Second defect, found while reproducing this one (fixed in the same commit)
+
+Routing `get` through the deep copy immediately reddened
+`rt-behavior/json/json-behavior`: `json::get` began answering `ErrNotFound` for a
+key that was present. The deep copy, not the routing, was wrong.
+
+`copy_collection_to_current_arena` (`memory/arena/builder_arena_transfer.rs`) sized
+the destination by hand as `HEADER + capacity*ENTRY + dataCapacity` and **omitted a
+map's or set's hash-bucket region** — the `capacity << 4` bytes
+`emit_reserve_map_buckets` adds to every other allocation path and that
+`emit_inlined_block_size_from_ptr_slot`, the single authority, has always included.
+It then byte-copied the whole source block over it, so the destination inherited
+`BUCKETS_READY = 1` while owning no bucket region: the first probe read past the
+block and the lazy `build_buckets` rebuild WROTE past it. bug-02's exact failure
+mode, in the transfer copier.
+
+It is **pre-existing and independently reproducible on main `7b0f93c08`**, with no
+change of mine — only a *non-flat* map reaches that path (a flat one goes through
+`copy_flat_block` → `copy_collection_tight`, which reserves the region and marks it
+not-ready), so it needs a map whose value type is recursive, which nothing
+transferred before:
+
+```
+$ mfb build /tmp/jt && ./build/jt.out     # thread::waitFor a json::Json
+v={"u":{"n":"A"}}                          # stringify: correct
+g={}                                       # json::get(v, ["u"]): WRONG, silently empty
+```
+
+and on a user type (`tests/rt_recursive_map_transfer.rs`):
+`v={u:{},v:sC,}` before, `v={u:{n:sA,m:sB,},v:sC,}` after.
+
+Fix: size through the authority (`emit_inlined_block_size_from_ptr_slot`), and
+clear `BUCKETS_READY` on the destination so the index is rebuilt on first probe —
+exactly what `copy_collection_tight` already does for the same reason. Audited: no
+other collection allocator omits the region; every one either calls the authority
+or `emit_reserve_map_buckets`.
+
+### Evidence
+
+**1. RED → GREEN, on the actual shape.** The reproduction program below, built and
+run in the worktree:
+
+- before: `before growth: Node2(Leaf(1),Leaf(2))` / `after 50 appends: list has 51`
+  then **exit 139**;
+- after: all eight lines, **exit 0**.
+
+**2. A correct program's observable behaviour is unchanged.** The contract the fix
+realizes is `mfb spec language memory-semantics` §14.6: *"`List` and `Map` own every
+stored element … Reads produce owned values, not aliases into the buffer."* The
+spec was never ambiguous here — the implementation simply did not honour it for one
+type class, and `.ai/collections.md` had recorded the alias as a *fact* rather than
+as the defect it was (that paragraph is now corrected). The fix only **adds** a
+copy at the read; it changes no value's identity, no lifetime, and no user-visible
+free (a recursive value is still never freed — that is bug-536, unchanged here, and
+its fix will free this copy through the same owner that already owns every other
+`get` result).
+
+**3. Golden containment.** `artifact-gate all`: 1371 tests, 1900 goldens, **10
+diffs**, all `.ncodesum` — `byte-identity/json` and `byte-identity/regex` on all
+five targets. Those are the only two cover fixtures that `get` an element of a
+cycle-reaching type (`json::Json`, `__regex_Node`). Everything else byte-identical.
+Attributed at instruction level, pre vs post binaries:
+
+| change | fixture | delta |
+| --- | --- | --- |
+| the `get` copy | json | **0 lines removed**, 16 added: `mov x0,x8 / bl _mfb_thread_copy_json_Json / mov x8,x0` at 4 `get`/`getOr` sites + 4 relocation rows |
+| the `get` copy | regex | **0 lines removed**, 24 added: the same 3-op sequence at 6 `__regex_Node` `get` sites |
+| the bucket fix | json | confined to exactly two functions: `_mfb_thread_copy_Map_OF_String_TO_json_Json_*` and `_mfb_thread_copy_List_OF_json_Json_*` |
+| the bucket fix | regex | confined to exactly one: `_mfb_thread_copy_List_OF__regex_Node_*` |
+
+No register renumbering, no stack-offset shift, no other instruction moved.
+
+**4. Positive pin, not only the negative one.**
+`rt_recursive_get_alias.rs::ordinary_recursive_type_use_is_unchanged` builds a
+`dom`-shaped recursive union and asserts that construction, `get`, nested field
+reads, `FOR EACH`, an iterative `removeAt` tree walk, a re-fetch after growth and a
+value read out *before* a growing append all still produce exactly the values they
+did before (`render=abc`, `first=t0 last=t39`, `joined=t0…t39tail`, `total=879`,
+`refetch=t0`, `len=40 first-still=t0`). The acceptance fixture adds the same shape
+at the golden level. `rt_recursive_map_transfer.rs` pins two independent transfers
+plus a re-read of the first, so a short block whose bucket rebuild writes past it
+would be observable rather than benign.
+
+**5. Full gates.** `artifact-gate all` → 0 diffs. `scripts/test-accept.sh` →
+1393/1393 pass. `cargo test --release --no-fail-fast` → green.
+
 ## Root Cause
 
 `collections::get` for an element type where `type_participates_in_cycle` holds
@@ -153,17 +283,28 @@ recursive-element list (json, regex, canvas byte-identity + rt fixtures).
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] Add `rt-behavior/collections/recursive_get_then_grow_rt` with the program above
-      (RED: SIGSEGV). Audit the arms above; record verdicts.
-Commit: —
+- [x] Added `rt-behavior/collections/recursive-get-then-grow-rt` (RED: exit 139)
+      plus `tests/rt_recursive_get_alias.rs`. Arm verdicts recorded below.
+- [x] `set` (length-changing) and `insert`/`prepend`: after the fix, `get` is no
+      longer an alias source for this class at all, so the question they raised is
+      answered at the source rather than per-arm. `G24` keeps its `removeAt`
+      decline (narrower predicate, harmless), and the positive test exercises an
+      in-place `removeAt` on a `List OF Slot` — a reaches-cycle element type `G24`
+      does NOT decline — to prove a fetched value survives it.
+- [x] `borrow_get_result` (plan-86 E) is disjoint from the new arm: the borrow gate
+      requires `is_freeable_flat_value`, which is false for every cycle-reaching
+      type. The new arm also sits AFTER the borrow early-return, so the borrow
+      always wins.
 
 ### Phase 2 — the fix
-- [ ] Option 1 gate (or option 2 deep copy) in the collection assign/read lowering.
-Commit: —
+- [x] Option 2 deep copy in `materialize_owned_element`, plus the pre-existing
+      bucket-region defect in the transfer copier it exposed.
+Commit: (see below)
 
 ### Phase 3 — regenerate + validate
-- [ ] `regen-ncodesum.sh` under bash; `artifact-gate all`; full `cargo test`.
-Commit: —
+- [x] `bash scripts/regen-ncodesum.sh target/release/mfb`; `artifact-gate all` →
+      0 diffs; `test-accept.sh` → 1393/1393; full `cargo test` green.
+Commit: (see below)
 
 ## Validation Plan
 

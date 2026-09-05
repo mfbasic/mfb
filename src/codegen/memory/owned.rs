@@ -28,6 +28,47 @@ impl CodeBuilder<'_> {
         if self.borrow_get_result() {
             return Ok(result);
         }
+        // bug-538: an element whose type reaches a TYPE CYCLE is a pointer-linked
+        // graph — the payload in the container's data region holds a pointer to a
+        // separately-allocated sub-block. `is_freeable_flat_value` is false for the
+        // whole class (it requires `type_is_memcpy_copyable`, and a cycle is never
+        // memcpy-copyable), so the copy below never fired and `get` handed back an
+        // ALIAS into the container. `.ai/collections.md` records the sibling case:
+        // plan-121's gate G24 declines an in-place `removeAt` for this class because
+        // the compaction relocates the payload under a fetched value. `append`'s
+        // GROW path is a relocation too — it reallocs the data region and frees the
+        // old block — so the fetched value dangled and the next read of its
+        // recursive field was a use-after-free (SIGSEGV).
+        //
+        // The fix is the one this function already exists to provide: give the
+        // caller an OWNED, independent value. Inline copy codegen cannot reproduce
+        // a cyclic graph without unbounded compile-time recursion, so route it
+        // through the per-type runtime deep copy `copy_value_to_current_arena`
+        // already selects for exactly these types (bug-391's `thread_copy_symbol`,
+        // emitted for every recursive type in the module regardless of threads).
+        //
+        // Excluded, deliberately: a value with a resource anywhere inside it. A
+        // resource handle is move-only — copying it would duplicate an OS object
+        // with its own close op — so an alias is both the existing and the correct
+        // behaviour there.
+        if !self.is_freeable_flat_value(&result.type_)
+            && crate::codegen::collection::layout::type_reaches_cycle(
+                &self.type_model,
+                &result.type_,
+            )
+            && !crate::codegen::collection::layout::type_contains_resource(
+                &self.type_model,
+                &result.type_,
+            )
+        {
+            let copied = self.copy_value_to_current_arena(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                origin: None,
+                type_: result.type_,
+                location: Operand::from(copied.render()),
+                text: result.text,
+            });
+        }
         if self.is_freeable_flat_value(&result.type_) && result.type_ != ParameterType::String {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
