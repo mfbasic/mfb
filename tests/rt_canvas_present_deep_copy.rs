@@ -123,7 +123,7 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC scene(f AS RES canvas::Font) AS List OF canvas::DrawItem\n\
+     FUNC scene(RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS canvas::Color = canvas::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(c)]\n\

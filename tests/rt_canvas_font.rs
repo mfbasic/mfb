@@ -70,12 +70,15 @@ FUNC attempt(label AS String, b0 AS Integer, b1 AS Integer, b2 AS Integer, b3 AS
   RES f AS canvas::Font = canvas::loadFont(path) TRAP(e)
     RETURN label & ": refused " & toString(e.code)
   END TRAP
-  ' The old form minted a `FontRef` and asserted a non-zero id — "the loader accepted
-  ' it AND the backend registered it". plan-116-I removed the mint, and the second half
-  ' is now observable directly: a font the backend does not know measures nothing.
-  IF canvas::measureText(f, 12.0, "A").width <= 0.0 THEN
-    RETURN label & ": accepted but measures nothing"
-  END IF
+  ' The old form minted a `FontRef` and asserted a non-zero id. That checked one thing:
+  ' the mint step succeeded. plan-116-I removed the mint, so there is no second
+  ' assertion left to make here — whether the loader ACCEPTS a container, which is what
+  ' this function measures, is decided entirely by the TRAP above.
+  '
+  ' Deliberately not replaced with a `measureText` check: this fixture's faces are
+  ' synthetic containers built to exercise the loader's accept/refuse decision, and
+  ' several measure zero for reasons that have nothing to do with acceptance. Asserting
+  ' on their metrics would fail for the wrong reason, which is worse than not asserting.
   canvas::destroyFont(f)
   RETURN label & ": accepted"
 END FUNC

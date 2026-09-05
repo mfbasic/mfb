@@ -58,7 +58,8 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 4\n\
     \x20 END IF\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 1.0, y := 0.0]]\n\
-    \x20 RES img AS canvas::Image = canvas::createImage(2, 2) TRAP(e)\n\
+    \x20 LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(255)]\n\
+    \x20 RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n\
     \x20   RETURN 30\n\
     \x20 END TRAP\n\
     \x20 RES fnt AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n\
@@ -203,7 +204,17 @@ fn canvas_surface_compiles_for_the_linux_app_target() {
 
 #[cfg(target_os = "macos")]
 fn run_headless(exe: &std::path::Path) -> (i32, String) {
+    // From the PROJECT directory, because plan-116-I's fixtures load a real font and
+    // `canvas::loadFont` resolves a relative path against the working directory. The
+    // app bundle lives five levels below the project, so without this the program runs
+    // from cargo's cwd and reports its "could not load the font" exit code -- which
+    // reads as a canvas failure rather than as a missing file.
+    let project = exe
+        .ancestors()
+        .nth(5)
+        .expect("the .app bundle sits under the project directory");
     let output = Command::new(exe)
+        .current_dir(project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .output()
         .expect("run headless app bundle");
@@ -238,7 +249,7 @@ fn macos_canvas_surface_runs() {
 #[cfg(target_os = "macos")]
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
-     FUNC one(r AS Float, f AS RES canvas::Font) AS List OF canvas::DrawItem\n\
+     FUNC one(r AS Float, RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS canvas::Color = canvas::rgb(10, 20, 30)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c)]\n\
