@@ -1110,26 +1110,25 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_slot,
         ));
-        self.emit(abi::load_u64(&scratch9, source, COLLECTION_OFFSET_CAPACITY));
-        self.emit(abi::move_immediate(
-            &scratch10,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch9, &scratch9, &scratch10));
-        self.emit(abi::add_immediate(
-            &scratch9,
-            &scratch9,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(
-            &scratch10,
-            &scratch10,
-            COLLECTION_OFFSET_DATA_CAPACITY,
-        ));
-        self.emit(abi::add_registers(&scratch9, &scratch9, &scratch10));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), size_slot));
+        // bug-538 (found reproducing it): this used to compute the block size by
+        // hand as `HEADER + capacity*ENTRY + dataCapacity` — **omitting a map's or
+        // set's hash-bucket region**, which `emit_reserve_map_buckets` adds to
+        // every other allocation path and which `emit_inlined_block_size_from_ptr_slot`
+        // (the single authority, `:301`) has always included. A deep-copied
+        // `Map OF String TO json::Json` therefore arrived `capacity << 4` bytes
+        // short with `BUCKETS_READY` byte-copied as 1 from the source, so the very
+        // first probe read past the block and the lazy `build_buckets` rebuild
+        // WROTE past it — bug-02's exact failure mode, in the transfer copier.
+        // Observed before the fix (`mfb` at main `7b0f93c08`, no change of mine):
+        // `thread::waitFor` a `json::Json` parsed from `{"u":{"n":"A"}}`
+        // stringifies correctly but `json::get(v, ["u"])` answers `{}`.
+        //
+        // Use the canonical sizer. It also picks the entry stride by element type
+        // instead of hardcoding `COLLECTION_ENTRY_SIZE`; every type that reaches
+        // here has a 40-byte entry (a fixed-width element is pointer-free, so
+        // `collection_needs_transfer_fix` is false for it), so that part is
+        // byte-neutral — the bucket region is the whole behavioural delta.
+        self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
@@ -1153,6 +1152,25 @@ impl CodeBuilder<'_> {
             &scratch10,
             "thread_copy_collection",
         );
+        // The whole block (including a map's/set's bucket region) was copied
+        // verbatim, so the destination inherited the source's `BUCKETS_READY`
+        // flag. Clear it, exactly as `copy_collection_tight` does for the same
+        // reason: the buckets are rebuilt on first probe, so no copy can ever
+        // depend on the source's index being current. Cheap, and it makes the
+        // block's validity independent of what the bucket words contain.
+        if matches!(type_, ParameterType::MapOf(..) | ParameterType::SetOf(_)) {
+            self.emit(abi::load_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                result_slot,
+            ));
+            self.emit(abi::move_immediate(&scratch10, "Byte", "0"));
+            self.emit(abi::store_u8(
+                &scratch10,
+                &scratch9,
+                COLLECTION_OFFSET_BUCKETS_READY,
+            ));
+        }
         self.fix_collection_transfer_payloads(type_, source_slot, result_slot)?;
         let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));

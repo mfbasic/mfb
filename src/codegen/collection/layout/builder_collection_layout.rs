@@ -2934,6 +2934,70 @@ pub(crate) fn type_participates_in_cycle(model: &TypeModel, type_: &ParameterTyp
     false
 }
 
+/// True when a value of `type_` is a **pointer-linked graph because of a type
+/// cycle** — `type_` itself participates in one, or some type reachable from it
+/// does. Strictly wider than [`type_participates_in_cycle`], which only answers
+/// for the cycle members themselves: in
+///
+/// ```text
+/// TYPE Rep      : child AS Tree, lo AS Integer
+/// UNION Tree    : Leaf | Node2
+/// TYPE Node2    : left AS Tree, right AS Tree
+/// ```
+///
+/// `Tree` and `Node2` participate; `Rep` does not — yet a `Rep` value still owns
+/// a pointer to a separately-allocated `Tree` graph, so it is exactly as
+/// alias-prone as the cycle members are.
+///
+/// bug-538: this is the class where an ordinary `collections::get` handed back an
+/// ALIAS into the container's data region instead of the independent value
+/// `materialize_owned_element` gives every other element type, because
+/// `is_freeable_flat_value` (which needs `type_is_memcpy_copyable`) is false for
+/// all of them. It is used ONLY to widen that owning copy; the cycle-member
+/// predicate still decides which types get a runtime copy function emitted.
+pub(crate) fn type_reaches_cycle(model: &TypeModel, type_: &ParameterType) -> bool {
+    let mut stack = vec![type_.clone()];
+    let mut visited: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if type_participates_in_cycle(model, &current) {
+            return true;
+        }
+        stack.extend(type_components(model, &current));
+    }
+    false
+}
+
+/// True when a resource is reachable from `type_` — the type itself, a `RES`
+/// marker, a field, a variant or a collection payload.
+///
+/// A resource is move-only: its handle names an OS object with its own close op,
+/// so "copy the value" is not a meaning it has. Every deep-copy path that meets
+/// one therefore MOVES the handle. bug-538's owning copy must not be applied to
+/// such a value — an alias is the correct and existing behaviour there — so the
+/// widened gate excludes this set explicitly rather than by accident.
+pub(crate) fn type_contains_resource(model: &TypeModel, type_: &ParameterType) -> bool {
+    let mut stack = vec![type_.clone()];
+    let mut visited: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if matches!(current, ParameterType::Res(_) | ParameterType::ThreadHandle { .. })
+            || crate::codegen::builtins::is_resource_type(&current)
+        {
+            return true;
+        }
+        if let ParameterType::Res(inner) = &current {
+            stack.push((**inner).clone());
+        }
+        stack.extend(type_components(model, &current));
+    }
+    false
+}
+
 /// Every type in the program that participates in a cycle: the set that needs a
 /// runtime thread-transfer deep-copy function emitted (bug-391).
 pub(crate) fn recursive_transfer_types(model: &TypeModel) -> std::collections::BTreeSet<String> {
