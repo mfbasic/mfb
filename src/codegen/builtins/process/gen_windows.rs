@@ -1101,7 +1101,11 @@ pub(crate) fn emit_win_spawn_tail(
         abi::store_u64(abi::ZERO, sp, 0x30),       // 7th lpReturnSize = NULL
         abi::add_immediate(abi::mfb_arg(0), sp, WIN_SPAWN_ATTR_LIST),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "0"), // dwFlags (reserved)
-        abi::move_immediate(abi::mfb_arg(2), "Integer", PROC_THREAD_ATTRIBUTE_HANDLE_LIST),
+        abi::move_immediate(
+            abi::mfb_arg(2),
+            "Integer",
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        ),
         abi::add_immediate(abi::mfb_arg(3), sp, WIN_SPAWN_HANDLES), // lpValue
     ]);
     platform.emit_external_call(
@@ -1555,8 +1559,7 @@ mod tests {
     }
 
     fn has_immediate(ins: &[CodeInstruction], value: &str) -> bool {
-        ins.iter()
-            .any(|i| i.get("value").as_deref() == Some(value))
+        ins.iter().any(|i| i.get("value").as_deref() == Some(value))
     }
 
     /// Every Windows child-creating helper (`spawn`, `spawnEnv`, `shell`) lowered
@@ -1567,9 +1570,8 @@ mod tests {
         let imports = kernel32_imports();
         let mut out = Vec::new();
         for call in ["process.spawn", "process.spawnEnv"] {
-            let (ins, _, _) =
-                lower_process_spawn_helper_win(call, "#t_spawn", &imports, &platform)
-                    .unwrap_or_else(|e| panic!("{call} lowers on Windows: {e}"));
+            let (ins, _, _) = lower_process_spawn_helper_win(call, "#t_spawn", &imports, &platform)
+                .unwrap_or_else(|e| panic!("{call} lowers on Windows: {e}"));
             out.push((call, ins));
         }
         let (ins, _, _) =
@@ -1610,7 +1612,11 @@ mod tests {
                 calls(&ins, "DeleteProcThreadAttributeList") >= 2,
                 "{call}: the list is deleted on the success path AND the failure path"
             );
-            assert_eq!(calls(&ins, "CreateProcessA"), 1, "{call}: one CreateProcessA");
+            assert_eq!(
+                calls(&ins, "CreateProcessA"),
+                1,
+                "{call}: one CreateProcessA"
+            );
         }
     }
 

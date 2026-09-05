@@ -512,7 +512,11 @@ pub(crate) fn emit_spawn_tail(
     for off in [STDIN_P, STDOUT_P, STDERR_P, ERR_P] {
         instructions.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), off));
         if linux {
-            instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", LINUX_O_CLOEXEC));
+            instructions.push(abi::move_immediate(
+                abi::c_arg(1),
+                "Integer",
+                LINUX_O_CLOEXEC,
+            ));
             platform.emit_external_call(
                 "pipe2",
                 symbol,

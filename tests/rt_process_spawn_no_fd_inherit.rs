@@ -142,7 +142,10 @@ END FUNC
         Duration::from_secs(30),
         "bug-499: the fd-probe spawn did not finish",
     );
-    assert!(status.success(), "parent exit {status:?}\nstdout:\n{stdout}");
+    assert!(
+        status.success(),
+        "parent exit {status:?}\nstdout:\n{stdout}"
+    );
     let report = stdout
         .lines()
         .find(|l| l.starts_with("leaked="))
@@ -188,7 +191,10 @@ END FUNC
         Duration::from_secs(30),
         "bug-499: the stdio spawn did not finish",
     );
-    assert!(status.success(), "parent exit {status:?}\nstdout:\n{stdout}");
+    assert!(
+        status.success(),
+        "parent exit {status:?}\nstdout:\n{stdout}"
+    );
     // `process::send` appends the line terminator, so the child saw "hello\n".
     assert!(
         stdout.contains("stdin=hello\\n"),
