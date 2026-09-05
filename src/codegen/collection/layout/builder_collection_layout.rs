@@ -57,8 +57,20 @@ impl CodeBuilder<'_> {
         if typed_is_collection_type(type_) {
             return !self.type_is_memcpy_copyable(type_);
         }
-        crate::codegen::builtins::is_resource_type(&type_)
-            && !self.type_model.union_names.contains(type_)
+        // bug-546's family, third instance: this asked
+        // `builtins::is_resource_type`, which answers for the BUILT-IN registry
+        // only, so a user-declared `RESOURCE Db CLOSE BY sql::close` was not a
+        // pointer payload. Measured before the fix — `List OF RES fs::File`
+        // built and ran (`count=4`), while the identical program over a declared
+        // `Db` died at build time with
+        //   error: native collection packed payload does not support type 'Db'
+        // even though `mfb spec` §15.6 gives collection elements the `RES` marker
+        // precisely so a resource CAN be stored in one.
+        //
+        // That dispatch fails CLOSED (an `Err`, not a wrong size), which is why
+        // this surfaced as a build error rather than a corrupted stride — the
+        // same defect behind a fail-open predicate would have been silent.
+        self.is_resource_nominal(type_) && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -84,7 +96,59 @@ impl CodeBuilder<'_> {
             other if self.inline_collection_payload_size(other).is_some() => 8,
             // An inlined flat collection block begins with `U64` header fields.
             other if typed_is_collection_type(other) => 8,
-            _ => 1,
+            // NOT `_ => 1`. The fallback is delegated to an exhaustive helper so
+            // a new `ParameterType` variant cannot inherit "no alignment
+            // requirement" by silence — see `unaligned_payload_variants`.
+            other => Self::default_payload_alignment(other),
+        }
+    }
+
+    /// The 1-byte fallback of [`Self::collection_payload_alignment`], written as
+    /// an EXHAUSTIVE match so the answer is chosen rather than defaulted.
+    ///
+    /// This used to be `_ => 1`, and of the three fall-through defaults in this
+    /// file it is the most dangerous kind: a silent NUMBER. "Alignment 1" for a
+    /// payload that is really 8 bytes wide misaligns every element after the
+    /// first, and `mfb spec` memory-layouts (Scalar Storage) requires every
+    /// payload to begin at an offset valid for its type. A wrong `false` from a
+    /// predicate produces a build error somewhere; a wrong `1` from here produces
+    /// a silently mis-strided collection.
+    ///
+    /// Several variants below are unreachable in practice because a GUARDED arm
+    /// above claims them first (`Func`, the collections, an inlinable record or
+    /// union, a resource pointer payload). They are still listed, because a
+    /// guarded arm does not count toward exhaustiveness — Rust cannot prove the
+    /// guard fires, so it demands the pattern anyway, and that is exactly what
+    /// makes this technique work on a guard-heavy dispatch.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn default_payload_alignment(type_: &ParameterType) -> usize {
+        match type_ {
+            // The genuinely-reachable 1-byte cases: a `Nothing` payload occupies
+            // no aligned slot, and the remaining nominals are byte-packed.
+            ParameterType::Nothing
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::String
+            | ParameterType::AttributeString
+            | ParameterType::Named(_)
+            | ParameterType::UserOf(..)
+            | ParameterType::Stateful { .. }
+            | ParameterType::MapEntryOf(..)
+            | ParameterType::ResultOf(_)
+            | ParameterType::Res(_)
+            | ParameterType::ThreadHandle { .. }
+            | ParameterType::C(_)
+            | ParameterType::Var(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown
+            | ParameterType::Integer
+            | ParameterType::Float
+            | ParameterType::Fixed
+            | ParameterType::Money
+            | ParameterType::Func(..)
+            | ParameterType::ListOf(_)
+            | ParameterType::MapOf(..)
+            | ParameterType::SetOf(_) => 1,
         }
     }
 
@@ -2796,6 +2860,30 @@ pub(crate) fn type_is_arena_transferable(model: &TypeModel, type_: &ParameterTyp
 /// record fields, union variants, `ResultOf`, the cycle guard) exist once and so
 /// cannot drift apart; `mode` changes the answer in exactly the three leaf arms
 /// marked below.
+/// EXHAUSTIVE BY CONSTRUCTION — do not add a `_` arm.
+///
+/// This function answered two production bugs wrong in one week (bug-546, a
+/// user-declared `RESOURCE`; bug-479, a `ThreadHandle`) for the same reason: it
+/// was an `if`/`else if` chain whose final `else` returned a DEFAULT, and that
+/// default was "flat". A type nobody had thought about was therefore claimed as
+/// a copyable, arena-relocatable block — silently, and in the
+/// `type_is_arena_transferable` mode that decides whether a block may cross a
+/// thread's arena boundary. The tree already records two earlier instances of the
+/// same shape: `src/types.rs` notes that the `Stateful` variant "cost a real bug"
+/// and that `C(CAbiType)` "changed answer" for every `Named(_)` guard when it
+/// landed.
+///
+/// So the variant dispatch is a `match` with **no wildcard arm**. Adding a 25th
+/// `ParameterType` variant now fails to compile here until someone decides what
+/// it is, which is the whole point — `cargo build` is the enforcement, not review.
+///
+/// What this canNOT catch is the bug-546 class, and the boundary is worth being
+/// precise about: `Db` is a `Named(Symbol)`, an OPEN namespace, so the variant
+/// arm exists and is correct while the answer still depends on a `TypeModel`
+/// lookup. Every such lookup is quarantined in [`flatness_of_model_type`] rather
+/// than scattered through the arms, so there is exactly one place where a
+/// "the model does not recognise this name" default still lives.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn flatness_walk(
     model: &TypeModel,
     type_: &ParameterType,
@@ -2807,9 +2895,8 @@ fn flatness_walk(
         // a single finite flat block, so treat them as pointers.
         return false;
     }
-    let result = if *type_ == ParameterType::String {
-        true
-    } else if let ParameterType::Res(_) = type_ {
+    let result = match type_ {
+        ParameterType::String => true,
         // DIVERGENCE 1 — a `RES`-marked element/map value. The slot holds one
         // 8-byte pointer to the resource record, so a `memcpy` copying it is a
         // correct alias (§15.6) but relocating it into another arena is not.
@@ -2819,8 +2906,7 @@ fn flatness_walk(
         // answer was `true` INCIDENTALLY rather than by decision — and `true` is
         // the wrong answer for the transfer path. bug-483 is what that class of
         // accident costs when the default happens to be wrong.
-        mode == Flatness::MemcpyCopyable
-    } else if matches!(type_, ParameterType::ThreadHandle { .. }) {
+        ParameterType::Res(_) => mode == Flatness::MemcpyCopyable,
         // bug-479: a thread handle is flat in NEITHER mode, for the same reason a
         // bare resource nominal is not (the arm below) — and, like it, this used
         // to be decided by accident. There was no `ThreadHandle` arm, and
@@ -2840,19 +2926,65 @@ fn flatness_walk(
         //
         // `ir::verify`'s `is_copyable` has said `ThreadHandle { .. } => false`
         // all along; this arm is codegen finally agreeing with it.
-        false
-    } else if let ParameterType::ResultOf(payload) = type_ {
+        ParameterType::ThreadHandle { .. } => false,
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        flatness_walk(model, payload, mode, visited)
-    } else if typed_is_collection_type(type_) {
+        ParameterType::ResultOf(payload) => flatness_walk(model, payload, mode, visited),
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
         // Phase 5a). A resource or recursive payload makes it non-flat.
-        collection_payload_types(type_)
-            .into_iter()
-            .all(|p| flatness_walk(model, &p, mode, visited))
-    } else if model.record_fields.contains_key(type_) {
+        //
+        // These are exactly `typed_is_collection_type`'s three. `MapEntryOf` is
+        // deliberately NOT one of them and never was — it falls to the
+        // model-decided arm below, where it lands on the same `true` the old
+        // `else` gave it. Naming it there rather than here is the point: that
+        // answer is inherited, not chosen.
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_) => {
+            collection_payload_types(type_)
+                .into_iter()
+                .all(|p| flatness_walk(model, &p, mode, visited))
+        }
+        // Every remaining variant is either a NOMINAL, whose answer only the
+        // `TypeModel` knows, or a scalar that has always taken the same default
+        // path. Listed one by one so a new variant cannot join them by accident.
+        ParameterType::Named(_)
+        | ParameterType::UserOf(..)
+        | ParameterType::Stateful { .. }
+        | ParameterType::MapEntryOf(..)
+        | ParameterType::C(_)
+        | ParameterType::AttributeString
+        | ParameterType::Func(..)
+        | ParameterType::Var(_)
+        | ParameterType::Arg(_)
+        | ParameterType::Unknown
+        | ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing => flatness_of_model_type(model, type_, mode, visited),
+    };
+    visited.remove(type_);
+    result
+}
+
+/// The half of [`flatness_walk`] the compiler cannot make exhaustive: the answer
+/// for a nominal depends on what the `TypeModel` knows about that NAME, and the
+/// name namespace is open.
+///
+/// Kept as one function, and called from exactly one arm, so the residual
+/// "nothing matched" default lives in a single place with a name — rather than
+/// as the tail of a chain where two bugs have already hidden. Making THIS total
+/// is a separate, larger change (a closed `TypeModel::classify` enum); until
+/// then the default below is explicit rather than incidental.
+fn flatness_of_model_type(
+    model: &TypeModel,
+    type_: &ParameterType,
+    mode: Flatness,
+    visited: &mut std::collections::HashSet<ParameterType>,
+) -> bool {
+    if model.record_fields.contains_key(type_) {
         !is_pointer_string_record(type_)
             && model
                 .record_fields
@@ -2912,9 +3044,7 @@ fn flatness_walk(
         // Everything else is a scalar (not a pointer composite, `String`, or
         // resource) and is flat for both modes.
         !record_field_is_pointer(model, type_)
-    };
-    visited.remove(type_);
-    result
+    }
 }
 
 /// True when field `field_type` of `record_type` is inlined into the record's

@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_in_collection_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 50,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 51, "mutable": true, "name": "dbs", "type": "List OF RES Db", "value": { "kind": "list", "type": "List OF RES Db", "values": [] } },
+    { "op": "bind", "line": 52, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 53,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "body": [
+      { "op": "bind", "line": 54, "mutable": false, "name": "d", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      { "op": "assign", "line": 55, "name": "dbs", "value": { "kind": "call", "type": "List OF RES Db", "target": "collections.append", "args": [{ "kind": "local", "name": "dbs" }, { "kind": "local", "name": "d" }] } },
+      { "op": "assign", "line": 56, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "count=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "dbs" }] }] } }] } },
+    { "op": "bind", "line": 59, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 60,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "dbs" }] } },
+      "body": [
+      { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "call", "type": "Db", "target": "collections.get", "args": [{ "kind": "local", "name": "dbs" }, { "kind": "local", "name": "j" }] }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "CREATE TABLE t" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }, "right": { "kind": "const", "type": "String", "value": "(a INTEGER);" } }] } },
+      { "op": "assign", "line": 62, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "used=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }] } },
+    { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

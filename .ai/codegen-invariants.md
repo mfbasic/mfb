@@ -474,3 +474,51 @@ is memcpy-copyable and not arena-transferable.
 `copy_value_to_current_arena` takes the *memcpy* predicate — most of its callers
 are in-arena (the `Result` wrap is reached by any `TRAP`), and asking the arena
 question there changed codegen for a fixture containing no threads at all.
+
+## A classifier's fall-through default is a decision nobody made (bug-546, bug-479)
+
+`ParameterType` has 24 variants. A classifier written as an `if`/`else if` chain
+ending in a default answers for all 24 whether or not its author thought about
+them — and in `codegen::collection::layout` that default was **"flat"**, i.e.
+"this value is a copyable block that may be relocated into another thread's
+arena". Four live instances, plus two the tree already recorded:
+
+| Type | Default it inherited | Cost |
+| --- | --- | --- |
+| `Stateful` | `Named(_)` guards changed answer | "cost a real bug" (`src/types.rs`) |
+| `C(CAbiType)` | same | audited in plan-113 §Corrections |
+| user `RESOURCE Db` | memcpy-copyable AND arena-transferable | bug-546 |
+| `ThreadHandle` | same | bug-479 |
+| user resource as a collection payload | not a pointer payload | build error, fixed with bug-479's sweep |
+| `MapEntryOf` | flat | **still inherited — nobody has decided it** |
+
+**So the variant dispatch in these classifiers is a `match` with no `_` arm.**
+`cargo build` is the enforcement, not review: adding a 25th variant fails to
+compile until someone decides what it is. Measured — a probe variant breaks
+three sites now (`flatness_walk`, `default_payload_alignment`, and `types.rs`'s
+renderer); before the change it broke only the renderer.
+
+Three things to know before extending this:
+
+* **A guarded arm does not count toward exhaustiveness.** Rust cannot prove
+  `other if self.is_pointer_collection_payload_type(other) => …` ever fires, so it
+  still demands a pattern for every variant. On a guard-heavy dispatch, delegate
+  the final `other =>` to a small helper whose own match is unguarded and
+  wildcard-free — that is what `default_payload_alignment` does, and why several
+  of its arms are unreachable in practice yet still listed.
+* **Exhaustiveness cannot reach the bug-546 class.** `Db` is a `Named(Symbol)` —
+  an open namespace — so the variant arm exists and is correct while the answer
+  still comes from a `TypeModel` lookup. Those lookups are quarantined in
+  `flatness_of_model_type` so the residual default has one home with a name.
+  Making it total needs a closed `TypeModel::classify` enum; not done.
+* **Fail-closed changes the severity, not the presence, of the bug.** The packed
+  payload dispatch has the same builtin-only blind spot as the flatness walk, but
+  its last arm returns an `Err` — so it produced a build error
+  (`native collection packed payload does not support type 'Db'`) instead of a
+  mis-strided collection. Same missing information, two very different outcomes.
+
+`#[deny(clippy::wildcard_enum_match_arm)]` is on each converted classifier as a
+secondary guard against a `_` coming back. **Note it is local-only: clippy is not
+run in CI** (`.github/workflows/` has `coverage.yml` and nothing else), which is
+also true of the existing `[lints.clippy] items_after_test_module = "deny"`. The
+exhaustive `match` is the mechanism that actually holds the line.
