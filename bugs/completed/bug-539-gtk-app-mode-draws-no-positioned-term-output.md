@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
 
-Status: FIXED
+Status: FIXED — `af39f8bbe`
 Regression Test: `tests/cli_linux_app_mode.rs` —
 `linux_app_mode_positioned_term_members_reach_the_gtk_backend` (RED before),
 `linux_app_mode_draw_text_specializes_the_write_path_without_taking_its_cursor`
@@ -262,9 +262,12 @@ Acceptance: met.
       updated the `mfb spec app term-backend` coverage table (the Linux column is
       now `yes` on every row) and its Linux/Unicode sections, plus
       `mfb spec app linux-runtime`'s dispatcher paragraph.
-- [x] `cargo test --release --no-fail-fast`, `scripts/test-accept.sh`,
-      `scripts/artifact-gate.sh all` (1910 goldens, 0 diffs),
-      `scripts/man-census.sh --fill term` (24/24 complete).
+- [x] Final gate cycle, run sequentially on a frozen tree so nothing poisoned
+      anything else: `cargo test --release --no-fail-fast` exit **0** (134 test
+      binaries, 0 failures); `scripts/test-accept.sh` exit **0** (1397 tests);
+      `scripts/artifact-gate.sh all` exit **0** (1375 tests, 1540 builds, 1910
+      goldens, **0 diffs**); `scripts/man-census.sh --fill term` 24/24 complete;
+      `cargo fmt --check` and `cargo check --release --all-targets` clean.
 - [x] Re-ran the reproduction on 2228. **Not** re-run on 2226/2225/2224 — see
       "Runtime proof" below.
 
