@@ -955,6 +955,74 @@ FUNC __canvas_renderFrame() AS Nothing
   __canvas_renderScene(offsets, damage, size.width, size.height)
 END FUNC"#;
 
+/// plan-116-J: close the resources a retired group buffer owned.
+///
+/// **Not "close what the retired buffer named" — close what no LIVE buffer names**, and
+/// the difference is the commonest canvas program there is (**J14**). One long-lived font
+/// and a group rebuilt each frame names the same font in the retired buffer *and* in the
+/// buffer that replaced it; closing on the plain rule makes its text vanish one frame
+/// later, silently, because `fontHandle` then answers `0` and `0` is "no such object".
+///
+/// Identity is compared through `canvas::imageHandle`/`canvas::fontHandle`, which return
+/// the backend id as an `Integer`. That is only possible because plan-116-I added them —
+/// two aliases of one resource cannot be compared as `RES` values — and it is why their
+/// read order matters here too: they test the closed flag **before** loading the handle,
+/// so a concurrent destroy cannot yield a stale non-zero id that would keep a resource
+/// alive that nothing names.
+///
+/// `0` is skipped on both sides: an already-closed resource has nothing to close, and it
+/// must not match a live one either.
+const CLOSE_RETIRED: &str =
+r#"SUB __canvas_closeRetired(gone AS List OF DrawItem, slot AS Integer)
+  IF len(gone) = 0 THEN
+    EXIT SUB
+  END IF
+  ' The buffer that replaced this one, if any. `groupItems` reads the LIVE word, so on a
+  ' removeGroup this is empty and every resource in `gone` closes.
+  LET live AS List OF DrawItem = canvas::groupItems(slot)
+  FOR EACH item IN gone
+    MATCH item
+      CASE Picture(p)
+        LET ih AS Integer = canvas::imageHandle(p.image)
+        IF ih <> 0 AND NOT __canvas_liveNamesImage(live, ih) THEN
+          canvas::destroyImage(p.image)
+        END IF
+      CASE Text(t)
+        LET fh AS Integer = canvas::fontHandle(t.font)
+        IF fh <> 0 AND NOT __canvas_liveNamesFont(live, fh) THEN
+          canvas::destroyFont(t.font)
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+END SUB
+
+FUNC __canvas_liveNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boolean
+  FOR EACH item IN live
+    MATCH item
+      CASE Picture(p)
+        IF canvas::imageHandle(p.image) = handle THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_liveNamesFont(live AS List OF DrawItem, handle AS Integer) AS Boolean
+  FOR EACH item IN live
+    MATCH item
+      CASE Text(t)
+        IF canvas::fontHandle(t.font) = handle THEN
+          RETURN TRUE
+        END IF
+      CASE ELSE
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always(
         "canvas_ensureGraphics",
@@ -964,6 +1032,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_hashScene", HASH_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderScene", RENDER_SCENE));
     pkg.add_helper(RegistryHelper::always("canvas_renderMetal", RENDER_METAL));
+    pkg.add_helper(RegistryHelper::always("canvas_closeRetired", CLOSE_RETIRED));
 }
 
 #[cfg(test)]

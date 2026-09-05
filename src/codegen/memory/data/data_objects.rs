@@ -218,6 +218,8 @@ pub(crate) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "canvas.groupRevision",
             "canvas.groupItems",
             "canvas.groupReclaim",
+            "canvas.nextReclaimableGroup",
+            "canvas.retiredItems",
             "canvas.removeGroup",
             "canvas.presentLayers",
             "canvas.publishScene",

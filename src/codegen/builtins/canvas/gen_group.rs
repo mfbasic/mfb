@@ -598,7 +598,8 @@ fn emit_free_name_block(
     Ok(())
 }
 
-/// `canvas::groupReclaim()` — free every retired buffer a frame has completed past.
+/// `canvas::nextReclaimableGroup() AS Integer` — the first slot whose retired buffer a
+/// frame has completed past, or `-1`. **Frees nothing** (plan-116-J).
 ///
 /// Internal-only, called from `__canvas_present` **before** the content comparison and
 /// on every present, not on the publish path (**G7**). `emit_reclaim_retired` — the
@@ -609,13 +610,20 @@ fn emit_free_name_block(
 ///
 /// A scan of at most `CANVAS_MAX_GROUPS` slots with no allocation, which is why it can
 /// be unconditional. A memory bound that depends on the scene changing is not a bound.
-pub(crate) fn emit_group_reclaim(
+///
+/// **Why this is split from the free at all** (plan-116-J §4.4): a group owns the images
+/// and fonts its items name, so the free path has to close them, and the only way to walk
+/// a `DrawItem` without open-coding the union's layout in codegen is an MFBASIC `MATCH`
+/// (**J13**). So the *gate* stays here in Rust — `CANVAS_MAX_GROUPS` is **256**, and a
+/// per-present MFBASIC loop over 256 slots would put 256 builtin calls on the exact path
+/// plan-116-G optimised — and only the *walk* moves out. A present with nothing due costs
+/// one call and one scan, exactly as before.
+pub(crate) fn emit_next_reclaimable_group(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let list_type = ParameterType::list_of(ParameterType::named("DrawItem"));
     let head = builder.label("canvas_group_reclaim_head");
     let next = builder.label("canvas_group_reclaim_next");
     let done = builder.label("canvas_group_reclaim_done");
@@ -649,34 +657,17 @@ pub(crate) fn emit_group_reclaim(
     builder.emit(abi::compare_registers(&frame_now, &stamped));
     builder.emit(abi::branch_ls(&next));
 
-    emit_free_items_block(builder, &retired, &symbol, &list_type)?;
-    let slot_again = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&slot_again, abi::stack_pointer(), cursor));
-    builder.emit(abi::store_u64(
-        abi::ZERO,
-        &slot_again,
-        CANVAS_GROUP_RETIRED_ITEMS,
+    // Due. Hand the index back and free nothing — the caller closes the resources this
+    // buffer owns first, then calls `canvas::groupReclaim(slot)`.
+    let found = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&found, abi::stack_pointer(), index));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &found));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
     ));
-
-    // The retired name drains on the same tick and behind the same gate. Guarded
-    // separately because a slot can hold a retired name with no retired items — a
-    // `removeGroup` on a group whose items were already drained does exactly that.
-    let retired_name = builder.temporary_vreg();
-    let no_name = builder.label("canvas_group_reclaim_no_name");
-    builder.emit(abi::load_u64(
-        &retired_name,
-        &slot_again,
-        CANVAS_GROUP_RETIRED_NAME,
-    ));
-    builder.emit(abi::compare_immediate(&retired_name, "0"));
-    builder.emit(abi::branch_eq(&no_name));
-    emit_free_name_block(builder, &retired_name, &symbol)?;
-    builder.emit(abi::store_u64(
-        abi::ZERO,
-        &slot_again,
-        CANVAS_GROUP_RETIRED_NAME,
-    ));
-    builder.emit(abi::label(&no_name));
+    builder.emit(abi::return_());
 
     builder.emit(abi::label(&next));
     let advance = builder.temporary_vreg();
@@ -692,6 +683,121 @@ pub(crate) fn emit_group_reclaim(
     builder.emit(abi::add_immediate(&bumped, &bumped, 1));
     builder.emit(abi::store_u64(&bumped, abi::stack_pointer(), index));
     builder.emit(abi::branch(&head));
+
+    // Nothing due. `-1` rather than `CANVAS_MAX_GROUPS`, so the driving loop's condition
+    // is `slot >= 0` and cannot be confused with a valid index by an off-by-one.
+    builder.emit(abi::label(&done));
+    // Built as `0 - 1` rather than as a literal: `move_immediate` rejects a negative
+    // immediate (`error: invalid immediate '-1'`), which is an assembler-level constraint
+    // and not something the surrounding code hints at.
+    let none = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&none, "Integer", "0"));
+    builder.emit(abi::subtract_immediate(&none, &none, 1));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &none));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+/// `canvas::groupReclaim(slot)` — free one slot's retired buffer and retired name.
+///
+/// **Unconditional, and that is deliberate.** The gate lives in
+/// [`emit_next_reclaimable_group`], which is the only thing that should produce the
+/// `slot` passed here. Re-testing the gate would look like cheap insurance and is the
+/// opposite: `frame_now` only advances, so a slot the finder called due cannot become
+/// undue — but if a re-test ever *did* decline, `RETIRED_ITEMS` would stay non-zero, the
+/// finder would return the same slot again, and the driving loop in `__canvas_present`
+/// would spin forever. A defensive no-op that hangs the worker is worse than no defence.
+///
+/// Bounds-checked all the same, because an out-of-range index would address memory past
+/// the table rather than decline politely.
+pub(crate) fn emit_group_reclaim(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let list_type = ParameterType::list_of(ParameterType::named("DrawItem"));
+    let done = builder.label("canvas_group_reclaim_one_done");
+    let no_items = builder.label("canvas_group_reclaim_one_no_items");
+    let no_name = builder.label("canvas_group_reclaim_one_no_name");
+
+    let slot_in = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the slot argument"))?
+        .location
+        .clone();
+    let index = builder.temporary_vreg();
+    builder.emit(abi::move_register(&index, &slot_in));
+    builder.emit(abi::compare_immediate(&index, "0"));
+    builder.emit(abi::branch_lt(&done));
+    builder.emit(abi::compare_immediate(
+        &index,
+        &CANVAS_MAX_GROUPS.to_string(),
+    ));
+    builder.emit(abi::branch_ge(&done));
+
+    let base = groups_base(builder);
+    let addr_slot = builder.allocate_stack_object("canvas_group_reclaim_one_addr", 8);
+    let addr = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(
+        &addr,
+        &index,
+        CANVAS_GROUP_SLOT_SHIFT,
+    ));
+    builder.emit(abi::add_registers(&addr, &base, &addr));
+    builder.emit(abi::store_u64(&addr, abi::stack_pointer(), addr_slot));
+
+    let retired = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&retired, &addr, CANVAS_GROUP_RETIRED_ITEMS));
+    builder.emit(abi::compare_immediate(&retired, "0"));
+    builder.emit(abi::branch_eq(&no_items));
+    emit_free_items_block(builder, &retired, &symbol, &list_type)?;
+    let after_items = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &after_items,
+        abi::stack_pointer(),
+        addr_slot,
+    ));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        &after_items,
+        CANVAS_GROUP_RETIRED_ITEMS,
+    ));
+    builder.emit(abi::label(&no_items));
+
+    // The retired name drains on the same tick. Guarded separately because a slot can
+    // hold a retired name with no retired items — a `removeGroup` on a group whose items
+    // were already drained does exactly that.
+    let slot_again = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&slot_again, abi::stack_pointer(), addr_slot));
+    let retired_name = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &retired_name,
+        &slot_again,
+        CANVAS_GROUP_RETIRED_NAME,
+    ));
+    builder.emit(abi::compare_immediate(&retired_name, "0"));
+    builder.emit(abi::branch_eq(&no_name));
+    emit_free_name_block(builder, &retired_name, &symbol)?;
+    let after_name = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&after_name, abi::stack_pointer(), addr_slot));
+    builder.emit(abi::store_u64(
+        abi::ZERO,
+        &after_name,
+        CANVAS_GROUP_RETIRED_NAME,
+    ));
+    builder.emit(abi::label(&no_name));
 
     builder.emit(abi::label(&done));
     builder.emit(abi::move_immediate(
@@ -974,6 +1080,39 @@ pub(crate) fn emit_group_items(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
+    emit_items_at(builder, args, CANVAS_GROUP_ITEMS)
+}
+
+/// `canvas::retiredItems(slot) AS List OF DrawItem`, internal-only (plan-116-J).
+///
+/// The same copy-out as [`emit_group_items`], reading `CANVAS_GROUP_RETIRED_ITEMS`
+/// instead of `CANVAS_GROUP_ITEMS`. It exists so the free path's close can be an MFBASIC
+/// `MATCH` over the items rather than an open-coded walk of the `DrawItem` union's layout
+/// in codegen — a `MATCH` a new variant must handle is a compile error, a hand-written
+/// tag offset a new variant must not break is a hope (**J13**).
+///
+/// A **copy**, and that is what makes the ordering in `#canvas_present` safe either way:
+/// the resource *records* are separate arena allocations, so freeing the items block does
+/// not touch them and the copy's pointers stay readable across the free.
+pub(crate) fn emit_retired_items(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    emit_items_at(builder, args, CANVAS_GROUP_RETIRED_ITEMS)
+}
+
+/// The shared body of [`emit_group_items`] and [`emit_retired_items`]: a bounds-checked
+/// slot lookup, then a flat copy of whichever items word `offset` names.
+///
+/// One body rather than two, because the bounds check, the empty-slot fallback and the
+/// copy are the whole function and the only difference is a constant. Two copies of this
+/// would be two places for the "out-of-range and empty read identically" rule to drift.
+fn emit_items_at(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    offset: usize,
+) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let slot_in = args
         .first()
@@ -1004,7 +1143,7 @@ pub(crate) fn emit_group_items(
     ));
     builder.emit(abi::add_registers(&addr, &base, &addr));
     let items = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&items, &addr, CANVAS_GROUP_ITEMS));
+    builder.emit(abi::load_u64(&items, &addr, offset));
     builder.emit(abi::compare_immediate(&items, "0"));
     builder.emit(abi::branch_eq(&empty));
 

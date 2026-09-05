@@ -114,7 +114,22 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' followed by presents of an unchanged scene would then never free anything -- the
   ' frame skip would be working exactly as designed and the memory would be held anyway.
   ' A memory bound that depends on the scene changing is not a bound.
-  canvas::groupReclaim()
+  '
+  ' plan-116-J: a group owns the images and fonts its items name, so the buffer being
+  ' freed is where they are closed. The walk is a MATCH rather than an open-coded step
+  ' over the DrawItem union's layout in codegen -- a MATCH a new variant must handle is a
+  ' compile error, a hand-written tag offset a new variant must not break is a hope (J13).
+  '
+  ' The gate stays in `nextReclaimableGroup`, which frees nothing. A FOR over all 256
+  ' slots here instead would put 256 builtin calls on the per-present path, which is the
+  ' exact axis plan-116-G optimised; with the scan in native code a present with nothing
+  ' due costs one call and this loop never runs.
+  MUT due AS Integer = canvas::nextReclaimableGroup()
+  WHILE due >= 0
+    __canvas_closeRetired(canvas::retiredItems(due), due)
+    canvas::groupReclaim(due)
+    due = canvas::nextReclaimableGroup()
+  END WHILE
   LET installed AS Boolean = canvas::publishScene(items)
   LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
