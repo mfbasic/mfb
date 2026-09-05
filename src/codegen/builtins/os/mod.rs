@@ -43,16 +43,16 @@ mod func_get_env;
 mod func_get_env_or;
 mod func_has_env;
 mod func_host_name;
-mod func_is_admin;
+pub(crate) mod func_is_admin;
 mod func_name;
 mod func_pid;
 mod func_resource_path;
 mod func_set_env;
 mod func_sleep;
 mod func_unset_env;
-mod func_uptime;
+pub(crate) mod func_uptime;
 mod func_user_name;
-mod func_version;
+pub(crate) mod func_version;
 
 const MODULE_INTRO: &str = r#"Process environment and platform introspection"#;
 const MODULE_DESC: &str = r#"The `os` package reaches the host process: it reads, tests, sets, unsets, and
