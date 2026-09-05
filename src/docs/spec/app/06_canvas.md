@@ -352,6 +352,38 @@ that used it, and that deferral is entirely runtime-side and invisible from
 MFBASIC: there is no reference count, no generation table, and nothing for a
 program to synchronise.
 
+### A named group is the exception
+
+`canvas::setGroup` is the one place where naming a resource *does* keep it usable.
+A group outlives the `present` that installed it — that is the point of installing
+one — so an image or font named in its items becomes the group's to close, and the
+program does not close it:
+
+```
+SUB installPanel()
+  RES face AS canvas::Font = canvas::loadFont("ui.ttf")
+  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(canvas::rgb(230, 230, 230))]
+  canvas::setGroup("panel", [label])
+END SUB
+```
+
+`installPanel` returns and its bindings go out of scope, and the group keeps
+drawing. Presenting a `canvas::Group` naming `"panel"` still shows the text.
+
+The compiler enforces the hand-off rather than leaving it to a convention: after
+`canvas::setGroup`, naming the same font again is `2-203-0055`. If two groups need
+one image, build the image twice. This is deliberately stricter than a runtime
+rule would be, because the failure it prevents is silent — an item whose image has
+been closed draws nothing and raises nothing, so a group closing an image another
+group still names would show up only as a picture that is quietly wrong.
+
+`canvas::removeGroup`, and a `canvas::setGroup` that replaces the items, close what
+the old items named — *unless something still on screen names it too*. A group
+rebuilt every frame from one long-lived font therefore keeps drawing: the font is
+named by the new items as well as the old, so it stays usable. There is still no
+reference count; the question asked is "does anything drawn right now name this?",
+and it is asked only when a replaced group's items are being discarded.
+
 One consequence follows from the field being a resource rather than a plain value:
 **a `List OF canvas::DrawItem` cannot cross a thread's data plane.** A `Picture` or
 a `Text` carries a resource, and a resource crosses a thread only on the `RES`

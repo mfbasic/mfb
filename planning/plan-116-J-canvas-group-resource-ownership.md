@@ -787,18 +787,40 @@ Commit: —
 
 ### Phase 4 — Docs and gates
 
-- [ ] `mod.rs` — `setGroup`'s description says the group keeps the images and fonts in
-      its list usable for as long as it is installed, and that you do not close them
-      yourself. **No memory vocabulary** — not "own", "free", "release", "refcount".
-      The permitted words are copy, mutate, value, and alias-for-RES
-      (`.ai/man-content.md`); `scripts/man-census.sh --memory-scope` → 0 unclassified
-      hits.
-- [ ] `src/docs/spec/app/06_canvas.md` §"Images are named, not embedded" — the group
-      exception to *"a published scene never keeps an image open"*.
-- [ ] `.ai/canvas-threading.md` — §7's re-derived paragraph and §8's new rows.
-- [ ] `scripts/man-run-examples.sh canvas --run` passes.
-- [ ] `scripts/regen-ncodesum.sh`. Expect **0 diffs, and do not read that as
-      evidence** — no `canvas` fixture is hashed (plan-116-F **F11**).
+- [x] ~~`mod.rs`~~ **`func_set_group.rs`** — `setGroup`'s description says the group
+      keeps the images and fonts in its list usable for as long as it is installed, and
+      that you do not close them yourself. *(The prose lives on the member's descriptor,
+      not in `mod.rs`; `mod.rs` carries the package intro and the record/resource
+      descriptions.)* Three paragraphs added to `DESC` plus a sentence on the `items`
+      parameter, all in observable terms — *"becomes the group's to close"*, *"stays
+      usable"*, *"you do not close it yourself"*, *"unless something still on screen names
+      it too"*. `scripts/man-census.sh --memory-scope` → **0 unclassified hits**, and the
+      rendered `mfb man canvas setGroup` was read rather than assumed.
+- [x] `src/docs/spec/app/06_canvas.md` §"Images are named, not embedded" — the group
+      exception, as a new subsection *"A named group is the exception"* with a worked
+      `installPanel` example whose bindings go out of scope. States the compile-time
+      hand-off and **why it is stricter than a runtime rule would be**: the failure it
+      prevents is silent, since an item whose image has been closed draws nothing and
+      raises nothing. Also states the live-names-it rule and that there is still no
+      reference count — the question asked is *"does anything drawn right now name
+      this?"*, and only when a replaced group's items are being discarded.
+- [x] `.ai/canvas-threading.md` — §7's re-derived paragraph and §8's new rows.
+      §7's paragraph was re-derived in **J7** (the move refusal holds only for a *direct*
+      `destroyImage`, so §7 gained the qualifier and the matrix gained **R3b** for the
+      close-behind-a-`RES`-parameter case, which is what every runtime close is). §8
+      gained **R17–R21**. §13 gained *"A group OWNS the images and fonts its items
+      name"*, and two of its existing claims were corrected: the
+      `canvas::groupReclaim()` line now names `nextReclaimableGroup`, and *"the lifetime
+      rule is the drain gate alone"* is qualified to the **buffer's** lifetime — still no
+      refcount, but no longer the whole story.
+- [x] `scripts/man-run-examples.sh canvas --run` passes — **examples: 25, built: 25,
+      ran: 25, failed: 0**.
+- [x] `scripts/regen-ncodesum.sh target/release/mfb` — *"141 golden(s) refreshed, 0
+      missing"*, and `git status --short tests/byte-identity/` is **empty**. **0 diffs,
+      and it is not read as evidence**: no `canvas` fixture is hashed (plan-116-F
+      **F11**), so this gate could not have moved whatever this letter did. Run because
+      the plan says to run it, recorded because a green gate that cannot fail is worth
+      labelling as such rather than counting.
 
 Acceptance: `cargo test --no-fail-fast` green on **mac RELEASE, mac DEBUG (`--bin mfb`) and **box 2228 RELEASE, scoped** (**J16**: a bare `cargo test --release` on that box is one `rustc` per test target on a single core — measured at 2h37m without completing one target, so it is a multi-day run, not a slow one. The row is decomposed to the targets whose behaviour can differ by *platform*, which is what it exists for, and run **once on the final merged tree** for plan-116-I and plan-116-J together)** (plan-116-E **E6**: CI is `--release` on all five platforms, so the `debug_assert!`s run nowhere in it and the debug row has to be run here), `scripts/test-accept.sh`
 green, `scripts/artifact-gate.sh all` 0 diffs, and `mfb man canvas setGroup` describes

@@ -45,7 +45,21 @@ group moves it.
 
 The items are copied, so the list you pass is yours to change afterwards — the
 installed group does not follow it. The group stays installed until you replace it or
-call `canvas::removeGroup`."#;
+call `canvas::removeGroup`.
+
+**An image or font you name in the items becomes the group's to close, and you do not
+close it yourself.** A group is drawn long after the `present` that installed it, so it
+keeps what its items name usable for as long as it is installed — even if the binding you
+built the items from has gone out of scope. That is the difference from `canvas::present`,
+where naming an image in a scene keeps nothing usable.
+
+The compiler holds you to it: after `setGroup`, naming the same image again is a compile
+error rather than a picture that quietly goes wrong later. If you need the same image in
+two groups, build it twice.
+
+`canvas::removeGroup`, or a `setGroup` that replaces the items, closes what the old items
+named — unless something still on screen names it too, in which case it stays usable. So
+a group you rebuild every frame from the same font keeps drawing."#;
 
 const EX: &str = r#"A panel installed once and drawn at two positions:
 
@@ -111,7 +125,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "items",
                     desc: "The sub-scene, drawn in list order — later items paint over \
                            earlier ones, exactly as in `canvas::present`. Copied, so \
-                           the list you pass stays yours to change.",
+                           the list you pass stays yours to change. An image or font \
+                           named here becomes the group's to close: it stays usable for \
+                           as long as the group is installed, and you do not close it \
+                           yourself.",
                     aliases: &[],
                     ty: ParameterType::list_of(ParameterType::named("DrawItem")),
                     default: DefaultValue::None,
